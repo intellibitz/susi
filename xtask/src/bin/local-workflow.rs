@@ -313,12 +313,28 @@ fn receipt_matches(
     if !is_ancestor(root, fields[2], fields[1])? || !is_ancestor(root, fields[1], accepted)? {
         return Ok(false);
     }
-    if fields[3] != "none"
-        && (!valid_oid(fields[3])
-            || !is_ancestor(root, fields[2], fields[3])?
-            || !is_ancestor(root, fields[3], accepted)?)
-    {
-        return Ok(false);
+    if fields[3] != "none" {
+        if !valid_oid(fields[3]) {
+            return Ok(false);
+        }
+        if is_ancestor(root, fields[3], accepted)? {
+            if !is_ancestor(root, fields[2], fields[3])? {
+                return Ok(false);
+            }
+        } else {
+            // `ship` merges onto origin/main, so an integration ref that is not
+            // in the accepted history was displaced, never built upon. Receipts
+            // written before `record_acceptance` recorded the publish base in
+            // that case named the displaced ref here; accept them only when the
+            // claim base lies on the published lineage (the accepted merge's
+            // first parent). This is no weaker than `previous=none`.
+            let Ok(publish_base) = git(root, &["rev-parse", &format!("{accepted}^1")]) else {
+                return Ok(false);
+            };
+            if !is_ancestor(root, fields[2], &publish_base)? {
+                return Ok(false);
+            }
+        }
     }
     Ok(true)
 }
@@ -2105,6 +2121,12 @@ fn record_acceptance(
     let publish_base = git(root, &["rev-parse", &format!("{head}^1")])?;
     let tree = git(root, &["rev-parse", &format!("{head}^{{tree}}")])?;
     let previous = integration_head(root)?;
+    // The receipt's `previous` names the accepted history this integration
+    // builds on. A displaced unrelated ref is not that history: record the
+    // publish base instead, or the receipt can never verify and every later
+    // ship fails at load. The ref transaction still compares against the
+    // actual old value.
+    let mut chain_previous = previous.clone();
     if let Some(previous) = &previous {
         if !is_ancestor(root, previous, head)? {
             git(
@@ -2114,6 +2136,7 @@ fn record_acceptance(
             eprintln!(
                 "preserved unrelated integration ref {previous} at refs/susi/integration/displaced"
             );
+            chain_previous = Some(publish_base.clone());
         }
     }
     let zero = "0".repeat(head.len());
@@ -2127,7 +2150,7 @@ fn record_acceptance(
             input.claim.name,
             input.source,
             input.claim.base,
-            previous.as_deref().unwrap_or("none"),
+            chain_previous.as_deref().unwrap_or("none"),
             evidence.join("\n")
         );
         let oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;
@@ -2145,7 +2168,7 @@ fn record_acceptance(
                     claim_bytes: &input.bytes,
                     source: &input.source,
                     scope_base: &scope_base,
-                    previous: previous.as_deref(),
+                    previous: chain_previous.as_deref(),
                     accepted: head,
                 },
                 gates,
@@ -4178,6 +4201,64 @@ mod tests {
             git(&repo, &["rev-parse", "refs/susi/integration/displaced"]).unwrap(),
             unrelated
         );
+    }
+
+    /// Regression (2026-11-06): the first ship after displacing an unrelated
+    /// integration ref wrote `previous=<displaced>`, so its own receipt never
+    /// verified and every later ship failed at load with "no matching durable
+    /// source/tree receipt". A second worker must ship on top of the first.
+    #[test]
+    fn ship_after_displacing_an_unrelated_ref_keeps_later_ships_working() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let unrelated = git(&repo, &["commit-tree", &tree, "-m", "unrelated"]).unwrap();
+        git(&repo, &["update-ref", INTEGRATION_REF, &unrelated]).unwrap();
+        let mut remote = FakeRemote::single(base.clone());
+        let first = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        let first_head = first.head.clone();
+        let receipt_ref = git(
+            &repo,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/susi/integration/receipts/one/",
+            ],
+        )
+        .unwrap();
+        let receipt = git(&repo, &["cat-file", "blob", &receipt_ref]).unwrap();
+        assert!(
+            receipt.contains(&format!("previous={base}")),
+            "a displaced ref must not be recorded as previous: {receipt}"
+        );
+        assert!(!receipt.contains(&format!("previous={unrelated}")));
+        let first_tree = git(&repo, &["rev-parse", &format!("{first_head}^{{tree}}")]).unwrap();
+        assert!(receipt_matches(&repo, &receipt_ref, &receipt, &first_head, &first_tree).unwrap());
+
+        // Receipts written before the fix named the displaced ref; they must
+        // still verify so repositories already in that state can ship again.
+        let legacy = receipt.replace(
+            &format!("previous={base}"),
+            &format!("previous={unrelated}"),
+        );
+        assert!(receipt_matches(&repo, &receipt_ref, &legacy, &first_head, &first_tree).unwrap());
+        let malformed = receipt.replace(&format!("previous={base}"), "previous=not-an-oid");
+        assert!(
+            !receipt_matches(&repo, &receipt_ref, &malformed, &first_head, &first_tree).unwrap()
+        );
+
+        worker(&repo, "two", "second.rs", "second");
+        let mut remote = FakeRemote::single(first_head.clone());
+        let second = ship(&repo, &["two"], &mut remote, |candidate, _attempt| {
+            assert!(candidate.join("owned.rs").is_file());
+            assert!(candidate.join("second.rs").is_file());
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert!(is_ancestor(&repo, &first_head, &second.head).unwrap());
+        assert_eq!(remote.pushes.last().unwrap().0, second.head);
     }
 
     #[test]
