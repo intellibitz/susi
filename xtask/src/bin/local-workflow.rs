@@ -449,6 +449,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .map(PathBuf::from)
         .ok_or("cannot identify toolchain home")?;
     let home = attempt.join("test-home");
+    let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(home.join("AppData/Local"))?;
     let target = restore_candidate_target(candidate);
     let cargo_home = env::var_os("CARGO_HOME")
@@ -2425,6 +2426,7 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         return Err("Windows integration requires a native MSVC compiler".into());
     }
     let home = attempt.join("test-home");
+    let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(home.join("AppData/Local"))?;
     let target = restore_candidate_target(candidate);
     let mut evidence = Vec::new();

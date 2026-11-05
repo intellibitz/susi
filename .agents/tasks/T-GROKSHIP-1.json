@@ -11,6 +11,7 @@
     ".github/workflows/test.yml",
     "agents.md",
     "crates/susi-gawd/src/admin/tasks.rs",
+    "crates/susi-gemi-models/src/lifecycle/provision.rs",
     "crates/susi-gemi/src/spend_tracker.rs",
     "docs/workflow-speed.md",
     "readme.md",

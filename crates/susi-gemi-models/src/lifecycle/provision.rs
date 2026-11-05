@@ -494,6 +494,10 @@ mod license_tests {
 
     #[test]
     fn verify_model_ladder_and_expert_audit_report_steps_without_starting_downloads() {
+        use std::io::{BufRead, Write};
+        let _env_lock = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!(
             "susi-ladder-verify-{}-{}",
             std::process::id(),
@@ -503,7 +507,57 @@ mod license_tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&dir).unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", &dir);
+        env.set("SUSI_HOME", &dir);
+        env.remove("HF_TOKEN");
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            std::io::BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            let body = r#"{"id":"org/starter","cardData":{"license":"apache-2.0"},"siblings":[{"rfilename":"starter-Q4_0.gguf","size":1024}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let mut cfg = crate::susi_sandbox::manager::SusiConfig::default();
+        cfg.settings
+            .insert("hf_base_url".into(), serde_json::json!(base));
+        cfg.settings.insert(
+            "model_ladder".into(),
+            serde_json::json!([{
+                "step": 1,
+                "label": "starter-tier",
+                "hf_repo": "org/starter",
+                "hf_file": "starter-Q4_0.gguf",
+                "tokenizer_repo": "org/starter",
+                "min_ram_gb": 0.0,
+                "min_bytes": 1024,
+                "expected_bytes": 1024
+            }]),
+        );
+        cfg.settings.insert(
+            "model_scoring_heuristics".into(),
+            serde_json::json!({
+                "native_candle_bonus": 15.0,
+                "size_gb_multipliers": {},
+                "system_ram_buffer_gb": 0.0
+            }),
+        );
+        cfg.save(&susi_paths::SusiDirs::config_dir()).unwrap();
+
         let report = ModelManager::verify_model_ladder(&dir).unwrap();
+        worker.join().unwrap();
         assert!(report.total_steps > 0);
         assert_eq!(report.steps.len(), report.total_steps);
         assert!(report.network_status.contains("Connected: true"));
