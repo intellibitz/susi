@@ -1554,6 +1554,214 @@ fn finish_scoped_merge(
     Ok(())
 }
 
+const SHIP_CONTEXTS: [&str; 4] = [
+    "susi-local/format",
+    "susi-local/licenses",
+    "susi-local/clippy",
+    "susi-local/tests",
+];
+
+fn status_description(text: &str) -> String {
+    text.chars().take(140).collect()
+}
+
+fn require_ship_ref(git_ref: &str) -> Result<()> {
+    let name = git_ref
+        .strip_prefix("refs/heads/ship/")
+        .ok_or("ship pushes only refs/heads/ship/<id>")?;
+    if name.is_empty()
+        || name.contains('/')
+        || name == "main"
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err("ship pushes only refs/heads/ship/<id>".into());
+    }
+    Ok(())
+}
+
+trait Remote {
+    fn fetch_main(&mut self, root: &Path) -> Result<String>;
+    fn push_ref(&mut self, root: &Path, sha: &str, git_ref: &str) -> Result<()>;
+    fn open_pr(&mut self, root: &Path, branch: &str, title: &str, body: &str) -> Result<u64>;
+    fn post_status(
+        &mut self,
+        root: &Path,
+        sha: &str,
+        context: &str,
+        description: &str,
+    ) -> Result<()>;
+    fn merge_pr(&mut self, root: &Path, number: u64, sha: &str) -> Result<String>;
+}
+
+struct GhRemote;
+
+fn gh_output(root: &Path, args: &[String]) -> Result<String> {
+    let out = Command::new("gh").current_dir(root).args(args).output()?;
+    if !out.status.success() {
+        return Err(format!(
+            "gh {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )
+        .into());
+    }
+    Ok(String::from_utf8(out.stdout)?.trim().to_owned())
+}
+
+fn repo_slug(root: &Path) -> Result<String> {
+    let slug = gh_output(
+        root,
+        &[
+            "repo".into(),
+            "view".into(),
+            "--json".into(),
+            "nameWithOwner".into(),
+            "-q".into(),
+            ".nameWithOwner".into(),
+        ],
+    )?;
+    let mut parts = slug.split('/');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(owner), Some(name), None)
+            if !owner.is_empty()
+                && !name.is_empty()
+                && owner
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+                && name.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' || byte == b'.'
+                }) =>
+        {
+            Ok(slug)
+        }
+        _ => Err("unexpected repository name".into()),
+    }
+}
+
+fn parse_pr_number(text: &str) -> Result<u64> {
+    let line = text.lines().last().unwrap_or("").trim();
+    let number = line.rsplit('/').next().unwrap_or("");
+    number
+        .parse::<u64>()
+        .map_err(|_| format!("pull request url did not end in a number: {line}").into())
+}
+
+impl Remote for GhRemote {
+    fn fetch_main(&mut self, root: &Path) -> Result<String> {
+        git(root, &["fetch", "--quiet", "origin", "main"])?;
+        let oid = git(root, &["rev-parse", "origin/main"])?;
+        if !valid_oid(&oid) {
+            return Err("origin/main is not a commit oid".into());
+        }
+        Ok(oid)
+    }
+
+    fn push_ref(&mut self, root: &Path, sha: &str, git_ref: &str) -> Result<()> {
+        require_ship_ref(git_ref)?;
+        if !valid_oid(sha) {
+            return Err("ship push requires a commit oid".into());
+        }
+        git(
+            root,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "push",
+                "--quiet",
+                "origin",
+                &format!("{sha}:{git_ref}"),
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn open_pr(&mut self, root: &Path, branch: &str, title: &str, body: &str) -> Result<u64> {
+        require_ship_ref(&format!("refs/heads/{branch}"))?;
+        let url = gh_output(
+            root,
+            &[
+                "pr".into(),
+                "create".into(),
+                "--base".into(),
+                "main".into(),
+                "--head".into(),
+                branch.into(),
+                "--title".into(),
+                title.into(),
+                "--body".into(),
+                body.into(),
+            ],
+        )?;
+        parse_pr_number(&url)
+    }
+
+    fn post_status(
+        &mut self,
+        root: &Path,
+        sha: &str,
+        context: &str,
+        description: &str,
+    ) -> Result<()> {
+        if !valid_oid(sha) {
+            return Err("status requires a commit oid".into());
+        }
+        if !SHIP_CONTEXTS.contains(&context) {
+            return Err("status context is not a local ship gate".into());
+        }
+        let slug = repo_slug(root)?;
+        let description = status_description(description);
+        gh_output(
+            root,
+            &[
+                "api".into(),
+                format!("repos/{slug}/statuses/{sha}"),
+                "-f".into(),
+                "state=success".into(),
+                "-f".into(),
+                format!("context={context}"),
+                "-f".into(),
+                format!("description={description}"),
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn merge_pr(&mut self, root: &Path, number: u64, sha: &str) -> Result<String> {
+        if !valid_oid(sha) {
+            return Err("merge requires a commit oid".into());
+        }
+        gh_output(
+            root,
+            &[
+                "pr".into(),
+                "merge".into(),
+                number.to_string(),
+                "--merge".into(),
+                "--match-head-commit".into(),
+                sha.into(),
+            ],
+        )?;
+        let merged = gh_output(
+            root,
+            &[
+                "pr".into(),
+                "view".into(),
+                number.to_string(),
+                "--json".into(),
+                "mergeCommit".into(),
+                "-q".into(),
+                ".mergeCommit.oid".into(),
+            ],
+        )?;
+        if !valid_oid(&merged) {
+            return Err("merge did not report a commit oid".into());
+        }
+        Ok(merged)
+    }
+}
+
 fn run(args: &[String]) -> Result<()> {
     let root = env::current_dir()?;
     match args.first().map(String::as_str) {
@@ -2877,5 +3085,24 @@ mod tests {
         )
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn ship_contexts_are_the_four_local_gates() {
+        assert_eq!(
+            SHIP_CONTEXTS,
+            [
+                "susi-local/format",
+                "susi-local/licenses",
+                "susi-local/clippy",
+                "susi-local/tests",
+            ]
+        );
+    }
+
+    #[test]
+    fn status_description_truncates_to_github_limit() {
+        let long = "x".repeat(200);
+        assert_eq!(status_description(&long).chars().count(), 140);
     }
 }
