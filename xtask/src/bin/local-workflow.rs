@@ -425,7 +425,8 @@ fn sign_workspace_pass(root: &Path, key: &str) -> Result<String> {
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
 fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
-    native_provenance::require_unmodified_history(candidate)?;
+    native_provenance::require_unmodified_history(candidate)
+        .map_err(|error| format!("provenance: {error}"))?;
     let compiler = Command::new("rustc")
         .current_dir(candidate)
         .arg("-vV")
