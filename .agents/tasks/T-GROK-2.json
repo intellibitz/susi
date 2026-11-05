@@ -1,11 +1,13 @@
 {
   "id": "T-GROK-2",
+  "native_worker": "grok",
+  "status": "implemented_pending_integration",
   "title": "Ignore a hermetic forbidden home when Windows spells it with a verbatim disk prefix",
   "goal": "A SUSI_HOME from canonicalize (\\\\?\\C:\\...) must still be ignored when SUSI_HERMETIC_FORBIDDEN is the same directory in plain spelling, so hermetic tests do not write into the forbidden root.",
   "size": "s",
   "deps": [],
   "scopes": [
-    ".agents/tasks/T-GROK-2.json",
+    ".agents/tasks/t-grok-2.json",
     "crates/susi-paths/src/lib.rs"
   ],
   "accept": {
