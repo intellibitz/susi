@@ -448,7 +448,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .map(PathBuf::from)
         .ok_or("cannot identify toolchain home")?;
     let home = attempt.join("test-home");
-    fs::create_dir_all(home.join("AppData/Local"))?;
+    eprintln!("verify home: {}", home.display());
+    fs::create_dir_all(home.join("AppData/Local"))
+        .map_err(|error| format!("test home {}: {error}", home.display()))?;
     let target = candidate.join("target");
     let cargo_home = env::var_os("CARGO_HOME")
         .map(PathBuf::from)
