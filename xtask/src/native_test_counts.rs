@@ -169,9 +169,8 @@ pub fn nextest_counts(text: &str) -> Result<(u64, u64, u64)> {
         .parse()
         .map_err(|_| "incomplete nextest run (not every test ran)")?;
     let (mut passed, mut failed, mut skipped) = (0_u64, 0_u64, 0_u64);
-    for item in outcomes.split(", ") {
-        // `12 passed (3 slow)`: the parenthetical only annotates the count.
-        let item = item.split(" (").next().unwrap_or(item).trim();
+    for item in without_annotations(outcomes).split(", ") {
+        let item = item.trim();
         let (count, word) = item.split_once(' ').ok_or("malformed nextest outcome")?;
         let count: u64 = count.parse().map_err(|_| "malformed nextest count")?;
         match word {
@@ -187,6 +186,23 @@ pub fn nextest_counts(text: &str) -> Result<(u64, u64, u64)> {
         return Err("nextest summary counts do not add up".into());
     }
     Ok((passed, failed, skipped))
+}
+
+/// `outcomes` with every parenthesised annotation removed: nextest writes
+/// `3129 passed (2 slow, 17 leaky), 13 skipped`, and the comma inside the
+/// parentheses must not split an outcome.
+fn without_annotations(outcomes: &str) -> String {
+    let mut depth = 0_usize;
+    let mut kept = String::with_capacity(outcomes.len());
+    for ch in outcomes.chars() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => kept.push(ch),
+            _ => {}
+        }
+    }
+    kept
 }
 
 /// Counts from a `cargo test --doc` run: every `Doc-tests <crate>` block must
@@ -395,6 +411,10 @@ mod tests {
         assert_eq!(nextest_counts(failed).unwrap(), (3, 2, 0));
         let one = "     Summary [   0.100s] 1 test run: 1 passed, 0 skipped\n";
         assert_eq!(nextest_counts(one).unwrap(), (1, 0, 0));
+        let annotated =
+            "     Summary [ 525.252s] 3129 tests run: 3129 passed (2 slow, 17 leaky), 13 skipped
+";
+        assert_eq!(nextest_counts(annotated).unwrap(), (3129, 0, 13));
         for bad in [
             "",
             "     Summary [   1.0s] 3/10 tests run: 3 passed, 0 skipped\n",

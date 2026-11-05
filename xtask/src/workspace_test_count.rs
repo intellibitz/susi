@@ -78,9 +78,26 @@ pub(crate) fn verified_nextest_pass_count(path: &Path) -> io::Result<u64> {
         .split_once(" run: ")
         .map(|(_, outcomes)| outcomes)
         .ok_or_else(|| invalid("malformed nextest summary"))?;
+    // Drop parenthesised annotations first: `3129 passed (2 slow, 17 leaky)`
+    // holds a comma that must not split an outcome.
+    let mut depth = 0_usize;
+    let outcomes: String = outcomes
+        .chars()
+        .filter(|ch| match ch {
+            '(' => {
+                depth += 1;
+                false
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                false
+            }
+            _ => depth == 0,
+        })
+        .collect();
     let mut passed = None;
     for item in outcomes.split(", ") {
-        let item = item.split(" (").next().unwrap_or(item).trim();
+        let item = item.trim();
         match item.split_once(' ') {
             Some((count, "passed")) => {
                 passed = Some(
@@ -145,6 +162,10 @@ mod tests {
             (
                 "     Summary [   1.0s] 4 tests run: 4 passed (1 slow), 2 skipped\n",
                 Some(4),
+            ),
+            (
+                "     Summary [ 525.252s] 3129 tests run: 3129 passed (2 slow, 17 leaky), 13 skipped\n",
+                Some(3129),
             ),
             (
                 "     Summary [   1.0s] 4 tests run: 3 passed, 1 failed, 0 skipped\n",
