@@ -2342,7 +2342,9 @@ fn apply_ruleset(root: &Path, apply: bool) -> Result<()> {
     let slug = repo_slug(root)?;
     let name = body["name"].as_str().ok_or("ruleset is missing a name")?;
     let listed = gh_output(root, &["api".into(), format!("repos/{slug}/rulesets")])?;
-    let listed: serde_json::Value = serde_json::from_str(&listed)?;
+    let parsed = listed.trim().trim_start_matches('\u{feff}');
+    let listed: serde_json::Value = serde_json::from_str(parsed)
+        .map_err(|error| format!("ruleset list was not json ({error}): {parsed:.180}"))?;
     let id = listed.as_array().and_then(|items| {
         items.iter().find_map(|item| {
             (item["name"] == name)
