@@ -35,7 +35,7 @@ These are requirements, **not claims of completed implementation**. Consult
 | 69 | Zero bloat through justified capabilities and measured size, memory, latency and build budgets. |
 | 70 | Zero required user-written configuration; discovery, defaults and repair are agents' responsibility. |
 | 71 | **Susi: AI that earns its next upgrade.** Promote demonstrated improvement, with durable evidence and rollback. |
-| 72 | **Platform scope, licensing and budget:** Susi core is Apache-2.0 and free forever, with releases and CI on vanilla Windows x86_64 and Linux x86_64 only (portable source kept); Susi Commercial Apps is private/paid and qualifies every OS at production release. |
+| 72 | **Platform scope, licensing and budget:** Susi core is Apache-2.0 and free forever, with releases and CI on vanilla Windows x86_64 and Linux x86_64 only (portable source kept); Susi Commercial Apps is private/paid and also builds, tests and releases for x86_64 Windows and Linux only; its macOS/ARM64 support is paused (CEO decision 2026-11-05) until the CEO reopens it. |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
@@ -271,7 +271,7 @@ chat, or agent memory.
 - **Susi core (`intellibitz/susi`) is free, open (Apache-2.0 forever), and ships only for vanilla Windows x86_64 and vanilla Linux x86_64** for budget reasons. Do not publish core release or download artifacts for macOS, ARM64 or any other platform (`dev-release.yml` publishes `linux-x86_64` only; `release.yml` publishes `windows-x86_64` and `linux-x86_64` only).
 - **Core CI runs only on vanilla Windows x86_64 and Linux x86_64** (CEO decision 2026-11-03, "cut it"): `test.yml` and `zc-matrix.yml` run on x86_64 Linux and Windows only, and `scripts/auto-merge-pr.sh` dispatches only `test.yml` after each bot merge. No macOS, ARM64 or other-platform compile checks, native tests, nightly runs or release legs run in core. Do not re-add them unless the CEO explicitly asks.
 - **Keep core source portable.** Do not delete code that already works on other platforms (including ARM64 Windows runtime/link-layer source support, `deny.toml` targets, and `tests/zc_matrix.rs` dependency-graph checks that run on x86_64). Portable code costs nothing; building and testing other platforms in core does.
-- **Commercial Apps (`intellibitz/susi-commercial-apps`) owns every-OS qualification at production release time** and must never depend on core CI evidence for macOS or ARM64.
+- **Commercial Apps (`intellibitz/susi-commercial-apps`) macOS/ARM64 support is paused** (CEO decision 2026-11-05) until the CEO reopens it: no every-OS release qualification and no Susi Certified macOS/ARM core builds run in either repository meanwhile. If it is reopened, commercial owns that qualification and must never depend on core CI evidence for macOS or ARM64.
 
 Agents must not add macOS, ARM64 or other non-release platform build, test, nightly or release legs in core; `xtask/tests/ci_workflow_perf.rs` and `tests/release_workflow.rs` pin this.
 
