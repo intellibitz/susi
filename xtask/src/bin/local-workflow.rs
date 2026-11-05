@@ -1000,6 +1000,7 @@ const GATE_TEST_THREADS: &str = "16";
 fn doc_gate(test_gate: &[String], libraries: Option<&BTreeSet<String>>) -> Option<Vec<String>> {
     let mut gate: Vec<String> = vec!["test".into(), "--doc".into()];
     let mut packages = Vec::new();
+    let mut features = Vec::new();
     let mut rest = test_gate.iter().skip(2).peekable();
     while let Some(arg) = rest.next() {
         if arg == "-p" {
@@ -1009,9 +1010,26 @@ fn doc_gate(test_gate: &[String], libraries: Option<&BTreeSet<String>>) -> Optio
             }
             continue;
         }
+        if arg == "--features" {
+            features.push(rest.next()?.clone());
+            continue;
+        }
         gate.push(arg.clone());
     }
-    if !test_gate.iter().any(|arg| arg == "--workspace") {
+    let whole = test_gate.iter().any(|arg| arg == "--workspace");
+    // Keep a `pkg/feature` only when its package is still selected: cargo
+    // refuses a feature of a package the narrowed doctest gate dropped.
+    for feature in features {
+        let keep = whole
+            || feature
+                .split_once('/')
+                .is_none_or(|(package, _)| packages.iter().any(|kept| kept == package));
+        if keep {
+            gate.push("--features".into());
+            gate.push(feature);
+        }
+    }
+    if !whole {
         if packages.is_empty() {
             return None;
         }
@@ -4730,6 +4748,37 @@ mod tests {
                 "susi",
                 "-p",
                 "susi-core",
+                "--offline",
+                "--locked",
+                "--target",
+                "h",
+                "--target-dir",
+                "t",
+            ])
+        );
+        let narrowed_xtask = strings(&[
+            "nextest",
+            "run",
+            "-p",
+            "susi",
+            "-p",
+            "xtask",
+            "--offline",
+            "--locked",
+            "--target",
+            "h",
+            "--target-dir",
+            "t",
+            "--features",
+            "xtask/release-tooling",
+        ]);
+        assert_eq!(
+            doc_gate(&narrowed_xtask, Some(&libraries)).unwrap(),
+            strings(&[
+                "test",
+                "--doc",
+                "-p",
+                "susi",
                 "--offline",
                 "--locked",
                 "--target",
