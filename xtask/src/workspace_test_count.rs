@@ -62,6 +62,9 @@ pub(crate) fn verified_pass_count(path: &Path) -> io::Result<u64> {
 
 /// Passing tests of a completed `cargo nextest run` with no failures, from its
 /// final summary line (see `native_test_counts::nextest_counts`).
+// Shared module: `local-release` includes it but keeps `cargo test` gates, so
+// only `local-workflow` calls this.
+#[allow(dead_code)]
 pub(crate) fn verified_nextest_pass_count(path: &Path) -> io::Result<u64> {
     let text = std::fs::read_to_string(path)?;
     let summaries: Vec<&str> = text
