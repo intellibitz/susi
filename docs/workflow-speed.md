@@ -981,3 +981,61 @@ qualification (`local-release qualify`) always runs it.
 On the twelve most recent first-parent merges of `main`, ten selected 13–15 of
 the 93 packages and two (root `Cargo.toml`, `xtask/`) selected the whole
 workspace. Wall-clock effect: to be recorded from the first measured `ship`.
+
+## Measured ships, narrower selection, host gate, fast sysroot check (2026-11-06)
+
+`ship` and `integrate` now time every phase and print a table (fetch, merge,
+provenance check, warm-target restore, affected selection, trusted sysroot,
+each gate, acceptance and its sub-steps, publish); each run also appends one
+JSON line to `<git common dir>/susi-local-workflow/timings.jsonl`.
+
+Measured on this machine (28 logical cores, Windows x86_64), same kind of
+change (a `xtask/src/bin/local-workflow.rs` edit plus a task record):
+
+| ship | packages gated | wall clock |
+| --- | --- | --- |
+| before (2026-11-06 00:43) | whole workspace (93) | 27.8 min |
+| after selection fixes (02:08) | 11 | 20.8 min |
+
+That 20.8 min run, by phase: fetch, load, merge, provenance, warm-target
+restore and selection together 14.5 s; format 11.7 s; licenses 4.4 s; trusted
+sysroot 105.5 s (a cache hit); clippy 109.0 s; workspace tests 758.7 s (build
+3 min 07 s, then 176 test binaries run one after another for 559 s); the
+task's own acceptance 91.9 s; acceptance recording 48.4 s; publish 10.8 s. The
+previous run reached `fmt` 3.1 min after start; which change removed that
+setup time is not isolated.
+
+What changed:
+
+- **Affected selection** (`xtask/src/affected.rs`). `xtask/` is no longer
+  global: xtask is a leaf package, so a workflow-tooling change selects xtask
+  and root. Only `xtask/build.rs`, `xtask/bootstrap/`, `compiler_env.rs`,
+  `trusted_sysroot.rs` and `sysroot_sources.rs`, which decide how every other
+  package compiles, still widen to the whole workspace. Embeds inside
+  `#[cfg(test)] mod` blocks, in out-of-line `#[cfg(test)] mod name;` files, and
+  under a crate's `tests/`, `benches/` and `examples/` are observations: they
+  select the reader, not its dependents. A bare `".."` counts as a root read
+  only as a path argument (`join`, `push`, `Path::new`), not in traversal
+  checks such as `name.contains("..")`. `susi-gawd-agents/build.rs` names its
+  three `.agents` inputs exactly, so a task record no longer rebuilds it and
+  its dependents. `cargo local-workflow affected <base> [<head>]` prints why
+  each package is selected. On recent changes: an xtask change went from 93 to
+  7 packages, a docs change from 20 to 7, an `identity.json` change from 20 to
+  10. A narrowed gate that covers xtask still enables `xtask/release-tooling`,
+  as the whole-workspace gate does.
+- **Host gate.** One heavy gate (`ship`/`integrate` verification, core or
+  commercial) runs at a time per machine, held as an OS file lock under
+  `%LOCALAPPDATA%\susi-local-workflow\host-gate` (`~/.cache/...` elsewhere).
+  The OS frees it when the holder exits or crashes, so there is no stale-lock
+  timeout. A waiting gate prints who holds it; the wait is a timed phase.
+  `local-workflow check` does not take it.
+- **Trusted sysroot cache hit: 105.5 s to 2.1 s** (measured directly on the
+  cached destination). The cache hit hashed the installed rust-src (3 608
+  files, 77 MB) twice and the replacement copy once, one file at a time; on
+  Windows each open is scanned by endpoint protection. The installed tree is
+  now authenticated once per process and the file hashing runs on up to 16
+  threads. Every digest comparison is unchanged.
+
+Next, measured but not yet changed: the 559 s of sequential test-binary
+execution (cargo runs test binaries one after another; the longest single
+binary takes 83 s), and the 48 s acceptance recording (now timed by sub-step).
