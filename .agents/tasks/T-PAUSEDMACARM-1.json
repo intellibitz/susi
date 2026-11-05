@@ -1,0 +1,28 @@
+{
+  "id": "T-PAUSEDMACARM-1",
+  "native_worker": "pausedmacarm1105",
+  "title": "Record the CEO 2026-11-05 decision that commercial macOS/ARM64 support is paused",
+  "created_by": "PAUSEDMACARM",
+  "created_unix": 1793900000,
+  "status": "implemented_pending_integration",
+  "dependencies": [],
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/tasks/t-pausedmacarm-1.json",
+    "agents.md"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ],
+    "criteria": [
+      "Mandate 72 and AGENTS.md no longer require commercial every-OS release qualification and state the macOS/ARM64 pause",
+      "architecture_tests passes"
+    ]
+  }
+}
