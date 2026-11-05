@@ -2776,10 +2776,14 @@ fn run(args: &[String]) -> Result<()> {
         Some("affected") if (2..=3).contains(&args.len()) => {
             let head = args.get(2).map_or("HEAD", String::as_str);
             let changed = affected::changed(&root, &args[1], head)?;
-            match affected::select(&affected::load(&root)?, &changed) {
+            let (selection, why) = affected::select_explained(&affected::load(&root)?, &changed);
+            match selection {
                 affected::Selection::Packages(packages) => {
                     println!("{} changed paths; gate covers {} packages:", changed.len(), packages.len());
-                    for package in packages { println!("  {package}"); }
+                    for package in packages {
+                        let reason = why.get(&package).map_or("", String::as_str);
+                        println!("  {package}  ({reason})");
+                    }
                 }
                 affected::Selection::Workspace(reason) => {
                     println!("{} changed paths; gate covers the whole workspace: {reason}", changed.len());

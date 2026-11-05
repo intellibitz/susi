@@ -123,7 +123,7 @@ fn resolve(dir: &str, relative: &str) -> Option<String> {
 /// `"../x"`, `"/../x"` (the `concat!(env!("CARGO_MANIFEST_DIR"), "/../x")`
 /// form), `"key=../x"` (build-script `rerun-if-changed=`) and a bare `".."`.
 /// Each comes with whether its statement embeds it at compile time.
-fn parent_literals(source: &str) -> Vec<(&str, bool)> {
+fn parent_literals(source: &str, test_only: bool) -> Vec<(&str, bool)> {
     let tests = test_module_ranges(source);
     let mut found = Vec::new();
     let mut offset = 0;
@@ -134,6 +134,20 @@ fn parent_literals(source: &str) -> Vec<(&str, bool)> {
         let literal = &body[..end];
         let path = literal.rsplit_once('=').map_or(literal, |(_, value)| value);
         let path = path.strip_prefix('/').unwrap_or(path);
+        // A literal on a `//` comment line is prose, not a read.
+        let line_start = source[..open].rfind('\n').map_or(0, |at| at + 1);
+        let commented = source[line_start..open].contains("//");
+        // A bare `".."` is a path only as a path-building argument
+        // (`join("..")`, `push("..")`, `Path::new("..")`); elsewhere it is a
+        // traversal check such as `name.contains("..")` or `c == ".."`.
+        let bare_non_path = path == ".."
+            && !["join(", "push(", "new("]
+                .iter()
+                .any(|call| source[..open].trim_end().ends_with(call));
+        if commented || bare_non_path {
+            offset = open + 1 + end + 1;
+            continue;
+        }
         if path == ".." || path.starts_with("../") || path.starts_with("..\\") {
             let statement = source[..open]
                 .rfind([';', '{', '}'])
@@ -142,7 +156,8 @@ fn parent_literals(source: &str) -> Vec<(&str, bool)> {
             // package's test binary only: dependents never see it, so it is
             // an observation, not a compiled input.
             let in_test = tests.iter().any(|(from, to)| (*from..*to).contains(&open));
-            let compiled = !in_test
+            let compiled = !test_only
+                && !in_test
                 && (statement.contains("include_str!") || statement.contains("include_bytes!"));
             found.push((path, compiled));
         }
@@ -159,8 +174,21 @@ fn parent_literals(source: &str) -> Vec<(&str, bool)> {
 /// other shape stays outside every range, which keeps the selection
 /// conservative: an embed that is not provably test-only counts as compiled.
 pub(crate) fn test_module_ranges(source: &str) -> Vec<(usize, usize)> {
+    scan_test_modules(source).0
+}
+
+/// Names of out-of-line `#[cfg(test)] mod name;` declarations in `source`:
+/// the module's whole file (and its submodules) is test-only.
+pub(crate) fn test_module_decls(source: &str) -> Vec<String> {
+    scan_test_modules(source).1
+}
+
+/// One pass of the lexer behind [`test_module_ranges`] and
+/// [`test_module_decls`].
+fn scan_test_modules(source: &str) -> (Vec<(usize, usize)>, Vec<String>) {
     let bytes = source.as_bytes();
     let mut ranges = Vec::new();
+    let mut decls = Vec::new();
     // Each open brace: `Some(start)` when it opens a test module body.
     let mut stack: Vec<Option<usize>> = Vec::new();
     let mut pending_test_brace: Option<usize> = None;
@@ -226,7 +254,12 @@ pub(crate) fn test_module_ranges(source: &str) -> Vec<(usize, usize)> {
                 continue;
             }
             b'#' if rest.starts_with("#[cfg(test)]") => {
-                pending_test_brace = test_mod_brace(source, i + "#[cfg(test)]".len());
+                pending_test_brace = None;
+                match test_mod_item(source, i + "#[cfg(test)]".len()) {
+                    Some(TestMod::Inline(brace)) => pending_test_brace = Some(brace),
+                    Some(TestMod::OutOfLine(name)) => decls.push(name),
+                    None => {}
+                }
                 i += "#[cfg(test)]".len();
                 continue;
             }
@@ -247,7 +280,15 @@ pub(crate) fn test_module_ranges(source: &str) -> Vec<(usize, usize)> {
         }
         i += 1;
     }
-    ranges
+    (ranges, decls)
+}
+
+/// What a `#[cfg(test)]` attribute is attached to, when it is a module.
+enum TestMod {
+    /// `mod name { ... }`: the offset of its opening brace.
+    Inline(usize),
+    /// `mod name;`: the module's name.
+    OutOfLine(String),
 }
 
 /// `r"`, `r#"`, `br##"`, ...: the hash count and the quote's offset.
@@ -280,10 +321,11 @@ fn skip_quoted(bytes: &[u8], open: usize, quote: u8) -> usize {
     bytes.len()
 }
 
-/// After a `#[cfg(test)]` ending at `from`, the offset of the `{` that opens a
-/// directly following `[pub[(..)]] mod name {`, skipping whitespace and other
-/// outer attributes. `None` for any other item.
-fn test_mod_brace(source: &str, from: usize) -> Option<usize> {
+/// After a `#[cfg(test)]` ending at `from`, the directly following
+/// `[pub[(..)]] mod name { | ;` item, skipping whitespace and other outer
+/// attributes. `None` for any other item, and for a module carrying a
+/// `#[path]` attribute (its file is not where the name says).
+fn test_mod_item(source: &str, from: usize) -> Option<TestMod> {
     let mut rest = &source[from..];
     let mut at = from;
     let skip = |rest: &mut &str, at: &mut usize, n: usize| {
@@ -295,6 +337,9 @@ fn test_mod_brace(source: &str, from: usize) -> Option<usize> {
         let n = rest.len() - trimmed.len();
         skip(&mut rest, &mut at, n);
         if rest.starts_with("#[") {
+            if rest.starts_with("#[path") {
+                return None;
+            }
             let end = rest.find(']')? + 1;
             skip(&mut rest, &mut at, end);
             continue;
@@ -328,15 +373,80 @@ fn test_mod_brace(source: &str, from: usize) -> Option<usize> {
     if ident == 0 {
         return None;
     }
+    let name = rest[..ident].to_owned();
     skip(&mut rest, &mut at, ident);
     let trimmed = rest.trim_start();
     let n = rest.len() - trimmed.len();
     skip(&mut rest, &mut at, n);
-    rest.starts_with('{').then_some(at)
+    if rest.starts_with('{') {
+        Some(TestMod::Inline(at))
+    } else if rest.starts_with(';') {
+        Some(TestMod::OutOfLine(name))
+    } else {
+        None
+    }
+}
+
+/// Files that only a package's own tests compile: integration tests,
+/// benchmarks and examples under the crate directory, and the files of
+/// out-of-line `#[cfg(test)] mod name;` modules (with their submodules).
+pub fn test_only_files<'a>(
+    members: &[Member],
+    sources: impl IntoIterator<Item = (&'a str, &'a str)> + Clone,
+) -> BTreeSet<String> {
+    let mut prefixes: Vec<String> = Vec::new();
+    for (file, source) in sources.clone() {
+        let decls = test_module_decls(source);
+        if decls.is_empty() {
+            continue;
+        }
+        let (dir, stem) = file.rsplit_once('/').unwrap_or(("", file));
+        let module_dir = match stem {
+            "lib.rs" | "main.rs" | "mod.rs" => dir.to_owned(),
+            other => {
+                let stem = other.strip_suffix(".rs").unwrap_or(other);
+                if dir.is_empty() {
+                    stem.to_owned()
+                } else {
+                    format!("{dir}/{stem}")
+                }
+            }
+        };
+        for name in decls {
+            let base = if module_dir.is_empty() {
+                name
+            } else {
+                format!("{module_dir}/{name}")
+            };
+            prefixes.push(format!("{base}.rs"));
+            prefixes.push(format!("{base}/"));
+        }
+    }
+    let mut test_only = BTreeSet::new();
+    for (file, _) in sources {
+        let in_test_tree = owner(members, file).is_some_and(|member| {
+            ["tests", "benches", "examples"].iter().any(|kind| {
+                let dir = if member.dir.is_empty() {
+                    (*kind).to_owned()
+                } else {
+                    format!("{}/{kind}", member.dir)
+                };
+                file.starts_with(&format!("{dir}/"))
+            })
+        });
+        let in_test_module = prefixes.iter().any(|prefix| {
+            file == prefix || (prefix.ends_with('/') && file.starts_with(prefix.as_str()))
+        });
+        if in_test_tree || in_test_module {
+            test_only.insert(file.to_owned());
+        }
+    }
+    test_only
 }
 
 /// Record what `package` (directory `crate_dir`) reads through the literals of
 /// one source file at `file` (both relative to the workspace root).
+#[cfg(test)]
 pub fn scan_source(
     workspace: &mut Workspace,
     package: &str,
@@ -344,9 +454,23 @@ pub fn scan_source(
     file: &str,
     source: &str,
 ) {
+    scan_source_in(workspace, package, crate_dir, file, source, false);
+}
+
+/// [`scan_source`] for a file that may be compiled only into its package's
+/// own tests (`test_only`): its embeds are then observations, never compiled
+/// inputs of dependents.
+pub fn scan_source_in(
+    workspace: &mut Workspace,
+    package: &str,
+    crate_dir: &str,
+    file: &str,
+    source: &str,
+    test_only: bool,
+) {
     let file_dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
     let build_script = file.rsplit('/').next() == Some("build.rs");
-    for (literal, embedded) in parent_literals(source) {
+    for (literal, embedded) in parent_literals(source, test_only) {
         let compiled = embedded || build_script;
         if literal == ".." {
             // Chained `join("..")` calls can reach anywhere in the tree.
@@ -381,32 +505,72 @@ pub fn scan_source(
 
 /// Decide the selection for `changed` paths (relative, `/`-separated).
 pub fn select(workspace: &Workspace, changed: &[String]) -> Selection {
+    select_explained(workspace, changed).0
+}
+
+/// [`select`], plus one human-readable reason per selected package (the first
+/// that selected it), so `local-workflow affected` can say why a package is in.
+pub fn select_explained(
+    workspace: &Workspace,
+    changed: &[String],
+) -> (Selection, BTreeMap<String, String>) {
+    let mut why: BTreeMap<String, String> = BTreeMap::new();
+    let mut note = |package: &str, reason: String| {
+        why.entry(package.to_owned()).or_insert(reason);
+    };
     let Some(root) = workspace
         .members
         .iter()
         .find(|member| member.dir.is_empty())
     else {
-        return Selection::Workspace("workspace has no root package".into());
+        return (
+            Selection::Workspace("workspace has no root package".into()),
+            BTreeMap::new(),
+        );
     };
     // `code`: packages whose compiled output may change, so their dependents
     // are rechecked too. `observers`: packages whose tests merely read a path.
     let mut code: BTreeSet<String> = BTreeSet::new();
     let mut observers: BTreeSet<String> = BTreeSet::new();
     observers.insert(root.name.clone());
+    note(
+        &root.name,
+        "root package (tree-wide architecture and docs tests)".into(),
+    );
     if !changed.is_empty() {
         for (package, compiled) in &workspace.root_readers {
             if *compiled { &mut code } else { &mut observers }.insert(package.clone());
+            note(
+                package,
+                format!(
+                    "reads the workspace root ({})",
+                    if *compiled {
+                        "compiled in"
+                    } else {
+                        "tests only"
+                    }
+                ),
+            );
         }
     }
     for path in changed {
         if global(path) {
-            return Selection::Workspace(format!("{path} affects every package"));
+            return (
+                Selection::Workspace(format!("{path} affects every package")),
+                BTreeMap::new(),
+            );
         }
         match owner(&workspace.members, path) {
             Some(member) => {
                 code.insert(member.name.clone());
+                note(&member.name, format!("owns {path}"));
             }
-            None => return Selection::Workspace(format!("{path} belongs to no package")),
+            None => {
+                return (
+                    Selection::Workspace(format!("{path} belongs to no package")),
+                    BTreeMap::new(),
+                )
+            }
         }
         for reference in &workspace.references {
             if under(path, &reference.path) {
@@ -416,6 +580,18 @@ pub fn select(workspace: &Workspace, changed: &[String]) -> Selection {
                     &mut observers
                 }
                 .insert(reference.package.clone());
+                note(
+                    &reference.package,
+                    format!(
+                        "{} {} (changed {path})",
+                        if reference.compiled {
+                            "compiles in"
+                        } else {
+                            "tests read"
+                        },
+                        reference.path
+                    ),
+                );
             }
         }
     }
@@ -434,15 +610,19 @@ pub fn select(workspace: &Workspace, changed: &[String]) -> Selection {
     while let Some(package) = queue.pop() {
         for dependent in dependents.get(package.as_str()).into_iter().flatten() {
             if selected.insert((*dependent).to_owned()) {
+                note(dependent, format!("depends on {package}"));
                 queue.push((*dependent).to_owned());
             }
         }
     }
     selected.extend(observers);
     if selected.len() >= workspace.members.len() {
-        return Selection::Workspace("every package is affected".into());
+        return (
+            Selection::Workspace("every package is affected".into()),
+            why,
+        );
     }
-    Selection::Packages(selected)
+    (Selection::Packages(selected), why)
 }
 
 fn run(root: &Path, program: &str, args: &[&str]) -> Result<Vec<u8>> {
@@ -538,18 +718,39 @@ pub fn load(root: &Path) -> Result<Workspace> {
         &["-c", "core.quotepath=false", "ls-files", "-z", "--", "*.rs"],
     )?;
     let members = workspace.members.clone();
+    let mut sources: Vec<(String, String)> = Vec::new();
     for file in listing
         .split(|byte| *byte == 0)
         .filter(|entry| !entry.is_empty())
     {
         let file = String::from_utf8_lossy(file).into_owned();
-        let Some(member) = owner(&members, &file) else {
+        if owner(&members, &file).is_none() {
             continue;
-        };
+        }
         let Ok(source) = std::fs::read_to_string(root.join(&file)) else {
             continue;
         };
-        scan_source(&mut workspace, &member.name, &member.dir, &file, &source);
+        sources.push((file, source));
+    }
+    let test_only = test_only_files(
+        &members,
+        sources
+            .iter()
+            .map(|(file, source)| (file.as_str(), source.as_str())),
+    );
+    for (file, source) in &sources {
+        let Some(member) = owner(&members, file) else {
+            continue;
+        };
+        let only_tests = test_only.contains(file);
+        scan_source_in(
+            &mut workspace,
+            &member.name,
+            &member.dir,
+            file,
+            source,
+            only_tests,
+        );
     }
     Ok(workspace)
 }
@@ -859,5 +1060,82 @@ pub(crate) mod t { fn a() {} }
         assert!(source[from..to].starts_with('{') && source[from..to].ends_with('}'));
         assert!(source[from..to].contains("fn a()"));
         assert!(!source[from..to].contains("helper"));
+    }
+
+    #[test]
+    fn out_of_line_test_modules_and_test_trees_are_test_only() {
+        let ws = workspace();
+        let lib = "pub mod api;\n#[cfg(test)]\nmod tests;\n#[cfg(test)]\n#[path = \"elsewhere.rs\"]\nmod moved;\n";
+        let api = "#[cfg(test)]\nmod api_tests;\n";
+        let files = [
+            ("crates/config/src/lib.rs", lib),
+            ("crates/config/src/api.rs", api),
+            ("crates/config/src/tests.rs", ""),
+            ("crates/config/src/tests/deep.rs", ""),
+            ("crates/config/src/api/api_tests.rs", ""),
+            ("crates/config/src/elsewhere.rs", ""),
+            ("crates/config/src/moved.rs", ""),
+            ("crates/config/tests/integration.rs", ""),
+            ("crates/config/benches/b.rs", ""),
+            ("crates/config/build.rs", ""),
+        ];
+        let got = test_only_files(&ws.members, files.iter().map(|(f, s)| (*f, *s)));
+        let got: Vec<&str> = got.iter().map(String::as_str).collect();
+        assert_eq!(
+            got,
+            [
+                "crates/config/benches/b.rs",
+                "crates/config/src/api/api_tests.rs",
+                "crates/config/src/tests.rs",
+                "crates/config/src/tests/deep.rs",
+                "crates/config/tests/integration.rs",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_test_only_file_embed_does_not_select_dependents() {
+        let mut ws = workspace();
+        let source = "const SPEC: &str = include_str!(\"../../../docs/spec.md\");";
+        scan_source_in(
+            &mut ws,
+            "config",
+            "crates/config",
+            "crates/config/src/tests.rs",
+            source,
+            true,
+        );
+        assert_eq!(
+            names(select(&ws, &["docs/spec.md".into()])),
+            ["config", "root"]
+        );
+    }
+
+    #[test]
+    fn traversal_checks_and_comments_are_not_root_reads() {
+        let mut ws = workspace();
+        let source = concat!(
+            "fn safe(name: &str) -> bool { !name.contains(\"..\") && name != \"..\" }\n",
+            "// see \"../../docs/x.md\" for details\n",
+            "fn ok(c: &str) -> bool { matches!(c, \".\" | \"..\") }\n",
+        );
+        scan_source(
+            &mut ws,
+            "config",
+            "crates/config",
+            "crates/config/src/lib.rs",
+            source,
+        );
+        assert!(ws.root_readers.is_empty(), "{:?}", ws.root_readers);
+        assert!(ws.references.is_empty(), "{:?}", ws.references);
+        let reader = "fn up(dir: &Path) -> PathBuf { dir.join(\"..\") }";
+        scan_source(
+            &mut ws,
+            "leaf",
+            "crates/leaf",
+            "crates/leaf/src/lib.rs",
+            reader,
+        );
+        assert_eq!(ws.root_readers.get("leaf"), Some(&false));
     }
 }

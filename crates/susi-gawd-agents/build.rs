@@ -12,19 +12,23 @@ use std::path::{Path, PathBuf};
 /// baked one worktree's path into reads that worktree's `.agents/` wherever
 /// cargo reuses it, as it did when worktrees shared one target (each now has
 /// its own, copied from a snapshot built in another checkout).
-fn agents_dir() -> PathBuf {
+///
+/// Each input is named by its own full relative literal: the local gate's
+/// affected-package selection reads these literals, and a bare `.agents`
+/// directory would make every task-record change rebuild and retest this
+/// crate and all of its dependents.
+fn workspace_file(relative: &str) -> PathBuf {
     PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"))
-        .join("../../.agents")
+        .join(relative)
 }
 
 fn main() {
-    let agents = agents_dir();
-    let identity_path = agents.join("identity.json");
-    let roadmap_path = agents.join("roadmap.json");
-    let evidence_path = agents.join("evidence.json");
+    let identity_path = workspace_file("../../.agents/identity.json");
+    let roadmap_path = workspace_file("../../.agents/roadmap.json");
+    let evidence_path = workspace_file("../../.agents/evidence.json");
+    let cargo_toml_path = workspace_file("../../Cargo.toml");
 
-    let cargo_toml =
-        fs::read_to_string(agents.join("../Cargo.toml")).expect("Missing workspace Cargo.toml");
+    let cargo_toml = fs::read_to_string(&cargo_toml_path).expect("Missing workspace Cargo.toml");
     let version = cargo_toml
         .lines()
         .find(|l| l.trim().starts_with("version = \""))
@@ -40,7 +44,7 @@ fn main() {
     validate_roadmap(&roadmap);
     validate_evidence(&evidence);
 
-    sync_readme_badge(agents.join("../README.md"), &version);
+    sync_readme_badge(workspace_file("../../README.md"), &version);
 
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated_axioms.rs");
@@ -50,10 +54,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", identity_path.display());
     println!("cargo:rerun-if-changed={}", roadmap_path.display());
     println!("cargo:rerun-if-changed={}", evidence_path.display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        agents.join("../Cargo.toml").display()
-    );
+    println!("cargo:rerun-if-changed={}", cargo_toml_path.display());
 }
 
 fn load_and_sync_version(path: &Path, expected_schema: &str, version: &str) -> Value {
