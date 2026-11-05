@@ -306,4 +306,23 @@ mod tests {
         arb.complete("missing_key");
         assert_eq!(arb.global_concurrent(), 1);
     }
+
+    #[test]
+    fn key_state_complete_at_zero_is_noop_and_serde_roundtrips_saturation_report() {
+        let mut ks = KeyState::new(1, 2);
+        ks.complete();
+        assert_eq!(ks.concurrent_ops, 0);
+        assert!(!ks.is_concurrency_limited());
+        assert!(!ks.is_rate_limited());
+
+        let report = SaturationReport {
+            global_limited: false,
+            rate_limited_keys: vec!["k1".to_string()],
+            concurrency_limited_keys: vec![],
+        };
+        let encoded = serde_json::to_string(&report).expect("serialize SaturationReport");
+        let decoded: SaturationReport =
+            serde_json::from_str(&encoded).expect("deserialize SaturationReport");
+        assert_eq!(decoded, report);
+    }
 }

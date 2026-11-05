@@ -103,3 +103,20 @@ fn vc_201_036_bootstrap_accepts_secondary_trust_anchor() {
         BootstrapResult::Ok
     );
 }
+
+#[test]
+fn vc_201_036_empty_trust_anchors_rejects_with_missing_anchor() {
+    let roster = BTreeSet::from(["peer-1".into()]);
+    let history = BTreeSet::from(["peer-1".into()]);
+    let manifest = SnapshotManifest {
+        snapshot_id: "snap-1".into(),
+        ledger_tail: "tail-1".into(),
+        roster: roster.clone(),
+        signature: sign("peer-1", "snap-1", "tail-1", &roster),
+        signer: "peer-1".into(),
+    };
+    assert_eq!(
+        bootstrap(&manifest, &[], &history),
+        BootstrapResult::MissingAnchor
+    );
+}

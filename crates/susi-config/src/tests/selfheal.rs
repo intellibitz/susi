@@ -81,3 +81,18 @@ fn zc_config_selfheal_clean_existing_file_is_not_repaired_or_backed_up() {
     assert_eq!(loaded.settings, expected.settings);
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn zc_config_selfheal_fills_missing_bundled_keys_into_partial_config() {
+    let dir = scratch("partial_fill");
+    fs::write(
+        SusiConfig::get_config_path(&dir),
+        r#"{"settings":{"trust_level":"high"}}"#,
+    )
+    .unwrap();
+    let (loaded, report) = load_or_selfheal(&dir).unwrap();
+    assert!(report.repaired);
+    assert!(loaded.settings.contains_key("default_model"));
+    assert_eq!(loaded.settings.len(), SusiConfig::heal_defaults().len());
+    let _ = fs::remove_dir_all(&dir);
+}

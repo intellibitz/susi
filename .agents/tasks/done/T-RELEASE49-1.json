@@ -1,0 +1,27 @@
+{
+  "id": "T-RELEASE49-1",
+  "title": "Cut Susi 0.21.49: bump the engine version and hand the tagged build to release.yml",
+  "goal": "Release main as 0.21.49. The v0.21.48 tag (71633e121) never published: its tagged suite failed gmcp_requirements mastery checks on stale VC-203 evidence, and a tag cannot be moved. Main has since re-recorded the evidence and its root-cli shards are green. Bump the seven engine-version manifests, Cargo.lock, the README badge and the three governance ledgers together (matching 4bf339c84), re-record the VC-203 evidence the bump stales, and let the merge bot tag v0.21.49 and dispatch release.yml, which publishes the windows-x86_64 and linux-x86_64 binaries. Installed Windows production promotion is a separate, evidence-gated step and is not claimed by this cut.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "admin::version"
+    ]
+  },
+  "created_by": "RELEASE491104",
+  "created_unix": 1793809090,
+  "closed": {
+    "at_unix": 1793816548,
+    "commit": "9ee22a69dba92d1b4b63897fa844f72ac57a8c47",
+    "by": "RELEASE491104"
+  }
+}

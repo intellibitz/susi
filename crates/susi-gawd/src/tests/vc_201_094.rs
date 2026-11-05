@@ -131,3 +131,23 @@ fn vc_201_094_double_release_returns_underflow_without_corrupting_in_flight() {
     );
     assert_eq!(controller.in_flight(), LoadPoint::default());
 }
+
+#[test]
+fn vc_201_094_exact_limit_load_is_accepted_and_not_saturated() {
+    let limits = CapacityLimits {
+        max_missions: 3,
+        max_streaming: 4,
+        max_peer_repair: 2,
+        max_model_churn: 1,
+    };
+    let exact = LoadPoint {
+        missions: 3,
+        streaming: 4,
+        peer_repair: 2,
+        model_churn: 1,
+    };
+    assert_eq!(admit(&exact, &limits), AdmitLoad::Accept);
+    let sat = saturation(&exact, &limits);
+    assert_eq!(sat.saturated_on, None);
+    assert!(sat.healthy && sat.cancel_responsive);
+}

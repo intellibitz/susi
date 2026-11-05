@@ -361,4 +361,20 @@ mod tests {
         assert!(Path::new(budget["ledger"].as_str().unwrap()).ends_with("budget-ledger.jsonl"));
         assert!(CoreTools::harness_budget(&json!({"ledger": "relative.jsonl"}), &ws).is_err());
     }
+
+    #[test]
+    fn harness_status_and_run_reject_relative_events_or_plan_paths() {
+        PlaneBus::global().register(topics::DAEMON_HARNESS, Arc::new(Echo));
+        let ws = std::env::temp_dir();
+        assert!(CoreTools::harness_status(&json!({"events": "rel-events.jsonl"}), &ws).is_err());
+        assert!(CoreTools::harness_run(
+            &json!({
+                "repo": ws.display().to_string(),
+                "plan": "rel-plan.json",
+                "gateway": "http://127.0.0.1:9000"
+            }),
+            &ws
+        )
+        .is_err());
+    }
 }

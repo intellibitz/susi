@@ -398,4 +398,31 @@ mod tests {
         .unwrap();
         assert_eq!(options.spec.timeout, Duration::from_secs(180));
     }
+
+    #[test]
+    fn rejects_missing_flag_values_and_whitespace_only_required_strings() {
+        for flag in [
+            "--repo",
+            "--susi",
+            "--name",
+            "--title",
+            "--accept",
+            "--scope",
+            "--gateway",
+            "--model",
+            "--alternate",
+            "--timeout",
+        ] {
+            assert_eq!(
+                parse(args(&[flag])).err().unwrap(),
+                format!("{flag} needs a value")
+            );
+        }
+        assert_eq!(
+            parse(args(&["--repo", "r", "--susi", "s", "--name", "   "]))
+                .err()
+                .unwrap(),
+            "--name is required"
+        );
+    }
 }

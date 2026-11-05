@@ -1,0 +1,27 @@
+{
+  "id": "T-LANDALLMERGEFINISH1105-1",
+  "title": "Land stranded mergefinish and PE-repro work: pinned merge finish in local-workflow and content-derived MSVC links",
+  "goal": "Port 1e6631fe0 and 231f171f5 onto current main. The OS-UCRT boundary requests /Brepro so independent MSVC links of Susi and its native helpers are content-derived, with a Windows fixture that retains two-root raw PE evidence. cargo local-workflow finish-merge publishes only a resolved, fully staged, in-scope merge whose incoming parent is pinned by full object ID, preserving both parents and the staged tree; wrong parents, dirty state, sequencers and signing leave refs untouched, and a retry cleans up an already-published merge.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "pinned_merge_requires_a_resolved_scoped_index_and_preserves_both_parents"
+    ]
+  },
+  "created_by": "LANDALLMERGEFINISH1105",
+  "created_unix": 1793821755,
+  "closed": {
+    "at_unix": 1793824431,
+    "commit": "40b8742f61ad5b4d17d4db1628349d7775e5ec60",
+    "by": "LANDALLMERGEFINISH1105"
+  }
+}

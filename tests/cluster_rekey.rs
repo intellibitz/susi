@@ -246,3 +246,12 @@ fn stage_key_to_writes_next_key_and_produces_deterministic_fingerprint() {
     assert!(!fp1.is_empty());
     assert_eq!(fp1, fp2);
 }
+
+#[test]
+fn distinct_cluster_keys_produce_distinct_fingerprints() {
+    let fp_a = cluster_key::key_fingerprint(&[0x11u8; 32]);
+    let fp_b = cluster_key::key_fingerprint(&[0x22u8; 32]);
+    assert!(!fp_a.is_empty());
+    assert!(!fp_b.is_empty());
+    assert_ne!(fp_a, fp_b);
+}

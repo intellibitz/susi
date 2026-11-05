@@ -152,3 +152,14 @@ fn swarm_gap_live_admission_required_specialists_drain_from_dag_entry() {
     assert!(third.deferred.is_empty());
     drop(third);
 }
+
+#[test]
+fn swarm_gap_live_admission_empty_batch_admits_nothing_and_leaves_zero_active() {
+    let admission = LiveAdmission::fixed(inventory(2.0, 4.0, 4.0, 2, true));
+    let batch = admission.admit_batch("mission-empty", &[]);
+    assert!(batch.admitted_indices().is_empty());
+    assert!(batch.deferred.is_empty());
+    assert!(batch.blocked.is_none());
+    assert_eq!(admission.active(), 0);
+    assert_eq!(admission.queued(), 0);
+}

@@ -74,4 +74,15 @@ mod prometheus_metrics_tests {
         let decoded: MetricSample = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(decoded, sample);
     }
+
+    #[test]
+    fn render_prometheus_includes_help_line_for_each_metric_sample() {
+        let body = render_prometheus(&[MetricSample {
+            name: "susi_active_workers".into(),
+            value: 4.0,
+            help: "active worker count".into(),
+        }]);
+        assert!(body.contains("# HELP susi_active_workers active worker count\n"));
+        assert_eq!(body.lines().count(), 3);
+    }
 }

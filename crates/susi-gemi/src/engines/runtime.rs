@@ -5,7 +5,9 @@
 
 #[path = "runtime_native.rs"]
 mod runtime_native;
-#[path = "runtime_substrate.rs"]
+#[cfg_attr(not(feature = "local-engine"), allow(dead_code))]
+#[cfg_attr(feature = "local-engine", path = "runtime_substrate.rs")]
+#[cfg_attr(not(feature = "local-engine"), path = "runtime_substrate_off.rs")]
 mod runtime_substrate;
 
 pub use runtime_native::{
@@ -48,15 +50,15 @@ fn reflex_serve_label(action: &str) -> String {
 
 #[cfg(test)]
 use runtime_substrate::PromptFormat;
-#[cfg(test)]
+#[cfg(all(test, feature = "local-engine"))]
 use std::collections::HashMap;
-#[cfg(test)]
+#[cfg(all(test, feature = "local-engine"))]
 use std::sync::Arc;
-#[cfg(test)]
+#[cfg(all(test, feature = "local-engine"))]
 use susi_vendor_candle::candle_core;
-#[cfg(test)]
+#[cfg(all(test, feature = "local-engine"))]
 use susi_vendor_candle::candle_core::quantized::gguf_file;
-#[cfg(test)]
+#[cfg(all(test, feature = "local-engine"))]
 use susi_vendor_candle::tokenizers::Tokenizer;
 
 /// Prefer admitted native Candle weights for ordinary automatic text work. Output
@@ -1326,6 +1328,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-engine")]
     #[test]
     fn local_model_loads_on_cpu_and_reuses_cached_weights() {
         let path =
@@ -1356,6 +1359,7 @@ mod tests {
     /// loop depends on.
     ///   SUSI_MOE_GGUF=~/models/qwen3-30b-a3b-q4_k_m.gguf \
     ///     cargo test -p susi-gemi --release -- --ignored live_moe
+    #[cfg(feature = "local-engine")]
     #[test]
     #[ignore = "requires a real MoE GGUF at $SUSI_MOE_GGUF"]
     fn live_moe_gguf_loads_through_the_engine_dispatch() {
@@ -1404,6 +1408,7 @@ mod tests {
     ///   SUSI_MOE_GGUF=~/models/qwen3-30b-a3b-q4_k_m.gguf \
     ///   SUSI_MOE_TOKENIZER=~/models/qwen3-30b-a3b.tokenizer.json \
     ///     cargo test -p susi-gemi --release -- --ignored live_moe_generates
+    #[cfg(feature = "local-engine")]
     #[test]
     #[ignore = "requires real MoE GGUF + tokenizer at $SUSI_MOE_GGUF / $SUSI_MOE_TOKENIZER"]
     fn live_moe_gguf_generates_tokens_on_cpu() {
@@ -1523,6 +1528,7 @@ mod tests {
     /// count in metadata is what discriminates it from a dense Llama and
     /// selects the MoE backend, which does per-expert quantized matmul
     /// where candle's fused MoE kernels are CUDA-only.
+    #[cfg(feature = "local-engine")]
     #[test]
     fn test_moe_gguf_detection_uses_expert_count() {
         use susi_vendor_candle::candle_core::quantized::gguf_file::Value;
@@ -1587,6 +1593,7 @@ mod tests {
         assert_eq!(PromptFormat::Raw.wrap("hello"), "hello");
     }
 
+    #[cfg(feature = "local-engine")]
     #[test]
     fn test_shim_derives_missing_rope_dimension_count_from_embedding_and_head_count() {
         // Regression: qwen2.5's own GGUF metadata has no *.rope.dimension_count
@@ -1613,6 +1620,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "local-engine")]
     #[test]
     fn test_shim_prefers_existing_rope_dimension_count_over_derived_value() {
         let mut metadata: HashMap<String, gguf_file::Value> = HashMap::new();
@@ -1882,6 +1890,7 @@ mod tests {
         assert_eq!(out.as_deref(), Some("mixtral"));
     }
 
+    #[cfg(feature = "local-engine")]
     #[test]
     fn test_native_tokenization() {
         let _home = susi_paths::SusiDirs::home_dir();

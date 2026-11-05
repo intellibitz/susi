@@ -257,6 +257,26 @@ mod service {
                 },
             );
         }
+
+        #[test]
+        fn xdg_data_home_override_triggers_local_only_resolution() {
+            let _guard = env_test_lock();
+            let temp_data = std::env::temp_dir().join("susi-config-xdg-data-local-only-test");
+            let temp_data_str = temp_data.to_string_lossy().into_owned();
+            with_env(
+                &[
+                    ("SUSI_XDG", None),
+                    ("XDG_CONFIG_HOME", None),
+                    ("XDG_DATA_HOME", Some(&temp_data_str)),
+                    ("XDG_CACHE_HOME", None),
+                    ("SUSI_CONFIG_PORT", Some("1")),
+                ],
+                || {
+                    assert!(susi_paths::loopback::local_env_override());
+                    assert!(super::local_only());
+                },
+            );
+        }
     }
 }
 

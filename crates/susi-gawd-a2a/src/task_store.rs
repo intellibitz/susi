@@ -258,4 +258,24 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn reap_interval_constant_and_reap_terminal_preserve_single_completed_task() {
+        assert_eq!(REAP_INTERVAL, Duration::from_secs(300));
+        let store = InMemoryTaskStore::new();
+        store
+            .save(
+                &make_task(
+                    "task-single-done",
+                    TaskState::Completed,
+                    "2026-11-04T12:00:00Z",
+                ),
+                None,
+                Default::default(),
+            )
+            .await
+            .unwrap();
+        reap_terminal(&store).await;
+        assert!(store.get("task-single-done").await.unwrap().is_some());
+    }
 }

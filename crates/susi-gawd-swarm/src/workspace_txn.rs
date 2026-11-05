@@ -167,4 +167,20 @@ mod inline_tests {
             vec!["clean-body".to_string()]
         );
     }
+
+    #[test]
+    fn apply_allows_same_agent_to_reedit_owned_path_and_round_trips_serde_json() {
+        let mut txn = WorkspaceTxn::new();
+        let p1 = patch("a1", 0, &["src/lib.rs"], "v1");
+        let p2 = patch("a1", 1, &["src/lib.rs"], "v2");
+        assert_eq!(
+            txn.apply(p1.clone(), std::slice::from_ref(&p1)),
+            ApplyOutcome::Applied { new_rev: 1 }
+        );
+        assert_eq!(txn.apply(p2, &[]), ApplyOutcome::Applied { new_rev: 2 });
+
+        let encoded = serde_json::to_string(&p1).unwrap();
+        let decoded: Patch = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, p1);
+    }
 }

@@ -87,4 +87,21 @@ mod zc_tasks_next_tests {
         ]);
         assert_eq!(pick.as_deref(), Some("T-MEDIUM"));
     }
+
+    #[test]
+    fn zc_tasks_next_selects_large_when_only_unblocked_large_candidate_exists() {
+        let pick = pick_next(&[
+            TaskCandidate {
+                id: "T-BLOCKED-S".into(),
+                size: "s".into(),
+                has_deps: true,
+            },
+            TaskCandidate {
+                id: "T-UNBLOCKED-L".into(),
+                size: "l".into(),
+                has_deps: false,
+            },
+        ]);
+        assert_eq!(pick.as_deref(), Some("T-UNBLOCKED-L"));
+    }
 }

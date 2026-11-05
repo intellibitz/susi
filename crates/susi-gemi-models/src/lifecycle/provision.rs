@@ -149,7 +149,11 @@ impl ModelManager {
         if path.exists() {
             susi_vendor_models::model_license::verify_local(&path)
                 .map_err(crate::susi_error::EaiError::governance)?;
-            if susi_vendor_candle::tokenizers::Tokenizer::from_file(&path).is_ok() {
+            #[cfg(feature = "local-engine")]
+            let parsed = susi_vendor_candle::tokenizers::Tokenizer::from_file(&path).is_ok();
+            #[cfg(not(feature = "local-engine"))]
+            let parsed = false;
+            if parsed {
                 return Ok(());
             }
             return Err(crate::susi_error::EaiError::governance("Existing tokenizer is invalid; preserving its bytes rather than replacing a user-owned file"));
@@ -181,7 +185,17 @@ impl ModelManager {
                 token.as_deref(),
                 &|| false,
                 &|_, _| {},
-                &|p| susi_vendor_candle::tokenizers::Tokenizer::from_file(p).is_ok(),
+                &|p| {
+                    #[cfg(feature = "local-engine")]
+                    {
+                        susi_vendor_candle::tokenizers::Tokenizer::from_file(p).is_ok()
+                    }
+                    #[cfg(not(feature = "local-engine"))]
+                    {
+                        let _ = p;
+                        false
+                    }
+                },
                 expected_sha256.as_deref(),
             ) {
                 Ok(()) => {
@@ -475,6 +489,29 @@ mod license_tests {
         );
         assert!(result.is_err());
         assert!(!dir.join("unaudited.tokenizer.json").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn verify_model_ladder_and_expert_audit_report_steps_without_starting_downloads() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-ladder-verify-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let report = ModelManager::verify_model_ladder(&dir).unwrap();
+        assert!(report.total_steps > 0);
+        assert_eq!(report.steps.len(), report.total_steps);
+        assert!(report.network_status.contains("Connected: true"));
+
+        let audit = ModelManager::run_downloads_expert_audit(&dir);
+        assert!(audit.contains("=== SUSI MODEL DOWNLOADING EXPERT AUDIT ==="));
+        assert!(audit.contains("[HARDWARE STATS]:"));
+        assert!(audit.contains("[NETWORK STATS]:"));
         let _ = fs::remove_dir_all(&dir);
     }
 }

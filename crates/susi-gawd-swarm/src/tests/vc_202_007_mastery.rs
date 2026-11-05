@@ -153,3 +153,9 @@ fn vc_202_007_mastery_route_split_is_typed() {
         Err(PlanError::Unplannable { .. }) | Err(PlanError::CommandShaped)
     ));
 }
+
+#[test]
+fn vc_202_007_mastery_leaf_operation_lookup_rejects_unknown_operation_names() {
+    assert!(leaf_operation("view_file").is_some());
+    assert!(leaf_operation("nonexistent_leaf_op").is_none());
+}

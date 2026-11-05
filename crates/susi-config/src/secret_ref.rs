@@ -487,4 +487,19 @@ mod tests {
             "resolved=[REDACTED]; next=ok"
         );
     }
+
+    #[test]
+    fn secret_vault_default_rejects_unseeded_secret_lookup_and_redact_preserves_plain_text() {
+        let mut vault = SecretVault::default();
+        let boundary = vault.issue_boundary("ops");
+        assert_eq!(boundary.scope(), "ops");
+        let sref = SecretRef::parse("secret://ops/missing_token").unwrap();
+        assert_eq!(sref.scope, "ops");
+        assert_eq!(sref.name, "missing_token");
+        assert_eq!(sref.display(), "secret://ops/missing_token");
+        assert_eq!(
+            redact_for_export("status=healthy count=42"),
+            "status=healthy count=42"
+        );
+    }
 }

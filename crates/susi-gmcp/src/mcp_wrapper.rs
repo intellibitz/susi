@@ -128,4 +128,18 @@ mod inline_tests {
         auto_discover_mcp();
         auto_discover_mcp();
     }
+
+    #[test]
+    fn mcp_dynamic_tool_preserves_server_and_bare_tool_fields_for_proxy_routing() {
+        let tool = McpDynamicTool {
+            server_name: "filesystem".into(),
+            registry_name: "filesystem:read_text".into(),
+            mcp_tool_name: "read_text".into(),
+            description: "Read text file via MCP".into(),
+        };
+        assert_eq!(tool.server_name, "filesystem");
+        assert_eq!(tool.mcp_tool_name, "read_text");
+        assert!(tool.name().starts_with(&tool.server_name));
+        assert!(tool.name().ends_with(&tool.mcp_tool_name));
+    }
 }

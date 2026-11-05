@@ -1,0 +1,26 @@
+{
+  "id": "T-LANDALLSTDLIBREUSE1105-1",
+  "title": "Land stranded stdlib-remap and stdlib-reuse worktree work: compile-time path remapping, two-root raw archive check, reuse evidence",
+  "goal": "CEO directive 2026-11-05: merge every Susi worktree. Port 722d3f832 and 8393e3326 (CIPERF, stdlib remap) onto main's native multi-host builder, and keep the stdlib-reuse candidate's evidence (2d7f3cf69, 2f1463cde). The reuse cache code is not forced onto main because it hard-pins builder and compiler_env hashes that main no longer has, is Windows-only where main also builds Linux sysroots, and its own evidence declares it a future-only candidate with no production pin. Old-schema task records are kept as evidence under .agents/evidence/stranded-1105/.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "compiler_binding"
+    ]
+  },
+  "created_by": "LANDALLSTDLIBREUSE1105",
+  "created_unix": 1793821943,
+  "closed": {
+    "at_unix": 1793824003,
+    "commit": "48c00faf06c63545c8ae0b2b951ad3a2b7fdf7c6",
+    "by": "LANDALLSTDLIBREUSE1105"
+  }
+}

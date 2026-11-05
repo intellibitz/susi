@@ -538,4 +538,12 @@ mod tests {
             assert_eq!(store.data().stdout, expected.as_bytes());
         }
     }
+
+    #[test]
+    fn output_limit_constant_is_16_mib_and_errno_constants_are_distinct() {
+        assert_eq!(OUTPUT_LIMIT, 16 * 1024 * 1024);
+        assert_ne!(INVAL, FAULT);
+        assert_ne!(INVAL, NOTSUP);
+        assert_ne!(FAULT, NOTSUP);
+    }
 }

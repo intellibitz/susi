@@ -1,8 +1,8 @@
 // 100% Rust implementation for autonomous hardware profiling
 
+use crate::device::Device;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use susi_vendor_candle::candle_core::Device;
 
 /// Direct Win32 hardware probes (`kernel32.dll`) so Windows builds measure
 /// real physical/available RAM, pagefile swap, disk capacity/free space, and
@@ -493,7 +493,14 @@ impl HardwareProfiler {
             }
         }
 
-        susi_vendor_candle::device::cached_device()
+        #[cfg(feature = "local-engine")]
+        {
+            return susi_vendor_candle::device::cached_device();
+        }
+        #[cfg(not(feature = "local-engine"))]
+        {
+            Device::Cpu
+        }
     }
 
     fn get_os_info() -> String {
@@ -1056,6 +1063,7 @@ mod gpu_probe_cache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "local-engine")]
     use susi_vendor_candle::candle_core;
 
     #[test]
@@ -1251,14 +1259,15 @@ mod tests {
         let device = HardwareProfiler::get_candle_device();
         // Simply ensure it doesn't panic and returns a valid variant
         match device {
-            candle_core::Device::Cpu => {}
-            candle_core::Device::Cuda(_) => {}
-            candle_core::Device::Metal(_) => {}
+            Device::Cpu => {}
+            Device::Cuda(_) => {}
+            Device::Metal(_) => {}
         }
     }
 
     /// Exercise the selected CPU or Metal device with real matrix multiplication.
     /// Selection alone is not proof that the device executes kernels.
+    #[cfg(feature = "local-engine")]
     #[test]
     fn test_selected_device_actually_computes() {
         let device = HardwareProfiler::get_candle_device();

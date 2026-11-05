@@ -203,4 +203,14 @@ mod inline_tests {
         card.latency.value = 98.0;
         assert!(!card.summary_ok(&spec));
     }
+
+    #[test]
+    fn summary_ok_fails_when_task_count_falls_below_spec_minimum() {
+        let mut card = passing_scorecard();
+        let spec = sample_spec();
+        card.task_count = 1;
+        assert!(!card.summary_ok(&spec));
+        card.task_count = 20;
+        assert!(card.summary_ok(&spec));
+    }
 }

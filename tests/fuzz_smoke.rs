@@ -91,3 +91,25 @@ fn fuzz_smoke_swarm_event_roundtrips_valid_events_and_rejects_malformed_control_
     let decoded = SwarmEvent::decode(valid).unwrap();
     assert!(decoded.is_some());
 }
+
+#[test]
+fn fuzz_smoke_evidence_record_confidence_and_rank_are_preserved() {
+    let record = EvidenceRecord::new(
+        "id-rank".into(),
+        2.5,
+        12345,
+        Claim {
+            subject: "sub".into(),
+            predicate: "pred".into(),
+            value: "val".into(),
+        },
+        EvidenceSource::System {
+            metric: "cpu".into(),
+            value: "0.5".into(),
+        },
+        0.75,
+    );
+    assert!((record.rank - 2.5).abs() < f32::EPSILON);
+    assert!((record.confidence - 0.75).abs() < f32::EPSILON);
+    assert_eq!(record.timestamp, 12345);
+}

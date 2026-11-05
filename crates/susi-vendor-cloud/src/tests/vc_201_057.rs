@@ -69,3 +69,11 @@ fn vc_201_057_retry_budget_bounds_resumes_per_grant() {
     // Next grant picks it up.
     assert_eq!(set.resume(1, 2).len(), 1);
 }
+
+#[test]
+fn vc_201_057_evict_on_empty_set_produces_no_outcomes_or_billed_compute() {
+    let mut set = PreemptibleSet::new(1);
+    assert!(set.evict().is_empty());
+    assert_eq!(set.billed_secs(), 0);
+    assert!(set.resume(1, 5).is_empty());
+}

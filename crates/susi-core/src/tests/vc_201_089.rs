@@ -106,3 +106,11 @@ fn vc_201_089_install_active_refuses_to_overwrite_existing_active_revision() {
     assert!(err.contains("already installed"));
     assert_eq!(u.active().map(|a| a.id.as_str()), Some("a1"));
 }
+
+#[test]
+fn vc_201_089_fresh_upgrade_has_no_active_or_staged_revision_and_unbound_session() {
+    let u = AdapterUpgrade::new();
+    assert!(u.active().is_none());
+    assert!(u.staged().is_none());
+    assert!(u.session_owner("unknown-session").is_none());
+}

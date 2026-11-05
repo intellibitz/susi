@@ -245,3 +245,14 @@ fn vc_201_076_validate_manifest_enforces_file_bindings_and_permission_boundaries
         "declaring filesystem.read permits parent-relative path"
     );
 }
+
+#[test]
+fn vc_201_076_compute_digest_produces_64_char_hex_sha256_prefix() {
+    let d1 = compute_digest(b"hello-world");
+    let d2 = compute_digest(b"hello-world");
+    let d3 = compute_digest(b"other-world");
+    assert_eq!(d1, d2);
+    assert_ne!(d1, d3);
+    assert!(d1.starts_with("sha256:"));
+    assert_eq!(d1.len(), "sha256:".len() + 64);
+}

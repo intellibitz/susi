@@ -229,4 +229,12 @@ mod tests {
         )
         .is_err());
     }
+
+    #[test]
+    fn acceptor_from_pem_rejects_malformed_private_key_with_valid_certificate() {
+        let generated =
+            susi_vendor_rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let cert = generated.cert.pem();
+        assert!(acceptor_from_pem(cert.as_bytes(), b"not-a-valid-private-key-pem").is_err());
+    }
 }

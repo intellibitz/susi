@@ -15,17 +15,20 @@ static RESIDENCY_PROBE: std::sync::OnceLock<fn(&Path) -> bool> = std::sync::Once
 
 /// Keep one parsed tokenizer for selection and inference together. Comparing
 /// bytes also catches same-size replacements within a filesystem timestamp tick.
+#[cfg(feature = "local-engine")]
 #[derive(Default)]
 struct TokenizerCache {
     entry: Option<CachedTokenizer>,
 }
 
+#[cfg(feature = "local-engine")]
 struct CachedTokenizer {
     path: PathBuf,
     digest: String,
     tokenizer: std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>,
 }
 
+#[cfg(feature = "local-engine")]
 impl TokenizerCache {
     fn load(
         &mut self,
@@ -68,6 +71,7 @@ impl TokenizerCache {
     }
 }
 
+#[cfg(feature = "local-engine")]
 fn parsed_tokenizer(
     path: &Path,
     verified: Option<VerifiedArtifact>,
@@ -653,15 +657,24 @@ impl ModelManager {
     /// Selection and inference share one bounded parser cache. Errors reading
     /// the artifact remain retryable; only content failures become verdicts.
     fn judge_tokenizer(path: &Path) -> Option<bool> {
-        match parsed_tokenizer(path, None) {
-            Ok(_) => Some(true),
-            Err(e) if super::file_verdicts::decided_by_content(&e) => Some(false),
-            Err(_) => None,
+        #[cfg(feature = "local-engine")]
+        {
+            return match parsed_tokenizer(path, None) {
+                Ok(_) => Some(true),
+                Err(e) if super::file_verdicts::decided_by_content(&e) => Some(false),
+                Err(_) => None,
+            };
+        }
+        #[cfg(not(feature = "local-engine"))]
+        {
+            let _ = path;
+            Some(false)
         }
     }
 
     /// Resolve the same validated tokenizer used during model selection without
     /// parsing its JSON twice. The cache retains at most one tokenizer.
+    #[cfg(feature = "local-engine")]
     pub fn load_tokenizer(
         path: &Path,
     ) -> EaiResult<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
@@ -737,6 +750,7 @@ mod selection_tests {
         ));
     }
 
+    #[cfg(feature = "local-engine")]
     #[test]
     fn tokenizer_cache_reuses_bytes_and_rejects_replaced_or_missing_artifacts() {
         use susi_vendor_candle::tokenizers::{models::wordlevel::WordLevel, Tokenizer};
@@ -833,5 +847,43 @@ mod selection_tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn size_preference_score_and_resolve_complexity_floor_rank_tiers_monotonically() {
+        use crate::intent::TaskComplexity;
+        assert_eq!(
+            ModelManager::resolve_complexity_floor(
+                TaskComplexity::Trivial,
+                Some(TaskComplexity::Complex)
+            ),
+            TaskComplexity::Complex
+        );
+        assert_eq!(
+            ModelManager::resolve_complexity_floor(
+                TaskComplexity::VeryComplex,
+                Some(TaskComplexity::Simple)
+            ),
+            TaskComplexity::VeryComplex
+        );
+        assert_eq!(
+            ModelManager::resolve_complexity_floor(TaskComplexity::Moderate, None),
+            TaskComplexity::Moderate
+        );
+
+        // Equal min/max range falls back to positive magnitude score
+        assert!(
+            (ModelManager::size_preference_score(2.0, 2.0, 2.0, None) - 10.0).abs() < f32::EPSILON
+        );
+
+        // Simple complexity prefers smaller model (0.5 GB over 8.0 GB)
+        let small_simple =
+            ModelManager::size_preference_score(0.5, 0.5, 8.0, Some(TaskComplexity::Trivial));
+        let large_simple =
+            ModelManager::size_preference_score(8.0, 0.5, 8.0, Some(TaskComplexity::Trivial));
+        assert!(small_simple > large_simple);
+
+        assert!(ModelManager::is_synthetic_model_id("susi-native-synthesis"));
+        assert!(!ModelManager::is_synthetic_model_id("qwen2.5-0.5b.gguf"));
     }
 }

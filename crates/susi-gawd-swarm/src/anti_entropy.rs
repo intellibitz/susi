@@ -311,4 +311,32 @@ mod inline_tests {
         assert!(!second.needs_more);
         assert_eq!(applied, remote);
     }
+
+    #[test]
+    fn default_catch_up_bounds_and_empty_fetch_converge_immediately() {
+        let bounds = CatchUpBounds::default();
+        assert_eq!(bounds.batch_size, 256);
+        assert_eq!(bounds.max_apply_per_sweep, 512);
+        assert_eq!(bounds.max_scan_per_sweep, 4096);
+
+        let mut book = CatchUpBook::default();
+        let outcome = bounded_sweep::<u32>(
+            &mut book,
+            "peer-empty",
+            bounds,
+            &mut |_, _| Vec::new(),
+            &mut |_| true,
+            &mut |_| {},
+            &mut |_| {},
+        );
+        assert_eq!(
+            outcome,
+            SweepOutcome {
+                scanned: 0,
+                applied: 0,
+                converged: true,
+                needs_more: false,
+            }
+        );
+    }
 }

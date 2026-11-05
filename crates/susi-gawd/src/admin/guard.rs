@@ -419,4 +419,27 @@ mod guard_tests {
         assert_eq!(short("0123456789abcdef"), "01234567");
         assert_eq!(short("abc"), "abc");
     }
+
+    #[test]
+    fn queue_branch_pushes_and_new_main_creation_pass_without_git_calls() {
+        let dir = std::env::temp_dir();
+        assert_eq!(
+            run(
+                &dir,
+                Stage::Push,
+                "refs/heads/susi-queue/req1 abc refs/heads/susi-queue/req1 000\n",
+                Overrides::default()
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            run(
+                &dir,
+                Stage::Push,
+                &format!("refs/heads/main abc refs/heads/main {ZERO}\n"),
+                Overrides::default()
+            ),
+            Ok(())
+        );
+    }
 }

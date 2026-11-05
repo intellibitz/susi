@@ -287,4 +287,33 @@ mod export_file_tests {
             Err(VerifyFailure::Truncation)
         );
     }
+
+    #[test]
+    fn verify_detects_missing_segment_secret_leak_and_wrong_export_format() {
+        let mut evidence = AuditEvidence::new();
+        evidence.register_key("k1", "super-secret-token");
+        evidence.append("seg-0", "k1").unwrap();
+        evidence.append("seg-1", "k1").unwrap();
+        let keys = BTreeMap::from([("k1".to_string(), "super-secret-token".to_string())]);
+
+        let gap = vec![evidence.export()[1].clone()];
+        assert_eq!(
+            AuditEvidence::verify(&gap, &keys),
+            Err(VerifyFailure::MissingSegment)
+        );
+
+        let mut leak_ev = AuditEvidence::new();
+        leak_ev.register_key("k1", "super-secret-token");
+        leak_ev
+            .append("leaked super-secret-token in body", "k1")
+            .unwrap();
+        assert_eq!(
+            AuditEvidence::verify(&leak_ev.export(), &keys),
+            Err(VerifyFailure::Tampering)
+        );
+
+        let mut bad_format = evidence.export_file();
+        bad_format.format = "invalid/v0".to_string();
+        assert_eq!(bad_format.verify(&keys), Err(VerifyFailure::Tampering));
+    }
 }

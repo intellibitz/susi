@@ -100,4 +100,10 @@ mod inline_tests {
             assert!(!entry.engine.trim().is_empty());
         }
     }
+
+    #[test]
+    fn prefer_returns_err_for_unknown_open_weight_model_when_not_clearing() {
+        let res = prefer("nonexistent-open-weight-model-xyz-999", false);
+        assert!(res.is_err());
+    }
 }

@@ -37,6 +37,7 @@ pub use susi_vendor_models::{
     local_ecosystem, open_weight, openrouter, price_catalog, resource_inventory, runtime_lifecycle,
 };
 pub mod coding_models;
+mod device;
 pub(crate) mod download;
 pub mod gpu_telemetry;
 pub mod hardware;
@@ -94,5 +95,15 @@ mod inline_tests {
             std::hint::black_box(zc_first_model::STARTER_SOURCE),
             "starter"
         );
+    }
+
+    #[test]
+    fn audited_starter_matches_first_default_starter_and_has_positive_size() {
+        let audited = zc_first_model::audited_starter();
+        let starters = zc_first_model::default_starters();
+        assert_eq!(audited, starters[0]);
+        assert!(audited.size_bytes > 0);
+        assert!(!audited.hf_repo.is_empty());
+        assert!(audited.hf_file.ends_with(".gguf"));
     }
 }

@@ -163,3 +163,13 @@ fn native_role_select_wiring_reports_multi_agent_not_cheaper_when_exceeding_solo
         .expect("native roles");
     assert!(!assignment.multi_agent_cheaper);
 }
+
+#[test]
+fn native_role_select_wiring_rejects_empty_fleet() {
+    let mut dag = MissionDag::new("empty fleet");
+    let required = BTreeSet::from(["code".into()]);
+    assert_eq!(
+        dag.assign_native_roles(&[], &required, 10.0),
+        Err(SelectError::NoImplementer)
+    );
+}

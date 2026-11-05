@@ -159,3 +159,13 @@ fn vc_201_067_mastery_resolving_unknown_root_profile_returns_error() {
     assert_eq!(resolved.provenance["shared_key"].profile, "base");
     assert_eq!(resolved.provenance["override"].profile, "dev");
 }
+
+#[test]
+fn vc_201_067_mastery_self_cycle_in_single_profile_is_refused() {
+    let self_cycle = set(&[(
+        "loop",
+        profile(EnvKind::Shared, &["loop"], &[("k", json!("v"))]),
+    )]);
+    assert!(self_cycle.validate().is_err());
+    assert!(self_cycle.resolve("loop").is_err());
+}

@@ -197,3 +197,35 @@ fn reconciler_rollback_without_prior_known_good_generation_returns_err() {
     };
     assert!(reconciler.rollback(&mut desired, &mut observed).is_err());
 }
+
+#[test]
+fn reconciler_health_check_transitions_between_healthy_and_degraded_phases() {
+    let mut reconciler = CloudReconciler::new();
+    let desired = DeploymentDesiredState {
+        deployment_id: "dep-health".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama-3".into(),
+        min_replicas: 2,
+        max_replicas: 4,
+        gpu_type: "A100".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-health".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama-3".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Pending,
+        last_operation_id: None,
+        observed_generation: 0,
+    };
+    reconciler.reconcile(&desired, &mut observed);
+    reconciler.run_health_check(&desired, &mut observed, false);
+    assert_eq!(observed.phase, DeploymentPhase::Degraded);
+    assert_eq!(observed.healthy_replicas, 0);
+
+    reconciler.run_health_check(&desired, &mut observed, true);
+    assert_eq!(observed.phase, DeploymentPhase::Healthy);
+    assert_eq!(observed.healthy_replicas, 2);
+}

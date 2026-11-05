@@ -42,6 +42,7 @@ fn run(home: &Path, workspace: &Path, args: &[&str]) -> (i32, String, String) {
 
 #[test]
 fn audit_chain_verifies() {
+    let _guard = UNIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let root = root();
     let home = root.join("home");
     let workspace = root.join("workspace");
@@ -153,4 +154,15 @@ fn unit_audit_chain_verify_detects_tampered_prev_hash() {
     assert!(susi_sandbox::audit_chain::verify_chain(&log).is_err());
     drop(env);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn unit_root_helper_creates_distinct_clean_directories() {
+    let d1 = root();
+    let d2 = root();
+    assert_ne!(d1, d2);
+    assert!(d1.is_dir());
+    assert!(d2.is_dir());
+    let _ = std::fs::remove_dir_all(d1);
+    let _ = std::fs::remove_dir_all(d2);
 }

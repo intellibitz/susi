@@ -487,9 +487,12 @@ Public boundaries use stable DTOs and versioned events where applicable.
 Configuration authority for bundled JSON is documented in
 [`config/README.md`](config/README.md).
 
-`susi-gmcp` defaults to feature `tools-rich` (browser / tantivy / qdrant /
-fastembed / syn AST tools). Use `--no-default-features` on that crate for
-lighter local checks; shipped binaries keep the default.
+`susi-gmcp` keeps specialist tools (browser, tantivy full-text, fastembed,
+syn AST) behind feature `tools-rich`, which is off in the default core. The
+built-in Candle engine is behind `local-engine`, also off by default.
+`cargo build -p susi --features plugins` turns both back on. The default
+binary stays a protocol socket: MCP, OpenAI-style chat completions,
+Anthropic Messages, and A2A remain; local weights and bulk tools are opt-in.
 
 ## Autonomy surfaces (substrate-level)
 

@@ -79,3 +79,11 @@ fn airgap_mode_permits_ipv4_and_localhost_loopback_ports() {
         );
     }
 }
+
+#[test]
+fn airgap_mode_blocks_cloud_inference_and_network_by_default_invariants() {
+    let policy = MacPolicy::new([44; 32], PrivacyMode::LocalOnly, true);
+    assert!(policy.blocks_cloud_inference());
+    assert!(policy.blocks_network_by_default());
+    assert!(!policy.egress_permitted("https://example.com/v1/models"));
+}

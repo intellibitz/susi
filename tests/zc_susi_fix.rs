@@ -100,3 +100,20 @@ fn zc_susi_fix_doctor_scan_returns_empty_on_complete_home() {
     assert!(doctor_scan(&root).is_empty());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn zc_susi_fix_populates_hook_stub_when_hooks_dir_lacks_pre_commit() {
+    let root = unique_fix_root("hook-stub");
+    for dir in ["config", "evidence", "brain", "tasks", "hooks"] {
+        std::fs::create_dir_all(root.join(dir)).unwrap();
+    }
+    let findings = doctor_scan(&root);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].kind, FixKind::HooksMissing);
+
+    let report = apply_safe_fixes(&root, &findings);
+    assert_eq!(report.applied.len(), 1);
+    let body = std::fs::read_to_string(root.join("hooks").join("pre-commit")).unwrap();
+    assert!(body.starts_with("#!/"));
+    let _ = std::fs::remove_dir_all(&root);
+}

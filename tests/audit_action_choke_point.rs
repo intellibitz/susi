@@ -126,3 +126,24 @@ fn audit_choke_point_records_denied_and_failed_outcomes_accurately() {
     assert_eq!(records[0].outcome.as_str(), "denied");
     assert_eq!(records[1].outcome.as_str(), "failed");
 }
+
+#[test]
+fn audit_action_payload_ref_records_byte_length_and_hint() {
+    let sink = RecordingAuditSink::default();
+    let choke = AuditChokePoint::new(sink.clone());
+    let action = AuditAction::new(
+        AuditActionKind::ModelCall,
+        "payload-ref-check",
+        AuditTarget::payload_ref("gemini:pro", b"hello-world", "request-body"),
+        AuditOutcome::Succeeded,
+        3,
+        9,
+        "trace/payload-ref-5",
+    )
+    .unwrap();
+    choke.dispatch(&action).unwrap();
+    let records = sink.records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].correlation_id, "trace/payload-ref-5");
+    assert!(records[0].redacted);
+}

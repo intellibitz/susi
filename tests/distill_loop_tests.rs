@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+#![cfg(feature = "local-engine")]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -10,8 +12,6 @@
 //! over the bus, held-out gate, publication, cycle log) → Tier-0 serving
 //! through `SusiPulse`. Each piece has unit tests in its own crate; this
 //! proves they compose.
-
-#![allow(missing_docs)] // integration test crate: no public API to document
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -199,4 +199,12 @@ fn fresh_workspace_summary_is_zeroed_and_below_threshold_does_not_distill() {
     let after_summary = susi_gawd::reflex_trainer::distillation_summary(&workspace);
     assert_eq!(after_summary["published"], 0, "{after_summary}");
     assert_eq!(after_summary["error"], 0, "{after_summary}");
+}
+
+#[test]
+fn test_home_helper_is_deterministic_within_process() {
+    let first = test_home();
+    let second = test_home();
+    assert_eq!(first, second);
+    assert!(first.to_string_lossy().contains("susi_distill_loop_"));
 }

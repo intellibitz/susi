@@ -112,4 +112,19 @@ mod tasks_from_brain_tests {
             "cargo test -p susi-gemi-models default_claude-sonnet"
         );
     }
+
+    #[test]
+    fn tasks_from_brain_emits_only_provider_task_when_unfit_has_no_default_model() {
+        let drafts = tasks_from_brain(
+            &[BrainSignal {
+                provider: "groq".into(),
+                unfit_days: 4,
+                default_model: None,
+                default_served: false,
+            }],
+            3,
+        );
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].title, "Remediate unfit provider groq");
+    }
 }

@@ -166,4 +166,13 @@ mod tests {
             "response carried no candidates[0].content.parts[].text text"
         );
     }
+
+    #[test]
+    fn gemini_model_path_preserves_bare_id_and_inference_protocol_copy_eq_holds() {
+        assert_eq!(gemini_model_path("gemini-2.5-flash"), "gemini-2.5-flash");
+        let p = InferenceProtocol::OpenAiChat;
+        let copied = p;
+        assert_eq!(copied, p);
+        assert!(!format!("{p:?}").is_empty());
+    }
 }

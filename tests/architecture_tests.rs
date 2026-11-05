@@ -97,7 +97,9 @@ fn workspace_graph() -> HashMap<String, HashSet<String>> {
 const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-abi", 0),
     ("susi-paths", 0),
+    ("susi-build-os-ucrt", 0),
     ("susi-build-policy", 0),
+    ("susi-cli-defs", 0),
     ("susi-windows-runtime", 0),
     ("susi-error", 1),
     ("susi-config", 2),
@@ -2797,6 +2799,10 @@ fn core_cli_has_no_ui_subcommands() {
         "the interactive shell module must not return to core"
     );
     let defs = std::fs::read_to_string(root.join("src/cli/defs.rs")).expect("read defs.rs");
+    assert!(
+        defs.contains("enum Commands"),
+        "src/cli/defs.rs must define `enum Commands`; update scanner path if moved"
+    );
     for (number, line) in defs.lines().enumerate() {
         let trimmed = line.trim();
         assert!(
@@ -2809,22 +2815,34 @@ fn core_cli_has_no_ui_subcommands() {
     }
     let top = std::fs::read_to_string(root.join("src/cli/top_cli.rs")).expect("read top_cli.rs");
     assert!(
+        top.contains("struct TopArgs"),
+        "src/cli/top_cli.rs must define `struct TopArgs`; update scanner path if moved"
+    );
+    assert!(
         !top.contains("pub watch") && !top.contains("pub interval"),
         "`susi top` has no watch loop; a live view lives in the commercial desktop"
     );
     for rel in ["src/cli/defs.rs", "src/cli/harness_cli.rs"] {
         let text = std::fs::read_to_string(root.join(rel)).expect("read CLI defs");
+        let mut visible_help_matches = 0usize;
         for (number, line) in text.lines().enumerate() {
             let trimmed = line.trim();
             let lower = trimmed.to_ascii_lowercase();
             let visible_help = trimmed.starts_with("///")
                 || lower.contains("visible_alias")
                 || lower.contains("about =");
+            if visible_help {
+                visible_help_matches += 1;
+            }
             assert!(
                 !(visible_help && (lower.contains("dashboard") || lower.contains("cockpit"))),
                 "{rel}:{}: visible command help names a dashboard/cockpit: {trimmed}",
                 number + 1
             );
         }
+        assert!(
+            visible_help_matches > 0,
+            "{rel} yielded zero visible help lines; update scanner path if moved"
+        );
     }
 }

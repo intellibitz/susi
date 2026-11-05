@@ -117,3 +117,11 @@ fn vc_201_026_propagate_without_token_is_noop_and_late_register_sets_signal() {
     });
     assert!(late_sig.load(Ordering::Acquire));
 }
+
+#[test]
+fn vc_201_026_cancel_token_fresh_starts_uncancelled_with_matching_root_id() {
+    let tok = CancelToken::fresh("mission-alpha", 500);
+    assert_eq!(tok.root_id, "mission-alpha");
+    assert_eq!(tok.deadline_unix, 500);
+    assert!(!tok.cancelled);
+}

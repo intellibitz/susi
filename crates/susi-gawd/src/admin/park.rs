@@ -455,4 +455,16 @@ mod park_tests {
             Path::new("/nonexistent-path-beta")
         ));
     }
+
+    #[test]
+    fn git_command_sets_sync_active_guard_and_clears_inherited_git_vars() {
+        let cmd = git_command(&std::env::temp_dir(), &["status"]);
+        let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("SUSI_PRIMARY_SYNC_ACTIVE")),
+            Some(&Some(std::ffi::OsStr::new("1")))
+        );
+        assert_eq!(envs.get(std::ffi::OsStr::new("GIT_DIR")), Some(&None));
+        assert_eq!(envs.get(std::ffi::OsStr::new("GIT_WORK_TREE")), Some(&None));
+    }
 }

@@ -78,3 +78,16 @@ fn vc_201_041_partial_gpu_observation_reports_unknown_readiness_until_all_probes
     assert!(inv.has_unknown_readiness());
     assert_eq!(inv.disk_free_bytes.value_ref(), Some(&1_000_000));
 }
+
+#[test]
+fn vc_201_041_default_probe_inputs_report_all_unknown_observations() {
+    let inv = ResourceInventory::from_probes(ProbeInputs::default());
+    assert!(inv.cpu_cores.is_unknown());
+    assert!(inv.ram_bytes.is_unknown());
+    assert!(inv.gpu_name.is_unknown());
+    assert!(inv.vram_bytes.is_unknown());
+    assert!(inv.disk_free_bytes.is_unknown());
+    assert!(inv.models.is_unknown());
+    assert!(inv.runtimes.is_unknown());
+    assert!(inv.has_unknown_readiness());
+}

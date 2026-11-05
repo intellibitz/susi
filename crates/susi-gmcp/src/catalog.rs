@@ -94,4 +94,14 @@ mod inline_tests {
             serde_json::to_value(session.discover_result()).unwrap()
         );
     }
+
+    #[test]
+    fn install_populates_discover_capabilities_for_resources_and_prompts() {
+        let ws = std::env::temp_dir().join("susi-gmcp-catalog-caps");
+        let service = GmcpService::new(ws);
+        install(&service).unwrap();
+        let wire = serde_json::to_value(service.discover_result()).unwrap();
+        assert!(wire["capabilities"]["resources"].is_object());
+        assert!(wire["capabilities"]["prompts"].is_object());
+    }
 }

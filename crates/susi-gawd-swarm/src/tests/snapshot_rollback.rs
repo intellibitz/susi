@@ -297,3 +297,10 @@ fn snapshot_rollback_production_wiring() {
         "susi status must surface failed missions holding snapshots"
     );
 }
+
+#[test]
+fn snapshot_rollback_list_snapshots_is_empty_for_unrecorded_mission() {
+    let workspace = scratch_dir("empty-list");
+    assert!(PersistedMission::list_snapshots(&workspace, "no-such-mission").is_empty());
+    let _ = std::fs::remove_dir_all(&workspace);
+}

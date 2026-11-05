@@ -4,7 +4,9 @@ members = [
     "xtask",
     "crates/susi-abi",
     "crates/susi-paths",
+    "crates/susi-build-os-ucrt",
     "crates/susi-build-policy",
+    "crates/susi-cli-defs",
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
@@ -94,7 +96,7 @@ exclude = ["vendor"]
 
 [package]
 name = "susi"
-version = "0.21.48"
+version = "0.21.50"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi: RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem. Evidence-gated agent substrate. Open-admit OpenAI-compat/MCP/protocol peers, consensus swarm, HMAC audit, absolute truth, bearer-authenticated host ports."
@@ -145,7 +147,10 @@ too_many_arguments = "warn"
 complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
+susi-build-os-ucrt = { path = "crates/susi-build-os-ucrt" }
 susi-build-policy = { path = "crates/susi-build-policy" }
+susi-cli-defs = { path = "crates/susi-cli-defs" }
+susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-vendor-wasmtime = { path = "crates/susi-vendor-wasmtime" }
@@ -166,9 +171,9 @@ susi-http-transport = { path = "crates/susi-http-transport" }
 susi-wire-client = { path = "crates/susi-wire-client" }
 susi-vendor-candle = { path = "crates/susi-vendor-candle" }
 susi-adapters-llm = { path = "crates/susi-adapters-llm" }
-susi-gemi-models = { path = "crates/susi-gemi-models" }
-susi-gemi = { path = "crates/susi-gemi" }
-susi-gmcp = { path = "crates/susi-gmcp" }
+susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
+susi-gemi = { path = "crates/susi-gemi", default-features = false }
+susi-gmcp = { path = "crates/susi-gmcp", default-features = false }
 susi-harness = { path = "crates/susi-harness" }
 susi-gawd-agents = { path = "crates/susi-gawd-agents" }
 susi-gawd-swarm = { path = "crates/susi-gawd-swarm" }
@@ -208,7 +213,7 @@ susi-gawd-swarm = { workspace = true }
 susi-vendor-models = { workspace = true }
 
 [dependencies]
-susi-daemon = { path = "crates/susi-daemon" }
+susi-daemon = { path = "crates/susi-daemon", default-features = false }
 susi-server = { path = "crates/susi-server" }
 susi-core = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
@@ -222,6 +227,7 @@ susi-tools = { workspace = true }
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
 susi-config = { workspace = true }
+susi-cli-defs = { workspace = true }
 susi-wire-client = { workspace = true }
 susi-vendor-cloud = { workspace = true }
 susi-leaf-services = { workspace = true }
@@ -242,11 +248,10 @@ rayon = { package = "susi-vendor-rayon", path = "crates/susi-vendor-rayon" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo" }
-
-[target.'cfg(windows)'.dependencies]
-susi-windows-runtime = { path = "crates/susi-windows-runtime" }
+susi-windows-runtime = { workspace = true }
 
 [build-dependencies]
+susi-build-os-ucrt = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 
 # The candle crates come from crates.io again: candle-core 0.11.0 there wanted
@@ -279,6 +284,12 @@ default = []
 metal = ["susi-gemi/metal"]
 # Enable with: RUSTFLAGS='--cfg tokio_unstable' cargo build --features tokio-console
 tokio-console = ["dep:console-subscriber"]
+# Bulk specialist tools (browser, full-text index, embeddings, syn AST).
+tools-rich = ["susi-daemon/tools-rich", "susi-gmcp/tools-rich"]
+# Built-in Candle local model engine. Off in the default protocol socket.
+local-engine = ["susi-gemi/local-engine", "susi-daemon/local-engine"]
+# Opt-in bundle of the pieces the default core leaves out.
+plugins = ["tools-rich", "local-engine"]
 
 [profile.release]
 opt-level = 3 # High performance

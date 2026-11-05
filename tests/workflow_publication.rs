@@ -127,3 +127,15 @@ fn publication_does_not_invent_a_branch_for_a_legacy_receipt() {
 fn publication_accepts_an_existing_receipt_for_the_same_branch() {
     publication_case("fixture");
 }
+
+#[test]
+fn fixture_drop_removes_temporary_directory_cleanly() {
+    let dir = std::env::temp_dir().join(format!("susi-publication-drop-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("marker.txt"), "temp").unwrap();
+    assert!(dir.exists());
+    {
+        let _guard = Fixture(dir.clone());
+    }
+    assert!(!dir.exists());
+}

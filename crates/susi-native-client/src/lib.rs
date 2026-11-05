@@ -417,4 +417,10 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&temp_home);
     }
+
+    #[test]
+    fn default_port_and_wasm_timeout_constants_match_native_service_contract() {
+        assert_eq!(super::DEFAULT_PORT, susi_paths::ports::NATIVE_SERVICE);
+        assert_eq!(super::WASM_TIMEOUT.as_secs(), 120);
+    }
 }

@@ -191,3 +191,21 @@ fn vc_201_045_mastery_empty_output_candidate_fails_correctness_and_is_excluded()
     let ranked = recommend_placement(&[empty_bench, valid_bench]);
     assert_eq!(ranked, vec![valid_spec]);
 }
+
+#[test]
+fn vc_201_045_mastery_recommend_placement_returns_empty_when_no_candidate_supported() {
+    assert!(recommend_placement(&[]).is_empty());
+
+    let unsupported_spec = CandidateSpec {
+        engine: "llamacpp".into(),
+        model: "qwen-unsupported".into(),
+        format: ModelFormat::Safetensors,
+        quantization: Quantization::Fp16,
+    };
+    let provider = GgufOnlyProvider {
+        spec: unsupported_spec.clone(),
+    };
+    let bench = run_candidate_benchmark(&provider, unsupported_spec, 512.0, &["prompt"]);
+    assert!(!bench.supported);
+    assert!(recommend_placement(&[bench]).is_empty());
+}

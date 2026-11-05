@@ -96,3 +96,9 @@ fn cleanup_runs_workflow_filters_completed_runs_and_runs_board_hygiene() {
     assert!(body.contains("status=completed"));
     assert!(body.contains("scripts/check-board-hygiene.sh --apply"));
 }
+
+#[test]
+fn cleanup_runs_workflow_file_exists_under_github_workflows() {
+    let path = root().join(".github/workflows/cleanup-runs.yml");
+    assert!(path.is_file());
+}

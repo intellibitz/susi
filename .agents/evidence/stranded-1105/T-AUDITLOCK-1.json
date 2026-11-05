@@ -1,0 +1,44 @@
+{
+  "dependencies": [],
+  "id": "T-AUDITLOCK-1",
+  "scopes": [
+    "crates/susi-sandbox-client/src/audit_chain.rs",
+    "crates/susi-sandbox-client/src/lib.rs",
+    "crates/susi-config/src/file_lock.rs",
+    ".agents/tasks/T-AUDITLOCK-1.json"
+  ],
+  "status": "private_stress_verified",
+  "owner": "auditlock1102",
+  "acceptance": [
+    "Run concurrent_processes_extend_one_unforked_chain on Windows under concurrent load and measure verified entries and elapsed time",
+    "Preserve lock timeouts, crash recovery and compatibility; no integration or promotion"
+  ],
+  "source": "45285cdcd6399e64b44ce8f7e2f650e267002a52",
+  "evidence": {
+    "workload": "Unchanged concurrent_processes_extend_one_unforked_chain, four child processes x 300 signed appends per chain",
+    "workspace_volume_solo_seconds": 20.58,
+    "workspace_volume_four_parallel_seconds": [
+      23.9,
+      23.77,
+      24.11,
+      23.99
+    ],
+    "system_volume_eight_parallel_seconds": [
+      41.61,
+      41.07,
+      40.93,
+      41.46,
+      40.37,
+      41.47,
+      40.93,
+      41.04
+    ],
+    "chains_verified": 13,
+    "authenticated_entries": 15600,
+    "stress_failures": 0,
+    "stress_stderr_bytes": 0,
+    "audit_safety": "6 passed in 3.18s including held-lock refusal, tamper, stale checkpoint, unreadable and malformed data",
+    "lock_safety": "8 passed in 4.45s including waiter handoff, exclusive progress, exited holder reclaimed within 500ms, live holder refused at 100ms",
+    "limits": "No reported lock failure reproduced on this host with these workloads. No runtime or storage-format change."
+  }
+}

@@ -191,3 +191,23 @@ fn vc_202_019_anchor_interval_one_captures_anchor_for_every_record() {
     assert_eq!(history.anchors[1].anchor_index, 1);
     assert_eq!(history.anchors[2].anchor_index, 2);
 }
+
+#[test]
+fn vc_202_019_verify_against_length_accepts_exact_count_and_rejects_short_export() {
+    let key_id = "k-len";
+    let secret = "s-len";
+    let mut keys = BTreeMap::new();
+    keys.insert(key_id.to_string(), secret.to_string());
+
+    let mut history = ActionHistory::new(key_id, secret, 2);
+    history.record_action("A1", "M1", "op", 10, 100, "step-1");
+    history.record_action("A1", "M1", "op", 20, 200, "step-2");
+    history.record_action("A2", "M1", "op", 30, 300, "step-3");
+
+    let export = history.evidence.export();
+    assert!(AuditEvidence::verify_against_length(&export, &keys, 3).is_ok());
+    assert_eq!(
+        AuditEvidence::verify_against_length(&export, &keys, 4),
+        Err(VerifyFailure::Truncation)
+    );
+}

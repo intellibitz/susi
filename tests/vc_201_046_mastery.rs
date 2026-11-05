@@ -333,3 +333,16 @@ fn batcher_marks_expired_request_deadline_exceeded_without_invoking_backend() {
     assert_eq!(batcher.outcome(99), Some(&BatchOutcome::DeadlineExceeded));
     assert_eq!(backend.invocations.get(), 0);
 }
+
+#[test]
+fn batcher_cancelling_unknown_request_id_returns_error() {
+    let limits = BatchLimits {
+        max_batch: 4,
+        max_queue: 8,
+        max_wait_ms: 25,
+    };
+    let backend = MockBackend::new(true);
+    let mut batcher = Batcher::new(limits, &backend).unwrap();
+    assert!(batcher.cancel(404).is_err());
+    assert_eq!(batcher.pending_count(), 0);
+}

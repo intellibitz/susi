@@ -602,4 +602,20 @@ mod tests {
             "https://app.example.com"
         );
     }
+
+    #[test]
+    fn origin_forbidden_enforces_null_origin_and_explicit_port_matching() {
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert(hyper::header::ORIGIN, HeaderValue::from_static("null"));
+        assert!(!origin_forbidden(&headers, "null"));
+        assert!(origin_forbidden(&headers, "https://app.example.com"));
+
+        headers.insert(
+            hyper::header::ORIGIN,
+            HeaderValue::from_static("https://app.example.com:8443"),
+        );
+        assert!(!origin_forbidden(&headers, "https://app.example.com"));
+        assert!(!origin_forbidden(&headers, "https://app.example.com:8443"));
+        assert!(origin_forbidden(&headers, "https://app.example.com:9443"));
+    }
 }

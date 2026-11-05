@@ -132,4 +132,23 @@ mod inline_tests {
         gens[2].delta = 0.4;
         assert_eq!(next_action(&gens, 3), MultiGenResult::Continue);
     }
+
+    #[test]
+    fn next_action_handles_single_generation_regression_and_non_improvement_at_min_one() {
+        let regressed = vec![Generation {
+            index: 0,
+            delta: -0.01,
+            budget_remaining: 5.0,
+            rejected: false,
+        }];
+        assert_eq!(next_action(&regressed, 1), MultiGenResult::StopRegression);
+
+        let flat = vec![Generation {
+            index: 0,
+            delta: 0.0,
+            budget_remaining: 5.0,
+            rejected: false,
+        }];
+        assert_eq!(next_action(&flat, 1), MultiGenResult::StopNonImprovement);
+    }
 }

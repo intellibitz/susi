@@ -267,3 +267,34 @@ fn cold_starts_counts_only_events_missing_from_warm_resident_set() {
         0
     );
 }
+
+#[test]
+fn schedule_preload_respects_max_warm_cap_and_frequency_ordering() {
+    let now = 20_000u64;
+    let events = vec![
+        ModelUseEvent {
+            model_id: "m1".into(),
+            used_unix: now - 10,
+        },
+        ModelUseEvent {
+            model_id: "m2".into(),
+            used_unix: now - 8,
+        },
+        ModelUseEvent {
+            model_id: "m2".into(),
+            used_unix: now - 4,
+        },
+        ModelUseEvent {
+            model_id: "m3".into(),
+            used_unix: now - 2,
+        },
+    ];
+    let policy = PreloadPolicy {
+        max_warm: 2,
+        window_secs: 100,
+    };
+    let ranked = schedule_preload(&events, &policy, Some(now));
+    assert_eq!(ranked.len(), 2);
+    assert_eq!(ranked[0].model_id, "m2");
+    assert_eq!(ranked[0].uses_in_window, 2);
+}

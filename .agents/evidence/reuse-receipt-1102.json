@@ -1,0 +1,67 @@
+{
+  "task": "T-REUSERECEIPT1102-1",
+  "base": "bf3fde3e88b5b6d2039442220896586e620caf52",
+  "recovered": "6b1943b5e384be15d9bc29ddbed84c1c75385cc8",
+  "verification_baseline": "b5d16b85838e1a51db046a9766e4b7b333f7bef7",
+  "implementation": "c02930c13047fc610fdecd23236bcea2a9257a58",
+  "tested_tree": "e5c5143613ac7d53b20655588413217ba6ec989d",
+  "entry": "local-release.exe prepare-sysroot",
+  "schema": "susi/executed-sysroot/v4",
+  "private_clone": "F:/src/github.com/intellibitz/susi-receipt-lab-1793629687017",
+  "record_ref": "refs/susi/candidates/reuse-receipt-1102/verification-record",
+  "record_blob": "7c63bd645f295adf3103dfc87d910d109b9eb778",
+  "results": {
+    "code": "c02930c13047fc610fdecd23236bcea2a9257a58",
+    "cold_ms": 146421,
+    "cold_exit": 0,
+    "warm_ms": 13023,
+    "warm_exit": 0,
+    "builder_dirs_before": 3,
+    "builder_dirs_after": 3,
+    "altered_record_exit": 1,
+    "altered_record_message": "local-release: stdlib record differs from reviewed SHA-256 pin",
+    "record_sha256": "72eeedfda374dd5fa56fcc14503a8e4d278b5d3132edbddc150f9a24bf023dd6",
+    "identity": "57c977ce87151e0c78d8cea4d957242d116cab9d373efaee16a8b9b7d7dc4efb",
+    "input_inventory_entries": 137,
+    "archives": 20,
+    "archive_inventory_sha256": "7c3fde3021c2bb40914cbaacf195c5cb4135322b48f904a953396cf9e56b902e",
+    "consumer_sha256": "7c70ea0e8a04bd336a9c61a54e7105b89640b22f932c3ce23cb3e0a5c7f6c9fb",
+    "consumer_stdout": "\nrunning 1 test\ntest platform_unicode_and_standard_library_behave_on_real_inputs ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+  },
+  "checks": [
+    "Two trusted_sysroot tests passed including receipt mutation cases",
+    "Two compiler binding tests passed",
+    "cargo fmt --all --check passed",
+    "cargo clippy -p xtask --bin local-workflow --offline --locked -- -D warnings passed",
+    "Independently checked root and builder manifest and lock hashes, consumer source and executable, and exact inventory of 20 archive files"
+  ],
+  "negative_cases": [
+    "legacy schema",
+    "compiler bytes",
+    "driver bytes",
+    "dependency bytes",
+    "verifier bytes",
+    "compiler flags",
+    "test arguments",
+    "environment",
+    "test source",
+    "missing executable digest",
+    "failure exit",
+    "zero tests",
+    "changed selected dependency graph",
+    "tampered pinned receipt on native replay"
+  ],
+  "limits": [
+    "One Windows host and one measured cold and replay operation. Cargo dependencies and compiler were already installed.",
+    "The replay pin was installed only in the private verification clone. No reviewed production pin was added.",
+    "The stage qualifies stdlib archives for the named consumer. No unrelated build, parser test, release gate or arbitrary subprocess result is cached.",
+    "The host OS and installed toolchain remain trusted during discovery. Dependency identity includes selected graph, manifests, locks and authenticated sources as described by the recovered builder; no universal dependency sandbox is claimed."
+  ],
+  "logs": {
+    "scoped-corrupt": "d7a9c6c797665130a6c6fd5029398114779d1f9fc9e18f215810ed74cf406f30",
+    "scoped-cold": "5911e851f913fd71e902ffd73724b29f12820a851b3d65267c9357d0b570b22d",
+    "scoped-build": "eddfb802f874f79f82cfa78463d5a09b9339edd534dc69fad2a9c9d3cdb4c698",
+    "scoped-private-pin-build": "8e5d7387a7b68c5233e84efba5625adbe8fb509d699e19f6fa9e35728c7e5d6b",
+    "scoped-warm": "6d8406b76b868a4eac1b17b394bd88705e2f249f01aee280d30b64382dc6d755"
+  }
+}

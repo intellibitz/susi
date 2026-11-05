@@ -100,3 +100,9 @@ fn unit_crown_verify_workspace_mirror_path_nests_under_dot_susi() {
     let mirror = ws.join(".susi").join("last_crown.json");
     assert!(mirror.ends_with(".susi/last_crown.json"));
 }
+
+#[test]
+fn unit_crown_verify_binary_path_exists_on_disk() {
+    let bin = std::path::Path::new(env!("CARGO_BIN_EXE_susi"));
+    assert!(bin.is_file(), "expected susi binary at {}", bin.display());
+}

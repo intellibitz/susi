@@ -128,4 +128,17 @@ mod inline_tests {
         let empty_cmd = BaselineRecord::candidate_on_dev("c2", "hw1", "");
         assert!(!base.is_comparable_to(&empty_cmd));
     }
+
+    #[test]
+    fn baseline_record_serde_json_roundtrip_and_dataset_mismatch_incomparability() {
+        let mut rec = BaselineRecord::release_reference("c1", "hw1", "susi bench")
+            .with_metrics(0.95, 80, 2048, 400);
+        let encoded = serde_json::to_string(&rec).expect("serialize BaselineRecord");
+        let decoded: BaselineRecord =
+            serde_json::from_str(&encoded).expect("deserialize BaselineRecord");
+        assert_eq!(decoded, rec);
+
+        rec.dataset = "custom-eval".to_string();
+        assert!(!decoded.is_comparable_to(&rec));
+    }
 }

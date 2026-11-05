@@ -1,6 +1,6 @@
 [package]
 name = "susi-gmcp"
-version = "0.21.48"
+version = "0.21.50"
 license = "Apache-2.0"
 edition = "2021"
 
@@ -32,8 +32,8 @@ url = { package = "susi-vendor-url", path = "../susi-vendor-url" }
 libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
 # Heavy specialist tools (browser / full-text index / embeddings / syn AST),
-# each behind its own `susi-vendor-*` crate. Default-on for
-# shipped parity; disable with `--no-default-features` for faster local checks.
+# each behind its own `susi-vendor-*` crate. Off in the default core.
+# Enable with `--features tools-rich` (or the root `plugins` feature).
 susi-vendor-chrome = { workspace = true, optional = true }
 susi-vendor-tantivy = { workspace = true, optional = true }
 susi-vendor-fastembed = { workspace = true, optional = true }
@@ -45,7 +45,7 @@ tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" 
 susi-wire-client = { path = "../susi-wire-client" }
 
 [features]
-default = ["tools-rich"]
+default = []
 tools-rich = ["dep:susi-vendor-chrome", "dep:susi-vendor-tantivy", "dep:susi-vendor-fastembed", "dep:susi-vendor-syn"]
 
 [lints]

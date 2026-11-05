@@ -1,0 +1,29 @@
+{
+  "id": "T-CIBRIDGE1103-1",
+  "created_by": "CIBRIDGE1103",
+  "title": "Verify the exact first native checkpoint in an independent authority context",
+  "deps": [
+    "T-RELEASE43PROOF-1"
+  ],
+  "scopes": [
+    "xtask/src/bin/checkpoint-compliance.rs",
+    "xtask/ci/test-checkpoint-compliance.ps1",
+    ".github/workflows/checkpoint-compliance.yml",
+    ".agents/tasks/T-CIBRIDGE1103-1.json",
+    "xtask/ci/checkpoint-authority.md",
+    ".agents/evidence/ci-bridge-1103.json"
+  ],
+  "accept": {
+    "cmd": [
+      "pwsh",
+      "-File",
+      "xtask/ci/test-checkpoint-compliance.ps1"
+    ]
+  },
+  "goal": "Verify exact checkpoint scope, acceptance and protected authority signature independently of proposed code. Preserve legacy T-task gates.",
+  "verification_environment": [
+    "SUSI_CHECKPOINT_VERIFIER",
+    "SUSI_CHECKPOINT_AUTHORITY_DIR",
+    "SUSI_CHECKPOINT_PRIMARY_FINGERPRINT"
+  ]
+}

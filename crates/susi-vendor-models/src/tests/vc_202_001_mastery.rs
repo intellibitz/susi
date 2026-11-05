@@ -121,3 +121,13 @@ fn vc_202_001_mastery_discovered_previews_mask_raw_secret_values() {
     assert_ne!(found[0].preview, found[0].secret());
     assert!(!found[0].preview.contains("super-secret-long-token"));
 }
+
+#[test]
+fn vc_202_001_mastery_whitespace_only_env_var_is_not_discovered_as_key_source() {
+    let probe = FakeProbe {
+        env: HashMap::from([("OPENAI_API_KEY".to_string(), "   ".to_string())]),
+        files: HashMap::new(),
+        home: PathBuf::from("/nonexistent-ws-home"),
+    };
+    assert!(discover(&probe).is_empty());
+}

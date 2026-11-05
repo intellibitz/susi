@@ -244,7 +244,7 @@ fn compiler(root: &Path) -> Result<(String, String)> {
 }
 
 fn isolated_command(program: &Path, home: &Path) -> Result<Command> {
-    fs::create_dir_all(home)?;
+    fs::create_dir_all(home.join("AppData/Local"))?;
     let original = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(PathBuf::from)
         .ok_or("missing provisioned toolchain home")?;
@@ -1627,20 +1627,21 @@ fn qualify_with_advisories(
         .join("release")
         .join(binary_name());
     let before = file_digest(&binary)?;
+    const RELEASE_PROOF_BINARIES: [&str; 6] = [
+        "susi",
+        "xtask",
+        "local-workflow",
+        "local-release",
+        "ci-release-only",
+        "susi-dev",
+    ];
     if host.ends_with("-pc-windows-msvc") && candidate.join("crates/susi-core/Cargo.toml").is_file()
     {
         if fs::metadata(&binary)?.len() > 256 * 1024 * 1024 {
             return Err("PE artifact exceeds inspection budget".into());
         }
         let profile = candidate.join("target").join(&host).join("release");
-        for name in [
-            "susi",
-            "xtask",
-            "local-workflow",
-            "local-release",
-            "ci-release-only",
-            "susi-dev",
-        ] {
+        for name in RELEASE_PROOF_BINARIES {
             let executable = profile.join(format!("{name}.exe"));
             let map = native_link::find_map(&profile, name)?;
             proof.push_str(&native_link_proof(&executable, &map)?);
@@ -1648,14 +1649,7 @@ fn qualify_with_advisories(
     }
     if native_openssl::supported(&host) && candidate.join("crates/susi-core/Cargo.toml").is_file() {
         let profile = candidate.join("target").join(&host).join("release");
-        for name in [
-            "susi",
-            "xtask",
-            "local-workflow",
-            "local-release",
-            "ci-release-only",
-            "susi-dev",
-        ] {
+        for name in RELEASE_PROOF_BINARIES {
             let executable = profile.join(name);
             let map = profile.join(format!("{name}.map"));
             proof.push_str(&elf_boundary_proof(

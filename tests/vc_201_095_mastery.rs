@@ -129,3 +129,22 @@ fn vc_201_095_recovery_step_cap_and_corrupt_state_checkpoint_restore() {
     assert_eq!(dep.recovery_steps(), 3);
     assert_eq!(dep.recover(), Err(DeploymentError::NotReady));
 }
+
+#[test]
+fn vc_201_095_runtime_crash_recovers_to_ready_and_blocks_writes_while_crashed() {
+    let mut dep = DevDeployment::new("ns-crash", "cred-3", 60, 64);
+    dep.start("cred-3", 10).expect("start deployment");
+    dep.write_artifact("init.bin", b"ok", 5)
+        .expect("initial write");
+
+    dep.inject(DevFault::RuntimeCrash);
+    assert_eq!(dep.state(), DeploymentState::Recovering);
+    assert_eq!(
+        dep.write_artifact("blocked.bin", b"no", 5),
+        Err(DeploymentError::NotReady)
+    );
+
+    dep.recover().expect("recover from runtime crash");
+    assert_eq!(dep.state(), DeploymentState::Ready);
+    assert_eq!(dep.recovery_steps(), 1);
+}

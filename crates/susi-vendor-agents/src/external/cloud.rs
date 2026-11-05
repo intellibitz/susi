@@ -199,4 +199,29 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn non_cloud_dispatch_rejects_empty_and_multitoken_messages_identically() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "susi-cloud-msg-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let run = sample_run(
+            &temp_dir,
+            Adapter::Command {
+                program: "echo".into(),
+                args: vec![],
+            },
+        );
+        for msg in ["", "single", "multi token follow-up"] {
+            let err = send(&run, msg).unwrap_err().to_string();
+            assert!(err.contains("not a cloud adapter"));
+        }
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

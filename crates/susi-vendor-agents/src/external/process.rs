@@ -276,4 +276,16 @@ mod tests {
         assert!(!summary.unwrap().contains(" | "));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn failure_summary_trims_leading_and_trailing_blank_lines_from_multiline_stderr() {
+        let dir = temp_dir("trim-blanks");
+        let log = dir.join("stderr.log");
+        std::fs::write(&log, "\n\n  alpha error  \n\n  omega error  \n\n").unwrap();
+        assert_eq!(
+            failure_summary(&log).as_deref(),
+            Some("alpha error | omega error")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -307,4 +307,31 @@ mod inline_tests {
         assert!(line.contains("mission m-cli resumable (partial); resume nodes: n1"));
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    #[test]
+    fn cli_status_line_formats_fully_complete_and_partial_non_resumable_views() {
+        let mut complete_view = MissionView::new("m-ok");
+        complete_view.upsert(DagNodeView {
+            id: "n1".into(),
+            view: NodeView::Completed,
+            resumable: false,
+            output: Some("ok".into()),
+        });
+        assert_eq!(
+            cli_status_line(&complete_view),
+            "mission m-ok fully complete"
+        );
+
+        let mut partial_view = MissionView::new("m-fail");
+        partial_view.upsert(DagNodeView {
+            id: "n1".into(),
+            view: NodeView::Failed,
+            resumable: false,
+            output: Some("boom".into()),
+        });
+        assert_eq!(
+            cli_status_line(&partial_view),
+            "mission m-fail partial (not fully complete); no resumable nodes"
+        );
+    }
 }

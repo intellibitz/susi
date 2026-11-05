@@ -318,3 +318,18 @@ fn audit_action_choke_point_concurrent_emissions_preserve_all_state_changes() {
             .any(|r| r.actor == expected_actor && r.action_kind == ActionKind::Update));
     }
 }
+
+#[test]
+fn audit_action_choke_point_get_records_returns_defensive_clone() {
+    let choke = AuditChokePoint::new();
+    choke.emit(&Action {
+        kind: ActionKind::Create,
+        actor: "owner".to_string(),
+        description: "initial create".to_string(),
+        timestamp_unix: 4000,
+    });
+    let mut snapshot = choke.get_records();
+    snapshot.clear();
+    assert_eq!(choke.action_count(), 1);
+    assert_eq!(choke.get_records().len(), 1);
+}

@@ -33,3 +33,13 @@ fn vc_201_004_mismatched_suite_or_source_revision_invalidates_comparison() {
     assert!(!base.validates_against(b"binary", Some(&diff_rev)));
     assert_eq!(diff_rev.exit_status, 1);
 }
+
+#[test]
+fn vc_201_004_digest_bytes_is_deterministic_and_distinguishes_distinct_payloads() {
+    let d1 = EvalReceipt::digest_bytes(b"artifact-v1");
+    let d2 = EvalReceipt::digest_bytes(b"artifact-v1");
+    let d3 = EvalReceipt::digest_bytes(b"artifact-v2");
+    assert_eq!(d1, d2);
+    assert_ne!(d1, d3);
+    assert!(!d1.is_empty());
+}

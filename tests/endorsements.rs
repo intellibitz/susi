@@ -234,3 +234,17 @@ fn corrupted_signature_bytes_and_wrong_key_endorsement_are_rejected() {
     }];
     assert!(!commit_log::endorsements_satisfied_at(&rec, &dir));
 }
+
+#[test]
+fn write_roster_creates_valid_peers_json_array() {
+    let dir = std::env::temp_dir().join(format!("susi-endorse-roster-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    write_roster(&dir, &[("node-a", "10.0.0.1:9093", "pk-hex-a")]);
+    let raw = std::fs::read_to_string(dir.join("peers.json")).expect("read peers.json");
+    let parsed: serde_json::Value = serde_json::from_str(&raw).expect("parse peers.json");
+    assert_eq!(parsed.as_array().map(Vec::len), Some(1));
+    assert_eq!(parsed[0]["node_id"], "node-a");
+    assert_eq!(parsed[0]["pubkey"], "pk-hex-a");
+    let _ = std::fs::remove_dir_all(&dir);
+}

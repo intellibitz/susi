@@ -224,3 +224,13 @@ fn susi_xdg_force_with_legacy_root_resolves_platform_dirs_under_isolated_home() 
     assert_ne!(child.dirs["config_dir"], home.join(".susi"));
     assert_eq!(child.port_offset, "0");
 }
+
+#[test]
+fn dirs_constant_lists_all_five_canonical_susi_directory_keys() {
+    assert_eq!(DIRS.len(), 5);
+    assert!(DIRS.contains(&"home_dir"));
+    assert!(DIRS.contains(&"config_dir"));
+    assert!(DIRS.contains(&"data_dir"));
+    assert!(DIRS.contains(&"cache_dir"));
+    assert!(DIRS.contains(&"substrate_home"));
+}

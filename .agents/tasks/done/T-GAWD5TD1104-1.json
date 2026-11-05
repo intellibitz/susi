@@ -1,0 +1,27 @@
+{
+  "id": "T-GAWD5TD1104-1",
+  "title": "test(gawd): expand Wave D inline unit tests from 4 to 5 per module",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "orchestrator_tier::tests"
+    ]
+  },
+  "created_by": "GAWD5TD1104",
+  "created_unix": 1793807443,
+  "closed": {
+    "at_unix": 1793807663,
+    "commit": "9e5db072b562c98e06ebd8a189de28c4a3cec697",
+    "by": "GAWD5TD1104"
+  }
+}

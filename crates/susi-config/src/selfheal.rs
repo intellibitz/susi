@@ -279,4 +279,16 @@ mod tests {
         let roundtrip: SelfHealReport = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtrip, info_report);
     }
+
+    #[test]
+    fn selfheal_report_with_backup_path_renders_backup_line_and_clean_report_renders_clean() {
+        let with_backup = SelfHealReport {
+            repaired: true,
+            backup_path: Some("/tmp/config.json.bak-123".into()),
+            messages: vec!["healed schema".into()],
+        };
+        let rendered = with_backup.render();
+        assert!(rendered.contains("backup: /tmp/config.json.bak-123"));
+        assert!(rendered.contains("  - healed schema\n"));
+    }
 }

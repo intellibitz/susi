@@ -54,15 +54,28 @@ selected dependency graph and actual linked artifacts before production approval
 
 ## Open-core boundary
 
-Susi is the open, Apache-2.0 substrate and stays that way. This repository holds
-what an individual developer needs on one host: the runtime, CLI, daemon, public
-host protocols and the extension, Wasm and MCP/A2A surfaces others build on.
-Before adding a feature, ask who would buy it. Organisation-scale capabilities
-(multi-user administration, SSO/RBAC, fleet management across hosts, central
-spend governance, executive dashboards and turnkey vertical workflows) are built
-outside this repository on the public surfaces, not in it. Never commit
-proprietary code, licensing keys or non-public product plans here, and never
-admit a dependency whose license would bind software built on top of Susi.
+Susi core is the free, Apache-2.0, open-source socket. It is the standard-protocol
+AI OS for one host: MCP, A2A, OpenAI-compatible HTTP, Anthropic Messages, extension
+admission, and the Wasm host those plugs run in. It stays lean. Speed is a measured
+budget (Mandate 69), not a slogan.
+
+Core does not ship a third-party product implementation. A third party writes the
+plug, and core admits it over the socket. Do not add an implementation of a named
+product (an agent framework, a model host, a cloud CLI, a browser, a catalog, or
+a search vendor) to this repository. Speaking a standard protocol is the socket.
+Embedding that vendor's product is not. The crates `susi-vendor-agents`,
+`susi-vendor-models`, `susi-vendor-cloud`, `susi-vendor-chrome`, `susi-vendor-web`
+and `susi-vendor-candle` are migration debt: their Rust source may only shrink.
+`third_party_product_implementations_only_shrink` holds the ceiling.
+
+Susi Commercial Apps is the production-ready, zero-config, UI-driven product a
+CEO uses across the local and cloud AI ecosystem. It is private and paid. It
+writes and ships the plugs. Organisation-scale capabilities (multi-user
+administration, SSO/RBAC, fleet management across hosts, central spend governance,
+executive dashboards and turnkey workflows) live there, on this socket. Never
+commit proprietary code, licensing keys or non-public product plans here, and
+never move commercial code into this repository or the reverse. Never admit a
+dependency whose license would bind software built on top of Susi.
 The Apache-2.0 license grants code rights, not rights to the Susi name or marks.
 
 ## Native local agent loop
@@ -204,14 +217,11 @@ this for the panic-path lints.
   so `use serde::…` is unchanged. A new external crate means a new facade —
   `susi_crates_declare_zero_external_dependencies` (architecture_tests)
   enforces it.
-- **Vendor *code* lives in vendor crates, not only vendor deps.** Any code
-  that speaks a third-party agent, model-provider, or web API must live in a
-  `susi-vendor-*` crate: `susi-vendor-agents` (external agent executors +
-  framework adapters), `susi-vendor-models` (cloud/frontier/OpenRouter/
-  open-weight/HF discovery), `susi-vendor-web` (admitted search-tool evidence; no built-in weather or search provider),
-  `susi-vendor-cloud` (kubectl/docker/aws/gcloud/az CLIs). susi crates
-  consume them through re-exports; no third-party endpoint strings or
-  vendor protocol logic in non-vendor crates.
+- **Do not add a third-party product implementation.** A third party writes
+  the plug and core admits it (open-core boundary above). The existing
+  `susi-vendor-{agents,models,cloud,chrome,web,candle}` crates are migration
+  debt and may only shrink. Facades that re-export a library stay. No
+  third-party endpoint strings or vendor product logic in non-vendor crates.
 - `susi_http_transport::http_call*` returns non-2xx responses; callers must
   check status. `HttpCall::into_bytes(max)` reads `max + 1` and rejects overflow.
   The std-only `susi_paths::loopback` client caps complete responses at 16 MiB.
@@ -287,3 +297,17 @@ copying a divergent workflow. `susi_core::self_build::BRIEF` carries the same
 contract into delegated tasks. Update them and governance tests together when
 requirements change. Legacy scripts and GitHub adapters may remain during
 migration, but must not become prerequisites or contradict these mandates.
+
+## Handoff and rescue of unfinished work
+
+Many task copies hold work not yet on GitHub, because pushes are blocked when a
+copy is far behind `main`. If you own such a copy: sync it with `main` (resolve
+conflicts only inside your own work); push to a branch named `wip/<task-name>`,
+never straight to `main`; never commit secrets or key files, and double-check
+certificate or key files first; sign your task-log entry with your agent name
+(Codex, Claude, Gemini or Grok) and state what is finished and what is left; do
+not delete your copy, Grok Bot removes copies after the work is confirmed on
+GitHub; skip any copy another agent is actively using.
+
+If you hit your weekly limit, leave a note in the task log for the next agent
+saying where you stopped.

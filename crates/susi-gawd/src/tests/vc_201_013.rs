@@ -73,3 +73,18 @@ fn vc_201_013_apply_in_isolation_rejects_parent_dir_traversal() {
     assert!(!fence.applied);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn vc_201_013_isolate_rejects_backslash_and_workspace_root_is_inside_fence() {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("susi-fence-sep-{nanos}"));
+    assert!(PatchFence::isolate(&root, "bad\\id").is_err());
+    assert!(PatchFence::isolate(&root, ".").is_err());
+
+    let fence = PatchFence::isolate(&root, "valid-id").unwrap();
+    assert!(fence.is_inside_fence(&fence.workspace));
+    let _ = std::fs::remove_dir_all(&root);
+}

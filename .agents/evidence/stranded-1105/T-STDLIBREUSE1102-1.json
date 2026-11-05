@@ -1,0 +1,39 @@
+{
+  "id": "T-STDLIBREUSE1102-1",
+  "title": "Reuse authenticated identical native standard-library builds",
+  "goal": "Verify immutable qualified standard-library archives before reuse",
+  "size": "m",
+  "deps": [],
+  "scopes": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/susi-vendor-winapi",
+    "xtask/Cargo.toml",
+    "xtask/src/trusted_sysroot.rs",
+    "xtask/src/stdlib_cache.rs",
+    "xtask/src/reviewed-stdlib.json",
+    ".agents/tasks/T-STDLIBREUSE1102-1.json",
+    ".agents/evidence/stdlib-reuse-1102.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "trusted_sysroot::"
+    ]
+  },
+  "created_unix": 1793604917,
+  "created_by": "STDLIBREUSE1102",
+  "acceptance": [
+    "Private native installed cold and repeat operations on count1102 compiler bindings with a proven hostile wrapper tripwire",
+    "Reject changed record, inputs, policy or archives; hold compiler, driver, source, configurations and archive bytes through compilation",
+    "Protect and anchor the compiler namespace; reject transient changes even when the inventory is restored",
+    "Candidate only: preserve the frozen worker cut and production installation"
+  ]
+}

@@ -7,6 +7,19 @@ use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult};
 use windows_registry::{Key, Type, CURRENT_USER, LOCAL_MACHINE};
 
+/// Machine installation directory used to launch Windows' own system tools.
+pub fn windows_root() -> EaiResult<PathBuf> {
+    let root = LOCAL_MACHINE
+        .open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+        .and_then(|key| key.get_string("SystemRoot"))
+        .map(PathBuf::from)
+        .map_err(|e| EaiError::io(format!("read machine Windows directory: {e}")))?;
+    if !root.is_absolute() {
+        return Err(EaiError::io("machine Windows directory must be absolute"));
+    }
+    Ok(root)
+}
+
 fn safe_directory(path: &Path) -> io::Result<()> {
     for part in path.ancestors() {
         let meta = fs::symlink_metadata(part)?;
@@ -466,5 +479,23 @@ mod tests {
         let direct_b = shell_link::encode(exe_b, work_b).unwrap();
         assert_eq!(&direct_b[..4], &[0x4C, 0x00, 0x00, 0x00]);
         assert_ne!(direct_a, direct_b);
+    }
+
+    #[test]
+    fn add_path_and_expand_handle_empty_quoted_case_insensitive_and_unterminated_tokens() {
+        assert_eq!(add_path("", r"C:\Susi\entry"), r"C:\Susi\entry");
+        assert_eq!(
+            add_path(r#""c:\susi\entry\";C:\Other"#, r"C:\Susi\entry"),
+            r#""c:\susi\entry\";C:\Other"#
+        );
+        assert_eq!(
+            add_path(r#"C:\First;"C:\susi\entry\""#, r"C:\Susi\entry"),
+            r"C:\Susi\entry;C:\First"
+        );
+        assert_eq!(
+            expand("prefix-%UNSET_SUSI_VAR_XYZ%-suffix"),
+            "prefix-%UNSET_SUSI_VAR_XYZ%-suffix"
+        );
+        assert_eq!(expand("unterminated-%TOKEN"), "unterminated-%TOKEN");
     }
 }

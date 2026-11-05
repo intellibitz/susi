@@ -64,3 +64,10 @@ fn unit_gmcp_roadmap_cargo_manifest_dir_resolves_workspace_root() {
     assert!(root.join("Cargo.toml").is_file());
     assert!(root.join("crates/susi-gmcp/Cargo.toml").is_file());
 }
+
+#[test]
+fn unit_gmcp_contract_docs_directory_exists() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(root.join(".agents/gmcp").is_dir());
+    assert!(root.join("crates/susi-gmcp/src/lib.rs").is_file());
+}

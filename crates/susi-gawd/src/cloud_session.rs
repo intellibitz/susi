@@ -150,4 +150,21 @@ mod cloud_session_tests {
             Some("GEMINI25PROAGENT".into())
         );
     }
+
+    #[test]
+    fn marked_and_tool_read_git_config_from_initialized_repository() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_cloud_session_repo_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp repo");
+        assert!(!marked(&tmp));
+        assert_eq!(tool(&tmp), None);
+
+        let _ = git(&tmp, &["init", "-q"]);
+        let _ = git(&tmp, &["config", MARK_KEY, "true"]);
+        let _ = git(&tmp, &["config", TOOL_KEY, "claude-web"]);
+        assert!(marked(&tmp));
+        assert_eq!(tool(&tmp), Some("CLAUDEWEB".to_string()));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

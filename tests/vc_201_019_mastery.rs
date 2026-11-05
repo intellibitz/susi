@@ -182,3 +182,12 @@ fn vc_201_019_addressing_known_counterexample_id_marks_proposal_addressed() {
         ProposalCheck::Addressed
     );
 }
+
+#[test]
+fn vc_201_019_experiment_memory_entry_preserves_lineage_and_counterexample() {
+    let e = entry("prop-7", "type mismatch", Some("ce-7"));
+    assert_eq!(e.proposal_id, "prop-7");
+    assert_eq!(e.cause, "type mismatch");
+    assert_eq!(e.counterexample.as_deref(), Some("ce-7"));
+    assert_eq!(e.lineage, vec!["root".to_string()]);
+}

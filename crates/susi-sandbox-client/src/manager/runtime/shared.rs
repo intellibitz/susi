@@ -374,4 +374,19 @@ mod inline_tests {
         assert!(tail.contains("check status"));
         let _ = fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn tail_lines_returns_empty_string_for_missing_file_and_keeps_latest_lines() {
+        let tmp =
+            std::env::temp_dir().join(format!("susi_shared_tail_only_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).expect("create dir");
+        let missing = tmp.join("missing.log");
+        assert_eq!(tail_lines(&missing, 3), "");
+
+        let sample = tmp.join("sample.log");
+        fs::write(&sample, "line-1\nline-2\nline-3\nline-4\n").expect("write sample");
+        assert_eq!(tail_lines(&sample, 2), "line-3\nline-4");
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }

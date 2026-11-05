@@ -129,4 +129,19 @@ mod inline_tests {
         mem.record(entry.clone());
         assert!(!mem.may_resubmit(&entry, &[], &[String::new(), "   \t\n ".to_string()]));
     }
+
+    #[test]
+    fn experiment_memory_and_entry_serde_json_roundtrip() {
+        let mut mem = ExperimentMemory::default();
+        mem.record(ExperimentMemoryEntry {
+            proposal_id: "prop-serde".to_string(),
+            cause: "timeout".to_string(),
+            counterexample: Some("case-9".to_string()),
+            lineage: vec!["p-0".to_string()],
+        });
+        let encoded = serde_json::to_string(&mem).expect("serialize ExperimentMemory");
+        let decoded: ExperimentMemory =
+            serde_json::from_str(&encoded).expect("deserialize ExperimentMemory");
+        assert_eq!(decoded, mem);
+    }
 }

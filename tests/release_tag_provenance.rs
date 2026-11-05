@@ -162,3 +162,11 @@ fn a_missing_tag_is_refused() {
     assert_eq!(code, 1);
     assert!(out.contains("no such tag"), "{out}");
 }
+
+#[test]
+fn check_release_tag_script_file_exists_in_manifest_directory() {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-release-tag.sh");
+    assert!(script.is_file());
+    let cmd = script_command(&script);
+    assert!(!cmd.get_program().is_empty());
+}

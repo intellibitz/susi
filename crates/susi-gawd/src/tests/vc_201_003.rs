@@ -100,3 +100,17 @@ fn vc_201_003_lower_is_better_dimension_fails_when_upper_bound_exceeds_threshold
     assert!(!s.dimension_improved(&high_latency, &spec.latency));
     assert!(!s.summary_ok(&spec));
 }
+
+#[test]
+fn vc_201_003_exact_min_task_count_passes_when_all_dimensions_clear_thresholds() {
+    let spec = spec();
+    let s = ImprovementScorecard {
+        quality: dim("quality", 0.85, 0.02),
+        reliability: dim("reliability", 0.95, 0.02),
+        latency: dim("latency", 90.0, 5.0),
+        resource: dim("resource", 0.80, 0.05),
+        operator_effort: dim("operator_effort", 3.0, 1.0),
+        task_count: spec.min_task_count,
+    };
+    assert!(s.summary_ok(&spec));
+}
