@@ -41,7 +41,15 @@ const GLOBAL: &[&str] = &[
     ".cargo/",
     ".config/",
     "vendor/",
-    "xtask/",
+    // xtask is a leaf package: nothing depends on it, and the gate runs the
+    // already-built launcher, not the candidate's. Only the parts that decide
+    // how every other package is compiled widen the gate; the rest of xtask
+    // selects xtask (and root) like any other member.
+    "xtask/build.rs",
+    "xtask/bootstrap/",
+    "xtask/src/compiler_env.rs",
+    "xtask/src/trusted_sysroot.rs",
+    "xtask/src/sysroot_sources.rs",
 ];
 
 /// One workspace member, with its directory relative to the workspace root
@@ -116,6 +124,7 @@ fn resolve(dir: &str, relative: &str) -> Option<String> {
 /// form), `"key=../x"` (build-script `rerun-if-changed=`) and a bare `".."`.
 /// Each comes with whether its statement embeds it at compile time.
 fn parent_literals(source: &str) -> Vec<(&str, bool)> {
+    let tests = test_module_ranges(source);
     let mut found = Vec::new();
     let mut offset = 0;
     while let Some(start) = source[offset..].find('"') {
@@ -129,13 +138,201 @@ fn parent_literals(source: &str) -> Vec<(&str, bool)> {
             let statement = source[..open]
                 .rfind([';', '{', '}'])
                 .map_or(&source[..open], |at| &source[at..open]);
-            let compiled =
-                statement.contains("include_str!") || statement.contains("include_bytes!");
+            // An embed inside a `#[cfg(test)] mod` is compiled into that
+            // package's test binary only: dependents never see it, so it is
+            // an observation, not a compiled input.
+            let in_test = tests.iter().any(|(from, to)| (*from..*to).contains(&open));
+            let compiled = !in_test
+                && (statement.contains("include_str!") || statement.contains("include_bytes!"));
             found.push((path, compiled));
         }
         offset = open + 1 + end + 1;
     }
     found
+}
+
+/// Byte ranges of `#[cfg(test)] mod name { ... }` bodies in `source`.
+///
+/// A small Rust lexer skips comments, string, raw-string, byte-string and char
+/// literals so braces inside them do not count. Only a `mod` item directly
+/// carrying `#[cfg(test)]` (other attributes may sit between) qualifies; any
+/// other shape stays outside every range, which keeps the selection
+/// conservative: an embed that is not provably test-only counts as compiled.
+pub(crate) fn test_module_ranges(source: &str) -> Vec<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let mut ranges = Vec::new();
+    // Each open brace: `Some(start)` when it opens a test module body.
+    let mut stack: Vec<Option<usize>> = Vec::new();
+    let mut pending_test_brace: Option<usize> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        if !source.is_char_boundary(i) {
+            i += 1;
+            continue;
+        }
+        let rest = &source[i..];
+        match bytes[i] {
+            b'/' if rest.starts_with("//") => {
+                i = rest.find('\n').map_or(bytes.len(), |at| i + at);
+                continue;
+            }
+            b'/' if rest.starts_with("/*") => {
+                let mut depth = 0usize;
+                let mut j = i;
+                while j < bytes.len() {
+                    if bytes[j..].starts_with(b"/*") {
+                        depth += 1;
+                        j += 2;
+                    } else if bytes[j..].starts_with(b"*/") {
+                        depth = depth.saturating_sub(1);
+                        j += 2;
+                        if depth == 0 {
+                            break;
+                        }
+                    } else {
+                        j += 1;
+                    }
+                }
+                i = j;
+                continue;
+            }
+            b'r' | b'b' if raw_string_open(rest).is_some() => {
+                let (hashes, quote_at) = raw_string_open(rest).unwrap_or((0, 0));
+                let close = format!("\"{}", "#".repeat(hashes));
+                let body = i + quote_at + 1;
+                i = source[body..]
+                    .find(&close)
+                    .map_or(bytes.len(), |at| body + at + close.len());
+                continue;
+            }
+            b'"' => {
+                i = skip_quoted(bytes, i, b'"');
+                continue;
+            }
+            b'\'' => {
+                // A char literal ('x', '\n', '{') rather than a lifetime.
+                if bytes.get(i + 1) == Some(&b'\\') {
+                    i = skip_quoted(bytes, i, b'\'');
+                    continue;
+                }
+                if let Some(c) = source[i + 1..].chars().next() {
+                    let after = i + 1 + c.len_utf8();
+                    if bytes.get(after) == Some(&b'\'') {
+                        i = after + 1;
+                        continue;
+                    }
+                }
+                i += 1;
+                continue;
+            }
+            b'#' if rest.starts_with("#[cfg(test)]") => {
+                pending_test_brace = test_mod_brace(source, i + "#[cfg(test)]".len());
+                i += "#[cfg(test)]".len();
+                continue;
+            }
+            b'{' => {
+                if pending_test_brace == Some(i) {
+                    pending_test_brace = None;
+                    stack.push(Some(i));
+                } else {
+                    stack.push(None);
+                }
+            }
+            b'}' => {
+                if let Some(Some(start)) = stack.pop() {
+                    ranges.push((start, i + 1));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    ranges
+}
+
+/// `r"`, `r#"`, `br##"`, ...: the hash count and the quote's offset.
+fn raw_string_open(rest: &str) -> Option<(usize, usize)> {
+    let after_prefix = if rest.starts_with("br") {
+        2
+    } else if rest.starts_with('r') {
+        1
+    } else {
+        return None;
+    };
+    let hashes = rest[after_prefix..]
+        .bytes()
+        .take_while(|byte| *byte == b'#')
+        .count();
+    (rest.as_bytes().get(after_prefix + hashes) == Some(&b'"'))
+        .then_some((hashes, after_prefix + hashes))
+}
+
+/// Skip a `"..."` or `'...'` literal starting at `open`, honouring escapes.
+fn skip_quoted(bytes: &[u8], open: usize, quote: u8) -> usize {
+    let mut j = open + 1;
+    while j < bytes.len() {
+        match bytes[j] {
+            b'\\' => j += 2,
+            byte if byte == quote => return j + 1,
+            _ => j += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// After a `#[cfg(test)]` ending at `from`, the offset of the `{` that opens a
+/// directly following `[pub[(..)]] mod name {`, skipping whitespace and other
+/// outer attributes. `None` for any other item.
+fn test_mod_brace(source: &str, from: usize) -> Option<usize> {
+    let mut rest = &source[from..];
+    let mut at = from;
+    let skip = |rest: &mut &str, at: &mut usize, n: usize| {
+        *rest = &rest[n..];
+        *at += n;
+    };
+    loop {
+        let trimmed = rest.trim_start();
+        let n = rest.len() - trimmed.len();
+        skip(&mut rest, &mut at, n);
+        if rest.starts_with("#[") {
+            let end = rest.find(']')? + 1;
+            skip(&mut rest, &mut at, end);
+            continue;
+        }
+        break;
+    }
+    if rest.starts_with("pub") {
+        let after = &rest[3..];
+        let n = if after.starts_with('(') {
+            3 + after.find(')')? + 1
+        } else {
+            3
+        };
+        skip(&mut rest, &mut at, n);
+        let trimmed = rest.trim_start();
+        let n = rest.len() - trimmed.len();
+        skip(&mut rest, &mut at, n);
+    }
+    let after_mod = rest.strip_prefix("mod")?;
+    if !after_mod.starts_with(char::is_whitespace) {
+        return None;
+    }
+    skip(&mut rest, &mut at, 3);
+    let trimmed = rest.trim_start();
+    let n = rest.len() - trimmed.len();
+    skip(&mut rest, &mut at, n);
+    let ident = rest
+        .bytes()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        .count();
+    if ident == 0 {
+        return None;
+    }
+    skip(&mut rest, &mut at, ident);
+    let trimmed = rest.trim_start();
+    let n = rest.len() - trimmed.len();
+    skip(&mut rest, &mut at, n);
+    rest.starts_with('{').then_some(at)
 }
 
 /// Record what `package` (directory `crate_dir`) reads through the literals of
@@ -458,7 +655,9 @@ mod tests {
             ".cargo/config.toml",
             ".config/nextest.toml",
             "vendor/idna-adapter/src/lib.rs",
-            "xtask/src/bin/local-workflow.rs",
+            "xtask/src/compiler_env.rs",
+            "xtask/src/trusted_sysroot.rs",
+            "xtask/bootstrap/susi-dev.rs",
             "deny.toml",
         ] {
             assert!(
@@ -581,5 +780,84 @@ mod tests {
             args,
             ["test", "-p", "a", "-p", "b", "--offline", "--", "-D"]
         );
+    }
+
+    #[test]
+    fn workflow_tooling_in_xtask_selects_only_xtask_and_root() {
+        let mut ws = workspace();
+        ws.members.push(Member {
+            name: "xtask".into(),
+            dir: "xtask".into(),
+        });
+        for path in [
+            "xtask/src/bin/local-workflow.rs",
+            "xtask/src/affected.rs",
+            "xtask/tests/ci_workflow_perf.rs",
+        ] {
+            assert_eq!(
+                names(select(&ws, &[path.into()])),
+                ["root", "xtask"],
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_embed_inside_a_cfg_test_module_is_an_observation_not_a_compiled_input() {
+        let mut ws = workspace();
+        let source = r##"
+//! Docs with a brace { in a comment.
+pub const BRIEF: &str = include_str!("../brief.md");
+fn f() -> char { '{' }
+fn g<'a>(s: &'a str) -> &'a str { s }
+const RAW: &str = r#"not a } brace "../nope.md" "#;
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    #[test]
+    fn reads_governance() {
+        let governance = include_str!("../../../AGENTS.md");
+        let nested = { 1 };
+        assert!(!governance.is_empty() && nested == 1);
+    }
+}
+pub const AFTER: &str = include_str!("../after.md");
+"##;
+        scan_source(
+            &mut ws,
+            "config",
+            "crates/config",
+            "crates/config/src/lib.rs",
+            source,
+        );
+        // Test-only embed: only the reader's own tests observe it.
+        assert_eq!(
+            names(select(&ws, &["AGENTS.md".into()])),
+            ["config", "root"]
+        );
+        // Production embeds before and after the test module stay compiled.
+        assert_eq!(
+            names(select(&ws, &["crates/config/brief.md".into()])),
+            ["config", "daemon", "root"]
+        );
+        assert_eq!(
+            names(select(&ws, &["crates/config/after.md".into()])),
+            ["config", "daemon", "root"]
+        );
+    }
+
+    #[test]
+    fn only_a_mod_carrying_cfg_test_is_a_test_range() {
+        let source = "#[cfg(test)]
+fn helper() { include_str!(\"../x\"); }
+#[cfg(test)]
+pub(crate) mod t { fn a() {} }
+";
+        let ranges = test_module_ranges(source);
+        assert_eq!(ranges.len(), 1, "{ranges:?}");
+        let (from, to) = ranges[0];
+        assert!(source[from..to].starts_with('{') && source[from..to].ends_with('}'));
+        assert!(source[from..to].contains("fn a()"));
+        assert!(!source[from..to].contains("helper"));
     }
 }
