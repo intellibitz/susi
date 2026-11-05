@@ -5,6 +5,8 @@
   "status": "done", "completed_at": "2026-11-04T02:26:00Z",
   "created_at": "2026-11-04T02:25:30Z",
   "owner": "gemini",
+  "created_by": "gemini",
+  "created_unix": 1793759130,
   "touch": [
     "xtask/src/bin/ci-release-only.rs"
   ],
