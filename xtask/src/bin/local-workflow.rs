@@ -1896,7 +1896,8 @@ fn check_ship_source(root: &Path, claim: &Claim, publish_base: &str) -> Result<S
             &scope_base,
             &source,
         ])
-        .output()?;
+        .output()
+        .map_err(|error| format!("git diff in {}: {error}", root.display()))?;
     if !out.status.success() {
         return Err("cannot inspect committed scope".into());
     }
