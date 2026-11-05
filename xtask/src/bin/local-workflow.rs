@@ -223,6 +223,33 @@ fn host_gate_for(candidate: &Path) -> Result<HostGate> {
     })
 }
 
+/// A narrowed gate that covers `xtask` still builds and tests its
+/// `release-tooling` feature (local-release, prepare_release), which the
+/// whole-workspace gate enables through `include_release_tooling`. Without it,
+/// narrowing an xtask change to `-p xtask` silently drops those tests.
+fn include_release_tooling_for_xtask(
+    gates: &mut [Vec<String>],
+    packages: &std::collections::BTreeSet<String>,
+) {
+    if !packages.contains("xtask") {
+        return;
+    }
+    for args in gates {
+        if matches!(args.first().map(String::as_str), Some("clippy" | "test"))
+            && !args.iter().any(|arg| arg == "xtask/release-tooling")
+        {
+            let at = args
+                .iter()
+                .position(|arg| arg == "--")
+                .unwrap_or(args.len());
+            args.splice(
+                at..at,
+                ["--features".to_owned(), "xtask/release-tooling".to_owned()],
+            );
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 struct Claim {
     name: String,
@@ -661,6 +688,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
                     affected::narrow(args, packages);
                 }
             }
+            include_release_tooling_for_xtask(&mut gates, packages);
             eprintln!(
                 "local gate: {} of the workspace packages ({})",
                 packages.len(),
@@ -2313,20 +2341,26 @@ fn record_acceptance(
         );
         transaction.push_str(&format!("create {receipt_ref} {oid}\n"));
         if let Some(gates) = &native_gates {
-            let scope_base = ship_scope_base(root, &input.claim, &input.source, &publish_base)?;
-            let native = native_provenance::receipt(
-                root,
-                native_provenance::IntegrationSource {
-                    worker: &input.claim.name,
-                    claim_bytes: &input.bytes,
-                    source: &input.source,
-                    scope_base: &scope_base,
-                    previous: chain_previous.as_deref(),
-                    accepted: head,
-                },
-                gates,
-            )?;
-            let native_oid = native_provenance::store_blob(root, &serde_json::to_vec(&native)?)?;
+            let scope_base = timed("acceptance: scope base", || {
+                ship_scope_base(root, &input.claim, &input.source, &publish_base)
+            })?;
+            let native = timed("acceptance: provenance receipt", || {
+                native_provenance::receipt(
+                    root,
+                    native_provenance::IntegrationSource {
+                        worker: &input.claim.name,
+                        claim_bytes: &input.bytes,
+                        source: &input.source,
+                        scope_base: &scope_base,
+                        previous: chain_previous.as_deref(),
+                        accepted: head,
+                    },
+                    gates,
+                )
+            })?;
+            let native_oid = timed("acceptance: store receipt", || {
+                native_provenance::store_blob(root, &serde_json::to_vec(&native)?)
+            })?;
             let native_ref = format!(
                 "refs/susi/provenance/receipts/{}/{}",
                 input.claim.name, input.source
@@ -2335,7 +2369,9 @@ fn record_acceptance(
         }
     }
     transaction.push_str("prepare\ncommit\n");
-    git_input(root, &["update-ref", "--stdin"], transaction.as_bytes())?;
+    timed("acceptance: ref transaction", || {
+        git_input(root, &["update-ref", "--stdin"], transaction.as_bytes())
+    })?;
     for input in inputs {
         fs::remove_file(&input.path)?;
     }
@@ -2826,6 +2862,7 @@ fn check(root: &Path) -> Result<()> {
             for args in &mut gates {
                 affected::narrow(args, &packages);
             }
+            include_release_tooling_for_xtask(&mut gates, &packages);
         }
         affected::Selection::Workspace(reason) => {
             println!(
@@ -4474,6 +4511,55 @@ mod tests {
         let started = std::time::Instant::now();
         drop(acquire_host_gate(&dir, "next").unwrap());
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn narrowed_xtask_gates_keep_release_tooling() {
+        let mut gates = vec![
+            vec!["fmt".to_owned(), "--all".to_owned()],
+            ["clippy", "-p", "xtask", "--", "-D", "warnings"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+            ["test", "-p", "xtask", "-p", "susi"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        ];
+        let without: std::collections::BTreeSet<String> = ["susi".to_owned()].into();
+        let mut untouched = gates.clone();
+        include_release_tooling_for_xtask(&mut untouched, &without);
+        assert_eq!(untouched, gates);
+        let with: std::collections::BTreeSet<String> =
+            ["susi".to_owned(), "xtask".to_owned()].into();
+        include_release_tooling_for_xtask(&mut gates, &with);
+        include_release_tooling_for_xtask(&mut gates, &with);
+        assert_eq!(gates[0], ["fmt", "--all"]);
+        assert_eq!(
+            gates[1],
+            [
+                "clippy",
+                "-p",
+                "xtask",
+                "--features",
+                "xtask/release-tooling",
+                "--",
+                "-D",
+                "warnings"
+            ]
+        );
+        assert_eq!(
+            gates[2],
+            [
+                "test",
+                "-p",
+                "xtask",
+                "-p",
+                "susi",
+                "--features",
+                "xtask/release-tooling"
+            ]
+        );
     }
 
     #[test]
