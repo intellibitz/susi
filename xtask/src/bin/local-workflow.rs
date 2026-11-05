@@ -2105,11 +2105,15 @@ fn ship<F>(
 where
     F: FnMut(&Path, &Path) -> Result<Vec<String>>,
 {
-    let workflow = state(root)?;
-    let _publish = Lock::acquire(&workflow.join("publish"))?;
-    let base = remote.fetch_main(root)?;
-    let inputs = load_sources(root, claimants, &base)?;
-    let proved = prove_ship(root, &workflow, &base, &inputs, &mut verify)?;
+    let workflow = state(root).map_err(|error| format!("state: {error}"))?;
+    let _publish =
+        Lock::acquire(&workflow.join("publish")).map_err(|error| format!("lock: {error}"))?;
+    let base = remote
+        .fetch_main(root)
+        .map_err(|error| format!("fetch: {error}"))?;
+    let inputs = load_sources(root, claimants, &base).map_err(|error| format!("load: {error}"))?;
+    let proved = prove_ship(root, &workflow, &base, &inputs, &mut verify)
+        .map_err(|error| format!("prove: {error}"))?;
     let mut candidate = proved.0;
     let mut head = proved.1;
     let mut evidence = proved.2;
