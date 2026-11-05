@@ -1,7 +1,12 @@
 //! Authenticate standard-library source against independently downloaded official
 //! rust-src bytes. This establishes source identity, not artifact qualification.
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs, io, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs, io,
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+};
 
 pub(crate) fn hash(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -35,7 +40,49 @@ fn manifest() -> io::Result<BTreeMap<String, String>> {
     Ok(result)
 }
 
+/// Digest every regular file under `root` (keys are `/`-separated relative
+/// paths). The walk applies every reparse-point, symlink and file-type rule
+/// first; the hashing then runs across threads, because ~3 600 rust-src files
+/// read one at a time cost minutes on Windows (each open is scanned by the
+/// endpoint protection) while their digests are independent.
 fn files(root: &Path, directory: &Path, output: &mut BTreeMap<String, String>) -> io::Result<()> {
+    let mut found = Vec::new();
+    walk(root, directory, &mut found)?;
+    let workers = std::thread::available_parallelism()
+        .map_or(4, std::num::NonZeroUsize::get)
+        .clamp(1, 16);
+    let chunk = found.len().div_ceil(workers).max(1);
+    let hashed: Vec<io::Result<Vec<(String, String)>>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = found
+            .chunks(chunk)
+            .map(|part| {
+                scope.spawn(move || {
+                    part.iter()
+                        .map(|(name, path)| Ok((name.clone(), hash(&fs::read(path)?))))
+                        .collect::<io::Result<Vec<_>>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err(invalid("source hashing thread panicked")))
+            })
+            .collect()
+    });
+    for part in hashed {
+        for (name, digest) in part? {
+            if output.insert(name, digest).is_some() {
+                return Err(invalid("duplicate source path"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn walk(root: &Path, directory: &Path, output: &mut Vec<(String, PathBuf)>) -> io::Result<()> {
     let metadata = fs::symlink_metadata(directory)?;
     #[cfg(windows)]
     {
@@ -49,7 +96,7 @@ fn files(root: &Path, directory: &Path, output: &mut BTreeMap<String, String>) -
     }
     if metadata.is_dir() {
         for entry in fs::read_dir(directory)? {
-            files(root, &entry?.path(), output)?;
+            walk(root, &entry?.path(), output)?;
         }
     } else if metadata.is_file() {
         let name = directory
@@ -58,7 +105,7 @@ fn files(root: &Path, directory: &Path, output: &mut BTreeMap<String, String>) -
             .to_str()
             .ok_or_else(|| invalid("non-UTF8 source path"))?
             .replace('\\', "/");
-        output.insert(name, hash(&fs::read(directory)?));
+        output.push((name, directory.to_path_buf()));
     } else {
         return Err(invalid("nonregular source is forbidden"));
     }
@@ -83,8 +130,27 @@ fn verify(root: &Path, expected: &BTreeMap<String, String>) -> io::Result<()> {
     Ok(())
 }
 
+/// Installed rust-src trees already authenticated by this process. `prepare`
+/// checks the installed tree and then `replacement` checks it again as the
+/// reference for the replacement copy; one gate run needs it hashed once.
+fn authenticated_originals() -> &'static Mutex<BTreeSet<PathBuf>> {
+    static VERIFIED: OnceLock<Mutex<BTreeSet<PathBuf>>> = OnceLock::new();
+    VERIFIED.get_or_init(|| Mutex::new(BTreeSet::new()))
+}
+
 pub(crate) fn original(root: &Path) -> io::Result<()> {
-    verify(root, &manifest()?)
+    let key = fs::canonicalize(root)?;
+    if authenticated_originals()
+        .lock()
+        .is_ok_and(|verified| verified.contains(&key))
+    {
+        return Ok(());
+    }
+    verify(root, &manifest()?)?;
+    if let Ok(mut verified) = authenticated_originals().lock() {
+        verified.insert(key);
+    }
+    Ok(())
 }
 
 /// Exactly the reviewed loss of three const APIs, with no other source edits.
