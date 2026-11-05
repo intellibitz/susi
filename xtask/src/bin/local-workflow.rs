@@ -425,6 +425,7 @@ fn sign_workspace_pass(root: &Path, key: &str) -> Result<String> {
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
 fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
+    eprintln!("verify: {}", candidate.display());
     native_provenance::require_unmodified_history(candidate)
         .map_err(|error| format!("provenance: {error}"))?;
     let compiler = Command::new("rustc")
@@ -1975,6 +1976,7 @@ fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf
         .parent()
         .ok_or("checkout has no parent")?
         .join(format!("susi-verify-{stamp}-{}", std::process::id()));
+    eprintln!("merge: add {}", candidate.display());
     git(
         root,
         &[
@@ -1987,6 +1989,7 @@ fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf
             base,
         ],
     )?;
+    eprintln!("merge: added");
     for input in inputs {
         if let Err(error) = git(
             &candidate,
