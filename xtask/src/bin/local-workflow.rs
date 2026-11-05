@@ -139,11 +139,11 @@ impl Drop for Lock {
     }
 }
 
-/// The machine-wide slot for one heavy verification gate at a time, shared by
-/// every repository (core and commercial) and every agent on this host.
-/// Parallel full builds and test suites saturate the CPU and make
-/// wall-clock-bounded tests time out; queued gates finish sooner and stay
-/// deterministic. Agents' own `check` runs do not take it.
+/// The machine-wide slot for one heavy verification run at a time, shared by
+/// every repository (core and commercial) and every agent on this host: ship
+/// and integrate gates and agents' `check` runs. Parallel full builds and test
+/// suites saturate the CPU and make wall-clock-bounded tests time out; queued
+/// runs finish sooner and stay deterministic.
 ///
 /// Held as an OS file lock (`File::try_lock`), which the OS releases when the
 /// holder exits or crashes, so a dead gate can never wedge the machine and no
@@ -2976,6 +2976,14 @@ fn check(root: &Path) -> Result<()> {
     let target = top.join("target");
     let home = target.join("susi-check-home");
     fs::create_dir_all(home.join("AppData/Local"))?;
+    // A check builds and runs the same suites as a ship gate. Two heavy runs
+    // at once saturate the CPU and fail wall-clock-bounded tests (measured
+    // 2026-11-06: a ship's nextest gate lost two deadline tests while an
+    // agent's check ran), so checks queue on the same host gate.
+    let _host = acquire_host_gate(
+        &host_gate_dir()?,
+        &format!("pid={} check={}", std::process::id(), top.display()),
+    )?;
     let total = std::time::Instant::now();
     for args in &gates {
         let started = std::time::Instant::now();
