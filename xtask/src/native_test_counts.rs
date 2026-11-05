@@ -13,8 +13,14 @@ fn option<'a>(argv: &'a [String], name: &str) -> Result<&'a str> {
 /// Count outer Cargo suites using the actual command's target directory and
 /// target triple. Fixture Cargo output inside a test is not another outer suite.
 pub fn test_counts(log: &[u8], argv: &[String], cwd: &Path) -> Result<(u64, u64, u64)> {
+    if argv.get(1).map(String::as_str) == Some("nextest") {
+        return nextest_counts(&strip_ansi(std::str::from_utf8(log)?));
+    }
     if argv.get(1).map(String::as_str) != Some("test") {
         return Ok((0, 0, 0));
+    }
+    if argv.iter().any(|arg| arg == "--doc") {
+        return doctest_counts(&strip_ansi(std::str::from_utf8(log)?));
     }
     let target = option(argv, "--target")?;
     let target_dir = Path::new(option(argv, "--target-dir")?);
@@ -132,6 +138,106 @@ pub fn test_counts(log: &[u8], argv: &[String], cwd: &Path) -> Result<(u64, u64,
             suite_counts(suite)?
         };
         add_counts(&mut totals, counts)?;
+    }
+    Ok(totals)
+}
+
+/// Counts from `cargo nextest run`'s one final `Summary [ <time>] <n> tests
+/// run: <passed> passed[ (..)], <failed> failed, <skipped> skipped` line:
+/// `(passed, failed, skipped)`. Exactly one summary must be present and the
+/// run must be complete (`<n>/<total> tests run` means some never ran); any
+/// unknown outcome word fails closed. Timed-out tests count as failed.
+pub fn nextest_counts(text: &str) -> Result<(u64, u64, u64)> {
+    let summaries: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("Summary ["))
+        .collect();
+    let [summary] = summaries.as_slice() else {
+        return Err(format!("expected one nextest summary, found {}", summaries.len()).into());
+    };
+    let (_, body) = summary
+        .split_once("] ")
+        .ok_or("malformed nextest summary timing")?;
+    let (run, outcomes) = body
+        .split_once(" run: ")
+        .ok_or("malformed nextest summary")?;
+    let run = run
+        .strip_suffix(" tests")
+        .or_else(|| run.strip_suffix(" test"))
+        .ok_or("malformed nextest run count")?;
+    let run: u64 = run
+        .parse()
+        .map_err(|_| "incomplete nextest run (not every test ran)")?;
+    let (mut passed, mut failed, mut skipped) = (0_u64, 0_u64, 0_u64);
+    for item in without_annotations(outcomes).split(", ") {
+        let item = item.trim();
+        let (count, word) = item.split_once(' ').ok_or("malformed nextest outcome")?;
+        let count: u64 = count.parse().map_err(|_| "malformed nextest count")?;
+        match word {
+            "passed" => passed = count,
+            "failed" | "timed out" | "exec failed" => {
+                failed = failed.checked_add(count).ok_or("nextest count overflow")?;
+            }
+            "skipped" => skipped = count,
+            other => return Err(format!("unknown nextest outcome: {other}").into()),
+        }
+    }
+    if passed.checked_add(failed) != Some(run) {
+        return Err("nextest summary counts do not add up".into());
+    }
+    Ok((passed, failed, skipped))
+}
+
+/// `outcomes` with every parenthesised annotation removed: nextest writes
+/// `3129 passed (2 slow, 17 leaky), 13 skipped`, and the comma inside the
+/// parentheses must not split an outcome.
+fn without_annotations(outcomes: &str) -> String {
+    let mut depth = 0_usize;
+    let mut kept = String::with_capacity(outcomes.len());
+    for ch in outcomes.chars() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => kept.push(ch),
+            _ => {}
+        }
+    }
+    kept
+}
+
+/// Counts from a `cargo test --doc` run: every `Doc-tests <crate>` block must
+/// announce one harness and end in exactly one result. A run whose crates
+/// have no doctests has zero blocks or zero-test blocks and counts zero.
+pub fn doctest_counts(text: &str) -> Result<(u64, u64, u64)> {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.iter().any(|line| {
+        line.trim_start()
+            .strip_prefix("Running ")
+            .is_some_and(|rest| rest.contains(" ("))
+    }) {
+        return Err("a doctest gate ran non-doctest harnesses".into());
+    }
+    let starts: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, line)| line.trim_start().starts_with("Doc-tests ").then_some(i))
+        .collect();
+    let mut totals = (0_u64, 0_u64, 0_u64);
+    for (index, start) in starts.iter().enumerate() {
+        let end = starts.get(index + 1).copied().unwrap_or(lines.len());
+        let block = &lines[start + 1..end];
+        let results = block
+            .iter()
+            .filter(|line| line.starts_with("test result: "))
+            .count();
+        let harnesses = block
+            .iter()
+            .filter(|line| line.starts_with("running "))
+            .count();
+        if results != 1 || harnesses != 1 {
+            return Err("malformed Cargo doctest block".into());
+        }
+        add_counts(&mut totals, suite_counts(block)?)?;
     }
     Ok(totals)
 }
@@ -295,5 +401,39 @@ mod tests {
             .unwrap()
             .replace("3 passed", "2 passed");
         assert!(test_counts(bad.as_bytes(), &argv, Path::new("/repo")).is_err());
+    }
+    #[test]
+    fn nextest_summary_counts_complete_runs_and_fails_closed() {
+        let log = "    Starting 5 tests across 2 binaries (1 test skipped)\n        PASS [   0.010s] a tests::x\n------------\n     Summary [   1.234s] 5 tests run: 5 passed (1 slow), 1 skipped\n";
+        assert_eq!(nextest_counts(log).unwrap(), (5, 0, 1));
+        let failed =
+            "     Summary [   1.234s] 5 tests run: 3 passed, 1 failed, 1 timed out, 0 skipped\n";
+        assert_eq!(nextest_counts(failed).unwrap(), (3, 2, 0));
+        let one = "     Summary [   0.100s] 1 test run: 1 passed, 0 skipped\n";
+        assert_eq!(nextest_counts(one).unwrap(), (1, 0, 0));
+        let annotated =
+            "     Summary [ 525.252s] 3129 tests run: 3129 passed (2 slow, 17 leaky), 13 skipped
+";
+        assert_eq!(nextest_counts(annotated).unwrap(), (3129, 0, 13));
+        for bad in [
+            "",
+            "     Summary [   1.0s] 3/10 tests run: 3 passed, 0 skipped\n",
+            "     Summary [   1.0s] 5 tests run: 4 passed, 0 skipped\n",
+            "     Summary [   1.0s] 2 tests run: 2 passed, 1 mystery\n",
+            "     Summary [   1.0s] 1 test run: 1 passed, 0 skipped\n     Summary [   1.0s] 1 test run: 1 passed, 0 skipped\n",
+        ] {
+            assert!(nextest_counts(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn doctest_counts_sum_blocks_and_allow_crates_without_doctests() {
+        let log = "   Doc-tests alpha\n\nrunning 3 tests\ntest src/lib.rs - f (line 3) ... ok\ntest src/lib.rs - g (line 9) ... ok\ntest src/lib.rs - h (line 20) ... ignored\n\ntest result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.50s\n\n   Doc-tests beta\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n";
+        assert_eq!(doctest_counts(log).unwrap(), (2, 0, 1));
+        assert_eq!(doctest_counts("").unwrap(), (0, 0, 0));
+        let broken = "   Doc-tests alpha\n\nrunning 1 test\n";
+        assert!(doctest_counts(broken).is_err());
+        let mixed = "     Running unittests src/lib.rs (target/x/debug/deps/a-1.exe)\n";
+        assert!(doctest_counts(mixed).is_err());
     }
 }

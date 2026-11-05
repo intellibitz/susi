@@ -71,6 +71,8 @@ pub struct Workspace {
     /// Packages whose sources reference the workspace root itself, with
     /// whether the read is compiled into the package.
     pub root_readers: BTreeMap<String, bool>,
+    /// Members with a library target (`cargo test --doc` only accepts these).
+    pub libraries: BTreeSet<String>,
 }
 
 /// A relative path read with no Cargo dependency edge.
@@ -700,6 +702,18 @@ pub fn load(root: &Path) -> Result<Workspace> {
             .parent()
             .and_then(|dir| relative(&workspace_root, dir))
             .ok_or("member outside the workspace root")?;
+        let library = package["targets"].as_array().is_some_and(|targets| {
+            targets.iter().any(|target| {
+                target["kind"].as_array().is_some_and(|kinds| {
+                    kinds.iter().any(|kind| {
+                        matches!(kind.as_str(), Some("lib" | "rlib" | "dylib" | "proc-macro"))
+                    })
+                })
+            })
+        });
+        if library {
+            workspace.libraries.insert(name.clone());
+        }
         names.insert(id, name.clone());
         workspace.members.push(Member { name, dir });
     }

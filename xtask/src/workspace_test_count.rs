@@ -60,6 +60,62 @@ pub(crate) fn verified_pass_count(path: &Path) -> io::Result<u64> {
     Ok(total)
 }
 
+/// Passing tests of a completed `cargo nextest run` with no failures, from its
+/// final summary line (see `native_test_counts::nextest_counts`).
+// Shared module: `local-release` includes it but keeps `cargo test` gates, so
+// only `local-workflow` calls this.
+#[allow(dead_code)]
+pub(crate) fn verified_nextest_pass_count(path: &Path) -> io::Result<u64> {
+    let text = std::fs::read_to_string(path)?;
+    let summaries: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("Summary ["))
+        .collect();
+    let [summary] = summaries.as_slice() else {
+        return Err(invalid("nextest log must hold exactly one summary"));
+    };
+    let outcomes = summary
+        .split_once(" run: ")
+        .map(|(_, outcomes)| outcomes)
+        .ok_or_else(|| invalid("malformed nextest summary"))?;
+    // Drop parenthesised annotations first: `3129 passed (2 slow, 17 leaky)`
+    // holds a comma that must not split an outcome.
+    let mut depth = 0_usize;
+    let outcomes: String = outcomes
+        .chars()
+        .filter(|ch| match ch {
+            '(' => {
+                depth += 1;
+                false
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                false
+            }
+            _ => depth == 0,
+        })
+        .collect();
+    let mut passed = None;
+    for item in outcomes.split(", ") {
+        let item = item.trim();
+        match item.split_once(' ') {
+            Some((count, "passed")) => {
+                passed = Some(
+                    count
+                        .parse::<u64>()
+                        .map_err(|_| invalid("malformed nextest count"))?,
+                );
+            }
+            Some((count, "skipped")) if count.parse::<u64>().is_ok() => {}
+            _ => return Err(invalid("nextest run had failures or unknown outcomes")),
+        }
+    }
+    match passed {
+        Some(count) if count > 0 => Ok(count),
+        _ => Err(invalid("workspace gate executed no passing Rust tests")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,6 +150,35 @@ mod tests {
             assert!(output.status.success());
             std::fs::write(&path, output.stdout).unwrap();
             assert_eq!(verified_pass_count(&path).ok(), expected);
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn nextest_pass_count_requires_one_clean_summary() {
+        let path =
+            std::env::temp_dir().join(format!("susi-nextest-count-{}.log", std::process::id()));
+        for (log, expected) in [
+            (
+                "     Summary [   1.0s] 4 tests run: 4 passed (1 slow), 2 skipped\n",
+                Some(4),
+            ),
+            (
+                "     Summary [ 525.252s] 3129 tests run: 3129 passed (2 slow, 17 leaky), 13 skipped\n",
+                Some(3129),
+            ),
+            (
+                "     Summary [   1.0s] 4 tests run: 3 passed, 1 failed, 0 skipped\n",
+                None,
+            ),
+            (
+                "     Summary [   1.0s] 0 tests run: 0 passed, 3 skipped\n",
+                None,
+            ),
+            ("no summary\n", None),
+        ] {
+            std::fs::write(&path, log).unwrap();
+            assert_eq!(verified_nextest_pass_count(&path).ok(), expected, "{log}");
         }
         std::fs::remove_file(path).unwrap();
     }
