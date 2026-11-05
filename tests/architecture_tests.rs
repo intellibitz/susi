@@ -1581,27 +1581,26 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
     }
 }
 
-/// The ruleset script may only require checks that a workflow really
-/// produces: a required check that never reports blocks every merge.
+/// The ruleset may require only the statuses local ship posts. A required
+/// check that nothing reports blocks every merge.
 #[test]
-fn github_ruleset_requires_only_checks_the_workflows_produce() {
+fn github_ruleset_contexts_match_ship_contexts() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let script = std::fs::read_to_string(root.join("scripts/github-enforce.sh")).unwrap();
-    let test_yml = std::fs::read_to_string(root.join(".github/workflows/test.yml")).unwrap();
     let required: Vec<&str> = script
         .lines()
         .filter_map(|l| l.split("\"context\": \"").nth(1))
         .filter_map(|r| r.split('"').next())
         .collect();
-    assert!(required.contains(&"Workflow Compliance"), "{required:?}");
-    for ctx in &required {
-        assert!(
-            test_yml.contains(&format!("name: {ctx}")),
-            "required check `{ctx}` is not a job name in test.yml"
-        );
-    }
-    // The compliance job must run on the pushes the ruleset gates.
-    assert!(test_yml.contains("scripts/check-workflow-compliance.sh origin/main"));
+    assert_eq!(
+        required,
+        [
+            "susi-local/format",
+            "susi-local/licenses",
+            "susi-local/clippy",
+            "susi-local/tests",
+        ]
+    );
 }
 
 /// The brain-lanes markdown board was retired: lane ownership is one JSON file

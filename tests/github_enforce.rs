@@ -165,8 +165,15 @@ fn phase_two_adds_the_required_checks() {
         .iter()
         .map(|c| c["context"].as_str().unwrap())
         .collect();
-    assert!(contexts.contains(&"Workflow Compliance"), "{contexts:?}");
-    assert_eq!(contexts.len(), 4);
+    assert_eq!(
+        contexts,
+        [
+            "susi-local/format",
+            "susi-local/licenses",
+            "susi-local/clippy",
+            "susi-local/tests",
+        ]
+    );
 }
 
 #[test]

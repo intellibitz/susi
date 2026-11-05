@@ -17,10 +17,9 @@
 # Phases (start at 1):
 #   1  pull requests only + no force-push + no deletion. Blocks the failure that
 #      matters (a direct push to main) and adds no way to get stuck.
-#   2  adds the required checks, incl. "Workflow Compliance". Move here once that
-#      check has run green on a few weeks of branches: a required check that
-#      never reports, or a renamed job, blocks every merge. All four contexts run
-#      on branch pushes, which is where a pull request is judged.
+#   2  adds the four susi-local/* statuses that `local-workflow ship` posts
+#      after the local gate. A required check that never reports blocks every
+#      merge, so these names are the statuses ship writes, not Actions job names.
 # Auto-merge (.github/workflows/auto-merge.yml) is unaffected: it merges through
 # the pull-request API once the branch-push run is green.
 #
@@ -72,10 +71,10 @@ check_rule=$(cat <<JSON
 { "type": "required_status_checks", "parameters": {
     "strict_required_status_checks_policy": false,
     "required_status_checks": [
-      { "context": "Workflow Compliance" },
-      { "context": "Format Check" },
-      { "context": "cargo deny (licenses + advisories)" },
-      { "context": "Compile Check (branch pushes)" } ] } }
+      { "context": "susi-local/format" },
+      { "context": "susi-local/licenses" },
+      { "context": "susi-local/clippy" },
+      { "context": "susi-local/tests" } ] } }
 JSON
 )
 rules=$base_rules
