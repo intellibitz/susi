@@ -1,0 +1,32 @@
+{
+  "id": "T-GROKSHIP-1",
+  "native_worker": "grok-ship",
+  "title": "Publish a verified local batch to GitHub without Actions",
+  "status": "implemented_pending_integration",
+  "dependencies": [],
+  "scopes": [
+    ".agents/tasks/t-grokship-1.json",
+    "agents.md",
+    "readme.md",
+    "scripts",
+    "tests",
+    "xtask"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "--offline",
+      "--locked"
+    ],
+    "criteria": [
+      "ship posts only the four local gate statuses after they pass",
+      "a failing gate pushes nothing",
+      "origin/main is re-verified once and a second move is refused"
+    ]
+  }
+}
