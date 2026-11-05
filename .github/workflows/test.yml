@@ -727,6 +727,11 @@ jobs:
       - name: Root-package guard tests (every branch push)
         run: cargo test --locked -p susi --test architecture_tests --test socket_parity --test core_boot_starts_nothing --test core_never_downloads_models_unasked --test core_docs_promise_no_ui_or_plugins --test thin_client_invariant
 
+      # Task-only changes still need the native schema/argv guard. Exact
+      # historical debt is pinned separately; new malformed records fail here.
+      - name: Validate task record schemas
+        run: cargo test --locked -p susi --test task_records
+
       # GMCP evidence currency. Every VC-203 record binds to a digest of the
       # files its checks read (tests/gmcp_requirements.rs), and only main's
       # full suite ran that target, so a branch that changed the GMCP crate

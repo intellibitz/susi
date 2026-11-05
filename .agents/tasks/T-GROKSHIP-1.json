@@ -2,10 +2,13 @@
   "id": "T-GROKSHIP-1",
   "native_worker": "grok-ship",
   "title": "Publish a verified local batch to GitHub without Actions",
+  "created_by": "GROKSHIP",
+  "created_unix": 1793880000,
   "status": "implemented_pending_integration",
   "dependencies": [],
   "scopes": [
     ".agents/tasks/t-grokship-1.json",
+    ".github/workflows/test.yml",
     "agents.md",
     "crates/susi-gawd/src/admin/tasks.rs",
     "crates/susi-gemi/src/spend_tracker.rs",
