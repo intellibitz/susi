@@ -369,7 +369,11 @@ carry `Task: T-<AGENT>-<n>` and the native launcher records `Task: LOCAL-<name>`
 Integration must serialize changes and verify the actual combined tree against
 the current local head. Close a task only after its complete acceptance passes
 there. A clean merge, a compile, zero selected tests or a remote CI result is
-not enough. `susi local workflow integrate worker-a` performs those local gates;
+not enough. `susi local workflow integrate worker-a` performs those local gates.
+`susi local workflow ship worker-a` is the optional GitHub publication: one local
+gate for the batch, a direct fast-forward push to `refs/heads/main` on `origin`,
+and four local commit statuses on the published commit.
+GitHub Actions is disabled and is not a merge gate.
 `susi local release qualify` independently qualifies the integrated source.
 
 `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` are identical

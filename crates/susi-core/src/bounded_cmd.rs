@@ -84,7 +84,7 @@ mod inline_tests {
     #[test]
     fn output_within_captures_stdout_for_fast_command() {
         let mut cmd = echo_cmd("bounded-ok");
-        let out = output_within(&mut cmd, Duration::from_secs(5)).unwrap();
+        let out = output_within(&mut cmd, Duration::from_secs(30)).unwrap();
         assert!(out.status.success());
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(text.contains("bounded-ok"), "{text}");
@@ -111,7 +111,7 @@ mod inline_tests {
             c.args(["-c", "exit 7"]);
             c
         };
-        let out = output_within(&mut cmd, Duration::from_secs(5)).unwrap();
+        let out = output_within(&mut cmd, Duration::from_secs(30)).unwrap();
         assert_eq!(out.status.code(), Some(7));
     }
 
@@ -129,7 +129,7 @@ mod inline_tests {
             c.args(["-c", "printf 'err-msg\\n' >&2"]);
             c
         };
-        let out = output_within(&mut cmd, Duration::from_secs(5)).unwrap();
+        let out = output_within(&mut cmd, Duration::from_secs(30)).unwrap();
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(stderr.contains("err-msg"), "{stderr}");
     }

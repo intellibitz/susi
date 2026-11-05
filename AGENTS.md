@@ -111,6 +111,16 @@ The Apache-2.0 license grants code rights, not rights to the Susi name or marks.
    gate remains an open task; do not invent success or bypass checks. Preserve
    both workers' changes and resolve conflicts as agents. Local completion must
    not depend on `origin/main`, a pull request, remote CI, or human code review.
+   When the work should land on GitHub, `cargo local-workflow ship <name> [<name> ...]`
+   is the serialized push and merge. Agents keep committing in parallel.
+   `ship` runs the local gate once for the batch, fast-forwards `refs/heads/main`
+   on `origin` directly to the verified local integration head, synchronizes
+   local `main`, and posts the four `susi-local/*` commit statuses onto the
+   published commit. It does not open a pull request or run GitHub Actions.
+   `ship --retry` republishes a verified integration head after a failed push.
+   `ruleset apply` prints the main ruleset; `ruleset apply --apply` sends it.
+   `workflows disable --merge-path` disables the push, pull-request, and schedule
+   workflows on GitHub.
 7. Close only after acceptance and integrated-tree verification succeed for the
    complete task. Zero executed tests do not count. Release ownership deliberately;
    `cargo local-workflow release <name>` preserves the branch/worktree and refuses

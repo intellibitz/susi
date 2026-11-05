@@ -430,6 +430,12 @@ mod inline_tests {
             BudgetWindow::Daily
         );
 
+        let _env = crate::engines::env_test_lock();
+        #[allow(unsafe_code)]
+        // SAFETY: test-only env mutation serialized by `crate::engines::env_test_lock`.
+        unsafe {
+            std::env::remove_var("SUSI_BUDGET_CEILINGS_FILE");
+        }
         assert!(check(&intent).is_ok());
     }
 }

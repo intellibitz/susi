@@ -82,7 +82,14 @@ fn git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
         .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(root)
         .args(args)
-        .output()?;
+        .output()
+        .map_err(|error| {
+            format!(
+                "provenance git {} in {}: {error}",
+                args.join(" "),
+                root.display()
+            )
+        })?;
     if !output.status.success() {
         return Err(format!(
             "git {}: {}",

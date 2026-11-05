@@ -13,6 +13,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
+#[path = "../affected.rs"]
+mod affected;
 #[path = "../compiler_env.rs"]
 mod compiler_env;
 #[path = "../native_provenance.rs"]
@@ -34,7 +36,8 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
         .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(dir)
         .args(args)
-        .output()?;
+        .output()
+        .map_err(|error| format!("git {} in {}: {error}", args.join(" "), dir.display()))?;
     if !out.status.success() {
         return Err(format!(
             "git {}: {}",
@@ -43,7 +46,9 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
         )
         .into());
     }
-    Ok(String::from_utf8(out.stdout)?.trim().to_owned())
+    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
+        .trim()
+        .to_owned())
 }
 
 fn text(path: &Path) -> Result<&str> {
@@ -252,7 +257,9 @@ fn git_input(root: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).into_owned().into());
     }
-    Ok(String::from_utf8(out.stdout)?.trim().to_owned())
+    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
+        .trim()
+        .to_owned())
 }
 
 fn receipt_matches(
@@ -420,11 +427,13 @@ fn sign_workspace_pass(root: &Path, key: &str) -> Result<String> {
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
 fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
-    native_provenance::require_unmodified_history(candidate)?;
+    native_provenance::require_unmodified_history(candidate)
+        .map_err(|error| format!("provenance: {error}"))?;
     let compiler = Command::new("rustc")
         .current_dir(candidate)
         .arg("-vV")
-        .output()?;
+        .output()
+        .map_err(|error| format!("rustc in {}: {error}", candidate.display()))?;
     if !compiler.status.success() {
         return Err("cannot identify native compiler".into());
     }
@@ -440,8 +449,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .map(PathBuf::from)
         .ok_or("cannot identify toolchain home")?;
     let home = attempt.join("test-home");
+    let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(home.join("AppData/Local"))?;
-    let target = candidate.join("target");
+    let target = restore_candidate_target(candidate);
     let cargo_home = env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| original_home.join(".cargo"));
@@ -480,8 +490,30 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .iter()
         .map(|args| args.iter().map(|arg| (*arg).into()).collect())
         .collect();
+    let selection = gate_selection(candidate, attempt)?;
+    match &selection {
+        affected::Selection::Packages(packages) => {
+            for args in &mut gates {
+                if matches!(args.first().map(String::as_str), Some("clippy" | "test")) {
+                    affected::narrow(args, packages);
+                }
+            }
+            eprintln!(
+                "local gate: {} of the workspace packages ({})",
+                packages.len(),
+                packages.iter().cloned().collect::<Vec<_>>().join(", ")
+            );
+        }
+        affected::Selection::Workspace(reason) => {
+            eprintln!("local gate: whole workspace ({reason})");
+        }
+    }
     vendor_regressions::include_release_tooling(candidate, &mut gates);
-    gates.extend(vendor_regressions::commands(candidate, host, &target)?);
+    // The standalone vendored adapters change only with `vendor/` or the
+    // toolchain, both of which select the whole workspace.
+    if matches!(selection, affected::Selection::Workspace(_)) {
+        gates.extend(vendor_regressions::commands(candidate, host, &target)?);
+    }
     let mut gate_ids: Vec<String> = (0..gates.len())
         .map(|index| match index {
             0 => "format".into(),
@@ -681,7 +713,35 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             serde_json::to_string(&sysroot.evidence)?
         ));
     }
+    evidence.push(match &selection {
+        affected::Selection::Packages(packages) => format!(
+            "gate-selection=packages:{}",
+            packages.iter().cloned().collect::<Vec<_>>().join(",")
+        ),
+        affected::Selection::Workspace(reason) => format!("gate-selection=workspace:{reason}"),
+    });
     Ok(evidence)
+}
+
+/// Which packages the clippy and test gates cover: those the change since the
+/// recorded integration base can affect. Without a recorded base, or with
+/// `SUSI_LOCAL_GATE=full`, the whole workspace. Production qualification
+/// (`local-release qualify`) always runs the whole workspace.
+fn gate_selection(candidate: &Path, attempt: &Path) -> Result<affected::Selection> {
+    if env::var("SUSI_LOCAL_GATE").is_ok_and(|mode| mode == "full") {
+        return Ok(affected::Selection::Workspace(
+            "SUSI_LOCAL_GATE=full".into(),
+        ));
+    }
+    let Ok(base) = fs::read_to_string(attempt.join("selection-base")) else {
+        return Ok(affected::Selection::Workspace("no recorded base".into()));
+    };
+    let base = base.trim();
+    if !valid_oid(base) {
+        return Err("recorded selection base is not a commit oid".into());
+    }
+    let changed = affected::changed(candidate, base, "HEAD")?;
+    Ok(affected::select(&affected::load(candidate)?, &changed))
 }
 
 /// Serialize only integration, not agent edits/commits. Publish the tested commit
@@ -756,11 +816,13 @@ where
         .join("attempts")
         .join(format!("{first}-{stamp}-{}", std::process::id()));
     fs::create_dir_all(&attempt)?;
-    let checkout = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
-    let candidate = checkout
-        .parent()
-        .ok_or("checkout has no parent")?
-        .join(format!("susi-verify-{stamp}-{}", std::process::id()));
+    let candidate = candidate_path(root)?;
+
+    if candidate.exists() {
+        remove_candidate(root, &candidate);
+        let _ = fs::remove_dir_all(&candidate);
+        let _ = git(root, &["worktree", "prune"]);
+    }
     git(
         root,
         &[
@@ -786,6 +848,7 @@ where
             .collect::<Vec<_>>()
             .join("\n"),
     )?;
+    fs::write(attempt.join("selection-base"), format!("{base}\n"))?;
     fs::write(
         attempt.join("native-inputs.json"),
         serde_json::to_vec_pretty(
@@ -926,6 +989,7 @@ where
     }
     // The accepted commit and receipt are durable; retain failure candidates,
     // but reclaim successful scratch builds without touching agent worktrees.
+    stash_candidate_target(root, &candidate);
     if let Err(error) = git(
         root,
         &[
@@ -935,6 +999,7 @@ where
             "core.longpaths=true",
             "worktree",
             "remove",
+            "--force",
             text(&candidate)?,
         ],
     ) {
@@ -1554,6 +1619,1090 @@ fn finish_scoped_merge(
     Ok(())
 }
 
+const SHIP_CONTEXTS: [&str; 4] = [
+    "susi-local/format",
+    "susi-local/licenses",
+    "susi-local/clippy",
+    "susi-local/tests",
+];
+
+fn status_description(text: &str) -> String {
+    text.chars().take(140).collect()
+}
+
+fn require_ship_ref(git_ref: &str) -> Result<()> {
+    if git_ref != "refs/heads/main" {
+        return Err("ship pushes only verified fast-forwards to refs/heads/main".into());
+    }
+    Ok(())
+}
+
+trait Remote {
+    fn fetch_main(&mut self, root: &Path) -> Result<String>;
+    fn push_ref(&mut self, root: &Path, sha: &str, git_ref: &str) -> Result<()>;
+    fn post_status(
+        &mut self,
+        root: &Path,
+        sha: &str,
+        context: &str,
+        description: &str,
+    ) -> Result<()>;
+}
+
+struct GhRemote;
+
+fn gh_command(root: &Path) -> Command {
+    let mut command = Command::new("gh");
+    command
+        .current_dir(root)
+        .env_remove("GH_FORCE_TTY")
+        .env("NO_COLOR", "1")
+        .env("CLICOLOR", "0");
+    command
+}
+
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        if character == '\u{1b}' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for next in chars.by_ref() {
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        out.push(character);
+    }
+    out
+}
+
+fn gh_output(root: &Path, args: &[String]) -> Result<String> {
+    let out = gh_command(root).args(args).output()?;
+    if !out.status.success() {
+        return Err(format!(
+            "gh {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )
+        .into());
+    }
+    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
+        .trim()
+        .to_owned())
+}
+
+fn repo_slug(root: &Path) -> Result<String> {
+    let slug = gh_output(
+        root,
+        &[
+            "repo".into(),
+            "view".into(),
+            "--json".into(),
+            "nameWithOwner".into(),
+            "-q".into(),
+            ".nameWithOwner".into(),
+        ],
+    )?;
+    let mut parts = slug.split('/');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(owner), Some(name), None)
+            if !owner.is_empty()
+                && !name.is_empty()
+                && owner
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+                && name.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' || byte == b'.'
+                }) =>
+        {
+            Ok(slug)
+        }
+        _ => Err("unexpected repository name".into()),
+    }
+}
+
+fn sync_local_main(root: &Path, sha: &str) {
+    let _ = git(root, &["update-ref", "refs/remotes/origin/main", sha]);
+    if let Ok(common) = git(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    ) {
+        if let Some(primary) = Path::new(&common).parent() {
+            if git(primary, &["branch", "--show-current"]).ok().as_deref() == Some("main") {
+                // Moving a checked-out branch ref without its files would make
+                // the checkout look like it reverts the shipped work. Untracked
+                // files are fine: a fast-forward refuses to overwrite them.
+                let clean = git(primary, &["status", "--porcelain", "--untracked-files=no"])
+                    .is_ok_and(|status| status.is_empty());
+                let merged = clean
+                    && git(
+                        primary,
+                        &[
+                            "-c",
+                            "core.hooksPath=",
+                            "merge",
+                            "--ff-only",
+                            "--quiet",
+                            sha,
+                        ],
+                    )
+                    .is_ok();
+                if !merged {
+                    eprintln!(
+                        "local main in {} was not fast-forwarded (uncommitted changes); run `git merge --ff-only origin/main` there",
+                        primary.display()
+                    );
+                }
+                return;
+            }
+        }
+    }
+    let checked_out = git(root, &["worktree", "list", "--porcelain"])
+        .is_ok_and(|list| list.lines().any(|line| line == "branch refs/heads/main"));
+    if !checked_out {
+        let _ = git(root, &["update-ref", "refs/heads/main", sha]);
+    }
+}
+
+impl Remote for GhRemote {
+    fn fetch_main(&mut self, root: &Path) -> Result<String> {
+        git(root, &["fetch", "--quiet", "origin", "main"])?;
+        let oid = git(root, &["rev-parse", "origin/main"])?;
+        if !valid_oid(&oid) {
+            return Err("origin/main is not a commit oid".into());
+        }
+        Ok(oid)
+    }
+
+    fn push_ref(&mut self, root: &Path, sha: &str, git_ref: &str) -> Result<()> {
+        require_ship_ref(git_ref)?;
+        if !valid_oid(sha) {
+            return Err("ship push requires a commit oid".into());
+        }
+        git(
+            root,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "push",
+                "--quiet",
+                "origin",
+                &format!("{sha}:{git_ref}"),
+            ],
+        )?;
+        sync_local_main(root, sha);
+        Ok(())
+    }
+
+    fn post_status(
+        &mut self,
+        root: &Path,
+        sha: &str,
+        context: &str,
+        description: &str,
+    ) -> Result<()> {
+        if !valid_oid(sha) {
+            return Err("status requires a commit oid".into());
+        }
+        if !SHIP_CONTEXTS.contains(&context) {
+            return Err("status context is not a local ship gate".into());
+        }
+        let slug = repo_slug(root)?;
+        let description = status_description(description);
+        gh_output(
+            root,
+            &[
+                "api".into(),
+                format!("repos/{slug}/statuses/{sha}"),
+                "-f".into(),
+                "state=success".into(),
+                "-f".into(),
+                format!("context={context}"),
+                "-f".into(),
+                format!("description={description}"),
+            ],
+        )?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct ShipReport {
+    head: String,
+    merge: String,
+}
+
+fn gate_evidence<'a>(evidence: &'a [String], subcommand: &str) -> Result<&'a str> {
+    evidence
+        .iter()
+        .find(|line| {
+            let Some((command, status)) = line.split_once(" => ") else {
+                return false;
+            };
+            status.starts_with("exit code: 0;")
+                && command.split_whitespace().nth(1) == Some(subcommand)
+        })
+        .map(String::as_str)
+        .ok_or_else(|| format!("missing passing {subcommand} evidence").into())
+}
+
+fn require_ship_evidence(evidence: &[String]) -> Result<()> {
+    if evidence.is_empty() {
+        return Err("verification returned no evidence".into());
+    }
+    // Gate lines are `cargo ... => exit code: N; ...`. Other evidence (sysroot,
+    // test proof, gate selection) describes the run and carries no status.
+    for line in evidence.iter().filter(|line| line.starts_with("cargo ")) {
+        match line.split_once(" => ") {
+            Some((_, status)) if status.starts_with("exit code: 0;") => {}
+            _ => return Err(format!("refusing to publish a failed gate: {line}").into()),
+        }
+    }
+    for subcommand in ["fmt", "deny", "clippy", "test"] {
+        gate_evidence(evidence, subcommand)?;
+    }
+    Ok(())
+}
+
+struct SourceInput {
+    claim: Claim,
+    source: String,
+    bytes: Vec<u8>,
+    path: PathBuf,
+}
+
+fn ship_scope_base(root: &Path, claim: &Claim, source: &str, publish_base: &str) -> Result<String> {
+    match scope_base(root, claim, source) {
+        Ok(base) => Ok(base),
+        Err(error) => {
+            let on_publish_base =
+                claim.base == publish_base || is_ancestor(root, &claim.base, publish_base)?;
+            if error
+                .to_string()
+                .contains("accepted history does not descend")
+                && is_ancestor(root, &claim.base, source)?
+                && on_publish_base
+            {
+                Ok(claim.base.clone())
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
+fn check_ship_source(root: &Path, claim: &Claim, publish_base: &str) -> Result<String> {
+    if state(&claim.worktree)? != state(root)?
+        || git(&claim.worktree, &["branch", "--show-current"])?
+            != format!("local-agent/{}", claim.name)
+    {
+        return Err("claim repository or branch does not match".into());
+    }
+    if !git(
+        &claim.worktree,
+        &["status", "--porcelain", "--untracked-files=all"],
+    )?
+    .is_empty()
+    {
+        return Err("integration requires a clean committed agent worktree".into());
+    }
+    let source = git(&claim.worktree, &["rev-parse", "HEAD"])?;
+    if !is_ancestor(root, &claim.base, &source)? {
+        return Err("source no longer descends from its reserved base".into());
+    }
+    let scope_base = ship_scope_base(root, claim, &source, publish_base)?;
+    let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(root)
+        .args([
+            "diff",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            &scope_base,
+            &source,
+        ])
+        .output()
+        .map_err(|error| format!("git diff in {}: {error}", root.display()))?;
+    if !out.status.success() {
+        return Err("cannot inspect committed scope".into());
+    }
+    for path in out
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+    {
+        let path = scope(std::str::from_utf8(path)?)?;
+        if !claim.scopes.iter().any(|held| owns_path(held, &path)) {
+            return Err(format!("committed file is outside reserved scope: {path}").into());
+        }
+    }
+    Ok(source)
+}
+
+fn load_sources(root: &Path, claimants: &[&str], publish_base: &str) -> Result<Vec<SourceInput>> {
+    if claimants.is_empty() {
+        return Err("at least one claimant is required".into());
+    }
+    let mut unique = std::collections::BTreeSet::new();
+    for claimant in claimants {
+        name(claimant)?;
+        if !unique.insert(*claimant) {
+            return Err("duplicate integration claimant".into());
+        }
+    }
+    let workflow = state(root)?;
+    let _claims = Lock::acquire(&workflow)?;
+    claimants
+        .iter()
+        .map(|claimant| {
+            let path = workflow.join("claims").join(format!("{claimant}.claim"));
+            let bytes = fs::read(&path)?;
+            let claim = read_claim(&path)?;
+            let source = check_ship_source(root, &claim, publish_base)?;
+            Ok(SourceInput {
+                claim,
+                source,
+                bytes,
+                path,
+            })
+        })
+        .collect()
+}
+
+/// One stable candidate worktree per repository, beside its primary checkout
+/// (`<repo>-verify-candidate`). Sibling repositories never share it, and the
+/// warm integration target keeps the same paths from run to run.
+fn candidate_path(root: &Path) -> Result<PathBuf> {
+    let common = PathBuf::from(git(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?);
+    let primary = common.parent().ok_or("git common dir has no parent")?;
+    let name = primary
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("primary checkout has no name")?;
+    Ok(primary
+        .parent()
+        .ok_or("primary checkout has no parent")?
+        .join(format!("{name}-verify-candidate")))
+}
+
+fn restore_candidate_target(candidate: &Path) -> PathBuf {
+    let target = candidate.join("target");
+    if !target.exists() {
+        if let Ok(workflow) = state(candidate) {
+            let warm = workflow.join("integration-target");
+            if warm.is_dir() {
+                let _ = fs::rename(&warm, &target);
+            }
+        }
+    }
+    target
+}
+
+fn stash_candidate_target(root: &Path, candidate: &Path) {
+    let target = candidate.join("target");
+    if target.is_dir() {
+        if let Ok(workflow) = state(root) {
+            let warm = workflow.join("integration-target");
+            if !warm.exists() {
+                let _ = fs::rename(&target, &warm);
+            }
+        }
+    }
+}
+
+fn remove_candidate(root: &Path, candidate: &Path) {
+    stash_candidate_target(root, candidate);
+    if let Ok(path) = text(candidate) {
+        let _ = git(
+            root,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "core.longpaths=true",
+                "worktree",
+                "remove",
+                "--force",
+                path,
+            ],
+        );
+    }
+}
+
+fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf> {
+    if !valid_oid(base) {
+        return Err("ship base is not a commit oid".into());
+    }
+    let candidate = candidate_path(root)?;
+
+    if candidate.exists() {
+        remove_candidate(root, &candidate);
+        let _ = fs::remove_dir_all(&candidate);
+        let _ = git(root, &["worktree", "prune"]);
+    }
+    git(
+        root,
+        &[
+            "-c",
+            "core.hooksPath=",
+            "worktree",
+            "add",
+            "--detach",
+            text(&candidate)?,
+            base,
+        ],
+    )?;
+    for input in inputs {
+        if let Err(error) = git(
+            &candidate,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "user.name=Susi Local Integration",
+                "-c",
+                "user.email=susi-local@localhost",
+                "-c",
+                "commit.gpgsign=false",
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                &input.source,
+            ],
+        ) {
+            remove_candidate(root, &candidate);
+            return Err(error);
+        }
+    }
+    Ok(candidate)
+}
+
+fn record_acceptance(
+    root: &Path,
+    inputs: &[SourceInput],
+    head: &str,
+    evidence: &[String],
+) -> Result<()> {
+    let workflow = state(root)?;
+    let attempt = workflow.join("publish");
+    let native_gates = if attempt.join("native-gates.json").is_file() {
+        Some(serde_json::from_slice::<serde_json::Value>(&fs::read(
+            attempt.join("native-gates.json"),
+        )?)?)
+    } else {
+        None
+    };
+    let publish_base = git(root, &["rev-parse", &format!("{head}^1")])?;
+    let tree = git(root, &["rev-parse", &format!("{head}^{{tree}}")])?;
+    let previous = integration_head(root)?;
+    if let Some(previous) = &previous {
+        if !is_ancestor(root, previous, head)? {
+            git(
+                root,
+                &["update-ref", "refs/susi/integration/displaced", previous],
+            )?;
+            eprintln!(
+                "preserved unrelated integration ref {previous} at refs/susi/integration/displaced"
+            );
+        }
+    }
+    let zero = "0".repeat(head.len());
+    let mut transaction = format!(
+        "start\nupdate {INTEGRATION_REF} {head} {}\n",
+        previous.as_deref().unwrap_or(&zero)
+    );
+    for input in inputs {
+        let receipt = format!(
+            "susi-local-integration-v1\nagent={}\nsource={}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n",
+            input.claim.name,
+            input.source,
+            input.claim.base,
+            previous.as_deref().unwrap_or("none"),
+            evidence.join("\n")
+        );
+        let oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;
+        let receipt_ref = format!(
+            "refs/susi/integration/receipts/{}/{}",
+            input.claim.name, input.source
+        );
+        transaction.push_str(&format!("create {receipt_ref} {oid}\n"));
+        if let Some(gates) = &native_gates {
+            let scope_base = ship_scope_base(root, &input.claim, &input.source, &publish_base)?;
+            let native = native_provenance::receipt(
+                root,
+                native_provenance::IntegrationSource {
+                    worker: &input.claim.name,
+                    claim_bytes: &input.bytes,
+                    source: &input.source,
+                    scope_base: &scope_base,
+                    previous: previous.as_deref(),
+                    accepted: head,
+                },
+                gates,
+            )?;
+            let native_oid = native_provenance::store_blob(root, &serde_json::to_vec(&native)?)?;
+            let native_ref = format!(
+                "refs/susi/provenance/receipts/{}/{}",
+                input.claim.name, input.source
+            );
+            transaction.push_str(&format!("create {native_ref} {native_oid}\n"));
+        }
+    }
+    transaction.push_str("prepare\ncommit\n");
+    git_input(root, &["update-ref", "--stdin"], transaction.as_bytes())?;
+    for input in inputs {
+        fs::remove_file(&input.path)?;
+    }
+    Ok(())
+}
+
+fn prove_ship<F>(
+    root: &Path,
+    workflow: &Path,
+    base: &str,
+    inputs: &[SourceInput],
+    verify: &mut F,
+) -> Result<(PathBuf, String, Vec<String>)>
+where
+    F: FnMut(&Path, &Path) -> Result<Vec<String>>,
+{
+    let candidate = merge_onto(root, base, inputs)?;
+    let attempt = workflow.join("publish");
+    fs::create_dir_all(&attempt)?;
+    let _ = fs::remove_file(attempt.join("native-gates.json"));
+    fs::write(attempt.join("selection-base"), format!("{base}\n"))?;
+    fs::write(
+        attempt.join("native-inputs.json"),
+        serde_json::to_vec_pretty(
+            &inputs
+                .iter()
+                .map(|input| {
+                    serde_json::json!({
+                        "worker": input.claim.name,
+                        "source": input.source,
+                        "scopes": input.claim.scopes,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )?,
+    )?;
+    let before = git(&candidate, &["rev-parse", "HEAD"])?;
+    let evidence = match verify(&candidate, &workflow.join("publish")) {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            remove_candidate(root, &candidate);
+            return Err(error);
+        }
+    };
+    let head = git(&candidate, &["rev-parse", "HEAD"])?;
+    if head != before
+        || !git(
+            &candidate,
+            &["status", "--porcelain", "--untracked-files=all"],
+        )?
+        .is_empty()
+    {
+        remove_candidate(root, &candidate);
+        return Err("verification changed the candidate tree; refusing promotion".into());
+    }
+    if let Err(error) = require_ship_evidence(&evidence) {
+        remove_candidate(root, &candidate);
+        return Err(error);
+    }
+    Ok((candidate, head, evidence))
+}
+
+fn ship<F>(
+    root: &Path,
+    claimants: &[&str],
+    remote: &mut dyn Remote,
+    mut verify: F,
+) -> Result<ShipReport>
+where
+    F: FnMut(&Path, &Path) -> Result<Vec<String>>,
+{
+    let workflow = state(root).map_err(|error| format!("state: {error}"))?;
+    // `integrate` and `ship` share the candidate worktree and the warm
+    // integration target, so they serialize on the same lock.
+    let _integration =
+        Lock::acquire(&workflow.join("integration")).map_err(|error| format!("lock: {error}"))?;
+    let _publish =
+        Lock::acquire(&workflow.join("publish")).map_err(|error| format!("lock: {error}"))?;
+    let base = remote
+        .fetch_main(root)
+        .map_err(|error| format!("fetch: {error}"))?;
+    let inputs = load_sources(root, claimants, &base).map_err(|error| format!("load: {error}"))?;
+    let proved = prove_ship(root, &workflow, &base, &inputs, &mut verify)
+        .map_err(|error| format!("prove: {error}"))?;
+    let mut candidate = proved.0;
+    let mut head = proved.1;
+    let mut evidence = proved.2;
+    let again = remote.fetch_main(root)?;
+    if again != base {
+        remove_candidate(root, &candidate);
+        let proved = prove_ship(root, &workflow, &again, &inputs, &mut verify)?;
+        candidate = proved.0;
+        head = proved.1;
+        evidence = proved.2;
+        let third = remote.fetch_main(root)?;
+        if third != again {
+            remove_candidate(root, &candidate);
+            return Err("origin/main moved twice".into());
+        }
+    }
+    {
+        let _claims = Lock::acquire(&workflow)?;
+        for input in &inputs {
+            if fs::read(&input.path)? != input.bytes
+                || check_ship_source(root, &input.claim, &base)? != input.source
+            {
+                remove_candidate(root, &candidate);
+                return Err(
+                    "source or reservation changed during verification; retry against its new head"
+                        .into(),
+                );
+            }
+        }
+        record_acceptance(root, &inputs, &head, &evidence)?;
+    }
+    let report = publish_head(root, &head, &evidence, remote);
+    remove_candidate(root, &candidate);
+    report
+}
+
+fn ship_retry(root: &Path, remote: &mut dyn Remote) -> Result<ShipReport> {
+    let workflow = state(root)?;
+    let _publish = Lock::acquire(&workflow.join("publish"))?;
+    let Some(head) = integration_head(root)? else {
+        return Err("missing receipt".into());
+    };
+    let tree = git(root, &["rev-parse", &format!("{head}^{{tree}}")])?;
+    let listing = git(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/susi/integration/receipts/",
+        ],
+    )?;
+    let mut evidence = None;
+    for entry in listing.lines() {
+        let Some((reference, oid)) = entry.split_once(' ') else {
+            continue;
+        };
+        let receipt = git(root, &["cat-file", "blob", oid])?;
+        if !receipt_matches(root, reference, &receipt, &head, &tree)? {
+            continue;
+        }
+        let lines: Vec<String> = receipt
+            .lines()
+            .skip(7)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect();
+        require_ship_evidence(&lines)?;
+        evidence = Some(lines);
+        break;
+    }
+    let evidence = evidence.ok_or("missing receipt")?;
+    let base = remote.fetch_main(root)?;
+    if !is_ancestor(root, &base, &head)? {
+        return Err("integration head is not based on origin/main".into());
+    }
+    let again = remote.fetch_main(root)?;
+    if again != base {
+        return Err("origin/main moved twice".into());
+    }
+    publish_head(root, &head, &evidence, remote)
+}
+
+fn publish_head(
+    root: &Path,
+    head: &str,
+    evidence: &[String],
+    remote: &mut dyn Remote,
+) -> Result<ShipReport> {
+    remote.push_ref(root, head, "refs/heads/main")?;
+    for context in SHIP_CONTEXTS {
+        let subcommand = match context {
+            "susi-local/format" => "fmt",
+            "susi-local/licenses" => "deny",
+            "susi-local/clippy" => "clippy",
+            "susi-local/tests" => "test",
+            _ => return Err("unknown ship context".into()),
+        };
+        let line = gate_evidence(evidence, subcommand)?;
+        // The push is the publication. A commit status is a courtesy record on
+        // GitHub; failing to post one (no `gh`, offline API) must not undo it.
+        if let Err(error) = remote.post_status(root, head, context, line) {
+            eprintln!("warning: {context} status not posted on {head}: {error}");
+        }
+    }
+    Ok(ShipReport {
+        head: head.to_owned(),
+        merge: head.to_owned(),
+    })
+}
+
+fn print_ship(report: &ShipReport) {
+    println!(
+        "Shipped {} directly to origin/main ({}).",
+        report.head, report.merge
+    );
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RepoKind {
+    Susi,
+    Commercial,
+}
+
+fn repo_kind(root: &Path) -> Result<RepoKind> {
+    if root.join("crates/susi-core/Cargo.toml").is_file() {
+        return Ok(RepoKind::Susi);
+    }
+    let manifest = root.join("Cargo.toml");
+    if manifest.is_file() {
+        let text = fs::read_to_string(&manifest)?;
+        if text
+            .lines()
+            .any(|line| line.trim() == "name = \"susi-commercial\"")
+        {
+            return Ok(RepoKind::Commercial);
+        }
+    }
+    Err("unrecognized checkout".into())
+}
+
+fn commercial_gate_argv() -> Vec<Vec<String>> {
+    vec![
+        vec!["fmt".into(), "--all".into(), "--check".into()],
+        vec![
+            "clippy".into(),
+            "--workspace".into(),
+            "--all-targets".into(),
+            "--locked".into(),
+            "--".into(),
+            "-D".into(),
+            "warnings".into(),
+        ],
+        vec!["test".into(), "--workspace".into(), "--locked".into()],
+        vec![
+            "deny".into(),
+            "check".into(),
+            "licenses".into(),
+            "advisories".into(),
+            "bans".into(),
+            "sources".into(),
+        ],
+    ]
+}
+
+fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
+    let compiler = Command::new("rustc")
+        .current_dir(candidate)
+        .arg("-vV")
+        .output()
+        .map_err(|error| format!("rustc in {}: {error}", candidate.display()))?;
+    if !compiler.status.success() {
+        return Err("cannot identify native compiler".into());
+    }
+    let compiler = String::from_utf8(compiler.stdout)?;
+    let host = compiler
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .ok_or("compiler did not report host")?;
+    if cfg!(windows) && !host.ends_with("-pc-windows-msvc") {
+        return Err("Windows integration requires a native MSVC compiler".into());
+    }
+    let home = attempt.join("test-home");
+    let _ = fs::remove_dir_all(&home);
+    fs::create_dir_all(home.join("AppData/Local"))?;
+    let target = restore_candidate_target(candidate);
+    let mut evidence = Vec::new();
+    for args in commercial_gate_argv() {
+        let started = std::time::Instant::now();
+        let mut command = Command::new("cargo");
+        command.current_dir(candidate).args(&args);
+        for (key, _) in env::vars_os() {
+            let name = key.to_string_lossy().to_ascii_uppercase();
+            if name.starts_with("SUSI_")
+                || [
+                    "TOKEN",
+                    "SECRET",
+                    "PASSWORD",
+                    "CREDENTIAL",
+                    "API_KEY",
+                    "ACCESS_KEY",
+                ]
+                .iter()
+                .any(|part| name.contains(part))
+            {
+                command.env_remove(key);
+            }
+        }
+        let log_path = attempt.join(format!("commercial-{}.log", evidence.len()));
+        let log = fs::File::create(&log_path)?;
+        command
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env("SUSI_HOME", home.join("susi"))
+            .env("CARGO_TARGET_DIR", &target)
+            .env("CARGO_TERM_COLOR", "never")
+            .stdout(Stdio::from(log.try_clone()?))
+            .stderr(Stdio::from(log));
+        let status = command.status()?;
+        let code = status.code().unwrap_or(1);
+        let line = format!(
+            "cargo {} => exit code: {code}; elapsed-ms={}",
+            args.join(" "),
+            started.elapsed().as_millis()
+        );
+        evidence.push(line.clone());
+        if !status.success() {
+            return Err(format!("gate failed: {line}; log {}", log_path.display()).into());
+        }
+    }
+    require_ship_evidence(&evidence)?;
+    Ok(evidence)
+}
+
+fn ruleset_body(kind: RepoKind) -> serde_json::Value {
+    let bypass = match kind {
+        RepoKind::Susi => serde_json::json!([]),
+        RepoKind::Commercial => serde_json::json!([{
+            "actor_id": 5,
+            "actor_type": "RepositoryRole",
+            "bypass_mode": "always"
+        }]),
+    };
+    let name = match kind {
+        RepoKind::Susi => "susi-main-workflow",
+        RepoKind::Commercial => "commercial-main-pr-only",
+    };
+    serde_json::json!({
+        "name": name,
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": { "ref_name": { "include": ["refs/heads/main"], "exclude": [] } },
+        "bypass_actors": bypass,
+        "rules": [
+            { "type": "deletion" },
+            { "type": "non_fast_forward" }
+        ]
+    })
+}
+
+fn merge_path_workflows(kind: RepoKind) -> &'static [&'static str] {
+    match kind {
+        RepoKind::Susi => &[
+            "Test",
+            "Auto PR + Merge",
+            "Queue",
+            "Main Failure Attribution",
+            "Zero-Config Matrix",
+            "Cloud target seed",
+            "Nightly Coverage Audit",
+            "Cleanup Workflow Runs",
+        ],
+        RepoKind::Commercial => &["Commercial Suite CI & Quality Gate", "Core Boundary Guard"],
+    }
+}
+
+fn apply_ruleset(root: &Path, apply: bool) -> Result<()> {
+    let body = ruleset_body(repo_kind(root)?);
+    if !apply {
+        println!("{}", serde_json::to_string_pretty(&body)?);
+        return Ok(());
+    }
+    let slug = repo_slug(root)?;
+    let name = body["name"].as_str().ok_or("ruleset is missing a name")?;
+    let listed = gh_output(root, &["api".into(), format!("repos/{slug}/rulesets")])?;
+    let parsed = strip_ansi(listed.trim())
+        .trim()
+        .trim_start_matches('\u{feff}')
+        .to_owned();
+    let parsed = parsed.as_str();
+    let listed: serde_json::Value = serde_json::from_str(parsed)
+        .map_err(|error| format!("ruleset list was not json ({error}): {parsed:.180}"))?;
+    let id = listed.as_array().and_then(|items| {
+        items.iter().find_map(|item| {
+            (item["name"] == name)
+                .then(|| item["id"].as_u64())
+                .flatten()
+        })
+    });
+    let payload = serde_json::to_vec(&body)?;
+    let endpoint = match id {
+        Some(id) => format!("repos/{slug}/rulesets/{id}"),
+        None => format!("repos/{slug}/rulesets"),
+    };
+    let method = if id.is_some() { "PUT" } else { "POST" };
+    gh_input(
+        root,
+        &[
+            "api".into(),
+            "--method".into(),
+            method.into(),
+            endpoint,
+            "--input".into(),
+            "-".into(),
+        ],
+        &payload,
+    )?;
+    println!("ruleset {name} {method}");
+    Ok(())
+}
+
+fn disable_merge_path(root: &Path, dry_run: bool) -> Result<()> {
+    for name in merge_path_workflows(repo_kind(root)?) {
+        if dry_run {
+            println!("{name}");
+            continue;
+        }
+        gh_output(root, &["workflow".into(), "disable".into(), (*name).into()])?;
+        println!("disabled {name}");
+    }
+    Ok(())
+}
+
+fn gh_input(root: &Path, args: &[String], input: &[u8]) -> Result<String> {
+    let mut child = gh_command(root)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .ok_or("missing gh stdin")?
+        .write_all(input)?;
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        return Err(format!(
+            "gh {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )
+        .into());
+    }
+    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
+        .trim()
+        .to_owned())
+}
+
+/// The agent's own fast check: format, then clippy and tests for only the
+/// packages its changes (committed, staged, unstaged and untracked) can affect
+/// since it diverged from `origin/main`. It builds in the agent's own worktree
+/// target with a private home, so parallel agents share no build directory,
+/// runtime state or credentials. Advice before `commit`; the serialized
+/// `integrate`/`ship` gate stays the acceptance.
+fn check(root: &Path) -> Result<()> {
+    let top = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
+    let base = git(&top, &["merge-base", "HEAD", "origin/main"])?;
+    let changed = changed_paths(&top, &base)?;
+    let mut gates: Vec<Vec<String>> = vec![
+        vec!["fmt".into(), "--all".into(), "--check".into()],
+        [
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--locked",
+            "--",
+            "-D",
+            "warnings",
+        ]
+        .iter()
+        .map(|arg| (*arg).into())
+        .collect(),
+        ["test", "--workspace", "--locked"]
+            .iter()
+            .map(|arg| (*arg).into())
+            .collect(),
+    ];
+    match affected::select(&affected::load(&top)?, &changed) {
+        affected::Selection::Packages(packages) => {
+            println!(
+                "check: {} changed paths since {}; {} packages: {}",
+                changed.len(),
+                &base[..base.len().min(12)],
+                packages.len(),
+                packages.iter().cloned().collect::<Vec<_>>().join(", ")
+            );
+            for args in &mut gates {
+                affected::narrow(args, &packages);
+            }
+        }
+        affected::Selection::Workspace(reason) => {
+            println!(
+                "check: {} changed paths; whole workspace ({reason})",
+                changed.len()
+            );
+            vendor_regressions::include_release_tooling(&top, &mut gates);
+        }
+    }
+    let target = top.join("target");
+    let home = target.join("susi-check-home");
+    fs::create_dir_all(home.join("AppData/Local"))?;
+    let total = std::time::Instant::now();
+    for args in &gates {
+        let started = std::time::Instant::now();
+        let mut command = Command::new("cargo");
+        for (key, _) in env::vars_os() {
+            let name = key.to_string_lossy().to_ascii_uppercase();
+            if name.starts_with("SUSI_")
+                || [
+                    "TOKEN",
+                    "SECRET",
+                    "PASSWORD",
+                    "CREDENTIAL",
+                    "API_KEY",
+                    "ACCESS_KEY",
+                ]
+                .iter()
+                .any(|part| name.contains(part))
+            {
+                command.env_remove(key);
+            }
+        }
+        let status = command
+            .current_dir(&top)
+            .args(args)
+            .env("CARGO_TARGET_DIR", &target)
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env("SUSI_HOME", home.join("susi"))
+            .env("APPDATA", home.join("appdata"))
+            .env("LOCALAPPDATA", home.join("localappdata"))
+            .env("XDG_CONFIG_HOME", home.join("config"))
+            .env("XDG_DATA_HOME", home.join("data"))
+            .env("XDG_CACHE_HOME", home.join("cache"))
+            .status()?;
+        println!(
+            "check: cargo {} => {} in {:.1}s",
+            args.first().map_or("", String::as_str),
+            if status.success() { "ok" } else { "FAILED" },
+            started.elapsed().as_secs_f64()
+        );
+        if !status.success() {
+            return Err(format!("check failed: cargo {}", args.join(" ")).into());
+        }
+    }
+    println!("check: passed in {:.1}s", total.elapsed().as_secs_f64());
+    Ok(())
+}
+
 fn run(args: &[String]) -> Result<()> {
     let root = env::current_dir()?;
     match args.first().map(String::as_str) {
@@ -1600,7 +2749,53 @@ fn run(args: &[String]) -> Result<()> {
             let _lock = Lock::acquire(&state)?;
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name>".into()),
+        Some("check") if args.len() == 1 => check(&root)?,
+        Some("affected") if (2..=3).contains(&args.len()) => {
+            let head = args.get(2).map_or("HEAD", String::as_str);
+            let changed = affected::changed(&root, &args[1], head)?;
+            match affected::select(&affected::load(&root)?, &changed) {
+                affected::Selection::Packages(packages) => {
+                    println!("{} changed paths; gate covers {} packages:", changed.len(), packages.len());
+                    for package in packages { println!("  {package}"); }
+                }
+                affected::Selection::Workspace(reason) => {
+                    println!("{} changed paths; gate covers the whole workspace: {reason}", changed.len());
+                }
+            }
+        }
+        Some("ship") if args.get(1).map(String::as_str) == Some("--retry") && args.len() == 2 => {
+            print_ship(&ship_retry(&root, &mut GhRemote)?);
+        }
+        Some("ship") if args.len() >= 2 => {
+            let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
+            let mut remote = GhRemote;
+            let report = match repo_kind(&root)? {
+                RepoKind::Susi => ship(&root, &names, &mut remote, verify_candidate)?,
+                RepoKind::Commercial => ship(&root, &names, &mut remote, commercial_gate)?,
+            };
+            print_ship(&report);
+        }
+        Some("ruleset") if args.get(1).map(String::as_str) == Some("apply") && args.len() <= 3 => {
+            let apply = args.len() == 3 && args[2] == "--apply";
+            if args.len() == 3 && !apply {
+                return Err("usage: local-workflow ruleset apply [--apply]".into());
+            }
+            apply_ruleset(&root, apply)?;
+        }
+        Some("workflows")
+            if args.len() == 3 && args[1] == "disable" && args[2] == "--merge-path" =>
+        {
+            disable_merge_path(&root, false)?;
+        }
+        Some("workflows")
+            if args.len() == 4
+                && args[1] == "disable"
+                && args[2] == "--merge-path"
+                && args[3] == "--dry-run" =>
+        {
+            disable_merge_path(&root, true)?;
+        }
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>] | ruleset apply | workflows disable --merge-path".into()),
     }
     Ok(())
 }
@@ -2869,7 +4064,7 @@ mod tests {
         let candidate = worktrees
             .lines()
             .filter_map(|line| line.strip_prefix("worktree "))
-            .find(|path| path.contains("susi-verify-"))
+            .find(|path| path.ends_with("-verify-candidate"))
             .unwrap();
         assert!(!git(
             Path::new(candidate),
@@ -2877,5 +4072,348 @@ mod tests {
         )
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn ship_contexts_are_the_four_local_gates() {
+        assert_eq!(
+            SHIP_CONTEXTS,
+            [
+                "susi-local/format",
+                "susi-local/licenses",
+                "susi-local/clippy",
+                "susi-local/tests",
+            ]
+        );
+    }
+
+    #[test]
+    fn status_description_truncates_to_github_limit() {
+        let long = "x".repeat(200);
+        assert_eq!(status_description(&long).chars().count(), 140);
+    }
+
+    struct FakeRemote {
+        mains: Vec<String>,
+        fetches: usize,
+        pushes: Vec<(String, String)>,
+        statuses: Vec<(String, String, String)>,
+        fail_push: bool,
+    }
+
+    impl FakeRemote {
+        fn single(main: String) -> Self {
+            Self {
+                mains: vec![main],
+                fetches: 0,
+                pushes: Vec::new(),
+                statuses: Vec::new(),
+                fail_push: false,
+            }
+        }
+    }
+
+    impl Remote for FakeRemote {
+        fn fetch_main(&mut self, _root: &Path) -> Result<String> {
+            let sha = self
+                .mains
+                .get(self.fetches)
+                .or_else(|| self.mains.last())
+                .cloned()
+                .ok_or("no origin/main")?;
+            self.fetches += 1;
+            Ok(sha)
+        }
+        fn push_ref(&mut self, _root: &Path, sha: &str, git_ref: &str) -> Result<()> {
+            require_ship_ref(git_ref)?;
+            if self.fail_push {
+                return Err("push refused".into());
+            }
+            self.pushes.push((sha.to_owned(), git_ref.to_owned()));
+            Ok(())
+        }
+        fn post_status(
+            &mut self,
+            _root: &Path,
+            sha: &str,
+            context: &str,
+            description: &str,
+        ) -> Result<()> {
+            self.statuses
+                .push((sha.to_owned(), context.to_owned(), description.to_owned()));
+            Ok(())
+        }
+    }
+
+    fn local_gate_evidence() -> Vec<String> {
+        vec![
+            "cargo fmt --all --check => exit code: 0; elapsed-ms=1".into(),
+            "cargo deny --offline --locked check licenses => exit code: 0; elapsed-ms=1".into(),
+            "cargo clippy --workspace --all-targets --offline --locked => exit code: 0; elapsed-ms=1".into(),
+            "cargo test --workspace --offline --locked => exit code: 0; elapsed-ms=1".into(),
+        ]
+    }
+
+    fn ship_fixture(agent: &str) -> (Scratch, PathBuf, String) {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        worker(&repo, agent, "owned.rs", "shipped");
+        (scratch, repo, base)
+    }
+
+    #[test]
+    fn ship_publishes_when_local_integration_ref_is_unrelated() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let unrelated = git(&repo, &["commit-tree", &tree, "-m", "unrelated"]).unwrap();
+        git(&repo, &["update-ref", INTEGRATION_REF, &unrelated]).unwrap();
+        let mut remote = FakeRemote::single(base);
+        ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert!(!remote.pushes.is_empty());
+        assert_eq!(
+            git(&repo, &["rev-parse", "refs/susi/integration/displaced"]).unwrap(),
+            unrelated
+        );
+    }
+
+    #[test]
+    fn ship_does_not_push_when_the_gate_fails() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let mut remote = FakeRemote::single(base);
+        let error = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Err("gate failed".into())
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("gate failed"), "{error}");
+        assert!(remote.pushes.is_empty());
+        assert!(remote.statuses.is_empty());
+    }
+
+    #[test]
+    fn ship_pushes_only_main_fast_forward() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let mut remote = FakeRemote::single(base);
+        ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert!(!remote.pushes.is_empty());
+        for (_sha, git_ref) in &remote.pushes {
+            assert_eq!(git_ref, "refs/heads/main");
+        }
+        assert!(require_ship_ref("refs/heads/other").is_err());
+    }
+
+    #[test]
+    fn ship_posts_success_only_for_passed_gates() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let mut remote = FakeRemote::single(base);
+        let mut verified = String::new();
+        let report = ship(&repo, &["one"], &mut remote, |candidate, _attempt| {
+            verified = git(candidate, &["rev-parse", "HEAD"])?;
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert_eq!(report.head, verified);
+        assert_eq!(report.merge, verified);
+        assert_eq!(remote.statuses.len(), 4);
+        for (sha, context, _description) in &remote.statuses {
+            assert_eq!(sha, &verified);
+            assert!(SHIP_CONTEXTS.contains(&context.as_str()), "{context}");
+        }
+        let mut posted: Vec<_> = remote
+            .statuses
+            .iter()
+            .map(|(_, context, _)| context.as_str())
+            .collect();
+        posted.sort();
+        let mut expected: Vec<_> = SHIP_CONTEXTS.to_vec();
+        expected.sort();
+        assert_eq!(posted, expected);
+    }
+
+    fn commit_on(repo: &Path, file: &str, content: &str) -> String {
+        fs::write(repo.join(file), content).unwrap();
+        git(repo, &["add", "--", file]).unwrap();
+        git(repo, &["-c", "core.hooksPath=", "commit", "-qm", file]).unwrap();
+        git(repo, &["rev-parse", "HEAD"]).unwrap()
+    }
+
+    #[test]
+    fn ship_reverifies_once_when_main_moves() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let moved = commit_on(&repo, "later.rs", "later");
+        let mut remote = FakeRemote::single(base.clone());
+        remote.mains = vec![base, moved.clone(), moved];
+        let runs = std::cell::Cell::new(0);
+        let report = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            runs.set(runs.get() + 1);
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert_eq!(runs.get(), 2);
+        assert_eq!(remote.pushes.len(), 1);
+        assert_eq!(remote.pushes[0].0, report.head);
+    }
+
+    #[test]
+    fn ship_stops_when_main_moves_twice() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let moved = commit_on(&repo, "later.rs", "later");
+        let third = commit_on(&repo, "third.rs", "third");
+        let mut remote = FakeRemote::single(base.clone());
+        remote.mains = vec![base, moved, third];
+        let error = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("origin/main moved twice"),
+            "{error}"
+        );
+        assert!(remote.pushes.is_empty());
+    }
+
+    #[test]
+    fn ship_retry_requires_a_matching_receipt() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let mut remote = FakeRemote::single(base.clone());
+        let missing = ship_retry(&repo, &mut remote).unwrap_err();
+        assert!(missing.to_string().contains("missing receipt"), "{missing}");
+        assert!(remote.pushes.is_empty());
+        remote.fail_push = true;
+        let pushed = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap_err();
+        assert!(pushed.to_string().contains("push refused"), "{pushed}");
+        remote.fail_push = false;
+        remote.pushes.clear();
+        let report = ship_retry(&repo, &mut remote).unwrap();
+        assert_eq!(remote.pushes.len(), 1);
+        assert_eq!(remote.pushes[0].0, report.head);
+        assert_eq!(remote.pushes[0].1, "refs/heads/main");
+    }
+
+    #[test]
+    fn susi_checkout_is_susi_kind() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask parent");
+        assert_eq!(repo_kind(root).unwrap(), RepoKind::Susi);
+    }
+
+    #[test]
+    fn commercial_package_is_commercial_kind() {
+        let scratch = Scratch::new();
+        fs::write(
+            scratch.0.join("Cargo.toml"),
+            "[package]\nname = \"susi-commercial\"\nversion = \"0.0.0\"\n",
+        )
+        .unwrap();
+        assert_eq!(repo_kind(&scratch.0).unwrap(), RepoKind::Commercial);
+    }
+
+    #[test]
+    fn unrecognized_checkout_is_refused() {
+        let scratch = Scratch::new();
+        let error = repo_kind(&scratch.0).unwrap_err();
+        assert!(
+            error.to_string().contains("unrecognized checkout"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn commercial_gate_plan_does_not_call_susi_proofs() {
+        let plan = commercial_gate_argv();
+        let flat = plan
+            .iter()
+            .flat_map(|args| args.iter().cloned())
+            .collect::<Vec<_>>()
+            .join(" ");
+        for needle in ["fmt", "clippy", "test", "deny"] {
+            assert!(flat.contains(needle), "{flat}");
+        }
+        assert!(!flat.contains("trusted_sysroot"), "{flat}");
+        assert!(!flat.contains("http://"), "{flat}");
+        assert!(!flat.contains("https://"), "{flat}");
+    }
+
+    #[test]
+    fn susi_ruleset_has_no_bypass_and_only_fast_forward_protection() {
+        let body = ruleset_body(RepoKind::Susi);
+        assert_eq!(body["bypass_actors"], serde_json::json!([]));
+        let types: Vec<_> = body["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|rule| rule["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(types, ["deletion", "non_fast_forward"]);
+    }
+
+    #[test]
+    fn commercial_ruleset_keeps_admin_bypass() {
+        let body = ruleset_body(RepoKind::Commercial);
+        assert_eq!(body["bypass_actors"][0]["actor_id"], 5);
+        let types: Vec<_> = body["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|rule| rule["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(types, ["deletion", "non_fast_forward"]);
+    }
+
+    #[test]
+    fn susi_merge_path_workflows_are_the_gate_and_relay() {
+        assert_eq!(
+            merge_path_workflows(RepoKind::Susi),
+            [
+                "Test",
+                "Auto PR + Merge",
+                "Queue",
+                "Main Failure Attribution",
+                "Zero-Config Matrix",
+                "Cloud target seed",
+                "Nightly Coverage Audit",
+                "Cleanup Workflow Runs",
+            ]
+        );
+    }
+
+    #[test]
+    fn commercial_merge_path_workflows_are_the_per_change_gate() {
+        let names = merge_path_workflows(RepoKind::Commercial);
+        assert!(names.contains(&"Commercial Suite CI & Quality Gate"));
+        assert!(names.iter().all(|name| !name.contains("Release")));
+    }
+
+    #[test]
+    fn disable_does_not_include_tag_release() {
+        for kind in [RepoKind::Susi, RepoKind::Commercial] {
+            let names = merge_path_workflows(kind);
+            assert!(!names.contains(&"Release Binaries"));
+            assert!(!names.contains(&"Dev Release (main)"));
+        }
+    }
+
+    #[test]
+    fn usage_lists_ship_commands() {
+        let error = run(&["nope".into()]).unwrap_err();
+        let text = error.to_string();
+        for needle in [
+            "ship <name>",
+            "ship --retry",
+            "ruleset apply",
+            "workflows disable --merge-path",
+        ] {
+            assert!(text.contains(needle), "{text}");
+        }
     }
 }

@@ -201,50 +201,22 @@ fn reject_redirects(path: &Path) -> Result<()> {
     }
     Ok(())
 }
-pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
-    let started = std::time::Instant::now();
-    let (compiler, installed) = compiler(root)?;
-    let host = target(&compiler)?;
-    super::sysroot_sources::original(&installed.join("lib/rustlib/src/rust/library"))?;
-    let key = identity(root, &compiler)?;
-    let common = PathBuf::from(git(
-        root,
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )?);
-    let storage = common.join("susi-product-sysroots");
-    fs::create_dir_all(&storage)?;
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_nanos();
-    let destination = storage.join(format!("{key}-{nonce}"));
-    let target = storage.join(format!("builder-{nonce}"));
-    let mut command = Command::new("cargo");
-    super::compiler_env::apply(&mut command);
-    let status = command
-        .current_dir(root)
-        .args([
-            "run",
-            "--offline",
-            "--locked",
-            "--manifest-path",
-            "toolchain/windows-stdlib/Cargo.toml",
-            "--target-dir",
-        ])
-        .arg(&target)
-        .env("CARGO_TARGET_DIR", &target)
-        .env("CARGO_BUILD_TARGET_DIR", &target)
-        .env("CARGO_BUILD_BUILD_DIR", &target)
-        .arg("--")
-        .arg(&destination)
-        .status()?;
-    if !status.success() {
-        return Err("tracked sysroot builder failed; private evidence retained".into());
-    }
-    source_check(root, &destination, &installed)?;
-    if identity(root, &compiler)? != key {
+#[allow(clippy::too_many_arguments)] // binds all verified sysroot admission inputs in one helper
+fn admit_destination(
+    root: &Path,
+    destination: &Path,
+    installed: &Path,
+    compiler: &str,
+    host: &str,
+    key: &str,
+    started: std::time::Instant,
+    cache_hit: bool,
+) -> Result<VerifiedSysroot> {
+    source_check(root, destination, installed)?;
+    if identity(root, compiler)? != key {
         return Err("sysroot builder source changed during execution".into());
     }
-    let expected = artifacts(&destination, host)?;
+    let expected = artifacts(destination, host)?;
     let mut handles = Vec::new();
     let path = destination.join("sysroot");
     for entry in expected.as_array().ok_or("invalid artifact inventory")? {
@@ -264,28 +236,8 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
         handles.push(options.open(&artifact)?);
     }
 
-    if artifacts(&destination, host)? != expected {
+    if artifacts(destination, host)? != expected {
         return Err("sysroot changed before archive locks were acquired".into());
-    }
-    // The tracked builder must finish and the reviewed stable consumer must
-    // execute before admission; externally supplied receipts cannot enter.
-    let executable = destination.join(native_target::executable(host, "consumer"));
-    let mut consumer = Command::new("rustc");
-    super::compiler_env::apply(&mut consumer);
-    let mut execute = Command::new(&executable);
-    super::compiler_env::apply(&mut execute);
-    if !consumer
-        .current_dir(root)
-        .arg("toolchain/windows-stdlib/consumer.rs")
-        .args(["--test", "--edition", "2021", "--sysroot"])
-        .arg(destination.join("sysroot"))
-        .arg("-o")
-        .arg(&executable)
-        .status()?
-        .success()
-        || !execute.status()?.success()
-    {
-        return Err("custom sysroot stable consumer qualification failed".into());
     }
     let mut evidence = serde_json::Map::new();
     for name in [
@@ -296,11 +248,13 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     ] {
         evidence.insert(name.into(), json!(hash_file(&destination.join(name))?));
     }
-    let record = json!({"schema":"susi/executed-sysroot/v2", "elapsed_ms":started.elapsed().as_millis(), "identity":key,"compiler":compiler,"destination":destination,"artifacts":expected,"evidence":evidence,"authenticated_source_manifest_sha256":super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),"selected_dependencies":fs::read_to_string(destination.join("selected-dependencies.txt"))?,"upstream_copyright":fs::read_to_string(destination.join("COPYRIGHT-library.upstream.html"))?,"source_delta":"core Unicode tables replaced by tracked native OS backend; exactly3 char const APIs made runtime-only; all other authenticated files unchanged"});
-    fs::write(
-        destination.join("executed-record.json"),
-        serde_json::to_vec_pretty(&record)?,
-    )?;
+    let record = json!({"schema":"susi/executed-sysroot/v2", "cache_hit":cache_hit, "elapsed_ms":started.elapsed().as_millis(), "identity":key,"compiler":compiler,"destination":destination,"artifacts":expected,"evidence":evidence,"authenticated_source_manifest_sha256":super::sysroot_sources::hash(include_bytes!("rust-src-1.99.0-authenticated.json")),"selected_dependencies":fs::read_to_string(destination.join("selected-dependencies.txt"))?,"upstream_copyright":fs::read_to_string(destination.join("COPYRIGHT-library.upstream.html"))?,"source_delta":"core Unicode tables replaced by tracked native OS backend; exactly3 char const APIs made runtime-only; all other authenticated files unchanged"});
+    if !cache_hit {
+        fs::write(
+            destination.join("executed-record.json"),
+            serde_json::to_vec_pretty(&record)?,
+        )?;
+    }
     let verified = VerifiedSysroot {
         path,
         expected,
@@ -309,6 +263,104 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     };
     verified.recheck()?;
     Ok(verified)
+}
+
+pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
+    let started = std::time::Instant::now();
+    let (compiler, installed) = compiler(root)?;
+    let host = target(&compiler)?;
+    super::sysroot_sources::original(&installed.join("lib/rustlib/src/rust/library"))?;
+    let key = identity(root, &compiler)?;
+    let common = PathBuf::from(git(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?);
+    let storage = common.join("susi-product-sysroots");
+    fs::create_dir_all(&storage)?;
+    let destination = storage.join(&key);
+    if destination.join("executed-record.json").is_file() {
+        if let Ok(verified) = admit_destination(
+            root,
+            &destination,
+            &installed,
+            &compiler,
+            host,
+            &key,
+            started,
+            true,
+        ) {
+            return Ok(verified);
+        }
+    }
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let staging = storage.join(format!("{key}-staging-{nonce}"));
+    let target = storage.join("builder-target");
+    let mut command = Command::new("cargo");
+    super::compiler_env::apply(&mut command);
+    let status = command
+        .current_dir(root)
+        .args([
+            "run",
+            "--offline",
+            "--locked",
+            "--manifest-path",
+            "toolchain/windows-stdlib/Cargo.toml",
+            "--target-dir",
+        ])
+        .arg(&target)
+        .env("CARGO_TARGET_DIR", &target)
+        .env("CARGO_BUILD_TARGET_DIR", &target)
+        .env("CARGO_BUILD_BUILD_DIR", &target)
+        .arg("--")
+        .arg(&staging)
+        .status()?;
+    if !status.success() {
+        return Err("tracked sysroot builder failed; private evidence retained".into());
+    }
+    // The tracked builder must finish and the reviewed stable consumer must
+    // execute before admission; externally supplied receipts cannot enter.
+    let executable = staging.join(native_target::executable(host, "consumer"));
+    let mut consumer = Command::new("rustc");
+    super::compiler_env::apply(&mut consumer);
+    let mut execute = Command::new(&executable);
+    super::compiler_env::apply(&mut execute);
+    if !consumer
+        .current_dir(root)
+        .arg("toolchain/windows-stdlib/consumer.rs")
+        .args(["--test", "--edition", "2021", "--sysroot"])
+        .arg(staging.join("sysroot"))
+        .arg("-o")
+        .arg(&executable)
+        .status()?
+        .success()
+        || !execute.status()?.success()
+    {
+        return Err("custom sysroot stable consumer qualification failed".into());
+    }
+    let _ = admit_destination(
+        root, &staging, &installed, &compiler, host, &key, started, false,
+    )?;
+    if !destination.exists() && fs::rename(&staging, &destination).is_err() && !destination.exists()
+    {
+        return admit_destination(
+            root, &staging, &installed, &compiler, host, &key, started, false,
+        );
+    }
+    if staging.exists() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    admit_destination(
+        root,
+        &destination,
+        &installed,
+        &compiler,
+        host,
+        &key,
+        started,
+        false,
+    )
 }
 
 #[cfg(test)]
