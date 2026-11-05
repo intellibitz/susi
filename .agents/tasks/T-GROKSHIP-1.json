@@ -8,6 +8,7 @@
     ".agents/tasks/t-grokship-1.json",
     "agents.md",
     "crates/susi-gawd/src/admin/tasks.rs",
+    "crates/susi-gemi/src/spend_tracker.rs",
     "docs/workflow-speed.md",
     "readme.md",
     "scripts",
