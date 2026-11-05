@@ -930,3 +930,31 @@ Three findings:
   pays the qualification and promotion loop, which prior evidence puts at
   ~45 min of gates, so Step 1's 60 s criterion is met only for changes a pack
   can carry.
+
+## Pure-local multi-agent integration and direct `main` publication (2026-11-05)
+
+Three cold-recompile hazards in the native local integration loop were removed:
+
+- **Content-addressed trusted sysroot reuse (`xtask/src/trusted_sysroot.rs`).**
+  `trusted_sysroot::prepare` previously appended a per-invocation nanosecond
+  nonce to `.git/susi-product-sysroots/{key}-{nonce}`, rebuilding all 20
+  standard-library `.rlib` archives (~40 s) and changing the `--sysroot` flag on
+  every gate run, which invalidated Cargo's incremental fingerprints across the
+  entire workspace. It now reuses the deterministic content-addressed directory
+  `.git/susi-product-sysroots/{key}` when its `executed-record.json`, source
+  audit, compiler identity, and locked `.rlib` artifact digests match.
+- **Persistent integration target and stable candidate worktree path
+  (`xtask/src/bin/local-workflow.rs`).**
+  `integrate` and `ship` previously created a fresh `susi-verify-{stamp}-{pid}`
+  worktree with a cold `target/` directory inside the deleted worktree, forcing
+  a full workspace and dependency recompile on every integration. Candidate
+  verification now runs in the deterministic `susi-verify-candidate` worktree
+  and atomically stashes/restores `susi-verify-candidate/target` via
+  `.git/susi-local-workflow/integration-target` across runs, preserving warm
+  incremental artifacts while keeping `--target-dir` bound to the isolated
+  candidate worktree.
+- **Direct fast-forward `main` publication without GitHub Actions or PR hops.**
+  `local-workflow ship` now pushes the locally verified integration head
+  directly to `refs/heads/main` (`git push --quiet origin <head>:refs/heads/main`),
+  synchronizes local `main`, and posts the four `susi-local/*` commit statuses
+  onto the published commit, with GitHub Actions disabled at the repository level.

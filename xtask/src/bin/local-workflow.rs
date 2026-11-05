@@ -448,7 +448,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .ok_or("cannot identify toolchain home")?;
     let home = attempt.join("test-home");
     fs::create_dir_all(home.join("AppData/Local"))?;
-    let target = candidate.join("target");
+    let target = restore_candidate_target(candidate);
     let cargo_home = env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| original_home.join(".cargo"));
@@ -767,7 +767,12 @@ where
     let candidate = checkout
         .parent()
         .ok_or("checkout has no parent")?
-        .join(format!("susi-verify-{stamp}-{}", std::process::id()));
+        .join("susi-verify-candidate");
+    if candidate.exists() {
+        remove_candidate(root, &candidate);
+        let _ = fs::remove_dir_all(&candidate);
+        let _ = git(root, &["worktree", "prune"]);
+    }
     git(
         root,
         &[
@@ -933,6 +938,7 @@ where
     }
     // The accepted commit and receipt are durable; retain failure candidates,
     // but reclaim successful scratch builds without touching agent worktrees.
+    stash_candidate_target(root, &candidate);
     if let Err(error) = git(
         root,
         &[
@@ -942,6 +948,7 @@ where
             "core.longpaths=true",
             "worktree",
             "remove",
+            "--force",
             text(&candidate)?,
         ],
     ) {
@@ -1573,17 +1580,8 @@ fn status_description(text: &str) -> String {
 }
 
 fn require_ship_ref(git_ref: &str) -> Result<()> {
-    let name = git_ref
-        .strip_prefix("refs/heads/ship/")
-        .ok_or("ship pushes only refs/heads/ship/<id>")?;
-    if name.is_empty()
-        || name.contains('/')
-        || name == "main"
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-    {
-        return Err("ship pushes only refs/heads/ship/<id>".into());
+    if git_ref != "refs/heads/main" {
+        return Err("ship pushes only verified fast-forwards to refs/heads/main".into());
     }
     Ok(())
 }
@@ -1591,7 +1589,6 @@ fn require_ship_ref(git_ref: &str) -> Result<()> {
 trait Remote {
     fn fetch_main(&mut self, root: &Path) -> Result<String>;
     fn push_ref(&mut self, root: &Path, sha: &str, git_ref: &str) -> Result<()>;
-    fn open_pr(&mut self, root: &Path, branch: &str, title: &str, body: &str) -> Result<u64>;
     fn post_status(
         &mut self,
         root: &Path,
@@ -1599,7 +1596,6 @@ trait Remote {
         context: &str,
         description: &str,
     ) -> Result<()>;
-    fn merge_pr(&mut self, root: &Path, number: u64, sha: &str) -> Result<String>;
 }
 
 struct GhRemote;
@@ -1679,12 +1675,28 @@ fn repo_slug(root: &Path) -> Result<String> {
     }
 }
 
-fn parse_pr_number(text: &str) -> Result<u64> {
-    let line = text.lines().last().unwrap_or("").trim();
-    let number = line.rsplit('/').next().unwrap_or("");
-    number
-        .parse::<u64>()
-        .map_err(|_| format!("pull request url did not end in a number: {line}").into())
+fn sync_local_main(root: &Path, sha: &str) {
+    let _ = git(root, &["update-ref", "refs/remotes/origin/main", sha]);
+    if let Ok(common) = git(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    ) {
+        if let Some(primary) = Path::new(&common).parent() {
+            if git(primary, &["branch", "--show-current"]).ok().as_deref() == Some("main")
+                && git(primary, &["status", "--porcelain", "--untracked-files=all"])
+                    .is_ok_and(|status| status.is_empty())
+            {
+                let _ = git(
+                    primary,
+                    &["-c", "core.hooksPath=", "merge", "--ff-only", sha],
+                );
+                return;
+            }
+        }
+    }
+    if git(root, &["branch", "--show-current"]).ok().as_deref() != Some("main") {
+        let _ = git(root, &["update-ref", "refs/heads/main", sha]);
+    }
 }
 
 impl Remote for GhRemote {
@@ -1713,27 +1725,8 @@ impl Remote for GhRemote {
                 &format!("{sha}:{git_ref}"),
             ],
         )?;
+        sync_local_main(root, sha);
         Ok(())
-    }
-
-    fn open_pr(&mut self, root: &Path, branch: &str, title: &str, body: &str) -> Result<u64> {
-        require_ship_ref(&format!("refs/heads/{branch}"))?;
-        let url = gh_output(
-            root,
-            &[
-                "pr".into(),
-                "create".into(),
-                "--base".into(),
-                "main".into(),
-                "--head".into(),
-                branch.into(),
-                "--title".into(),
-                title.into(),
-                "--body".into(),
-                body.into(),
-            ],
-        )?;
-        parse_pr_number(&url)
     }
 
     fn post_status(
@@ -1766,44 +1759,10 @@ impl Remote for GhRemote {
         )?;
         Ok(())
     }
-
-    fn merge_pr(&mut self, root: &Path, number: u64, sha: &str) -> Result<String> {
-        if !valid_oid(sha) {
-            return Err("merge requires a commit oid".into());
-        }
-        gh_output(
-            root,
-            &[
-                "pr".into(),
-                "merge".into(),
-                number.to_string(),
-                "--merge".into(),
-                "--match-head-commit".into(),
-                sha.into(),
-            ],
-        )?;
-        let merged = gh_output(
-            root,
-            &[
-                "pr".into(),
-                "view".into(),
-                number.to_string(),
-                "--json".into(),
-                "mergeCommit".into(),
-                "-q".into(),
-                ".mergeCommit.oid".into(),
-            ],
-        )?;
-        if !valid_oid(&merged) {
-            return Err("merge did not report a commit oid".into());
-        }
-        Ok(merged)
-    }
 }
 
 #[derive(Debug)]
 struct ShipReport {
-    pr: u64,
     head: String,
     merge: String,
 }
@@ -1945,7 +1904,33 @@ fn load_sources(root: &Path, claimants: &[&str], publish_base: &str) -> Result<V
         .collect()
 }
 
+fn restore_candidate_target(candidate: &Path) -> PathBuf {
+    let target = candidate.join("target");
+    if !target.exists() {
+        if let Ok(workflow) = state(candidate) {
+            let warm = workflow.join("integration-target");
+            if warm.is_dir() {
+                let _ = fs::rename(&warm, &target);
+            }
+        }
+    }
+    target
+}
+
+fn stash_candidate_target(root: &Path, candidate: &Path) {
+    let target = candidate.join("target");
+    if target.is_dir() {
+        if let Ok(workflow) = state(root) {
+            let warm = workflow.join("integration-target");
+            if !warm.exists() {
+                let _ = fs::rename(&target, &warm);
+            }
+        }
+    }
+}
+
 fn remove_candidate(root: &Path, candidate: &Path) {
+    stash_candidate_target(root, candidate);
     if let Ok(path) = text(candidate) {
         let _ = git(
             root,
@@ -1968,13 +1953,15 @@ fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf
         return Err("ship base is not a commit oid".into());
     }
     let checkout = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_nanos();
     let candidate = checkout
         .parent()
         .ok_or("checkout has no parent")?
-        .join(format!("susi-verify-{stamp}-{}", std::process::id()));
+        .join("susi-verify-candidate");
+    if candidate.exists() {
+        remove_candidate(root, &candidate);
+        let _ = fs::remove_dir_all(&candidate);
+        let _ = git(root, &["worktree", "prune"]);
+    }
     git(
         root,
         &[
@@ -2018,6 +2005,16 @@ fn record_acceptance(
     head: &str,
     evidence: &[String],
 ) -> Result<()> {
+    let workflow = state(root)?;
+    let attempt = workflow.join("publish");
+    let native_gates = if attempt.join("native-gates.json").is_file() {
+        Some(serde_json::from_slice::<serde_json::Value>(&fs::read(
+            attempt.join("native-gates.json"),
+        )?)?)
+    } else {
+        None
+    };
+    let publish_base = git(root, &["rev-parse", &format!("{head}^1")])?;
     let tree = git(root, &["rev-parse", &format!("{head}^{{tree}}")])?;
     let previous = integration_head(root)?;
     if let Some(previous) = &previous {
@@ -2051,6 +2048,27 @@ fn record_acceptance(
             input.claim.name, input.source
         );
         transaction.push_str(&format!("create {receipt_ref} {oid}\n"));
+        if let Some(gates) = &native_gates {
+            let scope_base = ship_scope_base(root, &input.claim, &input.source, &publish_base)?;
+            let native = native_provenance::receipt(
+                root,
+                native_provenance::IntegrationSource {
+                    worker: &input.claim.name,
+                    claim_bytes: &input.bytes,
+                    source: &input.source,
+                    scope_base: &scope_base,
+                    previous: previous.as_deref(),
+                    accepted: head,
+                },
+                gates,
+            )?;
+            let native_oid = native_provenance::store_blob(root, &serde_json::to_vec(&native)?)?;
+            let native_ref = format!(
+                "refs/susi/provenance/receipts/{}/{}",
+                input.claim.name, input.source
+            );
+            transaction.push_str(&format!("create {native_ref} {native_oid}\n"));
+        }
     }
     transaction.push_str("prepare\ncommit\n");
     git_input(root, &["update-ref", "--stdin"], transaction.as_bytes())?;
@@ -2072,6 +2090,8 @@ where
 {
     let candidate = merge_onto(root, base, inputs)?;
     let attempt = workflow.join("publish");
+    fs::create_dir_all(&attempt)?;
+    let _ = fs::remove_file(attempt.join("native-gates.json"));
     fs::write(
         attempt.join("native-inputs.json"),
         serde_json::to_vec_pretty(
@@ -2162,51 +2182,9 @@ where
         }
         record_acceptance(root, &inputs, &head, &evidence)?;
     }
-    let git_ref = format!(
-        "refs/heads/ship/{}-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs(),
-        &head[..12]
-    );
-    let branch = git_ref
-        .strip_prefix("refs/heads/")
-        .ok_or("ship ref is missing heads")?;
-    if let Err(error) = remote.push_ref(root, &head, &git_ref) {
-        remove_candidate(root, &candidate);
-        return Err(error);
-    }
-    let title = git(root, &["log", "-1", "--format=%s", &inputs[0].source])?;
-    let pr = match remote.open_pr(root, branch, &title, &evidence.join("\n")) {
-        Ok(pr) => pr,
-        Err(error) => {
-            remove_candidate(root, &candidate);
-            return Err(error);
-        }
-    };
-    for context in SHIP_CONTEXTS {
-        let subcommand = match context {
-            "susi-local/format" => "fmt",
-            "susi-local/licenses" => "deny",
-            "susi-local/clippy" => "clippy",
-            "susi-local/tests" => "test",
-            _ => return Err("unknown ship context".into()),
-        };
-        let line = gate_evidence(&evidence, subcommand)?;
-        if let Err(error) = remote.post_status(root, &head, context, line) {
-            remove_candidate(root, &candidate);
-            return Err(error);
-        }
-    }
-    let merge = match remote.merge_pr(root, pr, &head) {
-        Ok(merge) => merge,
-        Err(error) => {
-            remove_candidate(root, &candidate);
-            return Err(error);
-        }
-    };
+    let report = publish_head(root, &head, &evidence, remote);
     remove_candidate(root, &candidate);
-    Ok(ShipReport { pr, head, merge })
+    report
 }
 
 fn ship_retry(root: &Path, remote: &mut dyn Remote) -> Result<ShipReport> {
@@ -2261,19 +2239,7 @@ fn publish_head(
     evidence: &[String],
     remote: &mut dyn Remote,
 ) -> Result<ShipReport> {
-    let git_ref = format!(
-        "refs/heads/ship/{}-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs(),
-        &head[..12]
-    );
-    let branch = git_ref
-        .strip_prefix("refs/heads/")
-        .ok_or("ship ref is missing heads")?;
-    remote.push_ref(root, head, &git_ref)?;
-    let title = git(root, &["log", "-1", "--format=%s", head])?;
-    let pr = remote.open_pr(root, branch, &title, &evidence.join("\n"))?;
+    remote.push_ref(root, head, "refs/heads/main")?;
     for context in SHIP_CONTEXTS {
         let subcommand = match context {
             "susi-local/format" => "fmt",
@@ -2285,18 +2251,16 @@ fn publish_head(
         let line = gate_evidence(evidence, subcommand)?;
         remote.post_status(root, head, context, line)?;
     }
-    let merge = remote.merge_pr(root, pr, head)?;
     Ok(ShipReport {
-        pr,
         head: head.to_owned(),
-        merge,
+        merge: head.to_owned(),
     })
 }
 
 fn print_ship(report: &ShipReport) {
     println!(
-        "Shipped {} as pull request {}, merge {}.",
-        report.head, report.pr, report.merge
+        "Shipped {} directly to origin/main ({}).",
+        report.head, report.merge
     );
 }
 
@@ -2366,7 +2330,7 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     }
     let home = attempt.join("test-home");
     fs::create_dir_all(home.join("AppData/Local"))?;
-    let target = candidate.join("target");
+    let target = restore_candidate_target(candidate);
     let mut evidence = Vec::new();
     for args in commercial_gate_argv() {
         let started = std::time::Instant::now();
@@ -2416,10 +2380,6 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
 }
 
 fn ruleset_body(kind: RepoKind) -> serde_json::Value {
-    let checks: Vec<_> = SHIP_CONTEXTS
-        .iter()
-        .map(|context| serde_json::json!({ "context": context }))
-        .collect();
     let bypass = match kind {
         RepoKind::Susi => serde_json::json!([]),
         RepoKind::Commercial => serde_json::json!([{
@@ -2440,20 +2400,7 @@ fn ruleset_body(kind: RepoKind) -> serde_json::Value {
         "bypass_actors": bypass,
         "rules": [
             { "type": "deletion" },
-            { "type": "non_fast_forward" },
-            { "type": "pull_request", "parameters": {
-                "required_approving_review_count": 0,
-                "dismiss_stale_reviews_on_push": false,
-                "require_code_owner_review": false,
-                "require_last_push_approval": false,
-                "required_review_thread_resolution": false,
-                "require_extra_approval_for_unattributed_changes": true,
-                "allowed_merge_methods": ["merge", "squash", "rebase"]
-            } },
-            { "type": "required_status_checks", "parameters": {
-                "strict_required_status_checks_policy": false,
-                "required_status_checks": checks
-            } }
+            { "type": "non_fast_forward" }
         ]
     })
 }
@@ -3938,8 +3885,6 @@ mod tests {
         fetches: usize,
         pushes: Vec<(String, String)>,
         statuses: Vec<(String, String, String)>,
-        merges: Vec<(u64, String)>,
-        merge_sha: String,
         fail_push: bool,
     }
 
@@ -3950,8 +3895,6 @@ mod tests {
                 fetches: 0,
                 pushes: Vec::new(),
                 statuses: Vec::new(),
-                merges: Vec::new(),
-                merge_sha: "a".repeat(40),
                 fail_push: false,
             }
         }
@@ -3976,15 +3919,6 @@ mod tests {
             self.pushes.push((sha.to_owned(), git_ref.to_owned()));
             Ok(())
         }
-        fn open_pr(
-            &mut self,
-            _root: &Path,
-            _branch: &str,
-            _title: &str,
-            _body: &str,
-        ) -> Result<u64> {
-            Ok(1)
-        }
         fn post_status(
             &mut self,
             _root: &Path,
@@ -3995,10 +3929,6 @@ mod tests {
             self.statuses
                 .push((sha.to_owned(), context.to_owned(), description.to_owned()));
             Ok(())
-        }
-        fn merge_pr(&mut self, _root: &Path, number: u64, sha: &str) -> Result<String> {
-            self.merges.push((number, sha.to_owned()));
-            Ok(self.merge_sha.clone())
         }
     }
 
@@ -4048,11 +3978,10 @@ mod tests {
         assert!(error.to_string().contains("gate failed"), "{error}");
         assert!(remote.pushes.is_empty());
         assert!(remote.statuses.is_empty());
-        assert!(remote.merges.is_empty());
     }
 
     #[test]
-    fn ship_pushes_only_a_ship_branch() {
+    fn ship_pushes_only_main_fast_forward() {
         let (_scratch, repo, base) = ship_fixture("one");
         let mut remote = FakeRemote::single(base);
         ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
@@ -4061,9 +3990,9 @@ mod tests {
         .unwrap();
         assert!(!remote.pushes.is_empty());
         for (_sha, git_ref) in &remote.pushes {
-            assert!(git_ref.starts_with("refs/heads/ship/"), "{git_ref}");
-            assert_ne!(git_ref, "refs/heads/main");
+            assert_eq!(git_ref, "refs/heads/main");
         }
+        assert!(require_ship_ref("refs/heads/other").is_err());
     }
 
     #[test]
@@ -4077,8 +4006,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(report.head, verified);
-        assert_eq!(report.pr, 1);
-        assert_eq!(report.merge.len(), 40);
+        assert_eq!(report.merge, verified);
         assert_eq!(remote.statuses.len(), 4);
         for (sha, context, _description) in &remote.statuses {
             assert_eq!(sha, &verified);
@@ -4115,8 +4043,8 @@ mod tests {
         })
         .unwrap();
         assert_eq!(runs.get(), 2);
-        assert_eq!(remote.merges.len(), 1);
-        assert_eq!(remote.merges[0].1, report.head);
+        assert_eq!(remote.pushes.len(), 1);
+        assert_eq!(remote.pushes[0].0, report.head);
     }
 
     #[test]
@@ -4134,7 +4062,7 @@ mod tests {
             error.to_string().contains("origin/main moved twice"),
             "{error}"
         );
-        assert!(remote.merges.is_empty());
+        assert!(remote.pushes.is_empty());
     }
 
     #[test]
@@ -4155,7 +4083,7 @@ mod tests {
         let report = ship_retry(&repo, &mut remote).unwrap();
         assert_eq!(remote.pushes.len(), 1);
         assert_eq!(remote.pushes[0].0, report.head);
-        assert!(remote.pushes[0].1.starts_with("refs/heads/ship/"));
+        assert_eq!(remote.pushes[0].1, "refs/heads/main");
     }
 
     #[test]
@@ -4204,7 +4132,7 @@ mod tests {
     }
 
     #[test]
-    fn susi_ruleset_has_no_bypass_and_only_ship_contexts() {
+    fn susi_ruleset_has_no_bypass_and_only_fast_forward_protection() {
         let body = ruleset_body(RepoKind::Susi);
         assert_eq!(body["bypass_actors"], serde_json::json!([]));
         let types: Vec<_> = body["rules"]
@@ -4213,39 +4141,20 @@ mod tests {
             .iter()
             .map(|rule| rule["type"].as_str().unwrap())
             .collect();
-        assert!(types.contains(&"deletion"));
-        assert!(types.contains(&"non_fast_forward"));
-        assert!(types.contains(&"pull_request"));
-        let contexts: Vec<_> = body["rules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|rule| rule["type"] == "required_status_checks")
-            .unwrap()["parameters"]["required_status_checks"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|check| check["context"].as_str().unwrap())
-            .collect();
-        assert_eq!(contexts, SHIP_CONTEXTS);
+        assert_eq!(types, ["deletion", "non_fast_forward"]);
     }
 
     #[test]
     fn commercial_ruleset_keeps_admin_bypass() {
         let body = ruleset_body(RepoKind::Commercial);
         assert_eq!(body["bypass_actors"][0]["actor_id"], 5);
-        let contexts: Vec<_> = body["rules"]
+        let types: Vec<_> = body["rules"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|rule| rule["type"] == "required_status_checks")
-            .unwrap()["parameters"]["required_status_checks"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|check| check["context"].as_str().unwrap())
+            .map(|rule| rule["type"].as_str().unwrap())
             .collect();
-        assert_eq!(contexts, SHIP_CONTEXTS);
+        assert_eq!(types, ["deletion", "non_fast_forward"]);
     }
 
     #[test]

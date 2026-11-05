@@ -1621,11 +1621,27 @@ fn git_install_root(path: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf
     if path == std::env::var_os("PATH").as_deref() {
         return cached_git_install_root();
     }
-    git_install_root_uncached(path)
+    git_install_root_uncached(path).or_else(cached_git_install_root)
 }
 
 #[cfg(windows)]
 fn git_install_root_uncached(path: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
+    if let Some(path) = path {
+        for dir in std::env::split_paths(path) {
+            if !dir.join("git.exe").is_file() {
+                continue;
+            }
+            for depth in [1, 2] {
+                if let Some(root) = dir.ancestors().nth(depth) {
+                    if root.join("bin").join("sh.exe").is_file()
+                        || root.join("usr").join("bin").join("sh.exe").is_file()
+                    {
+                        return Some(root.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
     let mut git = Command::new("git");
     if let Some(path) = path {
         git.env("PATH", path);
