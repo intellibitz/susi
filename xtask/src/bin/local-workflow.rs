@@ -138,6 +138,91 @@ impl Drop for Lock {
     }
 }
 
+/// The machine-wide slot for one heavy verification gate at a time, shared by
+/// every repository (core and commercial) and every agent on this host.
+/// Parallel full builds and test suites saturate the CPU and make
+/// wall-clock-bounded tests time out; queued gates finish sooner and stay
+/// deterministic. Agents' own `check` runs do not take it.
+///
+/// Held as an OS file lock (`File::try_lock`), which the OS releases when the
+/// holder exits or crashes, so a dead gate can never wedge the machine and no
+/// age-based stale-lock guess is needed.
+struct HostGate {
+    _file: fs::File,
+}
+
+/// `%LOCALAPPDATA%\susi-local-workflow\host-gate` on Windows,
+/// `~/.cache/susi-local-workflow/host-gate` elsewhere.
+fn host_gate_dir() -> Result<PathBuf> {
+    let base = env::var_os(if cfg!(windows) {
+        "LOCALAPPDATA"
+    } else {
+        "HOME"
+    })
+    .map(PathBuf::from)
+    .ok_or("cannot locate a per-user directory for the host gate")?;
+    Ok(if cfg!(windows) {
+        base.join("susi-local-workflow")
+    } else {
+        base.join(".cache").join("susi-local-workflow")
+    }
+    .join("host-gate"))
+}
+
+/// Wait for and take the host gate in `dir`; `holder` describes this run for
+/// whoever waits next.
+fn acquire_host_gate(dir: &Path, holder: &str) -> Result<HostGate> {
+    fs::create_dir_all(dir)?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(dir.join("gate.lock"))?;
+    let started = std::time::Instant::now();
+    let mut announced = false;
+    loop {
+        match file.try_lock() {
+            Ok(()) => {
+                // Informational only: correctness rests on the OS lock.
+                let _ = fs::write(dir.join("owner"), format!("{holder}\n"));
+                if announced {
+                    eprintln!(
+                        "host gate acquired after {:.0} s",
+                        started.elapsed().as_secs_f64()
+                    );
+                }
+                return Ok(HostGate { _file: file });
+            }
+            Err(fs::TryLockError::WouldBlock) => {
+                if !announced {
+                    let owner = fs::read_to_string(dir.join("owner")).unwrap_or_default();
+                    eprintln!(
+                        "waiting for the host gate ({}) held by {}",
+                        dir.display(),
+                        owner.trim()
+                    );
+                    announced = true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+            Err(fs::TryLockError::Error(error)) => return Err(error.into()),
+        }
+    }
+}
+
+/// Take the host gate for a gate run in `candidate`, timing the wait.
+fn host_gate_for(candidate: &Path) -> Result<HostGate> {
+    let holder = format!(
+        "pid={} candidate={}",
+        std::process::id(),
+        candidate.display()
+    );
+    timed("wait for host gate", || -> Result<HostGate> {
+        acquire_host_gate(&host_gate_dir()?, &holder)
+    })
+}
+
 #[derive(Debug, Eq, PartialEq)]
 struct Claim {
     name: String,
@@ -201,6 +286,63 @@ fn state(root: &Path) -> Result<PathBuf> {
 }
 
 const INTEGRATION_REF: &str = "refs/susi/integration/current";
+
+/// Wall-clock phases of the current `ship`/`integrate`, in order.
+static PHASES: std::sync::Mutex<Vec<(String, u128)>> = std::sync::Mutex::new(Vec::new());
+
+/// Run `work` as the named phase: print its wall-clock time on stderr and
+/// remember it for the run summary, so every gate run shows where its minutes
+/// went instead of leaving setup and publication unmeasured.
+fn timed<T>(name: &str, work: impl FnOnce() -> T) -> T {
+    let started = std::time::Instant::now();
+    let value = work();
+    record_phase(name, started.elapsed().as_millis());
+    value
+}
+
+fn record_phase(name: &str, millis: u128) {
+    eprintln!("phase {name}: {:.1} s", millis as f64 / 1000.0);
+    if let Ok(mut phases) = PHASES.lock() {
+        phases.push((name.to_owned(), millis));
+    }
+}
+
+/// Print the phase table for this run and append it as one JSON line to
+/// `<git common dir>/susi-local-workflow/timings.jsonl` (history for speed work).
+fn finish_phases(root: &Path, command: &str, outcome: &str) {
+    let phases = match PHASES.lock() {
+        Ok(mut phases) => std::mem::take(&mut *phases),
+        Err(_) => return,
+    };
+    let total: u128 = phases.iter().map(|(_, millis)| millis).sum();
+    eprintln!("{command} timings ({outcome}):");
+    for (name, millis) in &phases {
+        eprintln!("  {name:<28} {:>8.1} s", *millis as f64 / 1000.0);
+    }
+    eprintln!(
+        "  {:<28} {:>8.1} s",
+        "total (measured phases)",
+        total as f64 / 1000.0
+    );
+    let Ok(dir) = state(root) else { return };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
+    let line = serde_json::json!({
+        "unix": stamp,
+        "command": command,
+        "outcome": outcome,
+        "phases_ms": phases.iter().map(|(name, millis)| serde_json::json!([name, millis])).collect::<Vec<_>>(),
+        "total_ms": total,
+    });
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("timings.jsonl"))
+    {
+        let _ = writeln!(file, "{line}");
+    }
+}
 
 use susi_build_policy as vendor_regressions;
 
@@ -443,8 +585,11 @@ fn sign_workspace_pass(root: &Path, key: &str) -> Result<String> {
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
 fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
-    native_provenance::require_unmodified_history(candidate)
-        .map_err(|error| format!("provenance: {error}"))?;
+    let _host = host_gate_for(candidate)?;
+    timed("provenance check", || {
+        native_provenance::require_unmodified_history(candidate)
+    })
+    .map_err(|error| format!("provenance: {error}"))?;
     let compiler = Command::new("rustc")
         .current_dir(candidate)
         .arg("-vV")
@@ -467,7 +612,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     let home = attempt.join("test-home");
     let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(home.join("AppData/Local"))?;
-    let target = restore_candidate_target(candidate);
+    let target = timed("restore warm target", || {
+        restore_candidate_target(candidate)
+    });
     let cargo_home = env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| original_home.join(".cargo"));
@@ -506,7 +653,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .iter()
         .map(|args| args.iter().map(|arg| (*arg).into()).collect())
         .collect();
-    let selection = gate_selection(candidate, attempt)?;
+    let selection = timed("affected selection", || gate_selection(candidate, attempt))?;
     match &selection {
         affected::Selection::Packages(packages) => {
             for args in &mut gates {
@@ -590,7 +737,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             )
             && candidate.join("crates/susi-core/Cargo.toml").is_file()
         {
-            sysroot = Some(trusted_sysroot::prepare(candidate)?);
+            sysroot = Some(timed("trusted sysroot", || {
+                trusted_sysroot::prepare(candidate)
+            })?);
         }
         let log_path = attempt.join(format!("gate-{index}.log"));
         let log = fs::File::create(&log_path)?;
@@ -679,6 +828,10 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             "cargo {} => {status_text}; elapsed-ms={}",
             args.join(" "),
             started.elapsed().as_millis()
+        );
+        record_phase(
+            &format!("gate {}", gate_ids.get(index).map_or("?", String::as_str)),
+            started.elapsed().as_millis(),
         );
         if status.success() && args.first().is_some_and(|arg| arg == "test") {
             let log_path = attempt.join(format!("gate-{index}.log"));
@@ -2199,7 +2352,7 @@ fn prove_ship<F>(
 where
     F: FnMut(&Path, &Path) -> Result<Vec<String>>,
 {
-    let candidate = merge_onto(root, base, inputs)?;
+    let candidate = timed("merge candidate", || merge_onto(root, base, inputs))?;
     let attempt = workflow.join("publish");
     fs::create_dir_all(&attempt)?;
     let _ = fs::remove_file(attempt.join("native-gates.json"));
@@ -2261,10 +2414,10 @@ where
         Lock::acquire(&workflow.join("integration")).map_err(|error| format!("lock: {error}"))?;
     let _publish =
         Lock::acquire(&workflow.join("publish")).map_err(|error| format!("lock: {error}"))?;
-    let base = remote
-        .fetch_main(root)
+    let base = timed("fetch origin/main", || remote.fetch_main(root))
         .map_err(|error| format!("fetch: {error}"))?;
-    let inputs = load_sources(root, claimants, &base).map_err(|error| format!("load: {error}"))?;
+    let inputs = timed("load sources", || load_sources(root, claimants, &base))
+        .map_err(|error| format!("load: {error}"))?;
     let proved = prove_ship(root, &workflow, &base, &inputs, &mut verify)
         .map_err(|error| format!("prove: {error}"))?;
     let mut candidate = proved.0;
@@ -2296,10 +2449,12 @@ where
                 );
             }
         }
-        record_acceptance(root, &inputs, &head, &evidence)?;
+        timed("record acceptance", || {
+            record_acceptance(root, &inputs, &head, &evidence)
+        })?;
     }
-    let report = publish_head(root, &head, &evidence, remote);
-    remove_candidate(root, &candidate);
+    let report = timed("publish", || publish_head(root, &head, &evidence, remote));
+    timed("stash warm target", || remove_candidate(root, &candidate));
     report
 }
 
@@ -2432,6 +2587,7 @@ fn commercial_gate_argv() -> Vec<Vec<String>> {
 }
 
 fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
+    let _host = host_gate_for(candidate)?;
     let compiler = Command::new("rustc")
         .current_dir(candidate)
         .arg("-vV")
@@ -2490,6 +2646,10 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             "cargo {} => exit code: {code}; elapsed-ms={}",
             args.join(" "),
             started.elapsed().as_millis()
+        );
+        record_phase(
+            &format!("gate cargo {}", args.first().map_or("?", String::as_str)),
+            started.elapsed().as_millis(),
         );
         evidence.push(line.clone());
         if !status.success() {
@@ -2766,7 +2926,12 @@ fn run(args: &[String]) -> Result<()> {
         Some("finish-merge") if args.len() == 4 => scoped_commit(&root, &args[1], &args[3], None, Some(&args[2]))?,
         Some("finish-merge") if args.iter().any(|arg| arg == "--sign") => return Err("finish-merge does not support signing".into()),
         Some("commit") if args.len() == 5 && args[3] == "--sign" => commit(&root, &args[1], &args[2], Some(&args[4]))?,
-        Some("integrate") if args.len() >= 2 => { let names: Vec<_> = args[1..].iter().map(String::as_str).collect(); integrate_with(&root, &names, verify_candidate)?; },
+        Some("integrate") if args.len() >= 2 => {
+            let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
+            let result = integrate_with(&root, &names, verify_candidate);
+            finish_phases(&root, "integrate", if result.is_ok() { "integrated" } else { "failed" });
+            result?;
+        }
         Some("list") if args.len() == 1 => {
             let state = state(&root)?;
             let _lock = Lock::acquire(&state)?;
@@ -2776,10 +2941,14 @@ fn run(args: &[String]) -> Result<()> {
         Some("affected") if (2..=3).contains(&args.len()) => {
             let head = args.get(2).map_or("HEAD", String::as_str);
             let changed = affected::changed(&root, &args[1], head)?;
-            match affected::select(&affected::load(&root)?, &changed) {
+            let (selection, why) = affected::select_explained(&affected::load(&root)?, &changed);
+            match selection {
                 affected::Selection::Packages(packages) => {
                     println!("{} changed paths; gate covers {} packages:", changed.len(), packages.len());
-                    for package in packages { println!("  {package}"); }
+                    for package in packages {
+                        let reason = why.get(&package).map_or("", String::as_str);
+                        println!("  {package}  ({reason})");
+                    }
                 }
                 affected::Selection::Workspace(reason) => {
                     println!("{} changed paths; gate covers the whole workspace: {reason}", changed.len());
@@ -2792,11 +2961,12 @@ fn run(args: &[String]) -> Result<()> {
         Some("ship") if args.len() >= 2 => {
             let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
             let mut remote = GhRemote;
-            let report = match repo_kind(&root)? {
-                RepoKind::Susi => ship(&root, &names, &mut remote, verify_candidate)?,
-                RepoKind::Commercial => ship(&root, &names, &mut remote, commercial_gate)?,
+            let result = match repo_kind(&root)? {
+                RepoKind::Susi => ship(&root, &names, &mut remote, verify_candidate),
+                RepoKind::Commercial => ship(&root, &names, &mut remote, commercial_gate),
             };
-            print_ship(&report);
+            finish_phases(&root, "ship", if result.is_ok() { "shipped" } else { "failed" });
+            print_ship(&result?);
         }
         Some("ruleset") if args.get(1).map(String::as_str) == Some("apply") && args.len() <= 3 => {
             let apply = args.len() == 3 && args[2] == "--apply";
@@ -4259,6 +4429,51 @@ mod tests {
         .unwrap();
         assert!(is_ancestor(&repo, &first_head, &second.head).unwrap());
         assert_eq!(remote.pushes.last().unwrap().0, second.head);
+    }
+
+    #[test]
+    fn host_gate_admits_one_holder_and_frees_on_drop() {
+        let scratch = Scratch::new();
+        let dir = scratch.repo().join("host-gate");
+        let first = acquire_host_gate(&dir, "first").unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("owner")).unwrap().trim(),
+            "first"
+        );
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let waiter_dir = dir.clone();
+        let waiter = std::thread::spawn(move || {
+            let gate = acquire_host_gate(&waiter_dir, "second").unwrap();
+            sender.send(()).unwrap();
+            drop(gate);
+        });
+        // The second holder must still be waiting while the first holds it.
+        assert!(receiver
+            .recv_timeout(std::time::Duration::from_millis(800))
+            .is_err());
+        drop(first);
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        waiter.join().unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("owner")).unwrap().trim(),
+            "second"
+        );
+    }
+
+    #[test]
+    fn a_leftover_host_gate_file_does_not_block() {
+        // A crashed holder leaves the lock file and owner behind; only a live
+        // OS lock blocks, so the next gate proceeds at once.
+        let scratch = Scratch::new();
+        let dir = scratch.repo().join("host-gate");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("gate.lock"), "").unwrap();
+        fs::write(dir.join("owner"), "pid=1 crashed\n").unwrap();
+        let started = std::time::Instant::now();
+        drop(acquire_host_gate(&dir, "next").unwrap());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]
