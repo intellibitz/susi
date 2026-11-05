@@ -958,3 +958,26 @@ Three cold-recompile hazards in the native local integration loop were removed:
   directly to `refs/heads/main` (`git push --quiet origin <head>:refs/heads/main`),
   synchronizes local `main`, and posts the four `susi-local/*` commit statuses
   onto the published commit, with GitHub Actions disabled at the repository level.
+
+## Affected-package local gate (2026-11-05)
+
+`integrate` and `ship` now run clippy and the test suite only for the packages a
+change can affect (`xtask/src/affected.rs`), instead of all 93 workspace members:
+
+- the packages that own the changed files, plus every package that depends on
+  them, transitively;
+- packages that compile a changed path in through a relative literal
+  (`include_str!`, `include_bytes!`, build scripts), plus their dependents;
+- packages whose tests merely read a changed path (no dependents);
+- always the root `susi` package, whose architecture and docs tests scan the tree.
+
+The lockfile, root manifest, toolchain, `deny.toml`, `.cargo/`, `.config/`,
+`vendor/` and `xtask/` select the whole workspace, and so does selecting every
+member. The standalone vendored-adapter suites run only with a whole-workspace
+gate. `SUSI_LOCAL_GATE=full` forces the whole workspace; production
+qualification (`local-release qualify`) always runs it.
+
+`cargo local-workflow affected <base> [<head>]` prints what the gate would cover.
+On the twelve most recent first-parent merges of `main`, ten selected 13–15 of
+the 93 packages and two (root `Cargo.toml`, `xtask/`) selected the whole
+workspace. Wall-clock effect: to be recorded from the first measured `ship`.

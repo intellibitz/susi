@@ -13,6 +13,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
+#[path = "../affected.rs"]
+mod affected;
 #[path = "../compiler_env.rs"]
 mod compiler_env;
 #[path = "../native_provenance.rs"]
@@ -487,8 +489,30 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .iter()
         .map(|args| args.iter().map(|arg| (*arg).into()).collect())
         .collect();
+    let selection = gate_selection(candidate, attempt)?;
+    match &selection {
+        affected::Selection::Packages(packages) => {
+            for args in &mut gates {
+                if matches!(args.first().map(String::as_str), Some("clippy" | "test")) {
+                    affected::narrow(args, packages);
+                }
+            }
+            eprintln!(
+                "local gate: {} of the workspace packages ({})",
+                packages.len(),
+                packages.iter().cloned().collect::<Vec<_>>().join(", ")
+            );
+        }
+        affected::Selection::Workspace(reason) => {
+            eprintln!("local gate: whole workspace ({reason})");
+        }
+    }
     vendor_regressions::include_release_tooling(candidate, &mut gates);
-    gates.extend(vendor_regressions::commands(candidate, host, &target)?);
+    // The standalone vendored adapters change only with `vendor/` or the
+    // toolchain, both of which select the whole workspace.
+    if matches!(selection, affected::Selection::Workspace(_)) {
+        gates.extend(vendor_regressions::commands(candidate, host, &target)?);
+    }
     let mut gate_ids: Vec<String> = (0..gates.len())
         .map(|index| match index {
             0 => "format".into(),
@@ -688,7 +712,35 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             serde_json::to_string(&sysroot.evidence)?
         ));
     }
+    evidence.push(match &selection {
+        affected::Selection::Packages(packages) => format!(
+            "gate-selection=packages:{}",
+            packages.iter().cloned().collect::<Vec<_>>().join(",")
+        ),
+        affected::Selection::Workspace(reason) => format!("gate-selection=workspace:{reason}"),
+    });
     Ok(evidence)
+}
+
+/// Which packages the clippy and test gates cover: those the change since the
+/// recorded integration base can affect. Without a recorded base, or with
+/// `SUSI_LOCAL_GATE=full`, the whole workspace. Production qualification
+/// (`local-release qualify`) always runs the whole workspace.
+fn gate_selection(candidate: &Path, attempt: &Path) -> Result<affected::Selection> {
+    if env::var("SUSI_LOCAL_GATE").is_ok_and(|mode| mode == "full") {
+        return Ok(affected::Selection::Workspace(
+            "SUSI_LOCAL_GATE=full".into(),
+        ));
+    }
+    let Ok(base) = fs::read_to_string(attempt.join("selection-base")) else {
+        return Ok(affected::Selection::Workspace("no recorded base".into()));
+    };
+    let base = base.trim();
+    if !valid_oid(base) {
+        return Err("recorded selection base is not a commit oid".into());
+    }
+    let changed = affected::changed(candidate, base, "HEAD")?;
+    Ok(affected::select(&affected::load(candidate)?, &changed))
 }
 
 /// Serialize only integration, not agent edits/commits. Publish the tested commit
@@ -763,11 +815,8 @@ where
         .join("attempts")
         .join(format!("{first}-{stamp}-{}", std::process::id()));
     fs::create_dir_all(&attempt)?;
-    let checkout = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
-    let candidate = checkout
-        .parent()
-        .ok_or("checkout has no parent")?
-        .join("susi-verify-candidate");
+    let candidate = candidate_path(root)?;
+
     if candidate.exists() {
         remove_candidate(root, &candidate);
         let _ = fs::remove_dir_all(&candidate);
@@ -798,6 +847,7 @@ where
             .collect::<Vec<_>>()
             .join("\n"),
     )?;
+    fs::write(attempt.join("selection-base"), format!("{base}\n"))?;
     fs::write(
         attempt.join("native-inputs.json"),
         serde_json::to_vec_pretty(
@@ -1682,19 +1732,38 @@ fn sync_local_main(root: &Path, sha: &str) {
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
     ) {
         if let Some(primary) = Path::new(&common).parent() {
-            if git(primary, &["branch", "--show-current"]).ok().as_deref() == Some("main")
-                && git(primary, &["status", "--porcelain", "--untracked-files=all"])
-                    .is_ok_and(|status| status.is_empty())
-            {
-                let _ = git(
-                    primary,
-                    &["-c", "core.hooksPath=", "merge", "--ff-only", sha],
-                );
+            if git(primary, &["branch", "--show-current"]).ok().as_deref() == Some("main") {
+                // Moving a checked-out branch ref without its files would make
+                // the checkout look like it reverts the shipped work. Untracked
+                // files are fine: a fast-forward refuses to overwrite them.
+                let clean = git(primary, &["status", "--porcelain", "--untracked-files=no"])
+                    .is_ok_and(|status| status.is_empty());
+                let merged = clean
+                    && git(
+                        primary,
+                        &[
+                            "-c",
+                            "core.hooksPath=",
+                            "merge",
+                            "--ff-only",
+                            "--quiet",
+                            sha,
+                        ],
+                    )
+                    .is_ok();
+                if !merged {
+                    eprintln!(
+                        "local main in {} was not fast-forwarded (uncommitted changes); run `git merge --ff-only origin/main` there",
+                        primary.display()
+                    );
+                }
                 return;
             }
         }
     }
-    if git(root, &["branch", "--show-current"]).ok().as_deref() != Some("main") {
+    let checked_out = git(root, &["worktree", "list", "--porcelain"])
+        .is_ok_and(|list| list.lines().any(|line| line == "branch refs/heads/main"));
+    if !checked_out {
         let _ = git(root, &["update-ref", "refs/heads/main", sha]);
     }
 }
@@ -1785,7 +1854,9 @@ fn require_ship_evidence(evidence: &[String]) -> Result<()> {
     if evidence.is_empty() {
         return Err("verification returned no evidence".into());
     }
-    for line in evidence {
+    // Gate lines are `cargo ... => exit code: N; ...`. Other evidence (sysroot,
+    // test proof, gate selection) describes the run and carries no status.
+    for line in evidence.iter().filter(|line| line.starts_with("cargo ")) {
         match line.split_once(" => ") {
             Some((_, status)) if status.starts_with("exit code: 0;") => {}
             _ => return Err(format!("refusing to publish a failed gate: {line}").into()),
@@ -1904,6 +1975,25 @@ fn load_sources(root: &Path, claimants: &[&str], publish_base: &str) -> Result<V
         .collect()
 }
 
+/// One stable candidate worktree per repository, beside its primary checkout
+/// (`<repo>-verify-candidate`). Sibling repositories never share it, and the
+/// warm integration target keeps the same paths from run to run.
+fn candidate_path(root: &Path) -> Result<PathBuf> {
+    let common = PathBuf::from(git(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?);
+    let primary = common.parent().ok_or("git common dir has no parent")?;
+    let name = primary
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("primary checkout has no name")?;
+    Ok(primary
+        .parent()
+        .ok_or("primary checkout has no parent")?
+        .join(format!("{name}-verify-candidate")))
+}
+
 fn restore_candidate_target(candidate: &Path) -> PathBuf {
     let target = candidate.join("target");
     if !target.exists() {
@@ -1952,11 +2042,8 @@ fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf
     if !valid_oid(base) {
         return Err("ship base is not a commit oid".into());
     }
-    let checkout = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
-    let candidate = checkout
-        .parent()
-        .ok_or("checkout has no parent")?
-        .join("susi-verify-candidate");
+    let candidate = candidate_path(root)?;
+
     if candidate.exists() {
         remove_candidate(root, &candidate);
         let _ = fs::remove_dir_all(&candidate);
@@ -2092,6 +2179,7 @@ where
     let attempt = workflow.join("publish");
     fs::create_dir_all(&attempt)?;
     let _ = fs::remove_file(attempt.join("native-gates.json"));
+    fs::write(attempt.join("selection-base"), format!("{base}\n"))?;
     fs::write(
         attempt.join("native-inputs.json"),
         serde_json::to_vec_pretty(
@@ -2143,6 +2231,10 @@ where
     F: FnMut(&Path, &Path) -> Result<Vec<String>>,
 {
     let workflow = state(root).map_err(|error| format!("state: {error}"))?;
+    // `integrate` and `ship` share the candidate worktree and the warm
+    // integration target, so they serialize on the same lock.
+    let _integration =
+        Lock::acquire(&workflow.join("integration")).map_err(|error| format!("lock: {error}"))?;
     let _publish =
         Lock::acquire(&workflow.join("publish")).map_err(|error| format!("lock: {error}"))?;
     let base = remote
@@ -2249,7 +2341,11 @@ fn publish_head(
             _ => return Err("unknown ship context".into()),
         };
         let line = gate_evidence(evidence, subcommand)?;
-        remote.post_status(root, head, context, line)?;
+        // The push is the publication. A commit status is a courtesy record on
+        // GitHub; failing to post one (no `gh`, offline API) must not undo it.
+        if let Err(error) = remote.post_status(root, head, context, line) {
+            eprintln!("warning: {context} status not posted on {head}: {error}");
+        }
     }
     Ok(ShipReport {
         head: head.to_owned(),
@@ -2504,6 +2600,107 @@ fn gh_input(root: &Path, args: &[String], input: &[u8]) -> Result<String> {
         .to_owned())
 }
 
+/// The agent's own fast check: format, then clippy and tests for only the
+/// packages its changes (committed, staged, unstaged and untracked) can affect
+/// since it diverged from `origin/main`. It builds in the agent's own worktree
+/// target with a private home, so parallel agents share no build directory,
+/// runtime state or credentials. Advice before `commit`; the serialized
+/// `integrate`/`ship` gate stays the acceptance.
+fn check(root: &Path) -> Result<()> {
+    let top = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
+    let base = git(&top, &["merge-base", "HEAD", "origin/main"])?;
+    let changed = changed_paths(&top, &base)?;
+    let mut gates: Vec<Vec<String>> = vec![
+        vec!["fmt".into(), "--all".into(), "--check".into()],
+        [
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--locked",
+            "--",
+            "-D",
+            "warnings",
+        ]
+        .iter()
+        .map(|arg| (*arg).into())
+        .collect(),
+        ["test", "--workspace", "--locked"]
+            .iter()
+            .map(|arg| (*arg).into())
+            .collect(),
+    ];
+    match affected::select(&affected::load(&top)?, &changed) {
+        affected::Selection::Packages(packages) => {
+            println!(
+                "check: {} changed paths since {}; {} packages: {}",
+                changed.len(),
+                &base[..base.len().min(12)],
+                packages.len(),
+                packages.iter().cloned().collect::<Vec<_>>().join(", ")
+            );
+            for args in &mut gates {
+                affected::narrow(args, &packages);
+            }
+        }
+        affected::Selection::Workspace(reason) => {
+            println!(
+                "check: {} changed paths; whole workspace ({reason})",
+                changed.len()
+            );
+            vendor_regressions::include_release_tooling(&top, &mut gates);
+        }
+    }
+    let target = top.join("target");
+    let home = target.join("susi-check-home");
+    fs::create_dir_all(home.join("AppData/Local"))?;
+    let total = std::time::Instant::now();
+    for args in &gates {
+        let started = std::time::Instant::now();
+        let mut command = Command::new("cargo");
+        for (key, _) in env::vars_os() {
+            let name = key.to_string_lossy().to_ascii_uppercase();
+            if name.starts_with("SUSI_")
+                || [
+                    "TOKEN",
+                    "SECRET",
+                    "PASSWORD",
+                    "CREDENTIAL",
+                    "API_KEY",
+                    "ACCESS_KEY",
+                ]
+                .iter()
+                .any(|part| name.contains(part))
+            {
+                command.env_remove(key);
+            }
+        }
+        let status = command
+            .current_dir(&top)
+            .args(args)
+            .env("CARGO_TARGET_DIR", &target)
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env("SUSI_HOME", home.join("susi"))
+            .env("APPDATA", home.join("appdata"))
+            .env("LOCALAPPDATA", home.join("localappdata"))
+            .env("XDG_CONFIG_HOME", home.join("config"))
+            .env("XDG_DATA_HOME", home.join("data"))
+            .env("XDG_CACHE_HOME", home.join("cache"))
+            .status()?;
+        println!(
+            "check: cargo {} => {} in {:.1}s",
+            args.first().map_or("", String::as_str),
+            if status.success() { "ok" } else { "FAILED" },
+            started.elapsed().as_secs_f64()
+        );
+        if !status.success() {
+            return Err(format!("check failed: cargo {}", args.join(" ")).into());
+        }
+    }
+    println!("check: passed in {:.1}s", total.elapsed().as_secs_f64());
+    Ok(())
+}
+
 fn run(args: &[String]) -> Result<()> {
     let root = env::current_dir()?;
     match args.first().map(String::as_str) {
@@ -2550,6 +2747,20 @@ fn run(args: &[String]) -> Result<()> {
             let _lock = Lock::acquire(&state)?;
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
         }
+        Some("check") if args.len() == 1 => check(&root)?,
+        Some("affected") if (2..=3).contains(&args.len()) => {
+            let head = args.get(2).map_or("HEAD", String::as_str);
+            let changed = affected::changed(&root, &args[1], head)?;
+            match affected::select(&affected::load(&root)?, &changed) {
+                affected::Selection::Packages(packages) => {
+                    println!("{} changed paths; gate covers {} packages:", changed.len(), packages.len());
+                    for package in packages { println!("  {package}"); }
+                }
+                affected::Selection::Workspace(reason) => {
+                    println!("{} changed paths; gate covers the whole workspace: {reason}", changed.len());
+                }
+            }
+        }
         Some("ship") if args.get(1).map(String::as_str) == Some("--retry") && args.len() == 2 => {
             print_ship(&ship_retry(&root, &mut GhRemote)?);
         }
@@ -2582,7 +2793,7 @@ fn run(args: &[String]) -> Result<()> {
         {
             disable_merge_path(&root, true)?;
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | ruleset apply | workflows disable --merge-path".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>] | ruleset apply | workflows disable --merge-path".into()),
     }
     Ok(())
 }
@@ -3851,7 +4062,7 @@ mod tests {
         let candidate = worktrees
             .lines()
             .filter_map(|line| line.strip_prefix("worktree "))
-            .find(|path| path.contains("susi-verify-"))
+            .find(|path| path.ends_with("-verify-candidate"))
             .unwrap();
         assert!(!git(
             Path::new(candidate),
