@@ -1842,7 +1842,76 @@ struct SourceInput {
     path: PathBuf,
 }
 
-fn load_sources(root: &Path, claimants: &[&str]) -> Result<Vec<SourceInput>> {
+fn ship_scope_base(root: &Path, claim: &Claim, source: &str, publish_base: &str) -> Result<String> {
+    match scope_base(root, claim, source) {
+        Ok(base) => Ok(base),
+        Err(error) => {
+            let on_publish_base =
+                claim.base == publish_base || is_ancestor(root, &claim.base, publish_base)?;
+            if error
+                .to_string()
+                .contains("accepted history does not descend")
+                && is_ancestor(root, &claim.base, source)?
+                && on_publish_base
+            {
+                Ok(claim.base.clone())
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
+fn check_ship_source(root: &Path, claim: &Claim, publish_base: &str) -> Result<String> {
+    if state(&claim.worktree)? != state(root)?
+        || git(&claim.worktree, &["branch", "--show-current"])?
+            != format!("local-agent/{}", claim.name)
+    {
+        return Err("claim repository or branch does not match".into());
+    }
+    if !git(
+        &claim.worktree,
+        &["status", "--porcelain", "--untracked-files=all"],
+    )?
+    .is_empty()
+    {
+        return Err("integration requires a clean committed agent worktree".into());
+    }
+    let source = git(&claim.worktree, &["rev-parse", "HEAD"])?;
+    if !is_ancestor(root, &claim.base, &source)? {
+        return Err("source no longer descends from its reserved base".into());
+    }
+    let scope_base = ship_scope_base(root, claim, &source, publish_base)?;
+    let out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(root)
+        .args([
+            "diff",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            &scope_base,
+            &source,
+        ])
+        .output()?;
+    if !out.status.success() {
+        return Err("cannot inspect committed scope".into());
+    }
+    for path in out
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+    {
+        let path = scope(std::str::from_utf8(path)?)?;
+        if !claim.scopes.iter().any(|held| owns_path(held, &path)) {
+            return Err(format!("committed file is outside reserved scope: {path}").into());
+        }
+    }
+    Ok(source)
+}
+
+fn load_sources(root: &Path, claimants: &[&str], publish_base: &str) -> Result<Vec<SourceInput>> {
     if claimants.is_empty() {
         return Err("at least one claimant is required".into());
     }
@@ -1861,7 +1930,7 @@ fn load_sources(root: &Path, claimants: &[&str]) -> Result<Vec<SourceInput>> {
             let path = workflow.join("claims").join(format!("{claimant}.claim"));
             let bytes = fs::read(&path)?;
             let claim = read_claim(&path)?;
-            let source = check_source(root, &claim)?;
+            let source = check_ship_source(root, &claim, publish_base)?;
             Ok(SourceInput {
                 claim,
                 source,
@@ -1947,6 +2016,17 @@ fn record_acceptance(
 ) -> Result<()> {
     let tree = git(root, &["rev-parse", &format!("{head}^{{tree}}")])?;
     let previous = integration_head(root)?;
+    if let Some(previous) = &previous {
+        if !is_ancestor(root, previous, head)? {
+            git(
+                root,
+                &["update-ref", "refs/susi/integration/displaced", previous],
+            )?;
+            eprintln!(
+                "preserved unrelated integration ref {previous} at refs/susi/integration/displaced"
+            );
+        }
+    }
     let zero = "0".repeat(head.len());
     let mut transaction = format!(
         "start\nupdate {INTEGRATION_REF} {head} {}\n",
@@ -2025,7 +2105,7 @@ where
     let workflow = state(root)?;
     let _publish = Lock::acquire(&workflow.join("publish"))?;
     let base = remote.fetch_main(root)?;
-    let inputs = load_sources(root, claimants)?;
+    let inputs = load_sources(root, claimants, &base)?;
     let proved = prove_ship(root, &workflow, &base, &inputs, &mut verify)?;
     let mut candidate = proved.0;
     let mut head = proved.1;
@@ -2047,7 +2127,7 @@ where
         let _claims = Lock::acquire(&workflow)?;
         for input in &inputs {
             if fs::read(&input.path)? != input.bytes
-                || check_source(root, &input.claim)? != input.source
+                || check_ship_source(root, &input.claim, &base)? != input.source
             {
                 remove_candidate(root, &candidate);
                 return Err(
@@ -3912,6 +3992,24 @@ mod tests {
         let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
         worker(&repo, agent, "owned.rs", "shipped");
         (scratch, repo, base)
+    }
+
+    #[test]
+    fn ship_publishes_when_local_integration_ref_is_unrelated() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let unrelated = git(&repo, &["commit-tree", &tree, "-m", "unrelated"]).unwrap();
+        git(&repo, &["update-ref", INTEGRATION_REF, &unrelated]).unwrap();
+        let mut remote = FakeRemote::single(base);
+        ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert!(!remote.pushes.is_empty());
+        assert_eq!(
+            git(&repo, &["rev-parse", "refs/susi/integration/displaced"]).unwrap(),
+            unrelated
+        );
     }
 
     #[test]
