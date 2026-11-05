@@ -34,7 +34,8 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
         .env("GIT_NO_REPLACE_OBJECTS", "1")
         .current_dir(dir)
         .args(args)
-        .output()?;
+        .output()
+        .map_err(|error| format!("git {} in {}: {error}", args.join(" "), dir.display()))?;
     if !out.status.success() {
         return Err(format!(
             "git {}: {}",
@@ -428,7 +429,8 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     let compiler = Command::new("rustc")
         .current_dir(candidate)
         .arg("-vV")
-        .output()?;
+        .output()
+        .map_err(|error| format!("rustc in {}: {error}", candidate.display()))?;
     if !compiler.status.success() {
         return Err("cannot identify native compiler".into());
     }
@@ -2327,7 +2329,8 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     let compiler = Command::new("rustc")
         .current_dir(candidate)
         .arg("-vV")
-        .output()?;
+        .output()
+        .map_err(|error| format!("rustc in {}: {error}", candidate.display()))?;
     if !compiler.status.success() {
         return Err("cannot identify native compiler".into());
     }
