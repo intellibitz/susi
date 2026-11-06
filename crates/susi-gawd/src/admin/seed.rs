@@ -2235,10 +2235,13 @@ mod seed_tests {
             &environment,
         )
         .unwrap();
+        // A completion bound, not a speed check: the worker starts twenty Git
+        // children, and on a host busy with the ship gate's whole-workspace
+        // tests that took longer than the 15 s this used to allow.
         let started = Instant::now();
         while !marker.exists() {
             assert!(
-                started.elapsed() < Duration::from_secs(15),
+                started.elapsed() < Duration::from_secs(120),
                 "detached Git worker did not finish"
             );
             std::thread::sleep(Duration::from_millis(20));

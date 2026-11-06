@@ -11,6 +11,7 @@
     ".agents/tasks/t-flaky1106-1.json",
     "crates/susi-core/src/plane_bus_ipc.rs",
     "crates/susi-gawd/src/admin/mod.rs",
+    "crates/susi-gawd/src/admin/seed.rs",
     "crates/susi-gmcp/src/tools/core.rs"
   ],
   "accept": {
@@ -27,7 +28,8 @@
     "criteria": [
       "on Windows isolate_bus_root moves LOCALAPPDATA so a test process never shares the user's or a sibling test's bus",
       "global_susi_dir_and_contains_phrase_handle_empty_and_boundary_cases holds ENV_LOCK while resolving the home",
-      "join_and_sweep waits up to 300 s for its own sweep and fails loudly instead of asserting on a sweep in flight"
+      "join_and_sweep waits up to 300 s for its own sweep and fails loudly instead of asserting on a sweep in flight",
+      "the detached Git worker test allows 120 s for completion on a loaded host"
     ]
   }
 }
