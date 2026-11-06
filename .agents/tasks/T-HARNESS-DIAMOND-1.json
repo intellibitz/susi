@@ -1,0 +1,20 @@
+{
+  "id": "T-HARNESS-DIAMOND-1",
+  "title": "Harden susi-harness with RAII budget reservations, panic-safe scheduler, and self-healing ledger",
+  "goal": "Prevent budget leaks on worker panic/abort via RAII BudgetReservation, catch runner panics in parallel mission scheduling, and self-heal torn trailing lines on ledger append with integrity verification.",
+  "status": "completed",
+  "size": "M",
+  "deps": [],
+  "created_by": "antigravity",
+  "created_unix": 1794000200,
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

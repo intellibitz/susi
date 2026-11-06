@@ -7,9 +7,12 @@
 use crate::money::MicroUsd;
 use crate::pricing::{ModelPrice, TokenUsage};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::Mutex;
 use susi_error::{EaiError, EaiResult};
+
+static APPEND_LOCK: Mutex<()> = Mutex::new(());
 
 /// Why an attempt failed at the provider boundary.
 ///
@@ -185,21 +188,30 @@ impl LedgerEntry {
 pub fn append_entry(path: &Path, entry: &LedgerEntry) -> EaiResult<()> {
     let line = serde_json::to_string(entry)
         .map_err(|e| EaiError::io(format!("encode ledger entry: {e}")))?;
+    let _guard = APPEND_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut file = std::fs::OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
         .open(path)
         .map_err(|e| EaiError::io(format!("open ledger {}: {e}", path.display())))?;
-    // One buffer, one write: several agents append to the same ledger, and a
-    // line split across two writes could interleave with another writer's line.
-    //
-    // A row torn by a crash has no newline after it, so this row can land on
-    // its line; the lenient reader recovers it ([`read_rows_lenient`]). The
-    // writer does not look at the file's last byte first: that is a read of
-    // the ledger on every append, and on Windows the read handle had the
-    // growing file scanned on each one (eight concurrent appenders went from
-    // under a second to over four minutes).
-    let mut row = line.into_bytes();
+    // O(1) tail byte check via SeekFrom::End(-1): if a prior crash left a
+    // non-empty file whose last byte is not '\n', prepend '\n' so the new
+    // JSON line starts cleanly on its own line rather than gluing onto a tear.
+    let needs_leading_newline = match file.seek(SeekFrom::End(-1)) {
+        Ok(_) => {
+            let mut last = [0u8; 1];
+            file.read_exact(&mut last).is_ok() && last[0] != b'\n'
+        }
+        Err(_) => false,
+    };
+    let mut row = Vec::with_capacity(line.len() + 2);
+    if needs_leading_newline {
+        row.push(b'\n');
+    }
+    row.extend_from_slice(line.as_bytes());
     row.push(b'\n');
     file.write_all(&row)
         .map_err(|e| EaiError::io(format!("append ledger {}: {e}", path.display())))
@@ -345,6 +357,52 @@ fn add(total: MicroUsd, cost: MicroUsd) -> MicroUsd {
     total
         .checked_add(cost)
         .unwrap_or(MicroUsd::from_micros(u64::MAX))
+}
+
+/// Structural and chronological integrity report for a ledger file on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct LedgerIntegrityReport {
+    /// Number of valid [`LedgerEntry`] rows decoded from the ledger.
+    pub valid_entries: usize,
+    /// Number of non-blank lines that could not be decoded as a full row.
+    pub corrupted_lines: usize,
+    /// Saturated sum of settled cost across all valid entries.
+    pub total_cost: MicroUsd,
+    /// Number of entries whose `ended_unix_ms < started_unix_ms` or whose
+    /// `started_unix_ms` regressed relative to the preceding entry.
+    pub non_monotonic_timestamps: usize,
+}
+
+impl LedgerIntegrityReport {
+    /// True when the ledger has zero corrupted lines and zero non-monotonic timestamps.
+    #[must_use]
+    pub const fn is_clean(&self) -> bool {
+        self.corrupted_lines == 0 && self.non_monotonic_timestamps == 0
+    }
+}
+
+/// Audit a ledger file on disk and return its [`LedgerIntegrityReport`].
+///
+/// Missing files report zero entries and zero errors.
+#[must_use]
+pub fn verify_integrity(path: &Path) -> LedgerIntegrityReport {
+    let (entries, corrupted_lines) = read_entries_lenient(path);
+    let mut non_monotonic_timestamps = 0usize;
+    let mut prev_started: Option<u64> = None;
+    for entry in &entries {
+        let inverted_span = entry.ended_unix_ms < entry.started_unix_ms;
+        let regressed_start = prev_started.is_some_and(|prev| entry.started_unix_ms < prev);
+        if inverted_span || regressed_start {
+            non_monotonic_timestamps = non_monotonic_timestamps.saturating_add(1);
+        }
+        prev_started = Some(entry.started_unix_ms);
+    }
+    LedgerIntegrityReport {
+        valid_entries: entries.len(),
+        corrupted_lines,
+        total_cost: total_cost(&entries),
+        non_monotonic_timestamps,
+    }
 }
 
 #[cfg(test)]
@@ -647,5 +705,67 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("absent.jsonl");
         assert!(read_entries(&path).is_err());
+    }
+
+    #[test]
+    fn append_entry_self_heals_torn_trailing_line_with_leading_newline() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.jsonl");
+        std::fs::write(&path, r#"{"mission":"m","task":"torn-without-newline"#).unwrap();
+
+        let fresh = entry("T-FRESH", Outcome::Completed);
+        append_entry(&path, &fresh).unwrap();
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = raw.lines().collect();
+        assert_eq!(
+            lines.len(),
+            2,
+            "new entry must be placed on a fresh line after a torn trailing fragment"
+        );
+        let decoded_second: LedgerEntry = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(decoded_second.task, "T-FRESH");
+
+        let report = verify_integrity(&path);
+        assert_eq!(report.valid_entries, 1);
+        assert_eq!(report.corrupted_lines, 1);
+        assert_eq!(report.total_cost, fresh.cost);
+        assert_eq!(report.non_monotonic_timestamps, 0);
+        assert!(!report.is_clean());
+    }
+
+    #[test]
+    fn verify_integrity_audits_clean_and_non_monotonic_ledgers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.jsonl");
+
+        assert_eq!(verify_integrity(&path), LedgerIntegrityReport::default());
+        assert!(verify_integrity(&path).is_clean());
+
+        let mut first = entry("T-1", Outcome::Completed);
+        first.started_unix_ms = 2_000;
+        first.ended_unix_ms = 2_500;
+        append_entry(&path, &first).unwrap();
+
+        let clean_report = verify_integrity(&path);
+        assert!(clean_report.is_clean());
+        assert_eq!(clean_report.valid_entries, 1);
+
+        // Regressed started_unix_ms (1_500 < 2_000) and inverted span (1_400 < 1_500).
+        let mut regressed = entry("T-2", Outcome::Completed);
+        regressed.started_unix_ms = 1_500;
+        regressed.ended_unix_ms = 1_600;
+        append_entry(&path, &regressed).unwrap();
+
+        let mut inverted = entry("T-3", Outcome::Completed);
+        inverted.started_unix_ms = 3_000;
+        inverted.ended_unix_ms = 2_900;
+        append_entry(&path, &inverted).unwrap();
+
+        let report = verify_integrity(&path);
+        assert_eq!(report.valid_entries, 3);
+        assert_eq!(report.corrupted_lines, 0);
+        assert_eq!(report.non_monotonic_timestamps, 2);
+        assert!(!report.is_clean());
     }
 }

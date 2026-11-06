@@ -102,6 +102,9 @@ pub mod verify;
 pub mod router;
 pub mod worker;
 
+pub use budget::BudgetReservation;
+pub use ledger::{verify_integrity, LedgerIntegrityReport};
+
 #[cfg(test)]
 // Test-only assertions in inline unit tests.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
