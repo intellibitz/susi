@@ -1,0 +1,30 @@
+{
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "-p",
+                               "susi-gawd",
+                               "--lib",
+                               "--offline",
+                               "--locked"
+                           ]
+               },
+    "id":  "T-GAWDSWARM-1",
+    "size":  "m",
+    "goal":  "evaluate_and_record merges .susi/eval_access_log.jsonl into contamination detection, runs canary_gate_from_scorecard before promotion, and persists rejected runs into .susi/experiment_memory.json.",
+    "scopes":  [
+                   ".agents/roadmap.json",
+                   ".agents/tasks/t-gawdswarm-1.json",
+                   "crates/susi-gawd",
+                   "crates/susi-gawd-swarm"
+               ],
+    "deps":  [
+
+             ],
+    "created_by":  "gawd-swarm",
+    "created_unix":  1794000300,
+    "status":  "completed",
+    "title":  "Wire VC-201-009 access log, VC-201-017 canary gate and VC-201-019 experiment memory into the production RSI eval path",
+    "native_worker":  "gawd-swarm"
+}
