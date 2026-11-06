@@ -149,6 +149,11 @@ impl Lock {
         loop {
             match file.try_lock() {
                 Ok(()) => {
+                    if dir.exists() && legacy_owner_alive(&dir) {
+                        let _ = file.unlock();
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                        continue;
+                    }
                     HELD_LOCKS.with(|held| {
                         held.borrow_mut().insert(key.clone());
                     });
@@ -161,7 +166,7 @@ impl Lock {
                     });
                 }
                 Err(fs::TryLockError::WouldBlock) => {
-                    if started.elapsed() > std::time::Duration::from_secs(120) {
+                    if started.elapsed() > std::time::Duration::from_secs(1800) {
                         return Err(io::Error::new(
                             io::ErrorKind::WouldBlock,
                             format!(
@@ -176,6 +181,30 @@ impl Lock {
                 Err(fs::TryLockError::Error(error)) => return Err(error.into()),
             }
         }
+    }
+}
+
+fn legacy_owner_alive(dir: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(dir.join("owner")) else {
+        return false;
+    };
+    let Some(pid) = text
+        .lines()
+        .find_map(|line| line.strip_prefix("pid="))
+        .and_then(|s| s.trim().parse::<u32>().ok())
+    else {
+        return false;
+    };
+    if pid == std::process::id() {
+        return false;
+    }
+    if cfg!(windows) {
+        Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+            .output()
+            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")))
+    } else {
+        Path::new(&format!("/proc/{pid}")).exists()
     }
 }
 impl Drop for Lock {
