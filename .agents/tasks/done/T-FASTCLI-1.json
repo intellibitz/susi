@@ -2,16 +2,8 @@
   "id": "T-FASTCLI-1",
   "title": "Cut fixed per-command latency: launcher in place, state-only status",
   "goal": "Every installed susi command stops hashing and spawning a second 51 MB image when the entry already is the current release (measured 150 ms vs 32 ms direct for --version), and susi status reports state instead of ranking models (no nvidia-smi or publisher network calls; measured 3.7 s before). Windows clippy is clean across all targets.",
-  "deps": [],
-  "scopes": [
-    ".agents/tasks/t-fastcli-1.json",
-    ".github/workflows/test.yml",
-    "src/cli/status_cli.rs",
-    "src/installed_channel.rs",
-    "src/installed_channel/transaction.rs",
-    "tests"
-  ],
   "size": "s",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -23,5 +15,10 @@
     ]
   },
   "created_by": "FASTCLI",
-  "created_unix": 1793658816
+  "created_unix": 1793658816,
+  "closed": {
+    "at_unix": 1793660266,
+    "commit": "81b7b7f323b2e0bcc8f7e9ab3bd5dd03f416fad4",
+    "by": "CLAUDE"
+  }
 }
