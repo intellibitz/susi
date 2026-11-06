@@ -2939,7 +2939,15 @@ where
     let candidate = &slot.candidate;
     let attempt = &slot.attempt;
     fs::create_dir_all(attempt)?;
-    let _ = fs::remove_file(attempt.join("native-gates.json"));
+    // The native provenance receipt carries the final run's gates; an earlier
+    // run of this ship (before a re-gate) stays beside it for inspection.
+    if attempt.join("native-gates.json").is_file() {
+        let selection = fs::read_to_string(attempt.join("selection-base")).unwrap_or_default();
+        let _ = fs::rename(
+            attempt.join("native-gates.json"),
+            attempt.join(format!("native-gates.{}.json", selection.trim())),
+        );
+    }
     fs::write(
         attempt.join("selection-base"),
         format!("{selection_base}\n"),
@@ -3042,6 +3050,16 @@ where
         "ship: verifying in {} (no queue; other ships gate at the same time)",
         slot.candidate.display()
     );
+    // Native gate records of the slot's previous ship are not this ship's.
+    if let Ok(entries) = fs::read_dir(&slot.attempt) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("native-gates") && name.ends_with(".json") {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
     let result = ship_in_slot(root, &slot, claimants, remote, &mut verify);
     timed("stash warm target", || {
         remove_candidate(root, &slot.candidate)
@@ -3061,8 +3079,16 @@ where
 {
     let workflow = state(root).map_err(|error| format!("state: {error}"))?;
     let workflow = workflow.as_path();
-    let mut base = timed("fetch origin/main", || remote.fetch_main(root))
-        .map_err(|error| format!("fetch: {error}"))?;
+    // Fetches update `refs/remotes/origin/main`; two at once can collide on
+    // its ref lock, so every ship fetch runs under `publish` (seconds).
+    let mut base = {
+        let _publish = timed("wait for publish lock", || {
+            Lock::acquire(&workflow.join("publish"))
+        })
+        .map_err(|error| format!("lock: {error}"))?;
+        timed("fetch origin/main", || remote.fetch_main(root))
+            .map_err(|error| format!("fetch: {error}"))?
+    };
     let inputs = timed("load sources", || load_sources(root, claimants, &base))
         .map_err(|error| format!("load: {error}"))?;
     timed("merge candidate", || {
@@ -3120,6 +3146,13 @@ where
         let (needed, covers) = timed("re-gate selection", || {
             regate_needed(&slot.candidate, &tested)
         });
+        // One evidence line, never shaped like a gate status or a receipt
+        // key: `covers` can carry cargo's error text.
+        let covers: String = covers
+            .replace(" => ", " -> ")
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
         evidence.push(format!(
             "regate base={current} tested={tested} head={merged} {}: {covers}",
             if needed { "ran" } else { "skipped" }
