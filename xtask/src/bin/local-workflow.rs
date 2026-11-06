@@ -2914,6 +2914,15 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     if cfg!(windows) && !host.ends_with("-pc-windows-msvc") {
         return Err("Windows integration requires a native MSVC compiler".into());
     }
+    let original_home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .ok_or("cannot identify toolchain home")?;
+    let cargo_home = env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| original_home.join(".cargo"));
+    let rustup_home = env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| original_home.join(".rustup"));
     let home = attempt.join("test-home");
     let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(home.join("AppData/Local"))?;
@@ -2952,6 +2961,8 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("SUSI_HOME", home.join("susi"))
+            .env("CARGO_HOME", &cargo_home)
+            .env("RUSTUP_HOME", &rustup_home)
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_TERM_COLOR", "never")
             .stdout(Stdio::from(log.try_clone()?))
@@ -3166,6 +3177,15 @@ fn check(root: &Path) -> Result<()> {
             gates.push(doc);
         }
     }
+    let original_home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .ok_or("cannot identify toolchain home")?;
+    let cargo_home = env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| original_home.join(".cargo"));
+    let rustup_home = env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| original_home.join(".rustup"));
     let target = top.join("target");
     seed_worktree_target(&top, &top, false);
     let home = target.join("susi-check-home");
@@ -3201,6 +3221,8 @@ fn check(root: &Path) -> Result<()> {
             .current_dir(&top)
             .args(args)
             .env("CARGO_TARGET_DIR", &target)
+            .env("CARGO_HOME", &cargo_home)
+            .env("RUSTUP_HOME", &rustup_home)
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("SUSI_HOME", home.join("susi"))
