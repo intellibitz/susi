@@ -2140,10 +2140,11 @@ pub fn refresh(force: bool, log: Option<&Path>) {
 /// Export this checkout's `target/` as a snapshot: a copy at `dest`, stripped
 /// to the registry and git units exactly as the refresh strips the primary's
 /// (`strip_units`), without `incremental/`, and marked as a snapshot
-/// (`.susi-seed`: the checkout's head and the time). The cloud target seed
-/// workflow (`.github/workflows/target-seed.yml`) builds `origin/main` the way
-/// a cloud session does and publishes this; `scripts/cloud-target-seed.sh`
-/// unpacks it into a container's empty `target/`. `dest` must not exist yet.
+/// (`.susi-seed`: the checkout's head and the time). A snapshot published as a
+/// `target-seed` release asset is what `scripts/cloud-target-seed.sh` unpacks
+/// into a container's empty `target/`; the GitHub Actions workflow that used
+/// to publish it was removed (CEO decision 2026-11-06). `dest` must not exist
+/// yet.
 /// Returns the number of units stripped and the head recorded.
 pub fn export(checkout: &Path, dest: &Path) -> Result<(usize, String), String> {
     let target = checkout.join("target");

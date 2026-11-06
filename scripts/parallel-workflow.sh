@@ -823,7 +823,7 @@ MSG
         esac
         # Another agent may merge first. A head that is merely behind main
         # needs nothing from this agent: the merge machinery gates the merge
-        # tree itself (auto-merge-pr.sh's inline gate). Re-pushing on every
+        # tree itself (the former PR auto-merge bot's inline gate). Re-pushing on every
         # advance of main cancelled this branch's own in-flight run each time
         # (test.yml cancels in progress per ref), so in a busy swarm a branch
         # whose run was slower than the gap between merges never went green.

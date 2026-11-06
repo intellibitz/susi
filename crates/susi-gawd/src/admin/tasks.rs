@@ -11,7 +11,7 @@
 //! * **Closed by a check, not a claim.** A task names an acceptance command;
 //!   `close` runs it, and only a passing run moves the task to
 //!   `.agents/tasks/done/` (the record keeps who, when and at which commit).
-use super::queue_relay;
+use super::queue_push;
 use crate::susi_error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -1052,11 +1052,11 @@ fn git_input(ws: &Path, args: &[&str], input: Vec<u8>) -> EaiResult<Vec<u8>> {
 }
 
 /// Apply a fetched mirror transaction without overwriting a newer concurrent
-/// fetch. Remote writes remain the queue relay's authoritative atomic push.
+/// fetch. Remote writes remain the queue push's authoritative atomic push.
 fn mirror_updates(
     ws: &Path,
-    leases: &[queue_relay::Lease],
-    updates: &[queue_relay::Update],
+    leases: &[queue_push::Lease],
+    updates: &[queue_push::Update],
 ) -> EaiResult<()> {
     let mut input = String::from("start\n");
     for (name, value) in updates {
@@ -1105,8 +1105,8 @@ fn abandoned_ref(id: &str) -> String {
 }
 
 /// The merger's attestation that `id`'s tested head reached `main` lives on
-/// `refs/merged/<id>`; see [`MergedTask`]. Rust only ever reads it — the
-/// auto-merge job (`scripts/auto-merge-pr.sh`) is its only writer — so there is
+/// `refs/merged/<id>`; see [`MergedTask`]. Rust only ever reads it — its only
+/// writer was the GitHub PR auto-merge job, removed on 2026-11-06 — so there is
 /// no constructor here on purpose.
 const MERGED_NAMESPACE: &str = "refs/merged/";
 
@@ -1340,7 +1340,7 @@ fn put_record<T: Serialize>(ws: &Path, name: &str, value: &T, raced: &str) -> Ea
     let r = remote();
     let listed = git(ws, &["ls-remote", &r, name])?;
     let old = listed.split_whitespace().next().unwrap_or("");
-    queue_relay::push(
+    queue_push::push(
         ws,
         &r,
         &[(name.to_string(), old.to_string())],
@@ -1382,7 +1382,7 @@ fn clear_records(ws: &Path, names: &[String]) -> EaiResult<()> {
     }
     if !updates.is_empty() {
         let first = &names[0];
-        queue_relay::push(
+        queue_push::push(
             ws,
             &r,
             &leases,
@@ -1900,7 +1900,7 @@ fn push_close_receipt(
         (claim_ref(id), owner_sha.to_string()),
         (agent_ref, agent_old),
     ];
-    queue_relay::push(
+    queue_push::push(
         ws,
         &remote(),
         &leases,
@@ -3075,7 +3075,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
                 "agent ownership changed; cannot expand claim scope",
             ));
         }
-        queue_relay::push(
+        queue_push::push(
             ws,
             &r,
             &[
@@ -3154,11 +3154,11 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         }
         _ => None,
     };
-    let mut leases: Vec<queue_relay::Lease> = vec![
+    let mut leases: Vec<queue_push::Lease> = vec![
         (claim_ref(id), task_old.to_string()),
         (agent_ref.clone(), agent_old),
     ];
-    let mut updates: Vec<queue_relay::Update> = vec![
+    let mut updates: Vec<queue_push::Update> = vec![
         (claim_ref(id), Some(blob.clone())),
         (agent_ref, Some(blob.clone())),
     ];
@@ -3173,7 +3173,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         leases.push((stale.clone(), sha));
         updates.push((stale, None));
     }
-    queue_relay::push(
+    queue_push::push(
         ws,
         &r,
         &leases,
@@ -3249,7 +3249,7 @@ fn renew_once(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResu
     // touch the global `refs/claim-generation/current` ref (saving a remote
     // `ls-remote` round-trip and eliminating false CAS collisions with other
     // agents' concurrent claims and renewals).
-    queue_relay::push(
+    queue_push::push(
         ws,
         &r,
         &[
@@ -3343,7 +3343,7 @@ fn release_claim(
             let body = git(ws, &["cat-file", "-p", stale_sha])?;
             if let Ok(parsed) = serde_json::from_str::<Claim>(&body) {
                 if parsed.task == id {
-                    let _ = queue_relay::push(
+                    let _ = queue_push::push(
                         ws,
                         &remote(),
                         &[(stale_agent.clone(), stale_sha.to_string())],
@@ -3434,8 +3434,8 @@ fn release_claim(
         }
     }
     let agent_old = git(ws, &["rev-parse", "--verify", "--quiet", &agent_ref]).unwrap_or_default();
-    let mut leases: Vec<queue_relay::Lease> = vec![(claim_ref(id), sha.clone())];
-    let mut updates: Vec<queue_relay::Update> = vec![(claim_ref(id), None)];
+    let mut leases: Vec<queue_push::Lease> = vec![(claim_ref(id), sha.clone())];
+    let mut updates: Vec<queue_push::Update> = vec![(claim_ref(id), None)];
     // Legacy claims have no agent ref; never delete a newer agent lease.
     if agent_old == sha {
         leases.push((agent_ref.clone(), sha.clone()));
@@ -3450,7 +3450,7 @@ fn release_claim(
         leases.push((closed_ref(id), String::new()));
         updates.push((closed_ref(id), Some(blob_of(ws, &record)?)));
     }
-    queue_relay::push(
+    queue_push::push(
         ws,
         &remote(),
         &leases,
@@ -3663,8 +3663,7 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // `finish` publishes the branch and releases the claim seconds after this
     // close, and names the task in SUSI_CLOSE_DEFER_RECEIPT so the receipt
     // travels in that same transaction (`release`, SUSI_RELEASE_PUBLISH_RECEIPT)
-    // instead of in a round trip of its own: one push on a laptop, one relayed
-    // Actions run instead of two in a cloud session. The claim is held until
+    // instead of in a round trip of its own: one push instead of two. The claim is held until
     // that transaction lands, so nothing can take the task in between, and a
     // finish that dies here leaves the task closed under a live claim, which
     // the next finish publishes. Bound to `<id>@<worktree>` like the coverage
@@ -4250,7 +4249,7 @@ mod tests {
             leases.push((name.clone(), String::new()));
             updates.push((name, Some(blob_of(ws, &value).unwrap())));
         }
-        queue_relay::push(ws, "origin", &leases, &updates, "fixture refs raced").unwrap();
+        queue_push::push(ws, "origin", &leases, &updates, "fixture refs raced").unwrap();
         mirror_updates(ws, &leases, &updates).unwrap();
     }
 
@@ -4837,7 +4836,7 @@ mod tests {
         );
 
         // A stale decision cannot publish against the newer generation.
-        let stale = queue_relay::push(
+        let stale = queue_push::push(
             &a,
             "origin",
             &[("refs/claim-generation/current".into(), old.clone())],
@@ -5631,7 +5630,7 @@ mod tests {
             std::fs::remove_file(tasks_dir(&b).join(format!("{}.json", next.id))).unwrap();
             later.push(next.id);
         }
-        queue_relay::push(&b, "origin", &leases, &updates, "fixture receipts raced").unwrap();
+        queue_push::push(&b, "origin", &leases, &updates, "fixture receipts raced").unwrap();
         if merges_in_flight() > 0 {
             let boundary = addt!(&b, "claude", "at the bound", "", "s", &[], true_cmd()).unwrap();
             claim(&b, &boundary.id, "claude", 4, now_unix())

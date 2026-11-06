@@ -6,6 +6,9 @@ not the current agent contract. Follow `AGENTS.md` and Mandates 62–72 for nati
 Rust, local development and agent-owned setup. Re-measure changes on the current
 source; old timings and git-source cache assumptions are not proof of current
 performance. Current verified status is in `docs/native-rust-direction.md`.
+The GitHub Actions workflow files named below (`test.yml`, `release.yml`,
+`auto-merge.yml`, `queue.yml`, `target-seed.yml` and the rest) and the queue
+relay were removed (CEO decision 2026-11-06).
 
 # Workflow speed: where the minutes go, and what moves them
 

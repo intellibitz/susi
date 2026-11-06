@@ -1466,38 +1466,6 @@ fn linker_features_flag_is_x86_64_linux_only() {
     }
 }
 
-/// Every PR is opened by auto-merge.yml as github-actions[bot]; a
-/// `pull_request` run for it is held for approval (`action_required`) and dies
-/// jobs-less when the PR merges seconds later. The branch-push run is the gate.
-#[test]
-fn ci_has_no_bot_pr_triggered_noise_runs() {
-    let on_block = |file: &str| -> String {
-        let text =
-            std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file))
-                .unwrap();
-        let start = text.find("\non:").expect("workflow has an on: block");
-        let rest = &text[start + 1..];
-        let end = rest[3..].find("\n\n").map_or(rest.len(), |i| i + 3);
-        rest[..end].to_string()
-    };
-    assert!(
-        !on_block(".github/workflows/test.yml").contains("pull_request"),
-        "test.yml must not trigger on pull_request"
-    );
-    let builder = on_block(".github/workflows/susi-builder.yml");
-    let types = builder
-        .lines()
-        .skip_while(|l| l.trim() != "pull_request:")
-        .skip(1)
-        .find(|l| l.trim_start().starts_with("types:"))
-        .expect("susi-builder pull_request declares types");
-    assert_eq!(
-        types.trim(),
-        "types: [labeled]",
-        "susi-builder pull_request must only react to `labeled`"
-    );
-}
-
 /// The development workflow is a constitutional mandate, not a convention:
 /// identity.json (compiled into susi and read by every agent) must carry
 /// local-workflow mandates, with real enforcement artifacts and honest gaps.
@@ -1557,7 +1525,7 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         (
             59,
             "forbid(unsafe_code)",
-            ".github/workflows/unsafe-exposure-ratchet.sh",
+            "crates/susi-unsafe-ratchet/src/bin/unsafe_ratchet.rs",
         ),
         (60, "susi-vendor-", "tests/architecture_tests.rs"),
         (61, "migration building blocks", "xtask/src/local_build.rs"),

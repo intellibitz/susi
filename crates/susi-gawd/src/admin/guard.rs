@@ -175,11 +175,6 @@ fn push(root: &Path, pushed_refs: &str, overrides: Overrides) -> Result<(), Refu
         let r = pushed_ref(line);
         if r.remote_ref == "refs/heads/main" {
             push_main(root, &r, overrides)?;
-        } else if r.remote_ref.starts_with("refs/heads/susi-queue/") {
-            // A queue request: a refused compare-and-swap push of the queue's
-            // refs, carried as a branch for the relay workflow to replay
-            // (scripts/queue-relay.py). Not code; no task, no sync.
-            continue;
         } else if r.remote_ref.starts_with("refs/heads/") {
             if !fetched {
                 // Never judge code freshness against a cached tracking ref.
@@ -421,17 +416,8 @@ mod guard_tests {
     }
 
     #[test]
-    fn queue_branch_pushes_and_new_main_creation_pass_without_git_calls() {
+    fn new_main_creation_passes_without_git_calls() {
         let dir = std::env::temp_dir();
-        assert_eq!(
-            run(
-                &dir,
-                Stage::Push,
-                "refs/heads/susi-queue/req1 abc refs/heads/susi-queue/req1 000\n",
-                Overrides::default()
-            ),
-            Ok(())
-        );
         assert_eq!(
             run(
                 &dir,
