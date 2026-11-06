@@ -194,7 +194,23 @@ fn main() {
     let elapsed = started.elapsed();
     // The detached child outlives the release by minutes; the launcher's own
     // checks take seconds (more in a debug build), never that long.
-    let pid = fs::read_to_string(slot.join("susi.pid")).unwrap();
+    // The detached child writes its pid once it is running, which on a busy
+    // host can be after the launcher has already returned: wait for it.
+    let pid_file = slot.join("susi.pid");
+    let waited = Instant::now();
+    let pid = loop {
+        match fs::read_to_string(&pid_file) {
+            Ok(pid) if pid.trim().parse::<u32>().is_ok() => break pid,
+            _ => {
+                assert!(
+                    waited.elapsed() < Duration::from_secs(60),
+                    "the detached child never wrote {}",
+                    pid_file.display()
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    };
     let _ = Command::new("taskkill")
         .args(["/F", "/PID", pid.trim()])
         .output();
