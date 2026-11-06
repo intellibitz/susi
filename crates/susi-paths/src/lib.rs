@@ -156,6 +156,34 @@ fn same_path(a: &Path, b: &Path) -> bool {
         )
 }
 
+/// Drop a Windows verbatim local-disk prefix (`\\?\C:\...` → `C:\...`).
+/// UNC (`\\?\UNC\...`) and ordinary paths stay as given. The directory does
+/// not have to exist.
+fn plain_disk_path(path: &Path) -> PathBuf {
+    let Some(text) = path.to_str() else {
+        return path.to_path_buf();
+    };
+    let Some(plain) = text.strip_prefix(r"\\?\") else {
+        return path.to_path_buf();
+    };
+    if plain.len() >= 2 && plain.as_bytes().get(1) == Some(&b':') {
+        PathBuf::from(plain)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// Same directory, including the verbatim spelling Windows `canonicalize`
+/// returns for a local disk.
+fn same_instance_path(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    let a = plain_disk_path(a);
+    let b = plain_disk_path(b);
+    a == b || same_path(&a, &b)
+}
+
 /// Read the host API bearer token from `config_dir` (`B8`).
 ///
 /// Honors `ports.json` `api_token_path` when present and non-empty, falling
@@ -249,7 +277,7 @@ impl LocalDirs {
             .filter(|p| p.is_absolute())?;
         if std::env::var_os("SUSI_HERMETIC_FORBIDDEN")
             .map(PathBuf::from)
-            .is_some_and(|f| f == p)
+            .is_some_and(|f| same_instance_path(&f, &p))
         {
             return None;
         }
@@ -630,5 +658,38 @@ mod hermetic_forbidden_tests {
         let _ = std::fs::remove_dir_all(&forbidden);
         let _ = std::fs::remove_dir_all(&home);
         let _ = std::fs::remove_dir_all(&other);
+    }
+
+    /// Windows `canonicalize` spells a local path as `\\?\C:\...`. That
+    /// verbatim form is the same directory as the plain spelling, so a
+    /// hermetic forbidden root must still be ignored when only one side
+    /// uses it.
+    #[test]
+    fn hermetic_forbidden_ignores_verbatim_disk_spelling() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let forbidden =
+            std::env::temp_dir().join(format!("susi_hermetic_verbatim_{}", std::process::id()));
+        let home = std::env::temp_dir().join(format!(
+            "susi_hermetic_verbatim_home_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&forbidden);
+        let _ = std::fs::create_dir_all(&home);
+        let verbatim = std::fs::canonicalize(&forbidden).expect("canonicalize forbidden home");
+        let mut env = test_env::EnvGuard::isolated();
+        env.set("HOME", &home);
+        env.set("SUSI_HOME", &verbatim);
+        env.set("SUSI_HERMETIC_FORBIDDEN", &forbidden);
+        env.remove("XDG_CONFIG_HOME");
+        let cfg = LocalDirs::config_dir();
+        assert!(
+            !same_path(&cfg, &forbidden),
+            "verbatim SUSI_HOME {} must not resolve config to forbidden {}",
+            cfg.display(),
+            forbidden.display()
+        );
+        drop(env);
+        let _ = std::fs::remove_dir_all(&forbidden);
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
