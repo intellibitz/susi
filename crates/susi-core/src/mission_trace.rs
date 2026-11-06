@@ -38,7 +38,7 @@ const MAX_TRACE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// One model dispatch's token/cost attribution — the unit `MissionTrace`
 /// sums to answer "what did this mission cost and where did it go".
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelCallCost {
     /// Which node/host ran this call — a mission that fanned out across
     /// hosts attributes cost per node, not just per mission.
@@ -52,6 +52,89 @@ pub struct ModelCallCost {
     /// `susi_gawd_agents::cloud_budget::Micros`, so a trace's total is
     /// directly comparable to the budget ledger it drew from.
     pub cost_micros: u64,
+}
+
+static ACTIVE_MISSION_TASK_ID: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static ACTIVE_MISSION_MODEL_CALLS: std::sync::Mutex<Vec<ModelCallCost>> =
+    std::sync::Mutex::new(Vec::new());
+
+std::thread_local! {
+    static TLS_ACTIVE_MISSION_TASK_ID: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+    static TLS_ACTIVE_MISSION_MODEL_CALLS: std::cell::RefCell<Vec<ModelCallCost>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Bind or clear the active queue task id (`T-<AGENT>-<n>`) for missions
+/// constructed on this process.
+pub fn set_active_mission_task_id(task_id: Option<String>) {
+    let cleaned = task_id
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    TLS_ACTIVE_MISSION_TASK_ID.with(|cell| {
+        *cell.borrow_mut() = cleaned.clone();
+    });
+    if !cfg!(test) {
+        if let Ok(mut guard) = ACTIVE_MISSION_TASK_ID.lock() {
+            *guard = cleaned;
+        }
+    }
+}
+
+/// Read the active queue task id (`T-<AGENT>-<n>`), falling back to
+/// `SUSI_TASK_ID` when no in-process override is set.
+#[must_use]
+pub fn current_active_mission_task_id() -> Option<String> {
+    if let Some(id) = TLS_ACTIVE_MISSION_TASK_ID
+        .with(|cell| cell.borrow().clone())
+        .filter(|s| !s.trim().is_empty())
+    {
+        return Some(id);
+    }
+    if !cfg!(test) {
+        if let Ok(guard) = ACTIVE_MISSION_TASK_ID.lock() {
+            if let Some(id) = guard.as_ref().filter(|s| !s.trim().is_empty()) {
+                return Some(id.clone());
+            }
+        }
+    }
+    std::env::var("SUSI_TASK_ID")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Record one model dispatch's token/cost attribution against the active
+/// in-flight mission so the next constructed `MissionTrace` carries it.
+pub fn record_active_model_call(call: ModelCallCost) {
+    TLS_ACTIVE_MISSION_MODEL_CALLS.with(|cell| {
+        let mut calls = cell.borrow_mut();
+        if calls.len() < MAX_LISTED {
+            calls.push(call.clone());
+        }
+    });
+    if !cfg!(test) {
+        if let Ok(mut guard) = ACTIVE_MISSION_MODEL_CALLS.lock() {
+            if guard.len() < MAX_LISTED {
+                guard.push(call);
+            }
+        }
+    }
+}
+
+/// Drain all buffered model call attributions recorded since the last
+/// `MissionTrace` was constructed.
+#[must_use]
+pub fn drain_active_model_calls() -> Vec<ModelCallCost> {
+    let tls_calls =
+        TLS_ACTIVE_MISSION_MODEL_CALLS.with(|cell| std::mem::take(&mut *cell.borrow_mut()));
+    if !tls_calls.is_empty() || cfg!(test) {
+        return tls_calls;
+    }
+    ACTIVE_MISSION_MODEL_CALLS
+        .lock()
+        .map(|mut guard| std::mem::take(&mut *guard))
+        .unwrap_or_default()
 }
 
 /// One mission's outcome record.
@@ -136,9 +219,9 @@ impl MissionTrace {
             .redacted_for_sink(),
             outcome: bound_chars(outcome, MAX_FIELD_CHARS),
             route: bound_chars(route, MAX_FIELD_CHARS),
-            task_id: None,
+            task_id: current_active_mission_task_id(),
             node: None,
-            model_calls: Vec::new(),
+            model_calls: drain_active_model_calls(),
             tools: Vec::new(),
             signals: Vec::new(),
             reflex_served: Vec::new(),
@@ -195,6 +278,22 @@ impl MissionTrace {
         self.model_calls
             .iter()
             .fold(0u64, |acc, c| acc.saturating_add(c.tokens))
+    }
+
+    /// Attach the queue task id (`T-<AGENT>-<n>`) this mission served.
+    #[must_use]
+    pub fn with_task_id(mut self, task_id: impl Into<String>) -> Self {
+        let id = task_id.into();
+        let trimmed = id.trim().to_string();
+        self.task_id = (!trimmed.is_empty()).then_some(trimmed);
+        self
+    }
+
+    /// Append one model call's token/cost attribution to this mission trace.
+    pub fn record_model_call(&mut self, call: ModelCallCost) {
+        if self.model_calls.len() < MAX_LISTED {
+            self.model_calls.push(call);
+        }
     }
 
     /// Emit the record to its sinks. Best-effort at each sink — a full disk
@@ -1750,5 +1849,50 @@ mod tests {
         let mut failed = MissionTrace::new("m", "deploy api backend", "FAILED", "swarm");
         failed.plan_steps = vec!["a".into()];
         assert_eq!(proven_plan_length("deploy api backend", &[failed], 8), None);
+    }
+
+    #[test]
+    fn active_mission_task_id_and_model_calls_flow_into_mission_trace_and_persist() {
+        let ws = workspace();
+        let _ = drain_active_model_calls();
+        set_active_mission_task_id(Some("T-SOCKET-DSP4-1".to_string()));
+        record_active_model_call(ModelCallCost {
+            node: Some("node-a".to_string()),
+            model: "openrouter/qwen3-coder|code".to_string(),
+            tokens: 1_200,
+            cost_micros: 450,
+        });
+        record_active_model_call(ModelCallCost {
+            node: None,
+            model: "deepseek-chat|reasoning".to_string(),
+            tokens: 800,
+            cost_micros: 300,
+        });
+
+        let mut trace = MissionTrace::new("m-cost", "optimize routing", "COMPLETE", "swarm");
+        trace.record_model_call(ModelCallCost {
+            node: Some("node-b".to_string()),
+            model: "local/qwen|code".to_string(),
+            tokens: 500,
+            cost_micros: 0,
+        });
+        set_active_mission_task_id(None);
+
+        assert_eq!(trace.task_id.as_deref(), Some("T-SOCKET-DSP4-1"));
+        assert_eq!(trace.model_calls.len(), 3);
+        assert_eq!(trace.total_tokens(), 2_500);
+        assert_eq!(trace.total_cost_micros(), 750);
+
+        trace.emit(ws.path()).unwrap();
+        let other = MissionTrace::new("m-other", "other goal", "COMPLETE", "swarm")
+            .with_task_id("T-OTHER-9");
+        other.emit(ws.path()).unwrap();
+
+        let all = read_all(ws.path());
+        let for_task = read_all_for_task(&all, "T-SOCKET-DSP4-1");
+        assert_eq!(for_task.len(), 1);
+        assert_eq!(for_task[0].mission_id, "m-cost");
+        assert_eq!(for_task[0].total_cost_micros(), 750);
+        assert_eq!(for_task[0].total_tokens(), 2_500);
     }
 }

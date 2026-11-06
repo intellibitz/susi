@@ -5,7 +5,10 @@
 //! states and operator limits; simulated pressure throttles or reroutes eligible
 //! work while preserving local-only requirements.
 
-use crate::thermal_routing::{HostFitness, LocalWorkGate, ThermalRouter, ThermalSample};
+use crate::thermal_routing::{
+    HostFitness, LocalWorkGate, OperatorThermalLimits, ThermalPlacement, ThermalRouter,
+    ThermalSample,
+};
 
 #[test]
 fn vc_201_048_mastery_thermal_and_power_pressure_transitions() {
@@ -36,18 +39,27 @@ fn vc_201_048_mastery_thermal_and_power_pressure_transitions() {
 
 #[test]
 fn vc_201_048_mastery_missing_unknown_telemetry_state_handling() {
-    // ThermalSample lacks Option<f32> or explicit Unknown telemetry indicators.
-    // Zero or NaN values from unreadable sysfs or missing sensors cannot be distinguished
-    // from valid cold readings without explicit unknown telemetry state support.
-    let sample = ThermalSample {
+    // Unreadable sysfs or missing sensor readings (0.0, negative, or NaN)
+    // transition explicitly to HostFitness::Unknown rather than silently
+    // reporting HostFitness::Fit.
+    let zero_sample = ThermalSample {
         temp_c: 0.0,
         power_w: 0.0,
         power_cap_w: 0.0,
         util_pct: 0.0,
     };
     let mut router = ThermalRouter::new(85.0, 70.0, 1);
-    let fitness = router.observe(sample);
-    assert_eq!(fitness, HostFitness::Fit);
+    assert_eq!(router.observe(zero_sample), HostFitness::Unknown);
+    assert!(router.prefer_cloud());
+
+    let nan_sample = ThermalSample {
+        temp_c: f32::NAN,
+        power_w: 40.0,
+        power_cap_w: 100.0,
+        util_pct: 20.0,
+    };
+    assert_eq!(router.observe(nan_sample), HostFitness::Unknown);
+    assert!(router.prefer_cloud());
 }
 
 #[test]
@@ -61,16 +73,87 @@ fn vc_201_048_mastery_prefer_cloud_lacks_local_only_preservation() {
     });
     assert!(router.prefer_cloud());
 
-    // Current routing only provides a binary prefer_cloud advisory.
-    // For requests marked local_only (e.g. privacy, air-gap, residency constraints),
-    // rerouting to cloud violates policy; the system must throttle or queue locally.
-    struct PlacementRequest {
-        pub local_only: bool,
-    }
+    let mut gate = LocalWorkGate::new(2);
+    // Cloud-eligible requests reroute under thermal pressure.
+    assert_eq!(
+        router.decide_placement(false, &mut gate),
+        ThermalPlacement::RerouteCloud
+    );
+    // Local-only requests never reroute to cloud: they queue up to the gate
+    // capacity and then throttle locally.
+    assert_eq!(
+        router.decide_placement(true, &mut gate),
+        ThermalPlacement::QueueLocal { queued: 1 }
+    );
+    assert_eq!(
+        router.decide_placement(true, &mut gate),
+        ThermalPlacement::QueueLocal { queued: 2 }
+    );
+    assert_eq!(
+        router.decide_placement(true, &mut gate),
+        ThermalPlacement::ThrottleLocal { queued: 2 }
+    );
 
-    let local_request = PlacementRequest { local_only: true };
-    // Demonstrates that router does not handle local-only preservation internally:
-    assert!(router.prefer_cloud() && local_request.local_only);
+    // Once the host cools to Fit, local-only work runs and drains the queue.
+    router.observe(ThermalSample {
+        temp_c: 55.0,
+        power_w: 40.0,
+        power_cap_w: 200.0,
+        util_pct: 20.0,
+    });
+    assert_eq!(router.state(), HostFitness::Fit);
+    assert_eq!(
+        router.decide_placement(true, &mut gate),
+        ThermalPlacement::RunLocal
+    );
+    assert_eq!(gate.queued(), 0);
+}
+
+#[test]
+fn vc_201_048_mastery_operator_thermal_and_power_limits_override_defaults() {
+    let mut router = ThermalRouter::new(85.0, 70.0, 1);
+    router.set_operator_limits(OperatorThermalLimits {
+        max_temp_c: Some(75.0),
+        max_power_w: Some(120.0),
+    });
+    assert_eq!(
+        router.operator_limits(),
+        OperatorThermalLimits {
+            max_temp_c: Some(75.0),
+            max_power_w: Some(120.0),
+        }
+    );
+
+    // 78C is below hardware 85C but above operator 75C limit -> UnfitThermal.
+    assert_eq!(
+        router.observe(ThermalSample {
+            temp_c: 78.0,
+            power_w: 60.0,
+            power_cap_w: 250.0,
+            util_pct: 50.0,
+        }),
+        HostFitness::UnfitThermal
+    );
+
+    // Cool down, then exceed operator 120W power limit even when hardware cap is 250W.
+    assert_eq!(
+        router.observe(ThermalSample {
+            temp_c: 60.0,
+            power_w: 60.0,
+            power_cap_w: 250.0,
+            util_pct: 30.0,
+        }),
+        HostFitness::Fit
+    );
+    assert_eq!(
+        router.observe(ThermalSample {
+            temp_c: 62.0,
+            power_w: 119.0,
+            power_cap_w: 250.0,
+            util_pct: 70.0,
+        }),
+        HostFitness::UnfitPower
+    );
 }
 
 /// Acceptance: unknown host telemetry is an explicit state that placement

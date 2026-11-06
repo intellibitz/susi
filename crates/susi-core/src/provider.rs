@@ -56,6 +56,13 @@ impl OnDemandEngineStart {
         }
     }
 
+    /// Re-bind a caller thread's user-request permission on a plane-bus worker
+    /// thread when the request payload explicitly carried
+    /// `"on_demand_engine_start": true`.
+    pub fn from_bus_flag(allowed: bool) -> Option<Self> {
+        allowed.then(Self::allow)
+    }
+
     /// True while a user-initiated request on this thread holds the guard.
     pub fn allowed() -> bool {
         ON_DEMAND_ENGINE_START.with(|depth| depth.get() > 0)
@@ -107,6 +114,27 @@ mod on_demand_engine_start_tests {
             }
             assert!(!OnDemandEngineStart::allowed());
         }
+    }
+
+    #[test]
+    fn from_bus_flag_rebinds_permission_on_worker_thread_only_when_true() {
+        let (false_seen, true_seen, after_drop) = std::thread::spawn(|| {
+            let none_guard = OnDemandEngineStart::from_bus_flag(false);
+            assert!(none_guard.is_none());
+            let false_seen = OnDemandEngineStart::allowed();
+            let true_seen = {
+                let some_guard = OnDemandEngineStart::from_bus_flag(true);
+                assert!(some_guard.is_some());
+                OnDemandEngineStart::allowed()
+            };
+            let after_drop = OnDemandEngineStart::allowed();
+            (false_seen, true_seen, after_drop)
+        })
+        .join()
+        .unwrap();
+        assert!(!false_seen);
+        assert!(true_seen);
+        assert!(!after_drop);
     }
 
     #[test]

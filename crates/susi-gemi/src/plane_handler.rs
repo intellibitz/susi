@@ -84,6 +84,17 @@ fn parse_complexity(s: &str) -> Option<TaskComplexity> {
     }
 }
 
+/// Re-bind the caller's user-request `OnDemandEngineStart` permission on this
+/// handler thread when the bus payload explicitly carried
+/// `"on_demand_engine_start": true`.
+fn bind_on_demand(payload: &Value) -> Option<crate::susi_core::provider::OnDemandEngineStart> {
+    let allowed = payload
+        .get("on_demand_engine_start")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    crate::susi_core::provider::OnDemandEngineStart::from_bus_flag(allowed)
+}
+
 impl PlaneHandler for GemiPlaneHandler {
     fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
         match topic {
@@ -230,6 +241,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 }
             }
             topics::GEMI_INFER_GENERATE => {
+                let _on_demand = bind_on_demand(&payload);
                 let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
                 Ok(json!({
@@ -237,6 +249,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 }))
             }
             topics::GEMI_INFER_GENERATE_DEEP => {
+                let _on_demand = bind_on_demand(&payload);
                 let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
                 let min_c = payload
@@ -251,6 +264,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 }))
             }
             topics::GEMI_INFER_GENERATE_DEEP_MODEL => {
+                let _on_demand = bind_on_demand(&payload);
                 let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
                 let model = payload
@@ -275,6 +289,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 }
             }
             topics::GEMI_INFER_STREAM => {
+                let _on_demand = bind_on_demand(&payload);
                 let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
                 let stream_id = payload
@@ -319,6 +334,7 @@ impl PlaneHandler for GemiPlaneHandler {
                 Ok(json!({ "text": text }))
             }
             topics::GEMI_INFER_EMBED => {
+                let _on_demand = bind_on_demand(&payload);
                 let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
                 let want = payload.get("model").and_then(|v| v.as_str());
                 match GemiEngine::embed_text(text, want) {
@@ -728,5 +744,32 @@ mod tests {
             explain_rel.contains("dir must be an absolute path"),
             "{explain_rel}"
         );
+    }
+
+    #[test]
+    fn bind_on_demand_enables_permission_on_worker_thread_only_when_payload_requests_it() {
+        let (absent, explicit_false, explicit_true, after_drop) = std::thread::spawn(|| {
+            let g_absent = bind_on_demand(&json!({}));
+            assert!(g_absent.is_none());
+            let absent = crate::susi_core::provider::OnDemandEngineStart::allowed();
+
+            let g_false = bind_on_demand(&json!({ "on_demand_engine_start": false }));
+            assert!(g_false.is_none());
+            let explicit_false = crate::susi_core::provider::OnDemandEngineStart::allowed();
+
+            let explicit_true = {
+                let g_true = bind_on_demand(&json!({ "on_demand_engine_start": true }));
+                assert!(g_true.is_some());
+                crate::susi_core::provider::OnDemandEngineStart::allowed()
+            };
+            let after_drop = crate::susi_core::provider::OnDemandEngineStart::allowed();
+            (absent, explicit_false, explicit_true, after_drop)
+        })
+        .join()
+        .unwrap();
+        assert!(!absent);
+        assert!(!explicit_false);
+        assert!(explicit_true);
+        assert!(!after_drop);
     }
 }
