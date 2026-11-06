@@ -1012,6 +1012,10 @@ mod tests {
                             Err(error) => panic!("loopback accept failed: {error}"),
                         }
                     };
+                    // On Windows a socket accepted from a non-blocking
+                    // listener is itself non-blocking; a read racing the
+                    // client's request then failed with WouldBlock (10035).
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                         .unwrap();
