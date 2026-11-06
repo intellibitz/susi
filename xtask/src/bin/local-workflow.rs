@@ -684,6 +684,8 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         .iter()
         .map(|args| args.iter().map(|arg| (*arg).into()).collect())
         .collect();
+    let nextest = nextest_requested();
+    select_test_runner(&mut gates[3], nextest);
     let (selection, libraries) =
         timed("affected selection", || gate_selection(candidate, attempt))?;
     match &selection {
@@ -716,7 +718,11 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         let all: BTreeSet<String> = ["xtask".to_owned()].into();
         include_release_tooling_for_xtask(&mut gates, &all);
     }
-    let doc = doc_gate(&gates[3], libraries.as_ref());
+    let doc = if nextest {
+        doc_gate(&gates[3], libraries.as_ref())
+    } else {
+        None
+    };
     // The standalone vendored adapters change only with `vendor/` or the
     // toolchain, both of which select the whole workspace.
     if matches!(selection, affected::Selection::Workspace(_)) {
@@ -993,6 +999,28 @@ fn gate_selection(candidate: &Path, attempt: &Path) -> Result<GateSelection> {
 /// fewer than the machine's logical cores so the process-spawning tests keep
 /// the CPU their wall-clock deadlines assume (see `.config/nextest.toml`).
 const GATE_TEST_THREADS: &str = "16";
+
+/// Whether the test gate runs through `cargo nextest` instead of `cargo test`:
+/// opt-in with `SUSI_LOCAL_TEST_RUNNER=nextest`. Measured 2026-11-06 on the
+/// same 7 packages, nextest ran the tests in 351 s against 736 s, but 2 of the
+/// 3 ships that used it on main failed on tests that pass under `cargo test`
+/// (a susi-config concurrent-writer test, a susi-gmcp fail-closed test, and
+/// two deadline tests under CPU contention). The suite coordinates tests with
+/// 21 process-local static locks (`AUDIT_TEST_LOCK`, `ENV_LOCK`, ...), which
+/// one process per test cannot honour; until that coordination is
+/// cross-process safe, `cargo test` stays the default.
+fn nextest_requested() -> bool {
+    env::var("SUSI_LOCAL_TEST_RUNNER").is_ok_and(|runner| runner == "nextest")
+}
+
+/// Turn a `nextest run ...` test gate into `test ...` unless nextest was
+/// requested. The rest of the arguments (selection, target, features) are the
+/// same for both runners.
+fn select_test_runner(gate: &mut Vec<String>, nextest: bool) {
+    if !nextest && gate.first().map(String::as_str) == Some("nextest") {
+        gate.splice(..2, ["test".to_owned()]);
+    }
+}
 
 /// The doctest companion of a nextest test gate (nextest does not run
 /// doctests), narrowed to the selected packages that have a library target.
@@ -2959,6 +2987,8 @@ fn check(root: &Path) -> Result<()> {
             .map(|arg| (*arg).into())
             .collect(),
     ];
+    let nextest = nextest_requested();
+    select_test_runner(&mut gates[2], nextest);
     let workspace = affected::load(&top)?;
     let selection = affected::select(&workspace, &changed);
     let workspace_selected = matches!(selection, affected::Selection::Workspace(_));
@@ -2988,8 +3018,10 @@ fn check(root: &Path) -> Result<()> {
         let all: BTreeSet<String> = ["xtask".to_owned()].into();
         include_release_tooling_for_xtask(&mut gates, &all);
     }
-    if let Some(doc) = doc_gate(&gates[2], Some(&workspace.libraries)) {
-        gates.push(doc);
+    if nextest {
+        if let Some(doc) = doc_gate(&gates[2], Some(&workspace.libraries)) {
+            gates.push(doc);
+        }
     }
     let target = top.join("target");
     let home = target.join("susi-check-home");
@@ -4789,6 +4821,24 @@ mod tests {
         );
         let only_bins = strings(&["nextest", "run", "-p", "xtask", "--offline", "--locked"]);
         assert!(doc_gate(&only_bins, Some(&libraries)).is_none());
+    }
+
+    #[test]
+    fn cargo_test_is_the_default_runner_and_nextest_is_opt_in() {
+        let strings = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+        let nextest_gate = strings(&["nextest", "run", "--workspace", "--offline", "--locked"]);
+        let mut default = nextest_gate.clone();
+        select_test_runner(&mut default, false);
+        assert_eq!(
+            default,
+            strings(&["test", "--workspace", "--offline", "--locked"])
+        );
+        let mut opted_in = nextest_gate.clone();
+        select_test_runner(&mut opted_in, true);
+        assert_eq!(opted_in, nextest_gate);
+        let mut already_test = strings(&["test", "-p", "x"]);
+        select_test_runner(&mut already_test, false);
+        assert_eq!(already_test, strings(&["test", "-p", "x"]));
     }
 
     #[test]
