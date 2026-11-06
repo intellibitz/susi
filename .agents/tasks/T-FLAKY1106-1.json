@@ -7,6 +7,7 @@
   "status": "implemented_pending_integration",
   "dependencies": [],
   "scopes": [
+    ".agents/gmcp/evidence",
     ".agents/tasks/t-flaky1106-1.json",
     "crates/susi-core/src/plane_bus_ipc.rs",
     "crates/susi-gawd/src/admin/mod.rs",
