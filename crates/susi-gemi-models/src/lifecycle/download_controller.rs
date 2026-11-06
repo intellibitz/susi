@@ -367,6 +367,13 @@ mod tests {
 
     #[test]
     fn list_active_prefers_progress_file_when_present_and_stop_download_removes_active_entry() {
+        // The progress file is written and read back under the data dir,
+        // which the HOME-swapping tests in this crate change under
+        // `ENV_LOCK`; a swap between the write and the read made the read
+        // miss the file (0 bytes instead of 2048).
+        let _env = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let controller = ModelDownloadController::default();
         let model_name = format!("synthetic-progress-{}.gguf", std::process::id());
         let target_url =

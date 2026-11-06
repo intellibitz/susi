@@ -486,6 +486,12 @@ mod intent_classify_tests {
         assert!(!contains_phrase("any text", ""));
         assert!(contains_phrase("(status)", "status"));
         assert!(!contains_phrase("statuses", "status"));
+        // Both sides resolve the home from the environment, which the
+        // HOME-swapping tests in this module change under `ENV_LOCK`; a swap
+        // landing between the two reads made them differ.
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             SusiAdmin::get_global_susi_dir(),
             susi_paths::SusiDirs::config_dir()

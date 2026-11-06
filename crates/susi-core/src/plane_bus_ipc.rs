@@ -1221,11 +1221,17 @@ mod tests {
     fn join_and_sweep(dir: PathBuf) -> IpcPlaneBus {
         let bus = IpcPlaneBus::with_rendezvous(dir.clone());
         // The copy's own background sweep may hold the sweep lock: wait for
-        // a run of our own.
-        for _ in 0..2000 {
-            if sweep_dead_processes(dir.parent(), &dir) {
-                break;
-            }
+        // a run of our own. That sweep lists processes when a legacy dir is
+        // present, which took 4–99 s on a loaded Windows host; the old 20 s
+        // budget then ran out and the caller asserted on a sweep still in
+        // flight. Wait as long as such a listing can take, and fail loudly
+        // rather than fall through to the assertions.
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        while !sweep_dead_processes(dir.parent(), &dir) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the bus sweep lock was still held after 300 s"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
         bus
