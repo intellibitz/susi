@@ -3080,10 +3080,13 @@ where
     let workflow = state(root).map_err(|error| format!("state: {error}"))?;
     let workflow = workflow.as_path();
     // Fetches update `refs/remotes/origin/main`; two at once can collide on
-    // its ref lock, so every ship fetch runs under `publish` (seconds).
+    // its ref lock. The first fetch takes a lock of its own (seconds), not
+    // `publish`: a launcher built before slots holds `publish` for its whole
+    // gate, and a new ship must not wait for that before its own gate. The
+    // later fetches run under `publish`.
     let mut base = {
-        let _publish = timed("wait for publish lock", || {
-            Lock::acquire(&workflow.join("publish"))
+        let _fetch = timed("wait for fetch lock", || {
+            Lock::acquire(&workflow.join("fetch"))
         })
         .map_err(|error| format!("lock: {error}"))?;
         timed("fetch origin/main", || remote.fetch_main(root))
@@ -3102,7 +3105,10 @@ where
             Lock::acquire(&workflow.join("publish"))
         })
         .map_err(|error| format!("lock: {error}"))?;
-        let current = timed("fetch origin/main", || remote.fetch_main(root))?;
+        let current = {
+            let _fetch = Lock::acquire(&workflow.join("fetch"))?;
+            timed("fetch origin/main", || remote.fetch_main(root))?
+        };
         if current == base {
             {
                 let _claims = Lock::acquire(workflow)?;
