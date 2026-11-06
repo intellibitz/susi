@@ -16,11 +16,7 @@ use std::process::Command;
 use susi_paths::test_env::isolate_home;
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap();
+    let out = fixture_git().args(args).current_dir(dir).output().unwrap();
     assert!(
         out.status.success(),
         "git {:?} failed: {}",
@@ -30,14 +26,27 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
+/// `git` for the fixture repos, with no global or system config: the
+/// developer's own settings (commit signing, a global `core.hooksPath`)
+/// must not reach a throwaway repo. On a host whose global config signs
+/// every commit, the fixture's `git commit` waited on the signing agent
+/// indefinitely.
+fn fixture_git() -> Command {
+    let empty = std::env::temp_dir().join(format!("zc-hooks-gitconfig-{}", std::process::id()));
+    if !empty.exists() {
+        std::fs::write(&empty, b"").unwrap();
+    }
+    let mut command = Command::new("git");
+    command
+        .env("GIT_CONFIG_GLOBAL", &empty)
+        .env("GIT_CONFIG_NOSYSTEM", "1");
+    command
+}
+
 /// `git config --get` exits 1 for an absent key — that absence is data,
 /// not a failure, so this variant returns stdout whatever the status.
 fn git_get(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap();
+    let out = fixture_git().args(args).current_dir(dir).output().unwrap();
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
