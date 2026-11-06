@@ -1144,11 +1144,20 @@ is gone; what made it safe is kept.
   computed from the head it already verified to the new merged head: only
   packages the newly merged commits can affect run again (the root package's
   tree-wide tests are always among them). If the merged tree equals the
-  verified tree, nothing re-runs. The receipt records both gate runs and a
-  `regate base=… tested=… head=… ran|skipped: <selection>` line. After five
+  verified tree, nothing re-runs. The integration receipt
+  (`refs/susi/integration/receipts/...`) records both gate runs and a
+  `regate base=… tested=… head=… ran|skipped: <selection>` line; the native
+  provenance receipt carries the final run's gate records only (the earlier
+  run's stay in the slot's attempt directory until its next ship). After five
   rounds in which origin/main moved every time, the ship stops without
   publishing and says so. A rewritten origin/main (the verified base is no
-  longer in its history) is refused.
+  longer in its history) is refused. Fetches of origin/main also run under
+  the `publish` lock, so two ships never contend for its ref.
+- **Transition.** A ship run by a `local-workflow` binary built before this
+  change still holds `publish` (and `integration`) for its whole gate and
+  does not register as a live gate; a new ship's publish step waits behind it.
+  Rebuild the launcher (`cargo build -p xtask --bin local-workflow`) in each
+  checkout that ships.
 - **Parallelism is shared, not queued.** Every running gate (ship, integrate,
   commercial and `check`) holds a marker in the host's live-gate registry
   (`%LOCALAPPDATA%\susi-local-workflow\live-gates`, `~/.cache/...` elsewhere),
