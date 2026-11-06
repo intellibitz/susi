@@ -125,7 +125,7 @@
       "T-PAUSEDCI-1": "code on origin/main (8ee403f); architecture_tests 43 passed on the combined tree; AGENTS.md names no test.yml/zc-matrix.yml",
       "T-PAUSEDMACARM-1": "code on origin/main (3ac406e); architecture_tests 43 passed; Mandate 72 and AGENTS.md state the pause",
       "T-SPEEDDOC1106-1": "code on origin/main (b49e4bd); architecture_tests 43 passed; docs/workflow-speed.md records the parallel gate measurements",
-      "T-GROK-2": "code on origin/main (d4505f6/17356f0); susi-paths hermetic_forbidden 2 passed, including the verbatim-spelling test, which is not cfg(windows)"
+      "T-GROK-2": "NOT closed: code on origin/main (d4505f6/17356f0) and susi-paths hermetic_forbidden 2 passed, but on Linux canonicalize returns a plain path, so the Windows verbatim-spelling comparison is not exercised; reopened pending a native Windows run"
     },
     "left_open": {
       "T-GROKSHIP-1, T-PAUSEDSHIPFIX-1, T-RUNNERDEFAULT1106-1, T-SPEED1106-1, T-SPEED2X1106-1, T-SPEED3X1106-1": "acceptance `-p xtask --bin local-workflow` ran 82 passed, 1 failed (cargo-deny not provisioned)",

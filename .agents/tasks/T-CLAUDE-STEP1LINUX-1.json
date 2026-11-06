@@ -6,10 +6,25 @@
   "deps": [],
   "scopes": [
     ".agents/evidence/step1-linux-T-CLAUDE-STEP1LINUX-1.json",
-    ".agents/tasks/T-CLAUDE-STEP1LINUX-1.json"
+    ".agents/tasks/T-CLAUDE-STEP1LINUX-1.json",
+    ".agents/tasks/T-PAUSEDCI-1.json",
+    ".agents/tasks/done/T-PAUSEDCI-1.json",
+    ".agents/tasks/T-PAUSEDMACARM-1.json",
+    ".agents/tasks/done/T-PAUSEDMACARM-1.json",
+    ".agents/tasks/T-SPEEDDOC1106-1.json",
+    ".agents/tasks/done/T-SPEEDDOC1106-1.json",
+    ".agents/tasks/T-GROK-2.json",
+    ".agents/tasks/done/T-GROK-2.json"
   ],
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "--test", "task_records"],
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "task_records"
+    ],
     "criteria": [
       "the evidence file names the source commit, lock digest, toolchain, host and every command with its measured result",
       "every gate failure carries a root cause, and nothing not executed (cargo-deny, local-build, check-inference, Windows items) is claimed",
