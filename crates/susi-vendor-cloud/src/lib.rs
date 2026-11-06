@@ -21,6 +21,7 @@ pub mod autoscale;
 pub mod failover_policy;
 pub mod orphan_gc;
 pub mod preemptible;
+pub mod reconcile;
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -216,6 +217,9 @@ pub fn apply_manifest(kind: CloudKind, manifest: &str) -> Result<String, String>
     }
 }
 
+#[cfg(test)]
+#[path = "tests/vc_201_055.rs"]
+mod vc_201_055_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_056.rs"]
 mod vc_201_056_tests;
