@@ -1153,6 +1153,10 @@ mod tests {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
             loop {
                 if let Ok((mut stream, _)) = listener.accept() {
+                    // Windows: accepted from a non-blocking listener, the
+                    // socket is non-blocking too; a read racing the request
+                    // would fail with WouldBlock.
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(std::time::Duration::from_secs(1)))
                         .unwrap();
@@ -1192,6 +1196,8 @@ mod tests {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
             loop {
                 if let Ok((mut stream, _)) = listener.accept() {
+                    // Windows: see the server above — restore blocking reads.
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(std::time::Duration::from_secs(1)))
                         .unwrap();
