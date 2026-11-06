@@ -1,30 +1,6 @@
 //! Semantic intent bus CLI.
 use anyhow::{bail, Result};
-use clap::Subcommand;
-
-#[derive(Debug, Subcommand)]
-pub enum IntentCommands {
-    /// Advertise a provider capability (NL intent).
-    Advertise {
-        #[arg(short, long)]
-        from: String,
-        #[arg(short, long)]
-        intent: String,
-    },
-    /// Publish a need and print matched providers.
-    Need {
-        #[arg(short, long)]
-        from: String,
-        #[arg(short, long)]
-        intent: String,
-        #[arg(short, long, default_value_t = 0.2)]
-        min_score: f32,
-        #[arg(short, long, default_value_t = 5)]
-        limit: usize,
-    },
-    /// List active providers and needs.
-    List,
-}
+pub use susi_cli_defs::intent::IntentCommands;
 
 pub fn execute(action: Option<IntentCommands>) -> Result<()> {
     let bus = susi_core::intent_bus::IntentBus::global();

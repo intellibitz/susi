@@ -1,75 +1,10 @@
 //! Leading MCP server control plane (list/doctor/enable) plus stdio serve.
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
-use clap::Subcommand;
 use std::path::Path;
+pub use susi_cli_defs::mcp::McpCommands;
 use susi_daemon::adapter_ops::{self, AdapterKind};
 use susi_tools::LeadingMcpManager;
-
-#[derive(Debug, Subcommand)]
-pub enum McpCommands {
-    /// Run SUSI's native MCP stdio server (default when bare `susi mcp`)
-    Serve,
-    /// Show the top MCP tool servers and enablement/readiness
-    List,
-    /// Check launchers and required env vars (does not start servers)
-    Doctor { server: Option<String> },
-    /// Show setup instructions and the effective adapter
-    Setup { server: String },
-    /// Write the leading MCP into ~/.susi/mcp_config.json
-    Enable { server: String },
-    /// Remove a leading MCP from ~/.susi/mcp_config.json
-    Disable { server: String },
-    /// Override runner/args/env_keys/package via JSON file
-    Configure {
-        server: String,
-        file: std::path::PathBuf,
-    },
-    /// Remove a host override and restore the bundled leading MCP entry
-    Reset { server: String },
-    /// Show enablement status for the top MCP servers
-    Status,
-    /// Verify the pinned GMCP normative requirements ledger
-    /// (.agents/gmcp): vendored corpus hashes, verbatim clauses, and
-    /// complete row classification — the shipped production path for
-    /// VC-203-001. `--drift` instead refetches every pinned upstream and
-    /// fails closed on a changed or unreachable source.
-    Ledger {
-        /// Check upstream standards drift instead of the local corpus
-        #[arg(long)]
-        drift: bool,
-        /// With `--drift`: compare this pre-fetched corpus directory
-        /// (keyed by manifest document name) instead of the network —
-        /// the deterministic path tests and air-gapped checks use.
-        #[arg(long, requires = "drift")]
-        refetched: Option<std::path::PathBuf>,
-    },
-    /// Invoke a tool on a peer MCP endpoint (`host:port`) over the
-    /// session-aware channel — the same path cluster replication uses.
-    Call {
-        /// Peer address, e.g. 127.0.0.1:9093 (canonical GMCP-HTTP + port_offset)
-        addr: String,
-        /// Tool name as exposed by the peer's tools/list
-        tool: String,
-        /// JSON arguments object, e.g. '{"coordinator":"node-a"}' (default {})
-        #[arg(default_value = "{}")]
-        args: String,
-        /// Bearer token (default: cluster peer bearer for remote
-        /// members, ~/.susi/api_token for loopback)
-        #[arg(long)]
-        token: Option<String>,
-    },
-    /// List the tools a peer MCP endpoint exposes (`tools/list` over the
-    /// session-aware channel) — discover the surface before `mcp call`.
-    Tools {
-        /// Peer address, e.g. 127.0.0.1:9093 (canonical GMCP-HTTP + port_offset)
-        addr: String,
-        /// Bearer token (default: cluster peer bearer for remote
-        /// members, ~/.susi/api_token for loopback)
-        #[arg(long)]
-        token: Option<String>,
-    },
-}
 
 /// Default credential for a peer MCP call when `--token` isn't given.
 /// The host api_token only authenticates on THIS host — a remote member

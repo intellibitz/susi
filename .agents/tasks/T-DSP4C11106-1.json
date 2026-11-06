@@ -1,7 +1,7 @@
 {
   "id": "T-DSP4C11106-1",
   "native_worker": "dsp4c1-1106",
-  "title": "D-SP-4 Stage 4c batch 1: move agent, ambient, auto, blackboard, brain and broker clap enums into susi-cli-defs",
+  "title": "D-SP-4 Stage 4c: move the clap enums of the 16 families agent through mcp into susi-cli-defs",
   "created_by": "DSP4C1-1106",
   "created_unix": 1793977018,
   "status": "implemented_pending_integration",
@@ -43,10 +43,10 @@
       "socket_parity"
     ],
     "criteria": [
-      "completes part of T-DSP4WIRE1104-9 (D-SP-4 Stage 4c): AgentCommands, AmbientCommands, AutoCommands, BlackboardCommands, BrainCommands (with its Default impl) and BrokerCommands live in crates/susi-cli-defs/src/<family>.rs and are re-exported from src/cli/<family>_cli.rs, so every caller compiles unchanged",
+      "completes the Stage 4c part of T-DSP4WIRE1104-9: the clap derive enums of agent, ambient, auto, blackboard, brain (with its Default impl), broker, commits, context_graph, crown, ecosystem (with KbCommands), extensions, framework, frontier, harness (with its ledger_default! help macro), intent and mcp live in crates/susi-cli-defs/src/<family>.rs and are re-exported from src/cli/<family>_cli.rs, so every caller compiles unchanged",
       "susi-cli-defs keeps #![deny(missing_docs)] and still depends only on susi-vendor-clap",
       "cli_help_and_version_match_snapshot stays byte-identical: no visible help or version text changes",
-      "socket_parity reads moved families from crates/susi-cli-defs/src and asserts a non-zero count of moved sources; core_cli_has_no_ui_subcommands also scans crates/susi-cli-defs/src and asserts it found sources",
+      "socket_parity reads moved families from crates/susi-cli-defs/src and asserts a non-zero count of moved sources; core_cli_has_no_ui_subcommands also scans crates/susi-cli-defs/src and asserts it found sources, and its visible-help scan reads crates/susi-cli-defs/src/harness.rs instead of src/cli/harness_cli.rs",
       "ship-gate root cause fixed in a separate commit: susi-gmcp tests that replace the process-global PlaneBus TOOLS_LIST/TOOLS_EXISTS/TOOLS_EXECUTE handlers (mission_run cancellation wire test, commercial extension-pack wire test) hold one shared TOOLS_PLANE_TEST_LOCK, so neither serves the other's stub; the pair failed 40/40 run together before and passes 40/40 after"
     ]
   }

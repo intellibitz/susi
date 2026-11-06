@@ -34,6 +34,14 @@ pub mod ecosystem;
 pub mod extensions;
 /// `susi frameworks`: agent framework and engine commands.
 pub mod framework;
+/// `susi frontier`: top frontier model commands.
+pub mod frontier;
+/// `susi harness`: plan, mission and harness API commands.
+pub mod harness;
+/// `susi intent`: semantic intent bus commands.
+pub mod intent;
+/// `susi mcp`: leading MCP server and native MCP endpoint commands.
+pub mod mcp;
 
 /// Wall-clock budget in seconds for `susi tasks verify-merged` (`20 * 60`).
 ///

@@ -1,37 +1,7 @@
 //! Deterministic top frontier model control plane (no daemon for list/doctor/setup).
 use crate::cli_json::print_json;
 use anyhow::{bail, Error, Result};
-use clap::Subcommand;
-
-#[derive(Debug, Subcommand)]
-pub enum FrontierCommands {
-    /// Show the top frontier models and readiness
-    List,
-    /// Check credentials/endpoints (does not call a paid model)
-    Doctor { model: Option<String> },
-    /// Show setup instructions and effective wiring
-    Setup { model: String },
-    /// Override engine/model/protocol/api_key_env via JSON file
-    Configure {
-        model: String,
-        file: std::path::PathBuf,
-    },
-    /// Remove a host override and restore the bundled entry
-    Reset { model: String },
-    /// Prefer a frontier model for subsequent routing
-    Prefer {
-        model: Option<String>,
-        /// Clear the preferred frontier pin
-        #[arg(long)]
-        clear: bool,
-    },
-    /// Probe: short completion via cloud or local endpoint
-    Probe {
-        model: String,
-        #[arg(default_value = "Reply with exactly: ok")]
-        prompt: String,
-    },
-}
+pub use susi_cli_defs::frontier::FrontierCommands;
 
 pub fn execute(action: Option<FrontierCommands>) -> Result<()> {
     // `susi_daemon::provider_ops` builds every document; the MCP

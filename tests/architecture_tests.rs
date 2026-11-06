@@ -2796,7 +2796,9 @@ fn core_cli_has_no_ui_subcommands() {
         !top.contains("pub watch") && !top.contains("pub interval"),
         "`susi top` has no watch loop; a live view lives in the commercial desktop"
     );
-    for rel in ["src/cli/defs.rs", "src/cli/harness_cli.rs"] {
+    // `HarnessCommands` (and its help text) lives in susi-cli-defs since
+    // D-SP-4 Stage 4c; `src/cli/harness_cli.rs` keeps only the handlers.
+    for rel in ["src/cli/defs.rs", "crates/susi-cli-defs/src/harness.rs"] {
         let text = std::fs::read_to_string(root.join(rel)).expect("read CLI defs");
         let mut visible_help_matches = 0usize;
         for (number, line) in text.lines().enumerate() {
