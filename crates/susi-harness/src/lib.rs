@@ -43,6 +43,10 @@
 //!   models in order and recording every attempt.
 //! - [`adapter`] makes a susi target's own rules mechanical: worktree, claim,
 //!   acceptance, finish.
+//! - [`adaptive`] runs a turn on PAYG BYOK keys (inside) or an installed
+//!   monthly-subscription coding CLI (outside), failing over between them,
+//!   and names the Susi AI OS Socket endpoints the harness sits on.
+//! - [`mcp`] speaks MCP to tool servers over stdio or the GMCP HTTP socket.
 //! - [`author`] turns a roadmap vector into a validated plan through the
 //!   metered gateway.
 //! - [`supervisor`] runs a plan task by task, persisting after each one so an
@@ -65,6 +69,7 @@
 //!   renders it and never becomes a second source of truth.
 
 pub mod adapter;
+pub mod adaptive;
 pub mod agents;
 pub mod api;
 pub mod author;
