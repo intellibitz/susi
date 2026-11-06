@@ -1,0 +1,40 @@
+{
+  "id": "T-RELEASE51-1",
+  "title": "Cut Susi 0.21.51: bump the engine version and ship it from a native Linux x86_64 host",
+  "goal": "Release main as 0.21.51, including the T-FLAKY1106-1 test-reliability fixes (8a490953c). GitHub Actions is off (CEO decision 2026-11-05), so release.yml no longer builds or publishes. Bump the seven engine-version manifests, Cargo.lock, the README badge and the three governance ledgers together (matching c52ed885d), and land the bump through cargo local-workflow ship on a native x86_64-unknown-linux-gnu host. Then qualify the Linux x86_64 artifact with cargo local-release and publish it as v0.21.51; the Windows x86_64 artifact is added to the same release from the CEO's Windows host. If the release tooling refuses for a structural reason, report the exact refusal instead of forging receipts, refs or coordinator trust inputs. Installed production promotion is a separate, evidence-gated step and is not claimed by this cut.",
+  "size": "s",
+  "deps": [
+    "T-FLAKY1106-1"
+  ],
+  "scopes": [
+    ".agents/tasks/t-release51-1.json",
+    ".agents/gmcp/evidence",
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "cargo.lock",
+    "cargo.toml",
+    "readme.md",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-harness/cargo.toml",
+    "crates/susi-server/cargo.toml"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "admin::version"
+    ]
+  },
+  "created_by": "RELEASE51",
+  "created_unix": 1793944887
+}
