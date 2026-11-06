@@ -1151,11 +1151,14 @@ is gone; what made it safe is kept.
   run's stay in the slot's attempt directory until its next ship). After five
   rounds in which origin/main moved every time, the ship stops without
   publishing and says so. A rewritten origin/main (the verified base is no
-  longer in its history) is refused. Fetches of origin/main also run under
-  the `publish` lock, so two ships never contend for its ref.
+  longer in its history) is refused. Every fetch of origin/main runs under a
+  short `fetch` lock, so two ships never contend for its ref; a ship's first
+  fetch does not take `publish`.
 - **Transition.** A ship run by a `local-workflow` binary built before this
   change still holds `publish` (and `integration`) for its whole gate and
-  does not register as a live gate; a new ship's publish step waits behind it.
+  does not register as a live gate; a new ship gates at once but its publish
+  step waits behind it (seen on the first run of this change: an old
+  launcher's ship held `publish` from 22:30).
   Rebuild the launcher (`cargo build -p xtask --bin local-workflow`) in each
   checkout that ships.
 - **Parallelism is shared, not queued.** Every running gate (ship, integrate,
