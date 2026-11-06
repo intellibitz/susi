@@ -468,14 +468,21 @@ fn acquire_slot(root: &Path) -> Result<Slot> {
             .open(slots.join(format!("{index}.lock")))?;
         match file.try_lock() {
             Ok(()) => {
+                let mut candidate = legacy.clone().into_os_string();
+                candidate.push(format!("-{index}"));
+                let candidate = PathBuf::from(candidate);
+                // A crashed or killed ship can leave files held open in its
+                // candidate; take another slot instead of waiting for them.
+                if let Err(error) = clear_candidate(root, &candidate) {
+                    eprintln!("ship: skipping slot {index}: {error}");
+                    continue;
+                }
                 let dir = slots.join(index.to_string());
                 fs::create_dir_all(&dir)?;
                 // Informational only: correctness rests on the OS lock.
                 let _ = fs::write(dir.join("owner"), format!("pid={}\n", std::process::id()));
-                let mut candidate = legacy.into_os_string();
-                candidate.push(format!("-{index}"));
                 return Ok(Slot {
-                    candidate: PathBuf::from(candidate),
+                    candidate,
                     attempt: dir.join("attempt"),
                     _lock: HostGate { _file: file },
                 });
@@ -1492,11 +1499,7 @@ where
     fs::create_dir_all(&attempt)?;
     let candidate = candidate_path(root)?;
 
-    if candidate.exists() {
-        remove_candidate(root, &candidate);
-        let _ = fs::remove_dir_all(&candidate);
-        let _ = git(root, &["worktree", "prune"]);
-    }
+    clear_candidate(root, &candidate)?;
     git(
         root,
         &[
@@ -2758,6 +2761,30 @@ fn stash_candidate_target(root: &Path, candidate: &Path) {
     }
 }
 
+/// Remove a previous run's `candidate` worktree, or say exactly why it
+/// cannot be removed. On Windows a target directory whose files a leftover
+/// process still holds open is only partly deleted; `worktree add` into the
+/// remains then fails with a misleading error, so the real removal error is
+/// returned instead of ignored.
+fn clear_candidate(root: &Path, candidate: &Path) -> Result<()> {
+    if candidate.exists() {
+        remove_candidate(root, candidate);
+    }
+    if candidate.exists() {
+        if let Err(error) = fs::remove_dir_all(candidate) {
+            if candidate.exists() {
+                return Err(format!(
+                    "cannot remove the previous candidate {}: {error}",
+                    candidate.display()
+                )
+                .into());
+            }
+        }
+    }
+    git(root, &["worktree", "prune"])?;
+    Ok(())
+}
+
 fn remove_candidate(root: &Path, candidate: &Path) {
     stash_candidate_target(root, candidate);
     if let Ok(path) = text(candidate) {
@@ -2783,11 +2810,7 @@ fn merge_onto(root: &Path, candidate: &Path, base: &str, inputs: &[SourceInput])
     if !valid_oid(base) {
         return Err("ship base is not a commit oid".into());
     }
-    if candidate.exists() {
-        remove_candidate(root, candidate);
-        let _ = fs::remove_dir_all(candidate);
-        let _ = git(root, &["worktree", "prune"]);
-    }
+    clear_candidate(root, candidate)?;
     git(
         root,
         &[
@@ -5982,6 +6005,37 @@ mod tests {
             warm_targets(&workflow, &candidate_path(&repo).unwrap()),
             vec![workflow.join("integration-target")]
         );
+    }
+
+    /// Regression (2026-11-06, dsp4c1-1106): a leftover candidate that could
+    /// not be removed made the next ship fail at `worktree add` with a
+    /// misleading error, after the removal error had been ignored. A slot
+    /// whose leftover cannot be cleared is now skipped (no waiting), and the
+    /// removal error itself is what a direct merge reports.
+    #[test]
+    fn a_slot_whose_leftover_candidate_cannot_be_removed_is_skipped() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let mut blocked = candidate_path(&repo).unwrap().into_os_string();
+        blocked.push("-1");
+        let blocked = PathBuf::from(blocked);
+        // A path that directory removal cannot clear stands in for a target
+        // whose files another process still holds open.
+        fs::write(&blocked, "held").unwrap();
+        let error = clear_candidate(&repo, &blocked).unwrap_err().to_string();
+        assert!(
+            error.contains("cannot remove the previous candidate"),
+            "{error}"
+        );
+        let slot = acquire_slot(&repo).unwrap();
+        assert!(
+            slot.candidate
+                .to_string_lossy()
+                .ends_with("-verify-candidate-2"),
+            "{}",
+            slot.candidate.display()
+        );
+        assert!(blocked.is_file());
     }
 
     #[test]
