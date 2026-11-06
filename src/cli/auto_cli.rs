@@ -1,20 +1,8 @@
 //! Zero-config auto substrate status (packs, MCP, models, peers).
 use crate::cli_json::print_json;
 use anyhow::Result;
-use clap::Subcommand;
 use std::path::Path;
-
-#[derive(Debug, Subcommand)]
-pub enum AutoCommands {
-    /// Show zero-config auto substrate readiness (default). A snapshot of
-    /// what the last prime wrote: the full report is refreshed only by
-    /// `auto prime` and commands that prime every catalog (missions,
-    /// in-process `mcp call`); the daemon and other commands prime only
-    /// what they read, and the daemon never probes agent frameworks.
-    Status,
-    /// Re-run auto-prime now (models/installed peers; never enables MCP)
-    Prime,
-}
+pub use susi_cli_defs::auto::AutoCommands;
 
 pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
     match action.unwrap_or(AutoCommands::Status) {

@@ -2727,8 +2727,8 @@ fn core_bundles_no_launchable_vendor_catalogs() {
     }
 }
 
-/// BT-07: the CLI has no UI subcommands: nothing in `src/` clears and redraws
-/// the terminal, `top` has no watch loop, no visible command help names a
+/// BT-07: the CLI has no UI subcommands: nothing in `src/` (or the clap
+/// definitions in `crates/susi-cli-defs/src/`) clears and redraws the terminal, `top` has no watch loop, no visible command help names a
 /// dashboard or a cockpit (hidden aliases such as `sovereign-dashboard` and
 /// `harness cockpit` live in `#[command(alias = ...)]`, not in doc comments),
 /// and there is no interactive shell: no `Shell` command variant in defs.rs and
@@ -2740,6 +2740,13 @@ fn core_cli_has_no_ui_subcommands() {
     let mut sources = Vec::new();
     rust_files(&root.join("src"), &mut sources);
     assert!(!sources.is_empty(), "no Rust sources under src/");
+    // D-SP-4 Stage 4 moves the clap help text into susi-cli-defs; scan it too.
+    let root_sources = sources.len();
+    rust_files(&root.join("crates/susi-cli-defs/src"), &mut sources);
+    assert!(
+        sources.len() > root_sources,
+        "no Rust sources under crates/susi-cli-defs/src; update scanner path if moved"
+    );
     for path in &sources {
         let text = std::fs::read_to_string(path).expect("read src file");
         assert!(

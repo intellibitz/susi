@@ -560,6 +560,23 @@ const NESTED: &[&str] = &["admin audit-evidence"];
 /// (src/main.rs: pulse ingest, then a streaming solve in the caller's cwd).
 const GOAL_KEY: &str = "<goal>";
 
+/// Source text that defines the clap enums of a `src/cli/<module>.rs`
+/// family. D-SP-4 Stage 4 moves the derive enums family by family into
+/// `crates/susi-cli-defs/src/<family>.rs` (`<module>` minus `_cli`), and the
+/// root file only re-exports them, so a moved family is read from the
+/// definitions crate. `enum_variants` panics when the named enum is missing
+/// from the file read, so neither location can pass vacuously.
+fn cli_module_source(module: &str, moved: &mut usize) -> String {
+    let family = module.strip_suffix("_cli").unwrap_or(module);
+    let defs_rel = format!("crates/susi-cli-defs/src/{family}.rs");
+    if root().join(&defs_rel).is_file() {
+        *moved += 1;
+        read(&defs_rel)
+    } else {
+        read(&format!("src/cli/{module}.rs"))
+    }
+}
+
 /// Every CLI command key: `"<command>"` for leaf commands,
 /// `"<command> <subcommand>"` for each direct subcommand (one level deeper
 /// for the subcommands in `NESTED`), the bare forms in `BARE_DEFAULTS`, and
@@ -571,6 +588,7 @@ fn cli_commands() -> Vec<String> {
         "src/cli/defs.rs must define the trailing `intent: Vec<String>,` field"
     );
     let mut keys = vec![GOAL_KEY.to_string()];
+    let mut moved_sources = 0usize;
     let top_variants = enum_variants(&defs, "Commands");
     assert!(
         !top_variants.is_empty(),
@@ -590,7 +608,7 @@ fn cli_commands() -> Vec<String> {
             keys.push(variant.cli.clone());
         }
         let source = match module {
-            Some(module) => read(&format!("src/cli/{module}.rs")),
+            Some(module) => cli_module_source(module, &mut moved_sources),
             None => defs.clone(),
         };
         let subs = enum_variants(&source, enum_name);
@@ -610,7 +628,7 @@ fn cli_commands() -> Vec<String> {
                 continue;
             }
             let nested_source = match nested_module {
-                Some(module) => read(&format!("src/cli/{module}.rs")),
+                Some(module) => cli_module_source(module, &mut moved_sources),
                 None => source.clone(),
             };
             let nested = enum_variants(&nested_source, nested_enum);
@@ -627,6 +645,10 @@ fn cli_commands() -> Vec<String> {
         keys.len() >= 100,
         "cli_commands scanner must discover the full CLI surface, got {}",
         keys.len()
+    );
+    assert!(
+        moved_sources > 0,
+        "cli_commands read zero families from crates/susi-cli-defs/src; update scanner path if moved"
     );
     keys
 }

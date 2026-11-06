@@ -1,15 +1,7 @@
 //! Ambient context synchronization CLI.
 use anyhow::Result;
-use clap::Subcommand;
 use std::path::Path;
-
-#[derive(Debug, Subcommand)]
-pub enum AmbientCommands {
-    /// Scan workspace once, record changes, refresh semantic index.
-    Pulse,
-    /// Start background ambient indexer for this workspace (process-local).
-    Start,
-}
+pub use susi_cli_defs::ambient::AmbientCommands;
 
 pub fn execute(action: Option<AmbientCommands>, workspace: &Path) -> Result<()> {
     match action.unwrap_or(AmbientCommands::Pulse) {

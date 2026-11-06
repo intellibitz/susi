@@ -10,6 +10,19 @@
 //! time via `Cli::command().version(env!("CARGO_PKG_VERSION"))`, so `--version`
 //! always reports the running executable's package version.
 
+/// `susi agents`: external task executor commands.
+pub mod agent;
+/// `susi ambient`: ambient context synchronization commands.
+pub mod ambient;
+/// `susi auto`: zero-config auto substrate commands.
+pub mod auto;
+/// `susi blackboard`: mission blackboard inspection commands.
+pub mod blackboard;
+/// `susi brain`: evidence-ranked model routing commands.
+pub mod brain;
+/// `susi broker`: inter-app permission and message broker commands.
+pub mod broker;
+
 /// Wall-clock budget in seconds for `susi tasks verify-merged` (`20 * 60`).
 ///
 /// Mirrors `susi_gawd::admin::tasks::VERIFY_BUDGET_SECS` without pulling
