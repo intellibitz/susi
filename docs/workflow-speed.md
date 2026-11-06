@@ -1036,6 +1036,61 @@ What changed:
   now authenticated once per process and the file hashing runs on up to 16
   threads. Every digest comparison is unchanged.
 
-Next, measured but not yet changed: the 559 s of sequential test-binary
-execution (cargo runs test binaries one after another; the longest single
-binary takes 83 s), and the 48 s acceptance recording (now timed by sub-step).
+Both were then changed; see the next section.
+
+## Parallel test gate, batched task reads, checks on the host gate (2026-11-06)
+
+- **Task records are read in one batch.** `native_provenance::task_for_claim`
+  ran two git processes (`rev-parse`, `cat-file`) per task record; about 400
+  records cost 76.4 s in the gate's setup and again in acceptance recording.
+  It now uses one `git ls-tree` and one `git cat-file --batch`, and each reply
+  must name the requested blob and size. Measured in the next ship: task
+  acceptance plan 76.4 s to 0.4 s, acceptance recording 49.9 s to 4.2 s.
+- **A parallel test runner is available, opt-in.** `cargo test` runs the
+  workspace's test binaries one after another. With
+  `SUSI_LOCAL_TEST_RUNNER=nextest`, the ship/integrate gate and
+  `local-workflow check` run the test gate with `cargo nextest run`
+  (`NEXTEST_TEST_THREADS=16`; `.config/nextest.toml`'s two-slot reservations
+  still apply) plus a `cargo test --doc` gate for the selected library
+  packages, because nextest skips doctests. Same 7 packages, same isolated
+  home, tests already built: `cargo test` ran 736 s; nextest ran all 3 129
+  tests in 351 s in a ship.
+- **Why it is opt-in, not the default.** It was the default for about three
+  hours on 2026-11-06, and 2 of the 3 ships that used it on main failed on
+  tests that pass under `cargo test`: `susi-config`
+  `versioned_store_tests::concurrent_atomic_writers_publish_complete_json_and_clean_up`
+  and `susi-gmcp` `tools::core::unwired_governance_tests::test_os_tools_fail_closed_when_unwired`
+  (which passed on identical code in the previous ship); before that, two
+  deadline tests (a 15 s fixture, a 30 s sweep) failed while another agent's
+  check saturated the CPU. What the failing tests have in common: the suite
+  coordinates tests through process-local statics (21 `static ...LOCK:
+  Mutex` in `crates/`, such as `AUDIT_TEST_LOCK` and `ENV_LOCK`) and
+  per-process global state, which nextest's one process per test does not
+  share, and tests from different binaries now run at the same time. That is
+  the hypothesis to verify before making nextest the default again.
+- **Evidence stays exact either way.** nextest results come from its one
+  complete summary line (no partial runs, no filters, timed-out counts as
+  failed; parenthesised annotations such as `(2 slow, 17 leaky)` are
+  ignored), the doctest gate from its `Doc-tests` blocks (zero doctests is
+  allowed, a failing one is not), and `ship` refuses to publish without
+  passing fmt, deny, clippy and test evidence. The provenance verifier accepts
+  a nextest workspace gate only together with its doctest gate. The signed
+  workspace-pass attestation is tied to `cargo test`.
+- **Checks queue on the host gate.** `check` now takes the same machine-wide
+  host gate as ship and integrate, so an agent's check and a ship never run
+  their suites at the same time (the deadline failures above).
+
+Ship of this change (7 packages, a `xtask/src/bin/local-workflow.rs` edit,
+with nextest then the default):
+format 17.2 s, licenses 3.9 s, trusted sysroot 3.3 s, clippy 128.3 s, test
+gate 504.2 s (build 2 min 25 s, nextest run 351 s), the task's own acceptance
+89.5 s, doctests 5.0 s, acceptance recording 4.2 s, publish 3.8 s; 13.0 min of
+measured phases, against 27.8 min for the same kind of change at the start
+of the day. With `cargo test` as the test runner the same ship takes about
+6 min longer (the sequential test run). The first publish attempt was refused by GitHub ("fatal error in
+commit_refs"); `ship --retry` published the verified head in 19 s.
+
+Still large, not yet changed: clippy (about 2 min) and the test build
+(about 2.5 min) for a 7-package selection, and the slowest individual tests
+(the `susi-gawd` `admin::tasks` tests at 40-60 s each, which spawn git and
+cargo).
