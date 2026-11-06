@@ -283,8 +283,7 @@ fn git_revision(workspace: &Path, rev: &str) -> Option<String> {
 }
 
 /// Where a cut reserves its version: one ref per version, written
-/// compare-and-swap through the task queue's transport, so a cloud session's
-/// push travels by the relay like a claim does.
+/// compare-and-swap through the task queue's push, like a claim.
 const RESERVATION_PREFIX: &str = "refs/release-cuts/";
 /// How long a reservation holds when its cut neither finishes nor fails
 /// cleanly (a killed process): long enough for a full gate, short enough
@@ -412,7 +411,7 @@ fn reserve_version_at(ws: &Path, version: &str, lease_secs: u64, now: u64) -> Ea
         expires_unix: now.saturating_add(lease_secs),
     };
     let blob = blob_of_json(ws, &serde_json::to_string(&record)?)?;
-    super::queue_relay::push(
+    super::queue_push::push(
         ws,
         "origin",
         &[(name.clone(), old)],
@@ -436,7 +435,7 @@ fn drop_reservation(ws: &Path, version: &str) {
     if held.branch != branch {
         return;
     }
-    if let Err(e) = super::queue_relay::push(
+    if let Err(e) = super::queue_push::push(
         ws,
         "origin",
         &[(name.clone(), old)],
@@ -2002,17 +2001,5 @@ mod tests {
         git_in(&work, &["checkout", "-q", "bystander"]);
         reserve_version_at(&work, "3.1.0", 600, 1_010).expect("the version is free again");
         let _ = std::fs::remove_dir_all(work.parent().unwrap());
-    }
-
-    /// The reservation travels by the queue's relay in a cloud session, so
-    /// its namespace must be one the relay applies, on both sides.
-    #[test]
-    fn the_relay_applies_the_reservation_namespace() {
-        assert!(super::super::queue_relay::RELAYED_NAMESPACES.contains(&RESERVATION_PREFIX));
-        let relay = include_str!("../../../../scripts/queue-relay.sh");
-        assert!(
-            relay.contains(&format!("\"{RESERVATION_PREFIX}\"")),
-            "scripts/queue-relay.sh must apply {RESERVATION_PREFIX}"
-        );
     }
 }

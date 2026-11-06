@@ -46,8 +46,8 @@ fn vc_201_097_mastery_records_transitive_changes_and_gates_new_exposure() {
 
 #[test]
 fn vc_201_097_mastery_gate_is_on_the_ci_path() {
-    // The production gate must reach ratchet_unsafe: CI runs the workflow
-    // script, the script invokes native complete measurement and admission.
+    // The production gate must reach ratchet_unsafe: the release gate invokes
+    // native complete measurement and admission.
     let bin = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../susi-unsafe-ratchet/src/bin/unsafe_ratchet.rs"
@@ -62,24 +62,15 @@ fn vc_201_097_mastery_gate_is_on_the_ci_path() {
         "the binary must offer the auditable baseline-regeneration path"
     );
 
-    let script = std::fs::read_to_string(concat!(
+    // GitHub Actions workflows were removed (CEO decision 2026-11-06); the
+    // release gate runs the native measurement and admission binaries.
+    let gates = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../.github/workflows/unsafe-exposure-ratchet.sh"
+        "/../../xtask/src/complete_release_gates.rs"
     ))
-    .expect("ratchet workflow script present");
-    assert!(script.contains("--bin unsafe_measure"));
-    assert!(script.contains("--measurement"));
-    assert!(script.contains("--bin unsafe_ratchet"));
-
-    let workflow = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../.github/workflows/test.yml"
-    ))
-    .expect("test workflow present");
-    assert!(
-        workflow.contains("unsafe-exposure-ratchet.sh"),
-        "CI must invoke the ratchet script"
-    );
+    .expect("release gate source present");
+    assert!(gates.contains("Tool::read(&trust[\"unsafe_measure\"], root)?"));
+    assert!(gates.contains("Tool::read(&trust[\"unsafe_ratchet\"], root)?"));
 }
 
 #[test]

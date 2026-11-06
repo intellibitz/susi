@@ -1079,8 +1079,10 @@ operation log, and there is no cross-coordinator term ordering.
 ## Release retention
 
 Semver GitHub Releases keep the newest **two** `vX.Y.Z` entries (assets).
-The rolling `dev` pre-release is managed by `dev-release.yml` and is never pruned.
-Older GitHub Release objects are deleted by `scripts/prune-old-github-releases.sh` after each tagged release build (`release.yml` job `prune-old-releases`); **git tags are retained**.
+The rolling `dev` pre-release is never pruned. Older GitHub Release objects are
+deleted by `scripts/prune-old-github-releases.sh` (run with `gh` auth; the
+`release.yml`/`dev-release.yml` workflows that ran it were removed, CEO decision
+2026-11-06); **git tags are retained**.
 
 ## RSI OS isolation iterations (2026-09-28)
 

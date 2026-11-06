@@ -499,21 +499,6 @@ fn a_reconcile_pass_that_merges_starts_one_follow_up_and_an_idle_one_none() {
     );
 }
 
-/// The resync path dispatches the retest of a head it updated (a token-made
-/// push starts nothing). That dispatched run must be able to merge the PR when
-/// it passes, or the PR waits for the throttled scheduled pass.
-#[test]
-fn a_dispatched_green_run_can_merge_its_pr() {
-    let workflow = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/auto-merge.yml"),
-    )
-    .unwrap();
-    assert!(
-        workflow.contains("github.event.workflow_run.event == 'workflow_dispatch'"),
-        "merge-pr must accept a dispatched Test run"
-    );
-}
-
 #[test]
 fn a_red_pr_gets_one_comment_with_the_run_link_and_stays_open() {
     let f = Fake::new(
@@ -576,31 +561,6 @@ fn a_pr_idle_for_a_week_and_not_green_is_closed_but_a_green_one_never_is() {
     assert!(f.calls().contains("pr close 7 --repo o/r"), "{}", f.calls());
     assert!(f.calls().contains("pr merge 8 --repo o/r"), "{}", f.calls());
     assert!(!f.calls().contains("pr close 8"), "{}", f.calls());
-}
-
-#[test]
-fn the_workflow_wires_every_path_to_the_shared_scripts() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let wf = std::fs::read_to_string(root.join(".github/workflows/auto-merge.yml")).unwrap();
-    for needle in [
-        "schedule:",
-        "cron: '*/30 * * * *'",
-        "branches-ignore: [main]",
-        "workflow_dispatch:",
-        "scripts/auto-merge-pr.sh",
-        "scripts/reconcile-prs.sh",
-        "Reconcile if this commit already went green",
-    ] {
-        assert!(
-            wf.contains(needle),
-            "auto-merge.yml must contain `{needle}`"
-        );
-    }
-    // The merge logic must not be re-inlined: one implementation for every path.
-    assert!(
-        !wf.contains("gh pr merge"),
-        "merge logic belongs in scripts/auto-merge-pr.sh"
-    );
 }
 
 #[test]
@@ -968,29 +928,6 @@ fn the_merge_queue_probe_answers_true_whenever_it_cannot_tell() {
     );
 }
 
-#[test]
-fn integration_lock_never_serializes_branch_pr_creation() {
-    let workflow = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/auto-merge.yml"),
-    )
-    .unwrap();
-    let open = workflow
-        .split("  open-pr:")
-        .nth(1)
-        .unwrap()
-        .split("  merge-pr:")
-        .next()
-        .unwrap();
-    assert!(!open.contains("group: auto-merge-integration"));
-    assert!(!open.contains("bash \"$RUNNER_TEMP/auto-merge-pr.sh\""));
-    assert!(open.contains("gh workflow run auto-merge.yml"));
-    for job in ["merge-pr", "reconcile"] {
-        let body = workflow.split(&format!("  {job}:")).nth(1).unwrap();
-        assert!(body.contains("group: auto-merge-integration"));
-        assert!(body.contains("queue: max"));
-    }
-}
-
 /// The merge queue's stale-head retest is the unit of queue latency: with the
 /// inline gate the serialized job proves the merge tree itself — merge-tree,
 /// gate, merge — instead of an update-branch plus a whole retest run.
@@ -1156,84 +1093,4 @@ fn the_inline_gate_is_opt_in_per_environment() {
         "{}",
         f.calls()
     );
-}
-
-/// The merge jobs must set the flag and carry the toolchain the gate needs —
-/// gated on the probe so a nothing-stale pass costs no setup.
-#[test]
-fn the_integration_jobs_carry_the_inline_gate() {
-    let wf = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/auto-merge.yml"),
-    )
-    .unwrap();
-    for job in ["merge-pr", "reconcile"] {
-        let body = wf.split(&format!("  {job}:")).nth(1).unwrap();
-        for needle in [
-            "SUSI_INLINE_MERGE_GATE",
-            "fetch-depth: 0",
-            "merge-queue-probe.sh",
-            "steps.probe.outputs.need_gate == 'true'",
-            "timeout-minutes:",
-        ] {
-            assert!(body.contains(needle), "job `{job}` is missing `{needle}`");
-        }
-    }
-}
-
-/// The probe runs once, before the job does anything; the gate runs on any
-/// head that is stale when the script reaches it. A job-wide
-/// `SUSI_INLINE_MERGE_GATE: "1"` therefore gated heads that went stale after
-/// the probe (a reconcile pass's own first merge does that to every other
-/// green PR) on a runner with no sccache, and clippy's failure reached the PR
-/// as "the merge with current main fails the compile gate". The switch is the
-/// probe's answer, set on the step that merges.
-#[test]
-fn the_merge_step_gates_only_where_the_probe_installed_the_toolchain() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let probe_flag =
-        "SUSI_INLINE_MERGE_GATE: ${{ steps.probe.outputs.need_gate == 'true' && '1' || '0' }}";
-    let auto = std::fs::read_to_string(root.join(".github/workflows/auto-merge.yml")).unwrap();
-    for (job, step) in [
-        ("merge-pr", "Merge the PR for the tested commit"),
-        ("reconcile", "Reconcile open PRs"),
-    ] {
-        let body = auto.split(&format!("  {job}:")).nth(1).unwrap();
-        // The step's own lines: up to the next step or the next job.
-        let step_body: String = body
-            .split(&format!("- name: {step}"))
-            .nth(1)
-            .unwrap_or_else(|| panic!("job `{job}` has no step `{step}`"))
-            .lines()
-            .skip(1)
-            .take_while(|l| {
-                let indent = l.len() - l.trim_start().len();
-                l.trim().is_empty() || (indent > 6 && !l.trim_start().starts_with("- "))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(
-            step_body.contains(probe_flag),
-            "job `{job}`: the merge step must take the gate switch from the probe"
-        );
-    }
-    let test = std::fs::read_to_string(root.join(".github/workflows/test.yml")).unwrap();
-    let merge = test
-        .split("\n  merge:\n")
-        .nth(1)
-        .expect("test.yml has the retest's merge job");
-    // That job's merge step also runs after a failed setup step, so the
-    // switch needs the last setup step to have succeeded as well.
-    assert!(
-        merge.contains(
-            "SUSI_INLINE_MERGE_GATE: ${{ steps.probe.outputs.need_gate == 'true' \
-             && steps.mold.outcome == 'success' && '1' || '0' }}"
-        ),
-        "test.yml `merge`: {merge}"
-    );
-    for wf in [&auto, &test] {
-        assert!(
-            !wf.contains("SUSI_INLINE_MERGE_GATE: \"1\""),
-            "no job may switch the gate on regardless of what its probe installed"
-        );
-    }
 }

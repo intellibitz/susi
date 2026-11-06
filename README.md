@@ -44,8 +44,8 @@ already schedules unattended source rewrites.
   applies a workspace-confined patch, runs the test command, and rolls back
   on failure (`crates/susi-gawd/src/patch_cycle.rs`). It refuses to apply
   unless the request sets `auto_apply` or `trust_level` is `autonomous`.
-  Nothing schedules it on SUSI's own source by itself; the
-  `susi-builder.yml` workflow runs `susi solve` only on labelled issues/PRs.
+  Nothing schedules it on SUSI's own source by itself (the former
+  `susi-builder.yml` workflow was removed, CEO decision 2026-11-06).
   Mandate 48 keeps the installed `~/.susi/bin/susi` as the release toolchain
   that builds the next susi.
 
@@ -373,7 +373,8 @@ not enough. `susi local workflow integrate worker-a` performs those local gates.
 `susi local workflow ship worker-a` is the optional GitHub publication: one local
 gate for the batch, a direct fast-forward push to `refs/heads/main` on `origin`,
 and four local commit statuses on the published commit.
-GitHub Actions is disabled and is not a merge gate.
+GitHub Actions is disabled and its workflow files were removed (CEO decision
+2026-11-06); it is not a merge gate.
 `susi local release qualify` independently qualifies the integrated source.
 
 `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` are identical

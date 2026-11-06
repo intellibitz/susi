@@ -5,7 +5,7 @@
 
 [graph]
 # Restrict the dependency graph to the targets we actually build and
-# publish binaries for (see release.yml / dev-release.yml). Windows is
+# publish binaries for. Windows is
 # included. The gate exposes remaining dependency-license incompatibilities
 # rather than exempting shipped components.
 targets = [

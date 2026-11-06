@@ -6,7 +6,8 @@
 # `susi workflow check`), and the gate's clippy of a changed crate's dependents
 # check-built them again (210 s measured; docs/workflow-speed.md). A laptop's
 # worktrees copy a warm snapshot from the primary checkout (scripts/seed-target.sh);
-# a container has no primary. So `.github/workflows/target-seed.yml` builds
+# a container has no primary. So a snapshot builder (formerly the GitHub
+# Actions workflow target-seed.yml, removed by CEO decision 2026-11-06) builds
 # origin/main the way a cloud session does — the same toolchain, the same
 # `cargo` configuration scripts/cloud-onnxruntime.sh writes — strips the
 # workspace's own units (`susi workflow seed-target --export`), and publishes the

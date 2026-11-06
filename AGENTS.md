@@ -119,8 +119,9 @@ The Apache-2.0 license grants code rights, not rights to the Susi name or marks.
    published commit. It does not open a pull request or run GitHub Actions.
    `ship --retry` republishes a verified integration head after a failed push.
    `ruleset apply` prints the main ruleset; `ruleset apply --apply` sends it.
-   `workflows disable --merge-path` disables the push, pull-request, and schedule
-   workflows on GitHub.
+   This repository carries no GitHub Actions workflow files (removed, CEO
+   decision 2026-11-06); `workflows disable --merge-path` remains only for a
+   repository that still has disabled workflow files on GitHub.
 7. Close only after acceptance and integrated-tree verification succeed for the
    complete task. Zero executed tests do not count. Release ownership deliberately;
    `cargo local-workflow release <name>` preserves the branch/worktree and refuses
@@ -266,14 +267,14 @@ chat, or agent memory.
   read back and compared, then exported. Rotation updates the vault entry
   first, then every consumer, then restarts long-running agents.
 
-## Platform and CI policy (CEO decisions 2026-11-03 and 2026-11-05)
+## Platform and CI policy (CEO decisions 2026-11-03, 2026-11-05 and 2026-11-06)
 
-- **Susi core (`intellibitz/susi`) is free, open (Apache-2.0 forever), and ships only for vanilla Windows x86_64 and vanilla Linux x86_64** for budget reasons. Do not publish core release or download artifacts for macOS, ARM64 or any other platform. The workflow files `dev-release.yml` (`linux-x86_64` only) and `release.yml` (`windows-x86_64` and `linux-x86_64` only) stay in the repository, but they do not run: GitHub Actions is disabled at the repository level (CEO decision 2026-11-05).
-- **Zero GitHub Actions; the gate is local and current-host only** (CEO decision 2026-11-05). No hosted CI runs for core. Verification is `cargo local-workflow check` in the agent's own worktree and the serialized `cargo local-workflow ship` gate, both on the current native host (`x86_64-pc-windows-msvc` or `x86_64-unknown-linux-gnu`). The legacy workflow definitions (`test.yml`, `zc-matrix.yml`) and `scripts/auto-merge-pr.sh` remain x86_64-only (CEO decision 2026-11-03, "cut it") and are pinned by tests, but they do not run and are not a gate. Never enable or trigger GitHub Actions, and never add macOS, ARM64 or other-platform compile checks, native tests, nightly runs or release legs unless the CEO explicitly asks.
+- **Susi core (`intellibitz/susi`) is free, open (Apache-2.0 forever), and ships only for vanilla Windows x86_64 and vanilla Linux x86_64** for budget reasons. Do not publish core release or download artifacts for macOS, ARM64 or any other platform. Releases are qualified and built locally; the GitHub Actions release workflows were removed (CEO decision 2026-11-06), and GitHub Actions stays disabled at the repository level (CEO decision 2026-11-05).
+- **Zero GitHub Actions; the gate is local and current-host only** (CEO decision 2026-11-05). No hosted CI runs for core. Verification is `cargo local-workflow check` in the agent's own worktree and the serialized `cargo local-workflow ship` gate, both on the current native host (`x86_64-pc-windows-msvc` or `x86_64-unknown-linux-gnu`). All GitHub Actions workflow definitions were removed (CEO decision 2026-11-06); `xtask/tests/ci_workflow_perf.rs` (`no_github_actions_workflow_returns`) keeps `.github/workflows/` from returning. Never add, enable or trigger GitHub Actions, and never add macOS, ARM64 or other-platform compile checks, native tests, nightly runs or release legs unless the CEO explicitly asks.
 - **Keep core source portable.** Do not delete code that already works on other platforms (including ARM64 Windows runtime/link-layer source support, `deny.toml` targets, and `tests/zc_matrix.rs` dependency-graph checks that run on x86_64). Portable code costs nothing; building and testing other platforms in core does.
 - **Commercial Apps (`intellibitz/susi-commercial-apps`) macOS/ARM64 support is paused** (CEO decision 2026-11-05) until the CEO reopens it: no every-OS release qualification and no Susi Certified macOS/ARM core builds run in either repository meanwhile. If it is reopened, commercial owns that qualification and must never depend on core CI evidence for macOS or ARM64.
 
-Agents must not add macOS, ARM64 or other non-release platform build, test, nightly or release legs in core; `xtask/tests/ci_workflow_perf.rs` and `tests/release_workflow.rs` pin this.
+Agents must not add macOS, ARM64 or other non-release platform build, test, nightly or release legs in core.
 
 ## Local verification and evidence
 

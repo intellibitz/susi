@@ -144,27 +144,3 @@ fn historical_debt_only_ignores_checkout_line_endings() {
     let valid = serde_json::to_vec(&valid_record()).unwrap();
     assert!(!check_record("legacy.json", &valid, &debt).unwrap());
 }
-
-#[test]
-fn task_record_gate_is_unconditional_and_runs_the_tests() {
-    let workflow = include_str!("../.github/workflows/test.yml").replace("\r\n", "\n");
-    let (_, remaining) = workflow
-        .split_once("      - name: Validate task record schemas\n")
-        .expect("the branch gate must validate task-only changes");
-    let step = remaining.split("\n      - name:").next().unwrap();
-    assert!(
-        !step
-            .lines()
-            .any(|line| line.trim_start().starts_with("if:")),
-        "task schema validation must run even when no crate changed"
-    );
-    let commands: Vec<_> = step
-        .lines()
-        .filter_map(|line| line.trim_start().strip_prefix("run: "))
-        .collect();
-    assert_eq!(
-        commands,
-        ["cargo test --locked -p susi --test task_records"],
-        "the schema guard must execute its tests without a filter or --no-run"
-    );
-}

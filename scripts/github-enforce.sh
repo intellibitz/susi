@@ -20,8 +20,6 @@
 #   2  adds the four susi-local/* statuses that `local-workflow ship` posts
 #      after the local gate. A required check that never reports blocks every
 #      merge, so these names are the statuses ship writes, not Actions job names.
-# Auto-merge (.github/workflows/auto-merge.yml) is unaffected: it merges through
-# the pull-request API once the branch-push run is green.
 #
 # `--tags` adds a second ruleset over `refs/tags/v*` that blocks moving or
 # deleting a release tag. Creation stays open, because the release flow pushes

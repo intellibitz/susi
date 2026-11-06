@@ -589,9 +589,6 @@ mod hosted_scripts {
             2,
             "claims and close receipts must both reuse the fetched snapshot"
         );
-        let workflow = std::fs::read_to_string(repo.join(".github/workflows/test.yml")).unwrap();
-        assert!(workflow.contains("run: scripts/fetch-workflow-refs.sh origin"));
-        assert!(workflow.contains("SUSI_WORKFLOW_REFS_FETCHED: \"1\""));
 
         let ws = Workspace::new("workflow-refs");
         let bare = ws.root.join("remote.git");
@@ -930,25 +927,4 @@ mod hosted_scripts {
         git(&ws.root, &["commit", "-qm", "move the data"]);
         assert_eq!(ws.pkgs(&[]), ["lone", "mid"]);
     }
-}
-
-/// A susi-unsafe-ratchet-only push used to skip the workspace target archive.
-/// The branch gate now runs the root package's guard tests on every push (CEO
-/// decision 2026-11-04), so every push builds the root package and the archive
-/// is restored unconditionally; no lightweight-package skip may return.
-#[test]
-fn ratchet_gate_restores_target_cache_for_the_root_guard_build() {
-    let workflow =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/test.yml");
-    let workflow = std::fs::read_to_string(workflow).unwrap();
-    assert!(
-        !workflow.contains("target_cache"),
-        "no package decision may skip the target archive the root guard build reads"
-    );
-    assert!(
-        workflow.contains(
-            "      - name: Cache Cargo\n        uses: Swatinem/rust-cache@v2\n        with:\n          shared-key: lint\n          cache-targets: \"true\""
-        ),
-        "the branch gate restores main's lint target archive on every push"
-    );
 }
