@@ -48,6 +48,8 @@ mod pe_imports;
 mod prepare_release;
 #[path = "../product_features.rs"]
 mod product_features;
+#[path = "../release_coordinator.rs"]
+mod release_coordinator;
 #[path = "../sysroot_license.rs"]
 mod sysroot_license;
 #[path = "../sysroot_sources.rs"]
@@ -2047,6 +2049,7 @@ fn run(args: &[String]) -> Result<()> {
             println!("{}",serde_json::to_string(&imports)?);
         },
         Some("qualify") if args.len()==1 => { qualify(&ctx)?; }
+        Some("coordinate") => release_coordinator::run(&ctx,&args[1..])?,
         Some("prepare-next") if args.len()==2 && args[1]=="patch" => prepare_release::run(&ctx)?,
         Some("install-current") if args.len()==1 => installed_delivery::install_current(&ctx)?,
         Some("export-qualified") if args.len()==3 => installed_delivery::export(&ctx,&args[1],Path::new(&args[2]))?,
@@ -2082,7 +2085,7 @@ fn run(args: &[String]) -> Result<()> {
             let status=production_command(&ctx,&binary,&args[1..])?.status()?;
             if !status.success(){return Err(format!("release process exited {status}").into());}
         }
-        _ => return Err("usage: local-release qualify | prepare-next patch | check-inventory | check-elf <candidate> <link-map> | check-inference <candidate> | promote <release-id> | rollback | status | export-qualified <release-id> <destination> | install-current | run [susi arguments]".into()),
+        _ => return Err("usage: local-release coordinate [--head <rev>] [--tools-source <rev>] [--verifier <path>] [--home <dir>] | qualify | prepare-next patch | check-inventory | check-elf <candidate> <link-map> | check-inference <candidate> | promote <release-id> | rollback | status | export-qualified <release-id> <destination> | install-current | run [susi arguments]".into()),
     }
     Ok(())
 }
