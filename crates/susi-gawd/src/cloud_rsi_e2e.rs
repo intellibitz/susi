@@ -850,6 +850,7 @@ mod tests {
             existing_titles: BTreeSet::new(),
             agent: "devin".into(),
             next_seq: seq,
+            experiment_memory: None,
         }
     }
 

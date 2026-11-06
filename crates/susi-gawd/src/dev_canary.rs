@@ -49,6 +49,65 @@ pub fn dev_instance_ports() -> [u16; 5] {
     [base, base + 1, base + 2, base + 3, base + 4]
 }
 
+/// One dimension's canary trial, oriented so that higher is always
+/// better: a lower-is-better dimension (latency) is compared on its
+/// negated value, so `baseline - candidate > 0` always means the
+/// candidate regressed past the predeclared bound.
+fn dimension_trial(
+    d: &crate::scorecard::DimensionScore,
+    spec: &crate::scorecard::DimensionSpec,
+) -> CanaryTrial {
+    let sign = if spec.lower_is_better { -1.0 } else { 1.0 };
+    CanaryTrial {
+        candidate_metric: sign * d.value,
+        baseline_metric: sign * spec.threshold,
+        regression_limit: 0.0,
+    }
+}
+
+/// The production canary gate on the evaluator's measured scorecard:
+/// every dimension's raw measured value is compared against its
+/// predeclared bound with zero regression tolerance — quality must not
+/// fall below `spec.quality.threshold`, latency must not exceed
+/// `spec.latency.threshold`, and likewise for reliability, resource and
+/// operator effort. Unlike `summary_ok`, this ignores the reported
+/// uncertainty, so a negative or NaN uncertainty cannot widen a
+/// below-bound value into a pass. Any non-finite value stops the trial.
+///
+/// The comparison is bound to the pinned dev-instance isolation band
+/// ([`dev_instance_ports`]); a band that ever stopped matching
+/// [`DEV_INSTANCE_BASE_PORT`] stops the trial rather than comparing on
+/// the installed release's ports.
+#[must_use]
+pub fn canary_gate_from_scorecard(
+    measured: &crate::scorecard::ImprovementScorecard,
+    spec: &crate::scorecard::ScorecardSpec,
+) -> CanaryResult {
+    let ports = dev_instance_ports();
+    let pinned = ports
+        .iter()
+        .zip(0u16..)
+        .all(|(p, i)| DEV_INSTANCE_BASE_PORT.checked_add(i) == Some(*p));
+    if !pinned {
+        return CanaryResult::StopTrial;
+    }
+    let trials = [
+        dimension_trial(&measured.quality, &spec.quality),
+        dimension_trial(&measured.latency, &spec.latency),
+        dimension_trial(&measured.reliability, &spec.reliability),
+        dimension_trial(&measured.resource, &spec.resource),
+        dimension_trial(&measured.operator_effort, &spec.operator_effort),
+    ];
+    if trials
+        .iter()
+        .any(|t| evaluate_canary(t) == CanaryResult::StopTrial)
+    {
+        CanaryResult::StopTrial
+    } else {
+        CanaryResult::Continue
+    }
+}
+
 #[cfg(test)]
 // Test-only assertions in inline unit tests.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

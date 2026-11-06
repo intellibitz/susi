@@ -16,7 +16,63 @@ pub struct ExperimentMemory {
     pub by_proposal: BTreeMap<String, ExperimentMemoryEntry>,
 }
 
+const MEMORY_LOCK: &str = "experiment_memory";
+
+fn memory_path(workspace: &std::path::Path) -> std::path::PathBuf {
+    workspace.join(".susi").join("experiment_memory.json")
+}
+
 impl ExperimentMemory {
+    /// The workspace's durable experiment memory at
+    /// `workspace/.susi/experiment_memory.json`. A missing or unparseable
+    /// file is an empty memory — never a panic.
+    #[must_use]
+    pub fn load(workspace: &std::path::Path) -> Self {
+        std::fs::read(memory_path(workspace))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    fn write_unlocked(&self, workspace: &std::path::Path) -> crate::susi_error::EaiResult<()> {
+        use crate::susi_error::EaiError;
+        let bytes = serde_json::to_vec_pretty(self).map_err(|e| {
+            EaiError::internal(format!("experiment memory serialization failed: {e}"))
+        })?;
+        crate::susi_config::atomic_replace_file(&memory_path(workspace), &bytes)
+            .map_err(|e| EaiError::filesystem(format!("experiment memory write failed: {e}")))
+    }
+
+    fn lock(
+        workspace: &std::path::Path,
+    ) -> crate::susi_error::EaiResult<crate::susi_config::file_lock::FileLock> {
+        let susi_dir = workspace.join(".susi");
+        crate::susi_config::file_lock::FileLock::acquire(&susi_dir, MEMORY_LOCK).ok_or_else(|| {
+            crate::susi_error::EaiError::filesystem(
+                "experiment memory lock acquisition failed".to_string(),
+            )
+        })
+    }
+
+    /// Persist this memory atomically under the `experiment_memory` lock.
+    pub fn save(&self, workspace: &std::path::Path) -> crate::susi_error::EaiResult<()> {
+        let _lock = Self::lock(workspace)?;
+        self.write_unlocked(workspace)
+    }
+
+    /// Load, record `entry` and save under one lock hold, so two
+    /// concurrent rejections cannot lose each other's entry the way a
+    /// separate load → record → save would.
+    pub fn record_in_workspace(
+        workspace: &std::path::Path,
+        entry: ExperimentMemoryEntry,
+    ) -> crate::susi_error::EaiResult<()> {
+        let _lock = Self::lock(workspace)?;
+        let mut memory = Self::load(workspace);
+        memory.record(entry);
+        memory.write_unlocked(workspace)
+    }
+
     pub fn record(&mut self, entry: ExperimentMemoryEntry) {
         self.by_proposal.insert(entry.proposal_id.clone(), entry);
     }
@@ -61,6 +117,19 @@ impl ExperimentMemory {
         let has_fresh_evidence = fresh_receipts.iter().any(|r| !r.trim().is_empty());
         addresses_prior || has_fresh_evidence
     }
+}
+
+/// [`ExperimentMemory::may_resubmit`] against the workspace's durable
+/// memory — the check a proposal validator runs when it only has a
+/// workspace, not a loaded memory.
+#[must_use]
+pub fn check_resubmission_in_workspace(
+    workspace: &std::path::Path,
+    candidate: &ExperimentMemoryEntry,
+    addressed: &[String],
+    fresh_receipts: &[String],
+) -> bool {
+    ExperimentMemory::load(workspace).may_resubmit(candidate, addressed, fresh_receipts)
 }
 
 #[cfg(test)]

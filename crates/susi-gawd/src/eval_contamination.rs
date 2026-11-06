@@ -94,6 +94,94 @@ pub fn exclude_if_contaminated<T>(report: &ContaminationReport, evidence: T) -> 
     }
 }
 
+/// One durable read recorded at the fixture read path — the access log
+/// `evaluate_and_record` merges into every run's footprint, so a held-out
+/// read is caught even when the caller's `EvalRunInput` omits it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessRecord {
+    /// `training` or `memory`.
+    pub split: String,
+    /// The fixture id (or content hash) that was read.
+    pub id: String,
+}
+
+/// Split label for reads made while producing training material.
+pub const ACCESS_SPLIT_TRAINING: &str = "training";
+/// Split label for reads served from agent memory.
+pub const ACCESS_SPLIT_MEMORY: &str = "memory";
+
+fn access_log_path(workspace: &std::path::Path) -> std::path::PathBuf {
+    workspace.join(".susi").join("eval_access_log.jsonl")
+}
+
+/// Append one fixture read to `workspace/.susi/eval_access_log.jsonl`
+/// under the `eval_access` file lock. `split` must be `training` or
+/// `memory`: an unknown split would be silently ignored on load, which is
+/// exactly the unrecorded read this log exists to prevent.
+pub fn record_access(
+    workspace: &std::path::Path,
+    split: &str,
+    fixture_id: &str,
+) -> crate::susi_error::EaiResult<()> {
+    use crate::susi_error::EaiError;
+    use std::io::Write;
+    if split != ACCESS_SPLIT_TRAINING && split != ACCESS_SPLIT_MEMORY {
+        return Err(EaiError::governance(format!(
+            "eval access split must be training or memory, got {split:?}"
+        )));
+    }
+    if fixture_id.trim().is_empty() {
+        return Err(EaiError::governance(
+            "eval access fixture id must be nonblank".to_string(),
+        ));
+    }
+    let susi_dir = workspace.join(".susi");
+    std::fs::create_dir_all(&susi_dir)
+        .map_err(|e| EaiError::filesystem(format!("eval access dir create failed: {e}")))?;
+    let mut line = serde_json::to_vec(&AccessRecord {
+        split: split.to_string(),
+        id: fixture_id.to_string(),
+    })
+    .map_err(|e| EaiError::internal(format!("eval access serialization failed: {e}")))?;
+    line.push(b'\n');
+    let _lock = crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "eval_access")
+        .ok_or_else(|| EaiError::filesystem("eval access lock acquisition failed".to_string()))?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(access_log_path(workspace))
+        .map_err(|e| EaiError::filesystem(format!("eval access log open failed: {e}")))?;
+    file.write_all(&line)
+        .map_err(|e| EaiError::filesystem(format!("eval access log write failed: {e}")))
+}
+
+/// Every read recorded in the workspace access log, as
+/// `(training_ids, memory_ids)`. A missing log is an empty footprint;
+/// unparseable lines (a torn final append) are skipped.
+#[must_use]
+pub fn load_recorded_access(workspace: &std::path::Path) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut training = BTreeSet::new();
+    let mut memory = BTreeSet::new();
+    let Ok(content) = std::fs::read_to_string(access_log_path(workspace)) else {
+        return (training, memory);
+    };
+    for rec in content
+        .lines()
+        .filter_map(|l| serde_json::from_str::<AccessRecord>(l).ok())
+    {
+        match rec.split.as_str() {
+            ACCESS_SPLIT_TRAINING => {
+                training.insert(rec.id);
+            }
+            ACCESS_SPLIT_MEMORY => {
+                memory.insert(rec.id);
+            }
+            _ => {}
+        }
+    }
+    (training, memory)
+}
+
 #[cfg(test)]
 mod inline_tests {
     use super::*;

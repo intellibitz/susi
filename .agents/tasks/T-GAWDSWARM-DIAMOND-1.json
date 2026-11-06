@@ -1,0 +1,27 @@
+{
+  "id": "T-GAWDSWARM-DIAMOND-1",
+  "title": "Wire VC-201-009 access log, VC-201-017 canary gate and VC-201-019 experiment memory into the production RSI eval path",
+  "goal": "evaluate_and_record merges the durable .susi/eval_access_log.jsonl into contamination detection, runs canary_gate_from_scorecard before promotion, and persists rejected runs into .susi/experiment_memory.json; cloud_rsi proposal validation consults ExperimentMemory. Roadmap VC-201-009/017/019 marked DELIVERED and stale 2026-10-01 OPEN GAP suffixes removed from VC-200-001/022/023/024/026.",
+  "size": "m",
+  "deps": [],
+  "status": "completed",
+  "scopes": [
+    ".agents/roadmap.json",
+    ".agents/tasks/t-gawdswarm-diamond-1.json",
+    "crates/susi-gawd",
+    "crates/susi-gawd-swarm"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "gawd-swarm",
+  "created_unix": 1794000300
+}

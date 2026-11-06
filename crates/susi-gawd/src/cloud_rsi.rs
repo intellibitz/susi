@@ -123,6 +123,9 @@ pub enum RejectReason {
     NoAcceptance,
     /// Duplicate of an existing or earlier-proposed task.
     Duplicate,
+    /// Repeats a rejection recorded in experiment memory (VC-201-019)
+    /// without citing the prior proposal id or a supplied failure receipt.
+    PriorRejection(String),
 }
 
 /// What a rejection looked like (suggestion kept for audit, marked refused).
@@ -213,6 +216,49 @@ fn validate(
     Ok(p)
 }
 
+/// The experiment-memory identity of a cloud proposal. The two stores
+/// share no natural key, so the mapping is explicit: the proposal's
+/// trimmed title is its id (a rejected eval candidate named like the
+/// proposal title is the same experiment), its trimmed behavior is the
+/// cause, and its first cited evidence line is the counterexample.
+#[must_use]
+pub fn proposal_memory_entry(p: &Proposal) -> crate::experiment_memory::ExperimentMemoryEntry {
+    crate::experiment_memory::ExperimentMemoryEntry {
+        proposal_id: p.title.trim().to_string(),
+        cause: p.behavior.trim().to_string(),
+        counterexample: p.evidence.first().cloned(),
+        lineage: vec![p.roadmap.clone()],
+    }
+}
+
+/// Refuse a proposal repeating a recorded rejection (VC-201-019). It must
+/// either cite the prior proposal's id among its `evidence` (addressing
+/// it), or cite at least one supplied failure receipt — verifiable new
+/// failure evidence, since `validate` already proved every citation was
+/// observed. Repo facts and roadmap gaps alone do not reopen a rejection.
+pub fn check_proposal_memory(
+    memory: &crate::experiment_memory::ExperimentMemory,
+    p: &Proposal,
+    evidence: &RsiEvidence,
+) -> Result<(), RejectReason> {
+    let receipts: BTreeSet<String> = evidence
+        .failure_receipts
+        .iter()
+        .map(|r| normalize(r))
+        .collect();
+    let fresh: Vec<String> = p
+        .evidence
+        .iter()
+        .filter(|ev| receipts.contains(&normalize(ev)))
+        .cloned()
+        .collect();
+    if memory.may_resubmit(&proposal_memory_entry(p), &p.evidence, &fresh) {
+        Ok(())
+    } else {
+        Err(RejectReason::PriorRejection(p.title.clone()))
+    }
+}
+
 /// Mint namespaced task drafts, deduplicated against `existing_titles` and
 /// within the batch (normalized title+behavior).
 fn mint(
@@ -288,6 +334,10 @@ pub struct ProposalPolicy {
     pub agent: String,
     /// Next free task sequence number for this agent.
     pub next_seq: u64,
+    /// Durable experiment memory (`ExperimentMemory::load(workspace)`);
+    /// when present, every validated proposal must pass
+    /// [`check_proposal_memory`] before it can be minted.
+    pub experiment_memory: Option<crate::experiment_memory::ExperimentMemory>,
 }
 
 /// Everything a proposal round produced.
@@ -350,7 +400,13 @@ pub fn run_proposals(
     };
     let facts = evidence.facts();
     for p in parsed.proposals {
-        match validate(p, &facts, &policy.valid_vectors) {
+        let checked = validate(p, &facts, &policy.valid_vectors).and_then(|v| {
+            match policy.experiment_memory.as_ref() {
+                Some(memory) => check_proposal_memory(memory, &v, evidence).map(|()| v),
+                None => Ok(v),
+            }
+        });
+        match checked {
             Ok(v) => round.proposals.push(v),
             Err(reason) => {
                 let title = reason_title(&reason);
@@ -375,6 +431,7 @@ fn reason_title(r: &RejectReason) -> String {
         RejectReason::UnknownVector(v) => format!("unknown vector {v}"),
         RejectReason::NoAcceptance => "no acceptance plan".into(),
         RejectReason::Duplicate => "duplicate".into(),
+        RejectReason::PriorRejection(t) => format!("repeats recorded rejection: {t}"),
     }
 }
 
@@ -896,6 +953,7 @@ mod tests {
             existing_titles: BTreeSet::new(),
             agent: "devin".into(),
             next_seq: 100,
+            experiment_memory: None,
         }
     }
 
