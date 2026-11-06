@@ -22,6 +22,18 @@ pub mod blackboard;
 pub mod brain;
 /// `susi broker`: inter-app permission and message broker commands.
 pub mod broker;
+/// `susi commits`: replicated quorum-commit ledger audit commands.
+pub mod commits;
+/// `susi context-graph`: universal context graph commands.
+pub mod context_graph;
+/// `susi crown`: Tier S USP verification commands.
+pub mod crown;
+/// `susi ecosystem`: local AI ecosystem and knowledge base commands.
+pub mod ecosystem;
+/// `susi extensions`: extension pack commands.
+pub mod extensions;
+/// `susi frameworks`: agent framework and engine commands.
+pub mod framework;
 
 /// Wall-clock budget in seconds for `susi tasks verify-merged` (`20 * 60`).
 ///

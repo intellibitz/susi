@@ -2,66 +2,10 @@
 use super::catalog_plane_cli::{launch, run_worker, LaunchOpts};
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
-use clap::Subcommand;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use susi_agents::external::{catalog, AgentManager, CatalogKind};
+pub use susi_cli_defs::framework::FrameworkCommands;
 use susi_daemon::adapter_ops::{self, AdapterKind};
-
-#[derive(Debug, Subcommand)]
-pub enum FrameworkCommands {
-    /// Show the ten agent frameworks/engines and setup documentation
-    List,
-    /// Check local prerequisites (does not invoke a paid model)
-    Doctor {
-        engine: Option<String>,
-    },
-    /// Show setup instructions and the effective adapter configuration
-    Setup {
-        engine: String,
-    },
-    /// Load an adapter JSON file into trusted host configuration
-    Configure {
-        engine: String,
-        file: PathBuf,
-    },
-    /// Remove a host override and restore the bundled adapter
-    Reset {
-        engine: String,
-    },
-    /// Start a task; defaults to a detached worker with durable output
-    Run {
-        engine: String,
-        #[arg(long)]
-        wait: bool,
-        prompt: String,
-    },
-    /// List durable framework tasks in the current workspace
-    Tasks,
-    Status {
-        task_id: String,
-        #[arg(long)]
-        refresh: bool,
-    },
-    Logs {
-        task_id: String,
-        #[arg(long)]
-        stderr: bool,
-        #[arg(long, default_value_t = 65536)]
-        bytes: u64,
-    },
-    Cancel {
-        task_id: String,
-    },
-    Retry {
-        task_id: String,
-        #[arg(long)]
-        wait: bool,
-    },
-    #[command(hide = true)]
-    Worker {
-        task_id: String,
-    },
-}
 
 pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
     let manager = AgentManager::frameworks(workspace)?;
