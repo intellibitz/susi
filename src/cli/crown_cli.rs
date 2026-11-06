@@ -4,20 +4,12 @@
 //! `ready`/`optional` without failing the crown when the host lacks Docker/daemon.
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
-use clap::Subcommand;
 use std::path::Path;
+pub use susi_cli_defs::crown::CrownCommands;
 use susi_daemon::discovery_pipeline::Catalogs;
 
 /// What `crown verify|status` primes (see `susi_daemon::crown::PRIMED`).
 pub(crate) const PRIMED: Catalogs = susi_daemon::crown::PRIMED;
-
-#[derive(Debug, Subcommand)]
-pub enum CrownCommands {
-    /// Verify all Tier S USPs (default). Exit non-zero if any critical USP fails.
-    Verify,
-    /// Same as verify but always exit 0 (report only)
-    Status,
-}
 
 pub fn execute(action: Option<CrownCommands>, workspace: &Path) -> Result<()> {
     let substrate = susi_paths::SusiDirs::substrate_home();

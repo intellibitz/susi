@@ -1094,7 +1094,8 @@ Both were then changed; see the next section.
   workspace-pass attestation is tied to `cargo test`.
 - **Checks queue on the host gate.** `check` now takes the same machine-wide
   host gate as ship and integrate, so an agent's check and a ship never run
-  their suites at the same time (the deadline failures above).
+  their suites at the same time (the deadline failures above). Replaced the
+  same day: gates now share the CPU instead of queueing; see the last section.
 
 Ship of this change (7 packages, a `xtask/src/bin/local-workflow.rs` edit,
 with nextest then the default):
@@ -1110,3 +1111,75 @@ Still large, not yet changed: clippy (about 2 min) and the test build
 (about 2.5 min) for a 7-package selection, and the slowest individual tests
 (the `susi-gawd` `admin::tasks` tests at 40-60 s each, which spawn git and
 cargo).
+
+## No waiting: ships gate side by side, only publication is serialized (2026-11-06)
+
+CEO direction the same day: "Asynchronous, wait must not be happening." The
+host gate above made every ship and check wait for whichever ~20-minute gate
+held the machine (measured that day: a ship waited 413 s for the gate before
+its own clippy started; others waited behind an agent's `check`). The waiting
+is gone; what made it safe is kept.
+
+- **Each ship verifies in its own slot.** `ship` takes the first free slot
+  with a non-blocking OS file lock (`<git common dir>/susi-local-workflow/slots/<n>.lock`):
+  a busy slot is skipped, never waited for. Slot *n* has its own candidate
+  worktree `<repo>-verify-candidate-<n>` beside the primary checkout, its own
+  warm target (`slots/<n>/target`, moved into the candidate for the run and
+  back afterwards) and its own attempt directory (gate logs, isolated test
+  home, native gate records). A slot keeps one path, so cargo's fingerprints
+  stay valid and its target stays warm from run to run. The first time a
+  slot has no target it adopts the old single `integration-target` (registry
+  dependencies stay fresh; workspace crates rebuild once for the new path).
+  The old `<repo>-verify-candidate` stays where it is for `integrate`.
+- **Only publication is serialized**, under the repository's `publish` lock:
+  re-fetch origin/main, re-check every source and reservation, write the
+  receipts and move `refs/susi/integration/current` in one ref transaction,
+  push (a fast-forward; never forced) and post statuses. That holds the lock
+  for seconds, not for a gate. `integrate` takes the same lock for its ref
+  transaction and stops (rather than overwrites) if a ship published while it
+  verified.
+- **origin/main moved during the gate: re-merge, re-gate only what changed.**
+  The ship releases the lock, merges its sources onto the new origin/main in
+  the same slot, and re-gates with the affected selection (`affected.rs`)
+  computed from the head it already verified to the new merged head: only
+  packages the newly merged commits can affect run again (the root package's
+  tree-wide tests are always among them). If the merged tree equals the
+  verified tree, nothing re-runs. The integration receipt
+  (`refs/susi/integration/receipts/...`) records both gate runs and a
+  `regate base=… tested=… head=… ran|skipped: <selection>` line; the native
+  provenance receipt carries the final run's gate records only (the earlier
+  run's stay in the slot's attempt directory until its next ship). After five
+  rounds in which origin/main moved every time, the ship stops without
+  publishing and says so. A rewritten origin/main (the verified base is no
+  longer in its history) is refused. Every fetch of origin/main runs under a
+  short `fetch` lock, so two ships never contend for its ref; a ship's first
+  fetch does not take `publish`.
+- **Transition.** A ship run by a `local-workflow` binary built before this
+  change still holds `publish` (and `integration`) for its whole gate and
+  does not register as a live gate; a new ship gates at once but its publish
+  step waits behind it (seen on the first run of this change: an old
+  launcher's ship held `publish` from 22:30).
+  Rebuild the launcher (`cargo build -p xtask --bin local-workflow`) in each
+  checkout that ships.
+- **Parallelism is shared, not queued.** Every running gate (ship, integrate,
+  commercial and `check`) holds a marker in the host's live-gate registry
+  (`%LOCALAPPDATA%\susi-local-workflow\live-gates`, `~/.cache/...` elsewhere),
+  an OS-locked file the next count removes once its process is gone. Each
+  cargo command starts with `CARGO_BUILD_JOBS` and `RUST_TEST_THREADS` set to
+  the host's logical CPUs divided by the live gates (at least 2) and
+  `NEXTEST_TEST_THREADS` to 16 divided the same way. A lone gate keeps the
+  settings it had. Each gate command prints its share, and every ship gate
+  records it in the receipt as a `gate-share=<gate> live=… jobs=… test-threads=…`
+  line. The share is computed when a command starts, so a command that began
+  alone keeps its full share until it ends.
+- **`check`** locks only its own worktree's target (since T-WF10X1106-1) and
+  now registers as a live gate, so a check and a ship share the CPU instead of
+  one waiting for the other.
+- **Receipts stay verifiable when the local integration ref is behind
+  origin/main.** On 2026-11-06 every commercial ship failed at load: the
+  local ref was behind origin/main (main had advanced through a ship made on
+  another host), the next receipt named it as `previous` although it is older
+  than that receipt's claim base, and verification rejected the receipt. New
+  receipts record the publish base in that case; existing ones verify when
+  their claim base is on the published lineage, the rule already used for a
+  displaced ref.

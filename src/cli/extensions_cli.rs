@@ -5,27 +5,10 @@
 //! plane lists, verifies, activates and deactivates them.
 use crate::cli_json::print_json;
 use anyhow::Result;
-use clap::Subcommand;
+pub use susi_cli_defs::extensions::ExtensionCommands;
 use susi_sandbox::extensions::{
     create_pack, list_packs, load_report, status_report, unload_report, validate_report,
 };
-
-#[derive(Debug, Subcommand)]
-pub enum ExtensionCommands {
-    /// List installed packs (default when bare `susi extensions`)
-    List,
-    /// Show active pack and substrate root
-    Status,
-    /// Create an empty pack shell under ~/.susi/extensions/<id>/
-    Create { id: String },
-    /// Load (activate) a pack
-    Load { id: String },
-    /// Unload a pack (keeps files; falls back to compiled defaults)
-    Unload { id: String },
-    /// Check a pack directory against the host's admission rules (for pack
-    /// authors; reads and changes no host state)
-    Validate { path: std::path::PathBuf },
-}
 
 pub fn execute(action: Option<ExtensionCommands>) -> Result<()> {
     match action.unwrap_or(ExtensionCommands::List) {

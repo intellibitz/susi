@@ -4,79 +4,9 @@
 //! (`susi_gemi_models::eco_*`): show, search, list, check.
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
-use clap::Subcommand;
 use std::path::PathBuf;
+pub use susi_cli_defs::ecosystem::{EcosystemCommands, KbCommands};
 use susi_gemi::models::eco_query;
-
-#[derive(Debug, Subcommand)]
-pub enum EcosystemCommands {
-    /// Scan hardware and installed local AI ecosystems now (default)
-    Scan,
-    /// Show what the last startup scan found
-    Status,
-    /// Start an installed engine that needs no further input (e.g. ollama, local-ai)
-    Start {
-        /// Engine id from `susi ecosystem scan`
-        id: String,
-    },
-    /// Cloud-AI ecosystem knowledge base: show, search, list, check
-    Kb {
-        // Boxed: `search` carries several strings and would grow `Commands`.
-        #[command(subcommand)]
-        action: Option<Box<KbCommands>>,
-    },
-    /// Explain a component, standard or protocol from the knowledge base:
-    /// what it is, its versions, who implements it, how susi uses it
-    Explain {
-        /// Entity id (e.g. `openai-chat-completions`, `mcp`, `a2a`)
-        id: String,
-        /// Read a single store dir instead of the layered bundled+user store
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub enum KbCommands {
-    /// List entity ids, kinds and names
-    List {
-        /// Restrict to one kind: component|vendor|standard|protocol|spec-version|capability
-        #[arg(long)]
-        kind: Option<String>,
-        /// Read a single store dir instead of the layered bundled+user store
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-    /// Show one entity by id, with its incoming and outgoing relations
-    Show {
-        /// Entity id (e.g. `openai`, `cap-tool-calling`)
-        id: String,
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-    /// Search entities by id/name substring, with filters
-    Search {
-        /// Case-insensitive substring matched against id and name
-        query: Option<String>,
-        /// Restrict to one kind
-        #[arg(long)]
-        kind: Option<String>,
-        /// Keep components having this capability (any vendor spelling:
-        /// "tool calling", "function calling", "tools" all match)
-        #[arg(long)]
-        capability: Option<String>,
-        /// Keep the vendor itself and components it `provides`
-        #[arg(long)]
-        vendor: Option<String>,
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-    /// Run schema + consistency checks over the store (nonzero exit on issues)
-    Check {
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-}
 
 /// The knowledge-base queries are `susi_gemi::models::eco_query`'s — the
 /// documents the MCP `ecosystem_kb` / `ecosystem_explain` tools return.

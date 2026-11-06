@@ -262,6 +262,21 @@ pub fn file_node(meta: &fs::Metadata) -> String {
 /// created on demand. On Unix the file is `0600` so secrets that land in
 /// host state are not world-readable under a permissive umask.
 pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    replace_bytes(path, bytes, true)
+}
+
+/// [`atomic_write_bytes`] without flushing the staged bytes to stable storage
+/// before the rename. Readers still never see a torn or empty file, but after
+/// a power loss the file may be missing or empty. Only for rebuildable state
+/// whose authority ends with the writing process, such as plane-bus
+/// rendezvous and capability endpoint files: a crash makes those stale
+/// whatever their durability. One synced write costs milliseconds on
+/// Windows, and a first goal publishes a few hundred of these files.
+pub fn atomic_replace_unsynced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    replace_bytes(path, bytes, false)
+}
+
+fn replace_bytes(path: &Path, bytes: &[u8], sync: bool) -> std::io::Result<()> {
     use std::io::Write;
     let dir = match path.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => dir,
@@ -269,7 +284,9 @@ pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     };
     fs::create_dir_all(dir)?;
     let (tmp_path, mut file) = create_staging_file(dir, path)?;
-    let result = file.write_all(bytes).and_then(|()| file.sync_all());
+    let result = file
+        .write_all(bytes)
+        .and_then(|()| if sync { file.sync_all() } else { Ok(()) });
     drop(file);
     let result = result.and_then(|()| fs::rename(&tmp_path, path));
     if result.is_err() {
@@ -453,6 +470,17 @@ mod tests {
         atomic_write_bytes(&path, b"short").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"short");
         assert_eq!(entries(&dir), ["blob.bin"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_replace_unsynced_replaces_whole_content_and_leaves_no_temporaries() {
+        let dir = scratch("unsynced");
+        let path = dir.join("nested").join("endpoint.json");
+        atomic_replace_unsynced(&path, b"{\"endpoint\":\"127.0.0.1:1\",\"key\":\"long\"}").unwrap();
+        atomic_replace_unsynced(&path, b"{}").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"{}");
+        assert_eq!(entries(&dir.join("nested")), ["endpoint.json"]);
         let _ = fs::remove_dir_all(&dir);
     }
 

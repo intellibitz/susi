@@ -4015,6 +4015,10 @@ mod core_io_tests {
         )
         .unwrap();
 
+        // Held to the end of the test: `GmcpService` resolves `tools/list` and
+        // `tools/call` through these process-global topics, which other tests
+        // replace with their own stubs.
+        let _tools_plane = crate::protocol_tests::TOOLS_PLANE_TEST_LOCK.blocking_lock();
         let router = Arc::new(ExtensionRouter(ws.clone()));
         PlaneBus::global().register(topics::TOOLS_LIST, router.clone());
         PlaneBus::global().register(topics::TOOLS_EXISTS, router.clone());

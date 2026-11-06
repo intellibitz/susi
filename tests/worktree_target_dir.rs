@@ -1256,14 +1256,44 @@ fn a_foreground_seeding_waits_for_the_background_copy_already_running() {
         "the background copy never started"
     );
     let mut foreground = w.spawn_seed_target(&[dest.to_str().unwrap()], &envs);
-    std::thread::sleep(Duration::from_secs(3));
+    // Release the copy only once the foreground run has said it is waiting.
+    // A fixed sleep raced process start-up on a loaded host: a run that had
+    // not yet reached the lock when the copy was released found the target
+    // seeded and returned without ever waiting.
+    let said = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let reader = {
+        let said = std::sync::Arc::clone(&said);
+        let stderr = foreground.stderr.take().unwrap();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for line in std::io::BufReader::new(stderr).lines() {
+                let line = line.unwrap();
+                let mut said = said.lock().unwrap();
+                said.push_str(&line);
+                said.push('\n');
+            }
+        })
+    };
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while !said.lock().unwrap().contains("waiting for the copy") && Instant::now() < deadline {
+        assert!(
+            foreground.try_wait().unwrap().is_none(),
+            "the foreground seeding went ahead while a copy was still running: {}",
+            said.lock().unwrap()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
     assert!(
         foreground.try_wait().unwrap().is_none(),
-        "the foreground seeding went ahead while a copy was still running"
+        "the foreground seeding went ahead while a copy was still running: {}",
+        said.lock().unwrap()
     );
     assert!(!dest.join("target/.susi-seeded").exists());
     gates.release("copy");
-    let (code, _, err) = finish(foreground.wait_with_output().unwrap());
+    let status = foreground.wait().unwrap();
+    reader.join().unwrap();
+    let err = said.lock().unwrap().trim().to_string();
+    let code = status.code().unwrap_or(-1);
     assert_eq!(code, 0, "{err}");
     wait_for_seeders(&dest);
     assert!(err.contains("waiting for the copy"), "{err}");
