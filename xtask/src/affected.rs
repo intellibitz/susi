@@ -126,28 +126,105 @@ fn resolve(dir: &str, relative: &str) -> Option<String> {
 /// form), `"key=../x"` (build-script `rerun-if-changed=`) and a bare `".."`.
 /// Each comes with whether its statement embeds it at compile time.
 fn parent_literals(source: &str, test_only: bool) -> Vec<(&str, bool)> {
-    let tests = test_module_ranges(source);
+    let (tests, _, ignored) = scan_test_modules(source);
+    let bytes = source.as_bytes();
     let mut found = Vec::new();
-    let mut offset = 0;
-    while let Some(start) = source[offset..].find('"') {
-        let open = offset + start;
-        let body = &source[open + 1..];
-        let Some(end) = body.find('"') else { break };
-        let literal = &body[..end];
+    let mut i = 0;
+    while i < bytes.len() {
+        if !source.is_char_boundary(i) {
+            i += 1;
+            continue;
+        }
+        let rest = &source[i..];
+        let (open, body_start, body_end, next_i) = match bytes[i] {
+            b'/' if rest.starts_with("//") => {
+                i = rest.find('\n').map_or(bytes.len(), |at| i + at);
+                continue;
+            }
+            b'/' if rest.starts_with("/*") => {
+                let mut depth = 0usize;
+                let mut j = i;
+                while j < bytes.len() {
+                    if bytes[j..].starts_with(b"/*") {
+                        depth += 1;
+                        j += 2;
+                    } else if bytes[j..].starts_with(b"*/") {
+                        depth = depth.saturating_sub(1);
+                        j += 2;
+                        if depth == 0 {
+                            break;
+                        }
+                    } else {
+                        j += 1;
+                    }
+                }
+                i = j;
+                continue;
+            }
+            b'r' | b'b' if raw_string_open(rest).is_some() => {
+                let (hashes, quote_at) = raw_string_open(rest).unwrap_or((0, 0));
+                let close = format!("\"{}", "#".repeat(hashes));
+                let body = i + quote_at + 1;
+                let end = source[body..]
+                    .find(&close)
+                    .map_or(bytes.len(), |at| body + at);
+                let next = (end + close.len()).min(bytes.len());
+                (i, body, end, next)
+            }
+            b'"' => {
+                let next = skip_quoted(bytes, i, b'"');
+                let end = next.saturating_sub(1).max(i + 1);
+                (i, i + 1, end, next)
+            }
+            b'\'' => {
+                if bytes.get(i + 1) == Some(&b'\\') {
+                    i = skip_quoted(bytes, i, b'\'');
+                    continue;
+                }
+                if let Some(c) = source[i + 1..].chars().next() {
+                    let after = i + 1 + c.len_utf8();
+                    if bytes.get(after) == Some(&b'\'') {
+                        i = after + 1;
+                        continue;
+                    }
+                }
+                i += 1;
+                continue;
+            }
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        i = next_i;
+        if ignored
+            .iter()
+            .any(|(from, to)| (*from..*to).contains(&open))
+        {
+            continue;
+        }
+        let literal = &source[body_start..body_end];
+        if literal.contains("\\\"") {
+            continue;
+        }
         let path = literal.rsplit_once('=').map_or(literal, |(_, value)| value);
         let path = path.strip_prefix('/').unwrap_or(path);
-        // A literal on a `//` comment line is prose, not a read.
-        let line_start = source[..open].rfind('\n').map_or(0, |at| at + 1);
-        let commented = source[line_start..open].contains("//");
-        // A bare `".."` is a path only as a path-building argument
-        // (`join("..")`, `push("..")`, `Path::new("..")`); elsewhere it is a
-        // traversal check such as `name.contains("..")` or `c == ".."`.
-        let bare_non_path = path == ".."
+        let parent_only = !path.is_empty() && path.split(['/', '\\']).all(|part| part == "..");
+        // A parent-only literal (`".."` or `"../.."`) is a path only as a
+        // path-building argument (`join("..")`, `push("..")`, `Path::new("..")`);
+        // elsewhere it is a traversal check or unit-test helper argument.
+        let bare_non_path = parent_only
             && !["join(", "push(", "new("]
                 .iter()
                 .any(|call| source[..open].trim_end().ends_with(call));
-        if commented || bare_non_path {
-            offset = open + 1 + end + 1;
+        let after = source[next_i..].trim_start();
+        let chained_child_join =
+            parent_only && after.starts_with(").join(") && !after.starts_with(").join(\"..\")");
+        let fn_scope = source[..open]
+            .rfind("fn ")
+            .map_or(&source[..open], |at| &source[at..open]);
+        let exe_relative = parent_only && fn_scope.contains("current_exe()");
+        if bare_non_path || chained_child_join || exe_relative {
             continue;
         }
         if path == ".." || path.starts_with("../") || path.starts_with("..\\") {
@@ -163,9 +240,118 @@ fn parent_literals(source: &str, test_only: bool) -> Vec<(&str, bool)> {
                 && (statement.contains("include_str!") || statement.contains("include_bytes!"));
             found.push((path, compiled));
         }
-        offset = open + 1 + end + 1;
     }
     found
+}
+
+/// Specific workspace-root-relative paths named as string literals in `source`.
+fn workspace_root_reads(source: &str) -> Vec<String> {
+    let (_, _, ignored) = scan_test_modules(source);
+    let bytes = source.as_bytes();
+    let mut paths = BTreeSet::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !source.is_char_boundary(i) {
+            i += 1;
+            continue;
+        }
+        let rest = &source[i..];
+        let (open, body_start, body_end, next_i) = match bytes[i] {
+            b'/' if rest.starts_with("//") => {
+                i = rest.find('\n').map_or(bytes.len(), |at| i + at);
+                continue;
+            }
+            b'/' if rest.starts_with("/*") => {
+                let mut depth = 0usize;
+                let mut j = i;
+                while j < bytes.len() {
+                    if bytes[j..].starts_with(b"/*") {
+                        depth += 1;
+                        j += 2;
+                    } else if bytes[j..].starts_with(b"*/") {
+                        depth = depth.saturating_sub(1);
+                        j += 2;
+                        if depth == 0 {
+                            break;
+                        }
+                    } else {
+                        j += 1;
+                    }
+                }
+                i = j;
+                continue;
+            }
+            b'r' | b'b' if raw_string_open(rest).is_some() => {
+                let (hashes, quote_at) = raw_string_open(rest).unwrap_or((0, 0));
+                let close = format!("\"{}", "#".repeat(hashes));
+                let body = i + quote_at + 1;
+                let end = source[body..]
+                    .find(&close)
+                    .map_or(bytes.len(), |at| body + at);
+                let next = (end + close.len()).min(bytes.len());
+                (i, body, end, next)
+            }
+            b'"' => {
+                let next = skip_quoted(bytes, i, b'"');
+                let end = next.saturating_sub(1).max(i + 1);
+                (i, i + 1, end, next)
+            }
+            b'\'' => {
+                if bytes.get(i + 1) == Some(&b'\\') {
+                    i = skip_quoted(bytes, i, b'\'');
+                    continue;
+                }
+                if let Some(c) = source[i + 1..].chars().next() {
+                    let after = i + 1 + c.len_utf8();
+                    if bytes.get(after) == Some(&b'\'') {
+                        i = after + 1;
+                        continue;
+                    }
+                }
+                i += 1;
+                continue;
+            }
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        i = next_i;
+        if ignored
+            .iter()
+            .any(|(from, to)| (*from..*to).contains(&open))
+        {
+            continue;
+        }
+        let lit = &source[body_start..body_end];
+        if lit.contains('\n') || lit.contains(' ') || lit.contains('\\') {
+            continue;
+        }
+        if lit == ".agents"
+            && source[next_i..]
+                .trim_start()
+                .starts_with(").join(\"identity.json\")")
+        {
+            paths.insert(".agents/identity.json".to_owned());
+            continue;
+        }
+        let is_repo_path = matches!(
+            lit,
+            "Cargo.toml" | "AGENTS.md" | "README.md" | "build-gpu.sh" | "build-gpu.ps1"
+        ) || (lit.starts_with(".agents/")
+            && !lit.starts_with(".agents/tasks/done/"))
+            || lit.starts_with(".cargo/")
+            || lit.starts_with(".githooks/")
+            || lit.starts_with(".github/")
+            || lit.starts_with("crates/")
+            || lit.starts_with("docs/")
+            || lit.starts_with("scripts/")
+            || lit.starts_with("xtask/");
+        if is_repo_path {
+            paths.insert(lit.to_owned());
+        }
+    }
+    paths.into_iter().collect()
 }
 
 /// Byte ranges of `#[cfg(test)] mod name { ... }` bodies in `source`.
@@ -175,6 +361,7 @@ fn parent_literals(source: &str, test_only: bool) -> Vec<(&str, bool)> {
 /// carrying `#[cfg(test)]` (other attributes may sit between) qualifies; any
 /// other shape stays outside every range, which keeps the selection
 /// conservative: an embed that is not provably test-only counts as compiled.
+#[cfg(test)]
 pub(crate) fn test_module_ranges(source: &str) -> Vec<(usize, usize)> {
     scan_test_modules(source).0
 }
@@ -185,15 +372,18 @@ pub(crate) fn test_module_decls(source: &str) -> Vec<String> {
     scan_test_modules(source).1
 }
 
-/// One pass of the lexer behind [`test_module_ranges`] and
-/// [`test_module_decls`].
-fn scan_test_modules(source: &str) -> (Vec<(usize, usize)>, Vec<String>) {
+/// One pass of the lexer behind [`test_module_ranges`], [`test_module_decls`],
+/// and ignored test function ranges (`#[ignore]`).
+#[allow(clippy::type_complexity)]
+fn scan_test_modules(source: &str) -> (Vec<(usize, usize)>, Vec<String>, Vec<(usize, usize)>) {
     let bytes = source.as_bytes();
     let mut ranges = Vec::new();
     let mut decls = Vec::new();
-    // Each open brace: `Some(start)` when it opens a test module body.
-    let mut stack: Vec<Option<usize>> = Vec::new();
+    let mut ignored = Vec::new();
+    // Each open brace: `Some((start, is_ignored_fn))` when it opens a tracked body.
+    let mut stack: Vec<Option<(usize, bool)>> = Vec::new();
     let mut pending_test_brace: Option<usize> = None;
+    let mut pending_ignore_brace: Option<usize> = None;
     let mut i = 0;
     while i < bytes.len() {
         if !source.is_char_boundary(i) {
@@ -265,24 +455,63 @@ fn scan_test_modules(source: &str) -> (Vec<(usize, usize)>, Vec<String>) {
                 i += "#[cfg(test)]".len();
                 continue;
             }
+            b'#' if rest.starts_with("#[ignore]")
+                || rest.starts_with("#[ignore ")
+                || rest.starts_with("#[ignore=") =>
+            {
+                if let Some(end) = rest.find(']') {
+                    pending_ignore_brace = ignored_fn_brace(source, i + end + 1);
+                    i += end + 1;
+                    continue;
+                }
+            }
             b'{' => {
                 if pending_test_brace == Some(i) {
                     pending_test_brace = None;
-                    stack.push(Some(i));
+                    stack.push(Some((i, false)));
+                } else if pending_ignore_brace == Some(i) {
+                    pending_ignore_brace = None;
+                    stack.push(Some((i, true)));
                 } else {
                     stack.push(None);
                 }
             }
             b'}' => {
-                if let Some(Some(start)) = stack.pop() {
-                    ranges.push((start, i + 1));
+                if let Some(Some((start, is_ignored))) = stack.pop() {
+                    if is_ignored {
+                        ignored.push((start, i + 1));
+                    } else {
+                        ranges.push((start, i + 1));
+                    }
                 }
             }
             _ => {}
         }
         i += 1;
     }
-    (ranges, decls)
+    (ranges, decls, ignored)
+}
+
+/// After an `#[ignore...]` attribute ending at `from`, find the opening `{`
+/// of the directly following `fn` item.
+fn ignored_fn_brace(source: &str, from: usize) -> Option<usize> {
+    let mut rest = &source[from..];
+    let mut at = from;
+    loop {
+        let trimmed = rest.trim_start();
+        at += rest.len() - trimmed.len();
+        rest = trimmed;
+        if rest.starts_with("#[") {
+            let end = rest.find(']')? + 1;
+            at += end;
+            rest = &rest[end..];
+            continue;
+        }
+        break;
+    }
+    let brace = rest.find('{')?;
+    let header = &rest[..brace];
+    (header.starts_with("fn ") || header.contains(" fn ")).then_some(at + brace)
 }
 
 /// What a `#[cfg(test)]` attribute is attached to, when it is a module.
@@ -477,15 +706,31 @@ pub fn scan_source_in(
     let crate_dir = member.dir.as_str();
     let file_dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
     let build_script = file.rsplit('/').next() == Some("build.rs");
-    for (literal, embedded) in parent_literals(source, test_only) {
-        let compiled = embedded || build_script;
-        if literal == ".." {
-            // Chained `join("..")` calls can reach anywhere in the tree.
+    let record_root = |workspace: &mut Workspace, compiled: bool| {
+        if member.dir.is_empty() && !compiled {
+            return;
+        }
+        let specific = workspace_root_reads(source);
+        if specific.is_empty() {
             let entry = workspace
                 .root_readers
                 .entry(package.to_owned())
                 .or_insert(false);
             *entry |= compiled;
+        } else {
+            for path in specific {
+                workspace.references.push(Reference {
+                    path,
+                    package: package.to_owned(),
+                    compiled: false,
+                });
+            }
+        }
+    };
+    for (literal, embedded) in parent_literals(source, test_only) {
+        let compiled = embedded || build_script;
+        if literal == ".." {
+            record_root(workspace, compiled);
             continue;
         }
         // `include_str!` resolves against the file; runtime and build-script
@@ -493,11 +738,7 @@ pub fn scan_source_in(
         for base in [file_dir, crate_dir] {
             match resolve(base, literal) {
                 Some(target) if target.is_empty() => {
-                    let entry = workspace
-                        .root_readers
-                        .entry(package.to_owned())
-                        .or_insert(false);
-                    *entry |= compiled;
+                    record_root(workspace, compiled);
                 }
                 Some(target) => workspace.references.push(Reference {
                     path: target,
@@ -1146,5 +1387,28 @@ pub(crate) mod t { fn a() {} }
             reader,
         );
         assert_eq!(ws.root_readers.get("leaf"), Some(&false));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn real_susi_workspace_has_no_unbounded_root_readers() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let ws = load(root).unwrap();
+        assert!(
+            ws.root_readers.is_empty(),
+            "unexpected unbounded root_readers: {:?}",
+            ws.root_readers
+        );
+        assert_eq!(
+            names(select(
+                &ws,
+                &[
+                    "xtask/src/bin/local-workflow.rs".into(),
+                    "xtask/src/affected.rs".into(),
+                    ".agents/tasks/T-WF10X1106-1.json".into(),
+                ]
+            )),
+            ["susi", "xtask"]
+        );
     }
 }

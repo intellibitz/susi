@@ -114,36 +114,110 @@ fn overlaps(a: &str, b: &str) -> bool {
         || b.strip_prefix(a).is_some_and(|s| s.starts_with('/'))
 }
 
-struct Lock(PathBuf);
+thread_local! {
+    static HELD_LOCKS: std::cell::RefCell<BTreeSet<PathBuf>> =
+        const { std::cell::RefCell::new(BTreeSet::new()) };
+}
+
+struct Lock {
+    dir: PathBuf,
+    key: PathBuf,
+    _file: fs::File,
+}
 impl Lock {
     fn acquire(state: &Path) -> Result<Self> {
         fs::create_dir_all(state)?;
-        let path = state.join("lock");
-        fs::create_dir(&path).map_err(|e| {
-            if e.kind() == io::ErrorKind::AlreadyExists {
-                io::Error::new(io::ErrorKind::WouldBlock, format!("local workflow is locked at {}; retry after the current operation. If its process crashed, inspect the lock before manual recovery", path.display()))
-            } else { e }
-        })?;
-        let guard = Self(path);
-        fs::write(
-            guard.0.join("owner"),
-            format!("pid={}\n", std::process::id()),
-        )?;
-        Ok(guard)
+        let dir = state.join("lock");
+        let key = state.canonicalize().unwrap_or_else(|_| state.to_path_buf());
+        if HELD_LOCKS.with(|held| held.borrow().contains(&key)) {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                format!(
+                    "local workflow is locked at {}; retry after the current operation",
+                    dir.display()
+                ),
+            )
+            .into());
+        }
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(state.join("lock.file"))?;
+        let started = std::time::Instant::now();
+        loop {
+            match file.try_lock() {
+                Ok(()) => {
+                    if dir.exists() && legacy_owner_alive(&dir) {
+                        let _ = file.unlock();
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                        continue;
+                    }
+                    HELD_LOCKS.with(|held| {
+                        held.borrow_mut().insert(key.clone());
+                    });
+                    let _ = fs::create_dir(&dir);
+                    let _ = fs::write(dir.join("owner"), format!("pid={}\n", std::process::id()));
+                    return Ok(Self {
+                        dir,
+                        key,
+                        _file: file,
+                    });
+                }
+                Err(fs::TryLockError::WouldBlock) => {
+                    if started.elapsed() > std::time::Duration::from_secs(1800) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::WouldBlock,
+                            format!(
+                                "local workflow is locked at {}; timed out waiting for current operation",
+                                dir.display()
+                            ),
+                        )
+                        .into());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(fs::TryLockError::Error(error)) => return Err(error.into()),
+            }
+        }
+    }
+}
+
+fn legacy_owner_alive(dir: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(dir.join("owner")) else {
+        return false;
+    };
+    let Some(pid) = text
+        .lines()
+        .find_map(|line| line.strip_prefix("pid="))
+        .and_then(|s| s.trim().parse::<u32>().ok())
+    else {
+        return false;
+    };
+    if pid == std::process::id() {
+        return false;
+    }
+    if cfg!(windows) {
+        Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+            .output()
+            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")))
+    } else {
+        Path::new(&format!("/proc/{pid}")).exists()
     }
 }
 impl Drop for Lock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(self.0.join("owner"));
-        let _ = fs::remove_dir(&self.0);
+        let _ = fs::remove_file(self.dir.join("owner"));
+        let _ = fs::remove_dir(&self.dir);
+        HELD_LOCKS.with(|held| {
+            held.borrow_mut().remove(&self.key);
+        });
     }
 }
 
-/// The machine-wide slot for one heavy verification run at a time, shared by
-/// every repository (core and commercial) and every agent on this host: ship
-/// and integrate gates and agents' `check` runs. Parallel full builds and test
-/// suites saturate the CPU and make wall-clock-bounded tests time out; queued
-/// runs finish sooner and stay deterministic.
+/// The per-repository slot for one heavy integration verification run at a time.
 ///
 /// Held as an OS file lock (`File::try_lock`), which the OS releases when the
 /// holder exits or crashes, so a dead gate can never wedge the machine and no
@@ -219,8 +293,11 @@ fn host_gate_for(candidate: &Path) -> Result<HostGate> {
         std::process::id(),
         candidate.display()
     );
+    let gate_dir = state(candidate)
+        .map(|workflow| workflow.join("host-gate"))
+        .or_else(|_| host_gate_dir())?;
     timed("wait for host gate", || -> Result<HostGate> {
-        acquire_host_gate(&host_gate_dir()?, &holder)
+        acquire_host_gate(&gate_dir, &holder)
     })
 }
 
@@ -511,6 +588,81 @@ fn receipt_matches(
     Ok(true)
 }
 
+fn matching_receipt(root: &Path, accepted: &str, tree: &str) -> Result<Option<String>> {
+    let listing = git(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/susi/integration/receipts/",
+        ],
+    )?;
+    let mut entries = Vec::new();
+    for entry in listing.lines() {
+        let (reference, oid) = entry
+            .split_once(' ')
+            .ok_or("malformed receipt reference listing")?;
+        if !valid_oid(oid) {
+            return Err("invalid receipt blob oid".into());
+        }
+        entries.push((reference, oid));
+    }
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    let mut child = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(root)
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdin = child.stdin.take().ok_or("git cat-file stdin")?;
+    let request: String = entries.iter().map(|(_, oid)| format!("{oid}\n")).collect();
+    let writer = std::thread::spawn(move || stdin.write_all(request.as_bytes()));
+    let output = child.wait_with_output()?;
+    writer
+        .join()
+        .map_err(|_| "git cat-file writer panicked")??;
+    if !output.status.success() {
+        return Err(format!(
+            "git cat-file --batch: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    let data = output.stdout;
+    let mut at = 0;
+    for (reference, oid) in entries {
+        let end = data[at..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .ok_or("truncated git cat-file reply")?
+            + at;
+        let header = std::str::from_utf8(&data[at..end])?;
+        let mut fields = header.split(' ');
+        if fields.next() != Some(oid) || fields.next() != Some("blob") {
+            return Err(format!("git cat-file did not return blob {oid}: {header}").into());
+        }
+        let size: usize = fields
+            .next()
+            .ok_or("git cat-file reply without size")?
+            .parse()?;
+        let body = end + 1;
+        if data.len() < body + size + 1 || data[body + size] != b'\n' {
+            return Err("truncated git cat-file blob".into());
+        }
+        let receipt = String::from_utf8_lossy(&data[body..body + size]);
+        at = body + size + 1;
+        if receipt_matches(root, reference, &receipt, accepted, tree)? {
+            return Ok(Some(receipt.into_owned()));
+        }
+    }
+    Ok(None)
+}
+
 fn scope_base(root: &Path, claim: &Claim, source: &str) -> Result<String> {
     let Some(accepted) = integration_head(root)? else {
         return Ok(claim.base.clone());
@@ -519,26 +671,7 @@ fn scope_base(root: &Path, claim: &Claim, source: &str) -> Result<String> {
         return Err("accepted history does not descend from the reserved claim base".into());
     }
     let tree = git(root, &["rev-parse", &format!("{accepted}^{{tree}}")])?;
-    let receipts = git(
-        root,
-        &[
-            "for-each-ref",
-            "--format=%(refname) %(objectname)",
-            "refs/susi/integration/receipts/",
-        ],
-    )?;
-    let mut verified = false;
-    for entry in receipts.lines() {
-        let (reference, oid) = entry
-            .split_once(' ')
-            .ok_or("malformed receipt reference listing")?;
-        let receipt = git(root, &["cat-file", "blob", oid])?;
-        if receipt_matches(root, reference, &receipt, &accepted, &tree)? {
-            verified = true;
-            break;
-        }
-    }
-    if !verified {
+    if matching_receipt(root, &accepted, &tree)?.is_none() {
         return Err("accepted integration has no matching durable source/tree receipt".into());
     }
     // Only history shared with the tested integration is exempt. New changes
@@ -1419,7 +1552,31 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
         return Err(error);
     }
     fs::create_dir(worktree.join("target"))?;
+    seed_worktree_target(&primary, &worktree, true);
     Ok(worktree)
+}
+
+fn seed_worktree_target(primary: &Path, worktree: &Path, background: bool) {
+    let Some(parent) = primary.parent() else {
+        return;
+    };
+    if !parent.join(".susi-target-seed/.susi-seed").is_file()
+        || worktree.join("target/.susi-seeded-from").is_file()
+    {
+        return;
+    }
+    let susi_bin = env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .map(|local| local.join("SusiLocal/production/entry/susi.exe"))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("susi"));
+    let mut cmd = Command::new(susi_bin);
+    cmd.arg("workflow").arg("seed-target");
+    if background {
+        cmd.arg("--background");
+    }
+    cmd.arg(worktree);
+    let _ = cmd.status();
 }
 
 enum ScopeChange {
@@ -2638,34 +2795,14 @@ fn ship_retry(root: &Path, remote: &mut dyn Remote) -> Result<ShipReport> {
         return Err("missing receipt".into());
     };
     let tree = git(root, &["rev-parse", &format!("{head}^{{tree}}")])?;
-    let listing = git(
-        root,
-        &[
-            "for-each-ref",
-            "--format=%(refname) %(objectname)",
-            "refs/susi/integration/receipts/",
-        ],
-    )?;
-    let mut evidence = None;
-    for entry in listing.lines() {
-        let Some((reference, oid)) = entry.split_once(' ') else {
-            continue;
-        };
-        let receipt = git(root, &["cat-file", "blob", oid])?;
-        if !receipt_matches(root, reference, &receipt, &head, &tree)? {
-            continue;
-        }
-        let lines: Vec<String> = receipt
-            .lines()
-            .skip(7)
-            .filter(|line| !line.is_empty())
-            .map(str::to_owned)
-            .collect();
-        require_ship_evidence(&lines)?;
-        evidence = Some(lines);
-        break;
-    }
-    let evidence = evidence.ok_or("missing receipt")?;
+    let receipt = matching_receipt(root, &head, &tree)?.ok_or("missing receipt")?;
+    let evidence: Vec<String> = receipt
+        .lines()
+        .skip(7)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect();
+    require_ship_evidence(&evidence)?;
     let base = remote.fetch_main(root)?;
     if !is_ancestor(root, &base, &head)? {
         return Err("integration head is not based on origin/main".into());
@@ -2777,12 +2914,27 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     if cfg!(windows) && !host.ends_with("-pc-windows-msvc") {
         return Err("Windows integration requires a native MSVC compiler".into());
     }
+    let original_home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .ok_or("cannot identify toolchain home")?;
+    let cargo_home = env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| original_home.join(".cargo"));
+    let rustup_home = env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| original_home.join(".rustup"));
     let home = attempt.join("test-home");
     let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(home.join("AppData/Local"))?;
     let target = restore_candidate_target(candidate);
+    let mut gates = commercial_gate_argv();
+    if let Ok((affected::Selection::Packages(packages), _)) = gate_selection(candidate, attempt) {
+        for args in &mut gates {
+            affected::narrow(args, &packages);
+        }
+    }
     let mut evidence = Vec::new();
-    for args in commercial_gate_argv() {
+    for args in gates {
         let started = std::time::Instant::now();
         let mut command = Command::new("cargo");
         command.current_dir(candidate).args(&args);
@@ -2809,6 +2961,8 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("SUSI_HOME", home.join("susi"))
+            .env("CARGO_HOME", &cargo_home)
+            .env("RUSTUP_HOME", &rustup_home)
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO_TERM_COLOR", "never")
             .stdout(Stdio::from(log.try_clone()?))
@@ -3023,15 +3177,23 @@ fn check(root: &Path) -> Result<()> {
             gates.push(doc);
         }
     }
+    let original_home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .ok_or("cannot identify toolchain home")?;
+    let cargo_home = env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| original_home.join(".cargo"));
+    let rustup_home = env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| original_home.join(".rustup"));
     let target = top.join("target");
+    seed_worktree_target(&top, &top, false);
     let home = target.join("susi-check-home");
     fs::create_dir_all(home.join("AppData/Local"))?;
-    // A check builds and runs the same suites as a ship gate. Two heavy runs
-    // at once saturate the CPU and fail wall-clock-bounded tests (measured
-    // 2026-11-06: a ship's nextest gate lost two deadline tests while an
-    // agent's check ran), so checks queue on the same host gate.
+    // Lock this worktree's own target directory so 10 isolated agent worktrees
+    // can run `check` in parallel without queueing behind each other or `ship`.
     let _host = acquire_host_gate(
-        &host_gate_dir()?,
+        &target.join("check-gate"),
         &format!("pid={} check={}", std::process::id(), top.display()),
     )?;
     let total = std::time::Instant::now();
@@ -3059,6 +3221,8 @@ fn check(root: &Path) -> Result<()> {
             .current_dir(&top)
             .args(args)
             .env("CARGO_TARGET_DIR", &target)
+            .env("CARGO_HOME", &cargo_home)
+            .env("RUSTUP_HOME", &rustup_home)
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("SUSI_HOME", home.join("susi"))
@@ -3191,7 +3355,11 @@ fn run(args: &[String]) -> Result<()> {
 }
 
 fn main() -> ExitCode {
-    match run(&env::args().skip(1).collect::<Vec<_>>()) {
+    let mut args: Vec<String> = env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("local-workflow") {
+        args.remove(0);
+    }
+    match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("local-workflow: {error}");
@@ -5076,5 +5244,68 @@ mod tests {
         ] {
             assert!(text.contains(needle), "{text}");
         }
+    }
+
+    #[test]
+    fn ten_parallel_agents_start_commit_extend_and_ship_without_conflict() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(10));
+        let mut handles = Vec::new();
+        for index in 0..10 {
+            let repo = repo.clone();
+            let barrier = std::sync::Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let agent = format!("agent{index:02}");
+                let scope_a = format!("crates/mod{index:02}/a.rs");
+                let scope_b = format!("crates/mod{index:02}/b.rs");
+                let scope_c = format!("crates/mod{index:02}/c.rs");
+                barrier.wait();
+                let worktree = start(&repo, &agent, &[scope_a.clone(), scope_c.clone()]).unwrap();
+                extend(&worktree, &agent, std::slice::from_ref(&scope_b)).unwrap();
+                update_scopes(
+                    &worktree,
+                    &agent,
+                    std::slice::from_ref(&scope_c),
+                    ScopeChange::Shrink,
+                )
+                .unwrap();
+                fs::create_dir_all(worktree.join(format!("crates/mod{index:02}"))).unwrap();
+                fs::write(worktree.join(&scope_a), format!("pub fn a{index}() {{}}\n")).unwrap();
+                fs::write(worktree.join(&scope_b), format!("pub fn b{index}() {{}}\n")).unwrap();
+                commit(
+                    &worktree,
+                    &agent,
+                    &format!("feat(mod{index:02}): parallel agent {index}\n\nTask: LOCAL-{agent}"),
+                    None,
+                )
+                .unwrap();
+                agent
+            }));
+        }
+        let mut agents = Vec::new();
+        for handle in handles {
+            agents.push(handle.join().unwrap());
+        }
+        agents.sort();
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 10);
+        let agent_refs: Vec<&str> = agents.iter().map(String::as_str).collect();
+        let mut remote = FakeRemote::single(base);
+        let report = ship(&repo, &agent_refs, &mut remote, |candidate, _attempt| {
+            for index in 0..10 {
+                assert!(candidate
+                    .join(format!("crates/mod{index:02}/a.rs"))
+                    .is_file());
+                assert!(candidate
+                    .join(format!("crates/mod{index:02}/b.rs"))
+                    .is_file());
+            }
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert_eq!(remote.pushes.len(), 1);
+        assert_eq!(remote.pushes[0].0, report.head);
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
     }
 }
