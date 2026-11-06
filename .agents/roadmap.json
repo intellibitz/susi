@@ -599,7 +599,7 @@
       "id": "VC-201-048",
       "mastery_target": "Use available thermal and power telemetry with explicit unknown states and operator limits; simulated pressure throttles or reroutes eligible work while preserving local-only requirements.",
       "priority": "P1",
-      "progress": "PARTIAL: thermal and power telemetry marks a host unfit on sustained throttle or a power cap, and recovers when temperatures normalise in isolated susi-gemi unit tests (T-CLAUDE-21); lacks explicit unknown telemetry states, operator limit overrides, placement integration, and local-only work throttling.",
+      "progress": "DELIVERED: ThermalRouter tracks explicit HostFitness::Unknown telemetry states, enforces OperatorThermalLimits (max_temp_c and max_power_w), and decides placement via ThermalPlacement (RunLocal, RerouteCloud, QueueLocal, ThrottleLocal) while preserving local-only requirements under pressure. Verified by `crates/susi-gemi/src/tests/vc_201_048_mastery.rs`.",
       "type": "LOCAL_HOSTING",
       "vector": "Make placement respect host thermal and power limits"
     },
@@ -625,7 +625,7 @@
       "id": "VC-201-050",
       "mastery_target": "Import a checksummed bundle of supported binaries, models, and extension metadata into an isolated host; a network-disabled drill boots, serves a local mission, and diagnoses missing artifacts without cloud fallback.",
       "priority": "P1",
-      "progress": "PARTIAL: cloud egress is blocked while loopback stays available and a local engine remains selectable with the network disabled. Verified by `tests/airgap_mode.rs`: airgap_mode_blocks_cloud_egress_allows_loopback, airgap_mode_local_engine_name_still_selectable. Residual: importing a checksummed offline bundle into an isolated host, and diagnosing missing artifacts without cloud fallback, are not enumerated by a named check. Evidence: T-CLAUDE-99.",
+      "progress": "DELIVERED: cloud egress is blocked while loopback stays available, `crates/susi-config/src/offline_bundle.rs` imports a SHA-256 checksummed bundle of binaries, models, and extension metadata atomically into an isolated host, and `run_offline_bootstrap_drill` boots, serves a local mission, and diagnoses missing artifacts without cloud fallback. Verified by `tests/airgap_mode.rs`: vc_201_050_imports_checksummed_offline_bundle_and_serves_local_mission_without_network, vc_201_050_rejects_tampered_bundle_artifact_checksum_before_install, vc_201_050_diagnoses_missing_artifacts_without_cloud_fallback.",
       "type": "LOCAL_HOSTING",
       "vector": "Support verified offline bootstrap and recovery"
     },
@@ -685,7 +685,7 @@
       "id": "VC-201-055",
       "mastery_target": "Extend the existing provisioning path with desired/observed state, stable operation IDs, health checks, and rollback for an explicitly supported backend; repeated apply and crash recovery do not create duplicate resources.",
       "priority": "P1",
-      "progress": "PARTIAL: managed GPU cloud targets are catalogued as validated profiles with canonical capabilities and facts for the supported backends. Verified by `crates/susi-vendor-models/src/eco_gpu_clouds.rs`: profile_is_valid, capabilities_are_canonical, facts_cover_the_required_surface, store_stays_consistent. Residual: desired/observed reconciliation with stable operation IDs, health checks and rollback against a live backend is not enumerated by a named check. Evidence: T-CLAUDE-296.",
+      "progress": "DELIVERED: managed GPU cloud targets are catalogued with canonical capabilities (`crates/susi-vendor-models/src/eco_gpu_clouds.rs`), and `crates/susi-vendor-cloud/src/reconcile.rs` reconciles desired and observed state with deterministic operation IDs, health checks, idempotent crash recovery, and automatic rollback to last-known-good revisions across supported backends. Verified by `crates/susi-vendor-cloud/src/tests/vc_201_055.rs`.",
       "type": "CLOUD_HOSTING",
       "vector": "Reconcile managed cloud inference deployments"
     },
@@ -1428,7 +1428,7 @@
       "id": "VC-202-013",
       "mastery_target": "Each mission yields a trace linking intent to plan to node to model to tokens to cost to outcome, queryable per agent and per task, and the audit trail is append-only and survives restarts.",
       "priority": "P1",
-      "progress": "PARTIAL: MissionTrace (production-wired from ama/report.rs's per-mission terminal choke point) already linked intent/plan/agents/outcome durably; now also carries task_id, node (wired to real cluster-membership identity), and model_calls (per-call token/cost), with total_cost_micros/total_tokens and read_all_for_agent/read_all_for_task making it queryable per agent and per task. Verified by `crates/susi-core/src/tests/cost_ledger_trace.rs`. Residual: no dispatch path yet reports tokens/cost at call time, so model_calls is real but unpopulated in production; task_id has no accessor wired at the one existing call site. Verdict `.agents/roadmap-verdicts/VC-202-013.json`. Tracked by T-DEEPSEEK-96.",
+      "progress": "DELIVERED: MissionTrace links intent, plan, agents, cluster-membership node, active task_id, and live model_calls (populated on every spend_tracker::record dispatch via mission_trace::record_active_model_call) durably to outcome, queryable per agent and per task via read_all_for_agent and read_all_for_task. Verified by `crates/susi-core/src/mission_trace.rs` and `crates/susi-gemi/src/spend_tracker.rs`.",
       "type": "OPERATIONS",
       "vector": "Every decision is observable and costed"
     },
