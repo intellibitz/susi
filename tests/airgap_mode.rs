@@ -14,12 +14,38 @@
     )
 )]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use susi_config::offline_bundle::{
     import_verified_bundle, run_offline_bootstrap_drill, sha256_hex_bytes, ArtifactKind,
     BundleArtifactEntry, OfflineBundleManifest,
 };
 use susi_core::mac_policy::{MacPolicy, PrivacyMode};
+
+static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
+
+struct TempTestDir(PathBuf);
+
+impl TempTestDir {
+    fn new() -> Self {
+        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("susi-airgap-test-{}-{id}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempTestDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 #[test]
 fn airgap_mode_blocks_cloud_egress_allows_loopback() {
@@ -143,7 +169,7 @@ fn create_fixture_offline_bundle(bundle_dir: &Path) -> OfflineBundleManifest {
 
 #[test]
 fn vc_201_050_imports_checksummed_offline_bundle_and_serves_local_mission_without_network() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = TempTestDir::new();
     let bundle_dir = dir.path().join("bundle");
     let target_home = dir.path().join("airgap_home");
     create_fixture_offline_bundle(&bundle_dir);
@@ -172,7 +198,7 @@ fn vc_201_050_imports_checksummed_offline_bundle_and_serves_local_mission_withou
 
 #[test]
 fn vc_201_050_rejects_tampered_bundle_artifact_checksum_before_install() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = TempTestDir::new();
     let bundle_dir = dir.path().join("bundle");
     let target_home = dir.path().join("airgap_home");
     create_fixture_offline_bundle(&bundle_dir);
@@ -197,7 +223,7 @@ fn vc_201_050_rejects_tampered_bundle_artifact_checksum_before_install() {
 
 #[test]
 fn vc_201_050_diagnoses_missing_artifacts_without_cloud_fallback() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = TempTestDir::new();
     let bundle_dir = dir.path().join("bundle");
     let target_home = dir.path().join("airgap_home");
     create_fixture_offline_bundle(&bundle_dir);
