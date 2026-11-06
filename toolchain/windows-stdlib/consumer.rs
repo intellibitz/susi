@@ -3,8 +3,21 @@
 fn platform_unicode_and_standard_library_behave_on_real_inputs() {
     #[cfg(windows)]
     assert_eq!(char::UNICODE_VERSION, (15, 1, 0));
+    // Linux selects the newest qualified OS ICU present; the constant is the
+    // oldest qualified repertoire. Observe the library this process loaded.
     #[cfg(target_os = "linux")]
-    assert_eq!(char::UNICODE_VERSION, (16, 0, 0));
+    assert_eq!(char::UNICODE_VERSION, (15, 1, 0));
+    #[cfg(target_os = "linux")]
+    let icu_major = {
+        assert!('δ'.is_alphabetic());
+        let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
+        let loaded: Vec<u8> = [76, 74]
+            .into_iter()
+            .filter(|major| maps.contains(&format!("/libicuuc.so.{major}")))
+            .collect();
+        assert_eq!(loaded.len(), 1, "exactly one qualified ICU must be loaded");
+        loaded[0]
+    };
     assert_eq!("Straße ﬃ".to_uppercase(), "STRASSE FFI");
     assert_eq!("İI".to_lowercase(), "i\u{307}i");
     assert_eq!("𐐀".to_lowercase(), "𐐨");
@@ -14,8 +27,16 @@ fn platform_unicode_and_standard_library_behave_on_real_inputs() {
     assert_eq!('\n'.escape_debug().to_string(), "\\n");
     #[cfg(windows)]
     assert_eq!('\u{1c89}'.escape_debug().to_string(), "\\u{1c89}");
+    // U+1C89 is assigned in Unicode 16.0 (ICU 76) and unassigned in 15.1.
     #[cfg(target_os = "linux")]
-    assert_eq!('\u{1c89}'.escape_debug().to_string(), "\u{1c89}");
+    assert_eq!(
+        '\u{1c89}'.escape_debug().to_string(),
+        if icu_major == 76 {
+            "\u{1c89}"
+        } else {
+            "\\u{1c89}"
+        }
+    );
     assert_eq!('δ'.escape_debug().to_string(), "δ");
     assert_eq!(
         char::decode_utf16([0xd800])
