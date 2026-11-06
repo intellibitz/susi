@@ -529,3 +529,71 @@ unattended. It ran after fresh approval.
 Release E (0.21.42) established verified installation through the Start Menu and ordinary PATH, including rollback to D and restoration of E. A standalone Windows task subsequently found that the Codex-hosted installer had written to a virtualized filesystem. Agents repaired the actual user installation and repeated the launch and rollback checks outside Codex. [Release E standalone evidence](../.agents/evidence/release42-standalone.json)
 
 Release F (0.21.43) is the current qualified Windows production release, with E retained for rollback. On the clean 8 GiB Windows guest, installation start to prompt was 8.718 seconds. The first correct local answer arrived at 56.899 seconds and the second at 58.875 seconds. The 44.301 seconds between the model download notice and the completion notice include transport, validation and publication. A limited Windows task verified PATH and Start Menu launches through F, E and restored F. All six pre-existing production processes survived. On the separate cache-seeded host, the first answer took 4.444 seconds and the repeated goal took 2.079 seconds. The cold first-answer speed target and byte-identical standard-library rebuilds remain open. [Release F production evidence](../.agents/evidence/release43-windows.json)
+
+## Change to live on the dev channel under 60 seconds (2026-11-06)
+
+`cargo run -p xtask --bin local-channel -- deliver [--prove-rollback] [-- <susi args>]`
+(task T-STEP1LOOP-1) takes the worktree's committed `HEAD` to the live dev
+channel in one command and times every phase:
+
+1. **scope**: refuse an unclean tree; diff `HEAD` against the dev live lineage
+   ref `refs/susi/dev-live` (or its merge base with `origin/main` on first use);
+   refuse a `HEAD` that does not contain that ref, and refuse inputs that can
+   change every package (lockfile, toolchain, Cargo configuration, `vendor/`),
+   which belong to the full gate. The packages that own the changed files are
+   selected with the same ownership rule as the integration gate.
+2. **test**: each owning package's library and binary unit tests, with
+   credentials, `SUSI_*` settings and user homes removed.
+3. **build / stage / startup / goal**: the dev executable, its digest-named
+   slot, `--version`, and the governed first goal (a confined native read of a
+   fresh nonce file under `local_only`, offline; no model inference), timed to
+   first output and completion.
+4. **merge**: compare-and-swap fast-forward of `refs/susi/dev-live` to `HEAD`.
+5. **promote / observe**: atomic `channel.json` update, then the promoted
+   executable runs the observation arguments and its output is recorded.
+6. **rollback / restore** (`--prove-rollback`): roll back, observe the previous
+   build, re-check the delivered digest and re-promote it.
+
+A failed test, build or check promotes nothing. Evidence for each delivery is
+`<channel>/deliveries/<stamp>-<commit>/delivery.json` plus a line in
+`deliveries.jsonl`.
+
+Measured on this host (Intel i7-13850HX, 28 logical CPUs, 224 GB, Windows
+x86_64, other agents active), warm worktree target, each a real commit:
+
+| Change | Packages tested | test | build | goal | change to live | rollback + restore |
+| --- | --- | --- | --- | --- | --- | --- |
+| CLI about text + help snapshot (root package), rep 1 | `susi` | 10.4 s | 7.9 s | 1.6 s | **21.0 s** | 0.5 s |
+| same, rep 2 | `susi` | 10.7 s | 8.5 s | 1.8 s | **22.2 s** | 0.5 s |
+| same, rep 3 | `susi` | 12.2 s | 8.8 s | 1.9 s | **24.3 s** | 0.6 s |
+| new public constant in `susi-paths` (deepest crate), rep 1 | `susi-paths` | 2.5 s | 48.4 s | 1.6 s | **54.2 s** | 0.5 s |
+| same, rep 2 | `susi-paths` | 2.2 s | 41.5 s | 3.9 s | **49.4 s** | 1.2 s |
+| same, rep 3 | `susi-paths` | 3.9 s | 47.0 s | 3.0 s | **57.0 s** | 0.9 s |
+
+For the root-package changes the promoted executable's `--help` showed the new
+text, the rollback showed the previous text and the restore showed the new text
+again (`behavior_differs: true`). The `susi-paths` constant is not observable
+from the CLI; those rows measure the worst-case rebuild (25 crates recompiled),
+and their observation is `--version` only.
+
+Failures seen on the way: the first probe changed the about text without its
+help snapshot, the root unit tests failed (`cli_help_snapshot.txt` drift) and
+nothing was promoted. Two warm-up deliveries took 212 s and 126 s: their diffs
+included the tool itself (all `xtask` binary tests) and other agents' shipped
+changes, compiling those test targets for the first time.
+
+What this does and does not establish:
+
+- The Mandate 62 criterion, a genuine source change reaching the verified live
+  executable in under 60 seconds, holds for the **dev channel** on this host
+  for both measured change shapes. The worst case left 3 s of margin; a busier
+  host or a larger change can exceed the budget, and the record says so
+  (`within_budget`).
+- Tests of packages that depend on the changed one are not run by this loop.
+  They run in the integration gate (`cargo local-workflow ship`, about 19 min
+  for core), which still precedes `origin/main`.
+- The **production** channel is unchanged: an optimized executable still needs
+  `cargo local-release qualify` (about 25 min of gates in prior evidence) before
+  promotion. This loop does not make a production release live in 60 s.
+- Step 1's other open items stay open: millisecond user-response budgets, the
+  cold first-answer speed target and byte-identical standard-library rebuilds.

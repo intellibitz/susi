@@ -86,7 +86,7 @@ pub struct Reference {
     pub compiled: bool,
 }
 
-fn global(path: &str) -> bool {
+pub fn global(path: &str) -> bool {
     GLOBAL.iter().any(|entry| match entry.strip_suffix('/') {
         Some(dir) => path == dir || path.starts_with(entry),
         None => path == *entry,
@@ -98,7 +98,7 @@ fn under(path: &str, dir: &str) -> bool {
 }
 
 /// The member whose directory most specifically contains `path`.
-fn owner<'a>(members: &'a [Member], path: &str) -> Option<&'a Member> {
+pub fn owner<'a>(members: &'a [Member], path: &str) -> Option<&'a Member> {
     members
         .iter()
         .filter(|member| under(path, &member.dir))
