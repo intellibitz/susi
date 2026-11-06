@@ -1,0 +1,30 @@
+{
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--test",
+                               "airgap_mode",
+                               "--offline",
+                               "--locked"
+                           ]
+               },
+    "id":  "T-AIRGAPCLOUDWAVE2B-1",
+    "size":  "m",
+    "goal":  "Implement SHA-256 verified offline bundle import and network-disabled bootstrap drill in susi-config (VC-201-050) and desired/observed cloud deployment reconciliation with stable operation IDs, health checks, and rollback in susi-vendor-cloud (VC-201-055).",
+    "scopes":  [
+                   ".agents/tasks/t-airgapcloudwave2b-1.json",
+                   "crates/susi-config",
+                   "crates/susi-vendor-cloud",
+                   "crates/susi-vendor-models",
+                   "tests/airgap_mode.rs"
+               ],
+    "deps":  [
+
+             ],
+    "created_by":  "airgap-cloud-wave2b",
+    "created_unix":  1794002900,
+    "status":  "completed",
+    "title":  "Deliver VC-201-050 offline air-gap bundle bootstrap and VC-201-055 managed cloud deployment reconciliation",
+    "native_worker":  "airgap-cloud-wave2b"
+}
