@@ -8,6 +8,7 @@
   "dependencies": [],
   "scopes": [
     ".agents/tasks/t-coord1106-1.json",
+    "tests/worktree_target_dir.rs",
     "xtask/src/bin/local-release.rs",
     "xtask/src/release_coordinator.rs"
   ],
@@ -31,7 +32,8 @@
       "the provenance verifier is the held local-workflow executable whose digest equals every receipt's coordinator_sha256, and the policy digest comes from that executable",
       "the permit names a forward-adoption baseline with historical_ownership incomplete and a git-rooted diagnostics blob listing unreceipted commits since the last promoted release",
       "the pinned verifier must report verified=true before the permit and manifest enter the registry; registry objects are content-addressed and never overwritten",
-      "it prints SUSI_RELEASE_TRUST_REGISTRY, SUSI_RELEASE_GATE_TRUST and SUSI_RELEASE_GATE_TRUST_SHA256 for local-release qualify"
+      "it prints SUSI_RELEASE_TRUST_REGISTRY, SUSI_RELEASE_GATE_TRUST and SUSI_RELEASE_GATE_TRUST_SHA256 for local-release qualify",
+      "the whole-workspace gate's foreground-seeding test releases the background copy only after the foreground run has announced it is waiting, instead of racing a fixed 3 s sleep on a loaded host"
     ]
   }
 }
