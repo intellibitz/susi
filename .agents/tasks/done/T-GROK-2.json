@@ -1,7 +1,7 @@
 {
   "id": "T-GROK-2",
   "native_worker": "grok",
-  "status": "implemented_pending_integration",
+  "status": "done",
   "title": "Ignore a hermetic forbidden home when Windows spells it with a verbatim disk prefix",
   "goal": "A SUSI_HOME from canonicalize (\\\\?\\C:\\...) must still be ignored when SUSI_HERMETIC_FORBIDDEN is the same directory in plain spelling, so hermetic tests do not write into the forbidden root.",
   "size": "s",
@@ -26,6 +26,12 @@
   "created_unix": 1793925600,
   "partial_evidence": {
     "linux_x86_64": ".agents/evidence/step1-linux-T-CLAUDE-STEP1LINUX-1.json",
-    "note": "hermetic_forbidden passed on Linux, but canonicalize yields no verbatim (\\\\?\\) spelling there, so the Windows comparison is unexercised; stays open until it runs on native Windows (CLAUDE, review of intellibitz/susi#1668)"
-  }
+    "note": "hermetic_forbidden passed on Linux, but canonicalize yields no verbatim disk-prefix spelling there, so the Windows comparison was unexercised (CLAUDE, review of intellibitz/susi#1668)"
+  },
+  "closed": {
+    "at_unix": 1793978845,
+    "commit": "5764ba62db6272311f787329da6a98c062a22f8f",
+    "by": "STEP1WIN (T-STEP1WIN-1)"
+  },
+  "integration_evidence": ".agents/evidence/step1-windows-T-STEP1WIN-1.json"
 }
