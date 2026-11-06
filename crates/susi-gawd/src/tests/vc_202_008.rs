@@ -363,11 +363,18 @@ fn self_authored_backlog_analysis_authors_unqueued_verification() {
 
 #[test]
 fn self_authored_backlog_wiring_is_on_the_cli_path() {
-    let src = std::fs::read_to_string(concat!(
+    let mut src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../src/cli/tasks_cli.rs"
     ))
     .unwrap();
+    if let Ok(defs) = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../susi-cli-defs/src/tasks.rs"
+    )) {
+        src.push('\n');
+        src.push_str(&defs);
+    }
     for needle in [
         "TaskCommands::Author",
         "TaskCommands::Authored",
