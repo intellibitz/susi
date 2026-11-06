@@ -25,7 +25,7 @@ use crate::executor::{ExecutorConfig, NativeWorker, RunOutcome, Runner};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use susi_error::EaiResult;
@@ -565,6 +565,17 @@ pub fn run_piped(
     let program = invocation.program.as_path();
     let args = invocation.args.as_slice();
     let pipe_prompt_on_stdin = invocation.pipe_prompt_on_stdin;
+    // A headless agent with every permission granted must never fall back to
+    // whatever directory the harness happens to be running in.
+    if !workspace.is_dir() {
+        return PipedRun::Finished(RunOutcome::Failed {
+            message: format!(
+                "workspace {} is not a directory; refusing to run {}",
+                workspace.display(),
+                program.display()
+            ),
+        });
+    }
     let mut command = Command::new(program);
     command
         .args(args)
@@ -574,10 +585,8 @@ pub fn run_piped(
             Stdio::null()
         })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if workspace.is_dir() {
-        command.current_dir(workspace);
-    }
+        .stderr(Stdio::piped())
+        .current_dir(workspace);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) if error.kind() == ErrorKind::NotFound => return PipedRun::NotFound,
@@ -622,8 +631,11 @@ pub fn run_piped(
         }
         thread::sleep(poll_interval.min(deadline.saturating_duration_since(now)));
     };
-    let stdout = collect(&stdout);
-    let stderr = collect(&stderr);
+    // A grandchild that inherited the pipes can hold them open after the
+    // child exits; whatever arrived within the grace window is kept.
+    let grace = Instant::now() + DRAIN_GRACE;
+    let stdout = stdout.collect(grace);
+    let stderr = stderr.collect(grace);
     PipedRun::Finished(verdict(program, status, &stdout, &stderr))
 }
 
@@ -666,34 +678,58 @@ fn reap(child: &mut Child) {
     let _ = child.wait();
 }
 
-fn drain<R: Read + Send + 'static>(stream: Option<R>) -> mpsc::Receiver<Vec<u8>> {
-    let (sender, receiver) = mpsc::channel();
-    if let Some(mut stream) = stream {
-        thread::spawn(move || {
-            let mut captured = Vec::new();
-            let mut buffer = [0_u8; 8 * 1024];
-            loop {
-                match stream.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(read) => {
-                        let room = MAX_CAPTURE_BYTES.saturating_sub(captured.len());
-                        captured.extend_from_slice(&buffer[..read.min(room)]);
-                    }
-                    Err(error) if error.kind() == ErrorKind::Interrupted => {}
-                    Err(_) => break,
-                }
-            }
-            let _ = sender.send(captured);
-        });
-    }
-    receiver
+/// Output read from one child stream so far, appended as it arrives.
+struct Capture {
+    bytes: Arc<Mutex<Vec<u8>>>,
+    done: mpsc::Receiver<()>,
 }
 
-fn collect(receiver: &mpsc::Receiver<Vec<u8>>) -> String {
-    receiver
-        .recv_timeout(DRAIN_GRACE)
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        .unwrap_or_default()
+impl Capture {
+    /// Wait until the stream ends or `grace` passes, then snapshot what was
+    /// read. A stream still held open by a grandchild yields its partial
+    /// output instead of nothing.
+    fn collect(&self, grace: Instant) -> String {
+        let _ = self
+            .done
+            .recv_timeout(grace.saturating_duration_since(Instant::now()));
+        let bytes = self
+            .bytes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+}
+
+fn drain<R: Read + Send + 'static>(stream: Option<R>) -> Capture {
+    let (sender, done) = mpsc::channel();
+    let bytes = Arc::new(Mutex::new(Vec::new()));
+    match stream {
+        Some(mut stream) => {
+            let sink = Arc::clone(&bytes);
+            thread::spawn(move || {
+                let mut buffer = [0_u8; 8 * 1024];
+                loop {
+                    match stream.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(read) => {
+                            let mut captured = sink
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            let room = MAX_CAPTURE_BYTES.saturating_sub(captured.len());
+                            captured.extend_from_slice(&buffer[..read.min(room)]);
+                        }
+                        Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                        Err(_) => break,
+                    }
+                }
+                let _ = sender.send(());
+            });
+        }
+        None => {
+            let _ = sender.send(());
+        }
+    }
+    Capture { bytes, done }
 }
 
 /// The route a turn takes: a primary plane and, optionally, a failover.
@@ -944,7 +980,6 @@ impl SusiSocketEndpoints {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
     fn config(model: &str) -> ExecutorConfig {
         ExecutorConfig {
@@ -1595,6 +1630,52 @@ mod tests {
             message.contains("[subscription quota exhausted]"),
             "{message}"
         );
+    }
+
+    #[test]
+    fn output_survives_a_grandchild_that_holds_the_pipe_open() {
+        let (program, args): (PathBuf, Vec<String>) = if cfg!(windows) {
+            (
+                system32("cmd.exe"),
+                vec![
+                    "/D".into(),
+                    "/C".into(),
+                    "start /B PING -n 8 127.0.0.1 >NUL & echo visible".into(),
+                ],
+            )
+        } else {
+            (
+                PathBuf::from("sh"),
+                vec!["-c".into(), "sleep 8 & echo visible".into()],
+            )
+        };
+        let runner = CliSubRunner::with_command(CliCommand {
+            program,
+            args,
+            pipe_prompt_on_stdin: false,
+        });
+        let started = Instant::now();
+        let outcome = runner.run(&config("cli:claude")).unwrap();
+        let RunOutcome::Succeeded { final_text, .. } = outcome else {
+            panic!("expected success, got {outcome:?}");
+        };
+        assert!(final_text.contains("visible"), "{final_text:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_missing_workspace_is_a_failed_turn_not_the_harness_cwd() {
+        let mut cfg = config("cli:claude");
+        cfg.workspace = std::env::temp_dir().join("susi-adaptive-no-such-workspace-dir");
+        let runner = CliSubRunner::with_command(sort_command());
+        let RunOutcome::Failed { message } = runner.run(&cfg).unwrap() else {
+            panic!("expected failure");
+        };
+        assert!(message.contains("workspace"), "{message}");
     }
 
     #[test]
