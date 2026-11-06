@@ -55,6 +55,16 @@ fn external(path: &Path, root: &Path) -> Result<PathBuf> {
     }
     Ok(path)
 }
+/// The reviewed unsafe-exposure baseline for one host. A baseline binds its
+/// measurement target, so each release host has its own; the original Linux
+/// file keeps its name. A host without a reviewed baseline fails the gate.
+fn unsafe_baseline(root: &Path, host: &str) -> PathBuf {
+    if host == "x86_64-unknown-linux-gnu" {
+        root.join(".agents/baseline/unsafe-default.json")
+    } else {
+        root.join(format!(".agents/baseline/unsafe-default-{host}.json"))
+    }
+}
 fn read_json(path: &Path) -> Result<Value> {
     native_json::from_slice(&fs::read(path)?)
 }
@@ -171,7 +181,7 @@ impl Runner {
         result.write(attempt, "complete-trust.json", &fs::read(path)?)?;
         let measurement = attempt.join("complete-unsafe-measurement.json");
         let receipt = attempt.join("complete-unsafe-receipt.json");
-        let baseline = root.join(".agents/baseline/unsafe-default.json");
+        let baseline = unsafe_baseline(root, host);
         result.write(
             attempt,
             "complete-unsafe-baseline.json",
@@ -647,7 +657,7 @@ fn expected_argv(id: &str, receipt: &Value) -> Result<Vec<String>> {
             "--measurement",
             super::text(&attempt.join("complete-unsafe-measurement.json"))?,
             "--baseline",
-            super::text(&root.join(".agents/baseline/unsafe-default.json"))?,
+            super::text(&unsafe_baseline(root, host))?,
             "--receipt",
             super::text(&attempt.join("complete-unsafe-receipt.json"))?,
         ]),
@@ -1081,6 +1091,26 @@ mod tests {
         let mut traversal = valid.clone();
         traversal["files"][0]["path"] = json!("../log");
         assert!(validate_shape(&traversal, &manifest).is_err());
+    }
+    #[test]
+    fn each_release_host_has_its_own_unsafe_baseline() {
+        let root = Path::new("candidate");
+        let linux = unsafe_baseline(root, "x86_64-unknown-linux-gnu");
+        let windows = unsafe_baseline(root, "x86_64-pc-windows-msvc");
+        assert_eq!(linux, root.join(".agents/baseline/unsafe-default.json"));
+        assert_eq!(
+            windows,
+            root.join(".agents/baseline/unsafe-default-x86_64-pc-windows-msvc.json")
+        );
+        let manifest = manifest();
+        let mut receipt = shape(&manifest);
+        receipt["host"] = json!("x86_64-pc-windows-msvc");
+        let argv = expected_argv("unsafe-ratchet", &receipt).unwrap();
+        let baseline = argv[argv.iter().position(|a| a == "--baseline").unwrap() + 1].clone();
+        assert!(
+            baseline.ends_with("unsafe-default-x86_64-pc-windows-msvc.json"),
+            "{baseline}"
+        );
     }
     #[test]
     fn legacy_v6_without_complete_receipt_requires_requalification() {
