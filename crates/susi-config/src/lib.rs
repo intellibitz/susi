@@ -43,6 +43,7 @@ pub mod key_rotation;
 pub mod key_scope;
 pub mod keyring_storage;
 pub mod managed_drift;
+pub mod offline_bundle;
 pub mod plan_apply;
 pub mod process_probe;
 pub mod rekey_schedule;
