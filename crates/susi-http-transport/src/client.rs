@@ -253,13 +253,42 @@ mod tests {
     use std::net::TcpListener;
 
     /// Serve exactly one canned HTTP response, return its base URL.
+    ///
+    /// The whole request (head and any `Content-Length` body) is read before
+    /// replying. A client may send the body in a later segment; closing a
+    /// Windows socket with those bytes unread resets the connection, and the
+    /// reset discards the reply before the client reads it (os error 10054).
     fn serve_once(response: &'static str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         std::thread::spawn(move || {
             if let Ok((mut stream, _)) = listener.accept() {
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut request = Vec::new();
                 let mut buf = [0u8; 4096];
-                let _ = std::io::Read::read(&mut stream, &mut buf);
+                let head_end = loop {
+                    if let Some(at) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break Some(at + 4);
+                    }
+                    match std::io::Read::read(&mut stream, &mut buf) {
+                        Ok(0) | Err(_) => break None,
+                        Ok(count) => request.extend_from_slice(&buf[..count]),
+                    }
+                };
+                if let Some(head_end) = head_end {
+                    let head = String::from_utf8_lossy(&request[..head_end]).to_ascii_lowercase();
+                    let length = head
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .and_then(|value| value.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    while request.len() < head_end + length {
+                        match std::io::Read::read(&mut stream, &mut buf) {
+                            Ok(0) | Err(_) => break,
+                            Ok(count) => request.extend_from_slice(&buf[..count]),
+                        }
+                    }
+                }
                 let _ = stream.write_all(response.as_bytes());
             }
         });
