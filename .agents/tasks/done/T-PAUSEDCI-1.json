@@ -4,16 +4,29 @@
   "title": "Describe core CI as local-only with GitHub Actions disabled",
   "created_by": "PAUSEDCI",
   "created_unix": 1793950000,
-  "status": "implemented_pending_integration",
+  "status": "done",
   "dependencies": [],
   "scopes": [
     ".agents/tasks/t-pausedci-1.json",
     "agents.md"
   ],
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "--test", "architecture_tests"],
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ],
     "criteria": [
       "AGENTS.md no longer says test.yml, zc-matrix.yml or release workflows run; it names the local current-host gate, and architecture_tests passes"
     ]
-  }
+  },
+  "closed": {
+    "at_unix": 1793974800,
+    "commit": "784518e4bc049c7ce3945638e1a498de568766c4",
+    "by": "CLAUDE (T-CLAUDE-STEP1LINUX-1)"
+  },
+  "integration_evidence": ".agents/evidence/step1-linux-T-CLAUDE-STEP1LINUX-1.json"
 }

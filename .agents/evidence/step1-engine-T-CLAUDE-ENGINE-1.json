@@ -1,0 +1,114 @@
+{
+  "schema": "susi-agent-evidence/v1",
+  "task": "T-CLAUDE-ENGINE-1",
+  "host": "x86_64-unknown-linux-gnu (cloud container, 4 CPUs)",
+  "toolchain": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "change": "Release steps (local-build debug|production, the production-build gate, the dependency inventory and the advisory scan) select the product features --no-default-features --features local-engine whenever the workspace declares local-engine; minimal fixtures keep --no-default-features. A build without the engine refuses susi os manage model install starter before downloading, with a plain reason.",
+  "local_build_debug": {
+    "command": "cargo local-build debug",
+    "result": "passed",
+    "build_elapsed_ms": 187765,
+    "artifact_bytes": 358266576,
+    "artifact_sha256": "db25b7ad1eea582cb1a080dff6736b67a2de4dfb3233f9d7a969a0e0d48f44d8"
+  },
+  "check_inference": {
+    "command": "cargo local-release check-inference target/local-native/x86_64-unknown-linux-gnu/debug/susi",
+    "result": "passed",
+    "schema": "susi-inference-acceptance-v2",
+    "provisioning": "uncached-native-install-and-public-model-download",
+    "provisioning_resources": [
+      {
+        "command": "install",
+        "deadline_ms": 30000,
+        "elapsed_ms": 2327,
+        "output_budget_bytes": 2097152,
+        "output_bytes": 440,
+        "passed": true,
+        "rss_budget_bytes": 2147483648,
+        "sampled_foreground_rss_bytes": 32407552
+      },
+      {
+        "command": "start",
+        "deadline_ms": 30000,
+        "elapsed_ms": 464,
+        "output_budget_bytes": 2097152,
+        "output_bytes": 447,
+        "passed": true,
+        "rss_budget_bytes": 2147483648,
+        "sampled_foreground_rss_bytes": 47038464
+      },
+      {
+        "command": "model-install",
+        "deadline_ms": 600000,
+        "elapsed_ms": 8100,
+        "output_budget_bytes": 2097152,
+        "output_bytes": 236,
+        "passed": true,
+        "rss_budget_bytes": 2147483648,
+        "sampled_foreground_rss_bytes": 126955520
+      }
+    ],
+    "prompts": [
+      "What is 2+2?",
+      "Write one short sentence about a red kite."
+    ],
+    "stdout": "⚠️  No citations found; answer may be unverified.\n2+2 equals 4.⚠️  No citations found; answer may be unverified.\nA red kite is a colorful and majestic bird with bright colors, making it an attractive sight to see.",
+    "inference_resources": [
+      {
+        "command": "inference-0",
+        "deadline_ms": 599999,
+        "elapsed_ms": 68423,
+        "output_budget_bytes": 2097152,
+        "output_bytes": 67,
+        "passed": true,
+        "rss_budget_bytes": 2147483648,
+        "sampled_foreground_rss_bytes": 1113174016
+      },
+      {
+        "command": "inference-1",
+        "deadline_ms": 531576,
+        "elapsed_ms": 130825,
+        "output_budget_bytes": 2097152,
+        "output_bytes": 154,
+        "passed": true,
+        "rss_budget_bytes": 2147483648,
+        "sampled_foreground_rss_bytes": 1112039424
+      }
+    ],
+    "models": [
+      {
+        "bytes": 428730208,
+        "file": "qwen2.5-0.5b-instruct-q4_0.gguf",
+        "sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed"
+      },
+      {
+        "bytes": 722,
+        "file": "qwen2.5-0.5b-instruct-q4_0.license.json",
+        "sha256": "a67deeb8a82e2d38044a719fb36fb0ffd17f00d8b12889e524cce11052004704"
+      },
+      {
+        "bytes": 7031645,
+        "file": "qwen2.5-0.5b-instruct-q4_0.tokenizer.json",
+        "sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+      },
+      {
+        "bytes": 540,
+        "file": "qwen2.5-0.5b-instruct-q4_0.tokenizer.license.json",
+        "sha256": "ce492c74dd1eabff654c96fa02760169ff9d170198b0ebedb505f60cbd1ce5b5"
+      }
+    ],
+    "private_installed_processes_remaining": 0,
+    "acceptance_sha256": "0a3350604c433a765ab9aef7157c8db13d68b77c746dc36e5434c5d4eaf32298"
+  },
+  "license_checks": {
+    "cargo deny --offline --locked check licenses": "licenses ok",
+    "cargo deny --offline --locked --no-default-features --features local-engine check licenses": "licenses ok",
+    "cargo_deny_version": "0.20.2"
+  },
+  "xtask_tests": "cargo test -p xtask --features release-tooling: 271 passed, 0 failed",
+  "not_claimed": [
+    "optimized production qualification and promotion (not run here)",
+    "Windows MSVC build and PE/link-map checks",
+    "clean Windows VM journey"
+  ]
+}

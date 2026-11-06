@@ -127,7 +127,7 @@ fn build_command(root: &Path, target: &Path, host: &str, profile: Profile) -> Co
         ])
         .args(["--target", host, "--target-dir"])
         .arg(target)
-        .arg("--no-default-features")
+        .args(crate::product_features::product_feature_args(root))
         // Explicit CLI arguments take precedence over user Cargo target settings.
         .env("CARGO_TARGET_DIR", target)
         .env("CARGO_BUILD_TARGET_DIR", target)

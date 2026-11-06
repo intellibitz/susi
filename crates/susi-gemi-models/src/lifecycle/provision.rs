@@ -17,6 +17,9 @@ use super::download_controller::ModelDownloadController;
 use super::types::*;
 use super::ModelManager;
 
+/// Why `install starter` refuses in a build without the local model engine.
+pub const NO_LOCAL_ENGINE_FOR_STARTER: &str = "this Susi build has no local model engine (built without the `local-engine` feature), so it cannot verify or run the starter model; nothing was downloaded. Use a Susi release build, which includes the engine, or connect an OpenAI-compatible or cloud provider";
+
 impl ModelManager {
     pub fn check_network_status() -> (bool, String, u128) {
         if cfg!(test) {
@@ -237,6 +240,14 @@ impl ModelManager {
     pub fn install_starter_model_on_request(
         workspace: &Path,
     ) -> EaiResult<ModelProvisioningOutcome> {
+        // The slim protocol build leaves the Candle engine out, so it can neither
+        // verify the starter's tokenizer nor run local weights. Say so before any
+        // byte is downloaded instead of failing later with a transfer error.
+        if !cfg!(feature = "local-engine") {
+            return Err(crate::susi_error::EaiError::config(
+                NO_LOCAL_ENGINE_FOR_STARTER,
+            ));
+        }
         static PLANNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let Ok(_planning) = PLANNING.try_lock() else {
             return Ok(ModelProvisioningOutcome::Active);
@@ -405,6 +416,17 @@ mod license_tests {
                 crate::zc_first_model::FirstRunPlan::TooSmall
             ));
         }
+    }
+
+    #[test]
+    #[cfg(not(feature = "local-engine"))]
+    fn a_build_without_the_engine_refuses_the_starter_before_downloading() {
+        let err = ModelManager::install_starter_model_on_request(Path::new("."))
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(err.contains("no local model engine"), "{err}");
+        assert!(err.contains("nothing was downloaded"), "{err}");
     }
 
     #[test]

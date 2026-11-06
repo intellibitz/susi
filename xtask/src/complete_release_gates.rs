@@ -702,6 +702,9 @@ fn expected_argv(id: &str, receipt: &Value) -> Result<Vec<String>> {
             }
         }
     };
+    if id == "production-build" {
+        super::product_features::select_product_features(&mut args, root);
+    }
     if product && matches!(id, "workspace-clippy" | "workspace-tests") {
         args.extend(words(&["--features", "xtask/release-tooling"]));
     }

@@ -1,0 +1,147 @@
+{
+  "schema": "susi/step1-host-evidence/v1",
+  "task": "T-CLAUDE-STEP1LINUX-1",
+  "recorded_utc": "2026-11-06",
+  "scope": "Step 1 evidence for the parts that apply on a Linux x86_64 host. This is not Windows/MSVC qualification, not clean-machine evidence and not production qualification. Step 1 stays open.",
+  "source": {
+    "integration_head": "784518e4bc049c7ce3945638e1a498de568766c4",
+    "tree": "609e50c97118425c4bab4e9561f3cf6ac21d275d",
+    "origin_main": "a0e5d6c1b921eabed7a238e13e9738d631017950",
+    "relation": "origin/main is an ancestor; head is 10 local commits ahead (GitHub Actions removal and release-help fixes)",
+    "version": "0.21.51",
+    "cargo_lock_sha256": "1fffc0b5fefb832a34e6a35e0bc63c2cc2c5bafcc6513228ccae13c8a1ff6746"
+  },
+  "host": {
+    "target": "x86_64-unknown-linux-gnu",
+    "rustc": "1.99.0 (b940084d7 2026-09-28), pinned by rust-toolchain.toml",
+    "cpus": 4,
+    "memory_gib": 15,
+    "kind": "cloud Linux container whose disk and CPU are shared with other agents; wall-clock numbers include that contention",
+    "isolation": "private worktree and target; scrubbed environment (no inherited credentials, proxies, provider endpoints or SUSI_* state); private HOME/SUSI_HOME; port offset 600 (9690-9694, leaf services 18680-18684)"
+  },
+  "build": {
+    "cold_debug": {
+      "command": "cargo build --offline --locked -p susi --bin susi",
+      "precondition": "empty private target; registry sources already extracted in the Cargo home; default features (no local-engine)",
+      "elapsed_s": 119.47,
+      "crates_compiled": 378,
+      "exit": 0,
+      "artifact_bytes": 286183864,
+      "artifact_sha256": "7fb72966c30bd64c12afa3607a4e3050aabbaa551face53fd912e443dfbe9371",
+      "note": "The debug executable is 272.9 MiB, above the 256 MiB qualification budget in docs/step1-acceptance.md. That budget is enforced on qualification candidates, so this is an observation, not a gate result."
+    },
+    "warm_noop_debug_ms": [353, 461, 430],
+    "version_command_ms": 13
+  },
+  "startup": {
+    "cold_fresh_home": {"start_return_ms": 399, "health_status": 200, "health_probe_ms": 11},
+    "warm_cycles": [
+      {"stop_ms": 301, "start_return_ms": 133, "start_to_health_200_ms": 144},
+      {"stop_ms": 301, "start_return_ms": 134, "start_to_health_200_ms": 144},
+      {"stop_ms": 291, "start_return_ms": 133, "start_to_health_200_ms": 145}
+    ],
+    "status_command_ms": 17,
+    "endpoints": {
+      "9690 /health": "200 ok",
+      "9691 /health": "200",
+      "9693 /health": "200",
+      "9694 /.well-known/agent.json": "401 without the bearer token (auth enforced)"
+    },
+    "final_stop": "Stopped 1 process; host-contract ports released; 9690 refused afterwards",
+    "not_measured": "goal acknowledgment, first useful output and goal completion. They need a local engine and model, which the default build lacks (see findings)."
+  },
+  "delivery_loop": {
+    "change": "crates/susi-daemon/src/server.rs host-contract report gains a 'Health http://127.0.0.1:<gmcp>/health' line, with a test assertion; alternately applied and reverted as committed scratch changes on local branch agent/step1-linux-loop (not integrated)",
+    "steps": "change ready -> git commit -> cargo build -p susi --bin susi -> cargo fmt --all --check + cargo test -p susi-daemon --lib host_contract (2 tests) -> susi restart (offset 600) -> /health 200 -> susi start output shows/hides the line AND /proc/<daemon pid>/exe sha256 equals the rebuilt binary",
+    "repetitions": [
+      {"rep": 1, "kind": "apply",  "commit": "210fa1d9024c8c571a7f4c2226bf51fe03004bd0", "commit_ms": 127, "build_ms": 8357, "fmt_test_ms": 8925, "restart_to_health_ms": 663, "observe_ms": 584, "total_ms": 18657, "observed": "present", "exe_sha256_prefix": "955b3fdc1006b490", "result": "PASS"},
+      {"rep": 2, "kind": "revert", "commit": "f4de873660e68594b5fde52a109fb587d8d4fe65", "commit_ms": 188, "build_ms": 8503, "fmt_test_ms": 9376, "restart_to_health_ms": 675, "observe_ms": 596, "total_ms": 19340, "observed": "absent", "exe_sha256_prefix": "7fb72966c30bd64c", "result": "PASS"},
+      {"rep": 3, "kind": "apply",  "commit": "ba01cfd9979e686cfe802fc6c60ee3932b6fa19f", "commit_ms": 106, "build_ms": 7255, "fmt_test_ms": 9638, "restart_to_health_ms": 696, "observe_ms": 632, "total_ms": 18329, "observed": "present", "exe_sha256_prefix": "955b3fdc1006b490", "result": "PASS"},
+      {"rep": 4, "kind": "revert", "commit": "1d1ccb3cb956dc040da9180d782342000c8b8185", "commit_ms": 171, "build_ms": 9813, "fmt_test_ms": 9677, "restart_to_health_ms": 738, "observe_ms": 614, "total_ms": 21015, "observed": "absent", "exe_sha256_prefix": "7fb72966c30bd64c", "result": "PASS"}
+    ],
+    "failures": 0,
+    "rollback": "Each revert repetition is a rollback to the prior behaviour, verified on the live daemon. The reverted executable is byte-identical to the cold build (7fb72966...), and both apply builds are byte-identical to each other (955b3fdc...).",
+    "under_60_s": "yes, for this inner loop (18.3-21.0 s)",
+    "excluded_from_loop": [
+      "serialized integration/ship of the combined tree",
+      "the full agent gate. For this one-file change, `local-workflow affected` selects 8 packages (susi, susi-config, susi-core, susi-daemon, susi-gawd, susi-gmcp, susi-unsafe-ratchet, xtask), far more than the 2 focused tests run in the loop",
+      "optimized production build, qualification and promotion (not run, see open items)"
+    ],
+    "mandate_62_verdict": "Not met. The sub-60 s figure covers change -> build -> focused test -> restart -> observation in a debug development instance. Mandate 62 times the complete loop through merge and promotion to the verified live executable, and that loop was not measured here."
+  },
+  "gate": {
+    "run_1": {
+      "command": "cargo local-workflow check (selected the whole workspace because deny.toml changed vs origin/main)",
+      "fmt": "ok 5.2 s",
+      "clippy": "ok 89.3 s (--workspace --all-targets -D warnings, release-tooling included)",
+      "test": "FAILED after 322.0 s (cargo test stops at the first failing binary)",
+      "total_s": 420.7,
+      "failure": "tests/tasks_cli.rs the_tool_in_the_process_tree_names_the_agent",
+      "root_cause": "Environment-induced. This run's TMPDIR lay under /tmp/claude-0/..., so the wrapper script path the test creates contained 'claude'. The process-tree identity detector (src/cli/tasks_cli.rs argv_head keeps an interpreter's script path; crates/susi-gawd/src/zc_agent_identity.rs substring match) then labelled the run CLAUDE instead of the expected fallback. The default host TMPDIR is unset (/tmp), and the test passed in run 2. It remains a latent mislabel for any wrapper script stored under a directory whose path contains a tool name."
+    },
+    "run_2": {
+      "command": "cargo local-workflow check with TMPDIR=/tmp/susi-step1linux-tmp",
+      "fmt": "ok 4.6 s",
+      "clippy": "ok 0.8 s (warm)",
+      "test": "FAILED after 178.9 s",
+      "total_s": 186.1,
+      "failures": "xtask --bin local-release: 62 passed, 7 failed, 2 ignored",
+      "root_cause": "All 7 failures report that cargo-deny is not provisioned: advisory_evidence snapshot test ('cargo-deny must be provisioned before production qualification') and six release-qualification fixtures failing at 'cargo deny --offline --locked check licenses'. No product logic failure was observed.",
+      "coverage_note": "Every unit and integration test binary up to and including xtask local-release ran. Later xtask binaries and all doctests did not run because cargo test stops at the first failing binary. Result lines also include nested fixture cargo runs, among them the deliberately failing 'gapfix' fixture."
+    },
+    "no_fail_fast_run": {
+      "command": "cargo test --workspace --offline --locked --features xtask/release-tooling --no-fail-fast (same private HOME/SUSI_HOME/XDG shape as the check gate, TMPDIR=/tmp/susi-step1linux-tmp)",
+      "note": "The first attempt was killed by a container restart and its partial log is retained but not counted. This is the complete rerun on a warm target.",
+      "elapsed_s": 437.8,
+      "exit": 101,
+      "top_level_results": {"test_binaries_and_doctest_groups": 337, "passed": 5344, "failed": 8, "ignored": 13, "doctest_groups": 93},
+      "failed_targets": {
+        "xtask --bin local-release": "62 passed, 7 failed, 2 ignored; all 7 cargo-deny not provisioned",
+        "xtask --bin local-workflow": "82 passed, 1 failed; real_native_cargo_gates_accept_a_passing_fixture failed at 'cargo deny --offline --locked check licenses => exit code 101' (cargo-deny not provisioned)"
+      },
+      "verdict": "Every failure traces to the missing cargo-deny host tool; no product test failed. The gate is still NOT green on this host, and this run does not substitute for a passing gate.",
+      "counting": "Only the first libtest result after each top-level 'Running (target/debug/deps/...)' or 'Doc-tests' line is counted. Nested fixture cargo runs, including the deliberately failing 'gapfix' fixture, are excluded."
+    },
+    "cargo_deny": "Not installed on this host. Installing it into a private tool root was refused by this session's permission policy, so the strict license gate (`cargo deny --offline --locked check licenses`) was NOT executed and is not claimed."
+  },
+  "findings": [
+    {
+      "id": "slim-core-vs-inference-gate",
+      "summary": "Since 3fdce51 (T-GROKSLIM1104-1) the root default features are empty, and the Candle engine needs --features local-engine. Production qualification (xtask/src/bin/local-release.rs) and `cargo local-build` both build with --no-default-features, but the inference acceptance requires two audited in-process Candle generations. On current source, a candidate built the qualifying way cannot pass production qualification.",
+      "status": "reported, not fixed (design decision outside this task)"
+    },
+    {
+      "id": "slim-build-model-install-misleading-error",
+      "summary": "With the default build, `susi os manage model install starter` (the command `susi status` recommends) fetched the pinned tokenizer, whose curl digest c0382117... matches the pin. The validation closure in crates/susi-gemi-models/src/lifecycle/provision.rs returns false without local-engine, the resume then gets HTTP 416, and the user sees 'Remote artifact changed or incomplete payload; restarting' (crates/susi-gemi-models/src/download.rs). Observed twice (3.2 s and 2.4 s, exit 1).",
+      "status": "reported, not fixed"
+    },
+    {
+      "id": "tensor-and-draft-tests-zero-executed",
+      "summary": "In the default workspace test run, `susi-gemi --test tensor_byte_boundary` executed 0 tests and `engines::speculative::tests::test_select_draft_model_*` executed 0 tests (both need local-engine). Their acceptance (T-CANDLEBYTES-1, T-FIXTURESTORAGE-1) is therefore not evidenced by the default gate."
+    }
+  ],
+  "task_records": {
+    "closed_to_done": {
+      "T-PAUSEDCI-1": "code on origin/main (8ee403f); architecture_tests 43 passed on the combined tree; AGENTS.md names no test.yml/zc-matrix.yml",
+      "T-PAUSEDMACARM-1": "code on origin/main (3ac406e); architecture_tests 43 passed; Mandate 72 and AGENTS.md state the pause",
+      "T-SPEEDDOC1106-1": "code on origin/main (b49e4bd); architecture_tests 43 passed; docs/workflow-speed.md records the parallel gate measurements",
+      "T-GROK-2": "NOT closed: code on origin/main (d4505f6/17356f0) and susi-paths hermetic_forbidden 2 passed, but on Linux canonicalize returns a plain path, so the Windows verbatim-spelling comparison is not exercised; reopened pending a native Windows run"
+    },
+    "left_open": {
+      "T-GROKSHIP-1, T-PAUSEDSHIPFIX-1, T-RUNNERDEFAULT1106-1, T-SPEED1106-1, T-SPEED2X1106-1, T-SPEED3X1106-1": "acceptance `-p xtask --bin local-workflow` ran 82 passed, 1 failed (cargo-deny not provisioned)",
+      "T-ADVISORYGATE-1, T-COMPLETERELEASE-1": "acceptance `-p xtask --bin local-release` ran 62 passed, 7 failed (cargo-deny)",
+      "T-ASYNCRECEIPT-1": "parallel_workflow 23 passed, but the record is pinned historical schema debt; closing it needs a schema-valid rewrite by its owner",
+      "T-CANDLEBYTES-1, T-FIXTURESTORAGE-1": "their acceptance tests executed 0 tests in the default (no local-engine) workspace run",
+      "T-OPTIONALLICENSE-1": "susi-vendor-candle lib 20 passed, but the record is pinned schema debt and its license criteria need the strict cargo-deny gate",
+      "T-FLAKY1106-1": "unwired_governance_tests 5 passed on Linux, but its Windows isolate_bus_root criterion cannot be verified here",
+      "T-SHUTDOWNCANCEL-1, T-RSAREPAIR-1, T-NATIVE-1": "require production qualification",
+      "T-STEP1ACCEPTANCE-7, T-STEP1INSTALL-1, T-STEP1UNICODE-1, T-CEOSPEED-1, T-CHROME-1": "Windows/combined-acceptance or criteria-only records not evidenced by this host",
+      "T-DOTACCEPT1104-1": "in_progress under another worker"
+    }
+  },
+  "not_run": {
+    "cargo local-build debug|production": "not run. The toolchain lacks the rust-src component that trusted_sysroot::prepare authenticates, and production additionally requires cargo-deny.",
+    "local-release check-inference": "not run. It needs a local-engine candidate plus the ~430 MB starter download, and the shared disk fell to about 5 GB free during this task.",
+    "Windows-only Step 1 items": "MSVC qualification, PE/link-map gates, clean Windows VM journey and Windows A/B promotion/rollback cannot run on this host and are not claimed."
+  }
+}

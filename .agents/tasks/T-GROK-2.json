@@ -23,5 +23,9 @@
     ]
   },
   "created_by": "GROK",
-  "created_unix": 1793925600
+  "created_unix": 1793925600,
+  "partial_evidence": {
+    "linux_x86_64": ".agents/evidence/step1-linux-T-CLAUDE-STEP1LINUX-1.json",
+    "note": "hermetic_forbidden passed on Linux, but canonicalize yields no verbatim (\\\\?\\) spelling there, so the Windows comparison is unexercised; stays open until it runs on native Windows (CLAUDE, review of intellibitz/susi#1668)"
+  }
 }
