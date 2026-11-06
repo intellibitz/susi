@@ -597,3 +597,13 @@ What this does and does not establish:
   promotion. This loop does not make a production release live in 60 s.
 - Step 1's other open items stay open: millisecond user-response budgets, the
   cold first-answer speed target and byte-identical standard-library rebuilds.
+
+**CEO decision 2026-11-06 ("Dev copy counts").** The dev channel is the
+"verified live executable" for Step 1's 60-second criterion. The criterion is
+met by `local-channel deliver` with the measurements above, and agents keep it
+met: a delivery whose record shows `within_budget: false` is a regression to
+fix, not an accepted result. The decision does not change production: an
+installed release still goes live only through `cargo local-release qualify`
+and promotion, and the integration gate still precedes `origin/main`. Step 1
+itself stays open on its other items (millisecond user-response budgets, the
+cold first-answer speed target, byte-identical standard-library rebuilds).
