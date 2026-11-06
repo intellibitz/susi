@@ -7,8 +7,11 @@
   "status": "implemented_pending_integration",
   "dependencies": [],
   "scopes": [
+    ".agents/gmcp/evidence",
     ".agents/tasks/t-dsp4c11106-1.json",
     "crates/susi-cli-defs/src",
+    "crates/susi-gmcp/src/protocol_tests.rs",
+    "crates/susi-gmcp/src/tools/core.rs",
     "src/cli/agent_cli.rs",
     "src/cli/ambient_cli.rs",
     "src/cli/auto_cli.rs",
@@ -33,7 +36,8 @@
       "completes part of T-DSP4WIRE1104-9 (D-SP-4 Stage 4c): AgentCommands, AmbientCommands, AutoCommands, BlackboardCommands, BrainCommands (with its Default impl) and BrokerCommands live in crates/susi-cli-defs/src/<family>.rs and are re-exported from src/cli/<family>_cli.rs, so every caller compiles unchanged",
       "susi-cli-defs keeps #![deny(missing_docs)] and still depends only on susi-vendor-clap",
       "cli_help_and_version_match_snapshot stays byte-identical: no visible help or version text changes",
-      "socket_parity reads moved families from crates/susi-cli-defs/src and asserts a non-zero count of moved sources; core_cli_has_no_ui_subcommands also scans crates/susi-cli-defs/src and asserts it found sources"
+      "socket_parity reads moved families from crates/susi-cli-defs/src and asserts a non-zero count of moved sources; core_cli_has_no_ui_subcommands also scans crates/susi-cli-defs/src and asserts it found sources",
+      "ship-gate root cause fixed in a separate commit: susi-gmcp tests that replace the process-global PlaneBus TOOLS_LIST/TOOLS_EXISTS/TOOLS_EXECUTE handlers (mission_run cancellation wire test, commercial extension-pack wire test) hold one shared TOOLS_PLANE_TEST_LOCK, so neither serves the other's stub; the pair failed 40/40 run together before and passes 40/40 after"
     ]
   }
 }

@@ -6,6 +6,13 @@ use std::{sync::Arc, time::Duration};
 use susi_vendor_mcp_server as rmcp;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
+/// Serializes every test in this crate that replaces the process-global
+/// `PlaneBus` handlers for `TOOLS_LIST` / `TOOLS_EXISTS` / `TOOLS_EXECUTE`.
+/// `GmcpService::tools()` and `tools/call` read those topics, so two such tests
+/// running in parallel each served the other's stub: `mission_run` became an
+/// "Unknown tool" whenever the extension-pack router registered mid-test.
+pub(crate) static TOOLS_PLANE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 type Wire = BufReader<DuplexStream>;
 fn service() -> GmcpService {
     GmcpService::new(std::path::PathBuf::from("."))
@@ -634,6 +641,8 @@ async fn mission_run_cancellation_stops_at_phase_boundary_and_records_cancelled_
         sync_saw_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         sync_done: tokio::sync::Notify::new(),
     });
+    // Held to the end of the test: the service reads these global topics.
+    let _tools_plane = TOOLS_PLANE_TEST_LOCK.lock().await;
     PlaneBus::global().register(topics::TOOLS_LIST, Arc::new(ToolListStub));
     PlaneBus::global().register(topics::TOOLS_EXECUTE, exec_stub.clone());
 
