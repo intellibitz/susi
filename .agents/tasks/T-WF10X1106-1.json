@@ -1,0 +1,24 @@
+{
+  "id": "T-WF10X1106-1",
+  "title": "10-agent lock-free parallel workflow, batched receipt lookup, and accurate affected crate selection",
+  "native_worker": "wf10x1106",
+  "status": "in_progress",
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/affected.rs",
+    ".agents/tasks/T-WF10X1106-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "--offline",
+      "--locked",
+      "affected::tests"
+    ]
+  }
+}
