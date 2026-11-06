@@ -7,8 +7,11 @@ Rust, local development and agent-owned setup. Re-measure changes on the current
 source; old timings and git-source cache assumptions are not proof of current
 performance. Current verified status is in `docs/native-rust-direction.md`.
 The GitHub Actions workflow files named below (`test.yml`, `release.yml`,
-`auto-merge.yml`, `queue.yml`, `target-seed.yml` and the rest) and the queue
-relay were removed (CEO decision 2026-11-06).
+`auto-merge.yml`, `queue.yml`, `target-seed.yml` and the rest), the queue
+relay and the PR auto-merge bot scripts (`auto-merge-pr.sh`, `merge-gate.sh`,
+`reconcile-prs.sh` and the rest) were removed (CEO decision 2026-11-06).
+Nothing hands verification to GitHub any more: changes land through
+`cargo local-workflow ship`, and every release cut runs the full local gate.
 
 # Workflow speed: where the minutes go, and what moves them
 
@@ -289,7 +292,15 @@ report fetches branch tips and receipts together and reuses the batch receipt
 reader; a live run took 4.2 s. All 104 administration tests and 63 workflow
 acceptance tests passed before the full branch gate.
 
-Normal release cuts push the version bump and hand verification to GitHub.
+Superseded 2026-11-06: with the GitHub workflows removed, every cut runs the
+full local release gate (type check, compliance audit, workspace tests, Clippy,
+smoke and e2e checks) before pushing its branch, GitHub `Test` run evidence is
+no longer reused, and `SUSI_RELEASE_RERUN_TESTS` has no effect. The branch
+lands through `cargo local-workflow ship`; tagging, qualification and
+publication use `cargo local-release`. The rest of this paragraph and the
+v0.21.32 timings below record the former handoff.
+
+Normal release cuts pushed the version bump and handed verification to GitHub.
 The tagged suite gated publication, and the Windows, Linux CPU and macOS
 engine artifacts ran smoke missions and offline checks before upload (historical:
 since 2026-11-03 core releases only x86_64 Windows and Linux).
@@ -298,8 +309,10 @@ since 2026-11-03 core releases only x86_64 Windows and Linux).
 the local gate. A cut reports verification as pending until GitHub finishes.
 An installed release predating this change does not have this handoff.
 
-The no-wait task finish also hands affected-crate tests and dependent Clippy to
-the required GitHub branch check, after local formatting and before publishing.
+The no-wait task finish also handed affected-crate tests and dependent Clippy to
+the required GitHub branch check, after local formatting and before publishing
+(superseded 2026-11-06: without `test.yml` on main the handoff condition below
+is never met, so the local gate always runs).
 The task's acceptance still runs locally before its close receipt is created.
 The handoff is enabled only when main contains the branch-test machinery, the
 remote is GitHub, and the branch has not changed CI, hooks or scripts; otherwise
