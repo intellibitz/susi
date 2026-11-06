@@ -1105,8 +1105,8 @@ fn abandoned_ref(id: &str) -> String {
 }
 
 /// The merger's attestation that `id`'s tested head reached `main` lives on
-/// `refs/merged/<id>`; see [`MergedTask`]. Rust only ever reads it — the
-/// auto-merge job (`scripts/auto-merge-pr.sh`) is its only writer — so there is
+/// `refs/merged/<id>`; see [`MergedTask`]. Rust only ever reads it — its only
+/// writer was the GitHub PR auto-merge job, removed on 2026-11-06 — so there is
 /// no constructor here on purpose.
 const MERGED_NAMESPACE: &str = "refs/merged/";
 

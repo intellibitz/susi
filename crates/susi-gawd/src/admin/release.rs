@@ -1015,7 +1015,7 @@ impl SusiAdmin {
 
         if let Some((version, _)) = new_version {
             // The cut ends here: merging the pushed branch is the release. The
-            // merge bot tags the merge (scripts/release-tag-merged-bump.sh) and
+            // merge bot tags the merge (that bot was removed on 2026-11-06) and
             // starts release.yml on the tag, which builds and publishes it, so
             // the cut neither waits for the merge nor pushes a tag. It used to
             // wait up to 30 minutes for its own merge, holding the operator.

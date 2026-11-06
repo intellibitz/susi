@@ -762,7 +762,7 @@ fn a_scripts_acceptance_is_never_skipped() {
 
 /// When another merge lands between our gate and our push, the head is behind
 /// main but merges cleanly. That is the merge machinery's case: it gates the
-/// merge tree itself (auto-merge-pr.sh's inline gate). So finish neither
+/// merge tree itself (the former PR auto-merge bot's inline gate). So finish neither
 /// re-runs the gate (that multiplied the workspace suite by every raced
 /// merge) nor repushes (that cancelled the branch's own in-flight run, so in a
 /// busy swarm a slow branch never went green); past the wait budget it hands

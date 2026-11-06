@@ -1737,13 +1737,6 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
         "`check-hermetic-tests.sh` must skip `cargo test --doc` when `--test` filters integration test binaries \
          and retry failed tests alone (`NEXTEST_TEST_THREADS=1`) when parallel load causes a flake"
     );
-    let mg = read("scripts/merge-gate.sh");
-    assert!(
-        mg.contains("BASE_REF=\"HEAD^2\" \"$here/ci-changed-crates.sh\" --dependents")
-            && mg.contains("comm -12 <(sort -u <<<\"$pr_pkgs\") <(sort -u <<<\"$main_pkgs\")"),
-        "`merge-gate.sh` must intersect the PR's and upstream main's dependent crate closures \
-         on a trial merge commit so disjoint merges skip redundant clippy recompilation"
-    );
     let tasks_rs = read("crates/susi-gawd/src/admin/tasks.rs").replace("\r\n", "\n");
     let renew_body = tasks_rs
         .split("fn renew_once(")
