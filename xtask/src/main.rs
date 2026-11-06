@@ -13,6 +13,10 @@
 mod compiler_env;
 mod extension_watch;
 mod local_build;
+// Shared with the local-release binary, which also uses `select_product_features`;
+// this binary only needs `product_feature_args` (local-build).
+#[allow(dead_code)]
+mod product_features;
 mod sysroot_sources;
 mod trusted_sysroot;
 

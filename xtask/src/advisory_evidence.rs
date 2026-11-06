@@ -301,7 +301,12 @@ pub fn arguments(candidate: &Path, attempt: &Path, host: &str) -> Result<Vec<Str
     ]
     .into_iter()
     .map(str::to_owned)
-    .collect())
+    .collect::<Vec<String>>())
+    .map(|mut args| {
+        // Scan the graph that ships: the product's features, not the slim default.
+        super::product_features::select_product_features(&mut args, candidate);
+        args
+    })
 }
 
 #[cfg(test)]

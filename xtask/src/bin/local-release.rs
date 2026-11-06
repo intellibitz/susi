@@ -46,6 +46,8 @@ mod native_openssl;
 mod pe_imports;
 #[path = "../prepare_release.rs"]
 mod prepare_release;
+#[path = "../product_features.rs"]
+mod product_features;
 #[path = "../sysroot_license.rs"]
 mod sysroot_license;
 #[path = "../sysroot_sources.rs"]
@@ -477,16 +479,9 @@ fn notice_files(directory: &Path) -> Result<Vec<PathBuf>> {
 fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, String, String)> {
     let out = isolated_command(Path::new("cargo"), &attempt.join("metadata-home"))?
         .current_dir(candidate)
-        .args([
-            "metadata",
-            "--offline",
-            "--locked",
-            "--no-default-features",
-            "--format-version",
-            "1",
-            "--filter-platform",
-            host,
-        ])
+        .args(["metadata", "--offline", "--locked"])
+        .args(product_features::product_feature_args(candidate))
+        .args(["--format-version", "1", "--filter-platform", host])
         .output()?;
     if !out.status.success() {
         return Err(format!(
@@ -521,13 +516,9 @@ fn inventory(candidate: &Path, attempt: &Path, host: &str) -> Result<(String, St
     // normal/build graph, with the same target and features as its build.
     let output = isolated_command(Path::new("cargo"), &attempt.join("metadata-home"))?
         .current_dir(candidate)
+        .args(["tree", "--offline", "--locked", "-p", "susi"])
+        .args(product_features::product_feature_args(candidate))
         .args([
-            "tree",
-            "--offline",
-            "--locked",
-            "-p",
-            "susi",
-            "--no-default-features",
             "--target",
             host,
             "--edges",
@@ -876,6 +867,10 @@ fn run_gates(
         .iter()
         .map(|args| args.iter().map(|arg| (*arg).into()).collect())
         .collect();
+    // The production build ships the product's features (the local engine).
+    for gate in &mut gates {
+        product_features::select_product_features(gate, candidate);
+    }
     vendor_regressions::include_release_tooling(candidate, &mut gates);
     if candidate.join("crates/susi-core/Cargo.toml").is_file() {
         gates.push(
