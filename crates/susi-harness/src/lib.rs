@@ -50,6 +50,9 @@
 //! - [`validate`] checks a plan against the repository: package names resolve,
 //!   scopes live under an existing directory, acceptance is test-shaped.
 //! - [`api`] is the command surface every client speaks.
+//! - [`workflow`] is the embedded workflow engine: scope algebra, dependency
+//!   and scope-disjoint wave scheduling, and an in-process, lock-free reader
+//!   of the native coordinator's claims.
 //! - [`verify`] checks the registry's backend ids against each provider's live
 //!   model list, so an id retired upstream is reported before a call fails.
 //!
@@ -98,6 +101,7 @@ pub mod tools;
 pub mod usage;
 pub mod validate;
 pub mod verify;
+pub mod workflow;
 
 pub mod router;
 pub mod worker;

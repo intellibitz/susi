@@ -190,6 +190,7 @@ mod tests {
                 scopes: vec![scope.into()],
                 model: None,
                 task: None,
+                deps: Vec::new(),
                 prompt: "p".into(),
             }],
         }

@@ -1,7 +1,7 @@
 {
   "id": "T-HARNESS-DIAMOND-1",
-  "title": "Harden susi-harness with RAII budget reservations, panic-safe scheduler, and self-healing ledger",
-  "goal": "Prevent budget leaks on worker panic/abort via RAII BudgetReservation, catch runner panics in parallel mission scheduling, and self-heal torn trailing lines on ledger append with integrity verification.",
+  "title": "Harden susi-harness and embed a dependency and scope-disjoint workflow engine",
+  "goal": "Prevent budget leaks on worker panic/abort via RAII BudgetReservation, catch runner panics in parallel mission scheduling, and self-heal torn trailing lines on ledger append with integrity verification. Embed the workflow engine in susi-harness: scope normalization and prefix-overlap algebra, plan dependency validation (unknown deps, cycles), supervisor waves that wait on dependencies, fail dependents of a failed task, and never place overlapping scopes in one wave, a lock-free in-process reader of native claims, slots and the integration head, and a batch finish that integrates a wave's claims in one call.",
   "status": "completed",
   "size": "M",
   "deps": [],

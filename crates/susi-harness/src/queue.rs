@@ -198,6 +198,9 @@ pub fn plan_batch(
                 Some(workers[index % workers.len()].clone())
             },
             task: Some(task.id.clone()),
+            // Queue dependencies name tasks outside this batch; `plan_batch`
+            // already admits only dependency-ready tasks.
+            deps: Vec::new(),
             prompt: prompt_for(task),
         })
         .collect::<Vec<_>>();

@@ -18,6 +18,7 @@ use crate::control::ControlState;
 use crate::executor::{RunOutcome, Runner};
 use crate::lifecycle::{self, LifecycleEvent};
 use crate::policy::Policy;
+use crate::workflow;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -49,6 +50,11 @@ pub struct PlanTask {
     /// claims that id, and the acceptance comes from the record.
     #[serde(default)]
     pub task: Option<String>,
+    /// Keys of tasks in this plan that must land before this one starts.
+    ///
+    /// A task whose dependency fails this run fails too, unattempted.
+    #[serde(default)]
+    pub deps: Vec<String>,
     /// The instruction for the agent.
     pub prompt: String,
 }
@@ -89,7 +95,8 @@ impl Plan {
     }
 
     /// Validate the plan's shape: a mission, at least one task, unique keys,
-    /// and no empty acceptance, prompt or scope.
+    /// no empty acceptance, prompt or scope, every scope normalizable, and
+    /// dependencies that name tasks in the plan without forming a cycle.
     ///
     /// # Errors
     ///
@@ -124,6 +131,11 @@ impl Plan {
                     task.key
                 )));
             }
+            for scope in &task.scopes {
+                workflow::normalize_scope(scope).map_err(|error| {
+                    EaiError::config(format!("task {} scope: {error}", task.key))
+                })?;
+            }
             if !keys.insert(task.key.clone()) {
                 return Err(EaiError::config(format!(
                     "task key {} appears twice",
@@ -131,7 +143,7 @@ impl Plan {
                 )));
             }
         }
-        Ok(())
+        workflow::validate_dependencies(&self.tasks)
     }
 }
 
@@ -273,17 +285,26 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
 
     /// Run the plan, skipping tasks an earlier run landed.
     ///
-    /// Tasks are prepared in batches of `max_parallel`; each batch's results
-    /// are then landed serially, in plan order, and persisted one by one.
+    /// Pending tasks run in waves chosen by the embedded workflow engine
+    /// ([`workflow::next_wave`]): a task joins a wave once its dependencies
+    /// have landed, and only when its scopes are disjoint from every other
+    /// task in the wave, so tasks that reserve the same paths run one after
+    /// the other instead of colliding at the claim. Up to `max_parallel`
+    /// tasks prepare at once; each wave's results are then landed serially,
+    /// in plan order, and persisted one by one. A task whose dependency did
+    /// not land fails without being attempted.
     ///
     /// # Errors
     ///
-    /// Returns `EaiError::io` when the state cannot be read or written.
+    /// Returns `EaiError::io` when the state cannot be read or written, and
+    /// `EaiError::config` for an unknown dependency, a dependency cycle, or a
+    /// scope that cannot be normalized.
     pub fn run(&self, plan: &Plan) -> EaiResult<SupervisorReport> {
+        workflow::validate_dependencies(&plan.tasks)?;
         let mut state = load_state(&self.state_path)?;
         let mut tally = Tally::default();
         let mut skipped = Vec::new();
-        let pending: Vec<&PlanTask> = plan
+        let mut remaining: Vec<&PlanTask> = plan
             .tasks
             .iter()
             .filter(|task| {
@@ -297,27 +318,39 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
                 !finished
             })
             .collect();
+        // What an earlier run landed satisfies a dependency this run.
+        let mut completed: BTreeSet<String> = skipped.iter().cloned().collect();
+        let mut failed: BTreeSet<String> = BTreeSet::new();
         let mut unstarted = Vec::new();
         let mut budget_exhausted = false;
         let mut paused = false;
         let mut aborted = false;
         let parallel = self.max_parallel.max(1);
-        'plan: for (batch_index, batch) in pending.chunks(parallel).enumerate() {
+        loop {
+            self.fail_dependents(&mut remaining, &mut failed, &mut state, &mut tally)?;
+            if remaining.is_empty() {
+                break;
+            }
             if let Some(path) = &self.control_path {
                 let controls = ControlState::load(path);
                 if controls.blocks_new_work() {
                     paused = controls.paused;
                     aborted = controls.aborted;
-                    let consumed = batch_index * parallel;
-                    unstarted = pending
-                        .iter()
-                        .skip(consumed)
-                        .map(|task| task.key.clone())
-                        .collect();
-                    break 'plan;
+                    unstarted.extend(remaining.iter().map(|task| task.key.clone()));
+                    break;
                 }
             }
-            for (task, result) in self.prepare_batch(batch) {
+            let wave = workflow::next_wave(&remaining, &completed, &[], parallel)?;
+            if wave.is_empty() {
+                // Nothing can start: leave the rest for a later run rather
+                // than spin. Validation makes this unreachable for a plan
+                // whose dependencies all resolve within it.
+                unstarted.extend(remaining.iter().map(|task| task.key.clone()));
+                break;
+            }
+            let admitted: BTreeSet<&str> = wave.iter().map(|task| task.key.as_str()).collect();
+            remaining.retain(|task| !admitted.contains(task.key.as_str()));
+            for (task, result) in self.prepare_batch(&wave) {
                 let status = match result {
                     Ok(prepared) => self.executor.land(prepared),
                     Err(error) => Ok(TaskStatus::Failed {
@@ -327,14 +360,16 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
                 .unwrap_or_else(|error| TaskStatus::Failed {
                     reason: error.to_string(),
                 });
-                // Once the mission stops for a top-up, the rest of this batch
+                let landed = matches!(status, TaskStatus::Done { .. });
+                // Once the mission stops for a top-up, the rest of this wave
                 // was already prepared. Work that passed still lands: the
-                // stop used to break here and leave a batch-mate's accepted
+                // stop used to break here and leave a wave-mate's accepted
                 // commit unmerged with its claim held. Anything else is left
                 // for a later run, as before.
                 if budget_exhausted {
-                    if matches!(status, TaskStatus::Done { .. }) {
+                    if landed {
                         record(&mut state, &self.state_path, task, status, &mut tally)?;
+                        completed.insert(task.key.clone());
                     } else {
                         unstarted.push(task.key.clone());
                     }
@@ -342,12 +377,16 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
                 }
                 let stop = self.executor.budget_exhausted();
                 record(&mut state, &self.state_path, task, status, &mut tally)?;
+                if landed {
+                    completed.insert(task.key.clone());
+                } else {
+                    failed.insert(task.key.clone());
+                }
                 budget_exhausted = stop;
             }
             if budget_exhausted {
-                let consumed = (batch_index + 1) * parallel;
-                unstarted.extend(pending.iter().skip(consumed).map(|task| task.key.clone()));
-                break 'plan;
+                unstarted.extend(remaining.iter().map(|task| task.key.clone()));
+                break;
             }
         }
         Ok(SupervisorReport {
@@ -360,6 +399,34 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
             paused,
             aborted,
         })
+    }
+
+    /// Fail, unattempted, every remaining task with a failed dependency —
+    /// transitively — and record each one.
+    fn fail_dependents(
+        &self,
+        remaining: &mut Vec<&PlanTask>,
+        failed: &mut BTreeSet<String>,
+        state: &mut State,
+        tally: &mut Tally,
+    ) -> EaiResult<()> {
+        loop {
+            let blocked = remaining.iter().enumerate().find_map(|(position, task)| {
+                task.deps
+                    .iter()
+                    .find(|dep| failed.contains(*dep))
+                    .map(|dep| (position, dep.clone()))
+            });
+            let Some((position, dep)) = blocked else {
+                return Ok(());
+            };
+            let task = remaining.remove(position);
+            let status = TaskStatus::Failed {
+                reason: format!("dependency {dep} did not complete"),
+            };
+            record(state, &self.state_path, task, status, tally)?;
+            failed.insert(task.key.clone());
+        }
     }
 
     fn prepare_batch<'b>(
@@ -639,6 +706,10 @@ mod tests {
         failing: Vec<String>,
         active: AtomicUsize,
         peak: AtomicUsize,
+        /// Keys preparing right now.
+        in_flight: Mutex<Vec<String>>,
+        /// Every pair of keys that prepared at the same time.
+        together: Mutex<Vec<(String, String)>>,
     }
 
     impl FakeExecutor {
@@ -648,7 +719,17 @@ mod tests {
                 failing,
                 active: AtomicUsize::new(0),
                 peak: AtomicUsize::new(0),
+                in_flight: Mutex::new(Vec::new()),
+                together: Mutex::new(Vec::new()),
             }
+        }
+
+        fn ran_together(&self, a: &str, b: &str) -> bool {
+            self.together
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(x, y)| (x == a && y == b) || (x == b && y == a))
         }
     }
 
@@ -657,10 +738,22 @@ mod tests {
 
         fn prepare(&self, task: &PlanTask) -> EaiResult<String> {
             self.calls.lock().unwrap().push(task.key.clone());
+            {
+                let mut in_flight = self.in_flight.lock().unwrap();
+                let mut together = self.together.lock().unwrap();
+                for other in in_flight.iter() {
+                    together.push((other.clone(), task.key.clone()));
+                }
+                in_flight.push(task.key.clone());
+            }
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak.fetch_max(active, Ordering::SeqCst);
             std::thread::sleep(Duration::from_millis(80));
             self.active.fetch_sub(1, Ordering::SeqCst);
+            self.in_flight
+                .lock()
+                .unwrap()
+                .retain(|key| key != &task.key);
             Ok(task.key.clone())
         }
 
@@ -686,13 +779,178 @@ mod tests {
                     key: (*key).into(),
                     title: format!("task {key}"),
                     accept: "cargo test -p susi-harness".into(),
-                    scopes: vec!["docs/harness.md".into()],
+                    // Disjoint scopes, so the tasks may share a wave.
+                    scopes: vec![format!("docs/{key}.md")],
                     model: None,
                     task: None,
+                    deps: Vec::new(),
                     prompt: "do it".into(),
                 })
                 .collect(),
         }
+    }
+
+    fn spec(key: &str, scopes: &[&str], deps: &[&str]) -> PlanTask {
+        PlanTask {
+            key: key.into(),
+            title: format!("task {key}"),
+            accept: "cargo test -p susi-harness".into(),
+            scopes: scopes.iter().map(|scope| (*scope).to_string()).collect(),
+            model: None,
+            task: None,
+            deps: deps.iter().map(|dep| (*dep).to_string()).collect(),
+            prompt: "do it".into(),
+        }
+    }
+
+    fn mission(tasks: Vec<PlanTask>) -> Plan {
+        Plan {
+            mission: "m-wave".into(),
+            tasks,
+        }
+    }
+
+    #[test]
+    fn overlapping_scopes_run_in_sequential_waves_and_both_land() {
+        let dir = tempfile::tempdir().unwrap();
+        let executor = FakeExecutor::new(vec![]);
+        let plan = mission(vec![
+            spec("core", &["crates/susi-core"], &[]),
+            spec("lib", &["Crates\\Susi-Core\\src\\lib.rs"], &[]),
+            spec("defs", &["crates/susi-core-defs"], &[]),
+        ]);
+        let report = Supervisor::new(dir.path().join("state.json"), &executor)
+            .with_parallelism(4)
+            .run(&plan)
+            .unwrap();
+        assert_eq!(report.done, vec!["core", "defs", "lib"]);
+        assert!(report.failed.is_empty());
+        assert!(!executor.ran_together("core", "lib"));
+        // The sibling crate is disjoint and shares the first wave.
+        assert!(executor.ran_together("core", "defs"));
+        assert_eq!(*executor.calls.lock().unwrap().last().unwrap(), "lib");
+    }
+
+    #[test]
+    fn disjoint_scopes_prepare_concurrently_in_one_wave() {
+        let dir = tempfile::tempdir().unwrap();
+        let executor = FakeExecutor::new(vec![]);
+        let plan = mission(vec![
+            spec("a", &["docs/a.md"], &[]),
+            spec("b", &["docs/b.md"], &[]),
+        ]);
+        let report = Supervisor::new(dir.path().join("state.json"), &executor)
+            .with_parallelism(2)
+            .run(&plan)
+            .unwrap();
+        assert_eq!(report.done, vec!["a", "b"]);
+        assert!(executor.ran_together("a", "b"));
+    }
+
+    #[test]
+    fn a_dependent_waits_for_its_dependency_and_fails_when_it_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let executor = FakeExecutor::new(vec!["base".into()]);
+        let plan = mission(vec![
+            spec("leaf", &["docs/leaf.md"], &["mid"]),
+            spec("base", &["docs/base.md"], &[]),
+            spec("mid", &["docs/mid.md"], &["base"]),
+            spec("free", &["docs/free.md"], &[]),
+        ]);
+        let state = dir.path().join("state.json");
+        let report = Supervisor::new(&state, &executor)
+            .with_parallelism(4)
+            .run(&plan)
+            .unwrap();
+        assert_eq!(report.done, vec!["free"]);
+        // The failure cascades in dependency order: base, then mid, then leaf.
+        assert_eq!(
+            report.failed,
+            vec![
+                ("base".to_string(), "no".to_string()),
+                (
+                    "mid".to_string(),
+                    "dependency base did not complete".to_string()
+                ),
+                (
+                    "leaf".to_string(),
+                    "dependency mid did not complete".to_string()
+                ),
+            ]
+        );
+        // Neither dependent was ever prepared.
+        let mut calls = executor.calls.lock().unwrap().clone();
+        calls.sort();
+        assert_eq!(calls, vec!["base", "free"]);
+        // The failures are persisted, so a rerun retries the chain in order.
+        let retry = FakeExecutor::new(vec![]);
+        let second = Supervisor::new(&state, &retry)
+            .with_parallelism(4)
+            .run(&plan)
+            .unwrap();
+        assert_eq!(second.skipped, vec!["free"]);
+        assert_eq!(*retry.calls.lock().unwrap(), vec!["base", "mid", "leaf"]);
+        assert_eq!(second.done, vec!["base", "mid", "leaf"]);
+    }
+
+    #[test]
+    fn a_landed_dependency_from_an_earlier_run_unblocks_its_dependent() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state.json");
+        let first = mission(vec![spec("base", &["docs/base.md"], &[])]);
+        let executor = FakeExecutor::new(vec![]);
+        Supervisor::new(&state, &executor).run(&first).unwrap();
+        let second = mission(vec![
+            spec("base", &["docs/base.md"], &[]),
+            spec("next", &["docs/next.md"], &["base"]),
+        ]);
+        let report = Supervisor::new(&state, &executor).run(&second).unwrap();
+        assert_eq!(report.skipped, vec!["base"]);
+        assert_eq!(report.done, vec!["next"]);
+    }
+
+    #[test]
+    fn a_plan_rejects_unknown_deps_cycles_and_bad_scopes() {
+        let unknown = r#"{"mission":"m","tasks":[
+            {"key":"a","title":"t","accept":"cargo test","scopes":["x"],"prompt":"p","deps":["ghost"]}
+        ]}"#;
+        let error = Plan::from_json(unknown).unwrap_err().to_string();
+        assert!(error.contains("ghost"), "{error}");
+
+        let cycle = r#"{"mission":"m","tasks":[
+            {"key":"a","title":"t","accept":"cargo test","scopes":["x"],"prompt":"p","deps":["b"]},
+            {"key":"b","title":"t","accept":"cargo test","scopes":["y"],"prompt":"p","deps":["a"]}
+        ]}"#;
+        let error = Plan::from_json(cycle).unwrap_err().to_string();
+        assert!(error.contains("dependency cycle"), "{error}");
+
+        let escape = r#"{"mission":"m","tasks":[
+            {"key":"a","title":"t","accept":"cargo test","scopes":["../x"],"prompt":"p"}
+        ]}"#;
+        assert!(Plan::from_json(escape).is_err());
+
+        // A plan without `deps` still parses: the field is optional.
+        let legacy = r#"{"mission":"m","tasks":[
+            {"key":"a","title":"t","accept":"cargo test","scopes":["x"],"prompt":"p"},
+            {"key":"b","title":"t","accept":"cargo test","scopes":["y"],"prompt":"p","deps":["a"]}
+        ]}"#;
+        let plan = Plan::from_json(legacy).unwrap();
+        assert!(plan.tasks[0].deps.is_empty());
+        assert_eq!(plan.tasks[1].deps, vec!["a"]);
+    }
+
+    #[test]
+    fn run_rejects_a_cyclic_plan_built_without_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        let executor = FakeExecutor::new(vec![]);
+        let plan = mission(vec![
+            spec("a", &["docs/a.md"], &["b"]),
+            spec("b", &["docs/b.md"], &["a"]),
+        ]);
+        assert!(Supervisor::new(dir.path().join("state.json"), &executor)
+            .run(&plan)
+            .is_err());
+        assert!(executor.calls.lock().unwrap().is_empty());
     }
 
     #[test]
