@@ -217,31 +217,30 @@ impl Drop for Lock {
     }
 }
 
-/// The per-repository slot for one heavy integration verification run at a time.
-///
-/// Held as an OS file lock (`File::try_lock`), which the OS releases when the
-/// holder exits or crashes, so a dead gate can never wedge the machine and no
-/// age-based stale-lock guess is needed.
+/// An exclusive OS file lock on one directory: a worktree's `check`, or one
+/// ship's verification slot. Held with `File::try_lock`, which the OS releases
+/// when the holder exits or crashes, so a dead run never wedges anything and
+/// no age-based stale-lock guess is needed.
 struct HostGate {
     _file: fs::File,
 }
 
-/// `%LOCALAPPDATA%\susi-local-workflow\host-gate` on Windows,
-/// `~/.cache/susi-local-workflow/host-gate` elsewhere.
-fn host_gate_dir() -> Result<PathBuf> {
+/// Per-user state shared by every repository on this host:
+/// `%LOCALAPPDATA%\susi-local-workflow` on Windows,
+/// `~/.cache/susi-local-workflow` elsewhere.
+fn host_state_dir() -> Result<PathBuf> {
     let base = env::var_os(if cfg!(windows) {
         "LOCALAPPDATA"
     } else {
         "HOME"
     })
     .map(PathBuf::from)
-    .ok_or("cannot locate a per-user directory for the host gate")?;
+    .ok_or("cannot locate a per-user directory for local workflow state")?;
     Ok(if cfg!(windows) {
         base.join("susi-local-workflow")
     } else {
         base.join(".cache").join("susi-local-workflow")
-    }
-    .join("host-gate"))
+    })
 }
 
 /// Wait for and take the host gate in `dir`; `holder` describes this run for
@@ -286,19 +285,206 @@ fn acquire_host_gate(dir: &Path, holder: &str) -> Result<HostGate> {
     }
 }
 
-/// Take the host gate for a gate run in `candidate`, timing the wait.
-fn host_gate_for(candidate: &Path) -> Result<HostGate> {
-    let holder = format!(
-        "pid={} candidate={}",
+/// A running gate's marker in the host's live-gate registry
+/// (`<host state>/live-gates`). Gates never wait for each other; instead each
+/// cargo command of a gate takes an even share of the CPU, computed from how
+/// many markers are alive when it starts (`gate_share`).
+///
+/// The marker is an OS-locked file: a crashed gate's lock is released by the
+/// OS, and the next count removes its marker.
+struct LiveGate {
+    file: fs::File,
+    path: PathBuf,
+}
+
+impl Drop for LiveGate {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn live_gate_dir() -> Result<PathBuf> {
+    Ok(host_state_dir()?.join("live-gates"))
+}
+
+/// Register a running gate in `dir`. The marker is locked under a temporary
+/// name and only then renamed to `*.gate`, so a concurrent count never sees
+/// (and never removes as stale) a marker that is not locked yet.
+fn register_live_gate(dir: &Path) -> Result<LiveGate> {
+    fs::create_dir_all(dir)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let name = format!(
+        "{}-{stamp}-{}",
         std::process::id(),
-        candidate.display()
+        LIVE_GATE_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     );
-    let gate_dir = state(candidate)
-        .map(|workflow| workflow.join("host-gate"))
-        .or_else(|_| host_gate_dir())?;
-    timed("wait for host gate", || -> Result<HostGate> {
-        acquire_host_gate(&gate_dir, &holder)
-    })
+    let pending = dir.join(format!("{name}.pending"));
+    let file = fs::OpenOptions::new()
+        .create_new(true)
+        .read(true)
+        .write(true)
+        .open(&pending)?;
+    if let Err(error) = file.try_lock() {
+        drop(file);
+        let _ = fs::remove_file(&pending);
+        return Err(format!(
+            "cannot lock live-gate marker {}: {error}",
+            pending.display()
+        )
+        .into());
+    }
+    let path = dir.join(format!("{name}.gate"));
+    if let Err(error) = fs::rename(&pending, &path) {
+        let _ = file.unlock();
+        drop(file);
+        let _ = fs::remove_file(&pending);
+        return Err(error.into());
+    }
+    Ok(LiveGate { file, path })
+}
+
+static LIVE_GATE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many gates are running on this host now, the caller's included (at
+/// least 1). A marker whose lock can be taken belongs to a gate that exited or
+/// crashed; it is removed. Entries that cannot be opened are not counted.
+fn live_gates(dir: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 1;
+    };
+    let mut live = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("gate") {
+            continue;
+        }
+        let Ok(file) = fs::OpenOptions::new().read(true).write(true).open(&path) else {
+            continue;
+        };
+        match file.try_lock() {
+            Ok(()) => {
+                let _ = file.unlock();
+                drop(file);
+                let _ = fs::remove_file(&path);
+            }
+            Err(fs::TryLockError::WouldBlock) => live += 1,
+            Err(fs::TryLockError::Error(_)) => {}
+        }
+    }
+    live.max(1)
+}
+
+/// One gate command's share of the host when `live` gates run at once.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct GateShare {
+    live: usize,
+    /// `CARGO_BUILD_JOBS`.
+    jobs: usize,
+    /// `RUST_TEST_THREADS` for `cargo test`.
+    test_threads: usize,
+    /// `NEXTEST_TEST_THREADS` for `cargo nextest run`.
+    nextest_threads: usize,
+}
+
+/// Divide `cores` logical CPUs evenly between `live` gates, never below 2
+/// jobs or test threads. A single gate keeps the settings it had when gates
+/// queued: every core for cargo and `cargo test`, `GATE_TEST_THREADS` for
+/// nextest. Lowering each gate's parallelism replaces the old host-wide
+/// queue: the wall-clock deadline tests failed (2026-11-06) when two gates
+/// each ran on every core, which an even share avoids.
+fn gate_share(cores: usize, live: usize) -> GateShare {
+    let live = live.max(1);
+    let jobs = (cores.max(1) / live).max(2);
+    GateShare {
+        live,
+        jobs,
+        test_threads: jobs,
+        nextest_threads: (GATE_TEST_THREADS / live).max(2),
+    }
+}
+
+/// This host's share for a gate command starting now.
+fn current_gate_share() -> GateShare {
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    let live = live_gate_dir().map_or(1, |dir| live_gates(&dir));
+    gate_share(cores, live)
+}
+
+fn apply_gate_share(command: &mut Command, share: GateShare) {
+    command
+        .env("CARGO_BUILD_JOBS", share.jobs.to_string())
+        .env("RUST_TEST_THREADS", share.test_threads.to_string())
+        .env("NEXTEST_TEST_THREADS", share.nextest_threads.to_string());
+}
+
+fn print_gate_share(command: &str, share: GateShare) {
+    eprintln!(
+        "gate share for cargo {command}: {} live gate(s) on this host; {} build jobs, {} test threads",
+        share.live, share.jobs, share.test_threads
+    );
+}
+
+/// Register this process's gate on the host, or carry on unregistered (and
+/// so uncounted) when the per-user state directory is unusable. The count is
+/// a CPU-sharing input, never a correctness condition.
+fn live_gate() -> Option<LiveGate> {
+    match live_gate_dir().and_then(|dir| register_live_gate(&dir)) {
+        Ok(gate) => Some(gate),
+        Err(error) => {
+            eprintln!("warning: gate not registered in the live-gate registry: {error}");
+            None
+        }
+    }
+}
+
+/// One ship's private verification slot: candidate worktree
+/// `<repo>-verify-candidate-<n>` beside the primary checkout, with its warm
+/// target and attempt directory (gate logs, test home, native gate records)
+/// under `<git common dir>/susi-local-workflow/slots/<n>`. Slots are taken
+/// with a non-blocking OS lock: a busy slot is skipped, never waited for, so
+/// concurrent ships verify side by side. Each slot keeps one candidate path,
+/// so cargo's fingerprints stay valid and its target stays warm across runs.
+struct Slot {
+    candidate: PathBuf,
+    attempt: PathBuf,
+    _lock: HostGate,
+}
+
+const MAX_SLOTS: usize = 64;
+
+fn acquire_slot(root: &Path) -> Result<Slot> {
+    let slots = state(root)?.join("slots");
+    fs::create_dir_all(&slots)?;
+    let legacy = candidate_path(root)?;
+    for index in 1..=MAX_SLOTS {
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(slots.join(format!("{index}.lock")))?;
+        match file.try_lock() {
+            Ok(()) => {
+                let dir = slots.join(index.to_string());
+                fs::create_dir_all(&dir)?;
+                // Informational only: correctness rests on the OS lock.
+                let _ = fs::write(dir.join("owner"), format!("pid={}\n", std::process::id()));
+                let mut candidate = legacy.into_os_string();
+                candidate.push(format!("-{index}"));
+                return Ok(Slot {
+                    candidate: PathBuf::from(candidate),
+                    attempt: dir.join("attempt"),
+                    _lock: HostGate { _file: file },
+                });
+            }
+            Err(fs::TryLockError::WouldBlock) => {}
+            Err(fs::TryLockError::Error(error)) => return Err(error.into()),
+        }
+    }
+    Err(format!("all {MAX_SLOTS} verification slots are in use").into())
 }
 
 /// A narrowed gate that covers `xtask` still builds and tests its
@@ -567,8 +753,21 @@ fn receipt_matches(
             return Ok(false);
         }
         if is_ancestor(root, fields[3], accepted)? {
+            // A local integration ref left behind origin/main (main advanced
+            // through ships whose receipts this clone does not hold) is in the
+            // accepted history but can be older than the claim base. Receipts
+            // written before `record_acceptance` recorded the publish base in
+            // that case named the stale ref; accept them when the claim base
+            // lies on the published lineage, the rule used for a displaced ref.
             if !is_ancestor(root, fields[2], fields[3])? {
-                return Ok(false);
+                let Ok(publish_base) = git(root, &["rev-parse", &format!("{accepted}^1")]) else {
+                    return Ok(false);
+                };
+                if !is_ancestor(root, fields[3], &publish_base)?
+                    || !is_ancestor(root, fields[2], &publish_base)?
+                {
+                    return Ok(false);
+                }
             }
         } else {
             // `ship` merges onto origin/main, so an integration ref that is not
@@ -748,7 +947,9 @@ fn sign_workspace_pass(root: &Path, key: &str) -> Result<String> {
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
 fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
-    let _host = host_gate_for(candidate)?;
+    // No queue: this gate runs now, beside any other, and each of its cargo
+    // commands takes an even share of the host (`gate_share`).
+    let _live = live_gate();
     timed("provenance check", || {
         native_provenance::require_unmodified_history(candidate)
     })
@@ -991,9 +1192,11 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             // configuration or run a shared daemon. The local gate is self-contained.
             .env("RUSTC_WRAPPER", "")
             .env("RUSTC_WORKSPACE_WRAPPER", "")
-            .env("NEXTEST_TEST_THREADS", GATE_TEST_THREADS)
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
+        let share = current_gate_share();
+        apply_gate_share(&mut command, share);
+        print_gate_share(args.first().map_or("?", String::as_str), share);
         let measure = |cmd: &Command| {
             sysroot.as_ref().filter(|_| index == 3).and_then(|s| {
                 workspace_test_proof::fingerprint(
@@ -1044,6 +1247,13 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             }
         }
         evidence.push(result.clone());
+        evidence.push(format!(
+            "gate-share={} live={} jobs={} test-threads={}",
+            gate_ids.get(index).map_or("?", String::as_str),
+            share.live,
+            share.jobs,
+            share.test_threads
+        ));
         fs::write(attempt.join("verification.txt"), evidence.join("\n"))?;
         if !status.success() {
             let failed_log = native_provenance::store_blob(candidate, &fs::read(&log_path)?)?;
@@ -1131,7 +1341,7 @@ fn gate_selection(candidate: &Path, attempt: &Path) -> Result<GateSelection> {
 /// Test threads for nextest gates: enough to finish the suite in parallel,
 /// fewer than the machine's logical cores so the process-spawning tests keep
 /// the CPU their wall-clock deadlines assume (see `.config/nextest.toml`).
-const GATE_TEST_THREADS: &str = "16";
+const GATE_TEST_THREADS: usize = 16;
 
 /// Whether the test gate runs through `cargo nextest` instead of `cargo test`:
 /// opt-in with `SUSI_LOCAL_TEST_RUNNER=nextest`. Measured 2026-11-06 on the
@@ -1376,6 +1586,16 @@ where
         .is_empty()
     {
         return Err("verification changed the candidate tree; refusing promotion".into());
+    }
+    // Ships no longer hold `integration` while they gate; they move the
+    // accepted ref under `publish`. Take it (before the claims lock, the order
+    // ship uses) so the ref transaction below cannot race a ship's.
+    let _publish = Lock::acquire(&state.join("publish"))?;
+    if integration_head(root)? != previous {
+        return Err(
+            "the accepted integration moved during verification (a ship published); run integrate again"
+                .into(),
+        );
     }
     let _claims = Lock::acquire(&state)?;
     for (claim, source, path, bytes) in &inputs {
@@ -2486,13 +2706,36 @@ fn candidate_path(root: &Path) -> Result<PathBuf> {
         .join(format!("{name}-verify-candidate")))
 }
 
+/// Where `candidate`'s warm target rests between runs, in order of
+/// preference. A slot candidate (`<repo>-verify-candidate-<n>`) has its own
+/// `slots/<n>/target`; when that does not exist yet it adopts the single
+/// legacy `integration-target` (registry dependencies stay fresh; workspace
+/// crates rebuild once for the new path). The legacy candidate
+/// (`integrate`) uses only the legacy target.
+fn warm_targets(workflow: &Path, candidate: &Path) -> Vec<PathBuf> {
+    let legacy = workflow.join("integration-target");
+    let slot = candidate
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.rsplit_once("-verify-candidate-"))
+        .map(|(_, slot)| slot)
+        .filter(|slot| !slot.is_empty() && slot.bytes().all(|byte| byte.is_ascii_digit()));
+    match slot {
+        Some(slot) => vec![workflow.join("slots").join(slot).join("target"), legacy],
+        None => vec![legacy],
+    }
+}
+
+/// Move a warm target into `candidate` (a rename: atomic, so two candidates
+/// never take the same one) and return the candidate's target directory.
 fn restore_candidate_target(candidate: &Path) -> PathBuf {
     let target = candidate.join("target");
     if !target.exists() {
         if let Ok(workflow) = state(candidate) {
-            let warm = workflow.join("integration-target");
-            if warm.is_dir() {
-                let _ = fs::rename(&warm, &target);
+            for warm in warm_targets(&workflow, candidate) {
+                if warm.is_dir() && fs::rename(&warm, &target).is_ok() {
+                    break;
+                }
             }
         }
     }
@@ -2503,9 +2746,13 @@ fn stash_candidate_target(root: &Path, candidate: &Path) {
     let target = candidate.join("target");
     if target.is_dir() {
         if let Ok(workflow) = state(root) {
-            let warm = workflow.join("integration-target");
-            if !warm.exists() {
-                let _ = fs::rename(&target, &warm);
+            if let Some(warm) = warm_targets(&workflow, candidate).into_iter().next() {
+                if !warm.exists() {
+                    if let Some(parent) = warm.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    let _ = fs::rename(&target, &warm);
+                }
             }
         }
     }
@@ -2530,15 +2777,15 @@ fn remove_candidate(root: &Path, candidate: &Path) {
     }
 }
 
-fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf> {
+/// Recreate the slot's `candidate` worktree at `base` and merge every source
+/// into it, in order.
+fn merge_onto(root: &Path, candidate: &Path, base: &str, inputs: &[SourceInput]) -> Result<()> {
     if !valid_oid(base) {
         return Err("ship base is not a commit oid".into());
     }
-    let candidate = candidate_path(root)?;
-
     if candidate.exists() {
-        remove_candidate(root, &candidate);
-        let _ = fs::remove_dir_all(&candidate);
+        remove_candidate(root, candidate);
+        let _ = fs::remove_dir_all(candidate);
         let _ = git(root, &["worktree", "prune"]);
     }
     git(
@@ -2549,13 +2796,13 @@ fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf
             "worktree",
             "add",
             "--detach",
-            text(&candidate)?,
+            text(candidate)?,
             base,
         ],
     )?;
     for input in inputs {
         if let Err(error) = git(
-            &candidate,
+            candidate,
             &[
                 "-c",
                 "core.hooksPath=",
@@ -2571,21 +2818,20 @@ fn merge_onto(root: &Path, base: &str, inputs: &[SourceInput]) -> Result<PathBuf
                 &input.source,
             ],
         ) {
-            remove_candidate(root, &candidate);
+            remove_candidate(root, candidate);
             return Err(error);
         }
     }
-    Ok(candidate)
+    Ok(())
 }
 
 fn record_acceptance(
     root: &Path,
+    attempt: &Path,
     inputs: &[SourceInput],
     head: &str,
     evidence: &[String],
 ) -> Result<()> {
-    let workflow = state(root)?;
-    let attempt = workflow.join("publish");
     let native_gates = if attempt.join("native-gates.json").is_file() {
         Some(serde_json::from_slice::<serde_json::Value>(&fs::read(
             attempt.join("native-gates.json"),
@@ -2611,6 +2857,12 @@ fn record_acceptance(
             eprintln!(
                 "preserved unrelated integration ref {previous} at refs/susi/integration/displaced"
             );
+            chain_previous = Some(publish_base.clone());
+        } else if previous != &publish_base && is_ancestor(root, previous, &publish_base)? {
+            // The local ref is behind origin/main (main advanced through ships
+            // made elsewhere). The history this integration builds on is the
+            // publish base it was merged onto, not the stale ref, which can be
+            // older than the claim base and would make the receipt unverifiable.
             chain_previous = Some(publish_base.clone());
         }
     }
@@ -2672,21 +2924,26 @@ fn record_acceptance(
     Ok(())
 }
 
-fn prove_ship<F>(
-    root: &Path,
-    workflow: &Path,
-    base: &str,
+/// Run `verify` on the slot's merged candidate. `selection_base` is what the
+/// gate's affected selection is computed against: the publish base on a first
+/// run, the previously verified head on a re-gate.
+fn verify_merged<F>(
+    slot: &Slot,
+    selection_base: &str,
     inputs: &[SourceInput],
     verify: &mut F,
-) -> Result<(PathBuf, String, Vec<String>)>
+) -> Result<(String, Vec<String>)>
 where
     F: FnMut(&Path, &Path) -> Result<Vec<String>>,
 {
-    let candidate = timed("merge candidate", || merge_onto(root, base, inputs))?;
-    let attempt = workflow.join("publish");
-    fs::create_dir_all(&attempt)?;
+    let candidate = &slot.candidate;
+    let attempt = &slot.attempt;
+    fs::create_dir_all(attempt)?;
     let _ = fs::remove_file(attempt.join("native-gates.json"));
-    fs::write(attempt.join("selection-base"), format!("{base}\n"))?;
+    fs::write(
+        attempt.join("selection-base"),
+        format!("{selection_base}\n"),
+    )?;
     fs::write(
         attempt.join("native-inputs.json"),
         serde_json::to_vec_pretty(
@@ -2702,32 +2959,74 @@ where
                 .collect::<Vec<_>>(),
         )?,
     )?;
-    let before = git(&candidate, &["rev-parse", "HEAD"])?;
-    let evidence = match verify(&candidate, &workflow.join("publish")) {
-        Ok(evidence) => evidence,
-        Err(error) => {
-            remove_candidate(root, &candidate);
-            return Err(error);
-        }
-    };
-    let head = git(&candidate, &["rev-parse", "HEAD"])?;
+    let before = git(candidate, &["rev-parse", "HEAD"])?;
+    let evidence = verify(candidate, attempt)?;
+    let head = git(candidate, &["rev-parse", "HEAD"])?;
     if head != before
         || !git(
-            &candidate,
+            candidate,
             &["status", "--porcelain", "--untracked-files=all"],
         )?
         .is_empty()
     {
-        remove_candidate(root, &candidate);
         return Err("verification changed the candidate tree; refusing promotion".into());
     }
-    if let Err(error) = require_ship_evidence(&evidence) {
-        remove_candidate(root, &candidate);
-        return Err(error);
-    }
-    Ok((candidate, head, evidence))
+    require_ship_evidence(&evidence)?;
+    Ok((head, evidence))
 }
 
+/// Whether the re-gate after merging newer origin/main commits must run, and
+/// a description of what it covers. The gates already passed on `tested`. A
+/// package whose own files and dependencies the newly merged commits leave
+/// unchanged builds and tests the same on the new head, so the re-gate's
+/// selection is the change from `tested` to the candidate's new `HEAD`
+/// (`affected.rs`; the root package's tree-wide tests are in every such
+/// selection). When the merged tree equals the tested tree, or the change
+/// selects no package, the gates already run cover the new head as is.
+fn regate_needed(candidate: &Path, tested: &str) -> (bool, String) {
+    if env::var("SUSI_LOCAL_GATE").is_ok_and(|mode| mode == "full") {
+        return (true, "SUSI_LOCAL_GATE=full".into());
+    }
+    let selection = affected::changed(candidate, tested, "HEAD").and_then(|changed| {
+        let workspace = affected::load(candidate)?;
+        Ok((changed.len(), affected::select(&workspace, &changed)))
+    });
+    match selection {
+        Ok((0, _)) => (false, "the merged tree equals the tested tree".into()),
+        Ok((changed, affected::Selection::Packages(packages))) if packages.is_empty() => {
+            (false, format!("{changed} changed paths select no package"))
+        }
+        Ok((changed, affected::Selection::Packages(packages))) => (
+            true,
+            format!(
+                "{changed} changed paths select {} packages: {}",
+                packages.len(),
+                packages.iter().cloned().collect::<Vec<_>>().join(", ")
+            ),
+        ),
+        Ok((changed, affected::Selection::Workspace(reason))) => (
+            true,
+            format!("{changed} changed paths select the whole workspace ({reason})"),
+        ),
+        Err(error) => (true, format!("selection unavailable ({error})")),
+    }
+}
+
+/// How many times a ship re-merges onto a moved origin/main and re-gates
+/// before it gives up (nothing published) and asks to be run again.
+const SHIP_ROUNDS: usize = 5;
+
+/// Verify and publish `claimants` to origin/main.
+///
+/// The gate runs in a private slot (`acquire_slot`) without any host or
+/// repository queue, so concurrent ships gate side by side. Only publication
+/// is serialized, under the repository's `publish` lock: re-fetch origin/main,
+/// re-check the sources and reservations, record the receipts and move
+/// `refs/susi/integration/current` in one ref transaction, push (a
+/// fast-forward, never forced) and post statuses. If origin/main moved while
+/// the gate ran, the lock is released, the sources are merged onto the new
+/// origin/main and only what the newly merged commits affect is re-gated
+/// (`regate_needed`); then publication is tried again.
 fn ship<F>(
     root: &Path,
     claimants: &[&str],
@@ -2737,55 +3036,108 @@ fn ship<F>(
 where
     F: FnMut(&Path, &Path) -> Result<Vec<String>>,
 {
+    let slot = timed("take verification slot", || acquire_slot(root))
+        .map_err(|error| format!("slot: {error}"))?;
+    eprintln!(
+        "ship: verifying in {} (no queue; other ships gate at the same time)",
+        slot.candidate.display()
+    );
+    let result = ship_in_slot(root, &slot, claimants, remote, &mut verify);
+    timed("stash warm target", || {
+        remove_candidate(root, &slot.candidate)
+    });
+    result
+}
+
+fn ship_in_slot<F>(
+    root: &Path,
+    slot: &Slot,
+    claimants: &[&str],
+    remote: &mut dyn Remote,
+    verify: &mut F,
+) -> Result<ShipReport>
+where
+    F: FnMut(&Path, &Path) -> Result<Vec<String>>,
+{
     let workflow = state(root).map_err(|error| format!("state: {error}"))?;
-    // `integrate` and `ship` share the candidate worktree and the warm
-    // integration target, so they serialize on the same lock.
-    let _integration =
-        Lock::acquire(&workflow.join("integration")).map_err(|error| format!("lock: {error}"))?;
-    let _publish =
-        Lock::acquire(&workflow.join("publish")).map_err(|error| format!("lock: {error}"))?;
-    let base = timed("fetch origin/main", || remote.fetch_main(root))
+    let workflow = workflow.as_path();
+    let mut base = timed("fetch origin/main", || remote.fetch_main(root))
         .map_err(|error| format!("fetch: {error}"))?;
     let inputs = timed("load sources", || load_sources(root, claimants, &base))
         .map_err(|error| format!("load: {error}"))?;
-    let proved = prove_ship(root, &workflow, &base, &inputs, &mut verify)
-        .map_err(|error| format!("prove: {error}"))?;
-    let mut candidate = proved.0;
-    let mut head = proved.1;
-    let mut evidence = proved.2;
-    let again = remote.fetch_main(root)?;
-    if again != base {
-        remove_candidate(root, &candidate);
-        let proved = prove_ship(root, &workflow, &again, &inputs, &mut verify)?;
-        candidate = proved.0;
-        head = proved.1;
-        evidence = proved.2;
-        let third = remote.fetch_main(root)?;
-        if third != again {
-            remove_candidate(root, &candidate);
-            return Err("origin/main moved twice".into());
-        }
-    }
-    {
-        let _claims = Lock::acquire(&workflow)?;
-        for input in &inputs {
-            if fs::read(&input.path)? != input.bytes
-                || check_ship_source(root, &input.claim, &base)? != input.source
+    timed("merge candidate", || {
+        merge_onto(root, &slot.candidate, &base, &inputs)
+    })
+    .map_err(|error| format!("merge: {error}"))?;
+    let (mut head, mut evidence) =
+        verify_merged(slot, &base, &inputs, verify).map_err(|error| format!("prove: {error}"))?;
+    for round in 1..=SHIP_ROUNDS {
+        let publish = timed("wait for publish lock", || {
+            Lock::acquire(&workflow.join("publish"))
+        })
+        .map_err(|error| format!("lock: {error}"))?;
+        let current = timed("fetch origin/main", || remote.fetch_main(root))?;
+        if current == base {
             {
-                remove_candidate(root, &candidate);
-                return Err(
-                    "source or reservation changed during verification; retry against its new head"
-                        .into(),
-                );
+                let _claims = Lock::acquire(workflow)?;
+                for input in &inputs {
+                    if fs::read(&input.path)? != input.bytes
+                        || check_ship_source(root, &input.claim, &base)? != input.source
+                    {
+                        return Err(
+                            "source or reservation changed during verification; retry against its new head"
+                                .into(),
+                        );
+                    }
+                }
+                timed("record acceptance", || {
+                    record_acceptance(root, &slot.attempt, &inputs, &head, &evidence)
+                })?;
             }
+            let report = timed("publish", || publish_head(root, &head, &evidence, remote));
+            drop(publish);
+            return report;
         }
-        timed("record acceptance", || {
-            record_acceptance(root, &inputs, &head, &evidence)
-        })?;
+        drop(publish);
+        if !is_ancestor(root, &base, &current)? {
+            return Err(format!(
+                "origin/main moved from {base} to {current}, which does not contain it; nothing published"
+            )
+            .into());
+        }
+        if round == SHIP_ROUNDS {
+            break;
+        }
+        let tested = head.clone();
+        eprintln!(
+            "ship: origin/main moved from {base} to {current} during the gate; merging onto it and re-gating what the new commits affect"
+        );
+        timed("re-merge candidate", || {
+            merge_onto(root, &slot.candidate, &current, &inputs)
+        })
+        .map_err(|error| format!("re-merge: {error}"))?;
+        let merged = git(&slot.candidate, &["rev-parse", "HEAD"])?;
+        let (needed, covers) = timed("re-gate selection", || {
+            regate_needed(&slot.candidate, &tested)
+        });
+        evidence.push(format!(
+            "regate base={current} tested={tested} head={merged} {}: {covers}",
+            if needed { "ran" } else { "skipped" }
+        ));
+        if needed {
+            let (regated, more) = verify_merged(slot, &tested, &inputs, verify)
+                .map_err(|error| format!("re-gate: {error}"))?;
+            head = regated;
+            evidence.extend(more);
+        } else {
+            head = merged;
+        }
+        base = current;
     }
-    let report = timed("publish", || publish_head(root, &head, &evidence, remote));
-    timed("stash warm target", || remove_candidate(root, &candidate));
-    report
+    Err(format!(
+        "origin/main moved during each of {SHIP_ROUNDS} gate rounds; nothing published; run ship again"
+    )
+    .into())
 }
 
 fn ship_retry(root: &Path, remote: &mut dyn Remote) -> Result<ShipReport> {
@@ -2897,7 +3249,7 @@ fn commercial_gate_argv() -> Vec<Vec<String>> {
 }
 
 fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
-    let _host = host_gate_for(candidate)?;
+    let _live = live_gate();
     let compiler = Command::new("rustc")
         .current_dir(candidate)
         .arg("-vV")
@@ -2967,6 +3319,9 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("CARGO_TERM_COLOR", "never")
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
+        let share = current_gate_share();
+        apply_gate_share(&mut command, share);
+        print_gate_share(args.first().map_or("?", String::as_str), share);
         let status = command.status()?;
         let code = status.code().unwrap_or(1);
         let line = format!(
@@ -3190,49 +3545,21 @@ fn check(root: &Path) -> Result<()> {
     seed_worktree_target(&top, &top, false);
     let home = target.join("susi-check-home");
     fs::create_dir_all(home.join("AppData/Local"))?;
-    // Lock this worktree's own target directory so 10 isolated agent worktrees
-    // can run `check` in parallel without queueing behind each other or `ship`.
+    // Only this worktree's own target is locked: checks in other worktrees
+    // and ships run at the same time, each command on its share of the host.
     let _host = acquire_host_gate(
         &target.join("check-gate"),
         &format!("pid={} check={}", std::process::id(), top.display()),
     )?;
+    let _live = live_gate();
     let total = std::time::Instant::now();
     for args in &gates {
         let started = std::time::Instant::now();
-        let mut command = Command::new("cargo");
-        for (key, _) in env::vars_os() {
-            let name = key.to_string_lossy().to_ascii_uppercase();
-            if name.starts_with("SUSI_")
-                || [
-                    "TOKEN",
-                    "SECRET",
-                    "PASSWORD",
-                    "CREDENTIAL",
-                    "API_KEY",
-                    "ACCESS_KEY",
-                ]
-                .iter()
-                .any(|part| name.contains(part))
-            {
-                command.env_remove(key);
-            }
-        }
-        let status = command
-            .current_dir(&top)
-            .args(args)
-            .env("CARGO_TARGET_DIR", &target)
-            .env("CARGO_HOME", &cargo_home)
-            .env("RUSTUP_HOME", &rustup_home)
-            .env("HOME", &home)
-            .env("USERPROFILE", &home)
-            .env("SUSI_HOME", home.join("susi"))
-            .env("APPDATA", home.join("appdata"))
-            .env("LOCALAPPDATA", home.join("localappdata"))
-            .env("XDG_CONFIG_HOME", home.join("config"))
-            .env("XDG_DATA_HOME", home.join("data"))
-            .env("XDG_CACHE_HOME", home.join("cache"))
-            .env("NEXTEST_TEST_THREADS", GATE_TEST_THREADS)
-            .status()?;
+        let mut command = check_command(&top, args, &target, &home, (&cargo_home, &rustup_home));
+        let share = current_gate_share();
+        apply_gate_share(&mut command, share);
+        print_gate_share(args.first().map_or("?", String::as_str), share);
+        let status = command.status()?;
         println!(
             "check: cargo {} => {} in {:.1}s",
             args.first().map_or("", String::as_str),
@@ -3245,6 +3572,54 @@ fn check(root: &Path) -> Result<()> {
     }
     println!("check: passed in {:.1}s", total.elapsed().as_secs_f64());
     Ok(())
+}
+
+/// One `check` gate command: the worktree's own target, an isolated home for
+/// the tests (HOME, USERPROFILE, APPDATA, LOCALAPPDATA, XDG_*, SUSI_HOME), and
+/// the operator's real CARGO_HOME and RUSTUP_HOME, resolved before the home
+/// override. Without the last two, tests that run cargo themselves (such as
+/// `tests/zc_matrix.rs`'s `cargo tree --offline`) resolve an empty private
+/// cargo home and fail offline, as they did under `check` before 2026-11-06.
+fn check_command(
+    top: &Path,
+    args: &[String],
+    target: &Path,
+    home: &Path,
+    (cargo_home, rustup_home): (&Path, &Path),
+) -> Command {
+    let mut command = Command::new("cargo");
+    for (key, _) in env::vars_os() {
+        let name = key.to_string_lossy().to_ascii_uppercase();
+        if name.starts_with("SUSI_")
+            || [
+                "TOKEN",
+                "SECRET",
+                "PASSWORD",
+                "CREDENTIAL",
+                "API_KEY",
+                "ACCESS_KEY",
+            ]
+            .iter()
+            .any(|part| name.contains(part))
+        {
+            command.env_remove(key);
+        }
+    }
+    command
+        .current_dir(top)
+        .args(args)
+        .env("CARGO_TARGET_DIR", target)
+        .env("CARGO_HOME", cargo_home)
+        .env("RUSTUP_HOME", rustup_home)
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env("SUSI_HOME", home.join("susi"))
+        .env("APPDATA", home.join("appdata"))
+        .env("LOCALAPPDATA", home.join("localappdata"))
+        .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("XDG_CACHE_HOME", home.join("cache"));
+    command
 }
 
 fn run(args: &[String]) -> Result<()> {
@@ -5090,21 +5465,511 @@ mod tests {
     }
 
     #[test]
-    fn ship_stops_when_main_moves_twice() {
+    fn ship_regates_each_time_main_moves_and_publishes_on_the_latest() {
         let (_scratch, repo, base) = ship_fixture("one");
         let moved = commit_on(&repo, "later.rs", "later");
         let third = commit_on(&repo, "third.rs", "third");
         let mut remote = FakeRemote::single(base.clone());
-        remote.mains = vec![base, moved, third];
+        remote.mains = vec![base, moved, third.clone()];
+        let runs = std::cell::Cell::new(0);
+        let report = ship(&repo, &["one"], &mut remote, |candidate, _attempt| {
+            runs.set(runs.get() + 1);
+            assert!(candidate.join("owned.rs").is_file());
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        // No Cargo workspace in the fixture, so no selection: every re-gate runs.
+        assert_eq!(runs.get(), 3);
+        assert_eq!(remote.pushes.len(), 1);
+        assert_eq!(remote.pushes[0].0, report.head);
+        assert_eq!(
+            git(&repo, &["rev-parse", &format!("{}^1", report.head)]).unwrap(),
+            third
+        );
+        let tree = git(&repo, &["ls-tree", "--name-only", &report.head]).unwrap();
+        for file in ["owned.rs", "later.rs", "third.rs"] {
+            assert!(tree.lines().any(|line| line == file), "{file}: {tree}");
+        }
+        let receipt_ref = git(
+            &repo,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/susi/integration/receipts/one/",
+            ],
+        )
+        .unwrap();
+        let receipt = git(&repo, &["cat-file", "blob", &receipt_ref]).unwrap();
+        assert_eq!(receipt.matches("\nregate base=").count(), 2, "{receipt}");
+        assert!(
+            receipt.contains(&format!("regate base={third} ")),
+            "{receipt}"
+        );
+        assert_eq!(integration_head(&repo).unwrap(), Some(report.head));
+    }
+
+    #[test]
+    fn ship_gives_up_without_publishing_when_main_moves_every_round() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let mut mains = vec![base];
+        for round in 0..=SHIP_ROUNDS {
+            mains.push(commit_on(
+                &repo,
+                &format!("later{round}.rs"),
+                &format!("later {round}"),
+            ));
+        }
+        let mut remote = FakeRemote::single(mains[0].clone());
+        remote.mains = mains;
         let error = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
             Ok(local_gate_evidence())
         })
         .unwrap_err();
         assert!(
-            error.to_string().contains("origin/main moved twice"),
+            error
+                .to_string()
+                .contains("origin/main moved during each of"),
             "{error}"
         );
         assert!(remote.pushes.is_empty());
+        assert!(integration_head(&repo).unwrap().is_none());
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn ship_refuses_a_rewritten_main() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let unrelated = git(&repo, &["commit-tree", &tree, "-m", "rewritten"]).unwrap();
+        let mut remote = FakeRemote::single(base.clone());
+        remote.mains = vec![base, unrelated];
+        let error = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("does not contain it"), "{error}");
+        assert!(remote.pushes.is_empty());
+    }
+
+    /// One origin shared by concurrent ships: a push must fast-forward it.
+    #[derive(Clone)]
+    struct SharedRemote {
+        main: std::sync::Arc<std::sync::Mutex<String>>,
+        pushes: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl Remote for SharedRemote {
+        fn fetch_main(&mut self, _root: &Path) -> Result<String> {
+            Ok(self.main.lock().unwrap().clone())
+        }
+        fn push_ref(&mut self, root: &Path, sha: &str, git_ref: &str) -> Result<()> {
+            require_ship_ref(git_ref)?;
+            let mut main = self.main.lock().unwrap();
+            if !is_ancestor(root, &main, sha)? {
+                return Err(format!("non-fast-forward push of {sha} over {main}").into());
+            }
+            sha.clone_into(&mut main);
+            self.pushes.lock().unwrap().push(sha.to_owned());
+            Ok(())
+        }
+        fn post_status(&mut self, _: &Path, _: &str, _: &str, _: &str) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    /// The CEO's "no waiting" requirement: two ships' gates are inside
+    /// verification at the same moment (each gate blocks until the other has
+    /// started, so serialized gates fail here instead of passing slowly), in
+    /// two different candidate worktrees, and both land on one origin/main by
+    /// fast-forward with an intact receipt chain.
+    #[test]
+    fn concurrent_ships_gate_at_the_same_time_and_both_land() {
+        use std::sync::{Arc, Condvar, Mutex};
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        worker(&repo, "one", "one.rs", "one");
+        worker(&repo, "two", "two.rs", "two");
+        let remote = SharedRemote {
+            main: Arc::new(Mutex::new(base.clone())),
+            pushes: Arc::new(Mutex::new(Vec::new())),
+        };
+        let inside = Arc::new((Mutex::new(0usize), Condvar::new()));
+        let candidates = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for agent in ["one", "two"] {
+            let repo = repo.clone();
+            let mut remote = remote.clone();
+            let inside = Arc::clone(&inside);
+            let candidates = Arc::clone(&candidates);
+            handles.push(std::thread::spawn(move || {
+                ship(&repo, &[agent], &mut remote, |candidate, _attempt| {
+                    candidates.lock().unwrap().push(candidate.to_path_buf());
+                    let (count, entered) = &*inside;
+                    let mut count = count.lock().unwrap();
+                    *count += 1;
+                    entered.notify_all();
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+                    while *count < 2 {
+                        let left = deadline.saturating_duration_since(std::time::Instant::now());
+                        if left.is_zero() {
+                            return Err("the other ship never gated concurrently".into());
+                        }
+                        count = entered.wait_timeout(count, left).unwrap().0;
+                    }
+                    Ok(local_gate_evidence())
+                })
+                .map(|report| report.head)
+                .map_err(|error| error.to_string())
+            }));
+        }
+        let heads: Vec<String> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap().unwrap())
+            .collect();
+        let pushes = remote.pushes.lock().unwrap().clone();
+        assert_eq!(pushes.len(), 2, "{pushes:?}");
+        let last = remote.main.lock().unwrap().clone();
+        assert_eq!(&last, pushes.last().unwrap());
+        assert!(heads.contains(&last));
+        assert!(is_ancestor(&repo, &pushes[0], &pushes[1]).unwrap());
+        let tree = git(&repo, &["ls-tree", "--name-only", &last]).unwrap();
+        assert!(tree.lines().any(|line| line == "one.rs"), "{tree}");
+        assert!(tree.lines().any(|line| line == "two.rs"), "{tree}");
+        let candidates = candidates.lock().unwrap();
+        let first_two: BTreeSet<_> = candidates.iter().take(2).collect();
+        assert_eq!(
+            first_two.len(),
+            2,
+            "both gates used one candidate: {candidates:?}"
+        );
+        assert_eq!(integration_head(&repo).unwrap(), Some(last.clone()));
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+        let tree_oid = git(&repo, &["rev-parse", &format!("{last}^{{tree}}")]).unwrap();
+        let receipt = matching_receipt(&repo, &last, &tree_oid).unwrap().unwrap();
+        assert!(receipt.contains("\nregate base="), "{receipt}");
+    }
+
+    fn cargo_workspace_fixture(repo: &Path) {
+        fs::write(
+            repo.join("Cargo.toml"),
+            "[package]\nname = \"fixture-root\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"alpha\", \"beta\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(repo.join("src/lib.rs"), "").unwrap();
+        for member in ["alpha", "beta"] {
+            fs::create_dir_all(repo.join(member).join("src")).unwrap();
+            fs::write(
+                repo.join(member).join("Cargo.toml"),
+                format!(
+                    "[package]\nname = \"{member}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"
+                ),
+            )
+            .unwrap();
+            fs::write(repo.join(member).join("src/lib.rs"), "").unwrap();
+        }
+        let status = Command::new("cargo")
+            .current_dir(repo)
+            .args(["generate-lockfile", "--offline"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        git(
+            repo,
+            &["add", "Cargo.toml", "Cargo.lock", "src", "alpha", "beta"],
+        )
+        .unwrap();
+        git(
+            repo,
+            &["-c", "core.hooksPath=", "commit", "-qm", "workspace"],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn regate_covers_only_what_the_newly_merged_commits_affect() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        cargo_workspace_fixture(&repo);
+        let tested = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        fs::create_dir_all(repo.join("docs")).unwrap();
+        commit_on(&repo, "docs/notes.md", "notes");
+        // Docs: only the root package's tree-wide tests can observe them.
+        let (needed, covers) = regate_needed(&repo, &tested);
+        assert!(needed, "{covers}");
+        assert!(
+            covers.ends_with("select 1 packages: fixture-root"),
+            "{covers}"
+        );
+        let docs = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        commit_on(&repo, "alpha/src/lib.rs", "pub fn alpha() -> u8 { 1 }\n");
+        let (needed, covers) = regate_needed(&repo, &docs);
+        assert!(needed, "{covers}");
+        assert!(
+            covers.ends_with("select 2 packages: alpha, fixture-root"),
+            "{covers}"
+        );
+        // Nothing changed in the tree: the gates already run stand.
+        let (needed, covers) = regate_needed(&repo, "HEAD");
+        assert!(!needed, "{covers}");
+    }
+
+    #[test]
+    fn ship_skips_the_regate_when_the_merged_tree_is_unchanged() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        cargo_workspace_fixture(&repo);
+        let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        worker(&repo, "one", "alpha/src/one.rs", "pub fn one() {}\n");
+        // origin/main gains a commit that changes no file.
+        git(
+            &repo,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "empty",
+            ],
+        )
+        .unwrap();
+        let moved = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let mut remote = FakeRemote::single(base.clone());
+        remote.mains = vec![base, moved.clone(), moved.clone()];
+        let runs = std::cell::Cell::new(0);
+        let report = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            runs.set(runs.get() + 1);
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert_eq!(runs.get(), 1);
+        assert_eq!(remote.pushes.len(), 1);
+        assert_eq!(
+            git(&repo, &["rev-parse", &format!("{}^1", report.head)]).unwrap(),
+            moved
+        );
+        let tree = git(&repo, &["rev-parse", &format!("{}^{{tree}}", report.head)]).unwrap();
+        let receipt = matching_receipt(&repo, &report.head, &tree)
+            .unwrap()
+            .unwrap();
+        assert!(
+            receipt.contains(" skipped: the merged tree equals the tested tree"),
+            "{receipt}"
+        );
+    }
+
+    /// Regression (2026-11-06, commercial ships): the local integration ref
+    /// was behind origin/main (main advanced through ships made elsewhere),
+    /// and the receipt named that stale ref as `previous` although it is older
+    /// than the claim base; every later ship failed at load. New receipts
+    /// record the publish base; old ones verify by the published-lineage rule.
+    #[test]
+    fn a_stale_integration_ref_behind_main_keeps_receipts_verifiable() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        // A ship from this clone: the integration ref and its receipt.
+        worker(&repo, "zero", "zero.rs", "zero");
+        let mut remote = FakeRemote::single(base);
+        let stale = ship(&repo, &["zero"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap()
+        .head;
+        // origin/main then advanced through a ship made elsewhere, and the
+        // next claim is reserved on top of it.
+        git(
+            &repo,
+            &["-c", "core.hooksPath=", "merge", "--ff-only", "-q", &stale],
+        )
+        .unwrap();
+        let advanced = commit_on(&repo, "elsewhere.rs", "elsewhere");
+        assert_eq!(integration_head(&repo).unwrap(), Some(stale.clone()));
+        worker(&repo, "one", "owned.rs", "owned");
+        let mut remote = FakeRemote::single(advanced.clone());
+        let report = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        let head = report.head;
+        let tree = git(&repo, &["rev-parse", &format!("{head}^{{tree}}")]).unwrap();
+        let receipt_ref = git(
+            &repo,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/susi/integration/receipts/one/",
+            ],
+        )
+        .unwrap();
+        let receipt = git(&repo, &["cat-file", "blob", &receipt_ref]).unwrap();
+        assert!(
+            receipt.contains(&format!("previous={advanced}")),
+            "{receipt}"
+        );
+        assert!(receipt_matches(&repo, &receipt_ref, &receipt, &head, &tree).unwrap());
+        let legacy = receipt.replace(
+            &format!("previous={advanced}"),
+            &format!("previous={stale}"),
+        );
+        assert!(receipt_matches(&repo, &receipt_ref, &legacy, &head, &tree).unwrap());
+        // A later ship loads against that receipt.
+        worker(&repo, "two", "second.rs", "second");
+        let mut remote = FakeRemote::single(head.clone());
+        let second = ship(&repo, &["two"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert!(is_ancestor(&repo, &head, &second.head).unwrap());
+    }
+
+    #[test]
+    fn gate_share_divides_the_host_instead_of_queueing() {
+        assert_eq!(
+            gate_share(28, 1),
+            GateShare {
+                live: 1,
+                jobs: 28,
+                test_threads: 28,
+                nextest_threads: 16
+            }
+        );
+        assert_eq!(
+            gate_share(28, 2),
+            GateShare {
+                live: 2,
+                jobs: 14,
+                test_threads: 14,
+                nextest_threads: 8
+            }
+        );
+        assert_eq!(
+            gate_share(28, 3),
+            GateShare {
+                live: 3,
+                jobs: 9,
+                test_threads: 9,
+                nextest_threads: 5
+            }
+        );
+        assert_eq!(gate_share(28, 40).jobs, 2);
+        assert_eq!(gate_share(28, 40).nextest_threads, 2);
+        assert_eq!(gate_share(28, 0), gate_share(28, 1));
+    }
+
+    /// Regression (2026-11-06): `check` isolated HOME/USERPROFILE but not the
+    /// toolchain homes, so tests that run `cargo tree --offline` found an
+    /// empty cargo home and failed only under `check`.
+    #[test]
+    fn check_commands_keep_the_real_toolchain_homes_under_an_isolated_home() {
+        let top = Path::new("worktree");
+        let home = Path::new("worktree/target/susi-check-home");
+        let command = check_command(
+            top,
+            &["test".to_owned()],
+            Path::new("worktree/target"),
+            home,
+            (Path::new("real/.cargo"), Path::new("real/.rustup")),
+        );
+        let envs: std::collections::BTreeMap<String, Option<String>> = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.map(|value| value.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        let get = |key: &str| envs.get(key).cloned().flatten();
+        assert_eq!(get("CARGO_HOME").as_deref(), Some("real/.cargo"));
+        assert_eq!(get("RUSTUP_HOME").as_deref(), Some("real/.rustup"));
+        assert_eq!(get("CARGO_TARGET_DIR").as_deref(), Some("worktree/target"));
+        for key in ["HOME", "USERPROFILE"] {
+            assert_eq!(
+                get(key).as_deref(),
+                Some("worktree/target/susi-check-home"),
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn live_gates_count_running_markers_and_drop_dead_ones() {
+        let scratch = Scratch::new();
+        let dir = scratch.0.join("live-gates");
+        assert_eq!(live_gates(&dir), 1);
+        let first = register_live_gate(&dir).unwrap();
+        let second = register_live_gate(&dir).unwrap();
+        assert_eq!(live_gates(&dir), 2);
+        // A crashed gate leaves an unlocked marker behind.
+        let dead = dir.join("4242-1-0.gate");
+        fs::write(&dead, "").unwrap();
+        assert_eq!(live_gates(&dir), 2);
+        assert!(!dead.exists());
+        drop(first);
+        assert_eq!(live_gates(&dir), 1);
+        drop(second);
+        assert_eq!(live_gates(&dir), 1);
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn slots_are_private_never_waited_for_and_reused() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let first = acquire_slot(&repo).unwrap();
+        let second = acquire_slot(&repo).unwrap();
+        assert_ne!(first.candidate, second.candidate);
+        assert_ne!(first.attempt, second.attempt);
+        for slot in [&first, &second] {
+            let name = slot.candidate.file_name().unwrap().to_str().unwrap();
+            assert!(name.starts_with("repo-verify-candidate-"), "{name}");
+        }
+        let freed = first.candidate.clone();
+        drop(first);
+        assert_eq!(acquire_slot(&repo).unwrap().candidate, freed);
+        let workflow = state(&repo).unwrap();
+        assert_eq!(
+            warm_targets(&workflow, &second.candidate),
+            vec![
+                workflow.join("slots").join("2").join("target"),
+                workflow.join("integration-target"),
+            ]
+        );
+        assert_eq!(
+            warm_targets(&workflow, &candidate_path(&repo).unwrap()),
+            vec![workflow.join("integration-target")]
+        );
+    }
+
+    #[test]
+    fn a_slot_adopts_the_legacy_warm_target_once_and_keeps_its_own() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let workflow = state(&repo).unwrap();
+        let legacy = workflow.join("integration-target");
+        fs::create_dir_all(legacy.join("debug")).unwrap();
+        let slot = acquire_slot(&repo).unwrap();
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                text(&slot.candidate).unwrap(),
+                "HEAD",
+            ],
+        )
+        .unwrap();
+        let target = restore_candidate_target(&slot.candidate);
+        assert!(target.join("debug").is_dir());
+        assert!(!legacy.exists());
+        stash_candidate_target(&repo, &slot.candidate);
+        assert!(workflow.join("slots/1/target/debug").is_dir());
+        assert!(!legacy.exists());
     }
 
     #[test]
