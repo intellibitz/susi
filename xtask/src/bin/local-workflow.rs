@@ -158,7 +158,10 @@ impl Lock {
                         held.borrow_mut().insert(key.clone());
                     });
                     let _ = fs::create_dir(&dir);
-                    let _ = fs::write(dir.join("owner"), format!("pid={}\n", std::process::id()));
+                    let _ = fs::write(
+                        dir.join("owner"),
+                        format!("pid={}\n{SLOTS_LAUNCHER}\n", std::process::id()),
+                    );
                     return Ok(Self {
                         dir,
                         key,
@@ -181,6 +184,42 @@ impl Lock {
                 Err(fs::TryLockError::Error(error)) => return Err(error.into()),
             }
         }
+    }
+}
+
+/// Marks a lock owner file written by a launcher with per-ship slots. Such a
+/// launcher holds `integration` only around an `integrate` and moves the
+/// accepted ref under `publish`; an owner without the mark is an older
+/// launcher.
+const SLOTS_LAUNCHER: &str = "launcher=slots";
+
+/// The pid of a live launcher from before per-ship slots that holds
+/// `integration`. Such a launcher holds it for a whole `ship` or `integrate`
+/// gate, and its `integrate` moves `refs/susi/integration/current` without
+/// taking `publish`; a slot ship's publication waits for it rather than race
+/// it during the transition. A launcher with slots is never waited for here:
+/// its `integrate` takes `publish` for its ref transaction.
+fn legacy_integration_owner(workflow: &Path) -> Option<u32> {
+    let dir = workflow.join("integration").join("lock");
+    let text = fs::read_to_string(dir.join("owner")).ok()?;
+    if text.lines().any(|line| line.trim() == SLOTS_LAUNCHER) || !legacy_owner_alive(&dir) {
+        return None;
+    }
+    text.lines()
+        .find_map(|line| line.strip_prefix("pid="))
+        .and_then(|pid| pid.trim().parse().ok())
+}
+
+fn wait_for_legacy_integration(workflow: &Path) {
+    let mut announced = false;
+    while let Some(pid) = legacy_integration_owner(workflow) {
+        if !announced {
+            eprintln!(
+                "ship: waiting for pid {pid}, a launcher from before per-ship slots that holds the integration lock, before publishing"
+            );
+            announced = true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 }
 
@@ -3128,6 +3167,9 @@ where
             Lock::acquire(&workflow.join("publish"))
         })
         .map_err(|error| format!("lock: {error}"))?;
+        timed("wait for legacy integration", || {
+            wait_for_legacy_integration(workflow);
+        });
         let current = {
             let _fetch = Lock::acquire(&workflow.join("fetch"))?;
             timed("fetch origin/main", || remote.fetch_main(root))?
@@ -5956,6 +5998,85 @@ mod tests {
                 "{key}"
             );
         }
+    }
+
+    /// A process that stays alive until killed: `git cat-file --batch` waits
+    /// on its open stdin.
+    fn live_child() -> std::process::Child {
+        Command::new("git")
+            .args(["cat-file", "--batch"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
+    #[test]
+    fn locks_mark_their_owner_as_a_slots_launcher() {
+        let scratch = Scratch::new();
+        let state = scratch.0.join("state");
+        let lock = Lock::acquire(&state).unwrap();
+        let owner = fs::read_to_string(state.join("lock").join("owner")).unwrap();
+        assert!(owner.lines().any(|line| line == SLOTS_LAUNCHER), "{owner}");
+        drop(lock);
+    }
+
+    /// Transition (2026-11-07): a launcher from before per-ship slots holds
+    /// `integration` for its whole gate and its `integrate` moves the accepted
+    /// ref without `publish`; a slot ship's publication waits for it, but
+    /// never for a slots launcher's `integration` holder.
+    #[test]
+    fn legacy_integration_owner_is_only_a_live_pre_slots_launcher() {
+        let scratch = Scratch::new();
+        let workflow = scratch.0.join("workflow");
+        let dir = workflow.join("integration").join("lock");
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(legacy_integration_owner(&workflow), None);
+        let mut child = live_child();
+        let pid = child.id();
+        fs::write(dir.join("owner"), format!("pid={pid}\n")).unwrap();
+        assert_eq!(legacy_integration_owner(&workflow), Some(pid));
+        fs::write(dir.join("owner"), format!("pid={pid}\n{SLOTS_LAUNCHER}\n")).unwrap();
+        assert_eq!(legacy_integration_owner(&workflow), None);
+        fs::write(dir.join("owner"), format!("pid={pid}\n")).unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(legacy_integration_owner(&workflow), None);
+    }
+
+    #[test]
+    fn ship_publishes_only_after_a_legacy_integration_holder_exits() {
+        use std::sync::{Arc, Mutex};
+        let (_scratch, repo, base) = ship_fixture("one");
+        let dir = state(&repo).unwrap().join("integration").join("lock");
+        fs::create_dir_all(&dir).unwrap();
+        let mut child = live_child();
+        fs::write(dir.join("owner"), format!("pid={}\n", child.id())).unwrap();
+        let remote = SharedRemote {
+            main: Arc::new(Mutex::new(base)),
+            pushes: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut shipping = remote.clone();
+        let (gated, gate_done) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            ship(&repo, &["one"], &mut shipping, |_candidate, _attempt| {
+                let _ = gated.send(());
+                Ok(local_gate_evidence())
+            })
+            .map(|report| report.head)
+            .map_err(|error| error.to_string())
+        });
+        gate_done
+            .recv_timeout(std::time::Duration::from_secs(120))
+            .unwrap();
+        // The gate has passed; publication must still be waiting.
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        assert!(remote.pushes.lock().unwrap().is_empty());
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let head = handle.join().unwrap().unwrap();
+        assert_eq!(remote.pushes.lock().unwrap().as_slice(), [head]);
     }
 
     #[test]
