@@ -1,0 +1,96 @@
+{
+  "schema": "susi/step1-host-evidence/v1",
+  "task": "T-STEP1WIN-1",
+  "recorded_utc": "2026-11-06",
+  "scope": "Step 1 evidence for what ran on the native Windows x86_64 host after intellibitz/susi#1668 and intellibitz/susi-commercial-apps#114 reached main through GitHub merges (not through local-workflow ship). Production qualification, A/B promotion and the clean VM journey did not run; the reasons are under not_run. Step 1 stays open.",
+  "host": {
+    "target": "x86_64-pc-windows-msvc",
+    "rustc": "1.99.0 (b940084d7 2026-09-28), pinned by rust-toolchain.toml",
+    "cpu": "Intel Core i7-13850HX, 28 logical CPUs",
+    "memory_gib": 224,
+    "kind": "the CEO laptop; other agents built and tested concurrently, so wall-clock numbers include contention",
+    "cargo_deny": "0.20.2"
+  },
+  "core": {
+    "source": {
+      "commit": "5764ba62db6272311f787329da6a98c062a22f8f",
+      "tree": "86e8eb1bf4b78b866aa281e6b63469219aa0d174",
+      "cargo_lock_sha256": "1fffc0b5fefb832a34e6a35e0bc63c2cc2c5bafcc6513228ccae13c8a1ff6746",
+      "relation": "origin/main after the GitHub merge of #1668; the merge carried no susi-local statuses"
+    },
+    "gate": {
+      "affected_selection": "cargo local-workflow affected a378a36c6 5764ba62d: 18 changed paths, 10 packages (susi, susi-config, susi-core, susi-daemon, susi-gawd, susi-gemi, susi-gemi-models, susi-gmcp, susi-unsafe-ratchet, xtask)",
+      "isolation": "credentials and SUSI_* removed; private HOME, USERPROFILE, APPDATA, LOCALAPPDATA and SUSI_HOME for tests",
+      "fmt": "cargo fmt --all --check: pass",
+      "licenses": "cargo deny check: advisories ok, bans ok, licenses ok, sources ok (one unused allowance warning: RUSTSEC-2024-0436 matched no crate)",
+      "clippy_workspace": "cargo clippy --workspace --all-targets -D warnings: pass",
+      "clippy_release_tooling": "cargo clippy -p xtask --features release-tooling --all-targets -D warnings: pass",
+      "product_feature_build": "cargo check -p susi --no-default-features --features local-engine: pass (1m48s), the feature set release builds now select",
+      "tests": {
+        "command": "cargo test --offline --locked --no-fail-fast -p <the 10 affected packages>",
+        "exit": 0,
+        "passed": 4185,
+        "failed": 0,
+        "ignored": 15,
+        "note": "One 'test t::gap_fix_works ... FAILED' line in the log is the scratch crate gapfix that the susi-gawd patch-cycle tests build and break on purpose; the enclosing tests and the run passed (exit 0)."
+      },
+      "wall_s": 1884,
+      "not_the_ship_gate": "These commands ran in a detached checkout of the merge, not through cargo local-workflow ship; #1668 never passed the ship gate. This record is that gate's substance on Windows, not a susi-local status."
+    },
+    "t_grok_2": {
+      "acceptance": "cargo test --offline --locked -p susi-paths --lib hermetic_forbidden: 2 passed (hermetic_forbidden_ignores_verbatim_disk_spelling, hermetic_forbidden_susi_home_is_ignored)",
+      "verbatim_path_exercised": true,
+      "proof": "On this host std::fs::canonicalize(temp_dir()\\susi_verbatim_probe) printed \\\\?\\C:\\Users\\user\\AppData\\Local\\Temp\\susi_verbatim_probe, so the test's SUSI_HOME is the verbatim spelling while SUSI_HERMETIC_FORBIDDEN is the plain one, the comparison the task exists for.",
+      "decision": "closed"
+    },
+    "delivery_loop": {
+      "dev_channel": "Measured earlier the same day by T-STEP1LOOP-1 (docs/step1-acceptance.md): change to live dev executable, with owning-package tests, governed goal, lineage fast-forward, promotion, observation and rollback, in 21.0-24.3 s (root package) and 49.4-57.0 s (deepest crate). The CEO ruled on 2026-11-06 that the dev channel counts for the 60 s criterion.",
+      "production_channel": "not measured: it needs a qualified candidate (see not_run.qualification)"
+    }
+  },
+  "commercial": {
+    "source": {
+      "commit": "72dd1719fb886a470df5cbe7ef7e42d814caa01e",
+      "tree": "ad133ae1388bdc72f923841e07035eafba444417",
+      "cargo_lock_sha256": "f8b0eb8d09291dd0c8bdc9ee57872ee0678da6bc5a9845f259033770971f1b8a",
+      "relation": "susi-commercial-apps origin/main after the GitHub merge of #114"
+    },
+    "gate": {
+      "fmt": "pass",
+      "clippy_workspace": "cargo clippy --workspace --all-targets -D warnings: pass",
+      "licenses": "cargo deny check: pass",
+      "tests": {
+        "passed": 666,
+        "failed": 1,
+        "failing_test": "susi-reflex-modules tests/reproducible_wasm.rs committed_modules_rebuild_byte_for_byte_from_source",
+        "observation": "19 of 21 committed wasm32-wasip1 reflex modules differ from a Windows rebuild of the same source with the same pinned compiler (rustc b940084d7); the other 2 match. Two Windows rebuilds from different checkout paths are byte-identical to each other, so the checkout path is not the cause. The committed modules were built on Linux. The mechanism is not established here; a fix must be confirmed on both Linux and Windows."
+      },
+      "wall_s": 285,
+      "verdict": "not green on Windows"
+    },
+    "live_core_contract": {
+      "core": "published open Susi v0.21.51 susi-windows-x86_64.exe, sha256 f4f04134f5aa715e7142f40ef791f42865d2fd6f4d1509e780931647d84e1cbb (re-hashed equal to the release's .sha256 asset)",
+      "instance": "isolated SUSI_HOME, SUSI_PORT_OFFSET=300, provider keys removed; start returned in 1162 ms",
+      "command": "SUSI_LIVE_CORE=1 SUSI_LIVE_CORE_MUTATE=1 SUSI_CORE_BIN=<that exe> cargo test --test live_core_contract -- --test-threads=1, with that exe first on PATH as susi.exe",
+      "result": "23 passed, 0 failed",
+      "first_attempt": "21 passed, 2 failed: SUSI_CORE_BIN was not exported, and the PATH susi was the older installed 0.21.43/0.21.47 lineage without status --json. Both were run setup, not product defects."
+    },
+    "qualify_release_host_only": {
+      "binary": "target/release/susi-commercial.exe built with cargo build --release --locked --bins at the commit above",
+      "binary_sha256": "1db161a89c8ff5740779ec6341eb274e3e11c3845f43e9e96a86b9e18c8ebe3f",
+      "binary_bytes": 5104128,
+      "authority": "SUSI_COMMERCIAL_SECRET from the automation vault into the child environment only (64 bytes; value never printed); isolated profile directories",
+      "result": "exit 0, authority_mode signed, version 3.1.2",
+      "findings": [
+        "Cargo.toml still says 3.1.2 although this binary differs from the published v3.1.2; a new release needs a version bump first.",
+        "The host-only run attested this Windows PE digest for targets linux_x86_64_k8s_locked_vpc and nvidia_hopper_sm90 as well as windows_x86_64_msvc_enterprise and cross_platform_rust_native; a Windows executable cannot serve the Linux/K8s and Hopper targets, so those two attestations are wrong.",
+        "Attestations carry the notice that Susi and Susi Certified are registered trademarks; no registration is on record."
+      ]
+    }
+  },
+  "not_run": {
+    "qualification": "cargo local-release qualify was not attempted to completion: since 2f4c65a9f (2026-11-02) it requires SUSI_RELEASE_TRUST_REGISTRY, SUSI_RELEASE_GATE_TRUST and SUSI_RELEASE_GATE_TRUST_SHA256, a coordinator-issued susi/release-gate-trust/v1 manifest for the exact candidate commit and tree that pins three gate executables outside the source (unsafe measurement, unsafe ratchet, native provenance verifier) plus a susi-native-provenance-permit-v1 registered in the coordinator registry. Only test fixtures produce these files; no coordinator command exists and none of the seven earlier qualification attempts on this host carries a complete-gates receipt. It also builds refs/susi/integration/current, which does not contain #1668 until a ship integrates it.",
+    "promotion_rollback_ab": "depends on two qualified candidates",
+    "clean_vm_journey": "depends on a qualified, exported artifact; the Hyper-V journey also needs administrator approval at the console (an earlier attempt failed when UAC prompts went unattended)"
+  }
+}
