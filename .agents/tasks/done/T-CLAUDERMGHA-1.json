@@ -33,5 +33,10 @@
     ]
   },
   "created_by": "CLAUDERMGHA",
-  "created_unix": 1793957736
+  "created_unix": 1793957736,
+  "closed": {
+    "at_unix": 1793965093,
+    "commit": "64b867b8b8109d9856ad172958f6c7490b572fa1",
+    "by": "CLAUDERMGHA"
+  }
 }

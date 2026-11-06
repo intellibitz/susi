@@ -18,14 +18,8 @@ fn phase_done(label: &str, started: Instant) {
     );
 }
 
-// A normal cut hands verification to the tagged GitHub workflow. Explicit
-// local verification, GPU checks and qualification still run the full gate.
-fn release_handoff(cut: bool, rerun: bool, gpu: bool, qualification: bool, merged: bool) -> bool {
-    cut && !rerun && !gpu && !qualification && merged
-}
-
-/// The branch `--cut` is allowed to push: the version commit travels to `main`
-/// through its own pull request, never by a direct push (Mandate 49).
+/// The branch `--cut` is allowed to push: the version commit reaches `main`
+/// through `cargo local-workflow ship`, never by a direct push (Mandate 49).
 fn release_branch(workspace: &Path) -> EaiResult<String> {
     let out = Command::new("git")
         .args(["symbolic-ref", "-q", "--short", "HEAD"])
@@ -35,14 +29,16 @@ fn release_branch(workspace: &Path) -> EaiResult<String> {
     let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !out.status.success() || branch.is_empty() {
         return Err(EaiError::config(
-            "release --cut must run on a branch: the version commit reaches main through its own \
-             pull request. Create a worktree first — scripts/susi-worktree.sh <name>",
+            "release --cut must run on a branch: the version commit reaches main through \
+             `cargo local-workflow ship`. Reserve a worktree first — \
+             cargo local-workflow start <name> --scope <path>",
         ));
     }
     if branch == "main" {
         return Err(EaiError::config(
             "release --cut must not run on main: main only receives merged branches (Mandate 49). \
-             Cut the release from a worktree branch — scripts/susi-worktree.sh <name>",
+             Cut the release from a reserved worktree — \
+             cargo local-workflow start <name> --scope <path>",
         ));
     }
     Ok(branch)
@@ -60,8 +56,8 @@ fn release_branch(workspace: &Path) -> EaiResult<String> {
 /// aim a release at main by accident.
 fn push_release_branch(workspace: &Path) -> EaiResult<()> {
     let branch = release_branch(workspace)?;
-    // The local gate or the tagged GitHub suite verifies this release. Avoid
-    // an additional local clippy run during the branch push.
+    // The local release gate already verified this tree. Avoid an
+    // additional local clippy run during the branch push.
     let out = Command::new("git")
         .args([
             "push",
@@ -82,204 +78,13 @@ fn push_release_branch(workspace: &Path) -> EaiResult<()> {
     Ok(())
 }
 
-/// Resolve `rev^{tree}` under `workspace`; `None` when the revision is
-/// absent or the resolve fails.
-fn git_tree(workspace: &Path, rev: &str) -> Option<String> {
-    let out = Command::new("git")
-        .args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("{rev}^{{tree}}"),
-        ])
-        .current_dir(workspace)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let tree = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!tree.is_empty()).then_some(tree)
-}
-
-/// Recent `main` tips whose `Test` run concluded success — commits whose
-/// trees the remote suite already proved. `None` when `gh` is absent or the
-/// query fails; the suite then runs, as it always has.
-fn green_main_run_args(head_sha: &str) -> Vec<String> {
-    [
-        "run",
-        "list",
-        "--workflow",
-        "test.yml",
-        "--branch",
-        "main",
-        "--commit",
-        head_sha,
-        "--status",
-        "success",
-        "--limit",
-        "1",
-        "--json",
-        "headSha",
-        "--jq",
-        ".[].headSha",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
-}
-
-fn green_main_shas(workspace: &Path, head_sha: &str) -> Option<Vec<String>> {
-    let out = Command::new("gh")
-        .args(green_main_run_args(head_sha))
-        .env("GH_PROMPT_DISABLED", "1")
-        .current_dir(workspace)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let exact: Vec<String> = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(String::from)
-        .collect();
-    if !exact.is_empty() {
-        return Some(exact);
-    }
-    // When main's newest commit is still running or was a task-only merge that
-    // did not change the code tree, fall back to the recent green main runs so
-    // `proven_by_green_run` can match an ancestor with the identical code tree.
-    let recent = Command::new("gh")
-        .args([
-            "run",
-            "list",
-            "--workflow",
-            "test.yml",
-            "--branch",
-            "main",
-            "--status",
-            "success",
-            "--limit",
-            "20",
-            "--json",
-            "headSha",
-            "--jq",
-            ".[].headSha",
-        ])
-        .env("GH_PROMPT_DISABLED", "1")
-        .current_dir(workspace)
-        .output()
-        .ok()?;
-    if !recent.status.success() {
-        return Some(exact);
-    }
-    Some(
-        String::from_utf8_lossy(&recent.stdout)
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(String::from)
-            .collect(),
-    )
-}
-
-/// True when `head_tree` equals the tree of any `green_shas` entry, or differs
-/// from an ancestor green SHA only under `.agents/tasks/` (the task queue, which
-/// is inert at build/test time): a commit whose `main`-branch `Test` run
-/// concluded success has already proven those code bytes — the tree-identity
-/// argument the merge machinery uses to skip a redundant suite. An absent
-/// object or failed resolve is a sha that does not match, never an error.
-fn proven_by_green_run(workspace: &Path, head_tree: &str, green_shas: &[String]) -> bool {
-    green_shas.iter().any(|sha| {
-        if git_tree(workspace, sha).as_deref() == Some(head_tree) {
-            return true;
-        }
-        Command::new("git")
-            .args(["cat-file", "-e", &format!("{sha}^{{commit}}")])
-            .current_dir(workspace)
-            .output()
-            .is_ok_and(|out| out.status.success())
-            && Command::new("git")
-                .args([
-                    "diff",
-                    "--no-renames",
-                    "--name-only",
-                    sha,
-                    head_tree,
-                    "--",
-                    ":(exclude).agents/tasks",
-                ])
-                .current_dir(workspace)
-                .output()
-                .is_ok_and(|out| out.status.success() && out.stdout.is_empty())
-    })
-}
-
-/// The gate tests the working tree, so evidence recorded for HEAD applies
-/// only while the two agree.
+/// A cut commits only the version files, so it starts from a clean tree.
 fn worktree_is_clean(workspace: &Path) -> bool {
     Command::new("git")
         .args(["status", "--porcelain"])
         .current_dir(workspace)
         .output()
         .is_ok_and(|out| out.status.success() && out.stdout.is_empty())
-}
-
-/// Defer verification only for code already present on main. Task-queue-only
-/// differences do not affect the built source, as in the existing proof reuse.
-/// A missing main ref or dirty checkout fails closed to the local gate.
-fn release_handoff_has_merged_source(workspace: &Path) -> bool {
-    worktree_is_clean(workspace)
-        && git_tree(workspace, "HEAD")
-            .is_some_and(|tree| proven_by_green_run(workspace, &tree, &["origin/main".to_string()]))
-}
-
-/// True when the gate may reuse remote evidence: the cutting tree is
-/// byte-identical to a commit whose `main`-branch `Test` run already
-/// concluded success — and that run covers `cargo clippy --workspace
-/// --all-targets -D warnings`, the doc-tests, and every nextest shard on the
-/// pinned toolchain, so the type-check, lint and test passes add nothing on
-/// an identical tree. A synced release cut is exactly that case. Every
-/// ambiguity — no `gh`, a dirty tree, no matching sha — runs the phases,
-/// which stays the default; `SUSI_RELEASE_RERUN_TESTS=1` forces it
-/// unconditionally. The GPU feature sets are never part of this reuse: the
-/// evidence covers the default feature set only, so `SUSI_RELEASE_CHECK_GPU`
-/// implies a local run.
-fn suite_proven_on_main(workspace: &Path) -> bool {
-    if env::var("SUSI_RELEASE_RERUN_TESTS").ok().as_deref() == Some("1") {
-        return false;
-    }
-    if !worktree_is_clean(workspace) {
-        return false;
-    }
-    let Some(head_tree) = git_tree(workspace, "HEAD") else {
-        return false;
-    };
-    // Ask GitHub for proof on this exact main commit. The SHA is already in
-    // the local checkout, so fetching main just to resolve up to 20 returned
-    // shas added a network round trip without strengthening the evidence.
-    let Some(head_sha) = git_revision(workspace, "HEAD") else {
-        return false;
-    };
-    let Some(shas) = green_main_shas(workspace, &head_sha) else {
-        return false;
-    };
-    proven_by_green_run(workspace, &head_tree, &shas)
-}
-
-fn git_revision(workspace: &Path, rev: &str) -> Option<String> {
-    let out = Command::new("git")
-        .args(["rev-parse", "--verify", "--quiet", rev])
-        .current_dir(workspace)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!sha.is_empty()).then_some(sha)
 }
 
 /// Where a cut reserves its version: one ref per version, written
@@ -563,37 +368,13 @@ impl SusiAdmin {
             );
         }
 
-        // Resolved once, before the compile gates: a tree already proven by a
-        // green main Test run skips check, the workspace suite and clippy —
-        // each is a full workspace pass over bytes CI already proved.
+        // Every cut runs the full local gate. There is no hosted suite to
+        // hand verification to or to reuse evidence from: all GitHub Actions
+        // workflows were removed (CEO decision 2026-11-06).
         let gate_started = Instant::now();
-        let handoff = release_handoff(
-            cut.is_some(),
-            env::var("SUSI_RELEASE_RERUN_TESTS").ok().as_deref() == Some("1"),
-            check_gpu,
-            env::var_os("SUSI_RELEASE_CLOUD_EVIDENCE").is_some(),
-            cut.is_some() && release_handoff_has_merged_source(workspace),
-        );
-        if !handoff {
-            let proven_started = Instant::now();
-            let proven_on_main = !check_gpu && suite_proven_on_main(workspace);
-            phase_done(
-                if proven_on_main {
-                    "suite-proven lookup (reuse)"
-                } else {
-                    "suite-proven lookup (miss — full local gate)"
-                },
-                proven_started,
-            );
-
+        {
             let step1 = Instant::now();
-            if proven_on_main {
-                eprintln!(
-                    "[Release Gatekeeper] 1. Static Type Check skipped — HEAD's tree already \
-                 passed the main Test suite's clippy/compile jobs (SUSI_RELEASE_RERUN_TESTS=1 \
-                 forces a re-run)."
-                );
-            } else {
+            {
                 eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
                 for features in &feature_sets {
                     let args = gate_args(&["check", "--all-targets"], *features);
@@ -621,12 +402,7 @@ impl SusiAdmin {
 
             let step3 = Instant::now();
             eprintln!("[Release Gatekeeper] 3. Executing the whole workspace's tests...");
-            if proven_on_main {
-                eprintln!(
-                    "[Release Gatekeeper]    -> HEAD's tree already passed the main Test suite — \
-                 reusing that evidence (SUSI_RELEASE_RERUN_TESTS=1 forces a re-run)."
-                );
-            } else {
+            {
                 // Required, not preferred: the fallback was bare `cargo test`, which tests
                 // one package of 86, and a gate that silently narrows is how that went
                 // unnoticed.
@@ -733,13 +509,7 @@ impl SusiAdmin {
             phase_done("3 workspace tests", step3);
 
             let step4 = Instant::now();
-            if proven_on_main {
-                eprintln!(
-                    "[Release Gatekeeper] 4. Static Analysis skipped — HEAD's tree already \
-                 passed `cargo clippy --workspace --all-targets --locked -- -D warnings` \
-                 on the pinned toolchain."
-                );
-            } else {
+            {
                 eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
                 for features in &feature_sets {
                     let mut args = gate_args(&["clippy", "--all-targets"], *features);
@@ -834,9 +604,6 @@ impl SusiAdmin {
                 eprintln!("[Release Gatekeeper]    ok: {line}");
             }
             phase_done("5b e2e checks", step5b);
-        } else {
-            eprintln!("[Release Gatekeeper] Handing full-suite and built-artifact verification to the tagged GitHub release workflow; publication remains gated on their success.");
-            Self::audit_compliance(workspace, Some("release"))?;
         }
 
         // The complete qualification is opt-in because cloud evidence must be
@@ -1001,37 +768,30 @@ impl SusiAdmin {
         crate::susi_sandbox::manager::SusiAuditLogger::log(
             &global_dir,
             crate::susi_sandbox::manager::LogLevel::Axiomatic,
-            if handoff {
-                "RELEASE_HANDOFF"
-            } else {
-                "MOTION_RULE_COMPLETE"
-            },
-            if handoff {
-                "Release branch pushed; tagged verification is pending on GitHub."
-            } else {
-                "Full Motion Rule sequence (check -> test -> release -> sync -> push) completed successfully."
-            },
+            "MOTION_RULE_COMPLETE",
+            "Full Motion Rule sequence (check -> test -> release -> sync -> push) completed successfully.",
         );
 
         if let Some((version, _)) = new_version {
-            // The cut ends here: merging the pushed branch is the release. The
-            // merge bot tags the merge (that bot was removed on 2026-11-06) and
-            // starts release.yml on the tag, which builds and publishes it, so
-            // the cut neither waits for the merge nor pushes a tag. It used to
-            // wait up to 30 minutes for its own merge, holding the operator.
+            // The cut ends at the pushed, locally verified version commit.
+            // Nothing on GitHub tags or publishes it any more: the agent lands
+            // the branch with `cargo local-workflow ship`, then tags, qualifies
+            // and publishes the artifact locally (`cargo local-release`).
             let tag_name = format!("v{}", version);
+            let branch = release_branch(workspace)?;
             crate::susi_sandbox::manager::SusiAuditLogger::log(
                 &global_dir,
                 crate::susi_sandbox::manager::LogLevel::Axiomatic,
                 "RELEASE_CUT",
-                &format!("Cut {tag_name}; CI tags and publishes it when its branch merges."),
+                &format!("Cut {tag_name} on branch {branch}; it lands through cargo local-workflow ship."),
             );
             phase_done("gate total", gate_started);
-            return Ok(if handoff {
-                format!("Release {tag_name} was pushed for merge. GitHub will verify the tagged commit and each artifact before publishing; verification is pending.")
-            } else {
-                format!("Local release checks passed and {tag_name} was pushed for merge. GitHub will verify the tagged commit and artifacts before publishing.")
-            });
+            return Ok(format!(
+                "Local release checks passed and {tag_name} was committed and pushed on branch \
+                 '{branch}'. Land it on main with `cargo local-workflow ship <name>`, then tag \
+                 {tag_name} on the shipped commit and qualify and publish the artifact with \
+                 `cargo local-release qualify`."
+            ));
         }
 
         phase_done("gate total", gate_started);
@@ -1386,9 +1146,8 @@ fn gate_args(base: &[&str], features: Option<&str>) -> Vec<String> {
 /// nextest (a failing test is retried alone; one that passes on retry is reported
 /// flaky), then the doc-tests nextest does not run.
 ///
-/// `capability_gap_e2e` is excluded exactly as it is in CI: it drives a live
-/// `susi-native` leaf service that a release host has not started, and the remote
-/// `e2e` job (part of the suite release.yml waits for) runs it.
+/// `capability_gap_e2e` is excluded: it drives a live `susi-native` leaf service
+/// that a release host has not started.
 fn workspace_test_commands() -> Vec<Vec<&'static str>> {
     vec![
         vec![
@@ -1420,16 +1179,6 @@ fn scrub_instance_env(cmd: &mut Command) {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn release_handoff_only_defers_normal_cuts() {
-        use super::release_handoff;
-        assert!(release_handoff(true, false, false, false, true));
-        assert!(!release_handoff(false, false, false, false, true));
-        assert!(!release_handoff(true, true, false, false, true));
-        assert!(!release_handoff(true, false, true, false, true));
-        assert!(!release_handoff(true, false, false, true, true));
-        assert!(!release_handoff(true, false, false, false, false));
-    }
     use super::*;
 
     /// A clone with a bare `origin`, for the tag-publishing path.
@@ -1470,109 +1219,6 @@ mod tests {
         run(&work, &["commit", "--allow-empty", "--quiet", "-m", "init"]);
         run(&work, &["push", "--quiet", "origin", "HEAD:main"]);
         work
-    }
-
-    #[test]
-    fn release_handoff_requires_merged_source_and_a_clean_checkout() {
-        let work = repo("handoff-source");
-        assert!(git_in(&work, &["fetch", "--quiet", "origin", "main"])
-            .status
-            .success());
-        assert!(release_handoff_has_merged_source(&work));
-        std::fs::create_dir_all(work.join(".agents/tasks")).unwrap();
-        std::fs::write(work.join(".agents/tasks/task.json"), "{}\n").unwrap();
-        assert!(
-            !release_handoff_has_merged_source(&work),
-            "dirty task files must not bypass the clean-tree check"
-        );
-        assert!(git_in(&work, &["add", ".agents/tasks/task.json"])
-            .status
-            .success());
-        assert!(git_in(&work, &["commit", "--quiet", "-m", "task metadata"])
-            .status
-            .success());
-        assert!(
-            release_handoff_has_merged_source(&work),
-            "task-only commits do not alter source"
-        );
-        std::fs::write(work.join("new.rs"), "fn unmerged() {}\n").unwrap();
-        assert!(git_in(&work, &["add", "new.rs"]).status.success());
-        assert!(
-            git_in(&work, &["commit", "--quiet", "-m", "unmerged source"])
-                .status
-                .success()
-        );
-        assert!(!release_handoff_has_merged_source(&work));
-        assert!(
-            git_in(&work, &["update-ref", "-d", "refs/remotes/origin/main"])
-                .status
-                .success()
-        );
-        assert!(!release_handoff_has_merged_source(&work));
-    }
-
-    /// A synced release cut tests a tree the `main` suite just proved: the
-    /// gate must recognize that evidence by tree identity — a different
-    /// commit with the same tree counts, a changed tree or an unknown sha
-    /// does not.
-    #[test]
-    fn release_gate_reuses_main_suite_evidence_for_a_proven_tree() {
-        let work = repo("proven");
-        let main_sha = String::from_utf8_lossy(&git_in(&work, &["rev-parse", "HEAD"]).stdout)
-            .trim()
-            .to_string();
-        // A second commit whose tree is byte-identical to main's — what a
-        // metadata-only upstream merge produces.
-        let tree = String::from_utf8_lossy(&git_in(&work, &["rev-parse", "HEAD^{tree}"]).stdout)
-            .trim()
-            .to_string();
-        let twin = String::from_utf8_lossy(
-            &git_in(
-                &work,
-                &["commit-tree", &tree, "-p", &main_sha, "-m", "twin"],
-            )
-            .stdout,
-        )
-        .trim()
-        .to_string();
-        let twin_tree = git_tree(&work, &twin).expect("the twin commit must resolve");
-        assert!(proven_by_green_run(
-            &work,
-            &twin_tree,
-            std::slice::from_ref(&main_sha)
-        ));
-        // A changed tree is not covered by that run.
-        std::fs::write(work.join("new.rs"), "fn f() {}\n").unwrap();
-        assert!(git_in(&work, &["add", "new.rs"]).status.success());
-        let changed = String::from_utf8_lossy(&git_in(&work, &["write-tree"]).stdout)
-            .trim()
-            .to_string();
-        assert!(!proven_by_green_run(
-            &work,
-            &changed,
-            std::slice::from_ref(&main_sha)
-        ));
-        // An unknown sha is not evidence either.
-        assert!(!proven_by_green_run(&work, &twin_tree, &["0".repeat(40)]));
-        // A dirty working tree disables reuse entirely: the gate tests files,
-        // not HEAD.
-        assert!(!worktree_is_clean(&work));
-    }
-
-    #[test]
-    fn release_gate_queries_green_evidence_by_exact_main_sha() {
-        let sha = "a".repeat(40);
-        let args = green_main_run_args(&sha);
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["--commit", sha.as_str()]));
-        assert!(args.windows(2).any(|pair| pair == ["--branch", "main"]));
-        assert!(args.windows(2).any(|pair| pair == ["--status", "success"]));
-        assert!(args.windows(2).any(|pair| pair == ["--limit", "1"]));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["--workflow", "test.yml"]));
     }
 
     fn sample() -> E2eCheck {

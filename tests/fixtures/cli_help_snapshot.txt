@@ -745,7 +745,7 @@ Usage: susi workflow <COMMAND>
 
 Commands:
   sync          Fetch and merge origin/main into a clean agent worktree
-  finish        Verify, close, push, publish the close receipt and release ownership. A cloud session's release is applied by GitHub Actions; finish returns once that request is published, and the next claim waits only for what the run still has left. The branch run and the merge stay the machinery's (a red run is reported at the next `sync`)
+  finish        Verify, close, push, publish the close receipt and release ownership. finish returns once the close receipt is published; the branch reaches main through `cargo local-workflow ship`, not a hosted run
   watch         Keep the clean primary checkout current with remote main (local process)
   start         Create your own worktree on a fresh branch off origin/main, ready to work in (hooks installed, primary checkout parked). Prints `cd <path>`
   prune         Give this worktree an identity of its own: <TOOL><WORKTREE-ID> as claim token and git author, never the shared git login or `PRIMARY`. `check` and `start` do this for you; run it to fix a borrowed identity by hand. Reclaim finished agent worktrees that have merged into origin/main
@@ -769,7 +769,7 @@ Options:
   -h, --help  Print help
 
 === susi workflow finish ===
-Verify, close, push, publish the close receipt and release ownership. A cloud session's release is applied by GitHub Actions; finish returns once that request is published, and the next claim waits only for what the run still has left. The branch run and the merge stay the machinery's (a red run is reported at the next `sync`)
+Verify, close, push, publish the close receipt and release ownership. finish returns once the close receipt is published; the branch reaches main through `cargo local-workflow ship`, not a hosted run
 
 Usage: susi workflow finish [OPTIONS] <ID>
 
@@ -3432,7 +3432,7 @@ Commands:
   audit              Compliance audit
   audit-evidence     Export and independently verify redacted audit evidence [alias: evidence]
   verify             Verify version alignment
-  release            Full release orchestration. With --cut, also bumps the engine version and pushes the matching vX.Y.Z tag atomically, so a git tag (what actually makes a new release appear on GitHub - release.yml only triggers on a pushed `v*.*.*` tag) can never again drift out of sync with the version number the way it did under the old bump-on-every-push scheme
+  release            Full release orchestration: the local gate (type check, compliance audit, workspace tests, clippy, smoke and e2e checks). With --cut, also bumps the engine version, commits it and pushes the release branch; land it with `cargo local-workflow ship`, then tag, qualify and publish locally with `cargo local-release`
   lint               Run clippy
   audit-deps         Run cargo audit
   reload             Dynamic configuration hot-reload
@@ -3512,7 +3512,7 @@ Options:
   -h, --help  Print help
 
 === susi admin release ===
-Full release orchestration. With --cut, also bumps the engine version and pushes the matching vX.Y.Z tag atomically, so a git tag (what actually makes a new release appear on GitHub - release.yml only triggers on a pushed `v*.*.*` tag) can never again drift out of sync with the version number the way it did under the old bump-on-every-push scheme
+Full release orchestration: the local gate (type check, compliance audit, workspace tests, clippy, smoke and e2e checks). With --cut, also bumps the engine version, commits it and pushes the release branch; land it with `cargo local-workflow ship`, then tag, qualify and publish locally with `cargo local-release`
 
 Usage: susi admin release [OPTIONS]
 
