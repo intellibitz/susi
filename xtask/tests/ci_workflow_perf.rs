@@ -11,7 +11,9 @@
 //! (CEO decision 2026-11-06); `no_github_actions_workflow_returns` keeps them
 //! out.
 
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 #[cfg(unix)]
 fn script_command(script: &Path) -> std::process::Command {
