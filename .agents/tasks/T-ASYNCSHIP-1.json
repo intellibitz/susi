@@ -7,7 +7,7 @@
   "native_worker": "asyncship",
   "status": "in_progress",
   "scopes": [
-    ".agents/tasks/t-asyncship-1.json",
+    ".agents/tasks/T-ASYNCSHIP-1.json",
     "xtask/src/bin/local-workflow.rs"
   ],
   "accept": {
