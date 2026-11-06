@@ -4,7 +4,7 @@
   "title": "Record the CEO 2026-11-05 decision that commercial macOS/ARM64 support is paused",
   "created_by": "PAUSEDMACARM",
   "created_unix": 1793900000,
-  "status": "implemented_pending_integration",
+  "status": "done",
   "dependencies": [],
   "scopes": [
     ".agents/identity.json",
@@ -24,5 +24,11 @@
       "Mandate 72 and AGENTS.md no longer require commercial every-OS release qualification and state the macOS/ARM64 pause",
       "architecture_tests passes"
     ]
-  }
+  },
+  "closed": {
+    "at_unix": 1793974800,
+    "commit": "784518e4bc049c7ce3945638e1a498de568766c4",
+    "by": "CLAUDE (T-CLAUDE-STEP1LINUX-1)"
+  },
+  "integration_evidence": ".agents/evidence/step1-linux-T-CLAUDE-STEP1LINUX-1.json"
 }

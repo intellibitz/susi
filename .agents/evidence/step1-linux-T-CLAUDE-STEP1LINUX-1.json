@@ -89,7 +89,19 @@
       "root_cause": "All 7 failures report that cargo-deny is not provisioned: advisory_evidence snapshot test ('cargo-deny must be provisioned before production qualification') and six release-qualification fixtures failing at 'cargo deny --offline --locked check licenses'. No product logic failure was observed.",
       "coverage_note": "Every unit and integration test binary up to and including xtask local-release ran. Later xtask binaries and all doctests did not run because cargo test stops at the first failing binary. Result lines also include nested fixture cargo runs, among them the deliberately failing 'gapfix' fixture."
     },
-    "no_fail_fast_run": "PENDING",
+    "no_fail_fast_run": {
+      "command": "cargo test --workspace --offline --locked --features xtask/release-tooling --no-fail-fast (same private HOME/SUSI_HOME/XDG shape as the check gate, TMPDIR=/tmp/susi-step1linux-tmp)",
+      "note": "The first attempt was killed by a container restart and its partial log is retained but not counted. This is the complete rerun on a warm target.",
+      "elapsed_s": 437.8,
+      "exit": 101,
+      "top_level_results": {"test_binaries_and_doctest_groups": 337, "passed": 5344, "failed": 8, "ignored": 13, "doctest_groups": 93},
+      "failed_targets": {
+        "xtask --bin local-release": "62 passed, 7 failed, 2 ignored; all 7 cargo-deny not provisioned",
+        "xtask --bin local-workflow": "82 passed, 1 failed; real_native_cargo_gates_accept_a_passing_fixture failed at 'cargo deny --offline --locked check licenses => exit code 101' (cargo-deny not provisioned)"
+      },
+      "verdict": "Every failure traces to the missing cargo-deny host tool; no product test failed. The gate is still NOT green on this host, and this run does not substitute for a passing gate.",
+      "counting": "Only the first libtest result after each top-level 'Running (target/debug/deps/...)' or 'Doc-tests' line is counted. Nested fixture cargo runs, including the deliberately failing 'gapfix' fixture, are excluded."
+    },
     "cargo_deny": "Not installed on this host. Installing it into a private tool root was refused by this session's permission policy, so the strict license gate (`cargo deny --offline --locked check licenses`) was NOT executed and is not claimed."
   },
   "findings": [
@@ -108,6 +120,25 @@
       "summary": "In the default workspace test run, `susi-gemi --test tensor_byte_boundary` executed 0 tests and `engines::speculative::tests::test_select_draft_model_*` executed 0 tests (both need local-engine). Their acceptance (T-CANDLEBYTES-1, T-FIXTURESTORAGE-1) is therefore not evidenced by the default gate."
     }
   ],
+  "task_records": {
+    "closed_to_done": {
+      "T-PAUSEDCI-1": "code on origin/main (8ee403f); architecture_tests 43 passed on the combined tree; AGENTS.md names no test.yml/zc-matrix.yml",
+      "T-PAUSEDMACARM-1": "code on origin/main (3ac406e); architecture_tests 43 passed; Mandate 72 and AGENTS.md state the pause",
+      "T-SPEEDDOC1106-1": "code on origin/main (b49e4bd); architecture_tests 43 passed; docs/workflow-speed.md records the parallel gate measurements",
+      "T-GROK-2": "code on origin/main (d4505f6/17356f0); susi-paths hermetic_forbidden 2 passed, including the verbatim-spelling test, which is not cfg(windows)"
+    },
+    "left_open": {
+      "T-GROKSHIP-1, T-PAUSEDSHIPFIX-1, T-RUNNERDEFAULT1106-1, T-SPEED1106-1, T-SPEED2X1106-1, T-SPEED3X1106-1": "acceptance `-p xtask --bin local-workflow` ran 82 passed, 1 failed (cargo-deny not provisioned)",
+      "T-ADVISORYGATE-1, T-COMPLETERELEASE-1": "acceptance `-p xtask --bin local-release` ran 62 passed, 7 failed (cargo-deny)",
+      "T-ASYNCRECEIPT-1": "parallel_workflow 23 passed, but the record is pinned historical schema debt; closing it needs a schema-valid rewrite by its owner",
+      "T-CANDLEBYTES-1, T-FIXTURESTORAGE-1": "their acceptance tests executed 0 tests in the default (no local-engine) workspace run",
+      "T-OPTIONALLICENSE-1": "susi-vendor-candle lib 20 passed, but the record is pinned schema debt and its license criteria need the strict cargo-deny gate",
+      "T-FLAKY1106-1": "unwired_governance_tests 5 passed on Linux, but its Windows isolate_bus_root criterion cannot be verified here",
+      "T-SHUTDOWNCANCEL-1, T-RSAREPAIR-1, T-NATIVE-1": "require production qualification",
+      "T-STEP1ACCEPTANCE-7, T-STEP1INSTALL-1, T-STEP1UNICODE-1, T-CEOSPEED-1, T-CHROME-1": "Windows/combined-acceptance or criteria-only records not evidenced by this host",
+      "T-DOTACCEPT1104-1": "in_progress under another worker"
+    }
+  },
   "not_run": {
     "cargo local-build debug|production": "not run. The toolchain lacks the rust-src component that trusted_sysroot::prepare authenticates, and production additionally requires cargo-deny.",
     "local-release check-inference": "not run. It needs a local-engine candidate plus the ~430 MB starter download, and the shared disk fell to about 5 GB free during this task.",

@@ -4,7 +4,7 @@
   "title": "Record the measured parallel test gate and batched task reads",
   "created_by": "SPEEDDOC1106",
   "created_unix": 1793995000,
-  "status": "implemented_pending_integration",
+  "status": "done",
   "dependencies": [],
   "scopes": [
     ".agents/tasks/t-speeddoc1106-1.json",
@@ -22,5 +22,11 @@
     "criteria": [
       "docs/workflow-speed.md records the measured ship phases for the parallel test gate and batched task reads"
     ]
-  }
+  },
+  "closed": {
+    "at_unix": 1793974800,
+    "commit": "784518e4bc049c7ce3945638e1a498de568766c4",
+    "by": "CLAUDE (T-CLAUDE-STEP1LINUX-1)"
+  },
+  "integration_evidence": ".agents/evidence/step1-linux-T-CLAUDE-STEP1LINUX-1.json"
 }
