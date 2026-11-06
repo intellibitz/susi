@@ -43,6 +43,10 @@
 //!   models in order and recording every attempt.
 //! - [`adapter`] makes a susi target's own rules mechanical: worktree, claim,
 //!   acceptance, finish.
+//! - [`adaptive`] runs a turn on PAYG BYOK keys (inside) or an installed
+//!   monthly-subscription coding CLI (outside), failing over between them,
+//!   and names the Susi AI OS Socket endpoints the harness sits on.
+//! - [`mcp`] speaks MCP to tool servers over stdio or the GMCP HTTP socket.
 //! - [`author`] turns a roadmap vector into a validated plan through the
 //!   metered gateway.
 //! - [`supervisor`] runs a plan task by task, persisting after each one so an
@@ -50,6 +54,9 @@
 //! - [`validate`] checks a plan against the repository: package names resolve,
 //!   scopes live under an existing directory, acceptance is test-shaped.
 //! - [`api`] is the command surface every client speaks.
+//! - [`workflow`] is the embedded workflow engine: scope algebra, dependency
+//!   and scope-disjoint wave scheduling, and an in-process, lock-free reader
+//!   of the native coordinator's claims.
 //! - [`verify`] checks the registry's backend ids against each provider's live
 //!   model list, so an id retired upstream is reported before a call fails.
 //!
@@ -62,6 +69,7 @@
 //!   renders it and never becomes a second source of truth.
 
 pub mod adapter;
+pub mod adaptive;
 pub mod agents;
 pub mod api;
 pub mod author;
@@ -98,9 +106,13 @@ pub mod tools;
 pub mod usage;
 pub mod validate;
 pub mod verify;
+pub mod workflow;
 
 pub mod router;
 pub mod worker;
+
+pub use budget::BudgetReservation;
+pub use ledger::{verify_integrity, LedgerIntegrityReport};
 
 #[cfg(test)]
 // Test-only assertions in inline unit tests.

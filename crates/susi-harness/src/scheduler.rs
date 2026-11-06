@@ -258,15 +258,35 @@ pub fn run_mission(config: &MissionConfig, runner: &dyn Runner) -> EaiResult<Mis
                 let Some(task) = task else {
                     break;
                 };
-                let result = run_task(
-                    task,
-                    config,
-                    &ranked,
-                    guard.as_ref(),
-                    &warned,
-                    runner,
-                    &events,
-                );
+                let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_task(
+                        task,
+                        config,
+                        &ranked,
+                        guard.as_ref(),
+                        &warned,
+                        runner,
+                        &events,
+                    )
+                })) {
+                    Ok(result) => result,
+                    Err(payload) => TaskResult {
+                        task: task.id.clone(),
+                        attempts: vec![AttemptResult {
+                            model: ranked.first().cloned().unwrap_or_default(),
+                            outcome: AttemptOutcome::Error {
+                                message: format!(
+                                    "runner panicked: {}",
+                                    panic_payload_message(payload.as_ref())
+                                ),
+                            },
+                            elapsed_ms: 0,
+                            estimate: None,
+                        }],
+                        succeeded: false,
+                        stopped: None,
+                    },
+                };
                 results
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -336,35 +356,40 @@ fn run_task(
             (Some(budget), Some(price)) => Some(budget.estimate(price, &task.prompt)),
             _ => None,
         };
-        if let (Some(guard), Some(estimate)) = (guard, estimate) {
+        let reservation = if let (Some(guard), Some(estimate)) = (guard, estimate) {
             let spent = Budget::spent(&config.ledger_path, &config.id);
-            if let Admission::Exhausted {
-                spent,
-                estimate: wanted,
-                limit,
-            } = guard.admit(spent, estimate)
-            {
-                events.emit(
-                    EventKind::BudgetExhausted,
-                    &config.id,
-                    Some(&task.id),
-                    format!(
-                        "{} not dispatched: {wanted} would cross {limit} (spent {spent})",
-                        task.id
-                    ),
-                );
-                attempts.push(AttemptResult {
-                    model: attempt.model,
-                    outcome: AttemptOutcome::Skipped {
-                        reason: format!("budget: spent {spent} of {limit}"),
-                    },
-                    elapsed_ms: 0,
-                    estimate: Some(estimate),
-                });
-                stopped = Some(TaskStop::Budget);
-                break;
+            match guard.reserve(spent, estimate) {
+                Ok(reservation) => Some(reservation),
+                Err(Admission::Exhausted {
+                    spent,
+                    estimate: wanted,
+                    limit,
+                }) => {
+                    events.emit(
+                        EventKind::BudgetExhausted,
+                        &config.id,
+                        Some(&task.id),
+                        format!(
+                            "{} not dispatched: {wanted} would cross {limit} (spent {spent})",
+                            task.id
+                        ),
+                    );
+                    attempts.push(AttemptResult {
+                        model: attempt.model,
+                        outcome: AttemptOutcome::Skipped {
+                            reason: format!("budget: spent {spent} of {limit}"),
+                        },
+                        elapsed_ms: 0,
+                        estimate: Some(estimate),
+                    });
+                    stopped = Some(TaskStop::Budget);
+                    break;
+                }
+                Err(Admission::Allowed) => None,
             }
-        }
+        } else {
+            None
+        };
         events.emit(
             EventKind::TaskDispatched,
             &config.id,
@@ -379,8 +404,7 @@ fn run_task(
                     .unwrap_or_default()
             ),
         );
-        let started = Instant::now();
-        let outcome = runner.run(&ExecutorConfig {
+        let exec_config = ExecutorConfig {
             gateway_url: config.gateway_url.clone(),
             model: attempt.model.clone(),
             workspace: task.workspace.clone(),
@@ -393,26 +417,32 @@ fn run_task(
             attempt: attempt.number,
             timeout: config.timeout,
             prompt: task.prompt.clone(),
-        });
-        let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        if let (Some(guard), Some(estimate)) = (guard, estimate) {
-            let spent = Budget::spent(&config.ledger_path, &config.id);
-            guard.settle(spent, estimate);
-            if guard.budget().at_risk(spent) && !warned.swap(true, Ordering::SeqCst) {
-                events.emit(
-                    EventKind::BudgetWarning,
-                    &config.id,
-                    None,
-                    format!(
-                        "spent {} of {}; attempts stop when the next one would cross the cap",
-                        spent.total,
-                        guard.budget().limit
-                    ),
-                );
+        };
+        let started = Instant::now();
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let active_reservation = reservation;
+            let run_result = runner.run(&exec_config);
+            if let (Some(guard), Some(active_reservation)) = (guard, active_reservation) {
+                let spent = Budget::spent(&config.ledger_path, &config.id);
+                active_reservation.settle(spent);
+                if guard.budget().at_risk(spent) && !warned.swap(true, Ordering::SeqCst) {
+                    events.emit(
+                        EventKind::BudgetWarning,
+                        &config.id,
+                        None,
+                        format!(
+                            "spent {} of {}; attempts stop when the next one would cross the cap",
+                            spent.total,
+                            guard.budget().limit
+                        ),
+                    );
+                }
             }
-        }
+            run_result
+        }));
+        let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let attempt_result = match outcome {
-            Ok(RunOutcome::Succeeded { final_text, .. }) => {
+            Ok(Ok(RunOutcome::Succeeded { final_text, .. })) => {
                 succeeded = true;
                 AttemptResult {
                     model: attempt.model.clone(),
@@ -421,7 +451,7 @@ fn run_task(
                     estimate,
                 }
             }
-            Ok(RunOutcome::Failed { message }) => {
+            Ok(Ok(RunOutcome::Failed { message })) => {
                 let kind = FailureKind::classify(&message);
                 let result = AttemptResult {
                     model: attempt.model.clone(),
@@ -434,7 +464,7 @@ fn run_task(
                 ladder.record(&attempt.model, kind, &message);
                 result
             }
-            Ok(RunOutcome::TimedOut) => {
+            Ok(Ok(RunOutcome::TimedOut)) => {
                 let result = AttemptResult {
                     model: attempt.model.clone(),
                     outcome: AttemptOutcome::TimedOut,
@@ -444,8 +474,24 @@ fn run_task(
                 ladder.record(&attempt.model, FailureKind::Timeout, "timed out");
                 result
             }
-            Err(error) => {
+            Ok(Err(error)) => {
                 let message = error.to_string();
+                let result = AttemptResult {
+                    model: attempt.model.clone(),
+                    outcome: AttemptOutcome::Error {
+                        message: message.clone(),
+                    },
+                    elapsed_ms,
+                    estimate,
+                };
+                ladder.record(&attempt.model, FailureKind::Executor, &message);
+                result
+            }
+            Err(payload) => {
+                let message = format!(
+                    "runner panicked: {}",
+                    panic_payload_message(payload.as_ref())
+                );
                 let result = AttemptResult {
                     model: attempt.model.clone(),
                     outcome: AttemptOutcome::Error {
@@ -502,6 +548,16 @@ fn describe(outcome: &AttemptOutcome) -> &'static str {
         AttemptOutcome::TimedOut => "timed out",
         AttemptOutcome::Error { .. } => "executor error",
         AttemptOutcome::Skipped { .. } => "skipped (budget)",
+    }
+}
+
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic payload".to_string()
     }
 }
 
@@ -848,5 +904,60 @@ mod tests {
         config.catalogue = Some(catalogue());
         let report = run_mission(&config, &runner(vec![])).unwrap();
         assert_eq!(report.total_cost, MicroUsd::from_micros(300_000));
+    }
+
+    struct PanickingOnTaskRunner {
+        panic_task: String,
+    }
+
+    impl Runner for PanickingOnTaskRunner {
+        fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+            assert!(
+                config.task != self.panic_task,
+                "simulated panic on {}",
+                config.task
+            );
+            Ok(RunOutcome::Succeeded {
+                final_text: format!("{} completed {}", config.model, config.task),
+                reported_cost_usd: None,
+            })
+        }
+    }
+
+    #[test]
+    fn panicking_runner_is_caught_releases_budget_and_lets_sibling_tasks_succeed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = mission(dir.path(), 2, vec!["cheap"]);
+        let cat = catalogue();
+        let single_estimate = Budget::new(MicroUsd::from_micros(1_000_000))
+            .estimate(cat.price("cheap").unwrap(), "one");
+        // Budget fits at most 2 concurrent attempts; if t-1 leaked its reservation on panic,
+        // subsequent tasks under a 1-attempt budget would be starved.
+        config.catalogue = Some(cat);
+        config.budget = Some(Budget::new(single_estimate));
+        config.max_parallel = 1;
+
+        let runner = PanickingOnTaskRunner {
+            panic_task: "t-1".to_string(),
+        };
+        let report = run_mission(&config, &runner).unwrap();
+        assert_eq!(report.succeeded, 2);
+        assert_eq!(report.failed, 1);
+        assert!(
+            !report.budget_exhausted,
+            "panicking task must release its budget reservation"
+        );
+
+        let t1 = report.results.iter().find(|r| r.task == "t-1").unwrap();
+        assert!(!t1.succeeded);
+        assert!(matches!(
+            &t1.attempts[0].outcome,
+            AttemptOutcome::Error { message } if message.contains("runner panicked:") && message.contains("simulated panic on t-1")
+        ));
+
+        let t2 = report.results.iter().find(|r| r.task == "t-2").unwrap();
+        assert!(t2.succeeded);
+        let t3 = report.results.iter().find(|r| r.task == "t-3").unwrap();
+        assert!(t3.succeeded);
     }
 }

@@ -51,7 +51,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 
 /// The git common directory of the checkout at `repo`: its `.git` directory,
 /// or for a linked checkout the one its git dir's `commondir` names.
-fn common_dir(repo: &Path) -> Option<PathBuf> {
+pub(crate) fn common_dir(repo: &Path) -> Option<PathBuf> {
     let dot_git = repo.join(".git");
     if dot_git.is_dir() {
         return Some(dot_git);
@@ -701,6 +701,48 @@ impl<R: CommandRunner> SusiTarget<R> {
             )));
         }
         self.release(worktree, id)?;
+        Ok(output)
+    }
+
+    /// Close and commit every `(worktree, id)` in a wave, integrate all of
+    /// their claims in one `local workflow integrate <claim> ...` call, and
+    /// only then release each claim.
+    ///
+    /// One integration verifies the wave's candidates together instead of
+    /// once per task. When it fails, every claim and candidate is retained for
+    /// repair, exactly as [`SusiTarget::finish`] retains a single one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty wave, when a close or commit fails, when
+    /// the batch integration fails, or when a release is refused.
+    pub fn finish_batch(&self, items: &[(&Path, &str)]) -> EaiResult<RunOutput> {
+        let Some(&(first, _)) = items.first() else {
+            return Err(EaiError::config("finish_batch needs at least one task"));
+        };
+        let mut claims: Vec<String> = Vec::with_capacity(items.len());
+        for &(worktree, id) in items {
+            let claim = local_claim(worktree)?;
+            self.close(worktree, id)?;
+            self.commit_work(worktree, id)?;
+            if !claims.contains(&claim.name) {
+                claims.push(claim.name);
+            }
+        }
+        let mut args: Vec<String> = vec!["local".into(), "workflow".into(), "integrate".into()];
+        args.extend(claims.iter().cloned());
+        let output = self.susi(args, first)?;
+        if !output.success() {
+            let ids: Vec<&str> = items.iter().map(|&(_, id)| id).collect();
+            return Err(EaiError::process(format!(
+                "native batch integration failed for {}; candidates retained: {}",
+                ids.join(", "),
+                output.tail()
+            )));
+        }
+        for &(worktree, id) in items {
+            self.release(worktree, id)?;
+        }
         Ok(output)
     }
 
@@ -2228,6 +2270,95 @@ mod tests {
             serde_json::from_slice(&std::fs::read(task_file(dir.path(), &id).unwrap()).unwrap())
                 .unwrap();
         assert_eq!(record["integration"], "pending_native_receipt");
+    }
+
+    /// A second worktree with its own native claim, beside the target's own.
+    fn second_worktree(name: &str) -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let id = local_task_id(name);
+        // `require_scope` lowercases the path, not the claim: store lowercase.
+        let scopes: Vec<String> = task_scopes(&id)
+            .iter()
+            .map(|scope| scope.to_ascii_lowercase())
+            .chain([format!("docs/{name}.md")])
+            .collect();
+        native_claim_fixture(dir.path(), name, &scopes);
+        (dir, id)
+    }
+
+    #[test]
+    fn finish_batch_integrates_every_claim_in_one_call_then_releases_each() {
+        let one = tempfile::tempdir().unwrap();
+        let target = native_target(one.path());
+        target.start_worktree("one").unwrap();
+        let first = target.add_task(one.path(), "first", "cargo test").unwrap();
+        let (two, second) = second_worktree("two");
+        assert_eq!(
+            target.add_task(two.path(), "second", "cargo test").unwrap(),
+            second
+        );
+
+        target
+            .finish_batch(&[(one.path(), first.as_str()), (two.path(), second.as_str())])
+            .unwrap();
+
+        let state = target.runner.state.lock().unwrap();
+        let integrations: Vec<&String> = state
+            .calls
+            .iter()
+            .filter(|call| call.contains("workflow integrate"))
+            .collect();
+        assert_eq!(integrations, vec!["susi local workflow integrate one two"]);
+        let integrate_at = state
+            .calls
+            .iter()
+            .position(|call| call.contains("workflow integrate"))
+            .unwrap();
+        let releases: Vec<(usize, &String)> = state
+            .calls
+            .iter()
+            .enumerate()
+            .filter(|(_, call)| call.contains("workflow release"))
+            .collect();
+        assert_eq!(
+            releases
+                .iter()
+                .map(|(_, call)| call.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "susi local workflow release one",
+                "susi local workflow release two"
+            ]
+        );
+        assert!(releases.iter().all(|(at, _)| *at > integrate_at));
+        for (dir, id) in [(one.path(), &first), (two.path(), &second)] {
+            assert!(dir.join(format!(".agents/tasks/done/{id}.json")).is_file());
+        }
+    }
+
+    #[test]
+    fn a_failed_batch_integration_releases_nothing() {
+        let one = tempfile::tempdir().unwrap();
+        let target = native_target(one.path());
+        target.start_worktree("one").unwrap();
+        let first = target.add_task(one.path(), "first", "cargo test").unwrap();
+        let (two, second) = second_worktree("two");
+        target.add_task(two.path(), "second", "cargo test").unwrap();
+        target.runner.state.lock().unwrap().integration_failure = true;
+
+        let error = target
+            .finish_batch(&[(one.path(), first.as_str()), (two.path(), second.as_str())])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("candidates retained"), "{error}");
+        let state = target.runner.state.lock().unwrap();
+        assert!(!state
+            .calls
+            .iter()
+            .any(|call| call.contains("workflow release")));
+        assert!(local_claim(one.path()).is_ok());
+        assert!(local_claim(two.path()).is_ok());
+        assert!(target.finish_batch(&[]).is_err());
     }
 
     #[test]

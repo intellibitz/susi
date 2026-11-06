@@ -235,6 +235,63 @@ impl BudgetGuard {
             .unwrap_or(MicroUsd::ZERO);
     }
 
+    /// Release an unsettled reservation without folding in new ledger spend.
+    ///
+    /// Called automatically by [`BudgetReservation`]'s `Drop` implementation when
+    /// a worker panics or aborts before settling its reservation.
+    pub fn release_unsettled(&self, estimate: MicroUsd) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.reserved = state
+            .reserved
+            .checked_sub(estimate)
+            .unwrap_or(MicroUsd::ZERO);
+    }
+
+    /// Reserve one attempt's estimated cost with an RAII [`BudgetReservation`] guard.
+    ///
+    /// If the returned guard is dropped before [`BudgetReservation::settle`] is
+    /// called, its `Drop` implementation automatically releases `estimate` from
+    /// the guard's in-flight reservation pool.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Admission::Exhausted`] when the attempt would cross the budget limit.
+    pub fn reserve(
+        &self,
+        ledger_spent: Spend,
+        estimate: MicroUsd,
+    ) -> Result<BudgetReservation<'_>, Admission> {
+        match self.admit(ledger_spent, estimate) {
+            Admission::Allowed => Ok(BudgetReservation {
+                guard: self,
+                estimate,
+                settled: false,
+            }),
+            Admission::Exhausted {
+                spent,
+                estimate,
+                limit,
+            } => Err(Admission::Exhausted {
+                spent,
+                estimate,
+                limit,
+            }),
+        }
+    }
+
+    /// Currently reserved in-flight budget across active attempts.
+    #[must_use]
+    pub fn reserved(&self) -> MicroUsd {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.reserved
+    }
+
     /// Total spend the guard knows about: the ledger's or the reservation
     /// floor, whichever is larger.
     #[must_use]
@@ -244,6 +301,41 @@ impl BudgetGuard {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.committed.max(state.reserved)
+    }
+}
+
+/// RAII guard for an in-flight budget reservation created by [`BudgetGuard::reserve`].
+///
+/// Calling [`BudgetReservation::settle`] folds the post-attempt ledger spend into
+/// the underlying [`BudgetGuard`] and releases the reservation. If dropped without
+/// calling `settle` (for instance when a worker panics or exits early), `Drop`
+/// releases the reserved estimate via [`BudgetGuard::release_unsettled`].
+#[derive(Debug)]
+pub struct BudgetReservation<'a> {
+    guard: &'a BudgetGuard,
+    estimate: MicroUsd,
+    settled: bool,
+}
+
+impl BudgetReservation<'_> {
+    /// The pessimistic cost estimate held by this reservation.
+    #[must_use]
+    pub const fn estimate(&self) -> MicroUsd {
+        self.estimate
+    }
+
+    /// Settle this reservation against the post-attempt ledger spend.
+    pub fn settle(mut self, ledger_spent: Spend) {
+        self.settled = true;
+        self.guard.settle(ledger_spent, self.estimate);
+    }
+}
+
+impl Drop for BudgetReservation<'_> {
+    fn drop(&mut self) {
+        if !self.settled {
+            self.guard.release_unsettled(self.estimate);
+        }
     }
 }
 
@@ -366,5 +458,47 @@ mod tests {
                 limit: MicroUsd::from_micros(100)
             }
         );
+    }
+
+    #[test]
+    fn dropping_unsettled_budget_reservation_releases_reserved_budget() {
+        let guard = BudgetGuard::new(Budget::new(MicroUsd::from_micros(100)));
+        let none = Spend::default();
+        let eighty = MicroUsd::from_micros(80);
+        let thirty = MicroUsd::from_micros(30);
+
+        let reservation = guard.reserve(none, eighty).expect("80 fits in 100");
+        assert_eq!(reservation.estimate(), eighty);
+        assert_eq!(guard.reserved(), eighty);
+        // While 80 is reserved, another 30 is refused.
+        assert!(guard.reserve(none, thirty).is_err());
+
+        // Dropping without settling immediately frees the 80 micro-USD.
+        drop(reservation);
+        assert_eq!(guard.reserved(), MicroUsd::ZERO);
+
+        // Now a panic inside a worker scope also releases its reservation via Drop.
+        let unwind_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _held = guard.reserve(none, eighty).expect("80 fits after release");
+            assert_eq!(guard.reserved(), eighty);
+            panic!("simulated worker panic");
+        }));
+        assert!(unwind_result.is_err());
+        assert_eq!(guard.reserved(), MicroUsd::ZERO);
+
+        // Subsequent reservation of 80 succeeds and settling folds in spend without double-releasing.
+        let r1 = guard.reserve(none, thirty).expect("30 fits");
+        let r2 = guard
+            .reserve(none, MicroUsd::from_micros(50))
+            .expect("50 fits");
+        assert_eq!(guard.reserved(), eighty);
+        r1.settle(Spend {
+            calls: 1,
+            total: MicroUsd::from_micros(25),
+        });
+        assert_eq!(guard.reserved(), MicroUsd::from_micros(50));
+        drop(r2);
+        assert_eq!(guard.reserved(), MicroUsd::ZERO);
+        assert_eq!(guard.committed(), MicroUsd::from_micros(25));
     }
 }

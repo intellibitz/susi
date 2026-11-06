@@ -14,8 +14,24 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use susi_error::{EaiError, EaiResult};
 
-/// The protocol revision this client speaks.
+/// The protocol revision this client offers in `initialize`.
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// Protocol revisions this client recognises in a server's `initialize`
+/// answer, newest first.
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-07-28", "2025-11-25", "2024-11-05"];
+
+/// Whether `version` is one of [`SUPPORTED_PROTOCOL_VERSIONS`].
+#[must_use]
+pub fn is_supported_protocol_version(version: &str) -> bool {
+    SUPPORTED_PROTOCOL_VERSIONS.contains(&version)
+}
+
+/// Default GMCP streamable-HTTP path on the Susi OS Socket.
+pub const GMCP_HTTP_PATH: &str = "/mcp";
+
+/// Largest response body [`HttpSocketTransport`] reads.
+pub const MAX_HTTP_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// One tool an MCP server advertises.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,17 +70,22 @@ pub trait Transport: Send {
     fn notify(&mut self, _notification: &Value) -> EaiResult<()> {
         Ok(())
     }
+
+    /// Learn the protocol revision the server chose, so a transport that
+    /// carries it on the wire (HTTP's `MCP-Protocol-Version`) can send it.
+    fn set_protocol_version(&mut self, _version: &str) {}
 }
 
-/// A client for one MCP server.
 /// Upper bound on `tools/list` pages one listing follows.
 pub const MAX_LIST_PAGES: usize = 50;
 
+/// A client for one MCP server.
 #[derive(Debug)]
 pub struct McpClient<T: Transport> {
     transport: T,
     next_id: u64,
     initialized: bool,
+    negotiated_version: Option<String>,
 }
 
 impl<T: Transport> McpClient<T> {
@@ -74,7 +95,32 @@ impl<T: Transport> McpClient<T> {
             transport,
             next_id: 0,
             initialized: false,
+            negotiated_version: None,
         }
+    }
+
+    /// The protocol revision the server answered `initialize` with, once the
+    /// handshake has run.
+    #[must_use]
+    pub fn negotiated_protocol_version(&self) -> Option<&str> {
+        self.negotiated_version.as_deref()
+    }
+
+    /// Whether the server chose a revision in [`SUPPORTED_PROTOCOL_VERSIONS`].
+    ///
+    /// A server answering with an unlisted revision is still used — the
+    /// three calls this client makes are stable across revisions — but a
+    /// caller that needs a newer feature can refuse it here.
+    #[must_use]
+    pub fn negotiated_supported(&self) -> bool {
+        self.negotiated_version
+            .as_deref()
+            .is_some_and(is_supported_protocol_version)
+    }
+
+    /// The underlying transport.
+    pub fn transport(&self) -> &T {
+        &self.transport
     }
 
     /// Perform the MCP handshake once.
@@ -94,6 +140,10 @@ impl<T: Transport> McpClient<T> {
                 "clientInfo": {"name": "susi-harness", "version": env!("CARGO_PKG_VERSION")}
             }),
         )?;
+        if let Some(version) = result.get("protocolVersion").and_then(Value::as_str) {
+            self.transport.set_protocol_version(version);
+            self.negotiated_version = Some(version.to_string());
+        }
         self.transport
             .notify(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
         self.initialized = true;
@@ -301,6 +351,197 @@ impl Drop for StdioTransport {
     }
 }
 
+/// A JSON-RPC transport over MCP streamable HTTP, for the GMCP socket of the
+/// Susi AI OS (`http://127.0.0.1:9090/mcp` by default).
+///
+/// Each message is one `POST`. The `Mcp-Session-Id` the server returns on
+/// `initialize` is echoed on every later message, and once the client has
+/// negotiated a revision it is sent as `MCP-Protocol-Version`. A response may
+/// be plain JSON or a `text/event-stream`; the JSON-RPC answer is taken from
+/// the stream's `data:` lines.
+#[derive(Debug, Clone)]
+pub struct HttpSocketTransport {
+    url: String,
+    timeout_secs: u64,
+    bearer: Option<String>,
+    session_id: Option<String>,
+    protocol_version: Option<String>,
+}
+
+impl HttpSocketTransport {
+    /// A transport to `url`. A URL with no path (`http://127.0.0.1:9090`) gets
+    /// the GMCP path [`GMCP_HTTP_PATH`] appended; any explicit path is kept.
+    #[must_use]
+    pub fn new(url: &str) -> Self {
+        Self {
+            url: endpoint_url(url),
+            timeout_secs: 60,
+            bearer: None,
+            session_id: None,
+            protocol_version: None,
+        }
+    }
+
+    /// The transport for the Susi OS Socket's GMCP endpoint.
+    #[must_use]
+    pub fn for_socket(endpoints: &crate::adaptive::SusiSocketEndpoints) -> Self {
+        Self::new(&endpoints.gmcp_http_url)
+    }
+
+    /// Set the per-message deadline (at least one second).
+    #[must_use]
+    pub fn with_timeout_secs(mut self, timeout_secs: u64) -> Self {
+        self.timeout_secs = timeout_secs.max(1);
+        self
+    }
+
+    /// Send `Authorization: Bearer <token>` on every message.
+    #[must_use]
+    pub fn with_bearer(mut self, token: impl Into<String>) -> Self {
+        self.bearer = Some(token.into());
+        self
+    }
+
+    /// The endpoint every message is posted to.
+    #[must_use]
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// The session the server assigned, once it has assigned one.
+    #[must_use]
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
+    }
+
+    fn post(&mut self, message: &Value) -> EaiResult<susi_http_transport::HttpCall> {
+        let body = serde_json::to_vec(message)
+            .map_err(|error| EaiError::internal(format!("mcp http request: {error}")))?;
+        let authorization = self.bearer.as_ref().map(|token| format!("Bearer {token}"));
+        let mut headers: Vec<(&str, &str)> = vec![
+            ("content-type", "application/json"),
+            ("accept", "application/json, text/event-stream"),
+        ];
+        if let Some(session) = self.session_id.as_deref() {
+            headers.push(("mcp-session-id", session));
+        }
+        if let Some(version) = self.protocol_version.as_deref() {
+            headers.push(("mcp-protocol-version", version));
+        }
+        if let Some(authorization) = authorization.as_deref() {
+            headers.push(("authorization", authorization));
+        }
+        let call = susi_http_transport::http_call_with_body(
+            "POST",
+            &self.url,
+            &headers,
+            Some(&body),
+            self.timeout_secs,
+            0,
+        )
+        .map_err(|error| EaiError::network(format!("mcp http {}: {error}", self.url)))?;
+        if let Some(session) = call.header("mcp-session-id") {
+            self.session_id = Some(session.to_string());
+        }
+        Ok(call)
+    }
+}
+
+impl Transport for HttpSocketTransport {
+    fn exchange(&mut self, request: &Value) -> EaiResult<Value> {
+        let call = self.post(request)?;
+        let status = call.status;
+        let event_stream = call
+            .header("content-type")
+            .is_some_and(|kind| kind.to_ascii_lowercase().contains("text/event-stream"));
+        let text = call
+            .into_utf8(MAX_HTTP_RESPONSE_BYTES)
+            .map_err(|error| EaiError::network(format!("mcp http body: {error}")))?;
+        if !(200..300).contains(&status) {
+            return Err(EaiError::network(format!(
+                "mcp http {} returned HTTP {status}: {}",
+                self.url,
+                text.chars().take(500).collect::<String>()
+            )));
+        }
+        if event_stream {
+            return response_from_event_stream(&text, request.get("id"));
+        }
+        if text.trim().is_empty() {
+            return Err(EaiError::network("mcp http response has no body"));
+        }
+        serde_json::from_str(&text)
+            .map_err(|error| EaiError::internal(format!("mcp http response: {error}")))
+    }
+
+    fn notify(&mut self, notification: &Value) -> EaiResult<()> {
+        let call = self.post(notification)?;
+        if (200..300).contains(&call.status) {
+            Ok(())
+        } else {
+            Err(EaiError::network(format!(
+                "mcp http {} refused a notification with HTTP {}",
+                self.url, call.status
+            )))
+        }
+    }
+
+    fn set_protocol_version(&mut self, version: &str) {
+        self.protocol_version = Some(version.to_string());
+    }
+}
+
+/// `url` with the GMCP path appended when it names only a host and port.
+fn endpoint_url(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    let after_scheme = trimmed.split_once("://").map_or(trimmed, |(_, rest)| rest);
+    if after_scheme.contains('/') {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}{GMCP_HTTP_PATH}")
+    }
+}
+
+/// The JSON-RPC response in a server-sent event stream: the event whose `id`
+/// matches the request's, else the last JSON message carrying a result or an
+/// error.
+fn response_from_event_stream(text: &str, id: Option<&Value>) -> EaiResult<Value> {
+    let mut events: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in text.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() {
+            if !current.is_empty() {
+                events.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        if let Some(data) = line.strip_prefix("data:") {
+            if !current.is_empty() {
+                current.push('\n');
+            }
+            current.push_str(data.strip_prefix(' ').unwrap_or(data));
+        }
+    }
+    if !current.is_empty() {
+        events.push(current);
+    }
+    let answers: Vec<Value> = events
+        .iter()
+        .filter_map(|event| serde_json::from_str::<Value>(event).ok())
+        .filter(|message| message.get("result").is_some() || message.get("error").is_some())
+        .collect();
+    let matching = id.and_then(|id| {
+        answers
+            .iter()
+            .find(|message| message.get("id") == Some(id))
+            .cloned()
+    });
+    matching
+        .or_else(|| answers.last().cloned())
+        .ok_or_else(|| EaiError::network("mcp event stream carried no JSON-RPC response"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,5 +674,246 @@ mod tests {
         let spec = tool.to_spec(Policy::Ask);
         assert_eq!(spec.name, "search");
         assert_eq!(spec.policy, Policy::Ask);
+    }
+
+    #[test]
+    fn supported_versions_list_the_modern_revisions_and_keep_the_offered_one() {
+        assert_eq!(
+            SUPPORTED_PROTOCOL_VERSIONS,
+            &["2026-07-28", "2025-11-25", "2024-11-05"]
+        );
+        assert!(is_supported_protocol_version(PROTOCOL_VERSION));
+        assert!(is_supported_protocol_version("2026-07-28"));
+        assert!(!is_supported_protocol_version("1999-01-01"));
+    }
+
+    #[test]
+    fn mcp_records_the_negotiated_protocol_version() {
+        let transport = Scripted::new(vec![
+            json!({"result": {"protocolVersion": "2025-11-25", "capabilities": {}}}),
+            json!({"result": {"tools": []}}),
+        ]);
+        let mut client = McpClient::new(transport);
+        assert_eq!(client.negotiated_protocol_version(), None);
+        assert!(!client.negotiated_supported());
+        client.list_tools().unwrap();
+        assert_eq!(client.negotiated_protocol_version(), Some("2025-11-25"));
+        assert!(client.negotiated_supported());
+        assert_eq!(
+            client.transport().requests[0]["params"]["protocolVersion"],
+            PROTOCOL_VERSION
+        );
+
+        let mut legacy = McpClient::new(Scripted::new(vec![
+            json!({"result": {"protocolVersion": "2025-06-18"}}),
+            json!({"result": {"tools": []}}),
+        ]));
+        legacy.list_tools().unwrap();
+        assert_eq!(legacy.negotiated_protocol_version(), Some("2025-06-18"));
+        assert!(!legacy.negotiated_supported());
+    }
+
+    #[test]
+    fn http_endpoints_gain_the_gmcp_path_only_when_they_have_none() {
+        assert_eq!(
+            HttpSocketTransport::new("http://127.0.0.1:9090").url(),
+            "http://127.0.0.1:9090/mcp"
+        );
+        assert_eq!(
+            HttpSocketTransport::new("http://127.0.0.1:9093/").url(),
+            "http://127.0.0.1:9093/mcp"
+        );
+        assert_eq!(
+            HttpSocketTransport::new("http://127.0.0.1:9090/messages").url(),
+            "http://127.0.0.1:9090/messages"
+        );
+        let socket = crate::adaptive::SusiSocketEndpoints::default();
+        assert_eq!(
+            HttpSocketTransport::for_socket(&socket).url(),
+            "http://127.0.0.1:9090/mcp"
+        );
+    }
+
+    #[test]
+    fn event_streams_yield_the_response_matching_the_request_id() {
+        let stream = "event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\r\n\r\n\
+                      data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"ok\":true}}\n\n\
+                      data: {\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"ok\":false}}\n";
+        let answer = response_from_event_stream(stream, Some(&json!(7))).unwrap();
+        assert_eq!(answer["result"]["ok"], true);
+        let last = response_from_event_stream(stream, Some(&json!(99))).unwrap();
+        assert_eq!(last["id"], 8);
+        assert!(response_from_event_stream(": keep-alive\n\n", None).is_err());
+    }
+
+    /// One recorded HTTP request: lowercase header map and body.
+    struct Recorded {
+        request_line: String,
+        headers: Vec<(String, String)>,
+        body: Value,
+    }
+
+    impl Recorded {
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        }
+    }
+
+    /// Serve one canned response per connection, in order, and hand back
+    /// every request it read. Each request is read in full (head and
+    /// `Content-Length` body) before the reply, so Windows never resets the
+    /// socket with unread bytes.
+    fn serve(replies: Vec<String>) -> (String, std::thread::JoinHandle<Vec<Recorded>>) {
+        use std::io::Read;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            let mut recorded = Vec::new();
+            for reply in replies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut raw = Vec::new();
+                let mut buffer = [0_u8; 4096];
+                let head_end = loop {
+                    let read = stream.read(&mut buffer).unwrap();
+                    assert!(read > 0, "client closed before sending a request");
+                    raw.extend_from_slice(&buffer[..read]);
+                    if let Some(at) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break at + 4;
+                    }
+                };
+                let head = String::from_utf8_lossy(&raw[..head_end]).into_owned();
+                let mut lines = head.split("\r\n");
+                let request_line = lines.next().unwrap().to_string();
+                let headers: Vec<(String, String)> = lines
+                    .filter_map(|line| line.split_once(':'))
+                    .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
+                    .collect();
+                let length: usize = headers
+                    .iter()
+                    .find(|(k, _)| k == "content-length")
+                    .map_or(0, |(_, v)| v.parse().unwrap());
+                while raw.len() < head_end + length {
+                    let read = stream.read(&mut buffer).unwrap();
+                    assert!(read > 0, "client closed mid-body");
+                    raw.extend_from_slice(&buffer[..read]);
+                }
+                let body = serde_json::from_slice(&raw[head_end..head_end + length]).unwrap();
+                stream.write_all(reply.as_bytes()).unwrap();
+                stream.flush().unwrap();
+                recorded.push(Recorded {
+                    request_line,
+                    headers,
+                    body,
+                });
+            }
+            recorded
+        });
+        (url, handle)
+    }
+
+    fn reply(status: &str, extra_headers: &str, content_type: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
+             Connection: close\r\n{extra_headers}\r\n{body}",
+            body.len()
+        )
+    }
+
+    #[test]
+    fn http_socket_transport_runs_the_session_handshake_over_json_rpc() {
+        let init = json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}}
+        })
+        .to_string();
+        let list = format!(
+            "event: message\ndata: {}\n\n",
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"tools": [
+                {"name": "susi.status", "description": "Status", "inputSchema": {"type": "object"}}
+            ]}})
+        );
+        let call = json!({
+            "jsonrpc": "2.0", "id": 3,
+            "result": {"content": [{"type": "text", "text": "healthy"}]}
+        })
+        .to_string();
+        let (url, server) = serve(vec![
+            reply(
+                "200 OK",
+                "Mcp-Session-Id: sess-42\r\n",
+                "application/json",
+                &init,
+            ),
+            reply("202 Accepted", "", "application/json", ""),
+            reply("200 OK", "", "text/event-stream", &list),
+            reply("200 OK", "", "application/json", &call),
+        ]);
+
+        let transport = HttpSocketTransport::new(&url)
+            .with_timeout_secs(10)
+            .with_bearer("token-1");
+        let mut client = McpClient::new(transport);
+        let tools = client.list_tools().unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "susi.status");
+        assert_eq!(client.negotiated_protocol_version(), Some("2025-11-25"));
+        assert_eq!(client.transport().session_id(), Some("sess-42"));
+        let answer = client.call("susi.status", &json!({})).unwrap();
+        assert_eq!(answer, "healthy");
+
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 4);
+        for request in &requests {
+            assert_eq!(request.request_line, "POST /mcp HTTP/1.1");
+            assert_eq!(request.body["jsonrpc"], "2.0");
+            assert_eq!(request.header("content-type"), Some("application/json"));
+            assert_eq!(
+                request.header("accept"),
+                Some("application/json, text/event-stream")
+            );
+            assert_eq!(request.header("authorization"), Some("Bearer token-1"));
+        }
+        let init = &requests[0];
+        assert_eq!(init.body["method"], "initialize");
+        assert_eq!(init.body["id"], 1);
+        assert_eq!(init.body["params"]["protocolVersion"], PROTOCOL_VERSION);
+        assert_eq!(init.header("mcp-session-id"), None);
+        assert_eq!(init.header("mcp-protocol-version"), None);
+
+        let initialized = &requests[1];
+        assert_eq!(initialized.body["method"], "notifications/initialized");
+        assert!(initialized.body.get("id").is_none());
+        for later in &requests[1..] {
+            assert_eq!(later.header("mcp-session-id"), Some("sess-42"));
+            assert_eq!(later.header("mcp-protocol-version"), Some("2025-11-25"));
+        }
+        assert_eq!(requests[2].body["method"], "tools/list");
+        assert_eq!(requests[2].body["id"], 2);
+        assert_eq!(requests[3].body["method"], "tools/call");
+        assert_eq!(requests[3].body["params"]["name"], "susi.status");
+    }
+
+    #[test]
+    fn http_socket_transport_surfaces_http_errors_and_unreachable_sockets() {
+        let (url, server) = serve(vec![reply(
+            "500 Internal Server Error",
+            "",
+            "text/plain",
+            "boom",
+        )]);
+        let mut client = McpClient::new(HttpSocketTransport::new(&url).with_timeout_secs(10));
+        let error = client.initialize().unwrap_err().to_string();
+        assert!(
+            error.contains("HTTP 500") && error.contains("boom"),
+            "{error}"
+        );
+        server.join().unwrap();
+
+        let mut closed =
+            McpClient::new(HttpSocketTransport::new("http://127.0.0.1:1").with_timeout_secs(2));
+        assert!(closed.initialize().is_err());
     }
 }
