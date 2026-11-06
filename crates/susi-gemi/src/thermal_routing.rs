@@ -22,11 +22,31 @@ pub struct ThermalSample {
     pub util_pct: f32,
 }
 
+/// Operator-configured thermal and power ceilings that tighten (never loosen)
+/// the host's default throttle thresholds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct OperatorThermalLimits {
+    pub max_temp_c: Option<f32>,
+    pub max_power_w: Option<f32>,
+}
+
+/// Placement decision under host thermal/power telemetry that preserves
+/// `local_only` constraints instead of leaking restricted work to cloud.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThermalPlacement {
+    RunLocal,
+    RerouteCloud,
+    QueueLocal { queued: usize },
+    ThrottleLocal { queued: usize },
+}
+
 #[derive(Debug, Clone)]
 pub struct ThermalRouter {
     pub temp_throttle_c: f32,
     pub recover_below_c: f32,
     pub sustained_needed: usize,
+    operator_limits: OperatorThermalLimits,
     hot_streak: usize,
     cool_streak: usize,
     state: HostFitness,
@@ -39,23 +59,67 @@ impl ThermalRouter {
             temp_throttle_c,
             recover_below_c,
             sustained_needed: sustained_needed.max(1),
+            operator_limits: OperatorThermalLimits::default(),
             hot_streak: 0,
             cool_streak: 0,
             state: HostFitness::Fit,
         }
     }
 
+    pub fn set_operator_limits(&mut self, limits: OperatorThermalLimits) {
+        self.operator_limits = limits;
+    }
+
+    #[must_use]
+    pub fn operator_limits(&self) -> OperatorThermalLimits {
+        self.operator_limits
+    }
+
+    fn effective_temp_throttle_c(&self) -> f32 {
+        self.operator_limits
+            .max_temp_c
+            .filter(|t| t.is_finite() && *t > 0.0)
+            .map_or(self.temp_throttle_c, |op| self.temp_throttle_c.min(op))
+    }
+
+    fn effective_power_cap_w(&self, sample_cap_w: f32) -> f32 {
+        let op_cap = self
+            .operator_limits
+            .max_power_w
+            .filter(|p| p.is_finite() && *p > 0.0);
+        match (sample_cap_w > 0.0, op_cap) {
+            (true, Some(op)) => sample_cap_w.min(op),
+            (true, None) => sample_cap_w,
+            (false, Some(op)) => op,
+            (false, None) => 0.0,
+        }
+    }
+
     pub fn observe(&mut self, sample: ThermalSample) -> HostFitness {
+        if !sample.temp_c.is_finite()
+            || !sample.power_w.is_finite()
+            || !sample.power_cap_w.is_finite()
+            || !sample.util_pct.is_finite()
+            || sample.temp_c <= 0.0
+            || sample.power_w < 0.0
+            || sample.power_cap_w < 0.0
+            || sample.util_pct < 0.0
+        {
+            return self.observe_unknown();
+        }
         // A real telemetry sample clears the unknown state.
         if matches!(self.state, HostFitness::Unknown) {
             self.state = HostFitness::Fit;
         }
-        let power_capped = sample.power_cap_w > 0.0 && sample.power_w >= sample.power_cap_w * 0.98;
-        let hot = sample.temp_c >= self.temp_throttle_c || power_capped;
+        let temp_limit = self.effective_temp_throttle_c();
+        let recover_limit = self.recover_below_c.min(temp_limit);
+        let effective_cap_w = self.effective_power_cap_w(sample.power_cap_w);
+        let power_capped = effective_cap_w > 0.0 && sample.power_w >= effective_cap_w * 0.98;
+        let hot = sample.temp_c >= temp_limit || power_capped;
         if hot {
             self.hot_streak = self.hot_streak.saturating_add(1);
             self.cool_streak = 0;
-        } else if sample.temp_c <= self.recover_below_c && !power_capped {
+        } else if sample.temp_c <= recover_limit && !power_capped {
             self.cool_streak = self.cool_streak.saturating_add(1);
             self.hot_streak = 0;
         } else {
@@ -64,7 +128,7 @@ impl ThermalRouter {
         }
 
         if self.hot_streak >= self.sustained_needed {
-            self.state = if power_capped && sample.temp_c < self.temp_throttle_c {
+            self.state = if power_capped && sample.temp_c < temp_limit {
                 HostFitness::UnfitPower
             } else {
                 HostFitness::UnfitThermal
@@ -80,6 +144,29 @@ impl ThermalRouter {
             }
         }
         self.state
+    }
+
+    /// Decide placement for a workload while honouring `local_only`
+    /// constraints. Eligible work reroutes to cloud when the host is not fit;
+    /// `local_only` work queues up to the operator gate limit and then
+    /// throttles locally — never rerouting to cloud.
+    pub fn decide_placement(&self, local_only: bool, gate: &mut LocalWorkGate) -> ThermalPlacement {
+        if matches!(self.state, HostFitness::Fit) {
+            let _ = gate.admit(self.state);
+            return ThermalPlacement::RunLocal;
+        }
+        if !local_only {
+            return ThermalPlacement::RerouteCloud;
+        }
+        let prev = gate.queued();
+        let (run, queued) = gate.admit(self.state);
+        if run {
+            ThermalPlacement::RunLocal
+        } else if queued > prev {
+            ThermalPlacement::QueueLocal { queued }
+        } else {
+            ThermalPlacement::ThrottleLocal { queued }
+        }
     }
 
     #[must_use]

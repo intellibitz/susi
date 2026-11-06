@@ -247,6 +247,19 @@ pub struct SpendWrite<'a> {
 /// worker's cap: a subscription window or prepaid balance is spent by real
 /// dispatch, not by bookkeeping no caller performs (VC-202-021).
 pub fn record(spend: &SpendWrite<'_>) {
+    let cost_micros = if spend.usd.is_finite() && spend.usd > 0.0 {
+        (spend.usd * 1_000_000.0).round() as u64
+    } else {
+        0
+    };
+    crate::susi_core::mission_trace::record_active_model_call(
+        crate::susi_core::mission_trace::ModelCallCost {
+            node: None,
+            model: format!("{}|{}", spend.provider, spend.class.label()),
+            tokens: 0,
+            cost_micros,
+        },
+    );
     crate::worker::record_spend(spend.provider, spend.usd, now_ms() / 1_000);
     let Some(path) = ledger_path() else {
         return;
@@ -437,5 +450,27 @@ mod inline_tests {
             std::env::remove_var("SUSI_BUDGET_CEILINGS_FILE");
         }
         assert!(check(&intent).is_ok());
+    }
+
+    #[test]
+    fn record_attaches_model_call_cost_to_active_mission_trace() {
+        let _ = crate::susi_core::mission_trace::drain_active_model_calls();
+        record(&SpendWrite {
+            provider: "openrouter/qwen3-coder",
+            class: crate::engines::brain::TaskClass::Code,
+            ok: true,
+            latency_ms: 120,
+            usd: 0.00125,
+            mission: "m-vc-202-013",
+        });
+        let trace = crate::susi_core::mission_trace::MissionTrace::new(
+            "m-vc-202-013",
+            "verify spend attribution",
+            "COMPLETE",
+            "swarm",
+        );
+        assert_eq!(trace.model_calls.len(), 1);
+        assert_eq!(trace.model_calls[0].model, "openrouter/qwen3-coder|code");
+        assert_eq!(trace.total_cost_micros(), 1_250);
     }
 }

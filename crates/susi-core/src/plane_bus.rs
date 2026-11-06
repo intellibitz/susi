@@ -700,7 +700,8 @@ pub mod gemi {
                 topics::GEMI_INFER_GENERATE,
                 json!({
                     "prompt": prompt,
-                    "workspace": workspace.display().to_string()
+                    "workspace": workspace.display().to_string(),
+                    "on_demand_engine_start": crate::susi_core::provider::OnDemandEngineStart::allowed(),
                 }),
             )
             .get("text")
@@ -786,6 +787,7 @@ pub mod gemi {
                     "model": model,
                     "deep": deep,
                     "requires": requires,
+                    "on_demand_engine_start": crate::susi_core::provider::OnDemandEngineStart::allowed(),
                 }),
             );
             let deliver = |chunk: &Value| {
@@ -866,7 +868,8 @@ pub mod gemi {
                     "workspace": workspace.display().to_string(),
                     "model": model,
                     "min_complexity": min_complexity,
-                    "requires": requires
+                    "requires": requires,
+                    "on_demand_engine_start": crate::susi_core::provider::OnDemandEngineStart::allowed(),
                 }),
             )
             .get("text")
@@ -881,7 +884,11 @@ pub mod gemi {
         pub fn embed(text: &str, model: Option<&str>) -> Option<Vec<f32>> {
             let v = req_ok(
                 topics::GEMI_INFER_EMBED,
-                json!({ "text": text, "model": model }),
+                json!({
+                    "text": text,
+                    "model": model,
+                    "on_demand_engine_start": crate::susi_core::provider::OnDemandEngineStart::allowed(),
+                }),
             );
             v.get("embedding").and_then(|e| e.as_array()).map(|arr| {
                 arr.iter()
@@ -2266,5 +2273,48 @@ mod facade_marshal_tests {
         let ws = Path::new(".");
         let _ = gawd_hooks::audit_action("t", "d", ws);
         let _ = gawd_hooks::sanitize_input("x");
+    }
+
+    #[test]
+    fn gemi_generate_reasoning_deep_propagates_on_demand_engine_start_across_worker_thread() {
+        struct SpawnedOnDemandEcho;
+        impl PlaneHandler for SpawnedOnDemandEcho {
+            fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
+                let flag = payload
+                    .get("on_demand_engine_start")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let seen_on_worker = std::thread::spawn(move || {
+                    let _guard =
+                        crate::susi_core::provider::OnDemandEngineStart::from_bus_flag(flag);
+                    crate::susi_core::provider::OnDemandEngineStart::allowed()
+                })
+                .join()
+                .map_err(|_| "worker panicked".to_string())?;
+                Ok(json!({
+                    "ok": true,
+                    "text": format!("allowed={seen_on_worker}")
+                }))
+            }
+        }
+
+        let _g = wire();
+        let ws = Path::new(".");
+        PlaneBus::global().register(
+            topics::GEMI_INFER_GENERATE_DEEP,
+            Arc::new(SpawnedOnDemandEcho),
+        );
+
+        let without_guard = gemi::GemiEngine::generate_reasoning_deep("probe", ws);
+        assert_eq!(without_guard, "allowed=false");
+
+        let with_guard = {
+            let _on_demand = crate::susi_core::provider::OnDemandEngineStart::from_bus_flag(true);
+            gemi::GemiEngine::generate_reasoning_deep("probe", ws)
+        };
+        assert_eq!(with_guard, "allowed=true");
+
+        let after_drop = gemi::GemiEngine::generate_reasoning_deep("probe", ws);
+        assert_eq!(after_drop, "allowed=false");
     }
 }

@@ -1,0 +1,29 @@
+{
+  "id": "T-SOCKETDSP4-1",
+  "title": "Harden D-SP-4 plane bus propagation, VC-201-048 thermal routing, and VC-202-013 live cost attribution",
+  "status": "completed",
+  "native_worker": "socket-dsp4",
+  "scopes": [
+    ".agents/tasks/t-socketdsp4-1.json",
+    "crates/susi-core",
+    "crates/susi-gemi"
+  ],
+  "goal": "Propagate OnDemandEngineStart across plane_bus::gemi, add OperatorThermalLimits + HostFitness::Unknown for VC-201-048, and wire live model-call token/cost and task_id attribution into mission_trace and spend_tracker for VC-202-013.",
+  "size": "M",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "socket-dsp4",
+  "created_unix": 1794002010
+}
