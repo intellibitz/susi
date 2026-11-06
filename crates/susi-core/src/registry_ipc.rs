@@ -43,7 +43,10 @@ fn write_cap(dir: &Path, name: &str, meta: &Value) {
     let Ok(json) = serde_json::to_vec(meta) else {
         return;
     };
-    let _ = crate::susi_config::atomic_write_bytes(&dir.join(enc(name)), &json);
+    // Per-process endpoint metadata: a crash makes it stale whatever its
+    // durability, so it is not flushed (one synced write per tool held a
+    // first goal ~0.9 s on Windows).
+    let _ = crate::susi_config::atomic_replace_unsynced(&dir.join(enc(name)), &json);
 }
 
 fn read_cap(dir: &Path, name: &str) -> Option<Value> {

@@ -1,20 +1,32 @@
-//! D-SP-2 startup-time gate: the core CLI must start about as fast as any
-//! program on the host.
+//! D-SP-2 / Step 1 user-response gate: the declared millisecond budgets a
+//! user's first interactions must meet.
 //!
 //! It times `susi --version`, `susi --help` and `susi status` (daemon down,
-//! then daemon up) against the measured cost of starting a program that does
-//! nothing: this binary re-executed with `--floor-probe`. Budgets: version
-//! and help at most 2x that floor, status at most 50 ms. Each case runs once
-//! untimed (file cache), then `--runs` times; the median is judged.
+//! then daemon up), and a piped first goal (daemon down, then up) to its first
+//! output and to completion. Budgets are absolute milliseconds, judged on the
+//! optimized executable that ships (`--susi`); see `docs/step1-acceptance.md`
+//! for their rationale. The cost of starting a program that does nothing (this
+//! binary re-executed with `--floor-probe`) is measured and reported as host
+//! context only: on one host it moved between 6.7 and 9.6 ms, so a multiple of
+//! it passed and failed the same binary on consecutive runs. Each case runs
+//! once untimed (file cache), then `--runs` times; the median is judged.
+//!
+//! The goal is a local, tool-free read of a nonce file under `local_only` and
+//! `SUSI_OFFLINE=1`, with provider credentials and endpoints removed; every
+//! run must answer with the nonce. Nothing is printed before the answer, so
+//! its first output is also the goal's acknowledgment. Model-backed answers
+//! are outside this gate.
 //!
 //! Every child runs from an empty directory with an isolated `SUSI_HOME` and
 //! a free `SUSI_PORT_OFFSET`, so the daemon this gate starts never touches the
 //! host's own instance or its ports. The gate stops only the daemon it
 //! started (`susi stop` under that home): when a daemon already runs under
 //! that home (for example `--home` pointing at a live instance), it skips the
-//! daemon-up cases, reports an error and never starts or stops anything.
+//! daemon-up cases, reports an error and never starts or stops anything. With
+//! `--home` the goal cases are skipped: they write a privacy setting into the
+//! instance home, which only the gate's own home may receive.
 //!
-//! Output: one JSON object on stdout (`susi-startup-gate-v1`); progress on
+//! Output: one JSON object on stdout (`susi-startup-gate-v2`); progress on
 //! stderr. Exit 0 when every measured case is within budget, 1 when one is
 //! not, 2 when the gate could not run.
 //!
@@ -29,14 +41,21 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-const SCHEMA: &str = "susi-startup-gate-v1";
-/// The hidden mode that does nothing: the process-spawn floor.
+const SCHEMA: &str = "susi-startup-gate-v2";
+/// The hidden mode that does nothing: the process-spawn floor (context only).
 const FLOOR_PROBE: &str = "--floor-probe";
 const DEFAULT_RUNS: usize = 5;
-/// `--version` and `--help` may cost at most this many floors.
-const FLOOR_MULTIPLIER: f64 = 2.0;
+/// `--version` and `--help` may cost at most this many milliseconds.
+const VERSION_HELP_BUDGET_MS: f64 = 30.0;
 /// `status` may cost at most this many milliseconds, daemon up or down.
 const STATUS_BUDGET_MS: f64 = 50.0;
+/// A piped first goal's first output (its acknowledgment) may take at most
+/// this many milliseconds, daemon up or down.
+const GOAL_FIRST_OUTPUT_BUDGET_MS: f64 = 600.0;
+/// A piped first goal may take at most this many milliseconds to complete.
+const GOAL_COMPLETION_BUDGET_MS: f64 = 750.0;
+/// The goal the gate pipes in; it reads `proof.txt` in the goal directory.
+const PROOF_GOAL: &str = "Read proof.txt and return its exact contents.";
 /// Every host-contract, gateway, harness, leaf-service and cell port an
 /// instance binds, before its `SUSI_PORT_OFFSET` is added.
 const INSTANCE_PORTS: [u16; 17] = [
@@ -49,31 +68,6 @@ const INSTANCE_PORTS: [u16; 17] = [
 const OFFSET_FIRST: u16 = 41_100;
 const OFFSET_STEP: u16 = 100;
 const OFFSET_CANDIDATES: u16 = 50;
-
-/// How a case's budget is derived.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Budget {
-    /// A multiple of the measured process-spawn floor.
-    FloorMultiple(f64),
-    /// A fixed number of milliseconds.
-    Absolute(f64),
-}
-
-impl Budget {
-    fn limit_ms(self, floor_ms: f64) -> f64 {
-        match self {
-            Budget::FloorMultiple(multiple) => multiple * floor_ms,
-            Budget::Absolute(ms) => ms,
-        }
-    }
-
-    fn describe(self) -> String {
-        match self {
-            Budget::FloorMultiple(multiple) => format!("{multiple}x floor"),
-            Budget::Absolute(ms) => format!("{ms} ms"),
-        }
-    }
-}
 
 /// Which daemon state a case needs.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -88,35 +82,77 @@ struct Case {
     name: &'static str,
     args: &'static [&'static str],
     daemon: Daemon,
-    budget: Budget,
+    budget_ms: f64,
 }
 
-/// The cases the gate judges, in the order it runs them.
+/// The command cases the gate judges, in the order it runs them.
 const CASES: [Case; 4] = [
     Case {
         name: "version",
         args: &["--version"],
         daemon: Daemon::Any,
-        budget: Budget::FloorMultiple(FLOOR_MULTIPLIER),
+        budget_ms: VERSION_HELP_BUDGET_MS,
     },
     Case {
         name: "help",
         args: &["--help"],
         daemon: Daemon::Any,
-        budget: Budget::FloorMultiple(FLOOR_MULTIPLIER),
+        budget_ms: VERSION_HELP_BUDGET_MS,
     },
     Case {
         name: "status_daemon_down",
         args: &["status"],
         daemon: Daemon::Down,
-        budget: Budget::Absolute(STATUS_BUDGET_MS),
+        budget_ms: STATUS_BUDGET_MS,
     },
     Case {
         name: "status_daemon_up",
         args: &["status"],
         daemon: Daemon::Up,
-        budget: Budget::Absolute(STATUS_BUDGET_MS),
+        budget_ms: STATUS_BUDGET_MS,
     },
+];
+
+/// A piped first goal, timed to its first output and to completion.
+#[derive(Clone, Copy, Debug)]
+struct GoalCase {
+    first_output: Case,
+    completion: Case,
+}
+
+const fn goal_case(
+    first_output: &'static str,
+    completion: &'static str,
+    daemon: Daemon,
+) -> GoalCase {
+    GoalCase {
+        first_output: Case {
+            name: first_output,
+            args: &[],
+            daemon,
+            budget_ms: GOAL_FIRST_OUTPUT_BUDGET_MS,
+        },
+        completion: Case {
+            name: completion,
+            args: &[],
+            daemon,
+            budget_ms: GOAL_COMPLETION_BUDGET_MS,
+        },
+    }
+}
+
+/// The goal cases, daemon down (before `susi start`) and up.
+const GOAL_CASES: [GoalCase; 2] = [
+    goal_case(
+        "goal_first_output_daemon_down",
+        "goal_completion_daemon_down",
+        Daemon::Down,
+    ),
+    goal_case(
+        "goal_first_output_daemon_up",
+        "goal_completion_daemon_up",
+        Daemon::Up,
+    ),
 ];
 
 /// One judged case.
@@ -126,7 +162,6 @@ struct Verdict {
     args: &'static [&'static str],
     samples_ms: Vec<f64>,
     median_ms: f64,
-    budget: Budget,
     limit_ms: f64,
     pass: bool,
 }
@@ -144,21 +179,16 @@ fn median(samples: &[f64]) -> Option<f64> {
 }
 
 /// Judge one case's samples against its budget. A median exactly at the
-/// limit passes; `None` when there are no samples or the floor is unusable.
-fn judge(case: &Case, samples: Vec<f64>, floor_ms: f64) -> Option<Verdict> {
-    if !(floor_ms.is_finite() && floor_ms > 0.0) {
-        return None;
-    }
+/// limit passes; `None` when there are no samples.
+fn judge(case: &Case, samples: Vec<f64>) -> Option<Verdict> {
     let median_ms = median(&samples)?;
-    let limit_ms = case.budget.limit_ms(floor_ms);
     Some(Verdict {
         name: case.name,
         args: case.args,
         samples_ms: samples,
         median_ms,
-        budget: case.budget,
-        limit_ms,
-        pass: median_ms <= limit_ms,
+        limit_ms: case.budget_ms,
+        pass: median_ms <= case.budget_ms,
     })
 }
 
@@ -193,7 +223,6 @@ fn report_json(report: &Report) -> serde_json::Value {
                 "args": v.args,
                 "median_ms": round(v.median_ms),
                 "samples_ms": v.samples_ms.iter().copied().map(round).collect::<Vec<_>>(),
-                "budget": v.budget.describe(),
                 "limit_ms": round(v.limit_ms),
                 "pass": v.pass,
             })
@@ -210,9 +239,12 @@ fn report_json(report: &Report) -> serde_json::Value {
             "samples_ms": report.floor_samples_ms.iter().copied().map(round).collect::<Vec<_>>(),
         },
         "budgets": {
-            "version_help_max_floor_multiple": FLOOR_MULTIPLIER,
+            "version_help_max_ms": VERSION_HELP_BUDGET_MS,
             "status_max_ms": STATUS_BUDGET_MS,
+            "goal_first_output_max_ms": GOAL_FIRST_OUTPUT_BUDGET_MS,
+            "goal_completion_max_ms": GOAL_COMPLETION_BUDGET_MS,
         },
+        "goal": PROOF_GOAL,
         "port_offset": report.port_offset,
         "daemon": report.daemon,
         "cases": cases,
@@ -288,6 +320,8 @@ struct Instance {
     root: PathBuf,
     susi_home: PathBuf,
     cwd: PathBuf,
+    /// The goal's workspace and its nonce, when the gate owns the home.
+    goal: Option<(PathBuf, String)>,
     port_offset: u16,
 }
 
@@ -305,6 +339,68 @@ impl Instance {
             .stdin(Stdio::null());
         command
     }
+
+    /// `susi` with the goal on piped stdin, offline, in the goal workspace,
+    /// with provider credentials and endpoints removed.
+    fn goal_command(&self, exe: &Path, workspace: &Path) -> Command {
+        let mut command = self.command(exe, &[]);
+        for (key, _) in std::env::vars_os() {
+            let name = key.to_string_lossy().to_ascii_uppercase();
+            if name.ends_with("_API_KEY")
+                || name.ends_with("_API_BASE")
+                || name.ends_with("_BASE_URL")
+            {
+                command.env_remove(key);
+            }
+        }
+        command
+            .current_dir(workspace)
+            .env("SUSI_OFFLINE", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        command
+    }
+}
+
+/// Wall time of one piped goal to its first stdout byte and to exit, in
+/// milliseconds. A run that fails or does not answer with `nonce` is an
+/// error, never a sample.
+fn time_goal(mut command: Command, nonce: &str) -> Result<(f64, f64), String> {
+    use std::io::{Read, Write};
+    let started = Instant::now();
+    let mut child = command.spawn().map_err(|e| format!("spawn failed: {e}"))?;
+    let mut stdout = child.stdout.take().ok_or("goal stdout was not piped")?;
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut first = None;
+        let mut chunk = [0_u8; 4096];
+        while let Ok(read) = stdout.read(&mut chunk) {
+            if read == 0 {
+                break;
+            }
+            first.get_or_insert_with(|| started.elapsed());
+            bytes.extend_from_slice(chunk.get(..read).unwrap_or_default());
+        }
+        (bytes, first)
+    });
+    if let Some(mut stdin) = child.stdin.take() {
+        writeln!(stdin, "{PROOF_GOAL}").map_err(|e| format!("write goal: {e}"))?;
+    }
+    let status = child.wait().map_err(|e| format!("wait failed: {e}"))?;
+    let completion = started.elapsed();
+    let (bytes, first) = reader.join().map_err(|_| "goal stdout reader panicked")?;
+    if !status.success() {
+        return Err(format!("goal exited with {status}"));
+    }
+    if !String::from_utf8_lossy(&bytes).contains(nonce) {
+        return Err("goal answer did not contain the proof nonce".to_string());
+    }
+    let first = first.ok_or("goal wrote no output")?;
+    Ok((
+        first.as_secs_f64() * 1000.0,
+        completion.as_secs_f64() * 1000.0,
+    ))
 }
 
 fn ports_free(offset: u16) -> bool {
@@ -388,31 +484,62 @@ struct Outcome {
     daemon: serde_json::Value,
 }
 
-fn measure_case(
-    case: &Case,
-    instance: &Instance,
-    options: &Options,
-    floor_ms: f64,
-    outcome: &mut Outcome,
-) {
+fn record(case: &Case, samples: Vec<f64>, outcome: &mut Outcome) {
+    match judge(case, samples) {
+        Some(verdict) => {
+            log(&format!(
+                "{}: median {:.1} ms, limit {:.1} ms, {}",
+                verdict.name,
+                verdict.median_ms,
+                verdict.limit_ms,
+                if verdict.pass { "pass" } else { "FAIL" }
+            ));
+            outcome.verdicts.push(verdict);
+        }
+        None => outcome
+            .errors
+            .push(format!("{}: no usable samples", case.name)),
+    }
+}
+
+fn measure_case(case: &Case, instance: &Instance, options: &Options, outcome: &mut Outcome) {
     log(&format!("timing {} ({})", case.name, case.args.join(" ")));
     match sample(options.runs, || instance.command(&options.susi, case.args)) {
-        Ok(samples) => match judge(case, samples, floor_ms) {
-            Some(verdict) => {
-                log(&format!(
-                    "{}: median {:.1} ms, limit {:.1} ms, {}",
-                    verdict.name,
-                    verdict.median_ms,
-                    verdict.limit_ms,
-                    if verdict.pass { "pass" } else { "FAIL" }
-                ));
-                outcome.verdicts.push(verdict);
-            }
-            None => outcome
-                .errors
-                .push(format!("{}: no usable samples", case.name)),
-        },
+        Ok(samples) => record(case, samples, outcome),
         Err(error) => outcome.errors.push(format!("{}: {error}", case.name)),
+    }
+}
+
+/// One untimed warm-up goal, then `--runs` timed ones, judged as two cases.
+fn measure_goal(goal: &GoalCase, instance: &Instance, options: &Options, outcome: &mut Outcome) {
+    let Some((workspace, nonce)) = &instance.goal else {
+        outcome.skipped.extend([
+            goal.first_output.name.to_string(),
+            goal.completion.name.to_string(),
+        ]);
+        return;
+    };
+    log(&format!("timing {} (piped goal)", goal.completion.name));
+    let runs: Result<Vec<(f64, f64)>, String> = (0..=options.runs)
+        .map(|_| time_goal(instance.goal_command(&options.susi, workspace), nonce))
+        .collect();
+    match runs {
+        Ok(runs) => {
+            let timed = runs.get(1..).unwrap_or_default();
+            record(
+                &goal.first_output,
+                timed.iter().map(|(first, _)| *first).collect(),
+                outcome,
+            );
+            record(
+                &goal.completion,
+                timed.iter().map(|(_, done)| *done).collect(),
+                outcome,
+            );
+        }
+        Err(error) => outcome
+            .errors
+            .push(format!("{}: {error}", goal.completion.name)),
     }
 }
 
@@ -437,7 +564,7 @@ fn expect_daemon(
     }
 }
 
-fn measure_all(instance: &Instance, options: &Options, floor_ms: f64) -> Outcome {
+fn measure_all(instance: &Instance, options: &Options) -> Outcome {
     let mut outcome = Outcome {
         verdicts: Vec::new(),
         skipped: Vec::new(),
@@ -448,13 +575,34 @@ fn measure_all(instance: &Instance, options: &Options, floor_ms: f64) -> Outcome
         if case.daemon == Daemon::Down && !expect_daemon(instance, options, false, &mut outcome) {
             continue;
         }
-        measure_case(case, instance, options, floor_ms, &mut outcome);
+        measure_case(case, instance, options, &mut outcome);
+    }
+    for goal in GOAL_CASES
+        .iter()
+        .filter(|g| g.completion.daemon == Daemon::Down)
+    {
+        if expect_daemon(instance, options, false, &mut outcome) {
+            measure_goal(goal, instance, options, &mut outcome);
+        }
     }
     let up_cases: Vec<&Case> = CASES.iter().filter(|c| c.daemon == Daemon::Up).collect();
-    if !options.daemon_up {
+    let up_goals: Vec<&GoalCase> = GOAL_CASES
+        .iter()
+        .filter(|g| g.completion.daemon == Daemon::Up)
+        .collect();
+    let skip_up = |outcome: &mut Outcome| {
         outcome
             .skipped
             .extend(up_cases.iter().map(|c| c.name.to_string()));
+        outcome.skipped.extend(up_goals.iter().flat_map(|g| {
+            [
+                g.first_output.name.to_string(),
+                g.completion.name.to_string(),
+            ]
+        }));
+    };
+    if !options.daemon_up {
+        skip_up(&mut outcome);
         return outcome;
     }
     // Record the state before `susi start`: only a daemon this gate's own
@@ -462,9 +610,7 @@ fn measure_all(instance: &Instance, options: &Options, floor_ms: f64) -> Outcome
     if let Err(error) = daemon_up_precheck(daemon_running(instance, &options.susi)) {
         log(&format!("not starting a daemon: {error}"));
         outcome.errors.push(error);
-        outcome
-            .skipped
-            .extend(up_cases.iter().map(|c| c.name.to_string()));
+        skip_up(&mut outcome);
         return outcome;
     }
     log("starting an isolated daemon (susi start)");
@@ -472,7 +618,10 @@ fn measure_all(instance: &Instance, options: &Options, floor_ms: f64) -> Outcome
     let started = start["ok"].as_bool().unwrap_or(false);
     if started && expect_daemon(instance, options, true, &mut outcome) {
         for case in &up_cases {
-            measure_case(case, instance, options, floor_ms, &mut outcome);
+            measure_case(case, instance, options, &mut outcome);
+        }
+        for goal in &up_goals {
+            measure_goal(goal, instance, options, &mut outcome);
         }
     } else if !started {
         outcome.errors.push(format!("susi start failed: {start}"));
@@ -532,10 +681,29 @@ fn prepare_instance(options: &Options) -> Result<Instance, String> {
     }
     let port_offset = pick_port_offset()
         .ok_or("no free SUSI_PORT_OFFSET for an isolated instance".to_string())?;
+    // Only the gate's own home may receive the goal's privacy setting.
+    let goal = if options.home.is_none() {
+        let workspace = root.join("goal");
+        let nonce = format!(
+            "startup-gate-proof-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        );
+        std::fs::create_dir_all(&workspace)
+            .and_then(|()| std::fs::write(workspace.join("proof.txt"), &nonce))
+            .and_then(|()| std::fs::write(susi_home.join("privacy_mode"), "local_only"))
+            .map_err(|e| format!("prepare goal workspace {}: {e}", workspace.display()))?;
+        Some((workspace, nonce))
+    } else {
+        None
+    };
     Ok(Instance {
         root,
         susi_home,
         cwd,
+        goal,
         port_offset,
     })
 }
@@ -560,7 +728,7 @@ fn run(options: &Options) -> Result<(serde_json::Value, bool), String> {
         .map_err(|e| format!("floor probe: {e}"))?;
     let floor_ms = median(&floor_samples).ok_or("floor probe produced no samples")?;
     log(&format!("floor: median {floor_ms:.1} ms"));
-    let outcome = measure_all(&instance, options, floor_ms);
+    let outcome = measure_all(&instance, options);
     let report = Report {
         susi: &options.susi,
         runs: options.runs,
@@ -631,13 +799,12 @@ mod tests {
     }
 
     #[test]
-    fn version_and_help_are_held_to_twice_the_floor() {
+    fn version_and_help_are_held_to_thirty_ms() {
         for name in ["version", "help"] {
             let c = case(name);
-            assert_eq!(c.budget, Budget::FloorMultiple(2.0));
-            assert_eq!(c.budget.limit_ms(9.0), 18.0);
-            assert!(judge(&c, vec![17.0, 18.0, 19.0], 9.0).unwrap().pass);
-            assert!(!judge(&c, vec![18.5, 19.0, 20.0], 9.0).unwrap().pass);
+            assert_eq!(c.budget_ms, 30.0);
+            assert!(judge(&c, vec![29.0, 30.0, 31.0]).unwrap().pass);
+            assert!(!judge(&c, vec![30.1, 30.2, 35.0]).unwrap().pass);
         }
     }
 
@@ -648,12 +815,27 @@ mod tests {
         assert_eq!((down.daemon, up.daemon), (Daemon::Down, Daemon::Up));
         for c in [down, up] {
             assert_eq!(c.args, ["status"]);
-            assert_eq!(c.budget, Budget::Absolute(50.0));
-            // The floor does not move an absolute budget.
-            assert_eq!(c.budget.limit_ms(1.0), 50.0);
-            assert_eq!(c.budget.limit_ms(40.0), 50.0);
-            assert!(judge(&c, vec![49.0, 50.0, 51.0], 5.0).unwrap().pass);
-            assert!(!judge(&c, vec![50.1, 50.2, 60.0], 5.0).unwrap().pass);
+            assert_eq!(c.budget_ms, 50.0);
+            assert!(judge(&c, vec![49.0, 50.0, 51.0]).unwrap().pass);
+            assert!(!judge(&c, vec![50.1, 50.2, 60.0]).unwrap().pass);
+        }
+    }
+
+    #[test]
+    fn the_goal_is_judged_to_first_output_and_completion_daemon_down_and_up() {
+        let [down, up] = GOAL_CASES;
+        assert_eq!(
+            (down.first_output.daemon, down.completion.daemon),
+            (Daemon::Down, Daemon::Down)
+        );
+        assert_eq!(
+            (up.first_output.daemon, up.completion.daemon),
+            (Daemon::Up, Daemon::Up)
+        );
+        for goal in GOAL_CASES {
+            assert_eq!(goal.first_output.budget_ms, GOAL_FIRST_OUTPUT_BUDGET_MS);
+            assert_eq!(goal.completion.budget_ms, GOAL_COMPLETION_BUDGET_MS);
+            assert!(goal.first_output.budget_ms <= goal.completion.budget_ms);
         }
     }
 
@@ -664,20 +846,30 @@ mod tests {
             names,
             ["version", "help", "status_daemon_down", "status_daemon_up"]
         );
+        let goals: Vec<&str> = GOAL_CASES
+            .iter()
+            .flat_map(|g| [g.first_output.name, g.completion.name])
+            .collect();
+        assert_eq!(
+            goals,
+            [
+                "goal_first_output_daemon_down",
+                "goal_completion_daemon_down",
+                "goal_first_output_daemon_up",
+                "goal_completion_daemon_up"
+            ]
+        );
     }
 
     #[test]
-    fn no_samples_or_unusable_floor_is_not_a_verdict() {
-        let c = case("version");
-        assert!(judge(&c, Vec::new(), 9.0).is_none());
-        assert!(judge(&c, vec![1.0], 0.0).is_none());
-        assert!(judge(&c, vec![1.0], f64::NAN).is_none());
+    fn no_samples_is_not_a_verdict() {
+        assert!(judge(&case("version"), Vec::new()).is_none());
     }
 
     #[test]
     fn the_gate_passes_only_when_every_case_passes_and_nothing_failed_to_run() {
-        let pass = judge(&case("version"), vec![10.0], 9.0).unwrap();
-        let fail = judge(&case("status_daemon_down"), vec![80.0], 9.0).unwrap();
+        let pass = judge(&case("version"), vec![10.0]).unwrap();
+        let fail = judge(&case("status_daemon_down"), vec![80.0]).unwrap();
         assert!(overall_pass(std::slice::from_ref(&pass), &[]));
         assert!(!overall_pass(&[pass.clone(), fail], &[]));
         assert!(!overall_pass(
@@ -690,8 +882,8 @@ mod tests {
     #[test]
     fn report_is_one_json_object_with_the_budgets_and_verdicts() {
         let verdicts = vec![
-            judge(&case("version"), vec![12.345, 12.0, 13.0], 8.0).unwrap(),
-            judge(&case("status_daemon_down"), vec![70.0], 8.0).unwrap(),
+            judge(&case("version"), vec![12.345, 12.0, 13.0]).unwrap(),
+            judge(&case("status_daemon_down"), vec![70.0]).unwrap(),
         ];
         let errors = Vec::new();
         let skipped = vec!["status_daemon_up".to_string()];
@@ -709,9 +901,18 @@ mod tests {
         assert_eq!(value["schema"], SCHEMA);
         assert_eq!(value["floor"]["median_ms"], 8.0);
         assert_eq!(value["budgets"]["status_max_ms"], 50.0);
-        assert_eq!(value["budgets"]["version_help_max_floor_multiple"], 2.0);
+        assert_eq!(value["budgets"]["version_help_max_ms"], 30.0);
+        assert_eq!(
+            value["budgets"]["goal_first_output_max_ms"],
+            GOAL_FIRST_OUTPUT_BUDGET_MS
+        );
+        assert_eq!(
+            value["budgets"]["goal_completion_max_ms"],
+            GOAL_COMPLETION_BUDGET_MS
+        );
+        assert_eq!(value["goal"], PROOF_GOAL);
         assert_eq!(value["cases"][0]["name"], "version");
-        assert_eq!(value["cases"][0]["limit_ms"], 16.0);
+        assert_eq!(value["cases"][0]["limit_ms"], 30.0);
         assert_eq!(value["cases"][0]["median_ms"], 12.35);
         assert_eq!(value["cases"][0]["pass"], true);
         assert_eq!(value["cases"][1]["pass"], false);
@@ -754,7 +955,7 @@ mod tests {
         let unknown = daemon_up_precheck(Err("status --json exited with 1".into())).unwrap_err();
         assert!(unknown.contains("unknown"), "{unknown}");
         // Either refusal is an error, so the gate cannot pass on it.
-        let pass = judge(&case("version"), vec![10.0], 9.0).unwrap();
+        let pass = judge(&case("version"), vec![10.0]).unwrap();
         assert!(!overall_pass(std::slice::from_ref(&pass), &[preexisting]));
     }
 
