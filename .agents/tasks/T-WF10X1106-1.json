@@ -5,7 +5,7 @@
   "size": "m",
   "deps": [],
   "native_worker": "wf10x1106",
-  "status": "in_progress",
+  "status": "completed",
   "scopes": [
     ".agents/tasks/t-wf10x1106-1.json",
     "xtask/src/affected.rs",

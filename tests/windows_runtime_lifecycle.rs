@@ -276,6 +276,7 @@ fn cargo_runtime_preserves_all_twelve_native_lifecycle_cases() {
             .env("CARGO_BUILD_TARGET", TARGET);
         if release {
             command.arg("--release");
+            command.env("CARGO_PROFILE_RELEASE_LTO", "thin");
         }
         let result = run(command, &output, label, 120);
         let artifacts: Vec<PathBuf> = String::from_utf8(result.stdout)
