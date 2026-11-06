@@ -10,6 +10,39 @@
 //! time via `Cli::command().version(env!("CARGO_PKG_VERSION"))`, so `--version`
 //! always reports the running executable's package version.
 
+/// `susi agents`: external task executor commands.
+pub mod agent;
+/// `susi ambient`: ambient context synchronization commands.
+pub mod ambient;
+/// `susi auto`: zero-config auto substrate commands.
+pub mod auto;
+/// `susi blackboard`: mission blackboard inspection commands.
+pub mod blackboard;
+/// `susi brain`: evidence-ranked model routing commands.
+pub mod brain;
+/// `susi broker`: inter-app permission and message broker commands.
+pub mod broker;
+/// `susi commits`: replicated quorum-commit ledger audit commands.
+pub mod commits;
+/// `susi context-graph`: universal context graph commands.
+pub mod context_graph;
+/// `susi crown`: Tier S USP verification commands.
+pub mod crown;
+/// `susi ecosystem`: local AI ecosystem and knowledge base commands.
+pub mod ecosystem;
+/// `susi extensions`: extension pack commands.
+pub mod extensions;
+/// `susi frameworks`: agent framework and engine commands.
+pub mod framework;
+/// `susi frontier`: top frontier model commands.
+pub mod frontier;
+/// `susi harness`: plan, mission and harness API commands.
+pub mod harness;
+/// `susi intent`: semantic intent bus commands.
+pub mod intent;
+/// `susi mcp`: leading MCP server and native MCP endpoint commands.
+pub mod mcp;
+
 /// Wall-clock budget in seconds for `susi tasks verify-merged` (`20 * 60`).
 ///
 /// Mirrors `susi_gawd::admin::tasks::VERIFY_BUDGET_SECS` without pulling
