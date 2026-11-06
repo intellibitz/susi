@@ -4,26 +4,22 @@
 #![deny(unsafe_code)]
 
 // Builder pins the OS repertoire and qualification proves this exact version.
-#[cfg(windows)]
+#[cfg(not(target_os = "linux"))]
 pub const UNICODE_VERSION: (u8, u8, u8) = (15, 1, 0);
+// Linux hosts select one qualified OS ICU at first use (see `linux_icu`).
+// The constant reports the oldest qualified repertoire: every admitted host
+// provides at least it, and a newer host is still held to its own exact pin.
 #[cfg(target_os = "linux")]
-pub const UNICODE_VERSION: (u8, u8, u8) = (16, 0, 0);
+pub const UNICODE_VERSION: (u8, u8, u8) = linux_icu::QUALIFIED[linux_icu::QUALIFIED.len() - 1].1;
 
+#[cfg(not(target_os = "linux"))]
 #[cfg_attr(windows, link(name = "icu", kind = "raw-dylib"))]
-#[cfg_attr(
-    target_os = "linux",
-    link(name = "libicuuc.so.76", kind = "dylib", modifiers = "+verbatim")
-)]
-// SAFETY: signatures match the ICU 76 / Windows SDK C ABI; only OS DLL imports.
+// SAFETY: signatures match the Windows SDK ICU C ABI; only OS DLL imports.
 #[allow(unsafe_code)]
 unsafe extern "C" {
-    #[cfg_attr(target_os = "linux", link_name = "u_getUnicodeVersion_76")]
     fn u_getUnicodeVersion(version: *mut u8);
-    #[cfg_attr(target_os = "linux", link_name = "u_hasBinaryProperty_76")]
     fn u_hasBinaryProperty(c: i32, property: i32) -> i8;
-    #[cfg_attr(target_os = "linux", link_name = "u_charType_76")]
     fn u_charType(c: i32) -> i8;
-    #[cfg_attr(target_os = "linux", link_name = "u_strToLower_76")]
     fn u_strToLower(
         dst: *mut u16,
         capacity: i32,
@@ -32,7 +28,6 @@ unsafe extern "C" {
         locale: *const u8,
         error: *mut i32,
     ) -> i32;
-    #[cfg_attr(target_os = "linux", link_name = "u_strToUpper_76")]
     fn u_strToUpper(
         dst: *mut u16,
         capacity: i32,
@@ -41,7 +36,6 @@ unsafe extern "C" {
         locale: *const u8,
         error: *mut i32,
     ) -> i32;
-    #[cfg_attr(target_os = "linux", link_name = "u_strToTitle_76")]
     fn u_strToTitle(
         dst: *mut u16,
         capacity: i32,
@@ -51,7 +45,6 @@ unsafe extern "C" {
         locale: *const u8,
         error: *mut i32,
     ) -> i32;
-    #[cfg_attr(target_os = "linux", link_name = "u_strFoldCase_76")]
     fn u_strFoldCase(
         dst: *mut u16,
         capacity: i32,
@@ -62,17 +55,242 @@ unsafe extern "C" {
     ) -> i32;
 }
 
+/// Linux distributions ship different ICU majors, each exporting its C API with
+/// a `_<major>` symbol suffix. Rather than link one major (which stops the
+/// executable from starting anywhere else), load the newest qualified major
+/// present in a standard absolute OS library directory, the same directory
+/// policy as the vendored IDNA and regex Unicode adapters. Nothing is read from
+/// PATH, LD_LIBRARY_PATH, the working directory or configuration.
+#[cfg(target_os = "linux")]
+mod linux_icu {
+    use crate::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+
+    /// Qualified OS ICU majors, newest first, with the exact Unicode version
+    /// each must report: ICU 76 (Debian 13) and ICU 74 (Ubuntu 24.04 LTS).
+    /// Adding a major requires running the consumer qualification against it.
+    pub const QUALIFIED: [(u8, (u8, u8, u8)); 2] = [(76, (16, 0, 0)), (74, (15, 1, 0))];
+    const DIRECTORIES: [&[u8]; 8] = [
+        b"/usr/lib/x86_64-linux-gnu",
+        b"/lib/x86_64-linux-gnu",
+        b"/usr/lib/aarch64-linux-gnu",
+        b"/lib/aarch64-linux-gnu",
+        b"/usr/lib64",
+        b"/lib64",
+        b"/usr/lib",
+        b"/lib",
+    ];
+    const SYMBOLS: [&[u8]; 7] = [
+        b"u_getUnicodeVersion",
+        b"u_hasBinaryProperty",
+        b"u_charType",
+        b"u_strToLower",
+        b"u_strToUpper",
+        b"u_strToTitle",
+        b"u_strFoldCase",
+    ];
+    const RTLD_NOW: i32 = 2;
+    const RTLD_LOCAL: i32 = 0;
+
+    // glibc exports these from libc.so.6 (2.34+) and libdl.so.2; std links both.
+    // SAFETY: signatures match the POSIX dlfcn C ABI; pointers are opaque bytes.
+    #[allow(unsafe_code)]
+    unsafe extern "C" {
+        fn dlopen(path: *const u8, flags: i32) -> *mut u8;
+        fn dlsym(handle: *mut u8, name: *const u8) -> *mut u8;
+        fn dlclose(handle: *mut u8) -> i32;
+    }
+
+    static ADDRESSES: [AtomicPtr<u8>; 7] = [const { AtomicPtr::new(crate::ptr::null_mut()) }; 7];
+    /// Index into QUALIFIED plus one; zero until a complete library is published.
+    static SELECTED: AtomicUsize = AtomicUsize::new(0);
+
+    /// Writes `prefix ++ middle ++ decimal(major) ++ NUL` into `buffer`.
+    fn c_name<'a>(buffer: &'a mut [u8; 64], prefix: &[u8], middle: &[u8], major: u8) -> &'a [u8] {
+        assert!(
+            (10..100).contains(&major),
+            "ICU major outside the two-digit range"
+        );
+        let digits: &[u8] = &[b'0' + major / 10, b'0' + major % 10];
+        let length = prefix.len() + middle.len() + digits.len();
+        assert!(
+            length < buffer.len(),
+            "ICU library or symbol name exceeds its bound"
+        );
+        let mut at = 0;
+        for part in [prefix, middle, digits] {
+            buffer[at..at + part.len()].copy_from_slice(part);
+            at += part.len();
+        }
+        buffer[at] = 0;
+        &buffer[..=at]
+    }
+
+    // SAFETY: dlopen/dlsym receive NUL-terminated names from bounded local
+    // buffers; a handle is closed only when it is not published.
+    #[allow(unsafe_code)]
+    fn load() -> usize {
+        let selected = SELECTED.load(Ordering::Acquire);
+        if selected != 0 {
+            return selected - 1;
+        }
+        for (index, (major, _)) in QUALIFIED.iter().enumerate() {
+            for directory in DIRECTORIES {
+                let mut path = [0u8; 64];
+                let path = c_name(&mut path, directory, b"/libicuuc.so.", *major);
+                // SAFETY: absolute, NUL-terminated OS path and published flags.
+                let handle = unsafe { dlopen(path.as_ptr(), RTLD_NOW | RTLD_LOCAL) };
+                if handle.is_null() {
+                    continue;
+                }
+                let mut found = [crate::ptr::null_mut(); 7];
+                for (slot, name) in found.iter_mut().zip(SYMBOLS) {
+                    let mut symbol = [0u8; 64];
+                    let symbol = c_name(&mut symbol, name, b"_", *major);
+                    // SAFETY: live handle and NUL-terminated symbol name.
+                    *slot = unsafe { dlsym(handle, symbol.as_ptr()) };
+                }
+                if found.iter().any(|address| address.is_null()) {
+                    // SAFETY: this unpublished handle owns one loader reference.
+                    unsafe { dlclose(handle) };
+                    continue;
+                }
+                // The handle stays open for the life of the process. Racing
+                // initialisers resolve the same library, so their stores agree.
+                for (slot, address) in ADDRESSES.iter().zip(found) {
+                    slot.store(address, Ordering::Relaxed);
+                }
+                SELECTED.store(index + 1, Ordering::Release);
+                return index;
+            }
+        }
+        panic!(
+            "no qualified OS ICU (libicuuc.so.76 or libicuuc.so.74) in a system library directory"
+        );
+    }
+
+    /// The exact Unicode version the selected ICU major must report.
+    pub fn expected_version() -> (u8, u8, u8) {
+        QUALIFIED[load()].1
+    }
+
+    fn address(index: usize) -> *mut u8 {
+        load();
+        ADDRESSES[index].load(Ordering::Relaxed)
+    }
+
+    // SAFETY (all wrappers): each address was resolved from the `_<major>`
+    // symbol of the same name in a qualified ICU, whose C signature matches
+    // the declared function pointer type; callers uphold the ICU contract.
+    #[allow(unsafe_code)]
+    pub unsafe fn u_getUnicodeVersion(version: *mut u8) {
+        // SAFETY: see the wrapper contract above.
+        let f: unsafe extern "C" fn(*mut u8) = unsafe { crate::mem::transmute(address(0)) };
+        // SAFETY: the caller supplies a valid four-byte buffer.
+        unsafe { f(version) }
+    }
+    #[allow(unsafe_code)]
+    pub unsafe fn u_hasBinaryProperty(c: i32, property: i32) -> i8 {
+        // SAFETY: see the wrapper contract above.
+        let f: unsafe extern "C" fn(i32, i32) -> i8 = unsafe { crate::mem::transmute(address(1)) };
+        // SAFETY: ICU accepts every code point and documented property enum.
+        unsafe { f(c, property) }
+    }
+    #[allow(unsafe_code)]
+    pub unsafe fn u_charType(c: i32) -> i8 {
+        // SAFETY: see the wrapper contract above.
+        let f: unsafe extern "C" fn(i32) -> i8 = unsafe { crate::mem::transmute(address(2)) };
+        // SAFETY: ICU accepts every code point.
+        unsafe { f(c) }
+    }
+    type Case = unsafe extern "C" fn(*mut u16, i32, *const u16, i32, *const u8, *mut i32) -> i32;
+    #[allow(unsafe_code)]
+    pub unsafe fn u_strToLower(
+        dst: *mut u16,
+        capacity: i32,
+        src: *const u16,
+        len: i32,
+        locale: *const u8,
+        error: *mut i32,
+    ) -> i32 {
+        // SAFETY: see the wrapper contract above.
+        let f: Case = unsafe { crate::mem::transmute(address(3)) };
+        // SAFETY: the caller supplies valid, disjoint, bounded buffers.
+        unsafe { f(dst, capacity, src, len, locale, error) }
+    }
+    #[allow(unsafe_code)]
+    pub unsafe fn u_strToUpper(
+        dst: *mut u16,
+        capacity: i32,
+        src: *const u16,
+        len: i32,
+        locale: *const u8,
+        error: *mut i32,
+    ) -> i32 {
+        // SAFETY: see the wrapper contract above.
+        let f: Case = unsafe { crate::mem::transmute(address(4)) };
+        // SAFETY: the caller supplies valid, disjoint, bounded buffers.
+        unsafe { f(dst, capacity, src, len, locale, error) }
+    }
+    #[allow(unsafe_code)]
+    pub unsafe fn u_strToTitle(
+        dst: *mut u16,
+        capacity: i32,
+        src: *const u16,
+        len: i32,
+        breaker: *mut (),
+        locale: *const u8,
+        error: *mut i32,
+    ) -> i32 {
+        // SAFETY: see the wrapper contract above.
+        let f: unsafe extern "C" fn(
+            *mut u16,
+            i32,
+            *const u16,
+            i32,
+            *mut (),
+            *const u8,
+            *mut i32,
+        ) -> i32 = unsafe { crate::mem::transmute(address(5)) };
+        // SAFETY: the caller supplies valid, disjoint, bounded buffers.
+        unsafe { f(dst, capacity, src, len, breaker, locale, error) }
+    }
+    #[allow(unsafe_code)]
+    pub unsafe fn u_strFoldCase(
+        dst: *mut u16,
+        capacity: i32,
+        src: *const u16,
+        len: i32,
+        options: u32,
+        error: *mut i32,
+    ) -> i32 {
+        // SAFETY: see the wrapper contract above.
+        let f: unsafe extern "C" fn(*mut u16, i32, *const u16, i32, u32, *mut i32) -> i32 =
+            unsafe { crate::mem::transmute(address(6)) };
+        // SAFETY: the caller supplies valid, disjoint, bounded buffers.
+        unsafe { f(dst, capacity, src, len, options, error) }
+    }
+}
+#[cfg(target_os = "linux")]
+use linux_icu::{
+    u_charType, u_getUnicodeVersion, u_hasBinaryProperty, u_strFoldCase, u_strToLower,
+    u_strToTitle, u_strToUpper,
+};
+
 // SAFETY: the only foreign write is bounded to a four-byte local array.
 #[allow(unsafe_code)]
 fn check_version() {
     use crate::sync::atomic::{AtomicBool, Ordering};
     static CHECKED: AtomicBool = AtomicBool::new(false);
     if !CHECKED.load(Ordering::Acquire) {
+        #[cfg(target_os = "linux")]
+        let expected = linux_icu::expected_version();
+        #[cfg(not(target_os = "linux"))]
+        let expected = UNICODE_VERSION;
         let mut version = [0u8; 4];
         // SAFETY: ICU writes exactly four version bytes to this valid array.
         unsafe { u_getUnicodeVersion(version.as_mut_ptr()) };
         assert!(
-            (version[0], version[1], version[2]) == UNICODE_VERSION,
+            (version[0], version[1], version[2]) == expected,
             "OS Unicode repertoire changed: rebuild and requalify Susi stdlib"
         );
         CHECKED.store(true, Ordering::Release);
@@ -181,7 +399,7 @@ pub mod conversions {
         };
         assert!(
             error <= 0 && (0..=6).contains(&written),
-            "Windows Unicode conversion failed"
+            "OS Unicode conversion failed"
         );
         let mut result = ['\0'; 3];
         for (index, scalar) in
@@ -189,9 +407,9 @@ pub mod conversions {
         {
             assert!(
                 index < 3,
-                "Windows Unicode mapping exceeded Rust scalar capacity"
+                "OS Unicode mapping exceeded Rust scalar capacity"
             );
-            result[index] = scalar.expect("Windows Unicode returned invalid UTF-16");
+            result[index] = scalar.expect("OS Unicode returned invalid UTF-16");
         }
         result
     }

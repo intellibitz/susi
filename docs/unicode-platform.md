@@ -24,7 +24,9 @@ characters where the upstream adapter requires rejection.
 Windows loads `icu.dll` with `LOAD_LIBRARY_SEARCH_SYSTEM32`, never the current
 directory or PATH. macOS uses `/usr/lib/libicucore.A.dylib`. Linux discovers
 versioned `libicuuc.so` libraries only in standard absolute system library
-directories and resolves their matching ICU C symbol suffix. Neither a custom
+directories and resolves their matching ICU C symbol suffix. The product
+standard library follows the same Linux directory policy but admits only the
+ICU majors it has qualified (`toolchain/windows-stdlib/NATIVE-BUILDS.md`). Neither a custom
 configuration nor a library download is attempted. Unavailable libraries,
 missing symbols and missing normalization data yield a typed `PlatformError`.
 The upstream infallible IDNA adapter methods reject Unicode input on failure;
