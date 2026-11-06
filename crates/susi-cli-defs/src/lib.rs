@@ -42,6 +42,40 @@ pub mod harness;
 pub mod intent;
 /// `susi mcp`: leading MCP server and native MCP endpoint commands.
 pub mod mcp;
+/// `susi model`: coding/agent model control plane commands.
+pub mod model;
+/// `susi open-weight`: open-weight frontier model commands.
+pub mod open_weight;
+/// `susi openrouter`: OpenRouter control plane commands.
+pub mod openrouter;
+/// `susi os`: operating-system substrate view and lifecycle commands.
+pub mod os;
+/// `susi patch`: patch apply-and-test arguments.
+pub mod patch;
+/// `susi peers`: verified cluster roster commands.
+pub mod peers;
+/// `susi plan`: autonomous planning loop arguments.
+pub mod plan;
+/// `susi privacy`: privacy mode and capability grant commands.
+pub mod privacy;
+/// `susi run`: direct streaming model execution arguments.
+pub mod run;
+/// `susi services`: leaf-service process table commands.
+pub mod services;
+/// `susi setup`: zero-config ecosystem setup commands.
+pub mod setup;
+/// `susi substrate`: Tier S substrate status commands.
+pub mod substrate;
+/// `susi tasks`: shared task queue commands.
+pub mod tasks;
+/// `susi telemetry`: host telemetry commands.
+pub mod telemetry;
+/// `susi top`: operator control surface arguments.
+pub mod top;
+/// `susi tx`: multi-agent transaction commands.
+pub mod tx;
+/// `susi workflow`: agent worktree workflow commands.
+pub mod workflow;
 
 /// Wall-clock budget in seconds for `susi tasks verify-merged` (`20 * 60`).
 ///

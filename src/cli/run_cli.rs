@@ -4,7 +4,6 @@
 //! llama.cpp, Candle) or configured cloud providers without the overhead
 //! of swarm DAG compilation.
 
-use clap::Args;
 use serde::Serialize;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::Path;
@@ -13,29 +12,7 @@ use std::time::Instant;
 
 use susi_gemi::engines::runtime::GemiEngine;
 
-/// Arguments for `susi run`.
-#[derive(Args, Debug, Clone)]
-pub struct RunArgs {
-    /// Model name (e.g. `qwen2.5-coder:7b`, `claude-3-7-sonnet`, `deepseek-chat`)
-    #[arg(short = 'm', long = "model")]
-    pub model: Option<String>,
-
-    /// System prompt / instructions
-    #[arg(short = 's', long = "system")]
-    pub system: Option<String>,
-
-    /// Disable streaming output (buffers complete response before printing)
-    #[arg(long = "no-stream")]
-    pub no_stream: bool,
-
-    /// Output JSON with metadata (duration, token throughput, serving backend)
-    #[arg(long = "json")]
-    pub json: bool,
-
-    /// Positional model name and/or prompt tokens
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    pub prompt: Vec<String>,
-}
+pub use susi_cli_defs::run::*;
 
 #[derive(Serialize)]
 pub struct RunJsonOutput<'a> {

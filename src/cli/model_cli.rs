@@ -1,35 +1,11 @@
 //! Deterministic coding/agent model control plane (no daemon required for list/doctor/setup).
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
-use clap::Subcommand;
 use std::path::Path;
 use susi_daemon::adapter_ops::{self, AdapterKind};
 use susi_gemi::models::coding_models::CodingModelManager;
 
-#[derive(Debug, Subcommand)]
-pub enum ModelCommands {
-    /// Show the top developer/agent-focused models and readiness
-    List,
-    /// Check credentials/endpoints (does not call a paid model)
-    Doctor { model: Option<String> },
-    /// Show setup instructions and the effective model wiring
-    Setup { model: String },
-    /// Override engine/model/protocol/api_key_env via JSON file
-    Configure {
-        model: String,
-        file: std::path::PathBuf,
-    },
-    /// Remove a host override and restore the bundled coding-model entry
-    Reset { model: String },
-    /// Prefer a coding model for subsequent routing (`selected_model_override`)
-    Prefer { model: String },
-    /// Paid probe: send a short completion to verify auth and model id
-    Probe {
-        model: String,
-        #[arg(default_value = "Reply with exactly: ok")]
-        prompt: String,
-    },
-}
+pub use susi_cli_defs::model::*;
 
 pub fn execute(action: Option<ModelCommands>, workspace: &Path) -> Result<()> {
     let action = action.unwrap_or(ModelCommands::List);

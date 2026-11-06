@@ -3,15 +3,10 @@
 //! MCP `substrate_status` tool.
 use crate::cli_json::print_json;
 use anyhow::Result;
-use clap::Subcommand;
 use std::path::Path;
 use susi_daemon::discovery_pipeline::Catalogs;
 
-#[derive(Debug, Subcommand)]
-pub enum SubstrateCommands {
-    /// Show Pluggable / Sandbox / Governance / Host-contract / Reflexes status (default)
-    Status,
-}
+pub use susi_cli_defs::substrate::*;
 
 /// What `substrate status` primes (see `susi_daemon::substrate_status::PRIMED`).
 pub(crate) const PRIMED: Catalogs = susi_daemon::substrate_status::PRIMED;

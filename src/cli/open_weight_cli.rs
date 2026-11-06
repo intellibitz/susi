@@ -1,39 +1,8 @@
 //! Deterministic open-weight frontier model control plane (local host; no daemon for list/doctor).
 use crate::cli_json::print_json;
 use anyhow::{Error, Result};
-use clap::Subcommand;
 
-#[derive(Debug, Subcommand)]
-pub enum OpenWeightCommands {
-    /// Show the top open-weight frontier models and readiness
-    List,
-    /// Check local endpoint / pull status (does not download weights)
-    Doctor { model: Option<String> },
-    /// Show setup instructions and effective wiring
-    Setup { model: String },
-    /// Pull weights via `ollama pull <tag>`
-    Pull { model: String },
-    /// Override engine/ollama_tag/protocol via JSON file
-    Configure {
-        model: String,
-        file: std::path::PathBuf,
-    },
-    /// Remove a host override and restore the bundled entry
-    Reset { model: String },
-    /// Prefer an open-weight model for local routing
-    Prefer {
-        model: Option<String>,
-        /// Clear the preferred open-weight pin
-        #[arg(long)]
-        clear: bool,
-    },
-    /// Local probe: short completion via Ollama/vLLM
-    Probe {
-        model: String,
-        #[arg(default_value = "Reply with exactly: ok")]
-        prompt: String,
-    },
-}
+pub use susi_cli_defs::open_weight::*;
 
 pub fn execute(action: Option<OpenWeightCommands>) -> Result<()> {
     // `susi_daemon::provider_ops` builds every document; the MCP

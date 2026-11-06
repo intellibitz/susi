@@ -2,14 +2,7 @@
 use anyhow::{bail, Result};
 use std::path::Path;
 
-#[derive(Debug, clap::Args)]
-pub struct PatchApplyArgs {
-    /// JSON file containing a PatchRequest.
-    file: std::path::PathBuf,
-    /// Override auto_apply (still requires workspace confinement).
-    #[arg(long)]
-    auto_apply: bool,
-}
+pub use susi_cli_defs::patch::*;
 
 pub fn execute(args: PatchApplyArgs, workspace: &Path) -> Result<()> {
     let text = std::fs::read_to_string(&args.file)

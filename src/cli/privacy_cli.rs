@@ -1,44 +1,8 @@
 //! Privacy / MAC capability CLI.
 use anyhow::{bail, Result};
-use clap::Subcommand;
 use susi_core::mac_policy::{actions, MacPolicy, PrivacyMode};
 
-#[derive(Debug, Subcommand)]
-pub enum PrivacyCommands {
-    /// Show privacy mode and active capability grants.
-    Status,
-    /// Set privacy mode: balanced | local_only | open
-    Mode { mode: String },
-    /// Grant a cryptographic capability token.
-    Grant {
-        #[arg(short, long, default_value = "susi")]
-        subject: String,
-        #[arg(short, long)]
-        action: String,
-        #[arg(short, long, default_value = "*")]
-        resource: String,
-        #[arg(short, long)]
-        ttl_secs: Option<u64>,
-    },
-    /// Revoke a capability grant.
-    Revoke {
-        #[arg(short, long, default_value = "susi")]
-        subject: String,
-        #[arg(short, long)]
-        action: String,
-        #[arg(short, long, default_value = "*")]
-        resource: String,
-    },
-    /// Explicit consent for network egress (and cloud inference under local_only).
-    Consent {
-        #[arg(long)]
-        egress: bool,
-        #[arg(short, long, default_value = "susi")]
-        subject: String,
-        #[arg(short, long, default_value_t = 3600)]
-        ttl_secs: u64,
-    },
-}
+pub use susi_cli_defs::privacy::*;
 
 pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
     // Ensure policy is wired from host config/key.
