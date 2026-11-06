@@ -4,46 +4,10 @@
 //! the death on its next probe and respawns it.
 
 use anyhow::{bail, Result};
-use clap::Subcommand;
 use std::path::Path;
 use susi_core::service_table;
 
-#[derive(Debug, Subcommand)]
-pub enum ServicesCommands {
-    /// Show every leaf service, its supervised pid, and live health (default)
-    Status {
-        /// Emit machine-readable JSON — agent callers get the process
-        /// table as data instead of parsing the table view
-        #[arg(long)]
-        json: bool,
-    },
-    /// Terminate a supervised service; the daemon respawns it on its next probe
-    Restart {
-        /// Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
-        name: String,
-    },
-    /// Stop a supervised service and hold it down — the supervisor will
-    /// not respawn it until `susi services start` clears the stop flag.
-    /// Distinct from restart: the service stays dead by operator intent.
-    Stop {
-        /// Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
-        name: String,
-    },
-    /// Clear an operator stop and let the supervisor bring the service up
-    Start {
-        /// Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
-        name: String,
-    },
-    /// Tail a supervised service's log file (the daemon redirects each
-    /// spawned service's stderr to `substrate_home/logs/<name>.log`)
-    Logs {
-        /// Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
-        name: String,
-        /// Number of trailing lines to print
-        #[arg(short = 'n', long, default_value = "50")]
-        lines: usize,
-    },
-}
+pub use susi_cli_defs::services::*;
 
 pub fn execute(action: Option<ServicesCommands>, _workspace: &Path) -> Result<()> {
     match action.unwrap_or(ServicesCommands::Status { json: false }) {

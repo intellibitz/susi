@@ -1,20 +1,10 @@
 //! Unified operator control surface CLI (`susi top`, VC-201-099).
 
-use clap::Args;
 use std::path::Path;
 use std::process::ExitCode;
 use susi_gemi::operator_report::{render_operator_state, sample_operator_state};
 
-#[derive(Args, Debug, Clone)]
-pub struct TopArgs {
-    /// Output the operator control surface state as JSON
-    #[arg(long)]
-    pub json: bool,
-
-    /// Filter to a specific state dimension: workload, resources, providers, config, federation, evidence
-    #[arg(long)]
-    pub filter: Option<String>,
-}
+pub use susi_cli_defs::top::*;
 
 /// Execute `susi top`.
 pub fn execute(args: TopArgs, cwd: &Path) -> ExitCode {

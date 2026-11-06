@@ -2,14 +2,7 @@
 use anyhow::Result;
 use std::path::Path;
 
-#[derive(Debug, clap::Args)]
-pub struct PlanArgs {
-    /// Natural language goal to solve via iterative planning.
-    goal: String,
-    /// Maximum number of planning steps.
-    #[arg(short, long, default_value_t = 3)]
-    max_steps: u32,
-}
+pub use susi_cli_defs::plan::*;
 
 pub fn execute(args: PlanArgs, workspace: &Path) -> Result<()> {
     let ama = susi_gawd::ama::SusiMasterAgent::new();

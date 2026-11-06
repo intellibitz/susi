@@ -1,12 +1,7 @@
 //! Sample and inspect host telemetry.
 use anyhow::Result;
-use clap::Subcommand;
 
-#[derive(Debug, Subcommand)]
-pub enum TelemetryCommands {
-    /// Sample thermal/battery/load telemetry now.
-    Sample,
-}
+pub use susi_cli_defs::telemetry::*;
 
 pub fn execute(_action: Option<TelemetryCommands>) -> Result<()> {
     let snapshot = susi_daemon::telemetry::sample();

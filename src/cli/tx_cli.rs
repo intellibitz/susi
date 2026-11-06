@@ -1,30 +1,8 @@
 //! Multi-agent transaction CLI.
 use anyhow::{bail, Result};
-use clap::Subcommand;
 use std::path::Path;
 
-#[derive(Debug, Subcommand)]
-pub enum TxCommands {
-    /// Begin a transaction snapshotting the given files (comma-separated).
-    Begin {
-        #[arg(short, long)]
-        description: String,
-        #[arg(short, long, default_value = "")]
-        files: String,
-    },
-    /// Commit an open transaction.
-    Commit {
-        #[arg(short, long)]
-        id: String,
-    },
-    /// Abort and restore snapshotted files.
-    Abort {
-        #[arg(short, long)]
-        id: String,
-    },
-    /// List open transactions.
-    List,
-}
+pub use susi_cli_defs::tx::*;
 
 pub fn execute(action: Option<TxCommands>, workspace: &Path) -> Result<()> {
     let mgr = susi_core::agent_tx::TxManager::global();

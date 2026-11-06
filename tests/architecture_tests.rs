@@ -2787,10 +2787,13 @@ fn core_cli_has_no_ui_subcommands() {
             number + 1
         );
     }
-    let top = std::fs::read_to_string(root.join("src/cli/top_cli.rs")).expect("read top_cli.rs");
+    // `TopArgs` lives in susi-cli-defs since D-SP-4 Stage 4d;
+    // `src/cli/top_cli.rs` keeps only the handler.
+    let top = std::fs::read_to_string(root.join("crates/susi-cli-defs/src/top.rs"))
+        .expect("read susi-cli-defs top.rs");
     assert!(
         top.contains("struct TopArgs"),
-        "src/cli/top_cli.rs must define `struct TopArgs`; update scanner path if moved"
+        "crates/susi-cli-defs/src/top.rs must define `struct TopArgs`; update scanner path if moved"
     );
     assert!(
         !top.contains("pub watch") && !top.contains("pub interval"),
