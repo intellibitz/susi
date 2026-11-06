@@ -12,6 +12,7 @@
     "crates/susi-core/src/plane_bus_ipc.rs",
     "crates/susi-gawd/src/admin/mod.rs",
     "crates/susi-gawd/src/admin/seed.rs",
+    "crates/susi-gemi-models/src/lifecycle/download_controller.rs",
     "crates/susi-gmcp/src/tools/core.rs"
   ],
   "accept": {
@@ -29,7 +30,8 @@
       "on Windows isolate_bus_root moves LOCALAPPDATA so a test process never shares the user's or a sibling test's bus",
       "global_susi_dir_and_contains_phrase_handle_empty_and_boundary_cases holds ENV_LOCK while resolving the home",
       "join_and_sweep waits up to 300 s for its own sweep and fails loudly instead of asserting on a sweep in flight",
-      "the detached Git worker test allows 120 s for completion on a loaded host"
+      "the detached Git worker test allows 120 s for completion on a loaded host",
+      "the download progress-file test holds ENV_LOCK across its write and read"
     ]
   }
 }
