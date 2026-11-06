@@ -142,7 +142,15 @@ pub fn store_blob(root: &Path, bytes: &[u8]) -> Result<String> {
         .write_all(bytes)?;
     let output = child.wait_with_output()?;
     if !output.status.success() {
-        return Err("cannot retain native evidence blob".into());
+        // Keep Git's own reason: a bare "cannot retain" left a failed ship
+        // (2026-11-06) with nothing to diagnose its root cause from.
+        return Err(format!(
+            "cannot retain native evidence blob in {}: git hash-object -w {}: {}",
+            root.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
     }
     let object = String::from_utf8(output.stdout)?.trim().to_owned();
     oid(&object)?;
@@ -1148,6 +1156,24 @@ pub fn verify(root: &Path, permit_path: &Path, pins: &TrustPins<'_>, head: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_failed_blob_write_reports_gits_reason() {
+        let outside =
+            std::env::temp_dir().join(format!("susi-store-blob-not-a-repo-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).unwrap();
+        let error = store_blob(&outside, b"evidence").unwrap_err().to_string();
+        let _ = std::fs::remove_dir_all(&outside);
+        assert!(
+            error.starts_with("cannot retain native evidence blob"),
+            "{error}"
+        );
+        assert!(error.contains("git hash-object -w"), "{error}");
+        // Git's own diagnosis, not just the fact that it failed.
+        assert!(
+            error.to_ascii_lowercase().contains("not a git repository"),
+            "{error}"
+        );
+    }
     #[test]
     fn acceptance_cannot_compile_or_list_without_executing() {
         for argv in [
