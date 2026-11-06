@@ -416,12 +416,11 @@ pub(crate) enum AdminCommands {
     },
     /// Verify version alignment
     Verify,
-    /// Full release orchestration. With --cut, also bumps the engine
-    /// version and pushes the matching vX.Y.Z tag atomically, so a git tag
-    /// (what actually makes a new release appear on GitHub - release.yml
-    /// only triggers on a pushed `v*.*.*` tag) can never again drift out of
-    /// sync with the version number the way it did under the old
-    /// bump-on-every-push scheme.
+    /// Full release orchestration: the local gate (type check, compliance
+    /// audit, workspace tests, clippy, smoke and e2e checks). With --cut, also
+    /// bumps the engine version, commits it and pushes the release branch;
+    /// land it with `cargo local-workflow ship`, then tag, qualify and publish
+    /// locally with `cargo local-release`.
     Release {
         #[arg(long)]
         cut: Option<susi_cli_defs::VersionBump>,

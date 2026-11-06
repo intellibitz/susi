@@ -13,10 +13,8 @@ pub enum WorkflowCommands {
     /// Fetch and merge origin/main into a clean agent worktree.
     Sync,
     /// Verify, close, push, publish the close receipt and release ownership.
-    /// A cloud session's release is applied by GitHub Actions; finish returns
-    /// once that request is published, and the next claim waits only for what
-    /// the run still has left. The branch run and the merge stay the
-    /// machinery's (a red run is reported at the next `sync`).
+    /// finish returns once the close receipt is published; the branch reaches
+    /// main through `cargo local-workflow ship`, not a hosted run.
     Finish {
         id: String,
         /// Poll the branch run in-line instead: stop on a red run, hand off on

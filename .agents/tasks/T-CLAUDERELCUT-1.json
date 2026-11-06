@@ -1,0 +1,33 @@
+{
+  "id": "T-CLAUDERELCUT-1",
+  "native_worker": "relcut",
+  "title": "Release cut runs the full local gate; help text names no GitHub Actions",
+  "goal": "GitHub Actions workflows were removed (CEO decision 2026-11-06), so `susi admin release --cut` may no longer hand verification to a tagged GitHub workflow or reuse GitHub Test-run evidence. Every cut runs the full local gate (type check, compliance audit, workspace tests, clippy, smoke and e2e checks), pushes its release branch, and tells the operator to land it with cargo local-workflow ship and qualify/publish with cargo local-release. The `workflow finish` and `release` help text and the CLI help snapshot stop claiming GitHub Actions or release.yml. Also closes T-CLAUDERMGHA-1 (shipped as 64b867b).",
+  "size": "s",
+  "deps": [
+    "T-CLAUDERMGHA-1"
+  ],
+  "scopes": [
+    ".agents/tasks/t-clauderelcut-1.json",
+    ".agents/tasks/t-claudermgha-1.json",
+    ".agents/tasks/done/t-claudermgha-1.json",
+    "crates/susi-gawd/src/admin/release.rs",
+    "src/cli/defs.rs",
+    "src/cli/workflow_cli.rs",
+    "tests/fixtures/cli_help_snapshot.txt"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "admin::release"
+    ]
+  },
+  "created_by": "CLAUDERELCUT",
+  "created_unix": 1793965093
+}
