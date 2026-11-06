@@ -3197,7 +3197,8 @@ mod unwired_governance_tests {
     /// The bus rendezvous is cross-process (`<cache>/bus/*/`), so a sibling
     /// test process — or a live daemon on this host — could satisfy the
     /// `gawd.*` topics and defeat the "unwired" premise. Point the cache dir
-    /// at a private temp root before the `IpcPlaneBus` binds. Under
+    /// at a private temp root before the `IpcPlaneBus` binds
+    /// (`XDG_CACHE_HOME` on Linux, `LOCALAPPDATA` on Windows). Under
     /// nextest each test is its own process; under `cargo test` the env swap
     /// races with peers but only shrinks the visible rendezvous, which is
     /// the conservative direction for a fail-closed assertion.
@@ -3216,6 +3217,15 @@ mod unwired_governance_tests {
         std::env::remove_var("SUSI_HOME");
         std::env::set_var("SUSI_XDG", "1");
         std::env::set_var("XDG_CACHE_HOME", &dir);
+        // Windows ignores XDG_CACHE_HOME: its cache dir (and so the bus root)
+        // is `%LOCALAPPDATA%\intellibitz\susi\cache`. Without moving it every
+        // test process shared the user's real bus, and under nextest a
+        // sibling process's wired test (`wire_permissive_audit`) answered
+        // this process's audit call — the unwired assertions then saw a
+        // permitted call and failed.
+        if cfg!(windows) {
+            std::env::set_var("LOCALAPPDATA", &dir);
+        }
     }
 
     /// Serializes wired vs. unwired audit-gate tests inside this process:
