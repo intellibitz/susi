@@ -5,7 +5,7 @@
   "size": "m",
   "deps": [],
   "native_worker": "asyncship",
-  "status": "in_progress",
+  "status": "completed",
   "scopes": [
     ".agents/tasks/t-asyncship-1.json",
     "xtask/src/bin/local-workflow.rs"

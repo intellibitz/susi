@@ -912,6 +912,11 @@ fn scope_base(root: &Path, claim: &Claim, source: &str) -> Result<String> {
     let Some(accepted) = integration_head(root)? else {
         return Ok(claim.base.clone());
     };
+    // A claim reserved at or after the accepted integration exempts no
+    // integration history, so no receipt is needed to justify the base.
+    if accepted == claim.base || is_ancestor(root, &accepted, &claim.base)? {
+        return Ok(claim.base.clone());
+    }
     if !is_ancestor(root, &claim.base, &accepted)? {
         return Err("accepted history does not descend from the reserved claim base".into());
     }
@@ -1775,9 +1780,6 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
         .parent()
         .ok_or("repository has no parent")?
         .join(format!("{base}-agent-{claimant}"));
-    if fs::symlink_metadata(&worktree).is_ok() {
-        return Err("destination already exists; refusing to reuse it".into());
-    }
     let branch = format!("local-agent/{claimant}");
     let base_oid = integration_head(root)?.unwrap_or(git(root, &["rev-parse", "HEAD"])?);
     let claim_path = state.join("claims").join(format!("{claimant}.claim"));
@@ -1785,13 +1787,35 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
     if worktree_text.chars().any(char::is_control) {
         return Err("worktree path contains control characters".into());
     }
-    fs::write(
-        &claim_path,
-        format!(
-            "susi-local-claim-v2\n{claimant}\n{worktree_text}\n{base_oid}\n{}\n",
-            scopes.join("\n")
-        ),
-    )?;
+    let claim_text = format!(
+        "susi-local-claim-v2\n{claimant}\n{worktree_text}\n{base_oid}\n{}\n",
+        scopes.join("\n")
+    );
+    if let Ok(meta) = fs::symlink_metadata(&worktree) {
+        if !reusable_worktree(root, &worktree, &meta, &branch, &base_oid)? {
+            return Err("destination already exists; refusing to reuse it".into());
+        }
+        // Reuse the released checkout so its warm target/ survives.
+        fs::write(&claim_path, &claim_text)?;
+        if let Err(error) = git(
+            &worktree,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "checkout",
+                "-B",
+                &branch,
+                &base_oid,
+            ],
+        ) {
+            fs::remove_file(&claim_path)?;
+            return Err(error);
+        }
+        fs::create_dir_all(worktree.join("target"))?;
+        seed_worktree_target(&primary, &worktree, true);
+        return Ok(worktree);
+    }
+    fs::write(&claim_path, &claim_text)?;
     // Suppress legacy shell/network hooks for this local creation only. No
     // persistent Git setting changes and no remote operation are performed.
     if let Err(error) = git(
@@ -1816,6 +1840,58 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
     fs::create_dir(worktree.join("target"))?;
     seed_worktree_target(&primary, &worktree, true);
     Ok(worktree)
+}
+
+/// An existing destination is reused only when it is a real directory that
+/// this repository registers as a worktree, has no uncommitted or untracked
+/// work, and resetting `branch` to `base_oid` drops no commit: neither the
+/// agent branch tip nor a detached HEAD may hold work outside `base_oid`.
+fn reusable_worktree(
+    root: &Path,
+    worktree: &Path,
+    meta: &fs::Metadata,
+    branch: &str,
+    base_oid: &str,
+) -> Result<bool> {
+    if meta.file_type().is_symlink() || !meta.is_dir() || !registered_worktree(root, worktree)? {
+        return Ok(false);
+    }
+    if !git(
+        worktree,
+        &["status", "--porcelain", "--untracked-files=all"],
+    )?
+    .trim()
+    .is_empty()
+    {
+        return Ok(false);
+    }
+    let branch_ref = format!("refs/heads/{branch}");
+    if let Ok(tip) = git(root, &["rev-parse", "--verify", "--quiet", &branch_ref]) {
+        if !tip.is_empty() && !is_ancestor(root, &tip, base_oid)? {
+            return Err(
+                format!("{branch} holds commits outside {base_oid}; refusing to reset it").into(),
+            );
+        }
+    }
+    if git(worktree, &["symbolic-ref", "--quiet", "HEAD"]).is_err() {
+        let head = git(worktree, &["rev-parse", "HEAD"])?;
+        if !is_ancestor(root, &head, base_oid)? {
+            return Err("reusable worktree has a detached HEAD with unshipped commits".into());
+        }
+    }
+    Ok(true)
+}
+
+fn registered_worktree(root: &Path, worktree: &Path) -> Result<bool> {
+    let wanted = worktree.canonicalize()?;
+    Ok(git(root, &["worktree", "list", "--porcelain"])?
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .any(|listed| {
+            Path::new(listed)
+                .canonicalize()
+                .is_ok_and(|listed| listed == wanted)
+        }))
 }
 
 fn seed_worktree_target(primary: &Path, worktree: &Path, background: bool) {
@@ -2635,12 +2711,12 @@ fn ship_scope_base(root: &Path, claim: &Claim, source: &str, publish_base: &str)
         Err(error) => {
             let on_publish_base =
                 claim.base == publish_base || is_ancestor(root, &claim.base, publish_base)?;
-            if error
-                .to_string()
-                .contains("accepted history does not descend")
-                && is_ancestor(root, &claim.base, source)?
-                && on_publish_base
-            {
+            // Falling back to the claim base exempts nothing: the whole
+            // claim.base..source diff stays subject to the claimed scopes.
+            let message = error.to_string();
+            let recoverable = message.contains("accepted history does not descend")
+                || message.contains("accepted integration has no matching durable");
+            if recoverable && is_ancestor(root, &claim.base, source)? && on_publish_base {
                 Ok(claim.base.clone())
             } else {
                 Err(error)
@@ -3726,6 +3802,113 @@ fn check_command(
     command
 }
 
+/// A verification slot that a ship currently holds.
+#[derive(Debug, Eq, PartialEq)]
+struct BusySlot {
+    slot: usize,
+    owner: String,
+}
+
+/// A point-in-time view of the local workflow. It never takes the workflow
+/// lock or waits on a slot, so it answers while other agents start, commit,
+/// integrate or ship.
+#[derive(Debug)]
+struct WorkflowStatus {
+    integration_head: Option<String>,
+    claims: Vec<Claim>,
+    busy_slots: Vec<BusySlot>,
+}
+
+fn workflow_status(root: &Path) -> Result<WorkflowStatus> {
+    let state = state(root)?;
+    Ok(WorkflowStatus {
+        integration_head: integration_head(root)?,
+        claims: claims(&state)?,
+        busy_slots: busy_slots(&state.join("slots"))?,
+    })
+}
+
+/// Probe each `<n>.lock` with a non-blocking try-lock: a held lock is a busy
+/// slot; a free one is released at once when the probe handle drops.
+fn busy_slots(slots: &Path) -> Result<Vec<BusySlot>> {
+    let entries = match fs::read_dir(slots) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut busy = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        let Some(slot) = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(".lock"))
+            .and_then(|index| index.parse::<usize>().ok())
+        else {
+            continue;
+        };
+        let Ok(file) = fs::OpenOptions::new().read(true).write(true).open(&path) else {
+            continue;
+        };
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => busy.push(BusySlot {
+                slot,
+                owner: fs::read_to_string(slots.join(slot.to_string()).join("owner"))
+                    .map(|owner| owner.trim().to_owned())
+                    .unwrap_or_default(),
+            }),
+            Err(fs::TryLockError::Error(error)) => return Err(error.into()),
+        }
+    }
+    busy.sort_by_key(|busy| busy.slot);
+    Ok(busy)
+}
+
+fn status_json(status: &WorkflowStatus) -> serde_json::Value {
+    serde_json::json!({
+        "schema": "susi-local-workflow-status-v1",
+        "integration_head": status.integration_head,
+        "claims": status.claims.iter().map(|claim| serde_json::json!({
+            "name": claim.name,
+            "worktree": claim.worktree.display().to_string(),
+            "base": claim.base,
+            "scopes": claim.scopes,
+        })).collect::<Vec<_>>(),
+        "busy_slots": status.busy_slots.iter().map(|busy| serde_json::json!({
+            "slot": busy.slot,
+            "owner": busy.owner,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn status_text(status: &WorkflowStatus) -> String {
+    let mut out = format!(
+        "integration: {}\nclaims: {}\n",
+        status.integration_head.as_deref().unwrap_or("none"),
+        status.claims.len()
+    );
+    for claim in &status.claims {
+        out.push_str(&format!(
+            "  {}\t{}\tbase {}\t{}\n",
+            claim.name,
+            claim.worktree.display(),
+            claim.base.get(..12).unwrap_or(&claim.base),
+            claim.scopes.join(", ")
+        ));
+    }
+    out.push_str(&format!("verifying: {}\n", status.busy_slots.len()));
+    for busy in &status.busy_slots {
+        let owner = if busy.owner.is_empty() {
+            "unknown owner"
+        } else {
+            &busy.owner
+        };
+        out.push_str(&format!("  slot {}\t{owner}\n", busy.slot));
+    }
+    out
+}
+
 fn run(args: &[String]) -> Result<()> {
     let root = env::current_dir()?;
     match args.first().map(String::as_str) {
@@ -3776,6 +3959,10 @@ fn run(args: &[String]) -> Result<()> {
             let state = state(&root)?;
             let _lock = Lock::acquire(&state)?;
             for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
+        }
+        Some("status") if args.len() == 1 => print!("{}", status_text(&workflow_status(&root)?)),
+        Some("status") if args.len() == 2 && args[1] == "--json" => {
+            println!("{}", serde_json::to_string_pretty(&status_json(&workflow_status(&root)?))?);
         }
         Some("check") if args.len() == 1 => check(&root)?,
         Some("affected") if (2..=3).contains(&args.len()) => {
@@ -3828,7 +4015,7 @@ fn run(args: &[String]) -> Result<()> {
         {
             disable_merge_path(&root, true)?;
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>] | ruleset apply | workflows disable --merge-path".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | status [--json] | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>] | ruleset apply | workflows disable --merge-path".into()),
     }
     Ok(())
 }
@@ -4120,7 +4307,14 @@ mod tests {
             &["rev-parse", "--verify", "refs/heads/local-agent/two"]
         )
         .is_ok());
-        assert!(start(&repo, "two", &["tests".into()]).is_err());
+        // A clean, released, registered worktree is reused in place.
+        assert_eq!(start(&repo, "two", &["tests".into()]).unwrap(), second);
+        // The dirty, still-claimed one is never taken over.
+        assert!(start(&repo, "one", &["src".into()]).is_err());
+        assert_eq!(
+            fs::read_to_string(first.join("dirty.rs")).unwrap(),
+            "preserve me"
+        );
     }
     #[test]
     fn parallel_scope_claims_have_one_winner() {
@@ -5551,6 +5745,79 @@ mod tests {
         git(repo, &["rev-parse", "HEAD"]).unwrap()
     }
 
+    fn bare_claim(repo: &Path, base: &str) -> Claim {
+        Claim {
+            name: "probe".into(),
+            worktree: repo.to_path_buf(),
+            base: base.into(),
+            scopes: vec!["probe.rs".into()],
+        }
+    }
+
+    #[test]
+    fn scope_base_needs_no_receipt_when_the_claim_is_at_or_after_accepted() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let older = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let base = commit_on(&repo, "base.rs", "base");
+        let source = commit_on(&repo, "probe.rs", "probe");
+        // Integration ref equal to the claim base, with no receipt.
+        git(&repo, &["update-ref", INTEGRATION_REF, &base]).unwrap();
+        let claim = bare_claim(&repo, &base);
+        assert_eq!(scope_base(&repo, &claim, &source).unwrap(), base);
+        // Integration ref strictly behind the claim base, with no receipt.
+        git(&repo, &["update-ref", INTEGRATION_REF, &older]).unwrap();
+        assert_eq!(scope_base(&repo, &claim, &source).unwrap(), base);
+    }
+
+    #[test]
+    fn ship_scope_base_falls_back_to_the_claim_base_without_a_receipt() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let accepted = commit_on(&repo, "accepted.rs", "accepted");
+        let source = commit_on(&repo, "probe.rs", "probe");
+        // Accepted is ahead of the claim base but carries no receipt.
+        git(&repo, &["update-ref", INTEGRATION_REF, &accepted]).unwrap();
+        let claim = bare_claim(&repo, &base);
+        let error = scope_base(&repo, &claim, &source).unwrap_err();
+        assert!(error.to_string().contains("no matching durable"), "{error}");
+        assert_eq!(
+            ship_scope_base(&repo, &claim, &source, &accepted).unwrap(),
+            base
+        );
+        // A claim base that is not on the publish base still fails.
+        let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let unrelated = git(&repo, &["commit-tree", &tree, "-m", "unrelated"]).unwrap();
+        assert!(ship_scope_base(&repo, &claim, &source, &unrelated).is_err());
+    }
+
+    #[test]
+    fn ship_succeeds_and_chains_when_accepted_is_ahead_without_a_receipt() {
+        let (_scratch, repo, _base) = ship_fixture("one");
+        // Main advanced past the claim base and the integration ref points at
+        // it, but this clone never wrote a receipt for that commit.
+        let accepted = commit_on(&repo, "elsewhere.rs", "elsewhere");
+        git(&repo, &["update-ref", INTEGRATION_REF, &accepted]).unwrap();
+        let mut remote = FakeRemote::single(accepted.clone());
+        let first = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert!(is_ancestor(&repo, &accepted, &first.head).unwrap());
+        assert_eq!(remote.pushes.last().unwrap().0, first.head);
+        // A later worker ships against the receipt the first ship wrote.
+        worker(&repo, "two", "second.rs", "second");
+        let mut remote = FakeRemote::single(first.head.clone());
+        let second = ship(&repo, &["two"], &mut remote, |candidate, _attempt| {
+            assert!(candidate.join("owned.rs").is_file());
+            assert!(candidate.join("second.rs").is_file());
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert!(is_ancestor(&repo, &first.head, &second.head).unwrap());
+    }
+
     #[test]
     fn ship_reverifies_once_when_main_moves() {
         let (_scratch, repo, base) = ship_fixture("one");
@@ -6318,11 +6585,116 @@ mod tests {
         for needle in [
             "ship <name>",
             "ship --retry",
+            "status [--json]",
             "ruleset apply",
             "workflows disable --merge-path",
         ] {
             assert!(text.contains(needle), "{text}");
         }
+        assert!(run(&["status".into(), "--yaml".into()]).is_err());
+    }
+
+    #[test]
+    fn start_reuses_a_clean_released_worktree_and_keeps_its_target() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let scopes = vec!["owned.rs".to_owned()];
+        let worktree = start(&repo, "again", &scopes).unwrap();
+        let sentinel = worktree.join("target").join("sentinel.txt");
+        fs::write(&sentinel, "warm").unwrap();
+        release(&repo, "again").unwrap();
+        // main moves on while the worktree sits released.
+        let moved = commit_on(&repo, "later.rs", "later");
+
+        let reused = start(&repo, "again", &scopes).unwrap();
+        assert_eq!(reused, worktree);
+        assert_eq!(fs::read_to_string(&sentinel).unwrap(), "warm");
+        assert_eq!(
+            git(&reused, &["branch", "--show-current"]).unwrap(),
+            "local-agent/again"
+        );
+        assert_eq!(git(&reused, &["rev-parse", "HEAD"]).unwrap(), moved);
+        let claim = read_claim(&state(&repo).unwrap().join("claims").join("again.claim")).unwrap();
+        assert_eq!(claim.base, moved);
+        assert_eq!(claim.scopes, scopes);
+
+        // Dirty: an untracked file blocks reuse and leaves no claim behind.
+        release(&repo, "again").unwrap();
+        fs::write(reused.join("stray.rs"), "stray").unwrap();
+        let error = start(&repo, "again", &scopes).unwrap_err();
+        assert!(error.to_string().contains("refusing to reuse"), "{error}");
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+        fs::remove_file(reused.join("stray.rs")).unwrap();
+
+        // Committed but unshipped work on the agent branch is never reset.
+        fs::write(reused.join("owned.rs"), "unshipped").unwrap();
+        git(&reused, &["add", "owned.rs"]).unwrap();
+        git(
+            &reused,
+            &["-c", "core.hooksPath=", "commit", "-qm", "unshipped"],
+        )
+        .unwrap();
+        let error = start(&repo, "again", &scopes).unwrap_err();
+        assert!(error.to_string().contains("holds commits"), "{error}");
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+        assert!(sentinel.is_file());
+    }
+
+    #[test]
+    fn start_refuses_an_unregistered_destination() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let ghost = repo.parent().unwrap().join("repo-agent-ghost");
+        fs::create_dir(&ghost).unwrap();
+        let error = start(&repo, "ghost", &["owned.rs".to_owned()]).unwrap_err();
+        assert!(error.to_string().contains("refusing to reuse"), "{error}");
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn status_reports_claims_slots_and_integration_without_the_lock() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let empty = workflow_status(&repo).unwrap();
+        assert!(empty.claims.is_empty() && empty.busy_slots.is_empty());
+        assert_eq!(empty.integration_head, None);
+        assert!(status_text(&empty).contains("integration: none"));
+
+        start(&repo, "alpha", &["alpha.rs".to_owned()]).unwrap();
+        let head = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        git(&repo, &["update-ref", INTEGRATION_REF, &head]).unwrap();
+        let slot = acquire_slot(&repo).unwrap();
+        // Holding the workflow lock proves status never asks for it: a
+        // second acquire on this thread fails instead of waiting.
+        let _lock = Lock::acquire(&state(&repo).unwrap()).unwrap();
+        let status = workflow_status(&repo).unwrap();
+        assert_eq!(status.integration_head.as_deref(), Some(head.as_str()));
+        assert_eq!(status.claims.len(), 1);
+        assert_eq!(status.busy_slots.len(), 1);
+        assert_eq!(status.busy_slots[0].slot, 1);
+        assert!(status.busy_slots[0].owner.starts_with("pid="));
+
+        let text = status_text(&status);
+        for needle in [
+            format!("integration: {head}"),
+            "claims: 1".to_owned(),
+            "alpha".to_owned(),
+            "alpha.rs".to_owned(),
+            "verifying: 1".to_owned(),
+            "slot 1".to_owned(),
+        ] {
+            assert!(text.contains(&needle), "{text}");
+        }
+
+        let json = status_json(&status);
+        assert_eq!(json["schema"], "susi-local-workflow-status-v1");
+        assert_eq!(json["integration_head"], head.as_str());
+        assert_eq!(json["claims"][0]["name"], "alpha");
+        assert_eq!(json["claims"][0]["scopes"][0], "alpha.rs");
+        assert_eq!(json["busy_slots"][0]["slot"], 1);
+
+        drop(slot);
+        assert!(workflow_status(&repo).unwrap().busy_slots.is_empty());
     }
 
     #[test]
