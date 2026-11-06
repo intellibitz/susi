@@ -1,0 +1,37 @@
+{
+  "id": "T-CLAUDERMGHA-1",
+  "native_worker": "rmgha",
+  "title": "Remove all GitHub Actions workflows and the legacy PR auto-merge bot",
+  "goal": "CEO request 2026-11-06: delete every .github/workflows definition (already disabled since 2026-11-05), the zc-matrix data, CI-only scripts, the GitHub PR auto-merge bot scripts and the tests that only pinned them; keep the compare-and-swap queue push used by tasks and release; add a guard test so workflows do not return. Integration is cargo local-workflow ship.",
+  "size": "m",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-claudermgha-1.json",
+    ".githooks",
+    ".github",
+    "agents.md",
+    "architecture.md",
+    "crates",
+    "deny.toml",
+    "docs",
+    "readme.md",
+    "rust-toolchain.toml",
+    "scripts",
+    "tests",
+    "xtask"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "CLAUDERMGHA",
+  "created_unix": 1793957736
+}
