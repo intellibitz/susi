@@ -210,7 +210,9 @@ impl IpcPlaneBus {
         let Some(ep) = self.endpoint() else { return };
         let dir = self.rendezvous.join(kind);
         let body = json!({ "endpoint": ep.to_string(), "key": key }).to_string();
-        let _ = crate::susi_config::atomic_write_bytes(&dir.join(enc(key)), body.as_bytes());
+        // Rendezvous files die with this copy; see `write_cap` in
+        // `registry_ipc` for why they are not flushed.
+        let _ = crate::susi_config::atomic_replace_unsynced(&dir.join(enc(key)), body.as_bytes());
     }
 
     /// Ordered remote candidates: every exact topic file across live

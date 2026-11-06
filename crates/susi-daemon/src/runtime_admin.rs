@@ -245,6 +245,25 @@ impl SusiRuntimeAdmin {
         }
     }
 
+    /// Plane-bus rendezvous metadata under `<home>/bus/<pid>/`: the `topics`,
+    /// `prefixes` and `caps` directories hold one endpoint file per registered
+    /// topic or capability, named after it (`capability.tool.cluster_rekey_commit`),
+    /// so their names match the sensitive fragments while holding no secret. A
+    /// first goal publishes a few hundred of them, which spent the entry budget
+    /// and, on Windows, launched one `icacls` per file. The bus key
+    /// (`<home>/bus/secret`) is not under these directories and stays scanned.
+    fn is_bus_endpoint_metadata(dir: &Path) -> bool {
+        let is_metadata = dir
+            .file_name()
+            .is_some_and(|name| name == "topics" || name == "prefixes" || name == "caps");
+        is_metadata
+            && dir
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "bus")
+    }
+
     /// Best-effort local scan of `substrate_home` for exfiltration risk:
     /// known credential/key files whose permissions grant group or other
     /// any access. This is the substrate-safety scan `perform_host_readiness`
@@ -285,7 +304,9 @@ impl SusiRuntimeAdmin {
                     continue;
                 };
                 if metadata.is_dir() {
-                    stack.push(path);
+                    if !Self::is_bus_endpoint_metadata(&path) {
+                        stack.push(path);
+                    }
                     continue;
                 }
                 let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -337,7 +358,9 @@ impl SusiRuntimeAdmin {
                     continue;
                 };
                 if metadata.is_dir() {
-                    stack.push(path);
+                    if !Self::is_bus_endpoint_metadata(&path) {
+                        stack.push(path);
+                    }
                     continue;
                 }
                 let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -947,5 +970,122 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bus_endpoint_metadata_dirs_are_recognised_only_under_bus_pid() {
+        let home = Path::new("susi-home");
+        for kind in ["topics", "prefixes", "caps"] {
+            assert!(SusiRuntimeAdmin::is_bus_endpoint_metadata(
+                &home.join("bus").join("33832").join(kind)
+            ));
+        }
+        // The bus key's directory and a pid directory are not metadata.
+        assert!(!SusiRuntimeAdmin::is_bus_endpoint_metadata(
+            &home.join("bus")
+        ));
+        assert!(!SusiRuntimeAdmin::is_bus_endpoint_metadata(
+            &home.join("bus").join("33832")
+        ));
+        // Same names elsewhere stay in scope.
+        assert!(!SusiRuntimeAdmin::is_bus_endpoint_metadata(
+            &home.join("topics")
+        ));
+        assert!(!SusiRuntimeAdmin::is_bus_endpoint_metadata(
+            &home.join("keys").join("33832").join("caps")
+        ));
+    }
+
+    /// A home with plane-bus endpoint files named after sensitive-looking
+    /// topics, the bus key, and a real key file; returns (home, bus key, key).
+    fn home_with_bus_metadata(
+        tag: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let home = std::env::temp_dir().join(format!(
+            "susi_readiness_bus_{tag}_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let pid_dir = home.join("bus").join("33832");
+        for (kind, name) in [
+            ("topics", "capability.tool.cluster_rekey_commit"),
+            ("prefixes", "token.refresh."),
+            ("caps", "secret_rotate"),
+        ] {
+            let dir = if kind == "caps" {
+                pid_dir.join(kind).join("tool")
+            } else {
+                pid_dir.join(kind)
+            };
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(name), br#"{"endpoint":"127.0.0.1:1","key":"x"}"#).unwrap();
+        }
+        let bus_key = home.join("bus").join("secret");
+        std::fs::write(&bus_key, b"0123").unwrap();
+        let key = home.join("cluster.key");
+        std::fs::write(&key, b"secret").unwrap();
+        (home, bus_key, key)
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn readiness_scan_skips_bus_endpoint_metadata_but_not_the_bus_key() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (home, bus_key, key) = home_with_bus_metadata("unix");
+        let open = |path: &Path| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        };
+        for entry in walk(&home) {
+            open(&entry);
+        }
+        let mut findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&home);
+        findings.sort();
+        let mut expected = vec![bus_key.display().to_string(), key.display().to_string()];
+        expected.sort();
+        assert_eq!(findings, expected);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[cfg(unix)]
+    fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+        let mut files = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                files.extend(walk(&path));
+            } else {
+                files.push(path);
+            }
+        }
+        files
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn readiness_scan_skips_bus_endpoint_metadata_but_not_the_bus_key() {
+        let (home, bus_key, key) = home_with_bus_metadata("win");
+        let grant_everyone = |path: &Path| {
+            std::process::Command::new("icacls")
+                .args([path.to_str().unwrap(), "/grant", "*S-1-1-0:F"])
+                .output()
+                .is_ok_and(|o| o.status.success())
+        };
+        let topic = home
+            .join("bus")
+            .join("33832")
+            .join("topics")
+            .join("capability.tool.cluster_rekey_commit");
+        if grant_everyone(&topic) && grant_everyone(&bus_key) && grant_everyone(&key) {
+            let mut findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&home);
+            findings.sort();
+            let mut expected = vec![bus_key.display().to_string(), key.display().to_string()];
+            expected.sort();
+            assert_eq!(findings, expected);
+        }
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
