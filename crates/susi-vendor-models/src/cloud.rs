@@ -94,6 +94,9 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf)
     if key.chars().any(char::is_control) {
         return Err("API key must not contain control characters".into());
     }
+    let decoded_key = crate::susi_config::cloud_env::parse_env_value(key).ok_or_else(|| {
+        "API key must be nonempty and any opening quote must be closed".to_string()
+    })?;
     let env_name = resolve_vendor_env_name(vendor)
         .ok_or_else(|| "vendor name must not be empty".to_string())?;
     if !env_name
@@ -117,8 +120,12 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf)
         }
     }
     let path = upsert_cloud_env_key(&env_name, key)?;
-    crate::cloud_credentials::save(&crate::cloud_credentials::directory(), &env_name, key)
-        .map_err(|e| e.to_string())?;
+    crate::cloud_credentials::save(
+        &crate::cloud_credentials::directory(),
+        &env_name,
+        decoded_key,
+    )
+    .map_err(|e| e.to_string())?;
     Ok((env_name, path))
 }
 
@@ -444,6 +451,25 @@ pub fn is_remote_cloud(api_base: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unterminated_quoted_registration_preserves_the_existing_key_file() {
+        let _lock = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", home.path());
+        env.set("SUSI_HOME", home.path());
+        let file = cloud_env_path();
+        let original = "GEMINI_API_KEY=existing-fixture\n";
+        std::fs::write(&file, original).unwrap();
+        let error = register_api_key("gemini", "'unfinished-fixture").unwrap_err();
+        assert!(error.contains("quot"));
+        assert!(!error.contains("unfinished-fixture"));
+        assert_eq!(std::fs::read_to_string(file).unwrap(), original);
+        assert!(!crate::cloud_credentials::directory().exists());
+    }
 
     #[test]
     fn bulk_registration_preserves_overrides_and_refreshes_between_passes() {

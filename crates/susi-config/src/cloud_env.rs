@@ -13,6 +13,17 @@ pub fn cloud_env_path() -> PathBuf {
     susi_paths::SusiDirs::config_dir().join("cloud.env")
 }
 
+/// Decode a nonempty value from one line of `cloud.env`. A leading quote
+/// must close on that line, so an incomplete setting cannot become a key.
+pub fn parse_env_value(raw: &str) -> Option<&str> {
+    let raw = raw.trim();
+    let value = match raw.chars().next()? {
+        quote @ ('\'' | '"') => raw.strip_prefix(quote)?.strip_suffix(quote)?,
+        _ => raw,
+    };
+    (!value.is_empty()).then_some(value)
+}
+
 /// Parse a dotenv-style file into key/value pairs (no side effects).
 pub fn parse_env_file(content: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -29,19 +40,9 @@ pub fn parse_env_file(content: &str) -> Vec<(String, String)> {
         if key.is_empty() || key.contains(char::is_whitespace) {
             continue;
         }
-        let mut value = value.trim().to_string();
-        if (value.starts_with('"') && value.ends_with('"'))
-            || (value.starts_with('\'') && value.ends_with('\''))
-        {
-            value = value
-                .get(1..value.len() - 1)
-                .unwrap_or_default()
-                .to_string();
+        if let Some(value) = parse_env_value(value) {
+            out.push((key.to_string(), value.to_string()));
         }
-        if value.is_empty() {
-            continue;
-        }
-        out.push((key.to_string(), value));
     }
     out
 }
@@ -101,6 +102,20 @@ pub fn cloud_env_overlay() -> Vec<(String, String)> {
 mod malformed_quote_tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn unterminated_quoted_values_do_not_hide_following_settings() {
+        let parsed =
+            parse_env_file("A='unfinished\nB=\"unfinished'\nC='valid'\nD=\"é\"\nE=plain'\n");
+        assert_eq!(
+            parsed,
+            [
+                ("C".into(), "valid".into()),
+                ("D".into(), "é".into()),
+                ("E".into(), "plain'".into())
+            ]
+        );
+    }
 
     #[test]
     fn lone_quote_is_empty_and_following_entries_survive() {
