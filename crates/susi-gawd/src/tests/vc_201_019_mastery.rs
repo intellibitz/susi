@@ -157,3 +157,172 @@ fn vc_201_019_mastery_whitespace_only_receipts_remain_stale_in_both_stores() {
         ProposalCheck::Stale
     );
 }
+
+fn mastery_ws(tag: &str) -> std::path::PathBuf {
+    let root =
+        std::env::temp_dir().join(format!("susi-vc019-mastery-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    root
+}
+
+/// `save`/`load` persist `.susi/experiment_memory.json`; a missing or
+/// corrupt file loads as empty memory rather than panicking.
+#[test]
+fn vc_201_019_mastery_experiment_memory_save_load_roundtrip() {
+    let ws = mastery_ws("roundtrip");
+    assert_eq!(ExperimentMemory::load(&ws), ExperimentMemory::default());
+
+    let mut m = ExperimentMemory::default();
+    m.record(entry("p-saved", "gate fail", Some("case-1")));
+    m.save(&ws).unwrap();
+    assert_eq!(ExperimentMemory::load(&ws), m);
+
+    std::fs::write(
+        ws.join(".susi").join("experiment_memory.json"),
+        b"{not json",
+    )
+    .unwrap();
+    assert_eq!(ExperimentMemory::load(&ws), ExperimentMemory::default());
+
+    let _ = std::fs::remove_dir_all(&ws);
+}
+
+/// Production wiring: `evaluate_and_record` persists every rejected run
+/// into the workspace's experiment memory (cause = verdict,
+/// counterexample = contamination reason, lineage = corpus revision),
+/// passes are left out, and a renamed resubmission repeating the same
+/// recorded failure with no fresh output is refused before it is judged
+/// again.
+#[test]
+fn vc_201_019_mastery_evaluate_and_record_persists_rejections_and_refuses_repeats() {
+    use crate::eval_contamination::record_access;
+    use crate::eval_separation::{evaluate_and_record, CandidateArtifact, EvalRunInput};
+    use crate::experiment_lifecycle::ExperimentState;
+    use crate::experiment_memory::check_resubmission_in_workspace;
+    use crate::rsi_corpus::{
+        make_fixture, FixtureClass, FixtureSpec, FixtureSplit, RsiCorpus, RSI_CORPUS_SCHEMA,
+    };
+    use std::collections::BTreeSet;
+
+    let ws = mastery_ws("eval");
+    let corpus = RsiCorpus {
+        schema_version: RSI_CORPUS_SCHEMA.into(),
+        revision: "rev-mem".into(),
+        fixtures: vec![make_fixture(FixtureSpec {
+            id: "h1",
+            class: FixtureClass::Coding,
+            input: "held-out input",
+            split: FixtureSplit::HeldOut,
+            seed: 1,
+            evaluator_expected: Some("expected-output".into()),
+        })],
+        promotion_spec: None,
+    };
+    let run = |id: &str, output: &[&str]| EvalRunInput {
+        candidate: CandidateArtifact {
+            id: id.into(),
+            actual_output: output.iter().map(|s| s.to_string()).collect(),
+            expected_results: BTreeSet::new(),
+        },
+        candidate_can_write: false,
+        training_access: BTreeSet::new(),
+        memory_access: BTreeSet::new(),
+        measured: None,
+    };
+
+    // A pass leaves memory untouched.
+    let ev = evaluate_and_record(&ws, &corpus, &run("cand-pass", &["expected-output"])).unwrap();
+    assert_eq!(ev.experiment_state, Some(ExperimentState::Evaluated));
+    assert!(ExperimentMemory::load(&ws).by_proposal.is_empty());
+
+    // A rejected run is durably remembered.
+    let ev = evaluate_and_record(&ws, &corpus, &run("cand-empty", &[])).unwrap();
+    assert_eq!(ev.experiment_state, Some(ExperimentState::Rejected));
+    let mem = ExperimentMemory::load(&ws);
+    let recorded = &mem.by_proposal["cand-empty"];
+    assert_eq!(recorded.cause, "FailWrongOutput");
+    assert_eq!(recorded.counterexample, None);
+    assert_eq!(recorded.lineage, vec!["rev-mem".to_string()]);
+
+    // The same empty-output failure under a new id is a repeat with no
+    // fresh evidence: refused, and not recorded as new evidence.
+    let refused = evaluate_and_record(&ws, &corpus, &run("cand-empty-renamed", &[]));
+    assert!(
+        refused.is_err(),
+        "a renamed repeat must not get a clean slate"
+    );
+    assert!(!ExperimentMemory::load(&ws)
+        .by_proposal
+        .contains_key("cand-empty-renamed"));
+    // Fresh output is fresh evidence: the renamed run is judged again.
+    let ev = evaluate_and_record(&ws, &corpus, &run("cand-revised", &["other"])).unwrap();
+    assert_eq!(ev.experiment_state, Some(ExperimentState::Rejected));
+
+    // A contaminated rejection records the overlap as its counterexample.
+    record_access(&ws, "training", "h1").unwrap();
+    let ev = evaluate_and_record(&ws, &corpus, &run("cand-leak", &["expected-output"])).unwrap();
+    assert_eq!(ev.experiment_state, Some(ExperimentState::Rejected));
+    let leak = &ExperimentMemory::load(&ws).by_proposal["cand-leak"];
+    assert_eq!(leak.cause, "FailContaminated");
+    let overlap = leak.counterexample.clone().unwrap();
+    assert!(overlap.starts_with("held-out overlap: ") && overlap.contains("h1"));
+
+    // The workspace helper sees the same durable memory.
+    let repeat = entry("cand-leak", "FailContaminated", Some(&overlap));
+    assert!(!check_resubmission_in_workspace(&ws, &repeat, &[], &[]));
+    assert!(check_resubmission_in_workspace(
+        &ws,
+        &repeat,
+        &["cand-leak".into()],
+        &[]
+    ));
+
+    let _ = std::fs::remove_dir_all(&ws);
+}
+
+/// Production wiring in cloud proposal validation: a proposal whose
+/// title names a remembered rejection is refused unless its evidence
+/// cites the prior id or a supplied failure receipt.
+#[test]
+fn vc_201_019_mastery_cloud_proposal_check_consults_experiment_memory() {
+    use crate::cloud_rsi::{check_proposal_memory, Proposal, RejectReason, RsiEvidence};
+
+    let mut m = ExperimentMemory::default();
+    m.record(entry("Cache parser output", "FailWrongOutput", None));
+    let evidence = RsiEvidence {
+        failure_receipts: vec!["T-9: parser cache miss storm".into()],
+        user_feedback: vec![],
+        roadmap_gaps: vec!["VC-201-019".into()],
+        repo_facts: vec!["bloat audit: 3 dead modules".into()],
+    };
+    let proposal = |evidence: &[&str]| Proposal {
+        title: "Cache parser output".into(),
+        behavior: "memoize parse trees".into(),
+        benefit: "faster".into(),
+        risks: vec![],
+        acceptance: vec!["cargo".into(), "test".into()],
+        evidence: evidence.iter().map(|s| s.to_string()).collect(),
+        roadmap: "VC-201-019".into(),
+    };
+
+    assert_eq!(
+        check_proposal_memory(&m, &proposal(&["VC-201-019"]), &evidence),
+        Err(RejectReason::PriorRejection("Cache parser output".into())),
+        "a roadmap citation alone does not reopen a recorded rejection"
+    );
+    assert_eq!(
+        check_proposal_memory(&m, &proposal(&["T-9: parser cache miss storm"]), &evidence),
+        Ok(()),
+        "a supplied failure receipt is verifiable new evidence"
+    );
+    assert_eq!(
+        check_proposal_memory(&m, &proposal(&["Cache parser output"]), &evidence),
+        Ok(()),
+        "citing the prior proposal id addresses it"
+    );
+    let mut novel = proposal(&[]);
+    novel.title = "Something new".into();
+    novel.behavior = "different change".into();
+    assert_eq!(check_proposal_memory(&m, &novel, &evidence), Ok(()));
+}

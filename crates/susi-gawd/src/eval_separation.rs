@@ -5,8 +5,10 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 
+use crate::dev_canary::{self, CanaryResult};
 use crate::eval_contamination::{self, ContaminationReport};
 use crate::experiment_lifecycle::{ExperimentLog, ExperimentState};
+use crate::experiment_memory::{ExperimentMemory, ExperimentMemoryEntry};
 use crate::rsi_corpus::{CorpusIntegrityError, RsiCorpus};
 use crate::scorecard::ImprovementScorecard;
 use crate::susi_error::{EaiError, EaiResult};
@@ -157,6 +159,12 @@ pub struct EvalEvidence {
     /// which touches no experiment log.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub experiment_state: Option<ExperimentState>,
+    /// The dev-instance canary gate's verdict on the measured scorecard
+    /// (VC-201-017) — `Some` only when a `Pass` carried measurements and
+    /// the corpus declared a promotion spec, i.e. when promotion was
+    /// actually attempted. `StopTrial` means the run stayed Evaluated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canary: Option<CanaryResult>,
 }
 
 /// Judge one candidate run against `corpus`'s held-out suite: contamination
@@ -186,6 +194,7 @@ pub fn evaluate(
             .map(|d| d.as_secs())
             .unwrap_or(0),
         experiment_state: None,
+        canary: None,
     })
 }
 
@@ -201,6 +210,9 @@ fn experiments_dir(workspace: &Path) -> std::path::PathBuf {
 /// rejects it, and only a `Pass` carrying the evaluator's measured
 /// scorecard may attempt `PromotionReady` — against the corpus's
 /// predeclared `promotion_spec`, never a bound the run itself supplied.
+/// That attempt first runs the dev-instance canary gate
+/// ([`dev_canary::canary_gate_from_scorecard`]); a `StopTrial` leaves the
+/// experiment Evaluated whatever the scorecard summary says.
 /// A terminal state stands: a revised candidate earns a new id rather
 /// than reopening a concluded experiment.
 fn advance_experiment(
@@ -208,7 +220,7 @@ fn advance_experiment(
     evidence: &EvalEvidence,
     input: &EvalRunInput,
     corpus: &RsiCorpus,
-) -> EaiResult<ExperimentState> {
+) -> EaiResult<(ExperimentState, Option<CanaryResult>)> {
     let id = evidence.candidate_id.clone();
     let state_of = |log: &ExperimentLog| {
         log.experiments
@@ -218,8 +230,9 @@ fn advance_experiment(
     if let Some(state @ (ExperimentState::Rejected | ExperimentState::PromotionReady)) =
         log.experiments.get(&id).map(|e| e.state)
     {
-        return Ok(state);
+        return Ok((state, None));
     }
+    let mut canary = None;
     if !log.experiments.contains_key(&id) {
         log.propose(&id).map_err(EaiError::governance)?;
     }
@@ -236,9 +249,15 @@ fn advance_experiment(
             if let (Some(measured), Some(spec)) =
                 (input.measured.as_ref(), corpus.promotion_spec.as_ref())
             {
-                // A scorecard that fails the declared spec leaves the
-                // experiment Evaluated — recorded, never promoted.
-                let _ = log.promote_with_scorecard(&id, measured, spec);
+                // The canary gate runs before the scorecard summary: a
+                // stopped trial never reaches PromotionReady.
+                let gate = dev_canary::canary_gate_from_scorecard(measured, spec);
+                if gate == CanaryResult::Continue {
+                    // A scorecard that fails the declared spec leaves the
+                    // experiment Evaluated — recorded, never promoted.
+                    let _ = log.promote_with_scorecard(&id, measured, spec);
+                }
+                canary = Some(gate);
             }
         }
         EvalVerdict::FailContaminated
@@ -249,25 +268,84 @@ fn advance_experiment(
                 .map_err(EaiError::governance)?;
         }
     }
-    Ok(state_of(log))
+    Ok((state_of(log), canary))
+}
+
+/// The memory entry a judged run leaves behind: the candidate id, the
+/// verdict as cause, the contamination reason (if any) as the
+/// counterexample, and the corpus revision as lineage.
+fn memory_entry_for(evidence: &EvalEvidence) -> ExperimentMemoryEntry {
+    ExperimentMemoryEntry {
+        proposal_id: evidence.candidate_id.clone(),
+        cause: format!("{:?}", evidence.verdict),
+        counterexample: evidence.contamination.reason.clone(),
+        lineage: vec![evidence.corpus_revision.clone()],
+    }
+}
+
+/// Persist a rejected run's cause and counterexample into the
+/// workspace's [`ExperimentMemory`] (VC-201-019). Non-rejected evidence
+/// is left out — memory holds failures to learn from, not passes.
+pub fn record_rejection_in_memory(workspace: &Path, evidence: &EvalEvidence) -> EaiResult<()> {
+    if evidence.experiment_state != Some(ExperimentState::Rejected) {
+        return Ok(());
+    }
+    ExperimentMemory::record_in_workspace(workspace, memory_entry_for(evidence))
+}
+
+/// The caller-declared access footprint merged with every read recorded
+/// in the workspace access log (VC-201-009), so a held-out read logged at
+/// the read path is judged even when the caller omits it.
+fn merge_recorded_access(workspace: &Path, input: &EvalRunInput) -> EvalRunInput {
+    let (logged_train, logged_mem) = eval_contamination::load_recorded_access(workspace);
+    let mut merged = input.clone();
+    merged.training_access.extend(logged_train);
+    merged.memory_access.extend(logged_mem);
+    merged
 }
 
 /// [`evaluate`], then durably append the evidence as JSONL under
 /// `workspace/.susi/eval_evidence.jsonl` — the production record a
 /// `susi tasks eval-corpus` run or a scheduled evaluation leaves behind,
 /// mirroring how mission traces are recorded (`susi_core::mission_trace`).
+///
+/// Production wiring on this path:
+/// - the run's access footprint is merged with the workspace access log
+///   (`.susi/eval_access_log.jsonl`) before contamination is judged — the
+///   log is workspace-wide, so a logged held-out read contaminates every
+///   later run judged in that workspace;
+/// - a candidate repeating a prior rejection in `.susi/experiment_memory.json`
+///   (same id, or same cause and counterexample under a new id) is
+///   refused unless its non-blank `actual_output` supplies fresh evidence;
+/// - promotion passes the dev-instance canary gate first;
+/// - a rejected run is persisted into experiment memory.
 pub fn evaluate_and_record(
     workspace: &Path,
     corpus: &RsiCorpus,
     input: &EvalRunInput,
 ) -> EaiResult<EvalEvidence> {
-    let mut evidence = evaluate(corpus, input)
+    let merged = merge_recorded_access(workspace, input);
+    let mut evidence = evaluate(corpus, &merged)
         .map_err(|e| EaiError::governance(format!("rsi corpus eval failed: {e}")))?;
+    let fresh_receipts: Vec<String> = merged.candidate.actual_output.iter().cloned().collect();
+    if !ExperimentMemory::load(workspace).may_resubmit(
+        &memory_entry_for(&evidence),
+        &[],
+        &fresh_receipts,
+    ) {
+        return Err(EaiError::governance(format!(
+            "candidate {} repeats a recorded rejection without addressing it or fresh evidence",
+            evidence.candidate_id
+        )));
+    }
     let mut log = ExperimentLog::load(experiments_dir(workspace));
-    evidence.experiment_state = Some(advance_experiment(&mut log, &evidence, input, corpus)?);
+    let (state, canary) = advance_experiment(&mut log, &evidence, &merged, corpus)?;
+    evidence.experiment_state = Some(state);
+    evidence.canary = canary;
     record(workspace, &evidence)?;
+    record_rejection_in_memory(workspace, &evidence)?;
     if evidence.experiment_state == Some(ExperimentState::PromotionReady) {
-        record_release_candidate(workspace, corpus, &evidence, input)?;
+        record_release_candidate(workspace, corpus, &evidence, &merged)?;
     }
     Ok(evidence)
 }

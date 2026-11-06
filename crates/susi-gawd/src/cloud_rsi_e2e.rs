@@ -42,6 +42,7 @@ use crate::cloud_rsi::{
 };
 use crate::cloud_rsi_lifecycle::{LifecycleStore, Phase, WorkRecord};
 use crate::cloud_rsi_outcomes::{Outcome, OutcomeLedger, OutcomeUsage};
+use crate::experiment_memory::ExperimentMemory;
 
 // ------------------------------------------------------------ held-out suite
 
@@ -344,6 +345,18 @@ impl<'a> Campaign<'a> {
         };
 
         // --- 1. proposals through production dispatch --------------------
+        // Refresh experiment memory from the workspace every generation
+        // (VC-201-019), keeping any caller-seeded entries: a proposal that
+        // repeats a recorded rejection is refused before it is minted.
+        let mut memory = self
+            .proposal_policy
+            .experiment_memory
+            .take()
+            .unwrap_or_default();
+        memory
+            .by_proposal
+            .extend(ExperimentMemory::load(&self.worktree).by_proposal);
+        self.proposal_policy.experiment_memory = Some(memory);
         let round = run_proposals(
             &self.intent,
             &self.proposers,
@@ -850,6 +863,7 @@ mod tests {
             existing_titles: BTreeSet::new(),
             agent: "devin".into(),
             next_seq: seq,
+            experiment_memory: None,
         }
     }
 
@@ -1122,6 +1136,68 @@ mod tests {
         let rep = camp.report(&s.ledger);
         assert_eq!(rep.blocked, 1);
         assert!(!rep.improved, "a blocked round fabricates no progress");
+        let _ = std::fs::remove_dir_all(&wt);
+    }
+
+    /// VC-201-019 production wiring: the campaign loads the workspace's
+    /// experiment memory each generation, so a proposal repeating a
+    /// recorded rejection — citing neither the prior id nor a supplied
+    /// failure receipt — is refused before any task is minted.
+    #[test]
+    fn cloud_rsi_e2e_remembered_rejection_blocks_repeat_proposal() {
+        use crate::experiment_memory::ExperimentMemoryEntry;
+
+        let wt = mk_worktree("memory");
+        let mut memory = ExperimentMemory::default();
+        memory.record(ExperimentMemoryEntry {
+            proposal_id: "Solve case-1".into(),
+            cause: "FailWrongOutput".into(),
+            counterexample: None,
+            lineage: vec!["rev-1".into()],
+        });
+        memory.save(&wt).unwrap();
+
+        let suite = suite();
+        let props = FakePropose {
+            out: Mutex::new(BTreeMap::from([(
+                "mA".into(),
+                vec![AttemptOutcome::Success(proposal(
+                    "case-1",
+                    &super::native_verifier::argv(&["contains", "solved.txt", "case-1"]),
+                ))],
+            )])),
+        };
+        let imp = FakeImpl {
+            plans: Mutex::new(BTreeMap::new()),
+        };
+        let rev = FakeReview {
+            script: Mutex::new(VecDeque::new()),
+        };
+        let mut s = StoresOwned::new();
+        let mut outcomes = OutcomeLedger::load(wt.join(".ledger"), || 1);
+        let mut life = LifecycleStore::load(wt.join(".life"), 1_000_000_000, || 1);
+        let mut camp = mk_campaign(
+            wt.clone(),
+            Fx {
+                suite: &suite,
+                props: &props,
+                imp: &imp,
+                rev: &rev,
+                proposers: vec![cand("ka", "mA", "pA", "aA")],
+                implementers: vec![cand("ki", "mI", "pI", "aI")],
+                reviewers: vec![cand("kb", "mB", "pB", "aB")],
+            },
+        );
+        let g = camp.run_generation(&mut s.stores(), &mut outcomes, &mut life, &evidence());
+        assert!(g.task_id.is_none(), "a remembered rejection mints no task");
+        assert!(
+            g.reasons
+                .iter()
+                .any(|r| r.contains("repeats recorded rejection")),
+            "refusal reason recorded: {:?}",
+            g.reasons
+        );
+        assert!(!camp.report(&s.ledger).improved);
         let _ = std::fs::remove_dir_all(&wt);
     }
 
