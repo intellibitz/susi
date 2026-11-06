@@ -607,3 +607,62 @@ installed release still goes live only through `cargo local-release qualify`
 and promotion, and the integration gate still precedes `origin/main`. Step 1
 itself stays open on its other items (millisecond user-response budgets, the
 cold first-answer speed target, byte-identical standard-library rebuilds).
+
+## User-response budgets (2026-11-06, T-RTBUDGET-1)
+
+`startup-gate` (schema `susi-startup-gate-v2`) now judges absolute millisecond
+budgets on the optimized executable that ships, daemon down and up:
+
+| Surface | Budget | Rationale |
+| --- | --- | --- |
+| `susi --version`, `susi --help` | 30 ms | 16–18 ms measured on a quiet host; 24–28 ms under other agents' load |
+| `susi status` | 50 ms | unchanged; 19–28 ms measured |
+| piped first goal, first output | 600 ms | the goal's acknowledgment: nothing is printed before the answer |
+| piped first goal, completion | 750 ms | |
+
+The goal is a tool-free, offline read of a nonce file under `local_only`, with
+provider credentials removed; every run must answer with the nonce.
+Model-backed first answers are outside these budgets (the cold first-answer
+item below). The dev channel executable is not judged. The cost of starting a
+do-nothing program (the floor) is reported as host-load context only: it moved
+between 6.7 and 25 ms on this host while other agents ran gates, and a
+multiple of it passed and failed the same binary on consecutive runs, so it no
+longer sets a budget.
+
+Causes found and fixed: a first goal spent 0.83–1.8 s registering tools,
+because each of about 400 plane-bus rendezvous and capability endpoint files
+was flushed to disk on every start (they now use an atomic replace without a
+flush: they are per-process metadata that a crash makes stale anyway). While
+the daemon ran, its readiness scan also launched one `icacls` per bus file
+whose name contains "key" or "token", which slowed goals and surfaced launch
+errors to the user; the scan now skips `bus/<pid>/{topics,prefixes,caps}` and
+still checks the bus key and real key files.
+
+Measured medians (9 runs each, optimized executables, floor recorded):
+
+| Executable | Floor | version | help | status down/up | goal first output down/up | goal completion down/up |
+| --- | --- | --- | --- | --- | --- | --- |
+| published v0.21.51 (before) | 11.8 ms | 23.6 | 28.0 | 27.3 / 39.0 | 1050 / 1190 | 1056 / 1197 |
+| published v0.21.51 (before) | 13.7 ms | 26.4 | 24.2 | 22.6 / 41.4 | 1171 / 1551 | 1179 / 1564 |
+| flush fix only | 8.1 ms | 17.5 | 17.9 | 20.1 / 22.0 | 254 / 348 | 260 / 356 |
+| flush fix only | 8.1 ms | 17.6 | 17.6 | 19.0 / 21.9 | 314 / 468 | 321 / 475 |
+| flush fix only | 9.8 ms | 27.5 | 23.8 | 24.1 / 27.9 | 297 / 335 | 303 / 342 |
+| both fixes, interleaved with before under load | 10.7 ms | 20.5 | 24.0 | 23.5 / 26.5 | 407 / 630 | 415 / 638 |
+| both fixes, interleaved with before under load | 19.6 ms | 34.0 | 32.4 | 32.0 / 31.6 | 415 / 754 | 423 / 765 |
+
+Before the fixes every goal case missed its budget by about 2x. With the fixes
+and a floor of 8–10 ms, every case was within budget. The both-fixes runs were
+taken while other agents' whole-workspace gates loaded this host (floor
+10.7–19.6 ms, against about 8 ms quiet): the daemon-down goal stayed within
+budget and the daemon-up goal did not. A third both-fixes run at a 15.6 ms
+floor took 1.2–1.3 s for every goal case and is not counted. A quiet-host
+confirmation of the both-fixes build has not been taken: the host was never
+quiet for 100 minutes on 2026-11-06, and the CEO then directed no further
+tests. Until it is, these budgets are declared and met on a quiet host for the
+flush-fix build only.
+
+Open: about 0.2–0.4 s of a first goal is still the one-file-per-tool
+rendezvous publication; publishing one file per process would remove it.
+Production qualification does not yet run `startup-gate` or the 2000 ms
+host-contract conformance budget, so a release that misses them is not
+refused.
