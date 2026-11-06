@@ -7,7 +7,7 @@
   "native_worker": "asyncdoc",
   "status": "in_progress",
   "scopes": [
-    ".agents/tasks/t-asyncdoc-1.json",
+    ".agents/tasks/T-ASYNCDOC-1.json",
     "docs/workflow-speed.md"
   ],
   "accept": {
