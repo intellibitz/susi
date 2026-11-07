@@ -68,7 +68,6 @@ pub mod scout_probe;
 pub mod scout_schedule;
 pub mod seat_provider;
 pub mod spend_tracker;
-pub mod structured_output;
 pub mod thermal_routing;
 pub mod tool_call_normalisation;
 pub mod usage_accounting;
@@ -104,7 +103,6 @@ mod capability_matrix_by_class_tests;
 #[cfg(test)]
 #[path = "tests/delegated_verification_by_risk.rs"]
 mod delegated_verification_by_risk_tests;
-pub mod eco_compat_gate;
 #[cfg(test)]
 #[path = "tests/engine_benchmark.rs"]
 mod engine_benchmark_tests;
