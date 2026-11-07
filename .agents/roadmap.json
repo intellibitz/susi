@@ -671,7 +671,7 @@
       "id": "VC-201-054",
       "mastery_target": "Attach verified or operator-attested region metadata with provenance to cloud targets; placement rejects unknown or disallowed regions for constrained workloads before any payload is sent.",
       "priority": "P0",
-      "progress": "DELIVERED: cloud targets carry verified or operator-attested region metadata, and placement rejects an unknown or disallowed region before any payload is sent. Verified by `crates/susi-gemi/src/tests/vc_201_054.rs`: allows_attested_allowed_region, rejects_disallowed_region, rejects_unknown_region_before_payload; companion eco_data_residency. Evidence: T-CLAUDE-135, T-CLAUDE-324.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::region_eligibility): cloud targets carry verified or operator-attested region metadata, and placement rejects an unknown or disallowed region before any payload is sent. Verified by `crates/susi-gemi/src/tests/vc_201_054.rs`: allows_attested_allowed_region, rejects_disallowed_region, rejects_unknown_region_before_payload; companion eco_data_residency. Evidence: T-CLAUDE-135, T-CLAUDE-324.",
       "type": "CLOUD_HOSTING",
       "vector": "Enforce provider region and residency eligibility"
     },
