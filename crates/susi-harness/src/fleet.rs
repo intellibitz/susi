@@ -62,63 +62,6 @@ impl Fleet {
             self.workers.clone()
         }
     }
-
-    /// Verify structural invariants of a [`Fleet`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `orchestrator` is `Some` with a blank
-    /// name, any entry in `workers`, `fixers`, `ladder`, `left_off`, or
-    /// `standby` is blank, `ladder` contains duplicates, any worker or fixer is
-    /// missing from `ladder`, or any model appears in both `ladder` and
-    /// `standby`.
-    pub fn verify_fleet_invariants(&self) -> Result<(), String> {
-        if let Some(ref orch) = self.orchestrator {
-            if orch.trim().is_empty() {
-                return Err("Fleet.orchestrator must not be blank when present".to_string());
-            }
-        }
-        if self.workers.iter().any(|w| w.trim().is_empty()) {
-            return Err("Fleet.workers entries must not be empty".to_string());
-        }
-        if self.fixers.iter().any(|f| f.trim().is_empty()) {
-            return Err("Fleet.fixers entries must not be empty".to_string());
-        }
-        if self.ladder.iter().any(|m| m.trim().is_empty()) {
-            return Err("Fleet.ladder entries must not be empty".to_string());
-        }
-        if self.left_off.iter().any(|l| l.trim().is_empty()) {
-            return Err("Fleet.left_off entries must not be empty".to_string());
-        }
-        if self.standby.iter().any(|s| s.trim().is_empty()) {
-            return Err("Fleet.standby entries must not be empty".to_string());
-        }
-        for (idx, model) in self.ladder.iter().enumerate() {
-            if self.ladder.iter().skip(idx + 1).any(|other| other == model) {
-                return Err(format!("Fleet.ladder contains duplicate model '{model}'"));
-            }
-            if self.standby.iter().any(|s| s == model) {
-                return Err(format!(
-                    "Fleet model '{model}' cannot be in both ladder and standby"
-                ));
-            }
-        }
-        for worker in &self.workers {
-            if !self.ladder.iter().any(|m| m == worker) {
-                return Err(format!(
-                    "Fleet.workers entry '{worker}' must appear in Fleet.ladder"
-                ));
-            }
-        }
-        for fixer in &self.fixers {
-            if !self.ladder.iter().any(|m| m == fixer) {
-                return Err(format!(
-                    "Fleet.fixers entry '{fixer}' must appear in Fleet.ladder"
-                ));
-            }
-        }
-        Ok(())
-    }
 }
 
 /// The fleet for `spec`.
@@ -561,38 +504,6 @@ pub struct Evidence {
     pub cooling: BTreeMap<String, u64>,
     /// Models probed by this run, and whether each answered.
     pub probed: Vec<(String, bool)>,
-}
-
-impl Evidence {
-    /// Verify structural invariants of [`Evidence`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if any key in `latency`, `failed`, or
-    /// `cooling`, or any model name in `probed`, is blank, or if any model
-    /// appears simultaneously in `failed` and `cooling`.
-    pub fn verify_evidence_invariants(&self) -> Result<(), String> {
-        if self.latency.keys().any(|k| k.trim().is_empty()) {
-            return Err("Evidence.latency keys must not be empty".to_string());
-        }
-        if self.failed.keys().any(|k| k.trim().is_empty()) {
-            return Err("Evidence.failed keys must not be empty".to_string());
-        }
-        if self.cooling.keys().any(|k| k.trim().is_empty()) {
-            return Err("Evidence.cooling keys must not be empty".to_string());
-        }
-        if self.probed.iter().any(|(m, _)| m.trim().is_empty()) {
-            return Err("Evidence.probed model names must not be empty".to_string());
-        }
-        for model in self.failed.keys() {
-            if self.cooling.contains_key(model) {
-                return Err(format!(
-                    "Evidence model '{model}' cannot be in both failed and cooling"
-                ));
-            }
-        }
-        Ok(())
-    }
 }
 
 /// The evidence a run decides on. The actual API calls are the source of
@@ -1139,27 +1050,6 @@ pub struct Variable {
     pub set: bool,
     /// Its value, for a setting that is not a secret. Always `None` for a key.
     pub value: Option<String>,
-}
-
-impl Variable {
-    /// Verify structural invariants of a [`Variable`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `name` or `purpose` is blank, or if
-    /// `set` is `false` while `value` is `Some`.
-    pub fn verify_variable_invariants(&self) -> Result<(), String> {
-        if self.name.trim().is_empty() {
-            return Err("Variable.name must not be empty".to_string());
-        }
-        if self.purpose.trim().is_empty() {
-            return Err("Variable.purpose must not be empty".to_string());
-        }
-        if !self.set && self.value.is_some() {
-            return Err("Variable.value must be None when Variable.set is false".to_string());
-        }
-        Ok(())
-    }
 }
 
 /// Every variable the harness reads, and whether each is set: the provider
@@ -2030,111 +1920,5 @@ mod tests {
                 .len()
                 == catalogue.len()
         );
-    }
-
-    #[test]
-    fn fleet_evidence_and_variable_verify_invariants_reject_corrupt_state() {
-        let valid_fleet = Fleet {
-            orchestrator: Some("claude-sonnet".to_string()),
-            workers: vec!["deepseek-flash".to_string()],
-            fixers: vec!["claude-sonnet".to_string()],
-            ladder: vec!["deepseek-flash".to_string(), "claude-sonnet".to_string()],
-            left_off: vec!["gemini-pro (no key)".to_string()],
-            standby: vec!["kimi-k2".to_string()],
-        };
-        assert!(valid_fleet.verify_fleet_invariants().is_ok());
-
-        let blank_orch = Fleet {
-            orchestrator: Some("   ".to_string()),
-            ..valid_fleet.clone()
-        };
-        assert!(blank_orch.verify_fleet_invariants().is_err());
-
-        let blank_worker = Fleet {
-            workers: vec![" ".to_string()],
-            ..valid_fleet.clone()
-        };
-        assert!(blank_worker.verify_fleet_invariants().is_err());
-
-        let worker_missing_from_ladder = Fleet {
-            workers: vec!["gemini-flash".to_string()],
-            ..valid_fleet.clone()
-        };
-        assert!(worker_missing_from_ladder
-            .verify_fleet_invariants()
-            .is_err());
-
-        let fixer_missing_from_ladder = Fleet {
-            fixers: vec!["claude-opus".to_string()],
-            ..valid_fleet.clone()
-        };
-        assert!(fixer_missing_from_ladder.verify_fleet_invariants().is_err());
-
-        let dup_ladder = Fleet {
-            ladder: vec!["deepseek-flash".to_string(), "deepseek-flash".to_string()],
-            fixers: Vec::new(),
-            ..valid_fleet.clone()
-        };
-        assert!(dup_ladder.verify_fleet_invariants().is_err());
-
-        let standby_overlap = Fleet {
-            standby: vec!["deepseek-flash".to_string()],
-            ..valid_fleet
-        };
-        assert!(standby_overlap.verify_fleet_invariants().is_err());
-
-        let valid_ev = Evidence {
-            latency: BTreeMap::from([("deepseek-flash".to_string(), 120)]),
-            failed: BTreeMap::from([("kimi-k2".to_string(), 1_000)]),
-            cooling: BTreeMap::from([("gemini-flash".to_string(), 2_000)]),
-            probed: vec![("kimi-k2".to_string(), false)],
-        };
-        assert!(valid_ev.verify_evidence_invariants().is_ok());
-
-        let blank_latency_key = Evidence {
-            latency: BTreeMap::from([(" ".to_string(), 50)]),
-            ..Evidence::default()
-        };
-        assert!(blank_latency_key.verify_evidence_invariants().is_err());
-
-        let blank_probed = Evidence {
-            probed: vec![(String::new(), true)],
-            ..Evidence::default()
-        };
-        assert!(blank_probed.verify_evidence_invariants().is_err());
-
-        let failed_and_cooling = Evidence {
-            failed: BTreeMap::from([("deepseek-flash".to_string(), 100)]),
-            cooling: BTreeMap::from([("deepseek-flash".to_string(), 200)]),
-            ..Evidence::default()
-        };
-        assert!(failed_and_cooling.verify_evidence_invariants().is_err());
-
-        let valid_var = Variable {
-            name: "DEEPSEEK_API_KEY".to_string(),
-            purpose: "API key for deepseek".to_string(),
-            set: true,
-            value: None,
-        };
-        assert!(valid_var.verify_variable_invariants().is_ok());
-
-        let blank_var_name = Variable {
-            name: "  ".to_string(),
-            ..valid_var.clone()
-        };
-        assert!(blank_var_name.verify_variable_invariants().is_err());
-
-        let blank_var_purpose = Variable {
-            purpose: String::new(),
-            ..valid_var.clone()
-        };
-        assert!(blank_var_purpose.verify_variable_invariants().is_err());
-
-        let unset_with_val = Variable {
-            set: false,
-            value: Some("10.00".to_string()),
-            ..valid_var
-        };
-        assert!(unset_with_val.verify_variable_invariants().is_err());
     }
 }
