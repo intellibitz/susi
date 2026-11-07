@@ -698,7 +698,7 @@
       "id": "VC-201-056",
       "mastery_target": "Scale an admitted deployment using queue depth, latency, min/max replicas, and stabilization windows; load tests show bounded scale decisions and scale-down drains in-flight requests.",
       "priority": "P1",
-      "progress": "DELIVERED: managed endpoint autoscaling is bounded by max replicas and the spend cap, scales out on queue depth and latency, drains in-flight requests before scaling in, and recovers below the minimum. Verified by `crates/susi-vendor-cloud/src/tests/vc_201_056.rs`: scale_out_on_queue_depth_and_latency, scale_bounded_by_max_and_spend_cap, scale_in_waits_for_drain_and_stabilization, recovers_below_minimum. Evidence: T-CLAUDE-379.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::autoscale): managed endpoint autoscaling is bounded by max replicas and the spend cap, scales out on queue depth and latency, drains in-flight requests before scaling in, and recovers below the minimum. Verified by `crates/susi-vendor-cloud/src/tests/vc_201_056.rs`: scale_out_on_queue_depth_and_latency, scale_bounded_by_max_and_spend_cap, scale_in_waits_for_drain_and_stabilization, recovers_below_minimum. Evidence: T-CLAUDE-379.",
       "type": "CLOUD_HOSTING",
       "vector": "Autoscale managed endpoints within spend limits"
     },
