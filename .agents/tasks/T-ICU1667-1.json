@@ -6,8 +6,7 @@
   "size": "m",
   "deps": [],
   "scopes": [
-    ".agents/tasks/t-icu1667-1.json",
-    "docs/unicode-platform.md",
+    ".agents/tasks/T-ICU1667-1.json",
     "toolchain/windows-stdlib",
     "xtask/src/elf_imports.rs"
   ],
