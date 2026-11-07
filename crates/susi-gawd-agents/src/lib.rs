@@ -28,8 +28,11 @@ pub use susi_core;
 // on, so no `From` bridge is needed — `?` converts trivially.
 
 pub mod accountability;
+pub mod adapter_upgrade;
 pub mod admin_hooks;
+pub mod agent_meta_registry;
 pub mod agents;
+pub mod agents_plane_handler;
 pub mod axiom;
 pub mod brain;
 pub mod cloud_budget;
@@ -46,6 +49,9 @@ pub mod security;
 pub mod self_core;
 pub mod system_observe;
 
+#[cfg(test)]
+pub(crate) static SUSI_HOME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub use agents::{
     AgentMetaRegistry, AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentFleet, GawdAgentInfo,
     HighDensityContextStore, MissionBlackboard, SwarmBlackboard,
@@ -54,12 +60,7 @@ pub use axiom::AxiomSubstrate;
 pub use brain::AlphaBrainContext;
 pub use self_core::AlphaSelf;
 
-/// In-memory `agents.` plane handler for unit tests. The concrete meta
-/// registry lives in `susi-agents` — a crate this leaf cannot depend on — so
-/// without this stub `AgentMetaRegistry` facade calls hit an unwired bus and
-/// silently no-op. Seeded with the single profile the scheduler tests need;
-/// `is_core` is deliberately false so the seed never auto-recruits itself
-/// into `synthesize_fleet` results for unrelated goals.
+/// In-memory `agents.` plane handler for unit tests.
 #[cfg(test)]
 pub(crate) mod test_plane;
 

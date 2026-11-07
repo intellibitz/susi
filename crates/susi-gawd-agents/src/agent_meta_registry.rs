@@ -1,0 +1,265 @@
+// Agent metadata persistence (list/register/re-rank). Deliberately does NOT
+// include instantiate_native_agent/instantiate_agent - those construct
+// concrete agent structs (HardwareAgent, LibraryScoutAgent, ...) that live
+// in gawd and call into gemi/gmcp/daemon, so they stay in gawd as free
+// functions there instead of methods here; nothing outside gawd ever called
+// them (only .list_agents()/.register_agent(), verified before moving).
+
+use crate::susi_core::agent_types::AgentProfile;
+use std::sync::OnceLock;
+
+pub struct AgentMetaRegistry {
+    store: crate::susi_sandbox::VersionedJsonStore<Vec<AgentProfile>>,
+}
+
+impl Default for AgentMetaRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AgentMetaRegistry {
+    pub fn new() -> Self {
+        AgentMetaRegistry {
+            store: crate::susi_sandbox::VersionedJsonStore::new(),
+        }
+    }
+
+    pub fn global() -> &'static Self {
+        static REGISTRY: OnceLock<AgentMetaRegistry> = OnceLock::new();
+        REGISTRY.get_or_init(AgentMetaRegistry::new)
+    }
+
+    fn registry_path() -> std::path::PathBuf {
+        susi_paths::SusiDirs::data_dir().join("agent_registry.json")
+    }
+
+    // Mandate 42: safe - parses a file compiled in via include_str!; a parse
+    // failure is a build-time bug caught by any test run, never a runtime input.
+    #[allow(clippy::expect_used)]
+    fn bootstrap_data(&self) -> Vec<AgentProfile> {
+        serde_json::from_str(include_str!("../../../config/agents.default.json"))
+            .expect("Fatal: agents.default.json must be valid JSON.")
+    }
+
+    const MAX_NON_CORE_AGENTS: usize = 300;
+
+    pub fn register_agent(&self, profile: AgentProfile) {
+        crate::susi_core::registry::CapabilityRegistry::global().register_agent_capability(
+            crate::susi_core::registry::AgentCapability {
+                name: profile.name.clone(),
+                description: profile.description.clone(),
+                is_core: profile.is_core,
+            },
+        );
+        let _ = self.store.modify(
+            &Self::registry_path(),
+            || Ok(self.bootstrap_data()),
+            |_| false,
+            false,
+            |agents| {
+                if !agents.iter().any(|a| a.name == profile.name) {
+                    let non_core_count = agents.iter().filter(|a| !a.is_core).count();
+                    if non_core_count >= Self::MAX_NON_CORE_AGENTS {
+                        if let Some(idx) = agents
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, a)| !a.is_core)
+                            .min_by(|(_, a), (_, b)| {
+                                a.base_rank
+                                    .partial_cmp(&b.base_rank)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .map(|(i, _)| i)
+                        {
+                            agents.remove(idx);
+                        }
+                    }
+                    agents.push(profile);
+                }
+            },
+        );
+    }
+
+    pub fn update_rank(&self, name: &str, delta: f32, source: &str) {
+        let name_owned = name.to_string();
+        let source_owned = source.to_string();
+        let _ = self.store.modify(
+            &Self::registry_path(),
+            || Ok(self.bootstrap_data()),
+            |_| false,
+            false,
+            move |agents| {
+                if let Some(agent) = agents.iter_mut().find(|a| a.name == name_owned) {
+                    let old_rank = agent.base_rank;
+                    agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
+
+                    // A clamped no-op (e.g. rank already at the 0.1 floor
+                    // absorbing another failure) is not a mutation — auditing
+                    // it floods the ledger with zero-delta entries.
+                    if agent.base_rank == old_rank {
+                        return;
+                    }
+                    let log_msg = format!(
+                        "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
+                        name_owned, old_rank, agent.base_rank, source_owned
+                    );
+                    crate::susi_sandbox::manager::SusiAuditLogger::log(
+                        &susi_paths::SusiDirs::config_dir(),
+                        crate::susi_sandbox::manager::LogLevel::Info,
+                        "AGENT_MUTATION",
+                        &log_msg,
+                    );
+                }
+            },
+        );
+    }
+
+    pub fn list_agents(&self) -> Vec<AgentProfile> {
+        let agents = self
+            .store
+            .load_with_healing(
+                &Self::registry_path(),
+                || Ok(self.bootstrap_data()),
+                |unique_agents| {
+                    let mut deduplicated = Vec::new();
+                    for a in unique_agents.drain(..) {
+                        if !deduplicated.iter().any(|x: &AgentProfile| x.name == a.name) {
+                            deduplicated.push(a);
+                        }
+                    }
+                    *unique_agents = deduplicated;
+
+                    let mut changed = false;
+                    for default_agent in self.bootstrap_data() {
+                        if !unique_agents
+                            .iter()
+                            .any(|x: &AgentProfile| x.name == default_agent.name)
+                        {
+                            unique_agents.push(default_agent);
+                            changed = true;
+                        }
+                    }
+                    changed
+                },
+                false,
+            )
+            .unwrap_or_else(|_| self.bootstrap_data());
+        let caps = crate::susi_core::registry::CapabilityRegistry::global();
+        for profile in &agents {
+            caps.register_agent_capability(crate::susi_core::registry::AgentCapability {
+                name: profile.name.clone(),
+                description: profile.description.clone(),
+                is_core: profile.is_core,
+            });
+        }
+        agents
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fresh_registry_home() -> std::sync::MutexGuard<'static, ()> {
+        let guard = crate::SUSI_HOME_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("susi_agents_test_{}", std::process::id()));
+        std::env::set_var("SUSI_HOME", &dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        guard
+    }
+
+    #[test]
+    fn list_agents_bootstraps_defaults_when_registry_absent() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::new();
+        let agents = reg.list_agents();
+        assert!(!agents.is_empty());
+        assert!(agents.iter().all(|a| !a.name.is_empty()));
+    }
+
+    #[test]
+    fn update_rank_clamps_into_bounds() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::new();
+        let name = reg
+            .list_agents()
+            .first()
+            .map(|a| a.name.clone())
+            .expect("bootstrap agents exist");
+        reg.update_rank(&name, 999.0, "test");
+        let rank = reg
+            .list_agents()
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.base_rank)
+            .unwrap_or(0.0);
+        assert!(rank <= 1.0, "rank {rank} exceeded 1.0");
+        reg.update_rank(&name, -999.0, "test");
+        let rank = reg
+            .list_agents()
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.base_rank)
+            .unwrap_or(1.0);
+        assert!(rank >= 0.1, "rank {rank} fell below 0.1");
+    }
+
+    #[test]
+    fn update_rank_on_unknown_agent_is_a_noop() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::new();
+        let before = reg.list_agents().len();
+        reg.update_rank("no-such-agent", 0.5, "test");
+        assert_eq!(reg.list_agents().len(), before);
+    }
+
+    #[test]
+    fn register_agent_persists_new_non_core_profile_and_ignores_duplicate_name() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::new();
+        let before = reg.list_agents().len();
+        let custom_profile = AgentProfile {
+            name: "custom-scout-1104".to_string(),
+            description: "Custom non-core scout agent".to_string(),
+            categories: vec!["research".to_string()],
+            semantic_anchors: vec!["scout".to_string()],
+            base_rank: 0.75,
+            is_core: false,
+        };
+        reg.register_agent(custom_profile.clone());
+
+        let after_first = reg.list_agents();
+        assert_eq!(after_first.len(), before + 1);
+        assert!(after_first
+            .iter()
+            .any(|a| a.name == "custom-scout-1104" && !a.is_core));
+
+        let cap = crate::susi_core::registry::CapabilityRegistry::global()
+            .get_agent("custom-scout-1104")
+            .expect("registered in CapabilityRegistry::global()");
+        assert_eq!(cap.description, "Custom non-core scout agent");
+        assert!(!cap.is_core);
+
+        reg.register_agent(custom_profile);
+        let after_second = reg.list_agents();
+        assert_eq!(after_second.len(), before + 1);
+        assert_eq!(
+            after_second
+                .iter()
+                .filter(|a| a.name == "custom-scout-1104")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn default_constructor_matches_new_and_bootstraps_core_agents() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::default();
+        let agents = reg.list_agents();
+        assert!(agents.iter().any(|a| a.is_core));
+    }
+}
