@@ -1,0 +1,38 @@
+{
+  "id": "T-PTEST-1",
+  "title": "Run the local gate's test binaries concurrently, each in a private home",
+  "goal": "Replace the serial `cargo test` run of a narrowed ship or check gate with Cargo's `--no-run` build followed by a concurrent runner (xtask/src/test_runner.rs) that launches every test binary beside the others, each with its own HOME/APPDATA/LOCALAPPDATA/XDG/SUSI_HOME tree and Cargo's runtime environment, appends each binary's output to the gate log under Cargo's own `Running` header so the existing pass counters and receipts read it unchanged, stops launching after the first failure, records per-binary durations for longest-first scheduling, and runs doctests through the companion doc gate. Measured on the 2026-11-07 Wave 10 ship: 574 s of serial binary time inside a 784 s test gate, 124 of 173 binaries under one second.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "ptest",
+  "native_worker": "ptest",
+  "created_by": "ptest",
+  "created_unix": 1794053400,
+  "updated_unix": 1794057571,
+  "size": "M",
+  "deps": [],
+  "scope": [
+    ".agents/tasks/t-ptest-1.json",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/test_runner.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-ptest-1.json",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/test_runner.rs"
+  ],
+  "acceptance": "cargo test -p xtask --bin local-workflow --offline --locked test_runner",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "--offline",
+      "--locked",
+      "test_runner"
+    ]
+  }
+}
