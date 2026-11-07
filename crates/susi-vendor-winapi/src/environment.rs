@@ -1,4 +1,7 @@
 //! Notify already-running Windows shells after persisting a per-user PATH.
+//! Owned by the Win32 facade since 2026-11-07: the open-core boundary keeps
+//! `susi-config` free of host-integration helpers, and the root binary and
+//! `susi-harness` forbid `unsafe_code`.
 //! The timeout applies per top-level recipient, not to the whole broadcast.
 //! https://learn.microsoft.com/windows/win32/winmsg/wm-settingchange
 use std::io;
