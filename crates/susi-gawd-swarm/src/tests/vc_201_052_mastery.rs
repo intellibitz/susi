@@ -7,10 +7,10 @@ use std::collections::BTreeMap;
 
 use crate::cloud_failover::{run, AttemptOutcome, FailoverBudget, Runner, Stores};
 use crate::cloud_lockout::LockoutTracker;
+use susi_config::cloud_eligibility::{EligibilityStore, InferenceResult, Subject};
+use susi_config::cloud_quota::QuotaInventory;
 use susi_gawd_agents::cloud_budget::{BudgetLedger, SpendPolicy};
 use susi_gawd_agents::cloud_intent::{Candidate, IntentConstraints};
-use susi_vendor_models::cloud_eligibility::{EligibilityStore, InferenceResult, Subject};
-use susi_vendor_models::cloud_quota::QuotaInventory;
 
 struct UsageReporter<'a> {
     ledger: &'a BudgetLedger,

@@ -20,10 +20,10 @@
 //!   side effects possible); failover continues, but the result is marked
 //!   `prior_ambiguous` so the caller never silently treats it as clean.
 
+use susi_config::cloud_eligibility::{EligibilityStore, InferenceResult};
+use susi_config::cloud_quota::QuotaInventory;
 use susi_gawd_agents::cloud_budget::{BudgetLedger, Denial, FreeHeadroom, SpendPolicy};
 use susi_gawd_agents::cloud_intent::{select, Candidate, IntentConstraints, Selection};
-use susi_vendor_models::cloud_eligibility::{EligibilityStore, InferenceResult};
-use susi_vendor_models::cloud_quota::QuotaInventory;
 
 use crate::cloud_lockout::{LockoutTracker, Permit};
 
@@ -214,7 +214,7 @@ pub fn run_selection<R: Runner>(
         // Lockout gate — a cooling target is skipped, not hammered.
         match stores.lockouts.permit(
             &scope,
-            susi_vendor_models::cloud_eligibility::EligibilityKind::Unknown,
+            susi_config::cloud_eligibility::EligibilityKind::Unknown,
         ) {
             Permit::Allowed => {}
             Permit::Cooldown { .. } | Permit::CircuitOpen { .. } | Permit::ProbesExhausted => {
@@ -328,8 +328,8 @@ pub fn run_selection<R: Runner>(
     }
 }
 
-fn subj<'a>(c: &'a Candidate) -> susi_vendor_models::cloud_eligibility::Subject<'a> {
-    susi_vendor_models::cloud_eligibility::Subject {
+fn subj<'a>(c: &'a Candidate) -> susi_config::cloud_eligibility::Subject<'a> {
+    susi_config::cloud_eligibility::Subject {
         provider: &c.provider,
         api_key: &c.api_key,
         account: c.account.as_deref(),
@@ -342,10 +342,10 @@ fn subj<'a>(c: &'a Candidate) -> susi_vendor_models::cloud_eligibility::Subject<
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use susi_config::cloud_eligibility::Subject;
+    use susi_config::cloud_quota::QuotaInventory;
     use susi_gawd_agents::cloud_budget::SpendPolicy;
     use susi_gawd_agents::cloud_intent::IntentConstraints;
-    use susi_vendor_models::cloud_eligibility::Subject;
-    use susi_vendor_models::cloud_quota::QuotaInventory;
 
     const T0: u64 = 1_700_000_000;
     const T0_MS: u64 = T0 * 1000;

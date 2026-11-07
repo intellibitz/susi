@@ -29,7 +29,9 @@
 pub use susi_error;
 
 pub mod accel_reserve;
+pub mod cloud_eligibility;
 pub mod cloud_env;
+pub mod cloud_quota;
 pub mod cluster_key;
 mod config;
 pub mod credential;

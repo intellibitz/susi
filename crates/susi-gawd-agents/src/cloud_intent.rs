@@ -22,10 +22,10 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use susi_vendor_models::cloud_eligibility::{
+use susi_config::cloud_eligibility::{
     credential_fingerprint, EligibilityKind, EligibilityStore, InferenceResult, Subject,
 };
-use susi_vendor_models::cloud_quota::{self};
+use susi_config::cloud_quota::{self};
 
 /// What a user intent needs from a model. Every field is a hard filter;
 /// `None`/`false`/0 means "not required".
@@ -374,8 +374,8 @@ pub fn record_dispatch_outcome(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_vendor_models::cloud_eligibility::{EligibilityStore, Subject};
-    use susi_vendor_models::cloud_quota::{
+    use susi_config::cloud_eligibility::{EligibilityStore, Subject};
+    use susi_config::cloud_quota::{
         QuotaAmount, QuotaInventory, QuotaKind, QuotaObservation, QuotaSource,
     };
 

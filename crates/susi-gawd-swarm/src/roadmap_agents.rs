@@ -236,7 +236,7 @@ impl<E: AgentExecutor + ?Sized> Runner for AgentRunner<'_, E> {
     fn attempt(&mut self, index: usize, _remaining_ms: u64) -> AttemptOutcome {
         let Some(c) = self.candidates.get(index) else {
             return AttemptOutcome::PreDispatch(
-                susi_vendor_models::cloud_eligibility::InferenceResult::Failed {
+                susi_config::cloud_eligibility::InferenceResult::Failed {
                     status: None,
                     body_snippet: "no such candidate".into(),
                     retry_after_secs: None,
@@ -405,9 +405,9 @@ mod tests {
     }
     use std::thread;
     use std::time::{Duration, Instant};
+    use susi_config::cloud_eligibility::{EligibilityStore, InferenceResult, Subject};
+    use susi_config::cloud_quota::QuotaInventory;
     use susi_gawd_agents::cloud_budget::{BudgetLedger, SpendPolicy};
-    use susi_vendor_models::cloud_eligibility::{EligibilityStore, InferenceResult, Subject};
-    use susi_vendor_models::cloud_quota::QuotaInventory;
 
     /// In-memory queue: CAS claim under a mutex.
     type TaskMap = Mutex<BTreeMap<String, (TaskSpec, Option<String>)>>;

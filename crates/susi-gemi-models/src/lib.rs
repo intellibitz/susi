@@ -27,12 +27,13 @@ pub use susi_config;
 
 pub use susi_sandbox_client as susi_sandbox;
 
+pub use susi_config::{accel_reserve, cloud_eligibility, cloud_quota};
 pub use susi_core;
 pub use susi_vendor_models::model_license::ModelReadWindow;
 
 pub use susi_vendor_models::{
-    cloud, cloud_eligibility, cloud_manage, frontier, hf_discovery, local_ecosystem, open_weight,
-    openrouter, price_catalog, resource_inventory, runtime_lifecycle,
+    cloud, cloud_manage, frontier, hf_discovery, local_ecosystem, open_weight, openrouter,
+    price_catalog, resource_inventory, runtime_lifecycle,
 };
 pub mod coding_models;
 mod device;

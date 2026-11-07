@@ -968,10 +968,10 @@ mod tests {
         // End-to-end: run_jobs under an admission controller bounded to 1
         // job — every job still completes, serialized through admission.
         use crate::parallel_dispatch::{run_jobs, DispatchPlan, Job, Shared};
+        use susi_config::cloud_eligibility::EligibilityStore;
+        use susi_config::cloud_quota::QuotaInventory;
         use susi_gawd_agents::cloud_budget::{BudgetLedger, SpendPolicy};
         use susi_gawd_agents::cloud_intent::{Candidate, IntentConstraints};
-        use susi_vendor_models::cloud_eligibility::EligibilityStore;
-        use susi_vendor_models::cloud_quota::QuotaInventory;
         let cs = vec![Candidate {
             provider: "p".into(),
             api_key: "k1".into(),

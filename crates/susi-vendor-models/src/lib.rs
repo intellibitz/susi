@@ -21,11 +21,11 @@ pub use susi_core;
 pub use susi_error;
 pub use susi_sandbox_client as susi_sandbox;
 
+pub use susi_config::{cloud_eligibility, cloud_quota};
+
 pub mod cloud;
 pub mod cloud_credentials;
-pub mod cloud_eligibility;
 pub mod cloud_manage;
-pub mod cloud_quota;
 pub mod frontier;
 pub mod hf_discovery;
 pub mod local_ecosystem;
