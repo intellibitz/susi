@@ -3132,7 +3132,6 @@ dependencies = [
  "susi-vendor-getrandom",
  "susi-vendor-hex",
  "susi-vendor-libc",
- "susi-vendor-md-5",
  "susi-vendor-rcgen",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
