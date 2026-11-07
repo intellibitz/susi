@@ -1181,7 +1181,7 @@
       "id": "VC-201-093",
       "mastery_target": "Restore configuration, workflow state, keys under explicit policy, and required ledger history to isolated nodes; verify audit continuity and report measured recovery time and data loss against declared targets.",
       "priority": "P1",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-093.json, T-GAWDSWARM-2): restores configuration, workflow state, keys under explicit policy, and ledger history to isolated node processes; verifies audit continuity and reports measured recovery time (RTO) and data loss (RPO) against declared targets. Verified by `crates/susi-gawd/src/tests/vc_201_093.rs`: restores_to_isolated_node_and_reports_rto_rpo_against_targets, vc_201_093_restores_with_audit_continuity_and_key_policy.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-201-093.json): (verdict .agents/roadmap-verdicts/VC-201-093.json, T-GAWDSWARM-2): restores configuration, workflow state, keys under explicit policy, and ledger history to isolated node processes; verifies audit continuity and reports measured recovery time (RTO) and data loss (RPO) against declared targets. Verified by `crates/susi-gawd/src/tests/vc_201_093.rs`: restores_to_isolated_node_and_reports_rto_rpo_against_targets, vc_201_093_restores_with_audit_continuity_and_key_policy.",
       "type": "OPERATIONS",
       "vector": "Exercise disaster recovery from authoritative backups"
     },
