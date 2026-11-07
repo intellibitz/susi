@@ -1250,7 +1250,7 @@
       "id": "VC-201-098",
       "mastery_target": "Run supported Linux, macOS, and Windows install, start, stop, upgrade, and local-runtime smoke cases in isolated environments; the published matrix distinguishes tested features from unsupported GPU or sandbox paths.",
       "priority": "P1",
-      "progress": "DELIVERED (T-SOCKETDSP4-2): zero-config platform installers share one four-step plan without hand-edited config, exercise isolated install/start/stop/upgrade/local-runtime lifecycle transitions, and validate the machine-readable capability matrix distinguishing tested lifecycle features from conditional/unsupported GPU and sandbox paths on supported Windows and Linux x86_64 targets. Verified by `tests/zc_platform_installers.rs`: zc_host_platform_lifecycle_install_start_stop_upgrade_smoke_in_isolated_env, zc_published_capability_matrix_distinguishes_tested_features_gpu_and_sandbox_paths.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-201-098.json): (T-SOCKETDSP4-2): zero-config platform installers share one four-step plan without hand-edited config, exercise isolated install/start/stop/upgrade/local-runtime lifecycle transitions, and validate the machine-readable capability matrix distinguishing tested lifecycle features from conditional/unsupported GPU and sandbox paths on supported Windows and Linux x86_64 targets. Verified by `tests/zc_platform_installers.rs`: zc_host_platform_lifecycle_install_start_stop_upgrade_smoke_in_isolated_env, zc_published_capability_matrix_distinguishes_tested_features_gpu_and_sandbox_paths.",
       "type": "OPERATIONS",
       "vector": "Verify host-platform lifecycle compatibility"
     },
