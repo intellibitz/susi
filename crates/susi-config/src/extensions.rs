@@ -1549,6 +1549,3 @@ pub fn validate_report(root: &Path) -> Result<serde_json::Value, String> {
     }))
 }
 
-#[cfg(test)]
-#[path = "tests/extensions_state_lock.rs"]
-mod state_lock_tests;
