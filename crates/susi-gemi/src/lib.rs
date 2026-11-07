@@ -46,7 +46,6 @@ pub mod plane_handler;
 pub mod benchmark;
 pub mod brain_explain;
 pub mod brain_export;
-pub mod brain_per_workspace;
 pub mod capability_matrix;
 pub mod coding_models_ext;
 pub mod confidence_escalation;
