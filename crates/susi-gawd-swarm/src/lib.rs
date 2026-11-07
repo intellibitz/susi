@@ -56,7 +56,6 @@ pub mod roadmap_agents;
 pub mod role_select;
 pub mod side_effect_journal;
 pub mod side_effects;
-pub mod snapshot_bootstrap;
 pub mod swarm_chaos;
 pub mod task_lease;
 pub mod wan_peers;
@@ -191,9 +190,6 @@ mod vc_201_032_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_033.rs"]
 mod vc_201_033_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_036.rs"]
-mod vc_201_036_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_037.rs"]
 mod vc_201_037_tests;
