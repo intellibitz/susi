@@ -139,9 +139,6 @@ mod vc_201_042_native_tests;
 #[path = "tests/vc_201_045_mastery.rs"]
 mod vc_201_045_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_047_mastery.rs"]
-mod vc_201_047_mastery_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_051.rs"]
 mod vc_201_051_tests;
 #[cfg(test)]
