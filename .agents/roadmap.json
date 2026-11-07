@@ -388,7 +388,7 @@
       "id": "VC-201-031",
       "mastery_target": "Build a deterministic model of the existing signed roster and commit rules with reordered messages, partitions, and restarts; preserve discovered counterexamples and document the exact safety properties the implementation satisfies.",
       "priority": "P0",
-      "progress": "DELIVERED: a deterministic model of the signed roster and commit rules, checked over exhaustive message schedules; reordered claims do not inflate terms, and a partition that reconnects adopts the higher term without split brain. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_031.rs`: exhaustive_message_schedules_preserve_sp3, reordered_claims_same_leader_no_term_inflation, partition_allows_divergent_terms_reconnect_adopts_higher, leadership_change_bumps_term, safety_properties_documented. Evidence: T-CLAUDE-129, T-CURSOR-1.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::membership_model): a deterministic model of the signed roster and commit rules, checked over exhaustive message schedules; reordered claims do not inflate terms, and a partition that reconnects adopts the higher term without split brain. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_031.rs`: exhaustive_message_schedules_preserve_sp3, reordered_claims_same_leader_no_term_inflation, partition_allows_divergent_terms_reconnect_adopts_higher, leadership_change_bumps_term, safety_properties_documented. Evidence: T-CLAUDE-129, T-CURSOR-1.",
       "type": "FEDERATION",
       "vector": "Model-check membership and term transitions"
     },
