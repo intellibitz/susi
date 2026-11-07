@@ -1069,7 +1069,7 @@
       "id": "VC-201-085",
       "mastery_target": "Package approved reflexes, prompts, fixtures, and capability requirements with immutable versions and signatures; importing a skill verifies provenance and tests before granting it executable status.",
       "priority": "P1",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-085.json, T-DEVIN20261002053148-14, 2026-10-04): skill artifacts are packaged with immutable versions and HMAC cryptographic signatures binding the full payload (reflexes, prompts, fixtures, capabilities); signature verification enforces key material; packaged fixtures are executed and unparseable fixtures are rejected before granting executable status. Verified by crates/susi-core/src/tests/vc_201_085_mastery.rs.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-sovereign-rag::skill_artifacts): (verdict .agents/roadmap-verdicts/VC-201-085.json, T-DEVIN20261002053148-14, 2026-10-04): skill artifacts are packaged with immutable versions and HMAC cryptographic signatures binding the full payload (reflexes, prompts, fixtures, capabilities); signature verification enforces key material; packaged fixtures are executed and unparseable fixtures are rejected before granting executable status. Verified by crates/susi-core/src/tests/vc_201_085_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Share verified skills as versioned artifacts"
     },
