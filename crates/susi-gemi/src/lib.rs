@@ -54,7 +54,6 @@ pub mod engine_benchmark;
 pub mod frontier_ext;
 pub mod key_arbitration;
 pub mod local_tool_calls;
-pub mod model_preload;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
 pub mod operator_report;
@@ -124,9 +123,6 @@ mod routing_ladder_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_042_native.rs"]
 mod vc_201_042_native_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_045_mastery.rs"]
-mod vc_201_045_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_001_mastery.rs"]
 mod vc_202_001_mastery_tests;

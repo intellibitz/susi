@@ -131,7 +131,7 @@ impl ReceiptArchive {
         if std::fs::create_dir_all(parent).is_err() {
             return;
         }
-        let _guard = archive_lock().lock();
+        let _guard = archive_lock().lock().unwrap_or_else(|e| e.into_inner());
         // The CLI and daemon can archive into the same workspace. Rotation
         // and append must be one cross-process operation or one writer can
         // append to the generation another writer is renaming.
@@ -346,9 +346,9 @@ impl StagingHealth {
     }
 }
 
-fn archive_lock() -> &'static parking_lot::Mutex<()> {
-    static LOCK: OnceLock<parking_lot::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| parking_lot::Mutex::new(()))
+fn archive_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
 }
 
 #[cfg(test)]

@@ -146,7 +146,10 @@ impl SusiConfig {
         // The store is keyed on mtime alone. A rewrite that lands inside the
         // filesystem's timestamp granularity keeps that mtime, and the next
         // load would return the snapshot from before this write.
-        *Self::store().cache.write() = None;
+        *Self::store()
+            .cache
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
     }
 

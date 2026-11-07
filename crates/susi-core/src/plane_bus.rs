@@ -230,7 +230,7 @@ impl PlaneBus {
     }
 
     /// Allocate a stream channel; handler emits via [`Self::stream_emit`].
-    pub fn open_stream(&self) -> (String, flume::Receiver<Value>) {
+    pub fn open_stream(&self) -> (String, std::sync::mpsc::Receiver<Value>) {
         self.inner.open_stream()
     }
 
@@ -332,12 +332,12 @@ fn req_watched(topic: &str, mut payload: Value) -> Result<Value, String> {
                         }
                     }
                 }
-                Err(flume::RecvTimeoutError::Timeout) => {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if finished.load(std::sync::atomic::Ordering::Acquire) {
                         break;
                     }
                 }
-                Err(flume::RecvTimeoutError::Disconnected) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             }
             if !cancel_sent
                 && cancel

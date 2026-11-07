@@ -1218,7 +1218,7 @@ impl SusiSupervisor {
                 let g = goal.to_string();
                 let peer_cancel = cancellation.clone();
                 let peer_tx = peer_tx.clone();
-                rayon::spawn(move || {
+                std::thread::spawn(move || {
                     if let PeerDispatchOutcome::Completed(remote_res) =
                         Self::dispatch_peer_task_cancellable(&addr, "reason", &g, &peer_cancel)
                     {
@@ -1330,15 +1330,15 @@ impl SusiSupervisor {
             // Aggregate agent outputs weighted by rank and node trust
             let mut weighted_wisdom = String::new();
             for r in blackboard.iter() {
-                let agent_name = r.key();
-                let raw_output = r.value();
+                let agent_name = r.0.clone();
+                let raw_output = r.1;
                 let output = enforce_action(
-                    &wrap_tool_output("mission-blackboard", raw_output),
+                    &wrap_tool_output("mission-blackboard", &raw_output),
                     ActionClass::Consequential,
                 )
                 .unwrap_or_else(|reason| reason);
 
-                if let Some(info) = fleet_info.iter().find(|i| &i.name == agent_name) {
+                if let Some(info) = fleet_info.iter().find(|i| i.name == agent_name) {
                     if susi_gawd_agents::accountability::is_usable(&output) {
                         weighted_wisdom.push_str(&format!(
                             "[AGENT: {} (Rank: {:.2})] {}\n",
@@ -1349,8 +1349,11 @@ impl SusiSupervisor {
                     // Empirical Expertise Ranking: reward success, penalize failure.
                     let (delta, source) = Self::rank_delta_for_output(&output);
                     if delta != 0.0 {
-                        susi_gawd_agents::agents::AgentMetaRegistry::global()
-                            .update_rank(agent_name, delta, source);
+                        susi_gawd_agents::agents::AgentMetaRegistry::global().update_rank(
+                            &agent_name,
+                            delta,
+                            source,
+                        );
                     }
                 }
             }
@@ -1360,10 +1363,11 @@ impl SusiSupervisor {
 
             let valid_outputs: Vec<(String, String)> = blackboard
                 .iter()
+                .into_iter()
                 .filter_map(|r| {
-                    let agent_name = r.key().clone();
+                    let agent_name = r.0.clone();
                     let output = enforce_action(
-                        &wrap_tool_output("mission-blackboard", r.value()),
+                        &wrap_tool_output("mission-blackboard", &r.1),
                         ActionClass::Consequential,
                     )
                     .unwrap_or_else(|reason| reason);
@@ -1976,24 +1980,18 @@ impl SusiSupervisor {
 
     pub fn broadcast_lock_request(resource_id: &str) -> bool {
         let nodes = Self::list_cluster_nodes();
-        use rayon::prelude::*;
 
         let target_nodes: Vec<_> = nodes
             .into_iter()
             .filter(|n| !matches!(n.admission, PeerAdmission::Local))
             .collect();
 
-        let successes = target_nodes
-            .par_iter()
-            .map(|node| {
-                let res = Self::dispatch_peer_task(&node.address, "locks/acquire", resource_id);
-                if res.contains("SUCCESS") {
-                    1
-                } else {
-                    0
-                }
-            })
-            .sum::<usize>();
+        let successes = crate::susi_core::parallel::map_ref(&target_nodes, |node| {
+            let res = Self::dispatch_peer_task(&node.address, "locks/acquire", resource_id);
+            usize::from(res.contains("SUCCESS"))
+        })
+        .into_iter()
+        .sum::<usize>();
 
         successes == target_nodes.len()
     }
@@ -2402,7 +2400,7 @@ mod tests {
 
     #[test]
     fn test_consensus_master_bypasses_synthesis_for_single_valid_output() {
-        let blackboard = Arc::new(dashmap::DashMap::new());
+        let blackboard = Arc::new(susi_core::agent_types::HighDensityContextStore::default());
         blackboard.insert(
             "Qwen2ReasoningAgent".to_string(),
             "Photosynthesis is the process by which plants turn sunlight into energy.".to_string(),
@@ -2410,9 +2408,10 @@ mod tests {
 
         let valid_outputs: Vec<(String, String)> = blackboard
             .iter()
+            .into_iter()
             .filter_map(|r| {
-                let agent_name = r.key().clone();
-                let output = r.value().trim().to_string();
+                let agent_name = r.0.clone();
+                let output = r.1.trim().to_string();
                 if susi_gawd_agents::accountability::is_usable(&output) {
                     Some((agent_name, output))
                 } else {

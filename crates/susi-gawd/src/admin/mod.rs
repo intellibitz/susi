@@ -14,7 +14,6 @@ pub use release::{E2eCheck, E2E_CHECKS};
 pub use version::VersionBump;
 
 use crate::susi_error::{EaiError, EaiResult};
-use rayon::prelude::*;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -60,23 +59,27 @@ impl SusiAdmin {
             }
         }
 
-        let hit_reports: Vec<String> = files
-            .into_par_iter()
-            .filter_map(|path| {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    let mut local_hits = Vec::new();
-                    for p in &patterns {
-                        if content.contains(p) {
-                            local_hits.push(format!("- [FAIL] Security: Potential secret matching '{}' detected in {}.\n", p, path.display()));
-                        }
-                    }
-                    if !local_hits.is_empty() {
-                        return Some(local_hits.join(""));
+        let hit_reports: Vec<String> = crate::susi_core::parallel::map(files, |path| {
+            if let Ok(content) = fs::read_to_string(&path) {
+                let mut local_hits = Vec::new();
+                for p in &patterns {
+                    if content.contains(p) {
+                        local_hits.push(format!(
+                            "- [FAIL] Security: Potential secret matching '{}' detected in {}.\n",
+                            p,
+                            path.display()
+                        ));
                     }
                 }
-                None
-            })
-            .collect();
+                if !local_hits.is_empty() {
+                    return Some(local_hits.join(""));
+                }
+            }
+            None
+        })
+        .into_iter()
+        .flatten()
+        .collect();
 
         if hit_reports.is_empty() {
             report.push_str("- [PASS] Security: No hardcoded secrets detected.\n");

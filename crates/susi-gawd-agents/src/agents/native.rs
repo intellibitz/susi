@@ -552,7 +552,7 @@ impl GawdAgent for EvolutionAgent {
         let started = !DRIFT_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst);
         if started {
             let ws = workspace.to_path_buf();
-            rayon::spawn(move || {
+            std::thread::spawn(move || {
                 struct AuditGuard;
                 impl Drop for AuditGuard {
                     fn drop(&mut self) {
@@ -692,10 +692,10 @@ impl GawdAgent for EpistemicAuditorAgent {
         let mut empty_promise_agents: Vec<String> = Vec::new();
 
         for entry in blackboard.iter() {
-            if entry.key() == &self.name() {
+            if entry.0 == self.name() {
                 continue;
             }
-            let val = entry.value().to_lowercase();
+            let val = entry.1.to_lowercase();
             if (val.contains("i have fixed")
                 || val.contains("completed the task")
                 || val.contains("successfully modified"))
@@ -706,27 +706,25 @@ impl GawdAgent for EpistemicAuditorAgent {
                 && !val.contains("impl ")
             {
                 empty_promise_detected = true;
-                empty_promise_agents.push(entry.key().clone());
+                empty_promise_agents.push(entry.0.clone());
             }
 
-            if entry.key().starts_with("EvidenceRecord::") {
+            if entry.0.starts_with("EvidenceRecord::") {
                 total += 1;
-                match serde_json::from_str::<EvidenceRecord>(entry.value()) {
+                match serde_json::from_str::<EvidenceRecord>(&entry.1) {
                     Ok(record) => match record.assess(workspace) {
                         EvidenceAssessment::Verified => ir_verified += 1,
                         EvidenceAssessment::Unverified(reason)
                         | EvidenceAssessment::Rejected(reason) => {
-                            ir_failed.push(format!("{}: {reason}", entry.key()));
+                            ir_failed.push(format!("{}: {reason}", entry.0));
                         }
                     },
-                    Err(_) => {
-                        ir_failed.push(format!("{}: unparseable EvidenceRecord", entry.key()))
-                    }
+                    Err(_) => ir_failed.push(format!("{}: unparseable EvidenceRecord", entry.0)),
                 }
                 continue;
             }
             total += 1;
-            let (referenced, hallucinated) = audit_claim_grounding(entry.value(), workspace);
+            let (referenced, hallucinated) = audit_claim_grounding(&entry.1, workspace);
             if referenced == 0 {
                 ungrounded += 1;
             } else if hallucinated.is_empty() {
@@ -852,17 +850,17 @@ pub(super) fn summarize_swarm_signals(
     let mut critical = Vec::new();
     let mut healthy = Vec::new();
     for entry in blackboard.iter() {
-        if entry.key() == exclude {
+        if entry.0 == exclude {
             continue;
         }
-        let lower = entry.value().to_lowercase();
+        let lower = entry.1.to_lowercase();
         if lower.trim().is_empty() {
             continue;
         }
         if CRITICAL_SIGNAL_MARKERS.iter().any(|m| lower.contains(m)) {
-            critical.push(entry.key().clone());
+            critical.push(entry.0.clone());
         } else {
-            healthy.push(entry.key().clone());
+            healthy.push(entry.0.clone());
         }
     }
     (critical, healthy)

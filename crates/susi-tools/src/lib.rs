@@ -101,7 +101,7 @@ mod surface_tests {
         }
         assert!(same::<GlobalMcpEntry, config::GlobalMcpEntry>());
         assert!(same::<McpConfig, config::McpConfig>());
-        assert!(same::<McpServerConfig, config::McpServerConfig>());
+        assert!(same::<McpServerConfig, susi_vendor_mcp::McpServerConfig>());
         assert!(same::<HardwareSnapshot, hooks::HardwareSnapshot>());
         assert!(same::<ToolRegistry, registry::ToolRegistry>());
         assert!(same::<MetaCategory, types::MetaCategory>());

@@ -19,34 +19,48 @@ pub struct PulseEntry {
 /// One FIFO lane: both channel ends live here, so the queue itself can never
 /// disconnect and `pop` is a non-blocking `try_recv`.
 struct Lane {
-    tx: flume::Sender<PulseEntry>,
-    rx: flume::Receiver<PulseEntry>,
+    tx: std::sync::mpsc::Sender<PulseEntry>,
+    rx: std::sync::Mutex<std::sync::mpsc::Receiver<PulseEntry>>,
+    len: std::sync::atomic::AtomicUsize,
 }
 
 impl Lane {
     fn new() -> Self {
-        let (tx, rx) = flume::unbounded();
-        Self { tx, rx }
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self {
+            tx,
+            rx: std::sync::Mutex::new(rx),
+            len: std::sync::atomic::AtomicUsize::new(0),
+        }
     }
 
     fn push(&self, entry: PulseEntry) {
-        // Cannot fail: `rx` is owned alongside `tx` for the queue's lifetime.
         let _ = self.tx.send(entry);
+        self.len.fetch_add(1, Ordering::SeqCst);
     }
 
     fn pop(&self) -> Option<PulseEntry> {
-        self.rx.try_recv().ok()
+        let res = self
+            .rx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .try_recv()
+            .ok();
+        if res.is_some() {
+            self.len.fetch_sub(1, Ordering::SeqCst);
+        }
+        res
     }
 
     fn is_empty(&self) -> bool {
-        self.rx.is_empty()
+        self.len.load(Ordering::SeqCst) == 0
     }
 }
 
 pub struct SubstratePulseQueue {
     priority_queue: Lane,
     standard_queue: Lane,
-    consumer_thread: parking_lot::RwLock<Option<Thread>>,
+    consumer_thread: std::sync::RwLock<Option<Thread>>,
     /// Set when ingest runs before a consumer is registered, so register_consumer
     /// can unpark immediately and avoid a lost-wakeup hang on a non-empty queue.
     pending_wake: AtomicBool,
@@ -57,7 +71,7 @@ impl SubstratePulseQueue {
         Self {
             priority_queue: Lane::new(),
             standard_queue: Lane::new(),
-            consumer_thread: parking_lot::RwLock::new(None),
+            consumer_thread: std::sync::RwLock::new(None),
             pending_wake: AtomicBool::new(false),
         }
     }
@@ -92,7 +106,12 @@ impl SubstratePulseQueue {
             self.standard_queue.push(entry);
         }
 
-        if let Some(t) = self.consumer_thread.read().as_ref() {
+        if let Some(t) = self
+            .consumer_thread
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
             t.unpark();
         } else {
             self.pending_wake.store(true, Ordering::SeqCst);
@@ -136,7 +155,10 @@ impl SubstratePulseQueue {
     }
 
     pub fn register_consumer(&self) {
-        *self.consumer_thread.write() = Some(std::thread::current());
+        *self
+            .consumer_thread
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(std::thread::current());
         // Ingest may have raced ahead of registration: drain the pending-wake
         // flag and also wake if work is already queued.
         let pending = self.pending_wake.swap(false, Ordering::SeqCst);
