@@ -9,9 +9,6 @@ publish = false
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-sandbox-client = { workspace = true }
-bollard = { package = "susi-vendor-bollard", path = "../susi-vendor-bollard" }
-futures = { package = "susi-vendor-futures", path = "../susi-vendor-futures" }
-tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 
 [lints]
 workspace = true

@@ -146,7 +146,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-anyhow",
     "susi-vendor-axum",
     "susi-vendor-base64",
-    "susi-vendor-bollard",
     "susi-vendor-bytes",
     "susi-vendor-chacha20poly1305",
     "susi-vendor-clap",
