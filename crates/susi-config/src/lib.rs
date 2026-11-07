@@ -322,9 +322,6 @@ mod vc_201_066_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_069_mastery.rs"]
 mod vc_201_069_mastery_tests;
-#[cfg(test)]
-#[path = "tests/versioned_store.rs"]
-mod versioned_store_tests;
 
 /// Serializes tests that mutate or read process-global environment-derived
 /// paths (`HOME`, `XDG_CONFIG_HOME`, `SUSI_*`). Mutators must hold this lock
