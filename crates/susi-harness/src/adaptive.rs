@@ -977,6 +977,135 @@ impl SusiSocketEndpoints {
     }
 }
 
+/// Maximum plausible per-turn latency in milliseconds (24 hours).
+pub const MAX_ADAPTIVE_TURN_LATENCY_MS: u64 = 86_400_000;
+
+/// Receipt of an adaptive turn across monthly-subscription CLI and PAYG BYOK planes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AdaptiveExecutionReceipt {
+    /// Mission identifier.
+    pub mission_id: String,
+    /// Task key within the mission.
+    pub task_key: String,
+    /// Active [`AdaptiveStrategy`] name (`"auto"`, `"cli-first"`, `"payg-first"`, `"payg-only"`, `"cli-only"`).
+    pub strategy: String,
+    /// Primary billing mode (`"payg-byok"` or `"monthly-sub-cli"`).
+    pub primary_mode: String,
+    /// Primary backend or model spec.
+    pub primary_backend: String,
+    /// Whether the primary attempt failed over to the configured secondary plane.
+    pub failover_used: bool,
+    /// Secondary billing mode, when configured.
+    pub failover_mode: Option<String>,
+    /// Secondary backend or model spec, when configured.
+    pub failover_backend: Option<String>,
+    /// Billing mode that produced the final verdict.
+    pub resolved_mode: String,
+    /// Backend or model spec that produced the final verdict.
+    pub resolved_backend: String,
+    /// Turn latency in milliseconds (`0..=MAX_ADAPTIVE_TURN_LATENCY_MS`).
+    pub latency_ms: u64,
+    /// Marginal PAYG cost in micro-USD (`0` when `resolved_mode == "monthly-sub-cli"`).
+    pub marginal_payg_micro_usd: u64,
+    /// Whether the adaptive turn succeeded.
+    pub succeeded: bool,
+}
+
+/// Alias for [`AdaptiveExecutionReceipt`] used when reporting adaptive mission turns.
+pub type AdaptiveMissionReport = AdaptiveExecutionReceipt;
+
+impl AdaptiveExecutionReceipt {
+    /// Verify non-empty backend selection, valid failover accounting, subscription `$0`
+    /// marginal cost invariant, and bounded non-negative latency.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive violation string when any receipt invariant is broken.
+    pub fn verify_receipt_invariants(&self) -> Result<(), String> {
+        if self.mission_id.trim().is_empty() {
+            return Err("mission_id must not be empty".to_string());
+        }
+        if self.task_key.trim().is_empty() {
+            return Err("task_key must not be empty".to_string());
+        }
+        if self.strategy.trim().is_empty() || AdaptiveStrategy::parse(&self.strategy).is_none() {
+            return Err(format!("invalid adaptive strategy `{}`", self.strategy));
+        }
+        if !matches!(self.primary_mode.as_str(), "payg-byok" | "monthly-sub-cli") {
+            return Err(format!("invalid primary_mode `{}`", self.primary_mode));
+        }
+        if self.primary_backend.trim().is_empty() {
+            return Err("primary_backend must not be empty".to_string());
+        }
+        if !matches!(self.resolved_mode.as_str(), "payg-byok" | "monthly-sub-cli") {
+            return Err(format!("invalid resolved_mode `{}`", self.resolved_mode));
+        }
+        if self.resolved_backend.trim().is_empty() {
+            return Err("resolved_backend must not be empty".to_string());
+        }
+        if self.failover_used {
+            let Some(failover_mode) = self.failover_mode.as_deref() else {
+                return Err("failover_used is true but failover_mode is None".to_string());
+            };
+            let Some(failover_backend) = self.failover_backend.as_deref() else {
+                return Err("failover_used is true but failover_backend is None".to_string());
+            };
+            if !matches!(failover_mode, "payg-byok" | "monthly-sub-cli") {
+                return Err(format!("invalid failover_mode `{failover_mode}`"));
+            }
+            if failover_backend.trim().is_empty() {
+                return Err("failover_backend must not be empty".to_string());
+            }
+            if self.resolved_mode != failover_mode || self.resolved_backend != failover_backend {
+                return Err(
+                    "resolved_mode/resolved_backend must match failover plane when failover_used is true"
+                        .to_string(),
+                );
+            }
+        } else {
+            if let Some(failover_mode) = self.failover_mode.as_deref() {
+                if !matches!(failover_mode, "payg-byok" | "monthly-sub-cli") {
+                    return Err(format!("invalid failover_mode `{failover_mode}`"));
+                }
+            }
+            if let Some(failover_backend) = self.failover_backend.as_deref() {
+                if failover_backend.trim().is_empty() {
+                    return Err("failover_backend must not be empty when present".to_string());
+                }
+            }
+            if self.resolved_mode != self.primary_mode
+                || self.resolved_backend != self.primary_backend
+            {
+                return Err(
+                    "resolved_mode/resolved_backend must match primary plane when failover_used is false"
+                        .to_string(),
+                );
+            }
+        }
+        if self.resolved_mode == "monthly-sub-cli" && self.marginal_payg_micro_usd != 0 {
+            return Err(
+                "monthly-sub-cli execution must have 0 marginal_payg_micro_usd".to_string(),
+            );
+        }
+        if self.latency_ms > MAX_ADAPTIVE_TURN_LATENCY_MS {
+            return Err(format!(
+                "latency_ms ({}) exceeds MAX_ADAPTIVE_TURN_LATENCY_MS ({MAX_ADAPTIVE_TURN_LATENCY_MS})",
+                self.latency_ms
+            ));
+        }
+        Ok(())
+    }
+
+    /// Alias for [`Self::verify_receipt_invariants`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive violation string when any report invariant is broken.
+    pub fn verify_report_invariants(&self) -> Result<(), String> {
+        self.verify_receipt_invariants()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1741,5 +1870,57 @@ mod tests {
             runner.plan("deepseek-flash").primary,
             (ExecutionMode::PaygByok, "deepseek-flash".to_string())
         );
+    }
+
+    #[test]
+    fn adaptive_execution_receipt_and_mission_report_verifiers_enforce_failover_and_latency_invariants(
+    ) {
+        let primary_ok = AdaptiveExecutionReceipt {
+            mission_id: "mission-w4".to_string(),
+            task_key: "task-1".to_string(),
+            strategy: "cli-first".to_string(),
+            primary_mode: "monthly-sub-cli".to_string(),
+            primary_backend: "cli:claude:opus".to_string(),
+            failover_used: false,
+            failover_mode: Some("payg-byok".to_string()),
+            failover_backend: Some("deepseek-flash".to_string()),
+            resolved_mode: "monthly-sub-cli".to_string(),
+            resolved_backend: "cli:claude:opus".to_string(),
+            latency_ms: 420,
+            marginal_payg_micro_usd: 0,
+            succeeded: true,
+        };
+        assert!(primary_ok.verify_receipt_invariants().is_ok());
+        assert!(primary_ok.verify_report_invariants().is_ok());
+
+        let failover_ok = AdaptiveMissionReport {
+            failover_used: true,
+            resolved_mode: "payg-byok".to_string(),
+            resolved_backend: "deepseek-flash".to_string(),
+            marginal_payg_micro_usd: 12_500,
+            ..primary_ok.clone()
+        };
+        assert!(failover_ok.verify_receipt_invariants().is_ok());
+        assert!(failover_ok.verify_report_invariants().is_ok());
+
+        // Reject empty backend selection.
+        let mut empty_backend = primary_ok.clone();
+        empty_backend.primary_backend = "   ".to_string();
+        assert!(empty_backend.verify_receipt_invariants().is_err());
+
+        // Reject inconsistent failover accounting (failover_used = true, but resolved = primary).
+        let mut bad_failover = primary_ok.clone();
+        bad_failover.failover_used = true;
+        assert!(bad_failover.verify_receipt_invariants().is_err());
+
+        // Reject non-zero marginal PAYG cost when resolved on monthly-sub-cli.
+        let mut bad_cli_cost = primary_ok.clone();
+        bad_cli_cost.marginal_payg_micro_usd = 100;
+        assert!(bad_cli_cost.verify_receipt_invariants().is_err());
+
+        // Reject excessive latency bound.
+        let mut bad_latency = primary_ok;
+        bad_latency.latency_ms = MAX_ADAPTIVE_TURN_LATENCY_MS + 1;
+        assert!(bad_latency.verify_receipt_invariants().is_err());
     }
 }

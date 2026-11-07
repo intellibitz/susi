@@ -111,6 +111,7 @@ pub mod workflow;
 pub mod router;
 pub mod worker;
 
+pub use adaptive::{AdaptiveExecutionReceipt, AdaptiveMissionReport, MAX_ADAPTIVE_TURN_LATENCY_MS};
 pub use budget::BudgetReservation;
 pub use ledger::{verify_integrity, LedgerIntegrityReport};
 pub use supervisor::{
