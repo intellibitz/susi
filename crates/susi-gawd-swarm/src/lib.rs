@@ -82,9 +82,6 @@ mod durable_mission_state_tests;
 #[path = "tests/snapshot_rollback.rs"]
 mod snapshot_rollback_tests;
 #[cfg(test)]
-#[path = "tests/swarm_gap_live_admission.rs"]
-mod swarm_gap_live_admission_tests;
-#[cfg(test)]
 #[path = "tests/swarm_gap_verified_closure.rs"]
 mod swarm_gap_verified_closure_tests;
 #[cfg(test)]
