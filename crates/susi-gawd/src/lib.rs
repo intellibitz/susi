@@ -72,7 +72,6 @@ pub mod admin;
 pub mod audit_evidence;
 pub mod bloat_audit;
 pub mod cloud_rsi;
-pub mod cloud_rsi_delivery;
 pub mod cloud_rsi_lifecycle;
 pub mod cloud_rsi_outcomes;
 pub mod cloud_session;
@@ -173,8 +172,6 @@ mod vc_201_017_mastery_tests;
 #[path = "tests/vc_201_017.rs"]
 mod vc_201_017_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_018_mastery.rs"]
-mod vc_201_018_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_018.rs"]
 mod vc_201_018_tests;
