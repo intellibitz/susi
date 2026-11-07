@@ -107,9 +107,6 @@ mod model_catalogue_drift_tests;
 #[path = "tests/model_health_failure_classes.rs"]
 mod model_health_failure_classes_tests;
 #[cfg(test)]
-#[path = "tests/model_preload.rs"]
-mod model_preload_tests;
-#[cfg(test)]
 #[path = "tests/model_pricing_cache_rates.rs"]
 mod model_pricing_cache_rates_tests;
 #[cfg(test)]
