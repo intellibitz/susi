@@ -172,7 +172,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-sha2",
     "susi-vendor-shlex",
     "susi-vendor-signal-hook",
-    "susi-vendor-sysinfo",
     "susi-vendor-windows-registry",
     "susi-vendor-tempfile",
     "susi-vendor-tokio",
