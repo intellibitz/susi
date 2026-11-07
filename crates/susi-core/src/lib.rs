@@ -53,7 +53,6 @@ pub mod memory_provenance;
 pub mod peer_admin;
 pub mod peer_probe;
 pub mod peer_roster;
-pub mod skill_artifacts;
 pub mod untrusted_content;
 pub mod vertical_workflow;
 pub mod wasm_grants;
@@ -157,12 +156,6 @@ mod vc_201_081_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_081.rs"]
 mod vc_201_081_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_085_mastery.rs"]
-mod vc_201_085_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_085.rs"]
-mod vc_201_085_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_089_mastery.rs"]
 mod vc_201_089_mastery_tests;
