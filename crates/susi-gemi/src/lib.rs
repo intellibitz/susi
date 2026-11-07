@@ -64,7 +64,6 @@ pub mod provider_contract;
 pub mod pulse;
 pub mod rate_limit_scheduler;
 pub mod region_eligibility;
-pub mod retry_policy;
 pub mod scout_probe;
 pub mod scout_schedule;
 pub mod seat_provider;
