@@ -1,7 +1,8 @@
 //! Exhaustive small-state search for claim + quarantine invariants.
 
 use crate::formal_invariants::{
-    claim_safety, quarantine_ladder_secs, ClaimModel, ClaimOutcome, QUARANTINE_CAP_SECS,
+    budget_transition, claim_safety, lease_is_fenced, policy_precedence, quarantine_ladder_secs,
+    BudgetTransition, ClaimModel, ClaimOutcome, PolicyClass, PolicyDecision, QUARANTINE_CAP_SECS,
 };
 
 #[test]
@@ -104,4 +105,146 @@ fn formal_invariants_unclaimed_task_has_no_holder_or_lease_and_passes_safety() {
     assert_eq!(m.live_holder("T-UNCLAIMED-1", 0), None);
     assert_eq!(m.lease_until("T-UNCLAIMED-1"), None);
     assert!(claim_safety(&m, 0).is_ok());
+}
+
+#[test]
+fn formal_invariants_bounded_budget_transition_monotonicity_reports_proof_bounds() {
+    const BOUND: u64 = 8;
+    const MAX_DEPTH: usize = 4;
+    let mut states_explored = 0usize;
+    let mut counterexamples: Vec<(u64, u64, u64, u64, &'static str)> = Vec::new();
+
+    for committed in 0..=BOUND {
+        for held in 0..=BOUND {
+            for requested in 0..=BOUND {
+                for cap in 0..=BOUND {
+                    states_explored += 1;
+                    let res = budget_transition(committed, held, requested, cap);
+                    let total = committed.saturating_add(held).saturating_add(requested);
+                    if res == BudgetTransition::Admit && total > cap {
+                        counterexamples.push((
+                            committed,
+                            held,
+                            requested,
+                            cap,
+                            "admitted above cap",
+                        ));
+                    }
+                    if res == BudgetTransition::Reject && total <= cap {
+                        counterexamples.push((
+                            committed,
+                            held,
+                            requested,
+                            cap,
+                            "rejected within cap",
+                        ));
+                    }
+                    // Monotonicity: requesting 1 additional unit cannot flip Reject -> Admit.
+                    let next_res = budget_transition(committed, held, requested + 1, cap);
+                    if res == BudgetTransition::Reject && next_res == BudgetTransition::Admit {
+                        counterexamples.push((
+                            committed,
+                            held,
+                            requested,
+                            cap,
+                            "non-monotonic budget admission",
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    assert_eq!(states_explored, 9 * 9 * 9 * 9);
+    assert_eq!(MAX_DEPTH, 4);
+    assert!(
+        counterexamples.is_empty(),
+        "unexpected budget counterexamples: {counterexamples:?}"
+    );
+}
+
+#[test]
+fn formal_invariants_policy_precedence_and_counterexample_retention() {
+    let policies = [
+        PolicyClass::FreeOnly,
+        PolicyClass::AskFirst,
+        PolicyClass::PaidAuthorized,
+    ];
+    let mut states_explored = 0usize;
+    let max_depth = 3usize;
+    let mut counterexamples: Vec<String> = Vec::new();
+
+    for &policy in &policies {
+        for &is_free in &[false, true] {
+            for &free_headroom in &[false, true] {
+                states_explored += 1;
+                let decision = policy_precedence(policy, is_free, free_headroom);
+                if is_free && free_headroom && decision != PolicyDecision::Free {
+                    counterexamples.push(format!(
+                        "free candidate with headroom not routed Free under {policy:?}"
+                    ));
+                }
+                // LocalOnlyStrict / FreeOnly deny-overrides-allow when free headroom is exhausted.
+                if policy == PolicyClass::FreeOnly
+                    && !(is_free && free_headroom)
+                    && decision != PolicyDecision::Denied
+                {
+                    counterexamples.push(format!(
+                        "FreeOnly failed to deny non-free or exhausted candidate: {decision:?}"
+                    ));
+                }
+            }
+        }
+    }
+
+    // Also verify bounded lease-fencing state space (generations 0..=3, timestamps 0..=3).
+    for expected_gen in 0..=3u64 {
+        for observed_gen in 0..=3u64 {
+            for now in 0..=3u64 {
+                for lease_until in 0..=3u64 {
+                    states_explored += 1;
+                    let fenced = lease_is_fenced(expected_gen, observed_gen, now, lease_until);
+                    if (expected_gen != observed_gen || now >= lease_until) && fenced {
+                        counterexamples.push(format!(
+                            "stale or expired lease passed fence: exp={expected_gen} obs={observed_gen} now={now} until={lease_until}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    assert_eq!(states_explored, 12 + 256);
+    assert_eq!(max_depth, 3);
+    assert!(
+        counterexamples.is_empty(),
+        "policy/fence counterexamples: {counterexamples:?}"
+    );
+
+    // Verify deterministic counterexample retention when checking a refuted hypothesis
+    // ("AskFirst never returns NeedsConsent").
+    let mut retained_counterexamples = Vec::new();
+    for &policy in &policies {
+        for &is_free in &[false, true] {
+            for &free_headroom in &[false, true] {
+                let decision = policy_precedence(policy, is_free, free_headroom);
+                if policy == PolicyClass::AskFirst && decision == PolicyDecision::NeedsConsent {
+                    retained_counterexamples.push((policy, is_free, free_headroom, decision));
+                }
+            }
+        }
+    }
+    assert!(
+        !retained_counterexamples.is_empty(),
+        "counterexample retention must capture witnessing states"
+    );
+    assert_eq!(
+        retained_counterexamples[0],
+        (
+            PolicyClass::AskFirst,
+            false,
+            false,
+            PolicyDecision::NeedsConsent
+        )
+    );
 }

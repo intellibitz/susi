@@ -8,13 +8,133 @@
 //! Agent selection and the delegation call itself are injected — the
 //! cycle is transport-agnostic, so tests drive it with fake agents.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde::{Deserialize, Serialize};
 use susi_core::self_build::brief_task;
 use susi_error::{EaiError, EaiResult};
 
 use crate::admin::tasks::{self, Task};
+
+/// Lifecycle phase in the autonomous RSI self-build loop (VC-202-015).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RsiPhase {
+    Select,
+    Patch,
+    Test,
+    Verdict,
+}
+
+/// Structured JSONL telemetry record emitted to `.agents/rsi-loop.jsonl`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RsiLoopEvent {
+    pub task_id: String,
+    pub agent: String,
+    pub phase: RsiPhase,
+    pub status: String,
+    pub tests_delta: i64,
+    pub reverted: bool,
+    pub timestamp_unix: u64,
+}
+
+/// Reproducible RSI loop scorecard summarizing acceptance rate, revert rate,
+/// and net test delta across recorded cycles.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RsiScorecard {
+    pub total_cycles: usize,
+    pub accepted_cycles: usize,
+    pub reverted_cycles: usize,
+    pub acceptance_rate: f64,
+    pub revert_rate: f64,
+    pub net_test_delta: i64,
+}
+
+/// Append one structured [`RsiLoopEvent`] to `<repo>/.agents/rsi-loop.jsonl`.
+///
+/// # Errors
+/// Returns [`EaiError`] if the directory cannot be created or the ledger cannot be written.
+pub fn record_rsi_event(repo: &Path, event: &RsiLoopEvent) -> EaiResult<()> {
+    let agents_dir = repo.join(".agents");
+    std::fs::create_dir_all(&agents_dir)
+        .map_err(|e| EaiError::filesystem(format!("create .agents dir: {e}")))?;
+    let ledger_path = agents_dir.join("rsi-loop.jsonl");
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&ledger_path)
+        .map_err(|e| EaiError::filesystem(format!("open rsi-loop.jsonl: {e}")))?;
+    let line = serde_json::to_string(event)?;
+    writeln!(file, "{line}")
+        .map_err(|e| EaiError::filesystem(format!("append rsi-loop.jsonl: {e}")))?;
+    Ok(())
+}
+
+/// Read all recorded [`RsiLoopEvent`] entries from `<repo>/.agents/rsi-loop.jsonl`.
+///
+/// # Errors
+/// Returns [`EaiError`] on malformed JSON lines.
+pub fn read_rsi_events(repo: &Path) -> EaiResult<Vec<RsiLoopEvent>> {
+    let ledger_path = repo.join(".agents").join("rsi-loop.jsonl");
+    let Ok(raw) = std::fs::read_to_string(&ledger_path) else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        out.push(serde_json::from_str::<RsiLoopEvent>(trimmed)?);
+    }
+    Ok(out)
+}
+
+/// Compute an [`RsiScorecard`] from recorded [`RsiLoopEvent`]s.
+#[must_use]
+pub fn compute_rsi_scorecard(events: &[RsiLoopEvent]) -> RsiScorecard {
+    let mut total_cycles = 0usize;
+    let mut accepted_cycles = 0usize;
+    let mut reverted_cycles = 0usize;
+    let mut net_test_delta = 0i64;
+
+    for ev in events {
+        net_test_delta = net_test_delta.saturating_add(ev.tests_delta);
+        if ev.phase == RsiPhase::Verdict {
+            total_cycles = total_cycles.saturating_add(1);
+            if ev.reverted || ev.status.eq_ignore_ascii_case("reverted") {
+                reverted_cycles = reverted_cycles.saturating_add(1);
+            } else if ev.status.eq_ignore_ascii_case("accepted")
+                || ev.status.eq_ignore_ascii_case("promoted")
+            {
+                accepted_cycles = accepted_cycles.saturating_add(1);
+            }
+        }
+    }
+
+    let (acceptance_rate, revert_rate) = if total_cycles == 0 {
+        (0.0, 0.0)
+    } else {
+        #[allow(clippy::cast_precision_loss)] // cycle counts fit comfortably in f64 mantissa
+        let denom = total_cycles as f64;
+        #[allow(clippy::cast_precision_loss)]
+        let acc = accepted_cycles as f64 / denom;
+        #[allow(clippy::cast_precision_loss)]
+        let rev = reverted_cycles as f64 / denom;
+        (acc, rev)
+    };
+
+    RsiScorecard {
+        total_cycles,
+        accepted_cycles,
+        reverted_cycles,
+        acceptance_rate,
+        revert_rate,
+        net_test_delta,
+    }
+}
 
 /// Everything the delegated agent needs to see.
 #[derive(Debug)]
@@ -94,6 +214,18 @@ pub fn run_cycle(
         .ok_or_else(|| EaiError::config(format!("picked task {id} is not open")))?;
     let agent = pick_agent(&task)
         .ok_or_else(|| EaiError::config(format!("no agent qualifies for {id}")))?;
+    let _ = record_rsi_event(
+        repo,
+        &RsiLoopEvent {
+            task_id: id.clone(),
+            agent: agent.clone(),
+            phase: RsiPhase::Select,
+            status: "selected".to_string(),
+            tests_delta: 0,
+            reverted: false,
+            timestamp_unix: tasks::now_unix(),
+        },
+    );
     // 2. Fresh worktree on its own branch — Mandate 49.
     let branch = format!("agent/{}", id.to_ascii_lowercase());
     let wt = repo.parent().unwrap_or(repo).join(format!("builder-{id}"));
@@ -137,10 +269,34 @@ pub fn run_cycle(
     git(&wt, &["add", "-A"])?;
     let msg = format!("{} ({})\n\nTask: {id}", delegation.task.title, agent);
     git(&wt, &["commit", "-q", "--allow-empty", "-m", &msg])?;
+    let _ = record_rsi_event(
+        repo,
+        &RsiLoopEvent {
+            task_id: id.clone(),
+            agent: agent.clone(),
+            phase: RsiPhase::Patch,
+            status: "patched".to_string(),
+            tests_delta: 0,
+            reverted: false,
+            timestamp_unix: tasks::now_unix(),
+        },
+    );
 
     // 4. Verify with the task's own acceptance command (runs it in the
     //    worktree and moves the task file to done/ on success).
     tasks::close(&wt, &id, builder)?;
+    let _ = record_rsi_event(
+        repo,
+        &RsiLoopEvent {
+            task_id: id.clone(),
+            agent: agent.clone(),
+            phase: RsiPhase::Test,
+            status: "passed".to_string(),
+            tests_delta: 1,
+            reverted: false,
+            timestamp_unix: tasks::now_unix(),
+        },
+    );
 
     // 5. Commit the result with the mandatory trailer, then push for
     //    auto-merge to open the PR.
@@ -167,6 +323,18 @@ pub fn run_cycle(
         ] {
             let status = Command::new("cargo").args(args).current_dir(&wt).status()?;
             if !status.success() {
+                let _ = record_rsi_event(
+                    repo,
+                    &RsiLoopEvent {
+                        task_id: id,
+                        agent,
+                        phase: RsiPhase::Verdict,
+                        status: "reverted".to_string(),
+                        tests_delta: 0,
+                        reverted: true,
+                        timestamp_unix: tasks::now_unix(),
+                    },
+                );
                 return Err(EaiError::process(
                     "autonomous builder verification gate failed; worktree retained",
                 ));
@@ -175,6 +343,18 @@ pub fn run_cycle(
     }
     let commit = git(&wt, &["rev-parse", "HEAD"])?;
     git(&wt, &["push", "-q", "origin", &branch])?;
+    let _ = record_rsi_event(
+        repo,
+        &RsiLoopEvent {
+            task_id: id.clone(),
+            agent: agent.clone(),
+            phase: RsiPhase::Verdict,
+            status: "accepted".to_string(),
+            tests_delta: 0,
+            reverted: false,
+            timestamp_unix: tasks::now_unix(),
+        },
+    );
 
     Ok(BuildOutcome {
         task_id: id,
@@ -341,6 +521,90 @@ mod inline_tests {
         )
         .expect_err("pick_agent None must abort");
         assert!(err.to_string().contains("no agent qualifies for T-1"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rsi_loop_events_persist_to_jsonl_and_compute_reproducible_scorecard() {
+        let root = std::env::temp_dir().join(format!(
+            "susi_autonomous_builder_rsi_scorecard_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create root");
+
+        let events = [
+            RsiLoopEvent {
+                task_id: "T-RSI-1".into(),
+                agent: "gawd-swarm".into(),
+                phase: RsiPhase::Select,
+                status: "selected".into(),
+                tests_delta: 0,
+                reverted: false,
+                timestamp_unix: 100,
+            },
+            RsiLoopEvent {
+                task_id: "T-RSI-1".into(),
+                agent: "gawd-swarm".into(),
+                phase: RsiPhase::Patch,
+                status: "patched".into(),
+                tests_delta: 0,
+                reverted: false,
+                timestamp_unix: 110,
+            },
+            RsiLoopEvent {
+                task_id: "T-RSI-1".into(),
+                agent: "gawd-swarm".into(),
+                phase: RsiPhase::Test,
+                status: "passed".into(),
+                tests_delta: 3,
+                reverted: false,
+                timestamp_unix: 120,
+            },
+            RsiLoopEvent {
+                task_id: "T-RSI-1".into(),
+                agent: "gawd-swarm".into(),
+                phase: RsiPhase::Verdict,
+                status: "accepted".into(),
+                tests_delta: 0,
+                reverted: false,
+                timestamp_unix: 130,
+            },
+            RsiLoopEvent {
+                task_id: "T-RSI-2".into(),
+                agent: "gawd-swarm".into(),
+                phase: RsiPhase::Select,
+                status: "selected".into(),
+                tests_delta: 0,
+                reverted: false,
+                timestamp_unix: 200,
+            },
+            RsiLoopEvent {
+                task_id: "T-RSI-2".into(),
+                agent: "gawd-swarm".into(),
+                phase: RsiPhase::Verdict,
+                status: "reverted".into(),
+                tests_delta: -1,
+                reverted: true,
+                timestamp_unix: 220,
+            },
+        ];
+
+        for ev in &events {
+            record_rsi_event(&root, ev).expect("record rsi event");
+        }
+
+        let loaded = read_rsi_events(&root).expect("read rsi events");
+        assert_eq!(loaded, events);
+
+        let scorecard = compute_rsi_scorecard(&loaded);
+        assert_eq!(scorecard.total_cycles, 2);
+        assert_eq!(scorecard.accepted_cycles, 1);
+        assert_eq!(scorecard.reverted_cycles, 1);
+        assert!((scorecard.acceptance_rate - 0.5).abs() < 1e-9);
+        assert!((scorecard.revert_rate - 0.5).abs() < 1e-9);
+        assert_eq!(scorecard.net_test_delta, 2);
 
         let _ = fs::remove_dir_all(&root);
     }
