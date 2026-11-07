@@ -74,6 +74,123 @@ pub struct ReplaySet {
     seen: BTreeSet<String>,
 }
 
+/// The refusal reasons [`admit_wan_peer`] records, in gate order.
+pub const REFUSAL_REASONS: [&str; 6] = [
+    "endpoint/identity mismatch with pin",
+    "transport differs from pin",
+    "egress policy does not allow endpoint",
+    "relay not in egress policy",
+    "identity/signature does not verify against pin",
+    "replay: nonce already consumed",
+];
+
+/// Whether `endpoint` is a `host:port` with a named host and a non-zero port.
+#[must_use]
+pub fn is_host_port(endpoint: &str) -> bool {
+    endpoint.rsplit_once(':').is_some_and(|(host, port)| {
+        !host.trim().is_empty()
+            && host.trim() == host
+            && port.parse::<u16>().is_ok_and(|port| port != 0)
+    })
+}
+
+fn verify_endpoint(label: &str, endpoint: &str) -> Result<(), String> {
+    if !is_host_port(endpoint) {
+        return Err(format!(
+            "{label} `{endpoint}` must be a host:port with a non-zero port"
+        ));
+    }
+    Ok(())
+}
+
+impl WanTransport {
+    /// Verify a transport: a relay names the `host:port` it forwards through.
+    pub fn verify_transport_invariants(&self) -> Result<(), String> {
+        match self {
+            Self::Direct => Ok(()),
+            Self::Relay { relay_endpoint } => verify_endpoint("relay endpoint", relay_endpoint),
+        }
+    }
+}
+
+impl WanPeerPin {
+    /// Verify an operator pin: a node id, a `host:port` endpoint, a valid transport and
+    /// a trimmed pinned identity (an empty pin would match any presented identity).
+    pub fn verify_pin_invariants(&self) -> Result<(), String> {
+        if self.node_id.trim().is_empty() {
+            return Err("WanPeerPin node_id must not be empty".to_string());
+        }
+        verify_endpoint("WanPeerPin endpoint", &self.endpoint)?;
+        self.transport.verify_transport_invariants()?;
+        if self.pinned_identity.trim().is_empty()
+            || self.pinned_identity.trim() != self.pinned_identity
+        {
+            return Err(format!(
+                "WanPeerPin `{}` pinned_identity must be a trimmed non-empty fingerprint",
+                self.node_id
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl EgressPolicy {
+    /// Verify an egress policy: every allowed endpoint and relay is a `host:port`.
+    pub fn verify_policy_invariants(&self) -> Result<(), String> {
+        for endpoint in &self.allow_endpoints {
+            verify_endpoint("EgressPolicy allowed endpoint", endpoint)?;
+        }
+        for relay in &self.allow_relays {
+            verify_endpoint("EgressPolicy allowed relay", relay)?;
+        }
+        Ok(())
+    }
+}
+
+impl WanHandshake {
+    /// Verify the wire-level claims are well formed before they are checked against a
+    /// pin: a node id, a `host:port` observed endpoint, a valid transport, a presented
+    /// identity and a nonce for the replay guard.
+    pub fn verify_handshake_invariants(&self) -> Result<(), String> {
+        if self.node_id.trim().is_empty() {
+            return Err("WanHandshake node_id must not be empty".to_string());
+        }
+        verify_endpoint("WanHandshake observed_endpoint", &self.observed_endpoint)?;
+        self.arrived_via.verify_transport_invariants()?;
+        if self.presented_identity.trim().is_empty() {
+            return Err(format!(
+                "WanHandshake from `{}` presents no identity",
+                self.node_id
+            ));
+        }
+        if self.nonce.trim().is_empty() {
+            return Err(format!(
+                "WanHandshake from `{}` carries no nonce",
+                self.node_id
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl WanVerdict {
+    /// Verify a verdict: a refusal states one of the reasons the gate records.
+    pub fn verify_verdict_invariants(&self) -> Result<(), String> {
+        match self {
+            Self::Admitted => Ok(()),
+            Self::Refused(reason) => {
+                if REFUSAL_REASONS.contains(reason) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "WanVerdict refusal `{reason}` is not one the admission gate records"
+                    ))
+                }
+            }
+        }
+    }
+}
+
 impl ReplaySet {
     /// First sight of a nonce inserts it; a repeat is a replay.
     pub fn check_and_record(&mut self, nonce: &str) -> bool {
@@ -254,5 +371,68 @@ mod inline_tests {
         let encoded = serde_json::to_string(&pin).unwrap();
         let decoded: WanPeerPin = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, pin);
+    }
+
+    #[test]
+    fn wan_pin_policy_handshake_and_verdict_invariant_verifiers_reject_malformed_input() {
+        assert!(is_host_port("203.0.113.10:9443"));
+        assert!(is_host_port("relay.example.net:443"));
+        assert!(!is_host_port("203.0.113.10"));
+        assert!(!is_host_port(":9443"));
+        assert!(!is_host_port("host:0"));
+        assert!(!is_host_port("host:99999"));
+
+        let pin = sample_pin();
+        assert_eq!(pin.verify_pin_invariants(), Ok(()));
+        let mut no_port = pin.clone();
+        no_port.endpoint = "203.0.113.10".to_string();
+        assert!(no_port.verify_pin_invariants().is_err());
+        let mut blank_identity = pin.clone();
+        blank_identity.pinned_identity = " ".to_string();
+        assert!(blank_identity.verify_pin_invariants().is_err());
+        let mut bad_relay = pin.clone();
+        bad_relay.transport = WanTransport::Relay {
+            relay_endpoint: "relay".to_string(),
+        };
+        assert!(bad_relay.verify_pin_invariants().is_err());
+        let mut good_relay = pin.clone();
+        good_relay.transport = WanTransport::Relay {
+            relay_endpoint: "relay.example.net:443".to_string(),
+        };
+        assert_eq!(good_relay.verify_pin_invariants(), Ok(()));
+
+        assert_eq!(EgressPolicy::default().verify_policy_invariants(), Ok(()));
+        let mut policy = EgressPolicy::default();
+        policy
+            .allow_endpoints
+            .insert("203.0.113.10:9443".to_string());
+        policy
+            .allow_relays
+            .insert("relay.example.net:443".to_string());
+        assert_eq!(policy.verify_policy_invariants(), Ok(()));
+        policy.allow_relays.insert("relay".to_string());
+        assert!(policy.verify_policy_invariants().is_err());
+
+        let hs = sample_handshake();
+        assert_eq!(hs.verify_handshake_invariants(), Ok(()));
+        let mut no_nonce = hs.clone();
+        no_nonce.nonce = String::new();
+        assert!(no_nonce.verify_handshake_invariants().is_err());
+        let mut no_identity = hs.clone();
+        no_identity.presented_identity = String::new();
+        assert!(no_identity.verify_handshake_invariants().is_err());
+
+        let mut replay = ReplaySet::default();
+        let verdict = admit_wan_peer(&pin, &hs, &EgressPolicy::default(), &mut replay);
+        assert_eq!(verdict.verify_verdict_invariants(), Ok(()));
+        let replayed = admit_wan_peer(&pin, &hs, &EgressPolicy::default(), &mut replay);
+        assert_eq!(
+            replayed,
+            WanVerdict::Refused("replay: nonce already consumed")
+        );
+        assert_eq!(replayed.verify_verdict_invariants(), Ok(()));
+        assert!(WanVerdict::Refused("because")
+            .verify_verdict_invariants()
+            .is_err());
     }
 }

@@ -192,6 +192,37 @@ pub enum Admission {
 
 /// A shared budget for the attempts a mission runs concurrently.
 ///
+impl Admission {
+    /// Verify an admission against the reservation that was in flight when it was
+    /// decided: a refusal must state a limit that the spent money, the reservations
+    /// and this attempt's estimate together really exceed (or overflow).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an `Exhausted` admission whose numbers still fit.
+    pub fn verify_admission_invariants(&self, reserved: MicroUsd) -> Result<(), String> {
+        match self {
+            Self::Allowed => Ok(()),
+            Self::Exhausted {
+                spent,
+                estimate,
+                limit,
+            } => {
+                let fits = spent
+                    .checked_add(reserved)
+                    .and_then(|committed| committed.checked_add(*estimate))
+                    .is_some_and(|total| total <= *limit);
+                if fits {
+                    return Err(format!(
+                        "admission refused although {spent} spent, {reserved} reserved and {estimate} estimated fit within {limit}"
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// The guard keeps reservations in memory. The ledger remains the authority on
 /// what was actually charged; [`BudgetGuard::settle`] folds the ledger's number
 /// in after every attempt, so a crash that loses a reservation cannot make the
@@ -572,5 +603,32 @@ mod tests {
         }
         .verify_spend_invariants()
         .is_err());
+    }
+
+    #[test]
+    fn admission_invariant_verifier_rejects_a_refusal_whose_numbers_still_fit() {
+        let guard = BudgetGuard::new(Budget::new(MicroUsd::from_micros(100)));
+        let spent = Spend {
+            calls: 1,
+            total: MicroUsd::from_micros(60),
+        };
+        let first = guard.admit(spent, MicroUsd::from_micros(30));
+        assert_eq!(first, Admission::Allowed);
+        assert_eq!(first.verify_admission_invariants(MicroUsd::ZERO), Ok(()));
+        let second = guard.admit(spent, MicroUsd::from_micros(20));
+        assert!(matches!(second, Admission::Exhausted { .. }));
+        // 60 spent + 30 reserved + 20 estimated = 110 > 100: the refusal is consistent.
+        assert_eq!(
+            second.verify_admission_invariants(MicroUsd::from_micros(30)),
+            Ok(())
+        );
+        // Without the reservation the same numbers fit, so the refusal is unexplained.
+        assert!(second.verify_admission_invariants(MicroUsd::ZERO).is_err());
+        let overflow = Admission::Exhausted {
+            spent: MicroUsd::from_micros(u64::MAX),
+            estimate: MicroUsd::from_micros(1),
+            limit: MicroUsd::from_micros(u64::MAX),
+        };
+        assert_eq!(overflow.verify_admission_invariants(MicroUsd::ZERO), Ok(()));
     }
 }

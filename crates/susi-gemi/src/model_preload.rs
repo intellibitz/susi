@@ -41,6 +41,113 @@ pub struct PreloadCandidate {
     pub last_used_unix: u64,
 }
 
+impl ModelUseEvent {
+    /// Verify a use event: it names a model (the scheduler skips an empty id).
+    pub fn verify_event_invariants(&self) -> Result<(), String> {
+        if self.model_id.trim().is_empty() {
+            return Err("ModelUseEvent model_id must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl PreloadPolicy {
+    /// Verify a policy: at least one warm slot and a non-zero scoring window (a zero
+    /// window drops every recency bonus and admits no use).
+    pub fn verify_policy_invariants(&self) -> Result<(), String> {
+        if self.max_warm == 0 {
+            return Err("PreloadPolicy max_warm must be at least 1".to_string());
+        }
+        if self.window_secs == 0 {
+            return Err("PreloadPolicy window_secs must be non-zero".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl PreloadCandidate {
+    /// Verify a ranked candidate against the scoring contract of
+    /// [`schedule_preload`]: a model id, at least one use inside the window, a last use
+    /// time, and a score equal to the use count plus a recency bonus below `1.0`.
+    pub fn verify_candidate_invariants(&self) -> Result<(), String> {
+        if self.model_id.trim().is_empty() {
+            return Err("PreloadCandidate model_id must not be empty".to_string());
+        }
+        if self.uses_in_window == 0 {
+            return Err(format!(
+                "PreloadCandidate `{}` has no use inside the window",
+                self.model_id
+            ));
+        }
+        if self.last_used_unix == 0 {
+            return Err(format!(
+                "PreloadCandidate `{}` has no last use time",
+                self.model_id
+            ));
+        }
+        let uses = self.uses_in_window as f64;
+        if !self.score.is_finite() || self.score < uses || self.score > uses + 1.0 {
+            return Err(format!(
+                "PreloadCandidate `{}` score {} must be its {} use(s) plus a recency bonus in 0..=1",
+                self.model_id, self.score, self.uses_in_window
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl PreloadHysteresis {
+    /// Verify a hysteresis band: a finite, non-negative margin.
+    pub fn verify_hysteresis_invariants(&self) -> Result<(), String> {
+        if !self.margin.is_finite() || self.margin < 0.0 {
+            return Err(format!(
+                "PreloadHysteresis margin must be finite and non-negative, got {}",
+                self.margin
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Verify a preload schedule against `policy`: every candidate verifies, no model is
+/// listed twice, the warm set fits `max_warm`, and candidates are ordered hottest first
+/// (ties broken by model id, as [`schedule_preload`] orders them).
+pub fn verify_preload_schedule(
+    schedule: &[PreloadCandidate],
+    policy: &PreloadPolicy,
+) -> Result<(), String> {
+    policy.verify_policy_invariants()?;
+    if schedule.len() > policy.max_warm {
+        return Err(format!(
+            "preload schedule holds {} candidates, more than max_warm {}",
+            schedule.len(),
+            policy.max_warm
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for candidate in schedule {
+        candidate.verify_candidate_invariants()?;
+        if !seen.insert(candidate.model_id.as_str()) {
+            return Err(format!(
+                "preload schedule lists `{}` more than once",
+                candidate.model_id
+            ));
+        }
+    }
+    for pair in schedule.windows(2) {
+        let (hotter, cooler) = (&pair[0], &pair[1]);
+        let in_order = hotter.score > cooler.score
+            || (hotter.score == cooler.score && hotter.model_id < cooler.model_id);
+        if !in_order {
+            return Err(format!(
+                "preload schedule is not ordered hottest first: `{}` ({}) before `{}` ({})",
+                hotter.model_id, hotter.score, cooler.model_id, cooler.score
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -323,5 +430,82 @@ mod inline_tests {
         let ranked = schedule_preload(&events, &policy, Some(100));
         assert_eq!(ranked.len(), 1);
         assert_eq!(ranked[0].model_id, "alpha");
+    }
+
+    #[test]
+    fn preload_event_policy_candidate_and_schedule_invariant_verifiers_reject_bad_inputs() {
+        let now = 1_000_000u64;
+        let events = vec![
+            ModelUseEvent {
+                model_id: "alpha".to_string(),
+                used_unix: now - 10,
+            },
+            ModelUseEvent {
+                model_id: "alpha".to_string(),
+                used_unix: now - 20,
+            },
+            ModelUseEvent {
+                model_id: "beta".to_string(),
+                used_unix: now - 30,
+            },
+        ];
+        for event in &events {
+            assert_eq!(event.verify_event_invariants(), Ok(()));
+        }
+        assert!(ModelUseEvent {
+            model_id: " ".to_string(),
+            used_unix: now,
+        }
+        .verify_event_invariants()
+        .is_err());
+
+        let policy = PreloadPolicy::default();
+        assert_eq!(policy.verify_policy_invariants(), Ok(()));
+        assert!(PreloadPolicy {
+            max_warm: 0,
+            window_secs: 60,
+        }
+        .verify_policy_invariants()
+        .is_err());
+        assert!(PreloadPolicy {
+            max_warm: 1,
+            window_secs: 0,
+        }
+        .verify_policy_invariants()
+        .is_err());
+
+        let schedule = schedule_preload(&events, &policy, Some(now));
+        assert_eq!(verify_preload_schedule(&schedule, &policy), Ok(()));
+        for candidate in &schedule {
+            assert_eq!(candidate.verify_candidate_invariants(), Ok(()));
+        }
+        let mut inflated = schedule.clone();
+        inflated[0].score = inflated[0].uses_in_window as f64 + 1.5;
+        assert!(inflated[0].verify_candidate_invariants().is_err());
+        let mut unused = schedule.clone();
+        unused[0].uses_in_window = 0;
+        assert!(unused[0].verify_candidate_invariants().is_err());
+        let mut reversed = schedule.clone();
+        reversed.reverse();
+        assert!(verify_preload_schedule(&reversed, &policy).is_err());
+        let mut duplicated = schedule.clone();
+        duplicated.push(schedule[0].clone());
+        assert!(verify_preload_schedule(&duplicated, &policy).is_err());
+        let tight = PreloadPolicy {
+            max_warm: 1,
+            window_secs: policy.window_secs,
+        };
+        assert!(verify_preload_schedule(&schedule, &tight).is_err());
+
+        assert_eq!(
+            PreloadHysteresis { margin: 0.5 }.verify_hysteresis_invariants(),
+            Ok(())
+        );
+        assert!(PreloadHysteresis { margin: -0.1 }
+            .verify_hysteresis_invariants()
+            .is_err());
+        assert!(PreloadHysteresis { margin: f64::NAN }
+            .verify_hysteresis_invariants()
+            .is_err());
     }
 }

@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDE-410",
+  "parent": "T-CLAUDE-408",
+  "title": "Wave 11 WAN peer admission invariant verifiers in susi-gawd-swarm",
+  "goal": "WanTransport, WanPeerPin, EgressPolicy, WanHandshake and WanVerdict verifiers plus is_host_port and REFUSAL_REASONS in crates/susi-gawd-swarm/src/wan_peers.rs, with unit tests. The anti_entropy verifiers this record first carried are covered on main by Wave 12 and were dropped.",
+  "status": "completed",
+  "created_by": "claude",
+  "created_unix": 1794044020,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-CLAUDE-410.json",
+    "crates/susi-gawd-swarm/src/wan_peers.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

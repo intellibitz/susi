@@ -69,6 +69,40 @@ impl AgentSpec {
         self.budget = Some(budget);
         self
     }
+
+    /// Verify one spec on its own: a trimmed role name, a model, at least one turn,
+    /// tools named once each, and a budget that is not zero when one is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first structural problem found.
+    pub fn verify_spec_invariants(&self) -> Result<(), String> {
+        if self.role.trim().is_empty() || self.role.trim() != self.role {
+            return Err(format!(
+                "agent role `{}` must be a trimmed non-empty name",
+                self.role
+            ));
+        }
+        if self.model.trim().is_empty() {
+            return Err(format!("agent `{}` names no model", self.role));
+        }
+        if self.max_turns == 0 {
+            return Err(format!("agent `{}` has no turns", self.role));
+        }
+        let mut tools = BTreeSet::new();
+        for tool in &self.tools {
+            if tool.trim().is_empty() {
+                return Err(format!("agent `{}` names an empty tool", self.role));
+            }
+            if !tools.insert(tool.as_str()) {
+                return Err(format!("agent `{}` names tool `{tool}` twice", self.role));
+            }
+        }
+        if self.budget.is_some_and(MicroUsd::is_zero) {
+            return Err(format!("agent `{}` has a zero budget", self.role));
+        }
+        Ok(())
+    }
 }
 
 /// What a message on the bus is.
@@ -112,6 +146,48 @@ pub struct Message {
 }
 
 impl Message {
+    /// Verify a handoff against the graph's fixed topology: named ends that differ, an
+    /// object payload, a plan from the planner to the coders, work from a coder to the
+    /// reviewer, a verdict from the reviewer, and a rejection from the reviewer or the
+    /// supervisor's escalation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first topology violation found.
+    pub fn verify_message_invariants(&self) -> Result<(), String> {
+        if self.from.trim().is_empty() || self.to.trim().is_empty() {
+            return Err("message must name both its sender and its receiver".to_string());
+        }
+        if self.from == self.to {
+            return Err(format!(
+                "message from `{}` is addressed to itself",
+                self.from
+            ));
+        }
+        if !self.payload.is_object() {
+            return Err(format!(
+                "{} message from `{}` must carry an object payload",
+                self.kind.as_str(),
+                self.from
+            ));
+        }
+        let allowed = match self.kind {
+            MessageKind::Plan => self.from == "planner" && self.to == "coders",
+            MessageKind::Work => self.from.starts_with("coder") && self.to == "reviewer",
+            MessageKind::Review | MessageKind::Approval => self.from == "reviewer",
+            MessageKind::Rejection => self.from == "reviewer" || self.from == "supervisor",
+        };
+        if !allowed {
+            return Err(format!(
+                "{} message cannot go from `{}` to `{}`",
+                self.kind.as_str(),
+                self.from,
+                self.to
+            ));
+        }
+        Ok(())
+    }
+
     fn to_json(&self) -> Value {
         json!({
             "from": self.from,
@@ -138,6 +214,17 @@ impl Bus {
     #[must_use]
     pub fn messages(&self) -> &[Message] {
         &self.messages
+    }
+
+    /// Verify every handoff on the bus ([`Message::verify_message_invariants`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns the first message that breaks the topology.
+    pub fn verify_bus_invariants(&self) -> Result<(), String> {
+        self.messages
+            .iter()
+            .try_for_each(Message::verify_message_invariants)
     }
 
     /// Append the bus to a JSON-lines file.
@@ -172,6 +259,20 @@ pub struct AgentOutcome {
     pub cost: MicroUsd,
 }
 
+impl AgentOutcome {
+    /// Verify an outcome: a non-empty summary, since the next role reads it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty summary.
+    pub fn verify_outcome_invariants(&self) -> Result<(), String> {
+        if self.summary.trim().is_empty() {
+            return Err("agent outcome has an empty summary".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Runs one role.
 pub trait AgentRunner {
     /// Run `spec` against `goal`.
@@ -193,6 +294,32 @@ pub struct Report {
     pub bus: Bus,
 }
 
+impl Report {
+    /// Verify a run report: every outcome names a role and verifies, the total is the
+    /// sum of what the outcomes cost, and every handoff on the bus fits the topology.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first inconsistency found.
+    pub fn verify_report_invariants(&self) -> Result<(), String> {
+        let mut sum = MicroUsd::ZERO;
+        for (role, outcome) in &self.outcomes {
+            if role.trim().is_empty() {
+                return Err("report outcome names no role".to_string());
+            }
+            outcome.verify_outcome_invariants()?;
+            sum = sum.saturating_add(outcome.cost);
+        }
+        if sum != self.total {
+            return Err(format!(
+                "report total {} differs from the {} its outcomes cost",
+                self.total, sum
+            ));
+        }
+        self.bus.verify_bus_invariants()
+    }
+}
+
 /// One step of a validated graph, before anything runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentStep {
@@ -205,6 +332,24 @@ pub struct AgentStep {
 }
 
 impl AgentStep {
+    /// Verify a step: a trimmed role name and a model.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty role or model.
+    pub fn verify_step_invariants(&self) -> Result<(), String> {
+        if self.role.trim().is_empty() || self.role.trim() != self.role {
+            return Err(format!(
+                "step role `{}` must be a trimmed non-empty name",
+                self.role
+            ));
+        }
+        if self.model.trim().is_empty() {
+            return Err(format!("step `{}` names no model", self.role));
+        }
+        Ok(())
+    }
+
     fn from_spec(spec: &AgentSpec) -> Self {
         Self {
             role: spec.role.clone(),
@@ -231,6 +376,24 @@ impl Graph {
     #[must_use]
     pub fn agents(&self) -> &[AgentSpec] {
         &self.agents
+    }
+
+    /// Verify the graph's own shape without consulting the provider or tool
+    /// registries: every spec verifies and no role is declared twice.
+    /// [`Graph::validate`] adds the registry checks and the required roles.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first structural problem found.
+    pub fn verify_graph_invariants(&self) -> Result<(), String> {
+        let mut roles = BTreeSet::new();
+        for agent in &self.agents {
+            agent.verify_spec_invariants()?;
+            if !roles.insert(agent.role.as_str()) {
+                return Err(format!("duplicate agent role `{}`", agent.role));
+            }
+        }
+        Ok(())
     }
 
     /// Check the graph before it spends anything: unique roles, a planner, a
@@ -591,5 +754,117 @@ mod tests {
         assert_eq!(text.lines().count(), report.bus.messages().len());
         assert!(text.contains("\"kind\":\"plan\""));
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn agent_spec_message_report_and_graph_invariant_verifiers_reject_topology_breaks() {
+        let planner = AgentSpec::new("planner", "fast", &["read"]);
+        assert_eq!(planner.verify_spec_invariants(), Ok(()));
+        let mut untrimmed = planner.clone();
+        untrimmed.role = " planner".to_string();
+        assert!(untrimmed.verify_spec_invariants().is_err());
+        let mut no_turns = planner.clone();
+        no_turns.max_turns = 0;
+        assert!(no_turns.verify_spec_invariants().is_err());
+        let mut twice = planner.clone();
+        twice.tools.push("read".to_string());
+        assert!(twice.verify_spec_invariants().is_err());
+        assert!(planner
+            .clone()
+            .within(MicroUsd::ZERO)
+            .verify_spec_invariants()
+            .is_err());
+        assert_eq!(
+            planner
+                .clone()
+                .within(MicroUsd::from_micros(5))
+                .verify_spec_invariants(),
+            Ok(())
+        );
+
+        let graph = Graph::new(vec![
+            planner.clone(),
+            AgentSpec::new("coder-a", "fast", &[]),
+            AgentSpec::new("reviewer", "fast", &[]).shared(),
+        ]);
+        assert_eq!(graph.verify_graph_invariants(), Ok(()));
+        assert!(Graph::new(vec![planner.clone(), planner.clone()])
+            .verify_graph_invariants()
+            .is_err());
+        for step in [
+            AgentStep::from_spec(&planner),
+            AgentStep::from_spec(&AgentSpec::new("reviewer", "fast", &[])),
+        ] {
+            assert_eq!(step.verify_step_invariants(), Ok(()));
+        }
+        assert!(AgentStep {
+            role: "coder-a".to_string(),
+            model: String::new(),
+            isolation: Isolation::Worktree,
+        }
+        .verify_step_invariants()
+        .is_err());
+
+        let plan = Message {
+            from: "planner".to_string(),
+            to: "coders".to_string(),
+            kind: MessageKind::Plan,
+            payload: json!({"summary": "split the work"}),
+        };
+        assert_eq!(plan.verify_message_invariants(), Ok(()));
+        let mut plan_from_coder = plan.clone();
+        plan_from_coder.from = "coder-a".to_string();
+        assert!(plan_from_coder.verify_message_invariants().is_err());
+        let mut scalar_payload = plan.clone();
+        scalar_payload.payload = json!("split the work");
+        assert!(scalar_payload.verify_message_invariants().is_err());
+        let mut to_self = plan.clone();
+        to_self.to = "planner".to_string();
+        assert!(to_self.verify_message_invariants().is_err());
+        let work = Message {
+            from: "coder-a".to_string(),
+            to: "reviewer".to_string(),
+            kind: MessageKind::Work,
+            payload: json!({"summary": "done"}),
+        };
+        assert_eq!(work.verify_message_invariants(), Ok(()));
+        let escalation = Message {
+            from: "supervisor".to_string(),
+            to: "coder-a".to_string(),
+            kind: MessageKind::Rejection,
+            payload: json!({"reason": "tests fail"}),
+        };
+        assert_eq!(escalation.verify_message_invariants(), Ok(()));
+        let mut approval_from_coder = work.clone();
+        approval_from_coder.kind = MessageKind::Approval;
+        assert!(approval_from_coder.verify_message_invariants().is_err());
+
+        let mut bus = Bus::default();
+        bus.push(plan);
+        bus.push(work);
+        assert_eq!(bus.verify_bus_invariants(), Ok(()));
+        let outcome = |summary: &str, cost: u64| AgentOutcome {
+            summary: summary.to_string(),
+            accepted: true,
+            cost: MicroUsd::from_micros(cost),
+        };
+        let report = Report {
+            outcomes: vec![
+                ("planner".to_string(), outcome("plan", 3)),
+                ("coder-a".to_string(), outcome("work", 4)),
+            ],
+            total: MicroUsd::from_micros(7),
+            bus: bus.clone(),
+        };
+        assert_eq!(report.verify_report_invariants(), Ok(()));
+        let mut wrong_total = report.clone();
+        wrong_total.total = MicroUsd::from_micros(8);
+        assert!(wrong_total.verify_report_invariants().is_err());
+        let mut empty_summary = report.clone();
+        empty_summary.outcomes[1].1.summary = " ".to_string();
+        assert!(empty_summary.verify_report_invariants().is_err());
+        let mut broken_bus = report;
+        broken_bus.bus.push(approval_from_coder);
+        assert!(broken_bus.verify_report_invariants().is_err());
     }
 }

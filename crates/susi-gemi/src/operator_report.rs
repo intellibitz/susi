@@ -201,6 +201,92 @@ impl UnifiedOperatorState {
     }
 }
 
+/// Reject a non-finite percentage or one outside `0..=100`.
+fn verify_pct(label: &str, value: f32) -> Result<(), String> {
+    if !value.is_finite() || !(0.0..=100.0).contains(&value) {
+        return Err(format!(
+            "{label} must be a finite percentage in 0..=100, got {value}"
+        ));
+    }
+    Ok(())
+}
+
+impl BlockedWorkRow {
+    /// Verify a blocked-work row: a task id, a title and a stated reason.
+    pub fn verify_row_invariants(&self) -> Result<(), String> {
+        if self.task_id.trim().is_empty() {
+            return Err("BlockedWorkRow task_id must not be empty".to_string());
+        }
+        if self.title.trim().is_empty() {
+            return Err(format!(
+                "BlockedWorkRow `{}` title must not be empty",
+                self.task_id
+            ));
+        }
+        if self.reason.trim().is_empty() {
+            return Err(format!(
+                "BlockedWorkRow `{}` reason must not be empty",
+                self.task_id
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl SystemResourceRow {
+    /// Verify a host resource row: a finite CPU percentage, a non-zero memory total and
+    /// memory in use that fits inside it.
+    pub fn verify_row_invariants(&self) -> Result<(), String> {
+        verify_pct("SystemResourceRow cpu_util_pct", self.cpu_util_pct)?;
+        if self.mem_total_mb == 0 {
+            return Err("SystemResourceRow mem_total_mb must be non-zero".to_string());
+        }
+        if self.mem_used_mb > self.mem_total_mb {
+            return Err(format!(
+                "SystemResourceRow mem_used_mb {} exceeds mem_total_mb {}",
+                self.mem_used_mb, self.mem_total_mb
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl ConfigStateRow {
+    /// Verify a config row: a named profile, a non-zero port and a workspace root.
+    pub fn verify_row_invariants(&self) -> Result<(), String> {
+        if self.profile.trim().is_empty() {
+            return Err("ConfigStateRow profile must not be empty".to_string());
+        }
+        if self.port == 0 {
+            return Err("ConfigStateRow port must be non-zero".to_string());
+        }
+        if self.workspace_root.trim().is_empty() {
+            return Err("ConfigStateRow workspace_root must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl FederationStateRow {
+    /// Verify a federation row: agent names that are non-empty and listed once.
+    pub fn verify_row_invariants(&self) -> Result<(), String> {
+        let mut seen = HashSet::new();
+        for agent in &self.active_agents {
+            if agent.trim().is_empty() {
+                return Err(
+                    "FederationStateRow active_agents must not contain empty names".to_string(),
+                );
+            }
+            if !seen.insert(agent.as_str()) {
+                return Err(format!(
+                    "FederationStateRow active agent `{agent}` is listed more than once"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Render a headless TUI frame (no terminal dependency).
 #[must_use]
 pub fn render_frame(snap: &TopSnapshot) -> String {
@@ -983,5 +1069,61 @@ mod inline_tests {
             .active_agents
             .push("  ".to_string());
         assert!(bad_agent.verify_state_invariants().is_err());
+    }
+
+    #[test]
+    fn blocked_resource_config_and_federation_row_verifiers_reject_corrupt_samples() {
+        let blocked = BlockedWorkRow {
+            task_id: "T-X-2".to_string(),
+            title: "Blocked thing".to_string(),
+            reason: "waits on T-X-1".to_string(),
+        };
+        assert_eq!(blocked.verify_row_invariants(), Ok(()));
+        let mut blank_reason = blocked;
+        blank_reason.reason = " ".to_string();
+        assert!(blank_reason.verify_row_invariants().is_err());
+
+        let resources = SystemResourceRow {
+            cpu_util_pct: 12.5,
+            mem_used_mb: 2048,
+            mem_total_mb: 16384,
+        };
+        assert_eq!(resources.verify_row_invariants(), Ok(()));
+        let mut memory_overflow = resources.clone();
+        memory_overflow.mem_used_mb = 20_000;
+        assert!(memory_overflow.verify_row_invariants().is_err());
+        let mut no_memory = resources.clone();
+        no_memory.mem_total_mb = 0;
+        no_memory.mem_used_mb = 0;
+        assert!(no_memory.verify_row_invariants().is_err());
+        let mut nan_cpu = resources;
+        nan_cpu.cpu_util_pct = f32::NAN;
+        assert!(nan_cpu.verify_row_invariants().is_err());
+
+        let config = ConfigStateRow {
+            profile: "default".to_string(),
+            port: 9090,
+            workspace_root: "/work".to_string(),
+        };
+        assert_eq!(config.verify_row_invariants(), Ok(()));
+        let mut port_zero = config.clone();
+        port_zero.port = 0;
+        assert!(port_zero.verify_row_invariants().is_err());
+        let mut no_root = config;
+        no_root.workspace_root = String::new();
+        assert!(no_root.verify_row_invariants().is_err());
+
+        let federation = FederationStateRow {
+            peer_count: 2,
+            quorum_healthy: true,
+            active_agents: vec!["claude".to_string(), "codex".to_string()],
+        };
+        assert_eq!(federation.verify_row_invariants(), Ok(()));
+        let mut duplicate_agent = federation.clone();
+        duplicate_agent.active_agents.push("claude".to_string());
+        assert!(duplicate_agent.verify_row_invariants().is_err());
+        let mut blank_agent = federation;
+        blank_agent.active_agents.push(" ".to_string());
+        assert!(blank_agent.verify_row_invariants().is_err());
     }
 }

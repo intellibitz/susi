@@ -1,0 +1,27 @@
+{
+  "id": "T-CLAUDE-409",
+  "parent": "T-CLAUDE-408",
+  "title": "Wave 11 agent graph and budget admission invariant verifiers in susi-harness",
+  "goal": "AgentSpec, Message, Bus, AgentOutcome, Report, AgentStep and Graph verifiers in crates/susi-harness/src/agents.rs and Admission::verify_admission_invariants in crates/susi-harness/src/budget.rs (Budget and Spend verifiers already landed on main), with unit tests.",
+  "status": "completed",
+  "created_by": "claude",
+  "created_unix": 1794044010,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-CLAUDE-409.json",
+    "crates/susi-harness/src/agents.rs",
+    "crates/susi-harness/src/budget.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

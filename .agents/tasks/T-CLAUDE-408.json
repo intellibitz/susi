@@ -1,0 +1,40 @@
+{
+  "id": "T-CLAUDE-408",
+  "native_worker": "corewave11",
+  "title": "Wave 11 invariant verifiers in susi-gemi, susi-harness and susi-gawd-swarm (native worker corewave11; sub-records T-CLAUDE-409 and T-CLAUDE-410)",
+  "goal": "Add invariant verifiers left uncovered by the first-landed Wave 11/12 work: operator_report rows and model_preload in susi-gemi, the agent graph and budget admission in susi-harness, and WAN peer admission in susi-gawd-swarm. anti_entropy is covered on main by Wave 12 and is excluded.",
+  "status": "completed",
+  "created_by": "claude",
+  "created_unix": 1794044000,
+  "size": "S",
+  "deps": [],
+  "subtasks": [
+    "T-CLAUDE-409",
+    "T-CLAUDE-410"
+  ],
+  "scopes": [
+    ".agents/tasks/T-CLAUDE-408.json",
+    ".agents/tasks/T-CLAUDE-409.json",
+    ".agents/tasks/T-CLAUDE-410.json",
+    "crates/susi-gawd-swarm/src/wan_peers.rs",
+    "crates/susi-gemi/src/model_preload.rs",
+    "crates/susi-gemi/src/operator_report.rs",
+    "crates/susi-harness/src/agents.rs",
+    "crates/susi-harness/src/budget.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "-p",
+      "susi-harness",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}
