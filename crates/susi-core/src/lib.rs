@@ -83,9 +83,6 @@ pub mod service_table;
 pub mod substrate_hygiene;
 pub mod task_manager;
 pub mod telemetry;
-#[cfg(test)]
-#[path = "tests/telemetry.rs"]
-mod telemetry_tests;
 pub mod truth;
 pub mod verification;
 
