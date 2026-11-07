@@ -68,7 +68,6 @@ pub mod wan_peers;
 pub mod worker_recovery;
 pub mod workspace_txn;
 pub mod writer_isolation;
-pub mod zc_threshold_tuning;
 pub mod zc_trust_store;
 
 pub use susi_gawd_agents::{
