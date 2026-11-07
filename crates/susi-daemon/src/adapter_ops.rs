@@ -12,7 +12,7 @@
 
 use serde_json::{Value, json};
 use std::path::Path;
-use susi_agents::external::{Adapter, AgentManager, CatalogKind, RunRecord, RunStatus, catalog};
+use susi_gawd::external::{Adapter, AgentManager, CatalogKind, RunRecord, RunStatus, catalog};
 use susi_gemi::models::coding_models::{CodingModelManager, CodingModelOverride};
 use susi_tools::{LeadingMcpManager, LeadingMcpOverride};
 
@@ -95,7 +95,7 @@ pub fn doctor(kind: AdapterKind, id: Option<&str>, workspace: &Path) -> R<Vec<Va
             let manager = manager(kind, workspace)?;
             let catalog_kind = kind.catalog_kind()?;
             let entries = match id {
-                Some(id) => vec![susi_agents::external::definition(catalog_kind, id).map_err(msg)?],
+                Some(id) => vec![susi_gawd::external::definition(catalog_kind, id).map_err(msg)?],
                 None => catalog(catalog_kind).map_err(msg)?,
             };
             Ok(entries
@@ -172,7 +172,7 @@ pub fn setup(kind: AdapterKind, id: &str, workspace: &Path) -> R<Value> {
         AdapterKind::Agents | AdapterKind::Frameworks => {
             let manager = manager(kind, workspace)?;
             let definition =
-                susi_agents::external::definition(kind.catalog_kind()?, id).map_err(msg)?;
+                susi_gawd::external::definition(kind.catalog_kind()?, id).map_err(msg)?;
             let instructions = if kind == AdapterKind::Agents {
                 AGENT_SETUP
             } else {
@@ -228,7 +228,7 @@ pub fn configure(kind: AdapterKind, id: &str, document: Value, workspace: &Path)
             let manager = manager(kind, workspace)?;
             let adapter: Adapter = serde_json::from_value(document)
                 .map_err(|e| format!("invalid adapter configuration: {e}"))?;
-            let verdict = susi_agents::adapter_upgrade::upgrade_adapter(&manager, id, &adapter, 2)
+            let verdict = susi_gawd::adapter_upgrade::upgrade_adapter(&manager, id, &adapter, 2)
                 .map_err(msg)?;
             if verdict != susi_core::adapter_upgrade::SwitchVerdict::Switched {
                 return Err(format!("adapter upgrade rejected: {verdict:?}"));

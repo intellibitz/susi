@@ -1,13 +1,13 @@
 //! Serializes loads of each canonical file without blocking unrelated models.
 
 use crate::device::Device;
+use crate::model_license::{ResidentLease, VerifiedArtifact};
 use crate::susi_error::{EaiError, EaiResult};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::{Mutex, RwLock};
 use std::time::SystemTime;
-use susi_vendor_models::model_license::{ResidentLease, VerifiedArtifact};
 
 #[derive(Debug, PartialEq, Eq)]
 struct SidecarVersion {
@@ -420,7 +420,7 @@ mod tests {
         let path =
             std::path::PathBuf::from(std::env::var_os("SUSI_ADMISSION_PROOF_MODEL").unwrap());
         let cache = ModelCache::<u8>::default();
-        let verified = susi_vendor_models::model_license::open_verified_local(&path).unwrap();
+        let verified = crate::model_license::open_verified_local(&path).unwrap();
         let loaded = cache
             .get_or_load_admitted((&path, verified), &Device::Cpu, 32, |_, _| Ok(1))
             .unwrap();

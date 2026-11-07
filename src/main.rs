@@ -96,7 +96,7 @@ fn user_facing_suggestion(internal: &str) -> Option<&'static str> {
 
 fn read_stdin_bounded() -> io::Result<Option<String>> {
     let stdin = io::stdin();
-    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let cfg = susi_sandbox_client::manager::SusiConfig::load_global().unwrap_or_default();
     let max_size = cfg.max_stdin_size_bytes();
     // Read one past the limit so exact-sized payloads are accepted and oversize
     // inputs are distinguishable from a full-but-valid buffer.
@@ -187,7 +187,7 @@ fn dispatch_local_report(
                     json,
                 }),
         }) => {
-            let query = susi_sandbox::audit_chain::AuditQuery {
+            let query = susi_sandbox_client::audit_chain::AuditQuery {
                 actor,
                 mission,
                 kind,
@@ -556,7 +556,7 @@ fn run() -> std::process::ExitCode {
 
     if let Some(command) = command {
         let ama = SusiMasterAgent::new();
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = susi_sandbox_client::manager::SusiConfig::load_global().unwrap_or_default();
         let host = MissionHost {
             cwd: &cwd,
             global_dir: &global_dir,

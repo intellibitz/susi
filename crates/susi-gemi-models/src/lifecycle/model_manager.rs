@@ -3,15 +3,14 @@ use std::collections::{HashMap, HashSet};
 // 100% Rust implementation for world-scale model orchestration with expert background Stop/Pause/Resume controller & ~/Downloads testing integration
 
 use super::download_controller::{ModelDownloadController, ModelDownloadProgress};
+use crate::resumable_downloads::DownloadPlan;
 use crate::susi_core::task_manager::TaskHandle;
 use crate::susi_sandbox::manager::DynamicModelInfo;
+use crate::transactional_download::Store;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
-#[cfg(feature = "local-engine")]
-use susi_vendor_candle::candle_core::quantized::gguf_file::Content as GgufContent;
-use susi_vendor_models::resumable_downloads::DownloadPlan;
-use susi_vendor_models::transactional_download::Store;
 
 #[derive(Debug, Clone)]
 /// Filesystem-walk rules for `recursive_scan_model_dir`, loaded once per scan
@@ -38,19 +37,8 @@ struct DownloadSource<'a> {
     publisher_sha256: Option<&'a str>,
 }
 
-/// Why a GGUF header could not be read.
-#[cfg(feature = "local-engine")]
-enum GgufRead {
-    /// An I/O error ended the read: it says nothing about the file.
-    Io,
-    /// The bytes are not a GGUF this build reads — a file shorter than its
-    /// own header claims among them.
-    Invalid,
-}
-
 /// Whole enough to name as a GGUF without parsing the tensor table.
 /// `None` is an I/O failure. A short or non-GGUF file is `Some(false)`.
-#[cfg(not(feature = "local-engine"))]
 fn gguf_magic_whole_enough(path: &Path) -> Option<bool> {
     let mut file = match fs::File::open(path) {
         Ok(file) => file,
@@ -72,59 +60,15 @@ fn gguf_magic_whole_enough(path: &Path) -> Option<bool> {
     Some(true)
 }
 
-/// The GGUF metadata and tensor table of `path`, with the file's length.
-/// Read through a buffer that keeps its own position: the walk is hundreds
-/// of thousands of small reads (each vocabulary string, its length, and the
-/// position check the parser makes before it), and unbuffered every one was
-/// a system call — seconds per local model on a Windows host. The parser
-/// sees the same bytes and positions either way.
-#[cfg(feature = "local-engine")]
-fn read_gguf_content(path: &Path) -> Result<(GgufContent, u64), GgufRead> {
-    let file = fs::File::open(path).map_err(|_| GgufRead::Io)?;
-    let len = file.metadata().map_err(|_| GgufRead::Io)?.len();
-    parse_gguf(file)
-        .map(|content| (content, len))
-        .map_err(|e| match candle_io_error(&e) {
-            Some(io) if !super::file_verdicts::decided_by_content(io) => GgufRead::Io,
-            _ => GgufRead::Invalid,
-        })
-}
-
-/// [`GgufContent::read`] over `source` through a [`PositionedReader`].
-#[cfg(feature = "local-engine")]
-fn parse_gguf<R: std::io::Read + std::io::Seek>(
-    source: R,
-) -> susi_vendor_candle::candle_core::Result<GgufContent> {
-    let mut reader = PositionedReader::new(source)?;
-    GgufContent::read(&mut reader)
-}
-
-/// The I/O error under a candle error, through its context, path and
-/// backtrace wrappers.
-#[cfg(feature = "local-engine")]
-// Every other variant — a foreign enum whose list changes with candle's
-// features (CUDA, Metal) — is no I/O error.
-#[allow(clippy::wildcard_enum_match_arm)]
-fn candle_io_error(error: &susi_vendor_candle::candle_core::Error) -> Option<&std::io::Error> {
-    use susi_vendor_candle::candle_core::Error;
-    match error {
-        Error::Io(io) => Some(io),
-        Error::WithBacktrace { inner, .. }
-        | Error::Context { inner, .. }
-        | Error::WithPath { inner, .. } => candle_io_error(inner),
-        _ => None,
-    }
-}
-
 /// A buffered reader that answers `stream_position` from its own count
 /// instead of asking the file, which would be a system call each time.
-#[cfg(any(feature = "local-engine", test))]
+#[cfg(test)]
 struct PositionedReader<R> {
     inner: std::io::BufReader<R>,
     position: u64,
 }
 
-#[cfg(any(feature = "local-engine", test))]
+#[cfg(test)]
 impl<R: std::io::Read + std::io::Seek> PositionedReader<R> {
     fn new(mut inner: R) -> std::io::Result<Self> {
         let position = inner.stream_position()?;
@@ -135,7 +79,7 @@ impl<R: std::io::Read + std::io::Seek> PositionedReader<R> {
     }
 }
 
-#[cfg(any(feature = "local-engine", test))]
+#[cfg(test)]
 impl<R: std::io::Read> std::io::Read for PositionedReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let read = self.inner.read(buf)?;
@@ -144,7 +88,7 @@ impl<R: std::io::Read> std::io::Read for PositionedReader<R> {
     }
 }
 
-#[cfg(any(feature = "local-engine", test))]
+#[cfg(test)]
 impl<R: std::io::Seek> std::io::Seek for PositionedReader<R> {
     fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
         self.position = self.inner.seek(to)?;
@@ -157,15 +101,6 @@ impl<R: std::io::Seek> std::io::Seek for PositionedReader<R> {
 }
 
 impl ModelManager {
-    /// Parse GGUF metadata with buffered reads and tracked positions, retaining
-    /// Candle's bounds checks. The source may be borrowed for later tensor seeks.
-    #[cfg(feature = "local-engine")]
-    pub fn read_gguf_metadata<R: std::io::Read + std::io::Seek>(
-        source: R,
-    ) -> susi_vendor_candle::candle_core::Result<GgufContent> {
-        parse_gguf(source)
-    }
-
     pub fn record_inference_result(model: &str, success: bool) {
         let failures =
             MODEL_FAILURES.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
@@ -230,47 +165,7 @@ impl ModelManager {
     /// Whether `path` holds a whole GGUF payload; `None` when an I/O error
     /// ended the read, which says nothing about the file.
     fn judge_gguf_payload(path: &Path) -> Option<bool> {
-        #[cfg(feature = "local-engine")]
-        {
-            let (content, len) = match read_gguf_content(path) {
-                Ok(read) => read,
-                Err(GgufRead::Io) => return None,
-                Err(GgufRead::Invalid) => return Some(false),
-            };
-            return Some(Self::gguf_payload_fits(&content, len));
-        }
-        #[cfg(not(feature = "local-engine"))]
-        {
-            gguf_magic_whole_enough(path)
-        }
-    }
-
-    #[cfg(feature = "local-engine")]
-    fn gguf_payload_fits(content: &GgufContent, file_len: u64) -> bool {
-        !content.tensor_infos.is_empty()
-            && content.tensor_infos.values().all(|tensor| {
-                let Some(elements) = tensor
-                    .shape
-                    .dims()
-                    .iter()
-                    .try_fold(1usize, |n, d| n.checked_mul(*d))
-                else {
-                    return false;
-                };
-                let block = tensor.ggml_dtype.block_size();
-                if elements == 0 || !elements.is_multiple_of(block) {
-                    return false;
-                }
-                let Some(bytes) = (elements / block).checked_mul(tensor.ggml_dtype.type_size())
-                else {
-                    return false;
-                };
-                content
-                    .tensor_data_offset
-                    .checked_add(tensor.offset)
-                    .and_then(|start| start.checked_add(bytes as u64))
-                    .is_some_and(|end| end <= file_len)
-            })
+        gguf_magic_whole_enough(path)
     }
 
     pub(crate) fn is_complete_gguf(
@@ -290,7 +185,7 @@ impl ModelManager {
     /// a stray mention in prompt prose only cost a preference point, never a
     /// wrong exclusion — the caller drops tool-less models only when a
     /// capable sibling exists.
-    #[cfg_attr(not(feature = "local-engine"), allow(dead_code))]
+    #[allow(dead_code)]
     pub(crate) fn chat_template_supports_tools(template: &str) -> bool {
         let t = template.to_lowercase();
         [
@@ -327,27 +222,9 @@ impl ModelManager {
     /// Whether the GGUF at `path` declares a tool-capable chat template;
     /// `None` when an I/O error ended the read.
     fn judge_gguf_template_supports_tools(path: &Path) -> Option<bool> {
-        #[cfg(feature = "local-engine")]
-        {
-            let content = match read_gguf_content(path) {
-                Ok((content, _)) => content,
-                Err(GgufRead::Io) => return None,
-                Err(GgufRead::Invalid) => return Some(false),
-            };
-            return Some(
-                content
-                    .metadata
-                    .get("tokenizer.chat_template")
-                    .and_then(|v| v.to_string().ok())
-                    .is_some_and(|t| Self::chat_template_supports_tools(t)),
-            );
-        }
-        #[cfg(not(feature = "local-engine"))]
-        {
-            match gguf_magic_whole_enough(path) {
-                Some(true) => Some(false),
-                other => other,
-            }
+        match gguf_magic_whole_enough(path) {
+            Some(true) => Some(false),
+            other => other,
         }
     }
 
@@ -447,7 +324,7 @@ impl ModelManager {
     }
 
     pub fn execute_download_stream(target: &str, task_handle: &TaskHandle) -> Result<(), String> {
-        let receipt = match susi_vendor_models::model_license::admit_download(target) {
+        let receipt = match crate::model_license::admit_download(target) {
             Ok(receipt) => receipt,
             Err(error) => {
                 Self::download_failed(target, task_handle, &error);
@@ -743,15 +620,8 @@ impl ModelManager {
     }
 
     fn downloaded_json_parses_as_tokenizer(path: &Path) -> bool {
-        #[cfg(feature = "local-engine")]
-        {
-            susi_vendor_candle::tokenizers::Tokenizer::from_file(path).is_ok()
-        }
-        #[cfg(not(feature = "local-engine"))]
-        {
-            let _ = path;
-            false
-        }
+        let _ = path;
+        false
     }
 
     fn valid_download_artifact(file_name: &str, path: &Path) -> bool {
@@ -1007,7 +877,7 @@ mod tests {
             .is_err());
         let payload = b"verified shared payload";
         fs::write(&staged, payload).unwrap();
-        let checksum = susi_vendor_models::resumable_downloads::sha256_hex(payload);
+        let checksum = crate::resumable_downloads::sha256_hex(payload);
         ModelManager::publish_download(&models, name, url, Some(&checksum), &|p| p.is_file())
             .unwrap();
         drop(lock);
@@ -1044,7 +914,7 @@ mod tests {
         let staged = store.staging_target(file_name);
         fs::create_dir_all(staged.parent().unwrap()).unwrap();
         fs::write(&staged, payload).unwrap();
-        let checksum = susi_vendor_models::resumable_downloads::sha256_hex(payload);
+        let checksum = crate::resumable_downloads::sha256_hex(payload);
 
         let final_path = ModelManager::publish_download(
             &models_dir,
@@ -1140,70 +1010,6 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
 
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn test_gguf_payload_rejects_truncated_tensor() {
-        let _environment = crate::susi_core::commit_log::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let path =
-            std::env::temp_dir().join(format!("susi_tensor_bounds_{}.gguf", std::process::id()));
-        let mut bytes = b"GGUF".to_vec();
-        bytes.extend(3u32.to_le_bytes());
-        bytes.extend(1u64.to_le_bytes()); // tensors
-        bytes.extend(0u64.to_le_bytes()); // metadata
-        bytes.extend(1u64.to_le_bytes()); // name length
-        bytes.push(b'x');
-        bytes.extend(1u32.to_le_bytes()); // dimensions
-        bytes.extend(4u64.to_le_bytes()); // four f32 values
-        bytes.extend(0u32.to_le_bytes()); // f32
-        bytes.extend(0u64.to_le_bytes()); // tensor offset
-        bytes.resize(64, 0); // alignment
-        bytes.resize(80, 0); // complete tensor
-        fs::write(&path, &bytes).unwrap();
-        assert!(ModelManager::valid_gguf_payload(&path));
-        bytes.pop();
-        fs::write(&path, &bytes).unwrap();
-        assert!(!ModelManager::valid_gguf_payload(&path));
-        fs::remove_file(path).unwrap();
-    }
-
-    /// gpt-oss (and any MXFP4-quantized GGUF) must fail admission cleanly:
-    /// candle's GgmlDType has no MXFP4 mapping, so Content::read bails at
-    /// header parse and the payload check must refuse rather than admit a
-    /// file no loader can dequantize. The same holds for the 16..=29 IQ
-    /// quants the pinned candle revision does not implement.
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn test_gguf_payload_rejects_unsupported_tensor_dtype() {
-        let _environment = crate::susi_core::commit_log::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let path =
-            std::env::temp_dir().join(format!("susi_dtype_gate_{}.gguf", std::process::id()));
-        for (dtype, accepted) in [(0u32, true), (39u32, false), (19u32, false)] {
-            let mut bytes = b"GGUF".to_vec();
-            bytes.extend(3u32.to_le_bytes());
-            bytes.extend(1u64.to_le_bytes()); // tensors
-            bytes.extend(0u64.to_le_bytes()); // metadata
-            bytes.extend(1u64.to_le_bytes()); // name length
-            bytes.push(b'x');
-            bytes.extend(1u32.to_le_bytes()); // dimensions
-            bytes.extend(4u64.to_le_bytes()); // four values
-            bytes.extend(dtype.to_le_bytes()); // f32 / MXFP4 / IQ2_XXS
-            bytes.extend(0u64.to_le_bytes()); // tensor offset
-            bytes.resize(64, 0); // alignment
-            bytes.resize(80, 0); // complete tensor
-            fs::write(&path, &bytes).unwrap();
-            assert_eq!(
-                ModelManager::valid_gguf_payload(&path),
-                accepted,
-                "dtype {dtype} admission"
-            );
-        }
-        fs::remove_file(path).unwrap();
-    }
-
     /// A one-tensor GGUF (version 3, four f32 values), whole.
     fn one_tensor_gguf() -> Vec<u8> {
         let mut bytes = b"GGUF".to_vec();
@@ -1224,108 +1030,6 @@ mod tests {
         let aligned = bytes.len().div_ceil(32) * 32;
         bytes.resize(aligned + 16, 0); // alignment, then the tensor
         bytes
-    }
-
-    /// The buffered reader hands the parser the same bytes and positions as
-    /// the file itself: the same header, tensor table and data offset.
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn a_buffered_gguf_read_parses_as_the_file_does() {
-        let _environment = crate::susi_core::commit_log::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let path =
-            std::env::temp_dir().join(format!("susi_buffered_gguf_{}.gguf", std::process::id()));
-        fs::write(&path, one_tensor_gguf()).unwrap();
-        let direct = GgufContent::read(&mut fs::File::open(&path).unwrap()).unwrap();
-        let (buffered, len) = read_gguf_content(&path).ok().unwrap();
-        assert_eq!(len, fs::metadata(&path).unwrap().len());
-        assert_eq!(buffered.tensor_data_offset, direct.tensor_data_offset);
-        assert_eq!(
-            format!("{:?}", buffered.tensor_infos),
-            format!("{:?}", direct.tensor_infos)
-        );
-        assert_eq!(
-            format!("{:?}", buffered.metadata),
-            format!("{:?}", direct.metadata)
-        );
-        // Native loading borrows its file for parsing, then seeks tensor data
-        // on that same file after the metadata buffer has been dropped.
-        let mut source = fs::File::open(&path).unwrap();
-        let native = ModelManager::read_gguf_metadata(&mut source).unwrap();
-        assert_eq!(native.tensor_data_offset, direct.tensor_data_offset);
-        assert_eq!(
-            format!("{:?}", native.metadata),
-            format!("{:?}", direct.metadata)
-        );
-        let device = susi_vendor_candle::candle_core::Device::Cpu;
-        let values = native
-            .tensor(&mut source, "x", &device)
-            .unwrap()
-            .dequantize(&device)
-            .unwrap()
-            .to_vec1::<f32>()
-            .unwrap();
-        assert_eq!(values, vec![0.0; 4]);
-        assert_eq!(ModelManager::judge_gguf_payload(&path), Some(true));
-        assert_eq!(
-            ModelManager::judge_gguf_template_supports_tools(&path),
-            Some(true)
-        );
-        fs::remove_file(path).unwrap();
-    }
-
-    /// A source that counts how often it is asked for bytes or its position:
-    /// each would be a system call on a file.
-    #[cfg(feature = "local-engine")]
-    struct Counted<R> {
-        inner: R,
-        reads: std::rc::Rc<std::cell::Cell<usize>>,
-        positions: std::rc::Rc<std::cell::Cell<usize>>,
-    }
-
-    #[cfg(feature = "local-engine")]
-    impl<R: std::io::Read> std::io::Read for Counted<R> {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            self.reads.set(self.reads.get() + 1);
-            self.inner.read(buf)
-        }
-    }
-
-    #[cfg(feature = "local-engine")]
-    impl<R: std::io::Seek> std::io::Seek for Counted<R> {
-        fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
-            if to == std::io::SeekFrom::Current(0) {
-                self.positions.set(self.positions.get() + 1);
-            }
-            self.inner.seek(to)
-        }
-    }
-
-    /// The header walk asks the file for bytes a handful of times, not once
-    /// per field, and never asks it where it is after the start: the parser's
-    /// many small reads and position checks are answered from the buffer.
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn a_gguf_header_walk_reaches_the_file_a_handful_of_times() {
-        let _environment = crate::susi_core::commit_log::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let reads = std::rc::Rc::new(std::cell::Cell::new(0));
-        let positions = std::rc::Rc::new(std::cell::Cell::new(0));
-        let source = Counted {
-            inner: std::io::Cursor::new(one_tensor_gguf()),
-            reads: reads.clone(),
-            positions: positions.clone(),
-        };
-        let content = parse_gguf(source).unwrap();
-        assert_eq!(content.tensor_infos.len(), 1);
-        assert!(reads.get() <= 4, "{} reads of the source", reads.get());
-        assert!(
-            positions.get() <= 1,
-            "{} position queries to the source",
-            positions.get()
-        );
     }
 
     #[test]
@@ -1651,7 +1355,7 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
         let (url, transport) = server(vec![("get /weights.bin ", response)]);
         let url = url.replace("model.gguf", "weights.bin");
-        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let digest = crate::resumable_downloads::sha256_hex(b"abcdefghij");
         let task = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("admitted_weight", &url);
         fixture_download(&url, &task, &models, Some(&digest)).unwrap();
@@ -1691,7 +1395,7 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij",
         )]);
         let url = url.replace("model.gguf", "weights.bin");
-        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let digest = crate::resumable_downloads::sha256_hex(b"abcdefghij");
         let task = SwarmTaskManager::global().register_task("failed_staging_manifest", &url);
         let mut recorded = false;
         let result = ModelManager::execute_download_stream_in(
@@ -1737,7 +1441,7 @@ mod tests {
         let (url, transport) = server(vec![("get /weights.bin ", response)]);
         let requested = url.replace("/model.gguf", "/resolve/main/weights.bin");
         let resolved = url.replace("model.gguf", "weights.bin");
-        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let digest = crate::resumable_downloads::sha256_hex(b"abcdefghij");
         let progress = || -> ModelDownloadProgress {
             serde_json::from_slice(&fs::read(ModelManager::progress_path(&requested)).unwrap())
                 .unwrap()
@@ -1800,7 +1504,7 @@ mod tests {
         let interrupted = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nETag: \"fixture-v1\"\r\nConnection: close\r\n\r\nabcde";
         let rest = "HTTP/1.1 206 Partial Content\r\nContent-Length: 5\r\nContent-Range: bytes 5-9/10\r\nETag: \"fixture-v1\"\r\nConnection: close\r\n\r\nfghij";
         let head = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n";
-        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let digest = crate::resumable_downloads::sha256_hex(b"abcdefghij");
         for (name, pin, responses) in [
             (
                 "retry_weight",

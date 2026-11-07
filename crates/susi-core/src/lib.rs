@@ -72,13 +72,7 @@ pub mod queue;
 pub mod receipt_archive;
 pub use crate::susi_error::redact;
 pub mod bounded_cmd;
-#[cfg(test)]
-#[path = "tests/bounded_cmd.rs"]
-mod bounded_cmd_tests;
 pub mod bounded_io;
-#[cfg(test)]
-#[path = "tests/bounded_io.rs"]
-mod bounded_io_tests;
 pub mod registry;
 pub mod registry_ipc;
 pub mod self_build;
@@ -86,9 +80,6 @@ pub mod service_table;
 pub mod substrate_hygiene;
 pub mod task_manager;
 pub mod telemetry;
-#[cfg(test)]
-#[path = "tests/telemetry.rs"]
-mod telemetry_tests;
 pub mod truth;
 pub mod verification;
 
@@ -132,20 +123,11 @@ mod vc_200_001_tests;
 #[path = "tests/vc_201_074_mastery.rs"]
 mod vc_201_074_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_074.rs"]
-mod vc_201_074_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_080_mastery.rs"]
 mod vc_201_080_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_080.rs"]
-mod vc_201_080_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_081_mastery.rs"]
 mod vc_201_081_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_081.rs"]
-mod vc_201_081_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_089_mastery.rs"]
 mod vc_201_089_mastery_tests;

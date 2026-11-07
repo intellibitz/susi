@@ -1,0 +1,963 @@
+use crate::susi_sandbox::manager::ModelLadderConfigStep;
+use serde::{Deserialize, Serialize};
+use std::sync::{Mutex, OnceLock};
+
+#[derive(Clone, Deserialize)]
+struct HfModel {
+    id: String,
+    #[serde(rename = "cardData", default)]
+    card_data: Option<HfCardData>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    siblings: Vec<HfFile>,
+}
+
+#[derive(Clone, Deserialize)]
+struct HfCardData {
+    #[serde(default)]
+    base_model: Option<HfBaseModel>,
+    #[serde(default)]
+    license: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(untagged)]
+enum HfBaseModel {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl HfBaseModel {
+    fn first(self) -> Option<String> {
+        match self {
+            Self::One(model) if !model.trim().is_empty() => Some(model),
+            Self::Many(models) => {
+                let mut nonempty = models.into_iter().filter(|model| !model.trim().is_empty());
+                let first = nonempty.next();
+                if nonempty.next().is_some() {
+                    None
+                } else {
+                    first
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+fn hf_auth_headers() -> Vec<(String, String)> {
+    crate::susi_config::env_or_cloud_env("HF_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty())
+        .map(|token| vec![("Authorization".into(), format!("Bearer {token}"))])
+        .unwrap_or_default()
+}
+
+fn hf_header_refs(owned: &[(String, String)]) -> Vec<(&str, &str)> {
+    owned
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect()
+}
+
+fn hf_get_json<T: serde::de::DeserializeOwned>(url: &str, headers: &[(&str, &str)]) -> Option<T> {
+    let call = susi_http_transport::http_call("GET", url, headers, 8, 10).ok()?;
+    if !(200..300).contains(&call.status) {
+        return None;
+    }
+    crate::susi_core::bounded_io::json_capped(
+        call.into_reader(),
+        crate::susi_core::bounded_io::JSON_BODY_CAP,
+    )
+    .ok()
+}
+
+fn declared_base_model(card_data: Option<HfCardData>, tags: &[String]) -> Option<String> {
+    card_data
+        .and_then(|card| card.base_model)
+        .and_then(HfBaseModel::first)
+        .or_else(|| {
+            tags.iter().find_map(|tag| {
+                let candidate = tag
+                    .strip_prefix("base_model:quantized:")
+                    .or_else(|| tag.strip_prefix("base_model:"))?;
+                (!candidate.starts_with("quantized:") && !candidate.trim().is_empty())
+                    .then(|| candidate.to_string())
+            })
+        })
+}
+
+#[derive(Clone, Deserialize)]
+struct HfFile {
+    rfilename: String,
+    #[serde(default)]
+    size: u64,
+}
+
+fn permitted_license(model: &HfModel) -> bool {
+    let allowed = |name: &str| {
+        matches!(
+            name.to_ascii_lowercase().as_str(),
+            "apache-2.0" | "mit" | "bsd-2-clause" | "bsd-3-clause" | "0bsd"
+        )
+    };
+    let mut declared = false;
+    if let Some(value) = model
+        .card_data
+        .as_ref()
+        .and_then(|card| card.license.as_ref())
+    {
+        if !value.as_str().is_some_and(allowed) {
+            return false;
+        }
+        declared = true;
+    }
+    for name in model
+        .tags
+        .iter()
+        .filter_map(|tag| tag.strip_prefix("license:"))
+    {
+        if !allowed(name) {
+            return false;
+        }
+        declared = true;
+    }
+    declared
+}
+
+/// Bounded per-repository metadata lookup shared by configured, cached and
+/// newly discovered ladders. Failed/unknown results retry after one minute.
+fn repo_metadata(base: &str, repo: &str, headers: &[(&str, &str)]) -> Option<HfModel> {
+    type Entries = std::collections::HashMap<(String, String), (u64, Option<HfModel>)>;
+    static CACHE: OnceLock<Mutex<Entries>> = OnceLock::new();
+    type Flights = std::collections::HashMap<(String, String), std::sync::Arc<Mutex<()>>>;
+    static FLIGHTS: OnceLock<Mutex<Flights>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = (base.to_string(), repo.to_string());
+    let cached = || {
+        cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .filter(|(at, _)| now().saturating_sub(*at) < 60)
+            .map(|(_, value)| value.clone())
+    };
+    if let Some(value) = cached() {
+        return value;
+    }
+    // Ladder steps are admitted concurrently and can share a repository
+    // (a tokenizer, a base model): one lookup per repository at a time, the
+    // others wait for its answer instead of fetching it again.
+    let flight = {
+        let mut flights = FLIGHTS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if flights.len() >= 128 {
+            flights.clear();
+        }
+        flights.entry(key.clone()).or_default().clone()
+    };
+    let _flight = flight.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(value) = cached() {
+        return value;
+    }
+    if !crate::susi_core::mac_policy::egress_permitted(base) {
+        return None;
+    }
+    let result = susi_http_transport::http_call(
+        "GET",
+        &format!("{base}/api/models/{repo}?blobs=true"),
+        headers,
+        2,
+        0,
+    )
+    .ok()
+    .filter(|call| (200..300).contains(&call.status))
+    .and_then(|call| {
+        crate::susi_core::bounded_io::json_capped::<HfModel>(
+            call.into_reader(),
+            crate::susi_core::bounded_io::JSON_BODY_CAP,
+        )
+        .ok()
+    })
+    .filter(|model| model.id == repo);
+    if result
+        .as_ref()
+        .is_none_or(|model| !permitted_license(model))
+    {
+        eprintln!(
+            "Automatic download unavailable for {repo}: a publisher-declared Apache, MIT or BSD license could not be verified."
+        );
+    }
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.len() >= 128 {
+        guard.clear();
+    }
+    guard.insert(key, (now(), result.clone()));
+    result
+}
+
+fn admitted_step(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+    step: &ModelLadderConfigStep,
+    headers: &[(&str, &str)],
+) -> bool {
+    let base = cfg.hf_base_url();
+    let Some(model) = repo_metadata(&base, &step.hf_repo, headers) else {
+        return false;
+    };
+    if !model
+        .siblings
+        .iter()
+        .any(|file| file.rfilename == step.hf_file)
+    {
+        return false;
+    }
+    if !permitted_license(&model) {
+        return false;
+    }
+    if matches!(model.card_data.as_ref().and_then(|card| card.base_model.as_ref()), Some(HfBaseModel::Many(models)) if models.iter().filter(|name| !name.trim().is_empty()).count() > 1)
+    {
+        return false;
+    }
+    if let Some(original) = declared_base_model(model.card_data.clone(), &model.tags) {
+        if original != model.id
+            && !repo_metadata(&base, &original, headers)
+                .is_some_and(|model| permitted_license(&model))
+        {
+            return false;
+        }
+    }
+    let tokenizer = if step.tokenizer_repo.is_empty() {
+        &step.hf_repo
+    } else {
+        &step.tokenizer_repo
+    };
+    tokenizer == &step.hf_repo
+        || repo_metadata(&base, tokenizer, headers).is_some_and(|model| permitted_license(&model))
+}
+
+fn retain_admitted(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+    steps: Vec<ModelLadderConfigStep>,
+) -> Vec<ModelLadderConfigStep> {
+    let auth = hf_auth_headers();
+    let headers = hf_header_refs(&auth);
+    let steps = retain_quantized(steps);
+    // Each step's license lookups are independent and bounded; checked at
+    // once, a ladder costs its slowest lookup, not their sum.
+    let admitted: Vec<bool> = std::thread::scope(|scope| {
+        let checks: Vec<_> = steps
+            .iter()
+            .map(|step| scope.spawn(|| admitted_step(cfg, step, &headers)))
+            .collect();
+        checks
+            .into_iter()
+            .map(|check| check.join().unwrap_or(false))
+            .collect()
+    });
+    steps
+        .into_iter()
+        .zip(admitted)
+        .filter_map(|(step, admitted)| admitted.then_some(step))
+        .collect()
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct DiscoveryCache {
+    refreshed_at: u64,
+    #[serde(skip)]
+    attempted_at: u64,
+    #[serde(skip)]
+    refreshing: bool,
+    steps: Vec<ModelLadderConfigStep>,
+}
+static CACHED_DYNAMIC_LADDER: OnceLock<Mutex<DiscoveryCache>> = OnceLock::new();
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+fn cache_path() -> std::path::PathBuf {
+    susi_paths::SusiDirs::data_dir().join("model-discovery.json")
+}
+
+/// GGUF is a container format, not a quantization guarantee: repos do publish
+/// F16/BF16/F32 weights inside `.gguf`, costing 2-4x the bytes for a quality
+/// gain this substrate cannot exploit. Quantization is per-tensor, so the
+/// practical contract is the llama.cpp filename token — `Q4_K_M`, `Q8_0`,
+/// `IQ4_XS`, `TQ2_0` all carry `Q` immediately followed by a digit, and
+/// `Qwen`'s Q is always followed by `w`, so model names never collide.
+/// Applies to discovered and configured steps alike: an explicit `model_ladder`
+/// entry naming unquantized weights is a config error, not an opt-out.
+pub(crate) fn is_quantized_gguf(path: &str) -> bool {
+    path.as_bytes()
+        .windows(2)
+        .any(|w| w[0].eq_ignore_ascii_case(&b'Q') && w[1].is_ascii_digit())
+}
+
+/// The ladder to actually use: whatever `cfg` explicitly configures, or the
+/// dynamic HF-discovered ladder when the config leaves it empty. Lives here
+/// (not as a `SusiConfig` method) because `sandbox::manager::SusiConfig` must
+/// stay a pure config accessor with no dependency on `gemi`.
+/// Drops steps whose file is not recognizably quantized. An explicit ladder
+/// that filters to nothing stays empty — silently substituting the discovered
+/// ladder would hide the config error.
+fn retain_quantized(steps: Vec<ModelLadderConfigStep>) -> Vec<ModelLadderConfigStep> {
+    steps
+        .into_iter()
+        .filter(|s| is_quantized_gguf(&s.hf_file))
+        .collect()
+}
+
+/// HF `model_type` (config.json) strings the local substrate implements a
+/// backend for. Not the GGUF `general.architecture` spelling: HF writes
+/// `qwen3_moe`/`qwen2_moe` where the GGUF header carries `qwen3moe`/
+/// `qwen2moe`, and `mixtral` GGUFs carry `llama` arch + expert tensors.
+/// `gpt_oss` stays out: its expert tensors are MXFP4, which the quantized
+/// tensor layer cannot dequantize.
+fn supported_model_type(model_type: Option<&str>) -> bool {
+    matches!(
+        model_type,
+        Some("qwen2" | "llama" | "mixtral" | "qwen2_moe" | "qwen3_moe")
+    )
+}
+
+pub fn resolve_model_ladder(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+) -> Vec<ModelLadderConfigStep> {
+    let configured = cfg.model_ladder();
+    if configured.is_empty() {
+        retain_admitted(cfg, discover_dynamic_ladder())
+    } else {
+        retain_admitted(cfg, configured)
+    }
+}
+
+/// Fresh snapshots return immediately. Stale snapshots remain usable while one
+/// worker refreshes them; outages never erase the last successful discovery.
+pub fn discover_dynamic_ladder() -> Vec<ModelLadderConfigStep> {
+    let cache = CACHED_DYNAMIC_LADDER.get_or_init(|| {
+        Mutex::new(
+            std::fs::read(cache_path())
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok())
+                .unwrap_or_default(),
+        )
+    });
+    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let policy = cfg.model_lifecycle();
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let stale = now().saturating_sub(guard.refreshed_at) >= policy.discovery_refresh_secs.max(60);
+    let retry_due = now().saturating_sub(guard.attempted_at) >= policy.discovery_retry_secs.max(1);
+    if cfg!(test) || guard.refreshing || (!guard.steps.is_empty() && !stale) || !retry_due {
+        return guard.steps.clone();
+    }
+    guard.refreshing = true;
+    guard.attempted_at = now();
+    let previous = guard.steps.clone();
+    drop(guard);
+    let refresh = move || {
+        let steps = fetch_dynamic_ladder(&cfg);
+        let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if !steps.is_empty() {
+            guard.steps = steps;
+            guard.refreshed_at = now();
+            if let Ok(bytes) = serde_json::to_vec(&*guard) {
+                let _ = crate::susi_config::atomic_write_bytes(&cache_path(), &bytes);
+            }
+        }
+        guard.refreshing = false;
+        guard.steps.clone()
+    };
+    if previous.is_empty() {
+        std::thread::spawn(refresh).join().unwrap_or_default()
+    } else {
+        std::thread::spawn(refresh);
+        previous
+    }
+}
+
+/// Keep distinct useful sizes instead of many equivalent quantizations. The
+/// hardware filter runs later so a busy machine doesn't poison discovery.
+pub(crate) fn compact_ladder(
+    mut steps: Vec<ModelLadderConfigStep>,
+    limit: usize,
+    ratio: f32,
+) -> Vec<ModelLadderConfigStep> {
+    steps.retain(|s| s.expected_bytes > 0 && s.min_ram_gb.is_finite() && s.min_ram_gb >= 0.0);
+    steps.sort_by(|a, b| {
+        a.expected_bytes
+            .cmp(&b.expected_bytes)
+            .then(a.hf_repo.cmp(&b.hf_repo))
+            .then(a.hf_file.cmp(&b.hf_file))
+    });
+    let ratio = if ratio.is_finite() {
+        ratio.max(1.05)
+    } else {
+        1.6
+    };
+    let mut result: Vec<ModelLadderConfigStep> = Vec::new();
+    let mut names = std::collections::HashSet::new();
+    for step in steps {
+        if names.contains(&step.hf_file) {
+            continue;
+        }
+        if result.last().is_some_and(|last| {
+            (step.expected_bytes as f64) < last.expected_bytes as f64 * ratio as f64
+        }) {
+            continue;
+        }
+        names.insert(step.hf_file.clone());
+        result.push(step);
+    }
+    let limit = limit.clamp(1, 10);
+    if result.len() > limit {
+        let count = result.len();
+        result = (0..limit)
+            .map(|i| {
+                result[if limit == 1 {
+                    0
+                } else {
+                    i * (count - 1) / (limit - 1)
+                }]
+                .clone()
+            })
+            .collect();
+    }
+    for (index, step) in result.iter_mut().enumerate() {
+        step.step = index + 1;
+    }
+    result
+}
+
+/// Bootstrap only the configured starter. Popular-model discovery remains an
+/// explicit catalog operation and cannot delay a CPU user's first goal.
+pub fn resolve_bootstrap_ladder(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+) -> Vec<ModelLadderConfigStep> {
+    let configured = cfg.model_ladder();
+    if !configured.is_empty() {
+        return retain_admitted(cfg, configured);
+    }
+    if !crate::susi_core::mac_policy::egress_permitted(&cfg.hf_base_url()) {
+        return Vec::new();
+    }
+    let fallback = cfg.default_fallback_model();
+    let auth = hf_auth_headers();
+    resolve_repo_step(
+        cfg,
+        fallback.hf_repo,
+        Some(fallback.tokenizer_repo),
+        Some(&fallback.hf_file),
+        &hf_header_refs(&auth),
+    )
+    .map(|mut step| {
+        step.step = 1;
+        vec![step]
+    })
+    .unwrap_or_default()
+}
+
+fn resolve_repo_step(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+    repo: String,
+    base_repo: Option<String>,
+    requested_file: Option<&str>,
+    headers: &[(&str, &str)],
+) -> Option<ModelLadderConfigStep> {
+    let base = cfg.hf_base_url();
+    let policy = cfg.model_lifecycle();
+    let model = repo_metadata(&base, &repo, headers)?;
+    let tokenizer_repo = if model
+        .siblings
+        .iter()
+        .any(|f| f.rfilename == cfg.tokenizer_filename() && f.size > 0)
+    {
+        repo.clone()
+    } else {
+        base_repo.clone()?
+    };
+    let tokenizer = repo_metadata(&base, &tokenizer_repo, headers)?;
+    if !permitted_license(&tokenizer)
+        || !tokenizer
+            .siblings
+            .iter()
+            .any(|file| file.rfilename == cfg.tokenizer_filename() && file.size > 0)
+    {
+        return None;
+    }
+    let best = model
+        .siblings
+        .iter()
+        .filter(|f| {
+            requested_file.is_none_or(|requested| f.rfilename == requested)
+                && f.rfilename.to_ascii_lowercase().ends_with(".gguf")
+                && !f.rfilename.contains("-of-")
+                && !f.rfilename.contains('/')
+                && f.size > 0
+                && is_quantized_gguf(&f.rfilename)
+                && permitted_license(&model)
+        })
+        .min_by_key(|f| (!f.rfilename.to_ascii_uppercase().contains("Q4_K_M"), f.size))?;
+    let overhead = policy.memory_overhead_ratio.max(1.0);
+    let step = ModelLadderConfigStep {
+        step: 0,
+        label: format!("{} ({:.1} GiB)", repo, best.size as f64 / 1073741824.0),
+        hf_repo: repo,
+        hf_file: best.rfilename.clone(),
+        tokenizer_repo: tokenizer_repo.clone(),
+        min_ram_gb: best.size as f32 / 1073741824.0 * overhead,
+        min_bytes: best.size,
+        expected_bytes: best.size,
+        fields: Default::default(),
+    };
+    if !admitted_step(cfg, &step, headers) {
+        return None;
+    }
+    // Discovery must stay within the backends actually implemented here.
+    let config_repo = base_repo.as_deref().unwrap_or(&tokenizer_repo);
+    let config = hf_get_json::<serde_json::Value>(
+        &format!("{base}/{config_repo}/resolve/main/config.json"),
+        headers,
+    )?;
+    if !supported_model_type(config.get("model_type").and_then(|v| v.as_str())) {
+        return None;
+    }
+    Some(step)
+}
+
+fn fetch_dynamic_ladder(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+) -> Vec<ModelLadderConfigStep> {
+    let policy = cfg.model_lifecycle();
+    let auth = hf_auth_headers();
+    let hdr = hf_header_refs(&auth);
+    let base = cfg.hf_base_url();
+    // Catalog discovery is still network egress: under a posture that
+    // blocks it, return no dynamic steps (the same as being offline).
+    if !crate::susi_core::mac_policy::egress_permitted(&base) {
+        return Vec::new();
+    }
+    let url = format!(
+        "{base}/api/models?search=Instruct&filter=gguf&sort=downloads&direction=-1&limit={}&full=true&cardData=true",
+        policy.discovery_limit.clamp(1, 50)
+    );
+    let Some(mut models) = hf_get_json::<Vec<HfModel>>(&url, &hdr) else {
+        return Vec::new();
+    };
+    let fallback = cfg.default_fallback_model();
+    if !fallback.hf_repo.is_empty() && !models.iter().any(|m| m.id == fallback.hf_repo) {
+        models.push(HfModel {
+            id: fallback.hf_repo,
+            card_data: Some(HfCardData {
+                base_model: Some(HfBaseModel::One(fallback.tokenizer_repo)),
+                license: None,
+            }),
+            tags: Vec::new(),
+            siblings: Vec::new(),
+        });
+    }
+    let queue = Mutex::new(models.into_iter());
+    let out = Mutex::new(Vec::new());
+    let hdr_refs = hf_header_refs(&auth);
+    std::thread::scope(|s| {
+        for _ in 0..4 {
+            s.spawn(|| loop {
+                let Some(model) = queue
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .next()
+                else {
+                    break;
+                };
+                let base_repo = declared_base_model(model.card_data, &model.tags);
+                if let Some(step) = resolve_repo_step(cfg, model.id, base_repo, None, &hdr_refs) {
+                    out.lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(step);
+                }
+            });
+        }
+    });
+    let steps = out
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    compact_ladder(steps, policy.max_ladder_tiers, policy.ladder_size_ratio)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_and_legacy_cached_steps_require_publisher_licenses() {
+        use std::io::{BufRead, Write};
+        use std::sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc,
+        };
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", home.path());
+        env.set("SUSI_HOME", home.path());
+        env.remove("HF_TOKEN");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let done = Arc::new(AtomicBool::new(false));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let worker_done = done.clone();
+        let worker_requests = requests.clone();
+        let worker = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !worker_done.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    continue;
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = String::new();
+                std::io::BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                worker_requests.fetch_add(1, Ordering::Relaxed);
+                let path = request.split_whitespace().nth(1).unwrap();
+                let repo = path
+                    .strip_prefix("/api/models/")
+                    .unwrap()
+                    .split('?')
+                    .next()
+                    .unwrap();
+                let license = match repo {
+                    "org/allowed" | "org/derived" => serde_json::json!("MIT"),
+                    "org/restricted" => serde_json::json!("llama3.2"),
+                    "org/custom" => serde_json::json!("qwen-research"),
+                    _ => serde_json::Value::Null,
+                };
+                let mut card = serde_json::json!({"license": license});
+                if repo == "org/derived" {
+                    card["base_model"] = serde_json::json!("org/restricted");
+                }
+                let body = serde_json::json!({"id":repo,"cardData":card,"siblings":[{"rfilename":"model-Q4_0.gguf","size":123}]}).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let steps: Vec<_> = ["allowed", "restricted", "custom", "unknown", "derived"]
+            .into_iter()
+            .map(|name| ModelLadderConfigStep {
+                hf_repo: format!("org/{name}"),
+                hf_file: "model-Q4_0.gguf".into(),
+                fields: [("license".into(), serde_json::json!("MIT"))]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            })
+            .collect();
+        let mut cfg = crate::susi_sandbox::manager::SusiConfig::default();
+        cfg.settings
+            .insert("hf_base_url".into(), serde_json::json!(base));
+        cfg.settings
+            .insert("model_ladder".into(), serde_json::to_value(&steps).unwrap());
+        let configured = resolve_model_ladder(&cfg);
+        assert_eq!(
+            configured
+                .iter()
+                .map(|step| step.hf_repo.as_str())
+                .collect::<Vec<_>>(),
+            vec!["org/allowed"]
+        );
+        // Serialized old caches carry no trusted publisher evidence, even if
+        // their free-form fields assert a permissive license themselves.
+        let legacy: DiscoveryCache =
+            serde_json::from_value(serde_json::json!({"refreshed_at":now(),"steps":steps}))
+                .unwrap();
+        let cache = CACHED_DYNAMIC_LADDER.get_or_init(Default::default);
+        let original = std::mem::replace(
+            &mut *cache.lock().unwrap_or_else(|e| e.into_inner()),
+            legacy,
+        );
+        cfg.settings
+            .insert("model_ladder".into(), serde_json::json!([]));
+        let cached = resolve_model_ladder(&cfg);
+        *cache.lock().unwrap_or_else(|e| e.into_inner()) = original;
+        done.store(true, Ordering::Relaxed);
+        worker.join().unwrap();
+        assert_eq!(
+            cached
+                .iter()
+                .map(|step| step.hf_repo.as_str())
+                .collect::<Vec<_>>(),
+            vec!["org/allowed"]
+        );
+        assert_eq!(
+            requests.load(Ordering::Relaxed),
+            5,
+            "each repository is fetched once across configured and cached admission"
+        );
+    }
+
+    #[test]
+    fn license_metadata_fails_closed_for_unknown_and_conflicting_values() {
+        for accepted in ["apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "0BSD"] {
+            let model: HfModel = serde_json::from_value(
+                serde_json::json!({"id":"org/model","cardData":{"license":accepted}}),
+            )
+            .unwrap();
+            assert!(permitted_license(&model));
+        }
+        for rejected in [
+            serde_json::json!("unknown"),
+            serde_json::json!("other"),
+            serde_json::json!(["MIT", "llama3.2"]),
+        ] {
+            let model: HfModel = serde_json::from_value(serde_json::json!({"id":"org/model","cardData":{"license":rejected},"tags":["license:mit"]})).unwrap();
+            assert!(!permitted_license(&model));
+        }
+        for data in [
+            serde_json::json!({"id":"org/model"}),
+            serde_json::json!({"id":"org/model","tags":["license:mit","license:llama3.2"]}),
+            serde_json::json!({"id":"org/model","cardData":{"license":"mit"},"tags":["license:other"]}),
+        ] {
+            assert!(!permitted_license(&serde_json::from_value(data).unwrap()));
+        }
+    }
+
+    #[test]
+    fn bootstrap_requests_only_exact_starter_and_rejects_unsupported_architecture() {
+        use std::io::{BufRead, Write};
+        let _guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", home.path());
+        env.set("SUSI_HOME", home.path());
+        env.remove("HF_TOKEN");
+        for architecture in ["qwen2", "unsupported"] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let worker = std::thread::spawn(move || {
+                let mut paths = Vec::new();
+                for _ in 0..3 {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                    let mut request = String::new();
+                    reader.read_line(&mut request).unwrap();
+                    paths.push(request.split_whitespace().nth(1).unwrap().to_string());
+                    let body = if request.contains("/api/models/org/starter?") {
+                        r#"{"id":"org/starter","cardData":{"license":"apache-2.0","base_model":"org/base"},"siblings":[{"rfilename":"starter-q4_k_m.gguf","size":100000000},{"rfilename":"other-q4_k_m.gguf","size":1}]}"#.to_string()
+                    } else if request.contains("/api/models/org/base?") {
+                        r#"{"id":"org/base","cardData":{"license":"apache-2.0"},"siblings":[{"rfilename":"tokenizer.json","size":42}]}"#.to_string()
+                    } else {
+                        format!(r#"{{"model_type":"{architecture}"}}"#)
+                    };
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                }
+                paths
+            });
+            let mut cfg = crate::susi_sandbox::manager::SusiConfig::default();
+            cfg.settings
+                .insert("hf_base_url".into(), serde_json::json!(base));
+            let mut fallback = cfg.default_fallback_model();
+            fallback.hf_repo = "org/starter".into();
+            fallback.tokenizer_repo = "org/base".into();
+            fallback.hf_file = "starter-q4_k_m.gguf".into();
+            cfg.settings.insert(
+                "default_fallback_model".into(),
+                serde_json::to_value(fallback).unwrap(),
+            );
+            let ladder = resolve_bootstrap_ladder(&cfg);
+            assert_eq!(
+                worker.join().unwrap(),
+                vec![
+                    "/api/models/org/starter?blobs=true",
+                    "/api/models/org/base?blobs=true",
+                    "/org/base/resolve/main/config.json"
+                ]
+            );
+            if architecture == "qwen2" {
+                assert_eq!(ladder.len(), 1);
+                assert_eq!(ladder[0].hf_file, "starter-q4_k_m.gguf");
+                assert_eq!(ladder[0].expected_bytes, 100000000);
+                assert_eq!(ladder[0].min_bytes, 100000000);
+            } else {
+                assert!(ladder.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn compact_ladder_removes_equivalent_sizes_and_spans_capacity() {
+        let steps = [1u64, 1, 2, 4, 8, 16, 32]
+            .into_iter()
+            .enumerate()
+            .map(|(i, size)| ModelLadderConfigStep {
+                step: 99,
+                hf_repo: format!("org/model-{i}"),
+                hf_file: format!("{i}.gguf"),
+                tokenizer_repo: "org/base".into(),
+                label: "test".into(),
+                min_ram_gb: size as f32,
+                min_bytes: size,
+                expected_bytes: size,
+                fields: Default::default(),
+            })
+            .collect();
+        let ladder = compact_ladder(steps, 3, 1.6);
+        assert_eq!(
+            ladder.iter().map(|s| s.expected_bytes).collect::<Vec<_>>(),
+            vec![1, 4, 32]
+        );
+        assert_eq!(
+            ladder.iter().map(|s| s.step).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn test_tokenizer_metadata_does_not_guess_repository_names() {
+        let model: HfModel =
+            serde_json::from_str(r#"{"id":"publisher/arbitrary-quant-name"}"#).unwrap();
+        assert!(declared_base_model(model.card_data, &model.tags).is_none());
+        assert_eq!(
+            declared_base_model(None, &["base_model:quantized:original/instruct".into()]),
+            Some("original/instruct".into())
+        );
+    }
+
+    #[test]
+    fn test_base_model_metadata_supports_single_and_multiple_values() {
+        let single: HfModel = serde_json::from_str(
+            r#"{"id":"org/model-GGUF","cardData":{"base_model":"org/model"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            single
+                .card_data
+                .and_then(|card| card.base_model)
+                .and_then(HfBaseModel::first)
+                .as_deref(),
+            Some("org/model")
+        );
+
+        let multiple: HfModel = serde_json::from_str(
+            r#"{"id":"org/model-GGUF","cardData":{"base_model":["","org/model"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            multiple
+                .card_data
+                .and_then(|card| card.base_model)
+                .and_then(HfBaseModel::first)
+                .as_deref(),
+            Some("org/model")
+        );
+
+        assert_eq!(
+            declared_base_model(
+                None,
+                &[
+                    "base_model:quantized:org/model".to_string(),
+                    "base_model:org/model".to_string(),
+                ],
+            )
+            .as_deref(),
+            Some("org/model")
+        );
+    }
+
+    /// The llama.cpp quant token is a `Q` immediately followed by a digit
+    /// (`Q4_K_M`, `Q8_0`, `IQ4_XS`, `TQ2_0`); F16/F32/BF16 in a `.gguf`
+    /// container must not qualify — the mandate is quantized-only downloads.
+    #[test]
+    fn quantized_gguf_detection_accepts_quants_and_rejects_full_precision() {
+        for ok in [
+            "model-Q4_K_M.gguf",
+            "model-q5_k_m.gguf",
+            "Llama-3.2-1B-Instruct-Q8_0.gguf",
+            "foo-IQ4_XS.gguf",
+            "bar-TQ2_0.gguf",
+            "gemma-3-4b-it-qat-Q4_0.gguf",
+        ] {
+            assert!(is_quantized_gguf(ok), "{ok} must qualify as quantized");
+        }
+        for rejected in [
+            "model-F16.gguf",
+            "model-f32.gguf",
+            "Qwen2.5-7B-Instruct-BF16.gguf",
+            "model.gguf",
+            "model-qat.gguf",
+        ] {
+            assert!(
+                !is_quantized_gguf(rejected),
+                "{rejected} must not qualify as quantized"
+            );
+        }
+    }
+
+    /// A configured ladder entry naming full-precision weights is a config
+    /// error the mandate drops, and a ladder that filters to nothing stays
+    /// empty rather than silently substituting discovered steps.
+    #[test]
+    fn retain_quantized_drops_unquantized_configured_steps() {
+        let step = |file: &str| ModelLadderConfigStep {
+            step: 0,
+            label: "t".into(),
+            hf_repo: "org/repo".into(),
+            hf_file: file.into(),
+            tokenizer_repo: "org/base".into(),
+            min_ram_gb: 1.0,
+            min_bytes: 1,
+            expected_bytes: 1,
+            fields: Default::default(),
+        };
+        let kept = retain_quantized(vec![step("model-Q4_K_M.gguf"), step("model-F16.gguf")]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].hf_file, "model-Q4_K_M.gguf");
+        assert!(retain_quantized(vec![step("model-BF16.gguf")]).is_empty());
+    }
+
+    /// Admission mirrors the substrate's implemented backends — the MoE
+    /// entry is HF's `qwen3_moe` spelling, not the GGUF `qwen3moe` arch.
+    #[test]
+    fn supported_model_type_admits_only_implemented_backends() {
+        for ok in ["qwen2", "llama", "mixtral", "qwen2_moe", "qwen3_moe"] {
+            assert!(supported_model_type(Some(ok)), "{ok} must be admitted");
+        }
+        for rejected in [
+            // Dense qwen3 and GGUF-spelled archs have no implemented backend.
+            "qwen3", "qwen2moe", "qwen3moe",
+            // gpt-oss experts are MXFP4 — unreadable by the quantized layer.
+            "gpt_oss", "gemma3",
+        ] {
+            assert!(
+                !supported_model_type(Some(rejected)),
+                "{rejected} has no implemented backend"
+            );
+        }
+        assert!(!supported_model_type(None));
+    }
+}

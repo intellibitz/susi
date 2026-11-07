@@ -8,8 +8,6 @@ edition = "2021"
 susi-abi = { workspace = true, features = ["cell-server"] }
 susi-core = { workspace = true }
 susi-gemi-models = { workspace = true }
-jsonschema = { package = "susi-vendor-jsonschema", path = "../susi-vendor-jsonschema" }
-susi-vendor-candle = { workspace = true, optional = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
@@ -27,8 +25,8 @@ sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 [features]
 default = []
-local-engine = ["dep:susi-vendor-candle", "susi-gemi-models/local-engine"]
-metal = ["local-engine", "susi-vendor-candle/metal", "susi-gemi-models/metal"]
+local-engine = ["susi-gemi-models/local-engine"]
+metal = ["local-engine", "susi-gemi-models/metal"]
 
 [lints]
 workspace = true

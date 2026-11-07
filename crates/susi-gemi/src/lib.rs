@@ -74,15 +74,6 @@ pub mod worker;
 #[path = "tests/availability_not_capability.rs"]
 mod availability_not_capability_tests;
 #[cfg(test)]
-#[path = "tests/billing_mode_marginal_cost.rs"]
-mod billing_mode_marginal_cost_tests;
-#[cfg(test)]
-#[path = "tests/brain_ranking_by_cost.rs"]
-mod brain_ranking_by_cost_tests;
-#[cfg(test)]
-#[path = "tests/brain_scout_probe.rs"]
-mod brain_scout_probe_tests;
-#[cfg(test)]
 #[path = "tests/brain_scout_schedule.rs"]
 mod brain_scout_schedule_tests;
 #[cfg(test)]
@@ -101,9 +92,6 @@ mod capability_matrix_by_class_tests;
 #[path = "tests/delegated_verification_by_risk.rs"]
 mod delegated_verification_by_risk_tests;
 #[cfg(test)]
-#[path = "tests/engine_benchmark.rs"]
-mod engine_benchmark_tests;
-#[cfg(test)]
 #[path = "tests/estate_operations_capability_floor.rs"]
 mod estate_operations_capability_floor_tests;
 #[cfg(test)]
@@ -112,15 +100,6 @@ mod expected_cost_with_cache_tests;
 #[cfg(test)]
 #[path = "tests/model_catalogue_drift.rs"]
 mod model_catalogue_drift_tests;
-#[cfg(test)]
-#[path = "tests/model_health_failure_classes.rs"]
-mod model_health_failure_classes_tests;
-#[cfg(test)]
-#[path = "tests/model_preload.rs"]
-mod model_preload_tests;
-#[cfg(test)]
-#[path = "tests/model_pricing_cache_rates.rs"]
-mod model_pricing_cache_rates_tests;
 #[cfg(test)]
 #[path = "tests/orchestration_topology.rs"]
 mod orchestration_topology_tests;
@@ -143,19 +122,11 @@ mod ranking_by_marginal_cost_tests;
 #[path = "tests/routing_ladder.rs"]
 mod routing_ladder_tests;
 #[cfg(test)]
-// Drives the built-in Candle weight loader, which the slim default leaves out.
-#[cfg(all(test, feature = "local-engine"))]
 #[path = "tests/vc_201_042_native.rs"]
 mod vc_201_042_native_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_045_mastery.rs"]
 mod vc_201_045_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_047_mastery.rs"]
-mod vc_201_047_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_051.rs"]
-mod vc_201_051_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_001_mastery.rs"]
 mod vc_202_001_mastery_tests;

@@ -1,16 +1,46 @@
-//! Local embedding provider backed by `fastembed` — the same embedder
-//! `SemanticIndex` uses, exposed through the capability registry so
-//! `gemi.infer.embed` (and `/v1/embeddings`) works with zero external
-//! dependencies. Registers into this process's registry; the IPC rendezvous
-//! serves it to every peer process on the same substrate.
+//! Local embedding provider contract (`susi-fastembed`).
 //!
-//! The provider is embedding-only: `generate` fails loudly rather than
-//! pretending to be a chat backend, and `cloud_failover_order` never
-//! enumerates it (it is neither a remote `HttpProvider` nor `mcp-*`).
+//! The heavy local BGE Candle embedding engine was migrated to `susi-commercial-apps`
+//! (`susi-gpu-fabric`) in Lean-Core Rung 1. Core retains the capability registry
+//! contract (`LocalEmbedProvider`, `register_local_embed_provider`, `INSTALL_SOURCE`,
+//! `install_on_request`, `embed`, `embed_one`, `load_failed`).
 
 use crate::susi_core::provider::{BoxFuture, Provider};
 use crate::susi_error::{EaiError, EaiResult};
 use std::any::Any;
+
+/// The explicit command that downloads the embedding model.
+pub const INSTALL_COMMAND: &str = "susi os manage model install embeddings";
+/// The explicit source argument `INSTALL_COMMAND` passes.
+pub const INSTALL_SOURCE: &str = "embeddings";
+/// Leading tag of the not-installed error, for callers that carry it as text.
+pub const NOT_INSTALLED_TAG: &str = "[NO_EMBEDDING_MODEL]";
+
+#[must_use]
+pub fn load_failed() -> bool {
+    false
+}
+
+pub fn install_on_request() -> EaiResult<String> {
+    Err(EaiError::inference(format!(
+        "{NOT_INSTALLED_TAG} Local BGE embedding engine moved to susi-commercial-apps (susi-gpu-fabric)."
+    )))
+}
+
+pub fn embed(texts: Vec<String>) -> EaiResult<Vec<Vec<f32>>> {
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+    Err(EaiError::inference(format!(
+        "{NOT_INSTALLED_TAG} The BAAI/bge-small-en-v1.5 embedding model is not installed in core; run `{INSTALL_COMMAND}` or attach the susi-gpu-fabric plug."
+    )))
+}
+
+pub fn embed_one(text: &str) -> EaiResult<Vec<f32>> {
+    embed(vec![text.to_owned()])?
+        .pop()
+        .ok_or_else(|| EaiError::inference("embedder returned no vector"))
+}
 
 pub struct LocalEmbedProvider;
 
@@ -20,9 +50,7 @@ impl Provider for LocalEmbedProvider {
     }
 
     fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
-        // Unhealthy once the model load has failed (cached); before the
-        // first embed the model is simply not loaded yet.
-        Box::pin(async { Ok(!susi_vendor_fastembed::load_failed()) })
+        Box::pin(async { Ok(!load_failed()) })
     }
 
     fn generate(&self, _prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
@@ -34,10 +62,8 @@ impl Provider for LocalEmbedProvider {
     }
 
     fn embed(&self, text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
-        // One process-wide model, shared with the semantic index
-        // (`susi_vendor_fastembed`); the first call pays the ONNX load.
         let text = text.to_string();
-        Box::pin(async move { susi_vendor_fastembed::embed_one(&text) })
+        Box::pin(async move { embed_one(&text) })
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -46,18 +72,12 @@ impl Provider for LocalEmbedProvider {
 }
 
 /// Self-register into this copy's `CapabilityRegistry` — idempotent.
-/// Called by the daemon composition root at bootstrap; independent susi
-/// binaries that link susi-gmcp can call it the same way.
 pub fn register_local_embed_provider() {
     let registry = crate::susi_core::registry::CapabilityRegistry::global();
     if registry.get_provider("susi-fastembed").is_none() {
         registry.register_provider(LocalEmbedProvider);
     }
 }
-
-/// The explicit embedding-model install, re-exported so the CLI reaches it
-/// through this crate instead of linking the embedding engine directly.
-pub use susi_vendor_fastembed::{install_on_request, INSTALL_SOURCE};
 
 #[cfg(test)]
 mod inline_tests {
@@ -92,7 +112,7 @@ mod inline_tests {
             .build()
             .unwrap();
         let healthy = rt.block_on(LocalEmbedProvider.is_healthy()).unwrap();
-        assert_eq!(healthy, !susi_vendor_fastembed::load_failed());
+        assert_eq!(healthy, !load_failed());
     }
 
     #[test]

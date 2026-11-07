@@ -154,10 +154,8 @@ fn verified_hf_cache_asset(url: &str, digest: &str, roots: &[PathBuf]) -> Option
     let relative = format!("models--{}--{}/blobs/{digest}", segments[0], segments[1]);
     roots.iter().find_map(|root| {
         let path = root.join(&relative);
-        (path.is_file()
-            && susi_vendor_models::resumable_downloads::verify_file(&path, &digest)
-                .unwrap_or(false))
-        .then_some(path)
+        (path.is_file() && crate::resumable_downloads::verify_file(&path, &digest).unwrap_or(false))
+            .then_some(path)
     })
 }
 

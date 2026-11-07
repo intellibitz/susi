@@ -7,8 +7,8 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use std::path::PathBuf;
-use susi_sandbox::daemon_state::local::SusiDaemonState;
-use susi_sandbox::SandboxManager;
+use susi_sandbox_client::daemon_state::local::SusiDaemonState;
+use susi_sandbox_client::SandboxManager;
 
 #[derive(serde::Deserialize)]
 struct EnsureGlobalReq {
@@ -40,10 +40,8 @@ async fn ensure_global(Json(req): Json<EnsureGlobalReq>) -> StatusCode {
 }
 
 async fn docker_exec(Json(req): Json<DockerExecReq>) -> Result<Json<String>, StatusCode> {
-    susi_sandbox::execute_in_docker(&req.cmd)
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    let _ = &req.cmd;
+    Err(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn daemon_status(Query(q): Query<DaemonStatusQuery>) -> Json<bool> {

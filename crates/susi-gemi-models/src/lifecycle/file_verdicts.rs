@@ -108,7 +108,7 @@ fn mtime_ns(modified: SystemTime) -> u128 {
 /// Whether an error from reading a file says something about its bytes (a
 /// file shorter than its own header claims, text that is not UTF-8) rather
 /// than about the read: only then may the verdict it led to be remembered.
-#[cfg_attr(not(feature = "local-engine"), allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn decided_by_content(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),

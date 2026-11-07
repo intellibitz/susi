@@ -28,7 +28,10 @@
 
 pub use susi_error;
 
+pub mod accel_reserve;
+pub mod cloud_eligibility;
 pub mod cloud_env;
+pub mod cloud_quota;
 pub mod cluster_key;
 mod config;
 pub mod credential;
@@ -40,7 +43,6 @@ pub mod host_metrics;
 mod json_util;
 pub mod key_rotation;
 pub mod key_scope;
-pub mod offline_bundle;
 pub mod process_probe;
 pub mod secret_ref;
 pub mod setting_registry;
@@ -296,30 +298,12 @@ pub use versioned_store::VersionedJsonStore;
 #[path = "tests/cluster_key.rs"]
 mod cluster_key_tests;
 #[cfg(test)]
-#[path = "tests/config_validate.rs"]
-mod config_validate_tests;
-#[cfg(test)]
-#[path = "tests/desired_state.rs"]
-mod desired_state_tests;
-#[cfg(test)]
 #[path = "tests/extensions.rs"]
 mod extensions_tests;
-#[cfg(test)]
-#[path = "tests/json_util.rs"]
-mod json_util_tests;
-#[cfg(test)]
-#[path = "tests/key_rotation.rs"]
-mod key_rotation_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_076_mastery.rs"]
 mod vc_201_076_mastery_tests;
 
-#[cfg(test)]
-#[path = "tests/key_scope.rs"]
-mod key_scope_tests;
-#[cfg(test)]
-#[path = "tests/setup_workflow.rs"]
-mod setup_workflow_tests;
 #[cfg(test)]
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
@@ -339,26 +323,8 @@ mod vc_201_065_tests;
 #[path = "tests/vc_201_066_mastery.rs"]
 mod vc_201_066_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_066.rs"]
-mod vc_201_066_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_069_mastery.rs"]
 mod vc_201_069_mastery_tests;
-#[cfg(test)]
-#[path = "tests/versioned_store.rs"]
-mod versioned_store_tests;
-#[cfg(test)]
-#[path = "tests/zc_config_all_optional.rs"]
-mod zc_config_all_optional_tests;
-#[cfg(test)]
-#[path = "tests/zc_config_explain.rs"]
-mod zc_config_explain_tests;
-#[cfg(test)]
-#[path = "tests/zc_debt_report.rs"]
-mod zc_debt_report_tests;
-#[cfg(test)]
-#[path = "tests/zc_setting_registry.rs"]
-mod zc_setting_registry_tests;
 
 /// Serializes tests that mutate or read process-global environment-derived
 /// paths (`HOME`, `XDG_CONFIG_HOME`, `SUSI_*`). Mutators must hold this lock

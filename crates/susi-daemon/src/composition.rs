@@ -337,7 +337,7 @@ pub fn wire_plane_handlers() {
             susi_gemi::plane_handler::register();
             susi_gawd::plane_handler::register();
             susi_tools::plane_handler::register();
-            susi_agents::plane_handler::register();
+            susi_gawd::agents_plane_handler::register();
             crate::plane_handler::register();
         });
     });

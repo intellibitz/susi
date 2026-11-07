@@ -1,10 +1,10 @@
 //! Model selection, preference scoring, and active engine/model overrides.
 
+use crate::model_license::VerifiedArtifact;
 use crate::susi_error::EaiResult;
 use crate::susi_sandbox::manager::DynamicModelInfo;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_vendor_models::model_license::VerifiedArtifact;
 
 use crate::hardware::HardwareProfiler;
 
@@ -12,81 +12,6 @@ use super::types::ModelProvenance;
 use super::ModelManager;
 
 static RESIDENCY_PROBE: std::sync::OnceLock<fn(&Path) -> bool> = std::sync::OnceLock::new();
-
-/// Keep one parsed tokenizer for selection and inference together. Comparing
-/// bytes also catches same-size replacements within a filesystem timestamp tick.
-#[cfg(feature = "local-engine")]
-#[derive(Default)]
-struct TokenizerCache {
-    entry: Option<CachedTokenizer>,
-}
-
-#[cfg(feature = "local-engine")]
-struct CachedTokenizer {
-    path: PathBuf,
-    digest: String,
-    tokenizer: std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>,
-}
-
-#[cfg(feature = "local-engine")]
-impl TokenizerCache {
-    fn load(
-        &mut self,
-        path: &Path,
-    ) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
-        use sha2::{Digest, Sha256};
-        let bytes = fs::read(path)?;
-        let digest = hex::encode(Sha256::digest(&bytes));
-        self.parse_or_reuse(path, digest, || Ok(bytes))
-    }
-    fn load_verified(
-        &mut self,
-        path: &Path,
-        verified: VerifiedArtifact,
-    ) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
-        let digest = verified.digest().to_owned();
-        self.parse_or_reuse(path, digest, move || verified.into_bytes())
-    }
-    fn parse_or_reuse(
-        &mut self,
-        path: &Path,
-        digest: String,
-        read: impl FnOnce() -> std::io::Result<Vec<u8>>,
-    ) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
-        if let Some(entry) = &self.entry {
-            if entry.path == path && entry.digest == digest {
-                return Ok(std::sync::Arc::clone(&entry.tokenizer));
-            }
-        }
-        let tokenizer = std::sync::Arc::new(
-            susi_vendor_candle::tokenizers::Tokenizer::from_bytes(read()?)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?,
-        );
-        self.entry = Some(CachedTokenizer {
-            path: path.to_owned(),
-            digest,
-            tokenizer: std::sync::Arc::clone(&tokenizer),
-        });
-        Ok(tokenizer)
-    }
-}
-
-#[cfg(feature = "local-engine")]
-fn parsed_tokenizer(
-    path: &Path,
-    verified: Option<VerifiedArtifact>,
-) -> std::io::Result<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
-    static CACHE: std::sync::OnceLock<std::sync::Mutex<TokenizerCache>> =
-        std::sync::OnceLock::new();
-    let mut cache = CACHE
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    match verified {
-        Some(file) => cache.load_verified(path, file),
-        None => cache.load(path),
-    }
-}
 
 impl ModelManager {
     /// The inference owner supplies its typed cache identity check. Model
@@ -226,11 +151,11 @@ impl ModelManager {
         }
         let model = Self::open_verified_model(path).ok()?;
         let tokenizer = Self::get_tokenizer_path(&path.to_string_lossy())?;
-        susi_vendor_models::model_license::verify_local(&tokenizer).ok()?;
+        crate::model_license::verify_local(&tokenizer).ok()?;
         Some(model)
     }
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
-        susi_vendor_models::set_selected_model_override(model_name)
+        crate::set_selected_model_override(model_name)
     }
 
     pub fn identify_best_suited_local_model(
@@ -597,7 +522,7 @@ impl ModelManager {
         Self::open_verified_model(model_path).map(drop)
     }
     pub fn open_verified_model(model_path: &Path) -> EaiResult<VerifiedArtifact> {
-        let artifact = susi_vendor_models::model_license::open_verified_local(model_path)
+        let artifact = crate::model_license::open_verified_local(model_path)
             .map_err(crate::susi_error::EaiError::governance)?;
         Self::verify_recorded_checksum(model_path, Some(artifact.digest()))?;
         Ok(artifact)
@@ -657,31 +582,8 @@ impl ModelManager {
     /// Selection and inference share one bounded parser cache. Errors reading
     /// the artifact remain retryable; only content failures become verdicts.
     fn judge_tokenizer(path: &Path) -> Option<bool> {
-        #[cfg(feature = "local-engine")]
-        {
-            return match parsed_tokenizer(path, None) {
-                Ok(_) => Some(true),
-                Err(e) if super::file_verdicts::decided_by_content(&e) => Some(false),
-                Err(_) => None,
-            };
-        }
-        #[cfg(not(feature = "local-engine"))]
-        {
-            let _ = path;
-            Some(false)
-        }
-    }
-
-    /// Resolve the same validated tokenizer used during model selection without
-    /// parsing its JSON twice. The cache retains at most one tokenizer.
-    #[cfg(feature = "local-engine")]
-    pub fn load_tokenizer(
-        path: &Path,
-    ) -> EaiResult<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
-        let verified = susi_vendor_models::model_license::open_verified_local(path)
-            .map_err(crate::susi_error::EaiError::governance)?;
-        parsed_tokenizer(path, Some(verified))
-            .map_err(|e| crate::susi_error::EaiError::inference(format!("Tokenizer Error: {e}")))
+        let _ = path;
+        Some(false)
     }
 
     pub fn get_tokenizer_path(model_id: &str) -> Option<PathBuf> {
@@ -748,41 +650,6 @@ mod selection_tests {
             1.25,
             false
         ));
-    }
-
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn tokenizer_cache_reuses_bytes_and_rejects_replaced_or_missing_artifacts() {
-        use susi_vendor_candle::tokenizers::{models::wordlevel::WordLevel, Tokenizer};
-        let dir = std::env::temp_dir().join(format!("susi-tokenizer-cache-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("tokenizer.json");
-        Tokenizer::new(WordLevel::default())
-            .save(&path, false)
-            .unwrap();
-        let original = std::fs::read(&path).unwrap();
-        let mut cache = super::TokenizerCache::default();
-        let first = cache.load(&path).unwrap();
-        assert!(std::sync::Arc::ptr_eq(&first, &cache.load(&path).unwrap()));
-
-        // Same-size replacement must never return the previously parsed file.
-        std::fs::write(&path, vec![b'x'; original.len()]).unwrap();
-        assert!(cache.load(&path).is_err());
-        std::fs::remove_file(&path).unwrap();
-        assert!(cache.load(&path).is_err());
-        std::fs::write(&path, original).unwrap();
-        assert!(cache.load(&path).is_ok());
-
-        // Retain only one parser even when many model candidates are scanned.
-        let other = dir.join("other.json");
-        Tokenizer::new(WordLevel::default())
-            .save(&other, false)
-            .unwrap();
-        cache.load(&other).unwrap();
-        assert_eq!(std::sync::Arc::strong_count(&first), 1);
-        std::fs::remove_file(path).unwrap();
-        std::fs::remove_file(other).unwrap();
-        std::fs::remove_dir(dir).unwrap();
     }
 
     #[test]

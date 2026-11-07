@@ -7,13 +7,11 @@ publish = false
 
 [dependencies]
 susi-core = { workspace = true }
-susi-vendor-candle = { workspace = true, optional = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
-susi-vendor-models = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
@@ -25,8 +23,12 @@ libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
 [features]
 default = []
-local-engine = ["dep:susi-vendor-candle"]
-metal = ["local-engine", "susi-vendor-candle/metal"]
+local-engine = []
+metal = ["local-engine"]
+
+[dev-dependencies]
+proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }
+tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 
 [lints]
 workspace = true

@@ -4,7 +4,7 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use susi_sandbox::manager::SusiConfig;
+use susi_sandbox_client::manager::SusiConfig;
 
 /// Post-boot context handed to `mission_cli`/`admin_cli` dispatchers: the
 /// live swarm master agent, loaded config, and the two canonical dirs.

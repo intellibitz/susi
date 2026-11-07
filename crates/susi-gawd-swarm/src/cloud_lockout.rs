@@ -21,14 +21,14 @@
 //! Scopes: cooldowns apply per scope key — caller chooses granularity
 //! (`provider`, `provider:region`, `provider:cred8:model`). Keys are opaque;
 //! the scope string never contains key material (use
-//! `susi_vendor_models::cloud_eligibility::credential_fingerprint`).
+//! `susi_config::cloud_eligibility::credential_fingerprint`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use susi_config::cloud_eligibility::{EligibilityKind, InferenceResult};
 use susi_core::model_health::{FailureClass, ModelHealth};
-use susi_vendor_models::cloud_eligibility::{EligibilityKind, InferenceResult};
 
 /// Clock injection point: `fn() -> u64` seconds since epoch. Tests pass a
 /// controllable counter; production passes [`now_unix`].
@@ -498,7 +498,7 @@ impl LockoutTracker {
                 retry_after_secs,
             } => {
                 let (kind, _level) =
-                    susi_vendor_models::cloud_eligibility::classify_failure(*status, body_snippet);
+                    susi_config::cloud_eligibility::classify_failure(*status, body_snippet);
                 self.entry(scope, now).last_kind = Some(kind);
                 match kind {
                     EligibilityKind::InvalidCredential

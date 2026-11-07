@@ -3,7 +3,7 @@
 
 use anyhow::{bail, Result};
 use std::process::{Command, Stdio};
-use susi_agents::external::{AgentManager, RunStatus};
+use susi_gawd::external::{AgentManager, RunStatus};
 
 use crate::cli_json::print_json;
 
