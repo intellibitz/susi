@@ -1,12 +1,12 @@
 {
   "id": "T-SOCKETDSP4-2",
-  "title": "Add protocol and routing invariant verifiers to susi-gemi retry_policy, region_failover, and thermal_routing",
-  "goal": "Implement verify_decision_invariants, verify_storm_budget_invariants, verify_telemetry_invariants, verify_plan_invariants, verify_sample_invariants, and verify_router_invariants in crates/susi-gemi with unit tests.",
+  "title": "Add invariant verifiers to susi-gemi rate_limit_scheduler, primary_election, and confidence_escalation",
+  "goal": "Implement verify_decision_invariants, verify_state_invariants, verify_rejection_invariants, verify_election_invariants, verify_ballot_invariants, verify_input_invariants, and verify_escalator_invariants in crates/susi-gemi with unit tests.",
   "state": "in_progress",
   "claimed_by": "socket-dsp4",
   "created_by": "socket-dsp4",
   "created_unix": 1794010800,
-  "updated_unix": 1794019000,
+  "updated_unix": 1794020400,
   "size": "M",
   "deps": [],
   "scope": [
@@ -19,7 +19,7 @@
     "crates/susi-gemi",
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
-  "acceptance": "cargo test -p susi-gemi --lib retry_policy --offline --locked",
+  "acceptance": "cargo test -p susi-gemi --lib rate_limit_scheduler --offline --locked",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,7 +27,7 @@
       "-p",
       "susi-gemi",
       "--lib",
-      "retry_policy",
+      "rate_limit_scheduler",
       "--offline",
       "--locked"
     ]

@@ -41,6 +41,63 @@ pub enum Rejection {
     },
 }
 
+impl Rejection {
+    /// Return the candidate provider name for this rejection entry.
+    #[must_use]
+    pub fn provider_name(&self) -> &str {
+        match self {
+            Self::Unfit { provider, .. }
+            | Self::BelowFloor { provider, .. }
+            | Self::Pricier { provider, .. } => provider.as_str(),
+        }
+    }
+
+    /// Verify structural invariants on a rejection entry.
+    pub fn verify_rejection_invariants(&self) -> Result<(), String> {
+        match self {
+            Self::Unfit {
+                provider,
+                last_failure,
+            } => {
+                if provider.trim().is_empty() {
+                    return Err("Rejection::Unfit provider must not be empty".to_string());
+                }
+                if last_failure.as_ref().is_some_and(|s| s.trim().is_empty()) {
+                    return Err("Rejection::Unfit last_failure must not be blank".to_string());
+                }
+                Ok(())
+            }
+            Self::BelowFloor {
+                provider,
+                capability,
+            } => {
+                if provider.trim().is_empty() {
+                    return Err("Rejection::BelowFloor provider must not be empty".to_string());
+                }
+                if capability.trim().is_empty() {
+                    return Err("Rejection::BelowFloor capability must not be empty".to_string());
+                }
+                Ok(())
+            }
+            Self::Pricier {
+                provider,
+                cost_per_outcome_usd,
+            } => {
+                if provider.trim().is_empty() {
+                    return Err("Rejection::Pricier provider must not be empty".to_string());
+                }
+                if cost_per_outcome_usd.is_some_and(|c| !c.is_finite() || c < 0.0) {
+                    return Err(
+                        "Rejection::Pricier cost_per_outcome_usd must be finite and non-negative"
+                            .to_string(),
+                    );
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// One election: the primary for one task class and the evidence for the
 /// choice — what the winner measured, how large the fully-working field
 /// was, and why every other candidate lost.
@@ -57,6 +114,48 @@ pub struct Election {
     /// sole working candidate, primary by default rather than exception.
     pub field: usize,
     pub rejected: Vec<Rejection>,
+}
+
+impl Election {
+    /// Verify structural invariants on an election outcome.
+    pub fn verify_election_invariants(&self) -> Result<(), String> {
+        if self.class.trim().is_empty() {
+            return Err("Election class must not be empty".to_string());
+        }
+        if self.unix == 0 {
+            return Err("Election unix timestamp must be non-zero".to_string());
+        }
+        if self.primary.trim().is_empty() {
+            return Err("Election primary provider must not be empty".to_string());
+        }
+        if self.field == 0 {
+            return Err("Election field must be >= 1".to_string());
+        }
+        if self
+            .cost_per_outcome_usd
+            .is_some_and(|c| !c.is_finite() || c < 0.0)
+        {
+            return Err(
+                "Election cost_per_outcome_usd must be finite and non-negative".to_string(),
+            );
+        }
+        if self
+            .success_rate
+            .is_some_and(|r| !r.is_finite() || !(0.0..=1.0).contains(&r))
+        {
+            return Err("Election success_rate must be finite and within 0.0..=1.0".to_string());
+        }
+        for rejection in &self.rejected {
+            rejection.verify_rejection_invariants()?;
+            if rejection.provider_name() == self.primary {
+                return Err(format!(
+                    "Election primary '{}' cannot also appear in rejected list",
+                    self.primary
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Elect the primary for `class` from one ranking. `ranked` must be in the
@@ -120,6 +219,19 @@ pub fn elect_all(names: &[String], now: u64) -> Vec<Election> {
 pub struct Ballot {
     pub unix: u64,
     pub elections: Vec<Election>,
+}
+
+impl Ballot {
+    /// Verify structural invariants on an election ballot.
+    pub fn verify_ballot_invariants(&self) -> Result<(), String> {
+        if self.unix == 0 {
+            return Err("Ballot unix timestamp must be non-zero".to_string());
+        }
+        for election in &self.elections {
+            election.verify_election_invariants()?;
+        }
+        Ok(())
+    }
 }
 
 /// Append one ballot to the elections journal — one JSON line per run.
@@ -244,5 +356,44 @@ mod inline_tests {
     fn elect_all_with_empty_candidates_returns_empty_vec() {
         assert!(elect_all(&[], 1_000).is_empty());
         assert!(elect(&[], TaskClass::Chat, 1_000).is_none());
+    }
+
+    #[test]
+    fn verify_election_rejection_and_ballot_invariants() {
+        let ranked = vec![
+            candidate("unfit-first", true, true, Some(0.001)),
+            candidate("below-floor", false, false, Some(0.002)),
+            candidate("winner", true, false, Some(0.01)),
+            candidate("runner-up", true, false, Some(0.02)),
+        ];
+        let election = elect(&ranked, TaskClass::Code, 500).unwrap();
+        assert!(election.verify_election_invariants().is_ok());
+
+        let ballot = Ballot {
+            unix: 500,
+            elections: vec![election.clone()],
+        };
+        assert!(ballot.verify_ballot_invariants().is_ok());
+
+        let zero_unix_ballot = Ballot {
+            unix: 0,
+            elections: Vec::new(),
+        };
+        assert!(zero_unix_ballot.verify_ballot_invariants().is_err());
+
+        let self_rejected = Election {
+            rejected: vec![Rejection::Pricier {
+                provider: "winner".to_string(),
+                cost_per_outcome_usd: Some(0.05),
+            }],
+            ..election.clone()
+        };
+        assert!(self_rejected.verify_election_invariants().is_err());
+
+        let invalid_rejection = Rejection::Pricier {
+            provider: "runner-up".to_string(),
+            cost_per_outcome_usd: Some(-0.1),
+        };
+        assert!(invalid_rejection.verify_rejection_invariants().is_err());
     }
 }

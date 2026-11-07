@@ -18,12 +18,51 @@ pub enum RateLimitDecision {
     Wait { ready_unix: u64, reason: String },
 }
 
+impl RateLimitDecision {
+    /// Verify structural invariants on a rate-limit scheduling decision.
+    pub fn verify_decision_invariants(&self) -> Result<(), String> {
+        match self {
+            Self::Ready => Ok(()),
+            Self::Wait { ready_unix, reason } => {
+                if *ready_unix == 0 {
+                    return Err("RateLimitDecision::Wait ready_unix must be non-zero".to_string());
+                }
+                if reason.trim().is_empty() {
+                    return Err("RateLimitDecision::Wait reason must not be empty".to_string());
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// Snapshot derived from one provider response's headers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RateLimitState {
     pub retry_after_secs: Option<u64>,
     pub remaining: Option<u64>,
     pub reset_unix: Option<u64>,
+}
+
+impl RateLimitState {
+    /// Verify structural invariants on parsed rate-limit header state.
+    pub fn verify_state_invariants(&self) -> Result<(), String> {
+        if let Some(secs) = self.retry_after_secs {
+            if secs > 86_400 {
+                return Err(format!(
+                    "RateLimitState retry_after_secs ({secs}) exceeds 86400s"
+                ));
+            }
+        }
+        if let Some(reset) = self.reset_unix {
+            if reset == 0 || reset > 10_000_000_000 {
+                return Err(format!(
+                    "RateLimitState reset_unix ({reset}) must be normalized unix seconds in 1..=10_000_000_000"
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn now_unix() -> u64 {
@@ -192,5 +231,49 @@ mod inline_tests {
                 reason: "x-ratelimit-remaining is 0".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn verify_rate_limit_state_and_decision_invariants() {
+        assert!(RateLimitDecision::Ready
+            .verify_decision_invariants()
+            .is_ok());
+        assert!(RateLimitDecision::Wait {
+            ready_unix: 1_700_000_000,
+            reason: "Retry-After: 10s".to_string(),
+        }
+        .verify_decision_invariants()
+        .is_ok());
+        assert!(RateLimitDecision::Wait {
+            ready_unix: 0,
+            reason: "Retry-After: 10s".to_string(),
+        }
+        .verify_decision_invariants()
+        .is_err());
+        assert!(RateLimitDecision::Wait {
+            ready_unix: 1_700_000_000,
+            reason: "   ".to_string(),
+        }
+        .verify_decision_invariants()
+        .is_err());
+
+        let valid_state = RateLimitState {
+            retry_after_secs: Some(60),
+            remaining: Some(10),
+            reset_unix: Some(1_700_000_000),
+        };
+        assert!(valid_state.verify_state_invariants().is_ok());
+
+        let excessive_retry = RateLimitState {
+            retry_after_secs: Some(90_000),
+            ..valid_state
+        };
+        assert!(excessive_retry.verify_state_invariants().is_err());
+
+        let unnormalized_reset = RateLimitState {
+            reset_unix: Some(1_700_000_000_000),
+            ..valid_state
+        };
+        assert!(unnormalized_reset.verify_state_invariants().is_err());
     }
 }
