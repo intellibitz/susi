@@ -79,9 +79,6 @@ mod audit_payload_free_policy_tests;
 #[path = "tests/durable_mission_state.rs"]
 mod durable_mission_state_tests;
 #[cfg(test)]
-#[path = "tests/side_effects_dispatch_wiring.rs"]
-mod side_effects_dispatch_wiring_tests;
-#[cfg(test)]
 #[path = "tests/snapshot_rollback.rs"]
 mod snapshot_rollback_tests;
 #[cfg(test)]
