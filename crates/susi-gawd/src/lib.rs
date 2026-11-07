@@ -82,7 +82,6 @@ pub mod brain_gap_triggers;
 pub mod capacity_limits;
 pub mod cloud_rsi;
 pub mod cloud_rsi_delivery;
-pub mod cloud_rsi_e2e;
 pub mod cloud_rsi_lifecycle;
 pub mod cloud_rsi_outcomes;
 pub mod cloud_session;
