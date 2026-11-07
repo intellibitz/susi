@@ -454,7 +454,12 @@ mod tests {
         imports.needed.pop();
         // The product stdlib loads a qualified OS ICU at runtime; a direct ICU
         // link would pin one distribution's major and is no longer reviewed.
-        for icu in ["libicuuc.so.76", "libicudata.so.76", "libicuuc.so.74"] {
+        for icu in [
+            "libicuuc.so.76",
+            "libicudata.so.76",
+            "libicuuc.so.74",
+            "libicuuc.so.72",
+        ] {
             imports.needed.push(icu.into());
             assert!(validate_os_imports(&imports, "x86_64-unknown-linux-gnu", true).is_err());
             imports.needed.pop();

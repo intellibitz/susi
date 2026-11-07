@@ -66,9 +66,14 @@ mod linux_icu {
     use crate::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
     /// Qualified OS ICU majors, newest first, with the exact Unicode version
-    /// each must report: ICU 76 (Debian 13) and ICU 74 (Ubuntu 24.04 LTS).
+    /// each must report: ICU 76 (Debian 13), ICU 74 (Ubuntu 24.04 LTS), and
+    /// ICU 72 (Debian 12 Bookworm).
     /// Adding a major requires running the consumer qualification against it.
-    pub const QUALIFIED: [(u8, (u8, u8, u8)); 2] = [(76, (16, 0, 0)), (74, (15, 1, 0))];
+    pub const QUALIFIED: [(u8, (u8, u8, u8)); 3] = [
+        (76, (16, 0, 0)),
+        (74, (15, 1, 0)),
+        (72, (15, 0, 0)),
+    ];
     const DIRECTORIES: [&[u8]; 8] = [
         b"/usr/lib/x86_64-linux-gnu",
         b"/lib/x86_64-linux-gnu",
@@ -164,7 +169,7 @@ mod linux_icu {
             }
         }
         panic!(
-            "no qualified OS ICU (libicuuc.so.76 or libicuuc.so.74) in a system library directory"
+            "no qualified OS ICU (libicuuc.so.76, libicuuc.so.74, or libicuuc.so.72) in a system library directory"
         );
     }
 

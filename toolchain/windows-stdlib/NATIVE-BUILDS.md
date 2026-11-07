@@ -11,11 +11,12 @@ Windows uses the existing OS ICU ABI and Unicode 15.1 contract. Linux does not
 link ICU. At the first Unicode operation it loads the newest qualified OS ICU
 present in a standard absolute system library directory (the same directory
 policy as the vendored IDNA and regex adapters) and resolves its `_<major>`
-C symbols. The qualified Linux contracts are ICU 76 with Unicode 16.0 (Debian 13)
-and ICU 74 with Unicode 15.1 (Ubuntu 24.04 LTS). The selected library must
-report exactly its recorded Unicode version; a host with neither stops with a
-message naming both libraries. `char::UNICODE_VERSION` reports 15.1.0, the
-oldest qualified repertoire. No ICU code or Unicode tables are copied into the
+C symbols. The qualified Linux contracts are ICU 76 with Unicode 16.0 (Debian 13), ICU 74
+with Unicode 15.1 (Ubuntu 24.04 LTS), and ICU 72 with Unicode 15.0 (Debian 12
+Bookworm). The selected library must report exactly its recorded Unicode
+version; a host with none stops with a message naming the qualified libraries.
+On Linux `char::UNICODE_VERSION` reports 15.0.0, the oldest qualified
+repertoire (Windows reports 15.1.0). No ICU code or Unicode tables are copied into the
 distribution, and shipped executables carry no ICU DT_NEEDED entry. The
 consumer test reads `/proc/self/maps` to identify the ICU this process loaded
 and verifies its repertoire, normalization-sensitive case conversion,
@@ -23,7 +24,7 @@ threading and unwinding. Other ICU majors require adding a contract to
 `linux_icu::QUALIFIED` and running the consumer against that library.
 
 Prerequisites are the pinned compiler with rust-src, a C compiler driver and
-LLD, system ICU 76 or 74, and system OpenSSL 3 development headers/shared libraries.
+LLD, system ICU 76, 74, or 72, and system OpenSSL 3 development headers/shared libraries.
 On x86_64 Rust supplies LLD; aarch64 needs a native installed LLD. Dependency
 provisioning happens before the offline native build. Retain toolchain/package
 caches in the cloud snapshot; do not rebuild the full workspace in install or
