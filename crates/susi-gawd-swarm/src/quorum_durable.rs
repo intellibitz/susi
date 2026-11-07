@@ -93,9 +93,7 @@ impl CommitDurability {
                     );
                 }
                 if record.seq == 0 || record.term == 0 {
-                    return Err(
-                        "CommitDurability::Durable record seq and term must be > 0".into()
-                    );
+                    return Err("CommitDurability::Durable record seq and term must be > 0".into());
                 }
                 Ok(())
             }
