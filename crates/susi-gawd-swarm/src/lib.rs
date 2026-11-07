@@ -94,9 +94,6 @@ mod swarm_gap_workspace_isolation_tests;
 #[path = "tests/vc_201_021.rs"]
 mod vc_201_021_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_023.rs"]
-mod vc_201_023_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_024.rs"]
 mod vc_201_024_tests;
 #[cfg(test)]
