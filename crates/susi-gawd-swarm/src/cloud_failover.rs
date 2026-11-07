@@ -61,24 +61,6 @@ pub struct AttemptRecord {
     pub outcome: &'static str,
 }
 
-impl AttemptRecord {
-    /// Verifies that the attempt record has a non-blank candidate identifier and a recognized outcome.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `candidate` is blank or `outcome` is not one of the
-    /// valid failover attempt classifications.
-    pub fn verify_record_invariants(&self) -> Result<(), String> {
-        if self.candidate.trim().is_empty() {
-            return Err("AttemptRecord candidate must not be blank".to_string());
-        }
-        match self.outcome {
-            "success" | "pre_dispatch" | "worker_failed" | "mid_stream" | "ambiguous" => Ok(()),
-            other => Err(format!("AttemptRecord has unrecognized outcome: {other}")),
-        }
-    }
-}
-
 /// Why failover stopped without success.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FailoverStop {
@@ -96,32 +78,6 @@ pub enum FailoverStop {
     Admission(String),
 }
 
-impl FailoverStop {
-    /// Verifies that the failover stop reason is well-formed.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `FailoverStop::Admission` has a blank reason.
-    pub fn verify_stop_invariants(&self) -> Result<(), String> {
-        match self {
-            Self::NoEligibleCandidates
-            | Self::DeadlineExceeded
-            | Self::BudgetExhausted
-            | Self::AllLockedOut => Ok(()),
-            Self::AttemptBudgetExhausted { used } => {
-                let _ = used;
-                Ok(())
-            }
-            Self::Admission(reason) => {
-                if reason.trim().is_empty() {
-                    return Err("FailoverStop::Admission reason must not be blank".to_string());
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
 /// The result of a failover run.
 #[derive(Debug)]
 pub struct FailoverResult {
@@ -136,50 +92,6 @@ pub struct FailoverResult {
     pub prior_ambiguous: bool,
     /// Why we stopped, when `output` is `None`.
     pub stop: Option<FailoverStop>,
-}
-
-impl FailoverResult {
-    /// Verifies invariants of a failover run result.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if any attempt record or stop reason is invalid,
-    /// if `output.is_some() != winner.is_some()`, if a successful result lacks a trailing
-    /// `"success"` attempt, if an unsuccessful result lacks a `stop` reason, or if
-    /// `prior_ambiguous` disagrees with the recorded attempts.
-    pub fn verify_result_invariants(&self) -> Result<(), String> {
-        for attempt in &self.attempts {
-            attempt.verify_record_invariants()?;
-        }
-        if let Some(stop) = &self.stop {
-            stop.verify_stop_invariants()?;
-        }
-        if self.output.is_some() != self.winner.is_some() {
-            return Err(
-                "FailoverResult output and winner must both be Some or both None".to_string(),
-            );
-        }
-        if self.output.is_some() {
-            let Some(last) = self.attempts.last() else {
-                return Err("FailoverResult with output must have at least one attempt".to_string());
-            };
-            if last.outcome != "success" {
-                return Err(
-                    "FailoverResult with output must end with a success attempt".to_string()
-                );
-            }
-        } else if self.stop.is_none() {
-            return Err("FailoverResult without output must record a stop reason".to_string());
-        }
-        let has_ambiguous = self.attempts.iter().any(|a| a.outcome == "ambiguous");
-        if self.prior_ambiguous != has_ambiguous {
-            return Err(
-                "FailoverResult prior_ambiguous must match presence of ambiguous attempts"
-                    .to_string(),
-            );
-        }
-        Ok(())
-    }
 }
 
 /// The shared stores a failover run reads and writes.
@@ -207,25 +119,6 @@ pub struct FailoverBudget {
     pub attempt_estimate_micros: u64,
     /// Injected clock at run start, same ms domain as `deadline_ms`.
     pub now_ms: u64,
-}
-
-impl FailoverBudget {
-    /// Verifies that the failover budget has a positive attempt bound and non-expired initial deadline.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `max_attempts == 0` or if `deadline_ms < now_ms`.
-    pub fn verify_budget_invariants(&self) -> Result<(), String> {
-        if self.max_attempts == 0 {
-            return Err("FailoverBudget max_attempts must be > 0".to_string());
-        }
-        if let Some(dl) = self.deadline_ms {
-            if dl < self.now_ms {
-                return Err("FailoverBudget deadline_ms must be >= now_ms".to_string());
-            }
-        }
-        Ok(())
-    }
 }
 
 /// Injected executor: perform one attempt against `candidates[index]`.
@@ -842,87 +735,5 @@ mod tests {
         assert_eq!(out.winner, Some(0));
         assert_eq!(runner.observed_before_dispatch, Some(50));
         assert_eq!(ledger.account_exposure(""), 7);
-    }
-
-    #[test]
-    fn cloud_failover_verify_swarm_wave13_invariants() {
-        let valid_rec = AttemptRecord {
-            candidate: "acme/m1/12345678".into(),
-            outcome: "success",
-        };
-        assert!(valid_rec.verify_record_invariants().is_ok());
-        assert!(AttemptRecord {
-            candidate: "  ".into(),
-            outcome: "success",
-        }
-        .verify_record_invariants()
-        .is_err());
-        assert!(AttemptRecord {
-            candidate: "acme/m1/12345678".into(),
-            outcome: "unknown_outcome",
-        }
-        .verify_record_invariants()
-        .is_err());
-
-        assert!(FailoverStop::NoEligibleCandidates
-            .verify_stop_invariants()
-            .is_ok());
-        assert!(FailoverStop::Admission("quota cap".into())
-            .verify_stop_invariants()
-            .is_ok());
-        assert!(FailoverStop::Admission("  ".into())
-            .verify_stop_invariants()
-            .is_err());
-
-        let valid_budget = budget();
-        assert!(valid_budget.verify_budget_invariants().is_ok());
-        assert!(FailoverBudget {
-            max_attempts: 0,
-            ..valid_budget
-        }
-        .verify_budget_invariants()
-        .is_err());
-        assert!(FailoverBudget {
-            deadline_ms: Some(T0_MS - 1),
-            ..valid_budget
-        }
-        .verify_budget_invariants()
-        .is_err());
-
-        let valid_success = FailoverResult {
-            output: Some("ok".into()),
-            winner: Some(0),
-            attempts: vec![valid_rec],
-            prior_ambiguous: false,
-            stop: None,
-        };
-        assert!(valid_success.verify_result_invariants().is_ok());
-
-        let mismatched_winner = FailoverResult {
-            output: Some("ok".into()),
-            winner: None,
-            attempts: Vec::new(),
-            prior_ambiguous: false,
-            stop: None,
-        };
-        assert!(mismatched_winner.verify_result_invariants().is_err());
-
-        let missing_stop = FailoverResult {
-            output: None,
-            winner: None,
-            attempts: Vec::new(),
-            prior_ambiguous: false,
-            stop: None,
-        };
-        assert!(missing_stop.verify_result_invariants().is_err());
-
-        let dishonest_ambiguous = FailoverResult {
-            output: None,
-            winner: None,
-            attempts: Vec::new(),
-            prior_ambiguous: true,
-            stop: Some(FailoverStop::NoEligibleCandidates),
-        };
-        assert!(dishonest_ambiguous.verify_result_invariants().is_err());
     }
 }
