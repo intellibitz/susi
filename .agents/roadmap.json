@@ -112,7 +112,7 @@
       "id": "VC-201-008",
       "mastery_target": "Attach independently reviewed invariants to eligible pure reflexes and state machines using proptest; minimized counterexamples reproduce against the exact failing artifact.",
       "priority": "P1",
-      "progress": "DELIVERED: eligible pure reflexes and state machines carry allowlisted property and metamorphic invariants, and a minimized counterexample reproduces against the exact failing artifact. Verified by `crates/susi-gawd/src/tests/vc_201_008.rs`: allowlist_rejects_unknown, counterexample_reproduces, metamorphic_whitespace_holds. Evidence: T-CLAUDE-355.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-frontier-lab::intent_invariants): eligible pure reflexes and state machines carry allowlisted property and metamorphic invariants, and a minimized counterexample reproduces against the exact failing artifact. Verified by `crates/susi-gawd/src/tests/vc_201_008.rs`: allowlist_rejects_unknown, counterexample_reproduces, metamorphic_whitespace_holds. Evidence: T-CLAUDE-355.",
       "type": "RSI_EVALUATION",
       "vector": "Generate property and metamorphic intent checks"
     },
