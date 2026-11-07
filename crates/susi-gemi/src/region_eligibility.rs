@@ -16,42 +16,11 @@ pub struct RegionMeta {
     pub provenance: RegionProvenance,
 }
 
-impl RegionMeta {
-    /// Verify structural invariants on region residency metadata.
-    pub fn verify_region_meta_invariants(&self) -> Result<(), String> {
-        if self.region.trim().is_empty() {
-            return Err("RegionMeta region must not be empty".to_string());
-        }
-        match self.provenance {
-            RegionProvenance::Verified | RegionProvenance::OperatorAttested => Ok(()),
-            RegionProvenance::Unknown => {
-                Err("RegionMeta provenance must not be Unknown for attested residency".to_string())
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudTarget {
     pub provider: String,
     pub model: String,
     pub region: Option<RegionMeta>,
-}
-
-impl CloudTarget {
-    /// Verify structural invariants on a cloud target and its optional region metadata.
-    pub fn verify_target_invariants(&self) -> Result<(), String> {
-        if self.provider.trim().is_empty() {
-            return Err("CloudTarget provider must not be empty".to_string());
-        }
-        if self.model.trim().is_empty() {
-            return Err("CloudTarget model must not be empty".to_string());
-        }
-        if let Some(meta) = &self.region {
-            meta.verify_region_meta_invariants()?;
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,39 +159,5 @@ mod inline_tests {
         assert!(encoded.contains("operator_attested"));
         let decoded: CloudTarget = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, target);
-    }
-
-    #[test]
-    fn verify_cloud_target_and_region_meta_invariants() {
-        let valid_target = CloudTarget {
-            provider: "vertex".to_string(),
-            model: "gemini-2.5-pro".to_string(),
-            region: Some(RegionMeta {
-                region: "us-central1".to_string(),
-                provenance: RegionProvenance::Verified,
-            }),
-        };
-        assert!(valid_target.verify_target_invariants().is_ok());
-
-        let unpinned_target = CloudTarget {
-            region: None,
-            ..valid_target.clone()
-        };
-        assert!(unpinned_target.verify_target_invariants().is_ok());
-
-        let unknown_provenance = CloudTarget {
-            region: Some(RegionMeta {
-                region: "us-central1".to_string(),
-                provenance: RegionProvenance::Unknown,
-            }),
-            ..valid_target.clone()
-        };
-        assert!(unknown_provenance.verify_target_invariants().is_err());
-
-        let blank_provider = CloudTarget {
-            provider: "   ".to_string(),
-            ..valid_target
-        };
-        assert!(blank_provider.verify_target_invariants().is_err());
     }
 }
