@@ -122,6 +122,63 @@ fn no_github_actions_workflow_returns() {
     );
 }
 
+/// The `[profile.<name>]` table of `Cargo.toml`: one `key = value` per row, comments
+/// dropped, until the next table.
+fn profile_table(manifest: &str, name: &str) -> Vec<(String, String)> {
+    let header = format!("[profile.{name}]");
+    let mut rows = Vec::new();
+    let mut inside = false;
+    for line in manifest.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.starts_with('[') {
+            inside = line == header;
+            continue;
+        }
+        if inside {
+            if let Some((key, value)) = line.split_once('=') {
+                rows.push((key.trim().to_string(), value.trim().to_string()));
+            }
+        }
+    }
+    assert!(!rows.is_empty(), "Cargo.toml has no {header} table");
+    rows
+}
+
+fn profile_setting<'a>(rows: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    rows.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+}
+
+/// Release builds are optimized builds: `cargo local-build production` and the
+/// installer's `--release` build what ships, so the release profile optimizes,
+/// strips, aborts on panic and carries no incremental cache, and `dist` keeps
+/// the max-opt settings for published binaries. 58062432f had set the release
+/// profile to opt-level 0 for faster iteration, which the dev and test profiles
+/// provide instead; a release built that way is not a release.
+#[test]
+fn release_profiles_stay_optimized() {
+    let manifest = read("Cargo.toml");
+    let release = profile_table(&manifest, "release");
+    assert_eq!(
+        profile_setting(&release, "opt-level"),
+        Some("3"),
+        "{release:?}"
+    );
+    assert_eq!(profile_setting(&release, "panic"), Some("\"abort\""));
+    assert_eq!(profile_setting(&release, "strip"), Some("true"));
+    assert_eq!(profile_setting(&release, "incremental"), Some("false"));
+    assert!(
+        matches!(
+            profile_setting(&release, "lto"),
+            Some("\"thin\"" | "\"fat\"" | "true")
+        ),
+        "{release:?}"
+    );
+    let dist = profile_table(&manifest, "dist");
+    assert_eq!(profile_setting(&dist, "inherits"), Some("\"release\""));
+    assert_eq!(profile_setting(&dist, "lto"), Some("\"fat\""));
+    assert_eq!(profile_setting(&dist, "codegen-units"), Some("1"));
+}
+
 /// A shell function's definition as `text` writes it: `name() {` through the
 /// `}` that closes it at the start of a line.
 fn shell_function(text: &str, name: &str) -> String {
