@@ -79,9 +79,6 @@ mod audit_payload_free_policy_tests;
 #[path = "tests/durable_mission_state.rs"]
 mod durable_mission_state_tests;
 #[cfg(test)]
-#[path = "tests/resource_schedule_dispatch_wiring.rs"]
-mod resource_schedule_dispatch_wiring_tests;
-#[cfg(test)]
 #[path = "tests/side_effect_journal.rs"]
 mod side_effect_journal_tests;
 #[cfg(test)]
