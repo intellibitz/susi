@@ -42,7 +42,6 @@ pub mod audit_export;
 pub mod broker;
 pub mod bus;
 pub mod capability_bus;
-pub mod capability_contract;
 pub mod capture;
 pub mod commit_log;
 pub mod commit_log_report;
@@ -151,12 +150,6 @@ mod capability_bus_tests;
 #[cfg(test)]
 #[path = "tests/vc_200_001.rs"]
 mod vc_200_001_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_071_mastery.rs"]
-mod vc_201_071_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_071.rs"]
-mod vc_201_071_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_074_mastery.rs"]
 mod vc_201_074_mastery_tests;
