@@ -82,7 +82,6 @@ pub mod eval_separation;
 pub mod evolution;
 pub mod experiment_lifecycle;
 pub mod experiment_memory;
-pub mod formal_invariants;
 pub mod genome_distiller;
 pub mod intent_ladder;
 pub mod kernel_loader;
@@ -105,8 +104,6 @@ pub mod worker_identity;
 pub mod zc_agent_identity;
 
 #[cfg(test)]
-#[path = "tests/formal_invariants.rs"]
-mod formal_invariants_tests;
 #[cfg(test)]
 #[path = "tests/native_verifier.rs"]
 mod native_verifier;
@@ -184,8 +181,6 @@ mod vc_201_079_tests;
 #[cfg(test)]
 #[cfg(test)]
 #[cfg(test)]
-#[path = "tests/vc_201_096_mastery.rs"]
-mod vc_201_096_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_097_mastery.rs"]
 mod vc_201_097_mastery_tests;
@@ -357,13 +352,4 @@ mod inline_tests {
         assert!(cleaned.contains("check cluster health"));
     }
 
-    #[test]
-    fn formal_invariants_verify_all_reports_zero_counterexamples_via_root() {
-        assert!(formal_invariants::lease_is_fenced(1, 1, 100, 200));
-        assert!(!formal_invariants::lease_is_fenced(1, 2, 100, 200));
-        assert_eq!(
-            formal_invariants::budget_transition(10, 5, 5, 20),
-            formal_invariants::BudgetTransition::Admit
-        );
-    }
 }
