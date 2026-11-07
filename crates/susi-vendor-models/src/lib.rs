@@ -39,7 +39,6 @@ pub mod eco_taxonomy;
 pub mod frontier;
 pub mod gguf_inspector;
 pub mod hf_discovery;
-pub mod infer_batch;
 pub mod key_rotation;
 pub mod llamacpp_launcher;
 pub mod local_ecosystem;
@@ -81,11 +80,7 @@ mod vc_201_044_mastery_tests;
 #[path = "tests/vc_201_044.rs"]
 mod vc_201_044_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_046_mastery.rs"]
-mod vc_201_046_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_046.rs"]
-mod vc_201_046_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_050.rs"]
 mod vc_201_050_tests;
