@@ -120,7 +120,6 @@ pub mod rsi_generations;
 pub mod rsi_promotion;
 pub mod scorecard;
 pub mod self_validation;
-pub mod tasks_from_brain;
 pub mod tasks_from_ci;
 pub mod telemetry;
 pub mod worker_identity;
