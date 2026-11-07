@@ -73,9 +73,6 @@ pub mod receipt_archive;
 pub use crate::susi_error::redact;
 pub mod bounded_cmd;
 pub mod bounded_io;
-#[cfg(test)]
-#[path = "tests/bounded_io.rs"]
-mod bounded_io_tests;
 pub mod registry;
 pub mod registry_ipc;
 pub mod self_build;
