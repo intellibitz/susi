@@ -47,14 +47,6 @@ pub mod candle_nn {
     pub mod ops {
         pub use ::candle_nn::ops::{log_softmax, sigmoid, silu, softmax, softmax_last_dim};
     }
-
-    pub(crate) mod kv_cache {
-        pub use ::candle_nn::kv_cache::ConcatKvCache;
-    }
-
-    pub(crate) mod rotary_emb {
-        pub use ::candle_nn::rotary_emb::rope;
-    }
 }
 
 /// Model implementations used by Susi's selected model dispatch.
@@ -80,28 +72,8 @@ pub mod candle_transformers {
         pub mod quantized_llama {
             pub use ::candle_transformers::models::quantized_llama::ModelWeights;
         }
-
-        pub(crate) mod quantized_qwen3 {
-            pub use ::candle_transformers::models::quantized_qwen3::{Gguf, RotaryEmbedding};
-        }
-
-        pub(crate) mod with_tracing {
-            pub use ::candle_transformers::models::with_tracing::QMatMul;
-        }
-    }
-
-    pub(crate) mod quantized_nn {
-        pub use ::candle_transformers::quantized_nn::RmsNorm;
-    }
-
-    pub(crate) mod utils {
-        pub use ::candle_transformers::utils::{build_additive_causal_mask, repeat_kv};
     }
 }
-
-pub mod device;
-pub mod moe_gguf;
-pub mod qwen2_split;
 
 #[cfg(test)]
 mod tests {
