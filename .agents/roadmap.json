@@ -422,7 +422,7 @@
       "id": "VC-201-034",
       "mastery_target": "Advertise supported wire and ledger versions with explicit minimum security requirements; mixed-version tests accept compatible peers and reject unsupported or insecure downgrades with actionable errors.",
       "priority": "P1",
-      "progress": "DELIVERED: federation advertisement negotiates supported wire and ledger versions against explicit minimum security requirements - a compatible peer is accepted and an unsupported or insecure downgrade is rejected. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_034.rs`: accepts_compatible_peer, rejects_unsupported_and_insecure_downgrade. Evidence: T-CLAUDE-368.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::federation_compat): federation advertisement negotiates supported wire and ledger versions against explicit minimum security requirements - a compatible peer is accepted and an unsupported or insecure downgrade is rejected. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_034.rs`: accepts_compatible_peer, rejects_unsupported_and_insecure_downgrade. Evidence: T-CLAUDE-368.",
       "type": "FEDERATION",
       "vector": "Negotiate federation protocol compatibility"
     },
