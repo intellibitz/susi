@@ -357,9 +357,52 @@ fn clone_claimed(c: &ClaimedWork) -> ClaimedWork {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parallel_roadmap_e2e_tests::Rendezvous;
     use std::collections::{BTreeMap, BTreeSet};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Condvar, Mutex};
+
+    struct Rendezvous {
+        state: Mutex<usize>,
+        cv: Condvar,
+        want: usize,
+    }
+    impl Rendezvous {
+        fn new(want: usize) -> Self {
+            Self {
+                state: Mutex::new(0),
+                cv: Condvar::new(),
+                want,
+            }
+        }
+        fn arrivals(&self) -> usize {
+            *self.state.lock().unwrap_or_else(|e| e.into_inner())
+        }
+        fn arrive(&self, timeout: Duration) -> bool {
+            let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *g += 1;
+            if *g >= self.want {
+                self.cv.notify_all();
+                return true;
+            }
+            let deadline = Instant::now() + timeout;
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return false;
+                }
+                let (g2, res) = self
+                    .cv
+                    .wait_timeout(g, remaining)
+                    .unwrap_or_else(|e| e.into_inner());
+                g = g2;
+                if *g >= self.want {
+                    return true;
+                }
+                if res.timed_out() {
+                    return false;
+                }
+            }
+        }
+    }
     use std::thread;
     use std::time::{Duration, Instant};
     use susi_gawd_agents::cloud_budget::{BudgetLedger, SpendPolicy};
