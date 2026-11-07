@@ -172,19 +172,28 @@ mod inline_tests {
 
         let bad_prefix = HttpProvider {
             name: "deepseek".to_string(),
-            ..valid_provider.clone()
+            api_base: "https://api.deepseek.com/v1".to_string(),
+            model: "deepseek-coder".to_string(),
+            protocol: InferenceProtocol::OpenAiChat,
+            api_key: "sk-test-key".to_string(),
         };
         assert!(verify_coding_provider_invariants(&bad_prefix).is_err());
 
         let bad_base = HttpProvider {
+            name: "coding-deepseek".to_string(),
             api_base: "ftp://api.deepseek.com".to_string(),
-            ..valid_provider.clone()
+            model: "deepseek-coder".to_string(),
+            protocol: InferenceProtocol::OpenAiChat,
+            api_key: "sk-test-key".to_string(),
         };
         assert!(verify_coding_provider_invariants(&bad_base).is_err());
 
         let blank_key = HttpProvider {
+            name: "coding-deepseek".to_string(),
+            api_base: "https://api.deepseek.com/v1".to_string(),
+            model: "deepseek-coder".to_string(),
+            protocol: InferenceProtocol::OpenAiChat,
             api_key: "   ".to_string(),
-            ..valid_provider
         };
         assert!(verify_coding_provider_invariants(&blank_key).is_err());
     }
