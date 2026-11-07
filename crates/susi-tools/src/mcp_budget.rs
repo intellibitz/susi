@@ -56,25 +56,19 @@ pub(crate) fn call(
     arguments: Value,
 ) -> Result<String, String> {
     authorize_transport(&config_, MacPolicy::global())?;
-    let cfg = config();
-    susi_vendor_mcp::call_blocking_result(
-        config_,
-        name,
-        arguments,
-        Duration::from_secs(cfg.execution_lease_secs()),
-        Duration::from_secs(cfg.cloud_scout_timeout_secs()),
-    )
+    let _cfg = config();
+    let _ = (&name, &arguments);
+    Err(format!(
+        "MCP client adapter for `{name}` moved to susi-commercial-apps (susi-ecosystem-hub)"
+    ))
 }
 
 /// Catalog probe: lease capped at 30s, handshake at 10s.
 pub(crate) fn list_tools(config_: McpServerConfig) -> Result<Vec<(String, String)>, String> {
     authorize_transport(&config_, MacPolicy::global())?;
-    let cfg = config();
-    susi_vendor_mcp::list_tools_blocking(
-        config_,
-        Duration::from_secs(cfg.execution_lease_secs().min(30)),
-        Duration::from_secs(cfg.cloud_scout_timeout_secs().min(10)),
-    )
+    let _cfg = config();
+    let _ = Duration::from_secs(0);
+    Err("MCP client adapter moved to susi-commercial-apps (susi-ecosystem-hub)".into())
 }
 
 #[cfg(test)]
