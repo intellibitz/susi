@@ -129,7 +129,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-gawd-agents", 6),
     ("susi-gmcp", 5),
     ("susi-server", 5),
-    ("susi-universal-cell", 5),
     ("susi-gawd-swarm", 7),
     ("susi-gemi", 7),
     ("susi-gawd-a2a", 8),

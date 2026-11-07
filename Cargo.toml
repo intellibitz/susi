@@ -36,7 +36,6 @@ members = [
     "crates/susi-gawd-a2a",
     "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon", "crates/susi-server",
     "crates/susi-harness",
-    "crates/susi-universal-cell",
     "crates/susi-vendor-anyhow",
     "crates/susi-vendor-axum",
     "crates/susi-vendor-base64",
