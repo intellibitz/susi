@@ -43,7 +43,6 @@ pub mod key_scope;
 pub mod offline_bundle;
 pub mod process_probe;
 pub mod secret_ref;
-pub mod selfheal;
 pub mod setting_registry;
 pub mod setup_workflow;
 pub mod state_migration;
@@ -290,7 +289,6 @@ pub use json_util::{
 };
 pub use key_scope::{resolve_key_ref, KeyRef, KeyScope, ScopedSecret};
 pub use secret_ref::{redact_for_export, ResolvedSecret, ScopeBoundary, SecretRef, SecretVault};
-pub use selfheal::{load_or_selfheal, SelfHealReport};
 pub use state_migration::{migrate_state_dir, MigrationReport};
 pub use types::*;
 pub use validate::{
@@ -326,8 +324,6 @@ mod vc_201_076_mastery_tests;
 mod key_scope_tests;
 #[cfg(test)]
 #[cfg(test)]
-#[path = "tests/selfheal.rs"]
-mod selfheal_tests;
 #[cfg(test)]
 #[path = "tests/setup_workflow.rs"]
 mod setup_workflow_tests;
