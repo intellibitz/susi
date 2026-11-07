@@ -1,6 +1,6 @@
 {
   "id": "T-SOCKETDSP4-2",
-  "title": "Add Wave 12 context assembly and credential scout invariant verifiers",
+  "title": "Wave 13 susi-gemi brain explain, export, per-workspace, and learned classifier invariant verifiers",
   "goal": "Implement verify_context_invariants, verify_record_invariants, verify_report_invariants, verify_target_invariants, and verify_verdict_invariants in crates/susi-gemi with unit tests.",
   "state": "in_progress",
   "claimed_by": "socket-dsp4",
@@ -14,7 +14,7 @@
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
   "native_worker": "socket-dsp4",
-  "status": "implemented_pending_integration",
+  "status": "in_progress",
   "scopes": [
     ".agents/tasks/t-socketdsp4-2.json",
     "crates/susi-gemi"
@@ -29,10 +29,7 @@
       "--lib",
       "--offline",
       "--locked",
-      "context_assembly"
-    ],
-    "criteria": [
-      "AssembledContext, CacheRecord, CacheReport, CredentialTarget, CredentialVerdict, and ScoutReport expose fail-closed verify_*_invariants with unit tests"
+      "verify_brain_wave13_invariants"
     ]
   }
 }

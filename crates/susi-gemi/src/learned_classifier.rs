@@ -254,6 +254,95 @@ impl LearnedClassifier {
             top_features,
         })
     }
+
+    /// Verify structural invariants on the learned classifier frequency tables.
+    pub fn verify_classifier_invariants(&self) -> Result<(), String> {
+        for (feature, class_map) in &self.counts {
+            if feature.trim().is_empty() {
+                return Err("LearnedClassifier feature key must not be empty".to_string());
+            }
+            if class_map.is_empty() {
+                return Err(format!(
+                    "LearnedClassifier class map for '{feature}' must not be empty"
+                ));
+            }
+            for (class, &count) in class_map {
+                if class.trim().is_empty() {
+                    return Err(format!(
+                        "LearnedClassifier class label in '{feature}' must not be empty"
+                    ));
+                }
+                if count == 0 {
+                    return Err(format!(
+                        "LearnedClassifier count for '{feature}' -> '{class}' must be > 0"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl ClassificationPosterior {
+    /// Verify structural and probability-simplex invariants on a classification posterior.
+    pub fn verify_posterior_invariants(&self) -> Result<(), String> {
+        if self.predicted_class.trim().is_empty() {
+            return Err("ClassificationPosterior predicted_class must not be empty".to_string());
+        }
+        if self.probabilities.is_empty() {
+            return Err("ClassificationPosterior probabilities must not be empty".to_string());
+        }
+        if !self.probabilities.contains_key(&self.predicted_class) {
+            return Err(format!(
+                "ClassificationPosterior predicted_class '{}' missing from probabilities",
+                self.predicted_class
+            ));
+        }
+        let mut prob_sum = 0.0_f64;
+        for (class, &prob) in &self.probabilities {
+            if class.trim().is_empty() {
+                return Err(
+                    "ClassificationPosterior probability class key must not be empty".to_string(),
+                );
+            }
+            if !prob.is_finite() || !(0.0..=1.0).contains(&prob) {
+                return Err(format!(
+                    "ClassificationPosterior probability for '{class}' ({prob}) must be in 0.0..=1.0"
+                ));
+            }
+            prob_sum += prob;
+        }
+        if (prob_sum - 1.0).abs() > 1e-4 {
+            return Err(format!(
+                "ClassificationPosterior probabilities must sum to 1.0, got {prob_sum}"
+            ));
+        }
+        if !self.shannon_entropy_bits.is_finite() || self.shannon_entropy_bits < 0.0 {
+            return Err(format!(
+                "ClassificationPosterior shannon_entropy_bits ({}) must be finite and >= 0.0",
+                self.shannon_entropy_bits
+            ));
+        }
+        if !self.confidence.is_finite() || !(0.0..=1.0).contains(&self.confidence) {
+            return Err(format!(
+                "ClassificationPosterior confidence ({}) must be finite and in 0.0..=1.0",
+                self.confidence
+            ));
+        }
+        for (token, weight) in &self.top_features {
+            if token.trim().is_empty() {
+                return Err(
+                    "ClassificationPosterior top_features token must not be empty".to_string(),
+                );
+            }
+            if !weight.is_finite() || *weight <= 0.0 {
+                return Err(format!(
+                    "ClassificationPosterior top_features weight ({weight}) must be finite and > 0.0"
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -328,5 +417,49 @@ mod learned_classifier_tests {
         let post_back: ClassificationPosterior =
             serde_json::from_str(&post_json).expect("deserialize posterior");
         assert_eq!(post_back, post);
+    }
+
+    #[test]
+    fn verify_brain_wave13_invariants_learned_classifier() {
+        let mut c = LearnedClassifier::default();
+        c.observe("fix rust compiler bug", "coding");
+        c.observe("analyze theorem proof", "reasoning");
+        assert!(c.verify_classifier_invariants().is_ok());
+
+        let zero_count = LearnedClassifier {
+            counts: BTreeMap::from([(
+                "fix bug".to_string(),
+                BTreeMap::from([("coding".to_string(), 0)]),
+            )]),
+        };
+        assert!(zero_count.verify_classifier_invariants().is_err());
+
+        let blank_feature = LearnedClassifier {
+            counts: BTreeMap::from([(
+                "   ".to_string(),
+                BTreeMap::from([("coding".to_string(), 1)]),
+            )]),
+        };
+        assert!(blank_feature.verify_classifier_invariants().is_err());
+
+        let post = c
+            .predict_posterior("fix rust compiler")
+            .expect("posterior must resolve");
+        assert!(post.verify_posterior_invariants().is_ok());
+
+        let unnormalized = ClassificationPosterior {
+            probabilities: BTreeMap::from([
+                ("coding".to_string(), 0.2),
+                ("reasoning".to_string(), 0.2),
+            ]),
+            ..post.clone()
+        };
+        assert!(unnormalized.verify_posterior_invariants().is_err());
+
+        let bad_confidence = ClassificationPosterior {
+            confidence: 1.5,
+            ..post
+        };
+        assert!(bad_confidence.verify_posterior_invariants().is_err());
     }
 }
