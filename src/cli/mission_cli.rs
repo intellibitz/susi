@@ -34,11 +34,11 @@ use susi_server::GemiServer;
 /// chain, as text lines or one JSON array.
 pub(crate) fn audit_query(
     cwd: &std::path::Path,
-    query: &susi_sandbox::audit_chain::AuditQuery,
+    query: &susi_sandbox_client::audit_chain::AuditQuery,
     json: bool,
 ) -> std::process::ExitCode {
     let audit_file = cwd.join(".susi").join("audit.log");
-    match susi_sandbox::audit_chain::query_chain(&audit_file, query) {
+    match susi_sandbox_client::audit_chain::query_chain(&audit_file, query) {
         Ok(records) if json => match serde_json::to_string_pretty(&records) {
             Ok(output) => println!("{output}"),
             Err(error) => {
@@ -141,13 +141,16 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::Gemi => {
             // Seed bearer before binding so empty-token loopback is not an
             // unauthenticated open door on the GEMI CLI path.
-            if let Err(error) = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded() {
+            if let Err(error) =
+                susi_sandbox_client::manager::SusiConfig::ensure_api_auth_token_seeded()
+            {
                 eprintln!("[GEMI] Failed to secure host API token: {error}");
                 return std::process::ExitCode::FAILURE;
             }
             // Degrade to bundled defaults rather than panic if
             // config.json is torn by a concurrent writer.
-            let gemi_cfg = susi_sandbox::manager::SusiConfig::load(global_dir).unwrap_or_default();
+            let gemi_cfg =
+                susi_sandbox_client::manager::SusiConfig::load(global_dir).unwrap_or_default();
             let bind_address: String = gemi_cfg
                 .get("bind_address")
                 .unwrap_or_else(|| "127.0.0.1".to_string());
@@ -292,7 +295,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             },
             Some(AuditCommands::Verify { since }) => {
                 let audit_file = cwd.join(".susi").join("audit.log");
-                match susi_sandbox::audit_chain::verify_chain_since(&audit_file, since) {
+                match susi_sandbox_client::audit_chain::verify_chain_since(&audit_file, since) {
                     Ok(count) => {
                         if let Some(since) = since {
                             println!(
@@ -318,7 +321,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 until,
                 json,
             }) => {
-                let query = susi_sandbox::audit_chain::AuditQuery {
+                let query = susi_sandbox_client::audit_chain::AuditQuery {
                     actor,
                     mission,
                     kind,

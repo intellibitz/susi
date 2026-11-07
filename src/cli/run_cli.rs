@@ -128,7 +128,7 @@ fn read_stdin_bounded() -> io::Result<Option<String>> {
         return Ok(None);
     }
     let stdin = io::stdin();
-    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let cfg = susi_sandbox_client::manager::SusiConfig::load_global().unwrap_or_default();
     let max_size = cfg.max_stdin_size_bytes();
     let mut buffer = Vec::new();
     let mut limited = stdin.take((max_size as u64).saturating_add(1));

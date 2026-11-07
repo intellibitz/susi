@@ -227,12 +227,7 @@ fn all_supported_features_exclude_retired_accelerator_dependencies() {
 
 #[test]
 fn retired_feature_requests_fail_explicitly_before_building() {
-    for package in [
-        "susi",
-        "susi-gemi",
-        "susi-gemi-models",
-        "susi-vendor-candle",
-    ] {
+    for package in ["susi", "susi-gemi", "susi-gemi-models"] {
         for feature in ["cuda", "mkl"] {
             let output = Command::new(env!("CARGO"))
                 .args([

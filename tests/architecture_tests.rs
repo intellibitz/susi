@@ -111,7 +111,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // Black-box client of the host contract: std + JSON only; HTTP framing
     // from susi-wire-client.
     ("susi-conformance", 1),
-    ("susi-vendor-candle", 2),
     ("susi-adapters-llm", 2),
     ("susi-core", 3),
     ("susi-sandbox-client", 3),
@@ -122,7 +121,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
-    ("susi-sandbox", 5),
     ("susi-leaf-services", 6),
     ("susi-tools", 5),
     ("susi-gemi-models", 6),
@@ -147,7 +145,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-anyhow",
     "susi-vendor-axum",
     "susi-vendor-base64",
-    "susi-vendor-bollard",
     "susi-vendor-bytes",
     "susi-vendor-chacha20poly1305",
     "susi-vendor-clap",
@@ -461,32 +458,6 @@ fn layer_matrix_forbidden_edges() {
             ],
         ),
         (
-            "susi-vendor-candle",
-            &[
-                "susi-core",
-                "susi-config",
-                "susi-error",
-                "susi-paths",
-                "susi-vendor-wasmtime",
-                "susi-native-client",
-                "susi-sandbox",
-                "susi-sandbox-client",
-                "susi-http-transport",
-                "susi-adapters-llm",
-                "susi-tools",
-                "susi-agents",
-                "susi-gemi",
-                "susi-gemi-models",
-                "susi-gmcp",
-                "susi-gawd",
-                "susi-gawd-agents",
-                "susi-gawd-swarm",
-                "susi-gawd-a2a",
-                "susi-daemon",
-                "susi-server",
-            ],
-        ),
-        (
             "susi-adapters-llm",
             &[
                 "susi-core",
@@ -499,7 +470,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-sandbox-client",
                 // `susi-http-transport` is allowed: adapters-llm posts its
                 // wire shapes over the one shared transport (`post_json`).
-                "susi-vendor-candle",
                 "susi-tools",
                 "susi-agents",
                 "susi-gemi",
@@ -564,24 +534,6 @@ fn layer_matrix_forbidden_edges() {
             ],
         ),
         ("susi-daemon", &["susi-sandbox"]),
-        (
-            "susi-sandbox",
-            &[
-                "susi-tools",
-                "susi-agents",
-                "susi-gemi",
-                "susi-gemi-models",
-                "susi-gmcp",
-                "susi-gawd",
-                "susi-gawd-agents",
-                "susi-gawd-swarm",
-                "susi-gawd-a2a",
-                "susi-daemon",
-                "susi-server",
-                "susi-core",
-                "susi-vendor-wasmtime",
-            ],
-        ),
         (
             "susi-config",
             &[
@@ -925,14 +877,14 @@ fn extension_pack_manifest_schema_on_an_in_test_fixture() {
         r#"[{"id":"acme","aliases":["acme"],"api_key_env":"ACME_API_KEY"}]"#,
     )
     .unwrap();
-    let (admitted, digests) =
-        susi_sandbox::extensions::validate_pack_dir(&dir).expect("fixture pack is admissible");
+    let (admitted, digests) = susi_sandbox_client::extensions::validate_pack_dir(&dir)
+        .expect("fixture pack is admissible");
     assert_eq!(admitted.id, "acme-pack");
     assert_eq!(admitted.api_version, "1");
     assert!(digests.contains_key("manifest.json"));
     assert!(digests.contains_key("cloud-vendors.json"));
     std::fs::write(dir.join("manifest.json"), manifest("2")).unwrap();
-    let err = susi_sandbox::extensions::validate_pack_dir(&dir)
+    let err = susi_sandbox_client::extensions::validate_pack_dir(&dir)
         .expect_err("an incompatible apiVersion major is refused");
     assert!(err.contains("incompatible"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
@@ -1830,12 +1782,7 @@ fn the_lockfile_carries_fixed_zip_and_the_approved_candle_sources() {
             .filter(|package| field(package, "name").as_deref() == Some(name))
             .collect()
     };
-    let zips = named("zip");
-    assert!(
-        !zips.is_empty(),
-        "candle-core depends on zip; the lockfile names it"
-    );
-    for zip in zips {
+    for zip in named("zip") {
         let version = field(zip, "version").unwrap();
         let mut parts = version
             .split('.')
@@ -1850,38 +1797,23 @@ fn the_lockfile_carries_fixed_zip_and_the_approved_candle_sources() {
             "zip {version} carries the Dependabot advisories fixed in 9.0.5"
         );
     }
-    for crate_name in ["candle-core", "candle-nn", "candle-transformers"] {
+    for crate_name in [
+        "candle-core",
+        "candle-nn",
+        "candle-transformers",
+        "tokenizers",
+    ] {
         let found = named(crate_name);
-        assert_eq!(found.len(), 1, "one {crate_name} in the lockfile");
-        let source = field(found[0], "source").unwrap_or_default();
-        if crate_name == "candle-core" {
-            assert!(
-                source.is_empty(),
-                "candle-core uses the audited local patch"
-            );
-            let manifest = std::fs::read_to_string(workspace_root().join("Cargo.toml")).unwrap();
-            assert!(manifest.contains("candle-core = { path = \"vendor/candle-core\" }"));
-            let patched =
-                std::fs::read_to_string(workspace_root().join("vendor/candle-core/Cargo.toml"))
-                    .unwrap();
-            let version = field(found[0], "version").unwrap();
-            assert!(patched.contains(&format!("version = \"{version}\"")));
-            assert!(workspace_root()
-                .join("vendor/candle-core/LICENSE")
-                .is_file());
-        } else {
-            assert!(
-                source.starts_with("registry+"),
-                "{crate_name} comes from crates.io, not {source}"
-            );
-        }
+        assert!(
+            found.is_empty(),
+            "{crate_name} must not remain in the slim core lockfile after susi-vendor-candle migration"
+        );
     }
-    let tokenizers = named("tokenizers");
-    assert_eq!(
-        tokenizers.len(),
-        1,
-        "one tokenizers in the graph, the reason the candle patch existed"
-    );
+    let manifest = std::fs::read_to_string(workspace_root().join("Cargo.toml")).unwrap();
+    assert!(manifest.contains("candle-core = { path = \"vendor/candle-core\" }"));
+    assert!(workspace_root()
+        .join("vendor/candle-core/LICENSE")
+        .is_file());
 }
 
 /// The release installer takes the tag's published binary for a host whose

@@ -14,10 +14,10 @@ This page is the shared plan for every agent on the program. Numbers come from
 
 | Rung | Measure (four pillars, normal+build edges) | 2026-11-07 start | now |
 |------|--------------------------------------------|------------------|-----|
-| 0 | third-party crates compiled | 331 | 307 |
+| 0 | third-party crates compiled | 331 | 304 |
 | 0 | workspace crates compiled | 59 | 52 |
 | 0 | vendor facades named directly by the pillar crates | 26 | 25 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 181,916 |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 175,068 |
 | clean clone | shallow clone, `cargo check -p susi-gmcp` / `-p susi` | 60 s / 78 s online; offline impossible (crates.io) | same |
 
 Rungs, in order. Each is done when its number is on this table and the ceiling
@@ -198,3 +198,7 @@ table once the clean baseline is recorded.
   fastembed, tantivy, universal-cell deleted from core; susi-gmcp +118 lines of decoupling)
   merged in and re-pinned. Also fixed in this wave: gawd-agents tests rewrote `SUSI_HOME` under
   two different locks and raced in the gate; one shared lock now.
+- 2026-11-07 wave 1, fourth landing: iterations 341-350 (ungated; candle, bollard and the
+  sandbox crate out of core, GEMI local-engine modules re-homed in commercial) merged in:
+  susi-gemi 32,938 -> 26,548 lines, susi-gemi-models 17,514 -> 17,056, third-party 307 -> 304,
+  pillar lines 175,068; ceilings lowered to the measured values.

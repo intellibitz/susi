@@ -45,7 +45,7 @@ pub mod native {
 
 /// Sandbox and workspace management
 pub mod sandbox {
-    pub use susi_sandbox::*;
+    pub use susi_sandbox_client::*;
     /// XDG directory specifications
     pub mod xdg {
         pub use susi_paths::SusiDirs;

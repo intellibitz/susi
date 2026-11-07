@@ -1,13 +1,8 @@
 //! Inference device handle.
 //!
-//! With `local-engine` this is Candle's device. Without it the slim core still
-//! names CPU, CUDA, and Metal so hardware code can match exhaustively and
-//! report that no built-in engine is linked.
+//! Names CPU, CUDA, and Metal so hardware code can match exhaustively and
+//! report that no built-in engine is linked in the slim core.
 
-#[cfg(feature = "local-engine")]
-pub use susi_vendor_candle::candle_core::Device;
-
-#[cfg(not(feature = "local-engine"))]
 mod absent {
     /// Where a device lives. Debug text matches Candle's `DeviceLocation`
     /// for the CPU variant the slim core actually returns (`Cpu`).
@@ -53,10 +48,9 @@ mod absent {
     }
 }
 
-#[cfg(not(feature = "local-engine"))]
 pub use absent::Device;
 
-#[cfg(all(test, not(feature = "local-engine")))]
+#[cfg(test)]
 mod tests {
     use super::Device;
 

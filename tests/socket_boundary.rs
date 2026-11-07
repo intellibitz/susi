@@ -35,7 +35,7 @@ fn third_party_product_implementations_only_shrink() {
         ("crates/susi-vendor-cloud/src", 0),
         ("crates/susi-vendor-chrome/src", 0),
         ("crates/susi-vendor-web/src", 0),
-        ("crates/susi-vendor-candle/src", 4),
+        ("crates/susi-vendor-candle/src", 0),
     ];
     for (rel, ceiling) in ceilings {
         let mut files = Vec::new();
