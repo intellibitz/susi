@@ -1,25 +1,15 @@
 {
   "id": "T-ANTIGRAVITY-2",
-  "title": "Add Wave 11 provider balance and mission budget invariant verifiers in susi-harness",
-  "goal": "Add ProviderBudget::verify_budget_invariants and Budgets::verify_budgets_invariants in crates/susi-harness/src/balance.rs, plus Budget::verify_budget_invariants and Spend::verify_spend_invariants in crates/susi-harness/src/budget.rs.",
-  "state": "in_progress",
-  "status": "completed",
-  "claimed_by": "antigravity",
   "native_worker": "antigravity",
-  "created_by": "antigravity",
-  "created_unix": 1794025503,
-  "updated_unix": 1794040000,
-  "size": "M",
-  "deps": [],
-  "scope": [
-    "crates/susi-harness",
-    ".agents/tasks/T-ANTIGRAVITY-2.json"
-  ],
+  "title": "Add Wave 12 cache, catalogue, and pricing invariant verifiers in susi-harness",
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1794038400,
+  "status": "implemented_pending_integration",
+  "dependencies": [],
   "scopes": [
-    "crates/susi-harness",
-    ".agents/tasks/T-ANTIGRAVITY-2.json"
+    ".agents/tasks/t-antigravity-2.json",
+    "crates/susi-harness"
   ],
-  "acceptance": "balance::tests::balance_provider_and_budgets_verify_invariants_reject_corrupt_state and budget::tests::budget_and_spend_verify_invariants_reject_corrupt_state",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,9 +17,14 @@
       "-p",
       "susi-harness",
       "--lib",
-      "verify_invariants_reject_corrupt_state",
       "--offline",
-      "--locked"
+      "--locked",
+      "verify_invariants_reject_corrupt_state"
+    ],
+    "criteria": [
+      "CacheBounds::verify_bounds_invariants and ResponseCache::verify_cache_invariants validate cache capacity and accounting invariants",
+      "PriceCatalogue::verify_catalogue_invariants validates schema, model keys, and model prices",
+      "TokenUsage::verify_usage_invariants and ModelPrice::verify_price_invariants validate token accounting and rate invariants"
     ]
   }
 }
