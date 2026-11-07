@@ -3168,8 +3168,8 @@ struct SourceInput {
 }
 
 fn ship_scope_base(root: &Path, claim: &Claim, source: &str, publish_base: &str) -> Result<String> {
-    match scope_base(root, claim, source) {
-        Ok(base) => Ok(base),
+    let base = match scope_base(root, claim, source) {
+        Ok(base) => base,
         Err(error) => {
             let on_publish_base =
                 claim.base == publish_base || is_ancestor(root, &claim.base, publish_base)?;
@@ -3179,12 +3179,28 @@ fn ship_scope_base(root: &Path, claim: &Claim, source: &str, publish_base: &str)
             let recoverable = message.contains("accepted history does not descend")
                 || message.contains("accepted integration has no matching durable");
             if recoverable && is_ancestor(root, &claim.base, source)? && on_publish_base {
-                Ok(claim.base.clone())
+                claim.base.clone()
             } else {
-                Err(error)
+                return Err(error);
             }
         }
+    };
+    // History the source shares with the publish base is already on
+    // origin/main: ship merges onto it and gates the result, so it is not
+    // this worker's change to answer for. When origin/main advanced past the
+    // accepted integration without a receipt (a push around the gate, seen
+    // 2026-11-07: 170 commits) and the agent merged it, measuring from the
+    // accepted integration would blame every one of those files on the
+    // agent. The scope base moves up to the shared ancestor, never past
+    // anything the agent added itself.
+    let shared = git(root, &["merge-base", "--all", source, publish_base])?;
+    let shared: Vec<_> = shared.lines().collect();
+    if let [shared] = shared.as_slice() {
+        if *shared != base && is_ancestor(root, &base, shared)? {
+            return Ok((*shared).to_owned());
+        }
     }
+    Ok(base)
 }
 
 fn check_ship_source(root: &Path, claim: &Claim, publish_base: &str) -> Result<String> {
@@ -6602,8 +6618,16 @@ mod tests {
         let claim = bare_claim(&repo, &base);
         let error = scope_base(&repo, &claim, &source).unwrap_err();
         assert!(error.to_string().contains("no matching durable"), "{error}");
+        // The fallback is the claim base, raised to what the source shares
+        // with the publish base: `accepted` is already published, so only
+        // `probe.rs` on top of it is this worker's change.
         assert_eq!(
             ship_scope_base(&repo, &claim, &source, &accepted).unwrap(),
+            accepted
+        );
+        // With a publish base behind the claim base nothing is raised.
+        assert_eq!(
+            ship_scope_base(&repo, &claim, &source, &base).unwrap(),
             base
         );
         // A claim base that is not on the publish base still fails.
