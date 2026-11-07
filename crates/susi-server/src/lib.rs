@@ -35,7 +35,7 @@ pub mod prometheus_metrics;
 // the reactor for every other in-flight connection.
 
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full, StreamBody};
+use http_body_util::{BodyExt, Full};
 use hyper::body::{Frame, Incoming};
 use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::service::service_fn;
@@ -45,8 +45,6 @@ use serde_json::json;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio_stream::StreamExt;
-use tokio_stream::wrappers::ReceiverStream;
 
 use susi_core::context_graph::ContextGraph;
 use susi_core::plane_bus::{gawd, gemi, tools as plane_tools};
@@ -65,6 +63,22 @@ use dual_transport::negotiate_transport;
 use tokio_rustls::TlsAcceptor;
 
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
+
+struct MpscBody(tokio::sync::mpsc::Receiver<String>);
+
+impl hyper::body::Body for MpscBody {
+    type Data = Bytes;
+    type Error = Infallible;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        self.0
+            .poll_recv(cx)
+            .map(|opt| opt.map(|chunk| Ok(Frame::data(Bytes::from(chunk)))))
+    }
+}
 
 fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
     Full::new(chunk.into())
@@ -1210,9 +1224,7 @@ fn build_streaming_response(
             )
         },
     );
-    let stream =
-        ReceiverStream::new(rx).map(|chunk| Ok::<_, Infallible>(Frame::data(Bytes::from(chunk))));
-    let body = StreamBody::new(stream).boxed();
+    let body = MpscBody(rx).boxed();
 
     let mut response = Response::builder()
         .status(StatusCode::OK)

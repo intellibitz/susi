@@ -3421,7 +3421,6 @@ dependencies = [
  "susi-vendor-sha2",
  "susi-vendor-tokio",
  "susi-vendor-tokio-rustls",
- "susi-vendor-tokio-stream",
  "susi-vendor-tracing",
 ]
 
