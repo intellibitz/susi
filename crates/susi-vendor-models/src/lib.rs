@@ -39,7 +39,6 @@ pub mod hf_discovery;
 pub mod key_rotation;
 pub mod local_ecosystem;
 pub mod model_license;
-pub mod npu_detection;
 pub mod open_weight;
 pub mod openrouter;
 pub mod price_catalog;

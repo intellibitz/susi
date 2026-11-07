@@ -368,9 +368,6 @@ pub fn accelerators(p: &dyn Probe) -> Vec<Accelerator> {
     if let Some(path) = p.which("sycl-ls").or_else(|| p.which("xpu-smi")) {
         add("oneapi", path.display().to_string());
     }
-    for n in crate::npu_detection::npus(p) {
-        add(n.backend, n.evidence);
-    }
     out
 }
 
