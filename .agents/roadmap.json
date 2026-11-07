@@ -1449,7 +1449,7 @@
       "id": "VC-202-015",
       "mastery_target": "A task the system proposed for itself is implemented, gated, merged, released and promoted by the workflow, with the whole loop measured - elapsed time, cost, defects - in a reproducible scorecard a human can read and stop.",
       "priority": "P1",
-      "progress": "DELIVERED (T-GAWDSWARM-2): `crates/susi-gawd/src/autonomous_builder.rs` (`run_cycle`, `record_rsi_event`, `read_rsi_events`, `compute_rsi_scorecard`) emits structured `.agents/rsi-loop.jsonl` lifecycle events (`select`, `patch`, `test`, `verdict`) and computes reproducible `RsiScorecard` metrics (acceptance rate, revert rate, net test delta) alongside `tests/vc_202_015_mastery.rs` and `scripts/check-rsi-scorecard.py`.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-202-015.json): (T-GAWDSWARM-2): `crates/susi-gawd/src/autonomous_builder.rs` (`run_cycle`, `record_rsi_event`, `read_rsi_events`, `compute_rsi_scorecard`) emits structured `.agents/rsi-loop.jsonl` lifecycle events (`select`, `patch`, `test`, `verdict`) and computes reproducible `RsiScorecard` metrics (acceptance rate, revert rate, net test delta) alongside `tests/vc_202_015_mastery.rs` and `scripts/check-rsi-scorecard.py`.",
       "type": "RSI_EXECUTION",
       "vector": "The self-build loop closes end to end"
     },
