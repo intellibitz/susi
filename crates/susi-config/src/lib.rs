@@ -42,7 +42,6 @@ mod json_util;
 pub mod key_rotation;
 pub mod key_scope;
 pub mod keyring_storage;
-pub mod managed_drift;
 pub mod offline_bundle;
 pub mod plan_apply;
 pub mod process_probe;
@@ -361,12 +360,6 @@ mod vc_201_063_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_063.rs"]
 mod vc_201_063_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_064_mastery.rs"]
-mod vc_201_064_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_064.rs"]
-mod vc_201_064_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_065_mastery.rs"]
 mod vc_201_065_mastery_tests;
