@@ -25,13 +25,9 @@ pub use susi_config::{cloud_eligibility, cloud_quota};
 
 pub mod cloud;
 pub mod cloud_credentials;
-pub mod cloud_manage;
-pub mod frontier;
 pub mod hf_discovery;
 pub mod local_ecosystem;
 pub mod model_license;
-pub mod open_weight;
-pub mod openrouter;
 pub mod price_catalog;
 pub mod resource_inventory;
 pub mod resumable_downloads;

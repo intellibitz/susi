@@ -32,17 +32,20 @@ pub use susi_core;
 pub use susi_vendor_models::model_license::ModelReadWindow;
 
 pub use susi_vendor_models::{
-    cloud, cloud_manage, frontier, hf_discovery, local_ecosystem, open_weight, openrouter,
-    price_catalog, resource_inventory, runtime_lifecycle,
+    cloud, hf_discovery, local_ecosystem, price_catalog, resource_inventory, runtime_lifecycle,
 };
+pub mod cloud_manage;
 pub mod coding_models;
 mod device;
 pub(crate) mod download;
 pub mod eco_query;
+pub mod frontier;
 pub mod hardware;
 pub mod intent;
 mod lifecycle;
 pub mod model_cache;
+pub mod open_weight;
+pub mod openrouter;
 pub mod zc_first_model;
 
 pub use lifecycle::*;

@@ -4323,9 +4323,11 @@ dependencies = [
  "susi-vendor-libc",
  "susi-vendor-models",
  "susi-vendor-parking-lot",
+ "susi-vendor-proptest",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
+ "susi-vendor-tempfile",
  "susi-vendor-url",
 ]
 
