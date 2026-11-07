@@ -66,7 +66,6 @@ pub mod scout_probe;
 pub mod scout_schedule;
 pub mod seat_provider;
 pub mod spend_tracker;
-pub mod thermal_routing;
 pub mod tool_call_normalisation;
 pub mod usage_accounting;
 pub mod worker;
@@ -145,8 +144,6 @@ mod ranking_by_marginal_cost_tests;
 #[path = "tests/routing_ladder.rs"]
 mod routing_ladder_tests;
 #[cfg(test)]
-#[path = "tests/thermal_routing.rs"]
-mod thermal_routing_tests;
 // Drives the built-in Candle weight loader, which the slim default leaves out.
 #[cfg(all(test, feature = "local-engine"))]
 #[path = "tests/vc_201_042_native.rs"]
@@ -158,8 +155,6 @@ mod vc_201_045_mastery_tests;
 #[path = "tests/vc_201_047_mastery.rs"]
 mod vc_201_047_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_048_mastery.rs"]
-mod vc_201_048_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_051.rs"]
 mod vc_201_051_tests;
