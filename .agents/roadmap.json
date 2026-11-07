@@ -1153,7 +1153,7 @@
       "id": "VC-201-091",
       "mastery_target": "Carry mission, task, placement, experiment, and deployment IDs through bounded redacted logs, metrics, and traces; one failed distributed request can be followed end to end without recording credentials.",
       "priority": "P0",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-091.json, T-DEVIN20261002053148-31, 2026-10-04): bounded, redacted observability carrying mission/routing/provider spans end to end; credentials (Authorization headers, api_key, token, secret) are redacted before export; Http export actually transmits over the shared HTTP transport when egress permits; OtelSpan carries typed status_code and status_message for distributed failure tracking; and file export is bounded by generational rotation. Verified by crates/susi-core/src/tests/vc_201_091_mastery.rs.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-sovereign-rag::otel_export): (verdict .agents/roadmap-verdicts/VC-201-091.json, T-DEVIN20261002053148-31, 2026-10-04): bounded, redacted observability carrying mission/routing/provider spans end to end; credentials (Authorization headers, api_key, token, secret) are redacted before export; Http export actually transmits over the shared HTTP transport when egress permits; OtelSpan carries typed status_code and status_message for distributed failure tracking; and file export is bounded by generational rotation. Verified by crates/susi-core/src/tests/vc_201_091_mastery.rs.",
       "type": "OPERATIONS",
       "vector": "Correlate observability across models, tools, and peers"
     },
