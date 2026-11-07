@@ -42,7 +42,6 @@ pub mod key_rotation;
 pub mod key_scope;
 pub mod offline_bundle;
 pub mod process_probe;
-pub mod rekey_schedule;
 pub mod secret_ref;
 pub mod selfheal;
 pub mod setting_registry;
@@ -290,7 +289,6 @@ pub use json_util::{
     DynamicValue, ModelTier, ProviderType, StringRegistry,
 };
 pub use key_scope::{resolve_key_ref, KeyRef, KeyScope, ScopedSecret};
-pub use rekey_schedule::{evaluate_rekey_policy, RekeyPolicy, RekeyReason, RekeyScheduleDecision};
 pub use secret_ref::{redact_for_export, ResolvedSecret, ScopeBoundary, SecretRef, SecretVault};
 pub use selfheal::{load_or_selfheal, SelfHealReport};
 pub use state_migration::{migrate_state_dir, MigrationReport};
@@ -327,8 +325,6 @@ mod vc_201_076_mastery_tests;
 #[path = "tests/key_scope.rs"]
 mod key_scope_tests;
 #[cfg(test)]
-#[path = "tests/rekey_schedule.rs"]
-mod rekey_schedule_tests;
 #[cfg(test)]
 #[path = "tests/selfheal.rs"]
 mod selfheal_tests;
@@ -364,8 +360,6 @@ mod vc_201_066_tests;
 #[path = "tests/vc_201_069_mastery.rs"]
 mod vc_201_069_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_077_mastery.rs"]
-mod vc_201_077_mastery_tests;
 #[cfg(test)]
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;
