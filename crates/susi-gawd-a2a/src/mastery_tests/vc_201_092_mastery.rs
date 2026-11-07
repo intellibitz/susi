@@ -3,23 +3,6 @@
 //! Capability target: Measure availability, task success, queue delay, inference
 //! latency, and recovery duration from actual events; publish windows and
 //! denominators with explicit unknowns when samples are insufficient.
-//!
-//! Current status (refutation): The SloSample structure and publish_slos function
-//! exist to format measurements, and the tests verify correct formatting behavior
-//! (publishes_values_with_denominator, marks_unknown_when_samples_insufficient).
-//! However, there is no instrumentation in the A2A executor or task store to
-//! actually collect these five metrics from task events. Without this collection
-//! path, the capability cannot be exercised on the production path.
-//!
-//! Missing implementation:
-//!   - No availability measurement: nowhere counts task completion vs total attempts
-//!   - No task_success measurement: nowhere tracks success vs failure outcomes
-//!   - No queue_delay measurement: nowhere measures time spent queued
-//!   - No inference_latency measurement: nowhere measures execution time
-//!   - No recovery_duration measurement: nowhere measures repair/restart latency
-//!
-//! This test demonstrates the gap: the data structures are ready, but the
-//! measurement pipeline does not exist. Verdict: NOT DELIVERED.
 
 use ra2a::server::{AgentExecutor, EventQueue, RequestContext};
 use ra2a::types::{Message, Part, TaskState};
@@ -42,25 +25,22 @@ fn block_on<F: std::future::Future>(fut: F) -> F::Output {
     }
 }
 
-/// Availability measurement should count successful task completions vs total attempts.
-/// This test demonstrates that the A2A executor publishes task completion events,
-/// but there is no instrumentation to count them into an availability metric.
-/// A production implementation would:
-///   1. Subscribe to TaskState events
-///   2. Count Completed/Canceled/Failed outcomes
-///   3. Compute availability = Completed / (Completed + Failed + Canceled)
-///   4. Roll into a time-windowed sample
-///
-/// Currently: the event exists (✓), the counter does not (✗).
 #[test]
-fn vc_201_092_mastery_availability_measurement_missing() {
+fn vc_201_092_mastery_availability_measured_from_events_with_window_and_denominator() {
     use crate::executor::GawdA2AExecutor;
 
     let executor = GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("success".to_string())));
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
 
-    // Run a task that completes successfully.
+    // Before sufficient samples, publish_slos marks availability as unknown
+    let initial = executor.publish_slos(300, 1);
+    assert!(
+        initial["availability"].starts_with("unknown"),
+        "expected unknown before samples, got {}",
+        initial["availability"]
+    );
+
     let mut ctx = RequestContext::new("avail-test-1", "ctx-avail-1");
     ctx.message = Some(Message::user(vec![Part::text("task")]));
     block_on(executor.execute(&ctx, &queue)).expect("execute");
@@ -68,30 +48,17 @@ fn vc_201_092_mastery_availability_measurement_missing() {
     let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
         panic!("expected Task event");
     };
-
-    // Assertion: The event is published (✓)
     assert_eq!(task.status.state, TaskState::Completed);
 
-    // Gap: There is no mechanism to collect this into an availability metric.
-    // A complete implementation would instrument the event stream to measure:
-    //   availability = (completed tasks) / (all tasks)
-    // and roll it into a time-windowed SloSample.
-    // Current state: We can observe the event, but cannot measure availability
-    // as a windowed operational metric.
+    let sample = executor.slo_sample(300);
+    assert_eq!(sample.availability_num, 1);
+    assert_eq!(sample.availability_den, 1);
+    let published = executor.publish_slos(300, 1);
+    assert_eq!(published["availability"], "100.00% (1/1, window=300s)");
 }
 
-/// Task success measurement should count successful outcomes vs all outcomes.
-/// This test shows the executor publishes task status, but no code accumulates
-/// success/failure counts into a metric.
-/// A production implementation would:
-///   1. Subscribe to task outcomes
-///   2. Count success (status == Completed with non-error message) vs failure
-///   3. Compute task_success = successful / (successful + failed)
-///   4. Roll into a time-windowed sample
-///
-/// Currently: the outcome exists (✓), the accumulator does not (✗).
 #[test]
-fn vc_201_092_mastery_task_success_measurement_missing() {
+fn vc_201_092_mastery_task_success_measured_from_events() {
     use crate::executor::GawdA2AExecutor;
 
     let executor = GawdA2AExecutor::with_runner(std::sync::Arc::new(|intent: &str| {
@@ -125,28 +92,18 @@ fn vc_201_092_mastery_task_success_measurement_missing() {
     };
     assert_eq!(task2.status.state, TaskState::Failed);
 
-    // Assertion: Both events are published (✓)
-    // task1 is Completed, task2 is Failed
-
-    // Gap: There is no mechanism to count these into a task_success metric.
-    // A complete implementation would instrument the event stream to compute:
-    //   task_success = (completed tasks) / (all outcomes)
-    // and roll it into a time-windowed SloSample.
-    // Current state: We can observe both success and failure outcomes,
-    // but cannot measure task_success as a windowed operational metric.
+    let sample = executor.slo_sample(300);
+    assert_eq!(sample.task_success_num, 1);
+    assert_eq!(sample.task_success_den, 2);
+    let published = executor.publish_slos(300, 2);
+    assert_eq!(published["task_success"], "50.00% (1/2, window=300s)");
+    // With min_samples=3, marks unknown with explicit denominator
+    let unknown_pub = executor.publish_slos(300, 3);
+    assert!(unknown_pub["task_success"].starts_with("unknown (0/2, min_samples=3)"));
 }
 
-/// Queue delay measurement should track time from task submission to execution start.
-/// This test shows task events contain completion state, but no queue timestamps.
-/// A production implementation would:
-///   1. Record enqueue_time when task is queued (RequestContext creation)
-///   2. Record start_time when execution begins
-///   3. Compute queue_delay_ms = start_time - enqueue_time for each task
-///   4. Aggregate into a time-windowed sample (p50, p95, p99 or mean)
-///
-/// Currently: the execution happens (✓), the timestamp instrumentation does not (✗).
 #[test]
-fn vc_201_092_mastery_queue_delay_measurement_missing() {
+fn vc_201_092_mastery_queue_delay_measured_from_events() {
     use crate::executor::GawdA2AExecutor;
 
     let executor =
@@ -164,33 +121,24 @@ fn vc_201_092_mastery_queue_delay_measurement_missing() {
         panic!("expected Task event");
     };
 
-    // Assertion: The task completes (✓)
-
-    // Gap: RequestContext and TaskState do not carry timestamps.
-    // A complete implementation would:
-    //   - Add enqueue_timestamp to RequestContext (or task-store entry)
-    //   - Add execution_start_timestamp to Task status
-    //   - Compute queue_delay_ms = execution_start_timestamp - enqueue_timestamp
-    //   - Aggregate into a time-windowed sample
-    // Current state: We can run tasks, but cannot measure queue delay as a
-    // windowed operational metric because the necessary timestamps are missing.
+    let sample = executor.slo_sample(60);
+    assert_eq!(sample.queue_delay_samples, 1);
+    let published = executor.publish_slos(60, 1);
+    assert!(
+        published["queue_delay"].contains("/1, window=60s)"),
+        "expected queue_delay with denominator and window, got {}",
+        published["queue_delay"]
+    );
 }
 
-/// Inference latency measurement should track execution time for the mission.
-/// This test shows tasks execute and complete, but no instrumentation measures time.
-/// A production implementation would:
-///   1. Record execution_start_time when the mission begins
-///   2. Record execution_end_time when the mission completes
-///   3. Compute inference_latency_ms = execution_end_time - execution_start_time
-///   4. Aggregate into a time-windowed sample (p50, p95, p99 or mean)
-///
-/// Currently: the execution happens (✓), the timing instrumentation does not (✗).
 #[test]
-fn vc_201_092_mastery_inference_latency_measurement_missing() {
+fn vc_201_092_mastery_inference_latency_measured_from_events() {
     use crate::executor::GawdA2AExecutor;
 
-    let executor =
-        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("response".to_string())));
+    let executor = GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        Ok("response".to_string())
+    }));
 
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
@@ -204,33 +152,23 @@ fn vc_201_092_mastery_inference_latency_measurement_missing() {
         panic!("expected Task event");
     };
 
-    // Assertion: The task completes (✓)
-
-    // Gap: Task status does not carry execution duration.
-    // A complete implementation would:
-    //   - Measure wall-clock time from mission start to mission completion
-    //   - Store latency in Task.status or as a separate metric
-    //   - Aggregate into a time-windowed sample
-    // Current state: We can run missions and observe outcomes, but cannot measure
-    // inference latency as a windowed operational metric because execution time
-    // is not instrumented.
+    let sample = executor.slo_sample(60);
+    assert_eq!(sample.inference_latency_samples, 1);
+    assert!(
+        sample.inference_latency_total_us >= 1000,
+        "expected measured inference latency >= 1000us, got {}",
+        sample.inference_latency_total_us
+    );
+    let published = executor.publish_slos(60, 1);
+    assert!(published["inference_latency"].contains("/1, window=60s)"));
 }
 
-/// Recovery duration measurement should track time to restore a task after failure.
-/// This test shows cancellation, but no recovery mechanism or timing.
-/// A production implementation would:
-///   1. Record failure_time when a task fails
-///   2. Trigger recovery (retry, reroute, restore state)
-///   3. Record recovery_complete_time when task completes or succeeds
-///   4. Compute recovery_duration_ms = recovery_complete_time - failure_time
-///   5. Aggregate into a time-windowed sample
-///
-/// Currently: cancellation exists (✓), recovery instrumentation does not (✗).
 #[test]
-fn vc_201_092_mastery_recovery_duration_measurement_missing() {
+fn vc_201_092_mastery_recovery_duration_measured_from_events() {
     use crate::executor::GawdA2AExecutor;
 
-    let executor = GawdA2AExecutor::new();
+    let executor =
+        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("recovered".to_string())));
 
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
@@ -239,23 +177,32 @@ fn vc_201_092_mastery_recovery_duration_measurement_missing() {
     let context_id = "ctx-recovery-1";
     let ctx = RequestContext::new(task_id, context_id);
 
-    // Cancel a task (simulates a failure/recovery trigger)
+    // 1. Cancel task (starts recovery timer for task_id)
     block_on(executor.cancel(&ctx, &queue)).expect("cancel");
-
     let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
         panic!("expected Task event");
     };
     assert_eq!(task.status.state, TaskState::Canceled);
 
-    // Assertion: The cancellation is published (✓)
+    std::thread::sleep(std::time::Duration::from_millis(2));
 
-    // Gap: There is no recovery mechanism or timing instrumentation.
-    // A complete implementation would:
-    //   - Record when a task begins recovery (after failure or cancellation)
-    //   - Execute recovery steps (retry logic, state restoration, rerouting)
-    //   - Record when recovery completes or definitively fails
-    //   - Measure recovery_duration_ms as the elapsed time
-    //   - Aggregate into a time-windowed sample
-    // Current state: We can cancel tasks, but recovery is not a measured
-    // operational metric. The infrastructure for recovery timing does not exist.
+    // 2. Recover task by executing it to completion
+    let mut retry_ctx = RequestContext::new(task_id, context_id);
+    retry_ctx.message = Some(Message::user(vec![Part::text("retry mission")]));
+    block_on(executor.execute(&retry_ctx, &queue)).expect("execute recovery");
+    let ra2a::types::StreamResponse::Task(recovered_task) = rx.try_recv().expect("recovered event")
+    else {
+        panic!("expected Task event");
+    };
+    assert_eq!(recovered_task.status.state, TaskState::Completed);
+
+    let sample = executor.slo_sample(120);
+    assert_eq!(sample.recovery_duration_samples, 1);
+    assert!(sample.recovery_duration_total_us >= 1000);
+    let published = executor.publish_slos(120, 1);
+    assert!(
+        published["recovery_duration"].contains("/1, window=120s)"),
+        "expected recovery_duration with denominator and window, got {}",
+        published["recovery_duration"]
+    );
 }
