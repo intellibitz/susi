@@ -44,7 +44,6 @@ pub mod host_hooks;
 pub mod identity_revoke;
 pub mod independent_verify;
 pub mod joint_consensus;
-pub mod locality_placement;
 pub mod membership_model;
 pub mod mission_persist;
 pub mod mission_resume;
@@ -205,9 +204,6 @@ mod vc_201_037_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_038.rs"]
 mod vc_201_038_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_039.rs"]
-mod vc_201_039_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_040.rs"]
 mod vc_201_040_tests;
