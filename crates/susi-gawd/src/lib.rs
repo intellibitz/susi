@@ -72,7 +72,6 @@ pub mod action_history;
 pub mod admin;
 pub mod audit_evidence;
 pub mod autonomous_builder;
-pub mod baseline_capture;
 pub mod bloat_audit;
 pub mod brain_gap_audit;
 pub mod brain_gap_dedup;
@@ -90,30 +89,23 @@ pub mod eval_contamination;
 pub mod eval_receipt;
 pub mod eval_separation;
 pub mod evolution;
-pub mod experiment_budget;
 pub mod experiment_lifecycle;
 pub mod experiment_memory;
 pub mod formal_invariants;
-pub mod gap_priority;
 pub mod genome_distiller;
-pub mod intent_invariants;
 pub mod intent_ladder;
 pub mod kernel_loader;
 pub mod orchestrator_tier;
-pub mod paired_regression;
 pub mod patch_cycle;
 pub mod patch_fence;
 pub mod reason_trainer;
 pub mod reflex_intent;
-pub mod reflex_revisions;
 pub mod reflex_synth;
 pub mod reflex_trainer;
 pub mod reflex_verify;
 pub mod release_qualify;
 pub mod repo_gate;
-pub mod rsi_comparisons;
 pub mod rsi_corpus;
-pub mod rsi_generations;
 pub mod rsi_promotion;
 pub mod scorecard;
 pub mod self_validation;
@@ -137,9 +129,6 @@ mod vc_200_002_tests;
 #[path = "tests/vc_201_001_mastery.rs"]
 mod vc_201_001_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_002.rs"]
-mod vc_201_002_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_003_mastery.rs"]
 mod vc_201_003_mastery_tests;
 #[cfg(test)]
@@ -155,17 +144,11 @@ mod vc_201_005_mastery_tests;
 #[path = "tests/vc_201_005.rs"]
 mod vc_201_005_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_006.rs"]
-mod vc_201_006_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_007_mastery.rs"]
 mod vc_201_007_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_007.rs"]
 mod vc_201_007_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_008.rs"]
-mod vc_201_008_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_009_mastery.rs"]
 mod vc_201_009_mastery_tests;
@@ -173,17 +156,11 @@ mod vc_201_009_mastery_tests;
 #[path = "tests/vc_201_009.rs"]
 mod vc_201_009_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_010.rs"]
-mod vc_201_010_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_011_mastery.rs"]
 mod vc_201_011_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_011.rs"]
 mod vc_201_011_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_012.rs"]
-mod vc_201_012_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_013_mastery.rs"]
 mod vc_201_013_mastery_tests;
@@ -191,17 +168,11 @@ mod vc_201_013_mastery_tests;
 #[path = "tests/vc_201_013.rs"]
 mod vc_201_013_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_014.rs"]
-mod vc_201_014_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_015_mastery.rs"]
 mod vc_201_015_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_015.rs"]
 mod vc_201_015_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_016.rs"]
-mod vc_201_016_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_017_mastery.rs"]
 mod vc_201_017_mastery_tests;
@@ -220,9 +191,6 @@ mod vc_201_019_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_019.rs"]
 mod vc_201_019_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_020.rs"]
-mod vc_201_020_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_079.rs"]
 mod vc_201_079_tests;

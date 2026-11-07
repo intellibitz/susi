@@ -63,7 +63,6 @@ pub mod primary_election;
 pub mod provider_contract;
 pub mod pulse;
 pub mod rate_limit_scheduler;
-pub mod region_eligibility;
 pub mod scout_probe;
 pub mod scout_schedule;
 pub mod seat_provider;
@@ -167,9 +166,6 @@ mod vc_201_048_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_051.rs"]
 mod vc_201_051_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_054.rs"]
-mod vc_201_054_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_001_mastery.rs"]
 mod vc_202_001_mastery_tests;
