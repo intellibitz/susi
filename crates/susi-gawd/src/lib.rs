@@ -61,7 +61,8 @@ pub use susi_core;
 pub mod plane_handler;
 
 pub use susi_gawd_agents::{
-    accountability, admin_hooks, agents, axiom, brain, dag_hooks, external_peers, goal_shape, pkb,
+    accountability, adapter_upgrade, admin_hooks, agent_meta_registry, agents,
+    agents_plane_handler, axiom, brain, dag_hooks, external, external_peers, goal_shape, pkb,
     safety, scheduler, security, self_core, system_observe,
 };
 
@@ -101,6 +102,9 @@ pub mod telemetry;
 pub mod worker_identity;
 pub mod zc_agent_identity;
 
+#[cfg(test)]
+#[path = "tests/native_verifier.rs"]
+mod native_verifier;
 #[cfg(test)]
 #[path = "tests/rsi_corpus.rs"]
 mod rsi_corpus_tests;

@@ -118,26 +118,17 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-vendor-wasmtime", 2),
     ("susi-vendor-mcp", 0),
     ("susi-vendor-mcp-server", 0),
-    ("susi-vendor-tantivy", 2),
-    ("susi-vendor-fastembed", 4),
-    ("susi-vendor-chrome", 2),
     ("susi-vendor-syn", 0),
-    ("susi-vendor-cloud", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
-    ("susi-vendor-agents", 5),
-    ("susi-vendor-models", 5),
-    ("susi-vendor-web", 5),
     ("susi-sandbox", 5),
     ("susi-leaf-services", 6),
-    ("susi-agents", 6),
     ("susi-tools", 5),
     ("susi-gemi-models", 6),
     ("susi-gawd-agents", 6),
     ("susi-gmcp", 5),
     ("susi-server", 5),
-    ("susi-universal-cell", 5),
     ("susi-gawd-swarm", 7),
     ("susi-gemi", 7),
     ("susi-gawd-a2a", 8),
@@ -463,23 +454,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-gmcp",
                 "susi-tools",
                 "susi-agents",
-                "susi-daemon",
-                "susi-server",
-                "susi-sandbox",
-                "susi-vendor-wasmtime",
-            ],
-        ),
-        (
-            "susi-agents",
-            &[
-                "susi-gemi",
-                "susi-gemi-models",
-                "susi-gmcp",
-                "susi-gawd",
-                "susi-gawd-agents",
-                "susi-gawd-swarm",
-                "susi-gawd-a2a",
-                "susi-tools",
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
@@ -1369,7 +1343,7 @@ fn self_build_contract_reaches_every_code_writing_path() {
 
     for (rel, needle) in [
         (
-            "crates/susi-vendor-agents/src/external/mod.rs",
+            "crates/susi-gawd-agents/src/external/mod.rs",
             "self_build::brief_task",
         ),
         (
@@ -1519,7 +1493,7 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         (
             57,
             "max_budget_usd",
-            "crates/susi-vendor-models/src/cloud_credentials.rs",
+            "crates/susi-gemi-models/src/cloud_credentials.rs",
         ),
         (58, "GMCP 2026", "crates/susi-gmcp/src/lib.rs"),
         (
@@ -2198,7 +2172,6 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
         "crates/susi-core/Cargo.toml",
         "crates/susi-gawd-a2a/Cargo.toml",
         "crates/susi-gmcp/Cargo.toml",
-        "crates/susi-vendor-agents/Cargo.toml",
     ] {
         let manifest =
             std::fs::read_to_string(root.join(manifest_rel)).expect("read crate Cargo.toml");

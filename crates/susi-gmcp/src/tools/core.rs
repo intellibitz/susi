@@ -2458,7 +2458,7 @@ impl CoreTools {
     #[cfg(feature = "tools-rich")]
     #[tool(
         name = "browser_automate",
-        description = "DOM access and web automation via headless Chrome (susi-vendor-chrome)",
+        description = "DOM access and web automation via headless Chrome",
         input_schema = args::typed::<args::BrowserAutomate>()
     )]
     pub fn browser_automate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -2468,25 +2468,10 @@ impl CoreTools {
             .ok_or_else(|| EaiError::protocol("Missing url"))?;
         let validated_url = secure_external_url(url)?;
         let url = validated_url.as_str();
-
-        let page = susi_vendor_chrome::capture_page(url)?;
-
-        let screenshot_dir = workspace.join(".susi/screenshots");
-        let _ = fs::create_dir_all(&screenshot_dir);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let screenshot_path = screenshot_dir.join(format!("screenshot_{}.png", ts));
-        fs::write(&screenshot_path, &page.png).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        let content = page.html;
-
-        Ok(format!(
-            "Browser automation success for {}. Screenshot: {}. Content length: {} bytes.",
-            url,
-            screenshot_path.display(),
-            content.len()
-        ))
+        let _ = workspace;
+        Err(EaiError::process(format!(
+            "[CAPABILITY_GAP] Headless Chrome automation for {url} moved to susi-commercial-apps (susi-desktop)."
+        )))
     }
 
     #[cfg(feature = "tools-rich")]

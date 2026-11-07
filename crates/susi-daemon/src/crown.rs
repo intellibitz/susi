@@ -358,7 +358,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
 
     // --- Blackboard (round-trip in the scratch workspace, not the user's) ---
     let bb_path = {
-        let store = susi_agents::HighDensityContextStore::new(4);
+        let store = susi_core::HighDensityContextStore::new(4);
         store.insert("CrownCheck".into(), "ok".into());
         store.persist_inspectable(&scratch)
     };
@@ -457,7 +457,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
 
     // --- Sandbox (Wasmer critical; Docker host-gated) ---
     out.push(sandbox_check(&scratch));
-    let docker = susi_agents::external::docker_present();
+    let docker = susi_gawd::external::docker_present();
     out.push(check(
         "sandbox_docker",
         false,

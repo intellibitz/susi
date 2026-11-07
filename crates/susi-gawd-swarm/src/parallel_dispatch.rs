@@ -16,13 +16,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::thread;
 
+use susi_config::cloud_eligibility::{
+    credential_fingerprint, EligibilityKind, EligibilityStore, InferenceResult, Subject,
+};
+use susi_config::cloud_quota::QuotaInventory;
 use susi_core::model_health::ModelHealth;
 use susi_gawd_agents::cloud_budget::{BudgetLedger, Denial, FreeHeadroom, Reservation};
 use susi_gawd_agents::cloud_intent::{select, Candidate, IntentConstraints, Ranked, Selection};
-use susi_vendor_models::cloud_eligibility::{
-    credential_fingerprint, EligibilityKind, EligibilityStore, InferenceResult, Subject,
-};
-use susi_vendor_models::cloud_quota::QuotaInventory;
 
 use crate::cloud_failover::{AttemptOutcome, AttemptRecord, FailoverStop, Runner};
 use crate::cloud_lockout::{LockoutTracker, Permit};
@@ -557,8 +557,8 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use std::time::{Duration, Instant};
+    use susi_config::cloud_eligibility::Subject;
     use susi_gawd_agents::cloud_budget::SpendPolicy;
-    use susi_vendor_models::cloud_eligibility::Subject;
 
     const T0: u64 = 1_700_000_000;
     const T0_MS: u64 = T0 * 1000;

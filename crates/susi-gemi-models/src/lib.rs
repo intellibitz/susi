@@ -27,24 +27,58 @@ pub use susi_config;
 
 pub use susi_sandbox_client as susi_sandbox;
 
+pub use susi_config::{accel_reserve, cloud_eligibility, cloud_quota};
 pub use susi_core;
-pub use susi_vendor_models::model_license::ModelReadWindow;
-
-pub use susi_vendor_models::{
-    cloud, cloud_eligibility, cloud_manage, eco_consistency, eco_profile, eco_query, eco_relations,
-    eco_schema, eco_store, eco_taxonomy, frontier, hf_discovery, llamacpp_launcher,
-    local_ecosystem, open_weight, openrouter, price_catalog, resource_inventory, runtime_lifecycle,
-};
+pub mod cloud;
+pub mod cloud_credentials;
+pub mod cloud_manage;
 pub mod coding_models;
 mod device;
 pub(crate) mod download;
+pub mod eco_query;
+pub mod frontier;
 pub mod hardware;
+pub mod hf_discovery;
 pub mod intent;
 mod lifecycle;
+pub mod local_ecosystem;
 pub mod model_cache;
+pub mod model_license;
+pub mod open_weight;
+pub use model_license::ModelReadWindow;
+pub mod openrouter;
+pub mod price_catalog;
+pub mod resource_inventory;
+pub mod resumable_downloads;
+pub mod runtime_lifecycle;
+pub mod transactional_download;
 pub mod zc_first_model;
 
+#[cfg(test)]
+#[path = "tests/vc_201_041_mastery.rs"]
+mod vc_201_041_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_042.rs"]
+mod vc_201_042_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_044_mastery.rs"]
+mod vc_201_044_mastery_tests;
+
 pub use lifecycle::*;
+
+/// Write the selected-model override every inference path reads
+/// (`selected_model_override.txt` under the config dir).
+pub fn set_selected_model_override(model_name: &str) -> Result<String, String> {
+    let name = model_name.trim();
+    if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+        return Err(format!(
+            "invalid model name {model_name:?}: expected a non-empty single-line id"
+        ));
+    }
+    let model_file = susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
+    susi_config::atomic_write_bytes(&model_file, name.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(format!("Selected active model override set to: '{name}'"))
+}
 
 #[cfg(test)]
 // Test-only assertions in inline unit tests.

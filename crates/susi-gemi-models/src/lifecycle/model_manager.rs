@@ -2,15 +2,15 @@
 // 100% Rust implementation for world-scale model orchestration with expert background Stop/Pause/Resume controller & ~/Downloads testing integration
 
 use super::download_controller::{ModelDownloadController, ModelDownloadProgress};
+use crate::resumable_downloads::DownloadPlan;
 use crate::susi_core::task_manager::TaskHandle;
 use crate::susi_sandbox::manager::DynamicModelInfo;
+use crate::transactional_download::Store;
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 #[cfg(feature = "local-engine")]
 use susi_vendor_candle::candle_core::quantized::gguf_file::Content as GgufContent;
-use susi_vendor_models::resumable_downloads::DownloadPlan;
-use susi_vendor_models::transactional_download::Store;
 
 #[derive(Debug, Clone)]
 /// Filesystem-walk rules for `recursive_scan_model_dir`, loaded once per scan
@@ -437,7 +437,7 @@ impl ModelManager {
     }
 
     pub fn execute_download_stream(target: &str, task_handle: &TaskHandle) -> Result<(), String> {
-        let receipt = match susi_vendor_models::model_license::admit_download(target) {
+        let receipt = match crate::model_license::admit_download(target) {
             Ok(receipt) => receipt,
             Err(error) => {
                 Self::download_failed(target, task_handle, &error);
@@ -991,7 +991,7 @@ mod tests {
             .is_err());
         let payload = b"verified shared payload";
         fs::write(&staged, payload).unwrap();
-        let checksum = susi_vendor_models::resumable_downloads::sha256_hex(payload);
+        let checksum = crate::resumable_downloads::sha256_hex(payload);
         ModelManager::publish_download(&models, name, url, Some(&checksum), &|p| p.is_file())
             .unwrap();
         drop(lock);
@@ -1025,7 +1025,7 @@ mod tests {
         let staged = store.staging_target(file_name);
         fs::create_dir_all(staged.parent().unwrap()).unwrap();
         fs::write(&staged, payload).unwrap();
-        let checksum = susi_vendor_models::resumable_downloads::sha256_hex(payload);
+        let checksum = crate::resumable_downloads::sha256_hex(payload);
 
         let final_path = ModelManager::publish_download(
             &models_dir,
@@ -1560,7 +1560,7 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
         let (url, transport) = server(vec![("get /weights.bin ", response)]);
         let url = url.replace("model.gguf", "weights.bin");
-        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let digest = crate::resumable_downloads::sha256_hex(b"abcdefghij");
         let task = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("admitted_weight", &url);
         fixture_download(&url, &task, &models, Some(&digest)).unwrap();
@@ -1597,7 +1597,7 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij",
         )]);
         let url = url.replace("model.gguf", "weights.bin");
-        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let digest = crate::resumable_downloads::sha256_hex(b"abcdefghij");
         let task = SwarmTaskManager::global().register_task("failed_staging_manifest", &url);
         let mut recorded = false;
         let result = ModelManager::execute_download_stream_in(
@@ -1640,7 +1640,7 @@ mod tests {
         let (url, transport) = server(vec![("get /weights.bin ", response)]);
         let requested = url.replace("/model.gguf", "/resolve/main/weights.bin");
         let resolved = url.replace("model.gguf", "weights.bin");
-        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let digest = crate::resumable_downloads::sha256_hex(b"abcdefghij");
         let progress = || -> ModelDownloadProgress {
             serde_json::from_slice(&fs::read(ModelManager::progress_path(&requested)).unwrap())
                 .unwrap()
@@ -1700,7 +1700,7 @@ mod tests {
         let interrupted = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nETag: \"fixture-v1\"\r\nConnection: close\r\n\r\nabcde";
         let rest = "HTTP/1.1 206 Partial Content\r\nContent-Length: 5\r\nContent-Range: bytes 5-9/10\r\nETag: \"fixture-v1\"\r\nConnection: close\r\n\r\nfghij";
         let head = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n";
-        let digest = susi_vendor_models::resumable_downloads::sha256_hex(b"abcdefghij");
+        let digest = crate::resumable_downloads::sha256_hex(b"abcdefghij");
         for (name, pin, responses) in [
             (
                 "retry_weight",

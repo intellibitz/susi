@@ -557,15 +557,12 @@ impl EligibilityStore {
 
     /// Persist to `path` as JSON (atomic write). Bounded and secret-free by
     /// construction — observations never carry raw credentials.
-    pub fn save(&self, path: &Path) -> crate::susi_core::susi_error::EaiResult<()> {
+    pub fn save(&self, path: &Path) -> crate::susi_error::EaiResult<()> {
         if let Some(parent) = path.parent() {
-            crate::susi_config::create_private_dir(parent)
-                .map_err(|e| crate::susi_core::susi_error::EaiError::io(e.to_string()))?;
+            crate::create_private_dir(parent)
+                .map_err(|e| crate::susi_error::EaiError::io(e.to_string()))?;
         }
-        crate::susi_config::atomic_write_json_pretty(
-            path,
-            &self.observations.values().collect::<Vec<_>>(),
-        )
+        crate::atomic_write_json_pretty(path, &self.observations.values().collect::<Vec<_>>())
     }
 
     /// Load from `path`; a missing or unreadable file yields an empty store.

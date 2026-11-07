@@ -20,12 +20,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use susi_config::cloud_eligibility::InferenceResult;
 use susi_error::redact::{mask_env_credentials, redact_patterns};
 use susi_gawd_agents::cloud_intent::{Candidate, IntentConstraints};
 use susi_gawd_swarm::cloud_failover::{
     run, AttemptOutcome, FailoverBudget, FailoverResult, Runner, Stores,
 };
-use susi_vendor_models::cloud_eligibility::InferenceResult;
 
 // ---------------------------------------------------------------- evidence
 
@@ -866,11 +866,11 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use std::sync::Mutex;
+    use susi_config::cloud_eligibility::EligibilityStore;
+    use susi_config::cloud_quota::QuotaInventory;
     use susi_gawd_agents::cloud_budget::{BudgetLedger, SpendPolicy};
     use susi_gawd_swarm::cloud_failover::FailoverStop;
     use susi_gawd_swarm::cloud_lockout::{now_unix, LockoutPolicy, LockoutTracker};
-    use susi_vendor_models::cloud_eligibility::EligibilityStore;
-    use susi_vendor_models::cloud_quota::QuotaInventory;
 
     const NOW_MS: u64 = 1_700_000_000_000;
 

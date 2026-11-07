@@ -1,5 +1,4 @@
 use crate::susi_sandbox::manager::ModelLadderConfigStep;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 
@@ -563,18 +562,31 @@ fn fetch_dynamic_ladder(
             siblings: Vec::new(),
         });
     }
-    let Ok(pool) = rayon::ThreadPoolBuilder::new().num_threads(4).build() else {
-        return Vec::new();
-    };
-    let steps = pool.install(|| {
-        models
-            .into_par_iter()
-            .filter_map(|model| {
+    let queue = Mutex::new(models.into_iter());
+    let out = Mutex::new(Vec::new());
+    let hdr_refs = hf_header_refs(&auth);
+    std::thread::scope(|s| {
+        for _ in 0..4 {
+            s.spawn(|| loop {
+                let Some(model) = queue
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .next()
+                else {
+                    break;
+                };
                 let base_repo = declared_base_model(model.card_data, &model.tags);
-                resolve_repo_step(cfg, model.id, base_repo, None, &hf_header_refs(&auth))
-            })
-            .collect()
+                if let Some(step) = resolve_repo_step(cfg, model.id, base_repo, None, &hdr_refs) {
+                    out.lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(step);
+                }
+            });
+        }
     });
+    let steps = out
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     compact_ladder(steps, policy.max_ladder_tiers, policy.ladder_size_ratio)
 }
 

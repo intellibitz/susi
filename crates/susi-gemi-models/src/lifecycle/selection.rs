@@ -1,10 +1,10 @@
 //! Model selection, preference scoring, and active engine/model overrides.
 
+use crate::model_license::VerifiedArtifact;
 use crate::susi_error::EaiResult;
 use crate::susi_sandbox::manager::DynamicModelInfo;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_vendor_models::model_license::VerifiedArtifact;
 
 use crate::hardware::HardwareProfiler;
 
@@ -226,11 +226,11 @@ impl ModelManager {
         }
         let model = Self::open_verified_model(path).ok()?;
         let tokenizer = Self::get_tokenizer_path(&path.to_string_lossy())?;
-        susi_vendor_models::model_license::verify_local(&tokenizer).ok()?;
+        crate::model_license::verify_local(&tokenizer).ok()?;
         Some(model)
     }
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
-        susi_vendor_models::set_selected_model_override(model_name)
+        crate::set_selected_model_override(model_name)
     }
 
     pub fn identify_best_suited_local_model(
@@ -597,7 +597,7 @@ impl ModelManager {
         Self::open_verified_model(model_path).map(drop)
     }
     pub fn open_verified_model(model_path: &Path) -> EaiResult<VerifiedArtifact> {
-        let artifact = susi_vendor_models::model_license::open_verified_local(model_path)
+        let artifact = crate::model_license::open_verified_local(model_path)
             .map_err(crate::susi_error::EaiError::governance)?;
         Self::verify_recorded_checksum(model_path, Some(artifact.digest()))?;
         Ok(artifact)
@@ -678,7 +678,7 @@ impl ModelManager {
     pub fn load_tokenizer(
         path: &Path,
     ) -> EaiResult<std::sync::Arc<susi_vendor_candle::tokenizers::Tokenizer>> {
-        let verified = susi_vendor_models::model_license::open_verified_local(path)
+        let verified = crate::model_license::open_verified_local(path)
             .map_err(crate::susi_error::EaiError::governance)?;
         parsed_tokenizer(path, Some(verified))
             .map_err(|e| crate::susi_error::EaiError::inference(format!("Tokenizer Error: {e}")))

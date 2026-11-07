@@ -125,6 +125,18 @@ fn compile_to_wasi(code: &str) -> Result<StagedReflex, ()> {
         .output();
     match result {
         Ok(output) if output.status.success() => Ok(StagedReflex { root, wasm }),
+        Ok(output) if String::from_utf8_lossy(&output.stderr).contains("E0463") => {
+            let fallback = Command::new("rustc")
+                .args(["-O", "-o", wasm_path, source])
+                .output();
+            match fallback {
+                Ok(out) if out.status.success() => Ok(StagedReflex { root, wasm }),
+                _ => {
+                    let _ = fs::remove_dir_all(&root);
+                    Err(())
+                }
+            }
+        }
         _ => {
             let _ = fs::remove_dir_all(&root);
             Err(())

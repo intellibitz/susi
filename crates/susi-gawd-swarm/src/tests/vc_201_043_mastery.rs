@@ -76,7 +76,7 @@ fn vc_201_043_mastery_measured_limits_derive_from_the_host() {
             }
         }
     }
-    let probed = susi_vendor_models::accel_reserve::probe_vram_free_mb();
+    let probed = susi_config::accel_reserve::probe_vram_free_mb();
     if let Some(free) = probed {
         let want = free.min(u32::MAX as u64);
         assert!(

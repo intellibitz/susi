@@ -116,12 +116,10 @@ pub struct GemiEngine;
 
 impl GemiEngine {
     pub fn set_owned_runner_child_adopter(adopter: fn(&std::process::Child) -> bool) {
-        crate::models::llamacpp_launcher::set_child_adopter(adopter);
+        let _ = adopter;
     }
 
-    pub fn shutdown_owned_runner() {
-        crate::models::llamacpp_launcher::shutdown_owned();
-    }
+    pub fn shutdown_owned_runner() {}
 
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
         Self::reason_internal(prompt, workspace, true, &|_| {}, None, None, None, &|_| {})

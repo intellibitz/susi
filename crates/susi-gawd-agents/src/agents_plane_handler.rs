@@ -1,7 +1,7 @@
 //! Plane-bus handler for `agents.*` (meta registry + external executors).
 
+use crate::agent_meta_registry::AgentMetaRegistry;
 use crate::external::{self, redact, AgentManager, CatalogKind};
-use crate::registry::AgentMetaRegistry;
 use crate::susi_core::agent_types::AgentProfile;
 use crate::susi_core::capture::EvidenceSession;
 use crate::susi_core::plane_bus::topics;
