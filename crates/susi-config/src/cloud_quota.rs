@@ -456,21 +456,17 @@ impl QuotaInventory {
     }
 
     /// Persist as JSON. Best-effort per record; the file itself is atomic.
-    pub fn save(&self, path: &Path) -> crate::susi_core::susi_error::EaiResult<()> {
+    pub fn save(&self, path: &Path) -> crate::susi_error::EaiResult<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                crate::susi_core::susi_error::EaiError::io(format!(
-                    "create {}: {e}",
-                    parent.display()
-                ))
+                crate::susi_error::EaiError::io(format!("create {}: {e}", parent.display()))
             })?;
         }
         let body = serde_json::to_string_pretty(self).map_err(|e| {
-            crate::susi_core::susi_error::EaiError::config(format!("encode quota inventory: {e}"))
+            crate::susi_error::EaiError::config(format!("encode quota inventory: {e}"))
         })?;
-        std::fs::write(path, body).map_err(|e| {
-            crate::susi_core::susi_error::EaiError::io(format!("write {}: {e}", path.display()))
-        })
+        std::fs::write(path, body)
+            .map_err(|e| crate::susi_error::EaiError::io(format!("write {}: {e}", path.display())))
     }
 
     /// Load from disk; missing or corrupt files yield an empty inventory

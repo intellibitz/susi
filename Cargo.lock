@@ -4030,7 +4030,6 @@ dependencies = [
  "susi-vendor-console-subscriber",
  "susi-vendor-ed25519-dalek",
  "susi-vendor-hex",
- "susi-vendor-models",
  "susi-vendor-rayon",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
@@ -4212,7 +4211,6 @@ dependencies = [
  "susi-sandbox-client",
  "susi-unsafe-ratchet",
  "susi-vendor-hex",
- "susi-vendor-models",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
@@ -4252,7 +4250,6 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
- "susi-vendor-models",
  "susi-vendor-regex",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
@@ -4274,7 +4271,6 @@ dependencies = [
  "susi-vendor-agents",
  "susi-vendor-dashmap",
  "susi-vendor-flume",
- "susi-vendor-models",
  "susi-vendor-parking-lot",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
@@ -4320,11 +4316,12 @@ dependencies = [
  "susi-vendor-dashmap",
  "susi-vendor-hex",
  "susi-vendor-libc",
- "susi-vendor-models",
  "susi-vendor-parking-lot",
+ "susi-vendor-proptest",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
+ "susi-vendor-tempfile",
  "susi-vendor-url",
 ]
 
@@ -4735,26 +4732,6 @@ name = "susi-vendor-md-5"
 version = "0.1.0"
 dependencies = [
  "md-5",
-]
-
-[[package]]
-name = "susi-vendor-models"
-version = "0.1.0"
-dependencies = [
- "susi-config",
- "susi-core",
- "susi-error",
- "susi-http-transport",
- "susi-paths",
- "susi-sandbox-client",
- "susi-vendor-hex",
- "susi-vendor-proptest",
- "susi-vendor-rayon",
- "susi-vendor-serde",
- "susi-vendor-serde-json",
- "susi-vendor-sha1",
- "susi-vendor-sha2",
- "susi-vendor-tempfile",
 ]
 
 [[package]]

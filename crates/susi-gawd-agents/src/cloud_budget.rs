@@ -241,7 +241,7 @@ impl BudgetLedger {
         policy: SpendPolicy,
     ) -> Result<Reservation, Denial> {
         let credential_fp =
-            susi_vendor_models::cloud_eligibility::credential_fingerprint(&candidate.api_key);
+            susi_config::cloud_eligibility::credential_fingerprint(&candidate.api_key);
         self.reserve(ReserveRequest {
             account: candidate.account.as_deref().unwrap_or(""),
             credential_fp: &credential_fp,

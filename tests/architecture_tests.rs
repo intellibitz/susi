@@ -127,7 +127,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
     ("susi-vendor-agents", 5),
-    ("susi-vendor-models", 5),
     ("susi-vendor-web", 5),
     ("susi-sandbox", 5),
     ("susi-leaf-services", 6),
@@ -1519,7 +1518,7 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         (
             57,
             "max_budget_usd",
-            "crates/susi-vendor-models/src/cloud_credentials.rs",
+            "crates/susi-gemi-models/src/cloud_credentials.rs",
         ),
         (58, "GMCP 2026", "crates/susi-gmcp/src/lib.rs"),
         (

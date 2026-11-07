@@ -165,13 +165,13 @@ fn vram_admits(total_mb: u32, used_mb: u32, need_mb: u32) -> bool {
     if need_mb == 0 {
         return true;
     }
-    let mut pool = susi_vendor_models::accel_reserve::AccelPool {
+    let mut pool = susi_config::accel_reserve::AccelPool {
         total_bytes: u64::from(total_mb) * MIB,
         reserved_bytes: u64::from(used_mb) * MIB,
     };
     matches!(
         pool.admit(u64::from(need_mb) * MIB),
-        susi_vendor_models::accel_reserve::AdmitDecision::Admitted { .. }
+        susi_config::accel_reserve::AdmitDecision::Admitted { .. }
     )
 }
 
@@ -199,7 +199,7 @@ impl AdmissionLimits {
                 ),
                 vram_mb: clamp_u32(
                     env_u64("SUSI_ADMIT_VRAM_MB")
-                        .or_else(susi_vendor_models::accel_reserve::probe_vram_free_mb)
+                        .or_else(susi_config::accel_reserve::probe_vram_free_mb)
                         .unwrap_or(0),
                 ),
                 subprocesses: clamp_u32(parallelism),
@@ -968,10 +968,10 @@ mod tests {
         // End-to-end: run_jobs under an admission controller bounded to 1
         // job — every job still completes, serialized through admission.
         use crate::parallel_dispatch::{run_jobs, DispatchPlan, Job, Shared};
+        use susi_config::cloud_eligibility::EligibilityStore;
+        use susi_config::cloud_quota::QuotaInventory;
         use susi_gawd_agents::cloud_budget::{BudgetLedger, SpendPolicy};
         use susi_gawd_agents::cloud_intent::{Candidate, IntentConstraints};
-        use susi_vendor_models::cloud_eligibility::EligibilityStore;
-        use susi_vendor_models::cloud_quota::QuotaInventory;
         let cs = vec![Candidate {
             provider: "p".into(),
             api_key: "k1".into(),

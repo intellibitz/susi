@@ -5,7 +5,6 @@
 //!
 //! Third-party names, ports and health paths live here (vendor code); the
 //! scan is generic over [`Probe`] so it is tested without touching the host.
-use rayon::prelude::*;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -289,39 +288,56 @@ pub fn scan(p: &dyn Probe) -> Ecosystem {
 
 fn scan_with(p: &dyn Probe, overrides: &[(String, u16)]) -> Ecosystem {
     let home = p.home();
-    let engines = DEFS
-        .par_iter()
-        .map(|d| {
-            let binary = d.binaries.iter().find_map(|b| p.which(b));
-            let dirs: Vec<PathBuf> = home
-                .as_ref()
-                .map(|h| {
-                    d.dirs
-                        .iter()
-                        .map(|rel| h.join(rel))
-                        .filter(|path| p.exists(path))
-                        .collect()
-                })
-                .unwrap_or_default();
-            let port = port_of(d, overrides);
-            let running = scan_engine(p, d, port, &binary, &dirs);
-            // A leftover model directory is not an executable runtime. Stores
-            // have no serving endpoint and are identified by their directory.
-            let installed = binary.is_some() || running || (d.port == 0 && !dirs.is_empty());
-            Detected {
-                id: d.id.into(),
-                name: d.name.into(),
-                installed,
-                running,
-                version: binary.as_deref().and_then(|b| p.version(b)),
-                endpoint: (running && d.openai_compat)
-                    .then(|| format!("http://127.0.0.1:{port}/v1")),
-                startable: d.start.is_some() && binary.is_some() && !running,
-                binary,
-                dirs,
-            }
-        })
-        .collect();
+    let next_idx = std::sync::atomic::AtomicUsize::new(0);
+    let results: std::sync::Mutex<Vec<(usize, Detected)>> =
+        std::sync::Mutex::new(Vec::with_capacity(DEFS.len()));
+    std::thread::scope(|s| {
+        for _ in 0..4 {
+            s.spawn(|| loop {
+                let idx = next_idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(d) = DEFS.get(idx) else {
+                    break;
+                };
+                let binary = d.binaries.iter().find_map(|b| p.which(b));
+                let dirs: Vec<PathBuf> = home
+                    .as_ref()
+                    .map(|h| {
+                        d.dirs
+                            .iter()
+                            .map(|rel| h.join(rel))
+                            .filter(|path| p.exists(path))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let port = port_of(d, overrides);
+                let running = scan_engine(p, d, port, &binary, &dirs);
+                // A leftover model directory is not an executable runtime. Stores
+                // have no serving endpoint and are identified by their directory.
+                let installed = binary.is_some() || running || (d.port == 0 && !dirs.is_empty());
+                let detected = Detected {
+                    id: d.id.into(),
+                    name: d.name.into(),
+                    installed,
+                    running,
+                    version: binary.as_deref().and_then(|b| p.version(b)),
+                    endpoint: (running && d.openai_compat)
+                        .then(|| format!("http://127.0.0.1:{port}/v1")),
+                    startable: d.start.is_some() && binary.is_some() && !running,
+                    binary,
+                    dirs,
+                };
+                results
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push((idx, detected));
+            });
+        }
+    });
+    let mut pairs = results
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pairs.sort_by_key(|(idx, _)| *idx);
+    let engines = pairs.into_iter().map(|(_, det)| det).collect();
     Ecosystem {
         engines,
         accelerators: accelerators(p),
@@ -1018,11 +1034,7 @@ mod tests {
             active: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
         };
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(4)
-            .build()
-            .unwrap();
-        let e = pool.install(|| scan_with(&probe, &[]));
+        let e = scan_with(&probe, &[]);
         assert!(
             probe.peak.load(Ordering::SeqCst) > 1,
             "slow probes must not serialize discovery"
