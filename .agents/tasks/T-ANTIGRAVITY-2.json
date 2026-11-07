@@ -2,7 +2,10 @@
   "id": "T-ANTIGRAVITY-2",
   "native_worker": "antigravity",
   "title": "Wave 14 susi-harness lifecycle, money, policy, and providers invariant verifiers",
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1794038400,
   "status": "in_progress",
+  "dependencies": [],
   "scopes": [
     ".agents/tasks/t-antigravity-2.json",
     "crates/susi-harness"
@@ -16,7 +19,7 @@
       "--lib",
       "--offline",
       "--locked",
-      "verify_invariants_reject_corrupt_state"
+      "verify_harness_wave14_invariants"
     ]
   }
 }
