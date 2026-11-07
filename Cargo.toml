@@ -16,7 +16,6 @@ members = [
     "crates/susi-vendor-wasmtime",
     "crates/susi-vendor-mcp",
     "crates/susi-vendor-mcp-server",
-    "crates/susi-vendor-tantivy",
     "crates/susi-vendor-syn",
     "crates/susi-native-client",
     "crates/susi-config",
@@ -149,7 +148,6 @@ susi-core = { path = "crates/susi-core" }
 susi-vendor-wasmtime = { path = "crates/susi-vendor-wasmtime" }
 susi-vendor-mcp = { path = "crates/susi-vendor-mcp" }
 susi-vendor-mcp-server = { path = "crates/susi-vendor-mcp-server" }
-susi-vendor-tantivy = { path = "crates/susi-vendor-tantivy" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
 susi-native-client = { path = "crates/susi-native-client" }
 susi-sandbox = { path = "crates/susi-sandbox" }
