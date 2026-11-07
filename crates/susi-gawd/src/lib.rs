@@ -72,7 +72,6 @@ pub mod admin;
 pub mod audit_evidence;
 pub mod bloat_audit;
 pub mod cloud_rsi;
-pub mod cloud_rsi_lifecycle;
 pub mod cloud_session;
 pub mod cross_platform_service;
 pub mod dev_canary;
