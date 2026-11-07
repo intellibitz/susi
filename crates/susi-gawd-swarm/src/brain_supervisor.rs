@@ -37,6 +37,25 @@ pub enum TransitionReason {
     Recovered,
 }
 
+impl TransitionReason {
+    /// Verifies that the transition reason carries a non-blank failure kind when `BrainFailed`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `BrainFailed.kind` is blank.
+    pub fn verify_reason_invariants(&self) -> Result<(), String> {
+        match self {
+            Self::Initial | Self::Recovered => Ok(()),
+            Self::BrainFailed { kind } => {
+                if kind.trim().is_empty() {
+                    return Err("TransitionReason::BrainFailed kind must not be blank".to_string());
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// One brain transition in the mission's audit trail.
 #[derive(Debug, Clone)]
 pub struct BrainTransition {
@@ -48,6 +67,48 @@ pub struct BrainTransition {
     pub to: Option<String>,
     /// Why.
     pub reason: TransitionReason,
+}
+
+impl BrainTransition {
+    /// Verifies that the transition record has non-blank brain identifiers and consistent
+    /// `from`/`to` endpoints for its `reason`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `reason` is invalid, `from` or `to` is blank when
+    /// present, `to` is `None`, or an `Initial` transition has `from.is_some()`.
+    pub fn verify_transition_invariants(&self) -> Result<(), String> {
+        self.reason.verify_reason_invariants()?;
+        if let Some(from) = &self.from {
+            if from.trim().is_empty() {
+                return Err("BrainTransition from must not be blank".to_string());
+            }
+        }
+        let Some(to) = &self.to else {
+            return Err("BrainTransition to must be Some".to_string());
+        };
+        if to.trim().is_empty() {
+            return Err("BrainTransition to must not be blank".to_string());
+        }
+        match &self.reason {
+            TransitionReason::Initial => {
+                if self.from.is_some() {
+                    return Err(
+                        "BrainTransition with Initial reason must have from == None".to_string()
+                    );
+                }
+            }
+            TransitionReason::BrainFailed { .. } => {
+                if self.from.as_deref() == Some(to.as_str()) {
+                    return Err(
+                        "BrainTransition with BrainFailed reason must change brains".to_string()
+                    );
+                }
+            }
+            TransitionReason::Recovered => {}
+        }
+        Ok(())
+    }
 }
 
 /// Durable mission state carried across steps and brain switches.
@@ -73,6 +134,58 @@ pub struct BrainMission {
 }
 
 impl BrainMission {
+    /// Verifies invariants of the durable brain mission state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `preferred` and `preferred_index` disagree on presence,
+    /// if `preferred` or `current` is blank, if `current` is set without `preferred`, if any receipt
+    /// is blank, or if the transition log fails verification or disagrees with `current`.
+    pub fn verify_mission_invariants(&self) -> Result<(), String> {
+        if self.preferred.is_some() != self.preferred_index.is_some() {
+            return Err(
+                "BrainMission preferred and preferred_index must both be Some or both None"
+                    .to_string(),
+            );
+        }
+        if let Some(pref) = &self.preferred {
+            if pref.trim().is_empty() {
+                return Err("BrainMission preferred must not be blank".to_string());
+            }
+        }
+        if let Some(cur) = &self.current {
+            if cur.trim().is_empty() {
+                return Err("BrainMission current must not be blank".to_string());
+            }
+            if self.preferred.is_none() {
+                return Err(
+                    "BrainMission current cannot be Some when preferred is None".to_string()
+                );
+            }
+        }
+        if self.receipts.iter().any(|r| r.trim().is_empty()) {
+            return Err("BrainMission receipts must not contain blank entries".to_string());
+        }
+        for transition in &self.transitions {
+            transition.verify_transition_invariants()?;
+        }
+        if let Some(first) = self.transitions.first() {
+            if first.reason != TransitionReason::Initial {
+                return Err(
+                    "BrainMission first transition must have TransitionReason::Initial".to_string(),
+                );
+            }
+        }
+        if let Some(last) = self.transitions.last() {
+            if last.to.as_ref() != self.current.as_ref() {
+                return Err(
+                    "BrainMission last transition target must match current brain".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn transition(&mut self, at_ms: u64, to: Option<String>, reason: TransitionReason) {
         self.transitions.push(BrainTransition {
             at_ms,
@@ -92,6 +205,20 @@ pub struct SupervisorPolicy {
     pub min_dwell_ms: u64,
     /// Maximum restore attempts per mission — a hard bound on oscillation.
     pub max_restores: u32,
+}
+
+impl SupervisorPolicy {
+    /// Verifies that the supervisor policy has a positive restore cap.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `max_restores == 0`.
+    pub fn verify_policy_invariants(&self) -> Result<(), String> {
+        if self.max_restores == 0 {
+            return Err("SupervisorPolicy max_restores must be > 0".to_string());
+        }
+        Ok(())
+    }
 }
 
 impl Default for SupervisorPolicy {
@@ -115,6 +242,24 @@ pub struct StepSpec<'a> {
     pub policy: SupervisorPolicy,
 }
 
+impl StepSpec<'_> {
+    /// Verifies that the step specification has a non-blank intent `task_class`, valid failover
+    /// budget, and valid supervisor policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `intent.task_class` is blank or if `budget` or `policy`
+    /// fails invariant verification.
+    pub fn verify_step_spec_invariants(&self) -> Result<(), String> {
+        if self.intent.task_class.trim().is_empty() {
+            return Err("StepSpec intent.task_class must not be blank".to_string());
+        }
+        self.budget.verify_budget_invariants()?;
+        self.policy.verify_policy_invariants()?;
+        Ok(())
+    }
+}
+
 /// Result of one mission step.
 #[derive(Debug)]
 pub enum StepOutcome {
@@ -122,6 +267,34 @@ pub enum StepOutcome {
     Completed { brain: String, output: String },
     /// No working brain could run the step — honest block, not success.
     Blocked { reason: String },
+}
+
+impl StepOutcome {
+    /// Verifies that the step outcome carries non-blank identifiers, outputs, or block reasons.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `Completed` has a blank `brain` or `output`, or if
+    /// `Blocked` has a blank `reason`.
+    pub fn verify_outcome_invariants(&self) -> Result<(), String> {
+        match self {
+            Self::Completed { brain, output } => {
+                if brain.trim().is_empty() {
+                    return Err("StepOutcome::Completed brain must not be blank".to_string());
+                }
+                if output.trim().is_empty() {
+                    return Err("StepOutcome::Completed output must not be blank".to_string());
+                }
+                Ok(())
+            }
+            Self::Blocked { reason } => {
+                if reason.trim().is_empty() {
+                    return Err("StepOutcome::Blocked reason must not be blank".to_string());
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 fn subject_of(c: &Candidate) -> Subject<'_> {
@@ -733,5 +906,107 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&f.dir);
         let _ = std::fs::remove_dir_all(&f.ledger_dir);
+    }
+
+    #[test]
+    fn brain_supervisor_verify_swarm_wave13_invariants() {
+        assert!(TransitionReason::Initial.verify_reason_invariants().is_ok());
+        assert!(TransitionReason::BrainFailed {
+            kind: "http_503".into()
+        }
+        .verify_reason_invariants()
+        .is_ok());
+        assert!(TransitionReason::BrainFailed { kind: "   ".into() }
+            .verify_reason_invariants()
+            .is_err());
+
+        let valid_tr = BrainTransition {
+            at_ms: T0_MS,
+            from: None,
+            to: Some("acme/m-a/12345678".into()),
+            reason: TransitionReason::Initial,
+        };
+        assert!(valid_tr.verify_transition_invariants().is_ok());
+
+        let bad_initial_tr = BrainTransition {
+            at_ms: T0_MS,
+            from: Some("acme/m-prev/12345678".into()),
+            to: Some("acme/m-a/12345678".into()),
+            reason: TransitionReason::Initial,
+        };
+        assert!(bad_initial_tr.verify_transition_invariants().is_err());
+
+        let same_brain_fail = BrainTransition {
+            at_ms: T0_MS,
+            from: Some("acme/m-a/12345678".into()),
+            to: Some("acme/m-a/12345678".into()),
+            reason: TransitionReason::BrainFailed { kind: "503".into() },
+        };
+        assert!(same_brain_fail.verify_transition_invariants().is_err());
+
+        assert!(BrainMission::default().verify_mission_invariants().is_ok());
+
+        let valid_mission = BrainMission {
+            preferred: Some("acme/m-a/12345678".into()),
+            preferred_index: Some(0),
+            current: Some("acme/m-a/12345678".into()),
+            receipts: vec!["attempt acme/m-a/12345678 -> success".into()],
+            transitions: vec![valid_tr],
+            ..BrainMission::default()
+        };
+        assert!(valid_mission.verify_mission_invariants().is_ok());
+
+        let mismatched_pref = BrainMission {
+            preferred: Some("acme/m-a/12345678".into()),
+            preferred_index: None,
+            ..BrainMission::default()
+        };
+        assert!(mismatched_pref.verify_mission_invariants().is_err());
+
+        let orphan_current = BrainMission {
+            current: Some("acme/m-a/12345678".into()),
+            ..BrainMission::default()
+        };
+        assert!(orphan_current.verify_mission_invariants().is_err());
+
+        assert!(SupervisorPolicy::default()
+            .verify_policy_invariants()
+            .is_ok());
+        assert!(SupervisorPolicy {
+            max_restores: 0,
+            ..SupervisorPolicy::default()
+        }
+        .verify_policy_invariants()
+        .is_err());
+
+        let i = intent();
+        let s = spec(&i, T0_MS);
+        assert!(s.verify_step_spec_invariants().is_ok());
+
+        let blank_intent = IntentConstraints {
+            task_class: "  ".into(),
+            ..IntentConstraints::default()
+        };
+        assert!(spec(&blank_intent, T0_MS)
+            .verify_step_spec_invariants()
+            .is_err());
+
+        assert!(StepOutcome::Completed {
+            brain: "acme/m-a/12345678".into(),
+            output: "out".into(),
+        }
+        .verify_outcome_invariants()
+        .is_ok());
+        assert!(StepOutcome::Completed {
+            brain: " ".into(),
+            output: "out".into(),
+        }
+        .verify_outcome_invariants()
+        .is_err());
+        assert!(StepOutcome::Blocked {
+            reason: "  ".into(),
+        }
+        .verify_outcome_invariants()
+        .is_err());
     }
 }

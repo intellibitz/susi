@@ -25,6 +25,19 @@ pub enum CoordPhase {
     Synthesize,
 }
 
+impl CoordPhase {
+    /// Verifies that the coordination phase variant is valid.
+    ///
+    /// # Errors
+    ///
+    /// Always returns `Ok(())` for valid `CoordPhase` variants.
+    pub fn verify_phase_invariants(&self) -> Result<(), String> {
+        match self {
+            Self::Plan | Self::Work | Self::Synthesize => Ok(()),
+        }
+    }
+}
+
 /// Outcome of one coordinated mission.
 #[derive(Debug)]
 pub struct CoordinationReport {
@@ -41,6 +54,85 @@ pub struct CoordinationReport {
     pub blocked: Option<(CoordPhase, String)>,
 }
 
+impl CoordinationReport {
+    /// Verifies invariants of a coordinated mission report across `plan`, `work_receipts`,
+    /// `synthesis`, `brains_used`, and `blocked`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if any text or receipt is blank, if `synthesis` or
+    /// `work_receipts` is present without `plan`, if `brains_used` count disagrees with completed
+    /// brain phases, or if `blocked` is inconsistent with completed phases.
+    pub fn verify_report_invariants(&self) -> Result<(), String> {
+        if let Some(plan) = &self.plan {
+            if plan.trim().is_empty() {
+                return Err("CoordinationReport plan must not be blank".to_string());
+            }
+        }
+        if let Some(synthesis) = &self.synthesis {
+            if synthesis.trim().is_empty() {
+                return Err("CoordinationReport synthesis must not be blank".to_string());
+            }
+            if self.plan.is_none() {
+                return Err(
+                    "CoordinationReport synthesis cannot be Some when plan is None".to_string(),
+                );
+            }
+        }
+        if !self.work_receipts.is_empty() && self.plan.is_none() {
+            return Err(
+                "CoordinationReport work_receipts must be empty when plan is None".to_string(),
+            );
+        }
+        if self.work_receipts.iter().any(|r| r.trim().is_empty()) {
+            return Err(
+                "CoordinationReport work_receipts must not contain blank entries".to_string(),
+            );
+        }
+        if self.brains_used.iter().any(|b| b.trim().is_empty()) {
+            return Err(
+                "CoordinationReport brains_used must not contain blank entries".to_string(),
+            );
+        }
+        let expected_brains =
+            usize::from(self.plan.is_some()) + usize::from(self.synthesis.is_some());
+        if self.brains_used.len() != expected_brains {
+            return Err(
+                "CoordinationReport brains_used count must match completed brain phases"
+                    .to_string(),
+            );
+        }
+        if let Some((phase, reason)) = &self.blocked {
+            phase.verify_phase_invariants()?;
+            if reason.trim().is_empty() {
+                return Err("CoordinationReport blocked reason must not be blank".to_string());
+            }
+            match phase {
+                CoordPhase::Plan => {
+                    if self.plan.is_some()
+                        || !self.work_receipts.is_empty()
+                        || self.synthesis.is_some()
+                    {
+                        return Err(
+                            "CoordinationReport blocked at Plan must not have plan, work_receipts, or synthesis"
+                                .to_string(),
+                        );
+                    }
+                }
+                CoordPhase::Work | CoordPhase::Synthesize => {
+                    if self.plan.is_none() || self.synthesis.is_some() {
+                        return Err(
+                            "CoordinationReport blocked after Plan must have plan == Some and synthesis == None"
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// A coordinator binds the live evidence stores, candidate inventory and
 /// step policy once, then runs coordinated missions.
 pub struct Coordinator<'a> {
@@ -53,6 +145,35 @@ pub struct Coordinator<'a> {
 }
 
 impl Coordinator<'_> {
+    /// Verifies invariants of the coordinator's step spec, lockout tracker, and candidate inventory.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `spec` or `stores.lockouts` fails verification,
+    /// or if any candidate has blank `provider`, `api_key`, or `model`, or non-finite/negative pricing.
+    pub fn verify_coordinator_invariants(&self) -> Result<(), String> {
+        self.spec.verify_step_spec_invariants()?;
+        self.stores.lockouts.verify_tracker_invariants()?;
+        for candidate in self.candidates {
+            if candidate.provider.trim().is_empty()
+                || candidate.api_key.trim().is_empty()
+                || candidate.model.trim().is_empty()
+            {
+                return Err(
+                    "Coordinator candidate provider, api_key, and model must not be blank"
+                        .to_string(),
+                );
+            }
+            if let Some(cost) = candidate.cost_per_mtok {
+                if !cost.is_finite() || cost < 0.0 {
+                    return Err(
+                        "Coordinator candidate cost_per_mtok must be finite and >= 0.0".to_string(),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
     /// Run a coordinated mission: `Plan` → `work(plan, stores)` (the caller
     /// supplies the parallel specialist execution, typically `run_jobs`) →
     /// `Synthesize`.
@@ -501,5 +622,68 @@ mod tests {
         assert_eq!(rep.work_receipts, vec!["job-0:ok".to_string()]);
         assert!(rep.synthesis.is_none());
         assert_eq!(rep.blocked.map(|b| b.0), Some(CoordPhase::Synthesize));
+    }
+
+    #[test]
+    fn brain_coordination_verify_swarm_wave13_invariants() {
+        assert!(CoordPhase::Plan.verify_phase_invariants().is_ok());
+
+        let valid_report = CoordinationReport {
+            plan: Some("plan-1".into()),
+            work_receipts: vec!["job-0:ok".into()],
+            synthesis: Some("synth-1".into()),
+            brains_used: vec!["acme/m-a/12345678".into(), "acme/m-a/12345678".into()],
+            blocked: None,
+        };
+        assert!(valid_report.verify_report_invariants().is_ok());
+
+        let synthesis_without_plan = CoordinationReport {
+            plan: None,
+            work_receipts: Vec::new(),
+            synthesis: Some("synth-1".into()),
+            brains_used: vec!["acme/m-a/12345678".into()],
+            blocked: None,
+        };
+        assert!(synthesis_without_plan.verify_report_invariants().is_err());
+
+        let mismatched_brains = CoordinationReport {
+            plan: Some("plan-1".into()),
+            work_receipts: Vec::new(),
+            synthesis: None,
+            brains_used: Vec::new(),
+            blocked: Some((CoordPhase::Synthesize, "exhausted".into())),
+        };
+        assert!(mismatched_brains.verify_report_invariants().is_err());
+
+        let bad_plan_block = CoordinationReport {
+            plan: Some("plan-1".into()),
+            work_receipts: Vec::new(),
+            synthesis: None,
+            brains_used: vec!["acme/m-a/12345678".into()],
+            blocked: Some((CoordPhase::Plan, "blocked".into())),
+        };
+        assert!(bad_plan_block.verify_report_invariants().is_err());
+
+        let mut f = fx();
+        let candidates = vec![cand("acme", "sk-a", "m-a")];
+        let int = intent();
+        let mut stores = f.stores();
+        let cd = Coordinator {
+            stores: &mut stores,
+            candidates: &candidates,
+            spec: spec(&int),
+        };
+        assert!(cd.verify_coordinator_invariants().is_ok());
+
+        let mut bad_cand = cand("acme", "sk-a", "m-a");
+        bad_cand.cost_per_mtok = Some(-1.0);
+        let bad_candidates = vec![bad_cand];
+        let mut bad_stores = f.stores();
+        let bad_cd = Coordinator {
+            stores: &mut bad_stores,
+            candidates: &bad_candidates,
+            spec: spec(&int),
+        };
+        assert!(bad_cd.verify_coordinator_invariants().is_err());
     }
 }
