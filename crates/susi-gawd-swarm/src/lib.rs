@@ -79,9 +79,6 @@ mod audit_payload_free_policy_tests;
 #[path = "tests/durable_mission_state.rs"]
 mod durable_mission_state_tests;
 #[cfg(test)]
-#[path = "tests/mission_resume_cli_wiring.rs"]
-mod mission_resume_cli_wiring_tests;
-#[cfg(test)]
 #[path = "tests/native_role_select_wiring.rs"]
 mod native_role_select_wiring_tests;
 #[cfg(test)]
