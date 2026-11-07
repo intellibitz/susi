@@ -21,40 +21,6 @@ pub enum Residency {
     Anywhere,
 }
 
-impl Residency {
-    /// Verifies that residency constraints contain valid, non-empty host or region identifiers.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `LocalOnly` has an empty `permitted_hosts` set
-    /// or contains a blank host name, or if `Region` is blank.
-    pub fn verify_residency_invariants(&self) -> Result<(), String> {
-        match self {
-            Self::LocalOnly { permitted_hosts } => {
-                if permitted_hosts.is_empty() {
-                    return Err(
-                        "Residency::LocalOnly permitted_hosts must not be empty".to_string()
-                    );
-                }
-                if permitted_hosts.iter().any(|h| h.trim().is_empty()) {
-                    return Err(
-                        "Residency::LocalOnly permitted_hosts must not contain blank hosts"
-                            .to_string(),
-                    );
-                }
-                Ok(())
-            }
-            Self::Region(r) => {
-                if r.trim().is_empty() {
-                    return Err("Residency::Region must not be blank".to_string());
-                }
-                Ok(())
-            }
-            Self::Anywhere => Ok(()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlacementTask {
     /// Dataset the task must reach.
@@ -64,31 +30,6 @@ pub struct PlacementTask {
     pub needs_caps: Vec<String>,
     pub cpu: f64,
     pub gpu_mem_gb: f64,
-}
-
-impl PlacementTask {
-    /// Verifies dataset identity, residency invariants, capability requirements, and resource bounds.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `dataset_id` is blank, `residency` is invalid,
-    /// `needs_caps` contains blank entries, or `cpu`/`gpu_mem_gb` is non-finite or negative.
-    pub fn verify_task_invariants(&self) -> Result<(), String> {
-        if self.dataset_id.trim().is_empty() {
-            return Err("PlacementTask dataset_id must not be blank".to_string());
-        }
-        self.residency.verify_residency_invariants()?;
-        if self.needs_caps.iter().any(|c| c.trim().is_empty()) {
-            return Err("PlacementTask needs_caps must not contain blank entries".to_string());
-        }
-        if !self.cpu.is_finite() || self.cpu < 0.0 {
-            return Err("PlacementTask cpu must be finite and >= 0.0".to_string());
-        }
-        if !self.gpu_mem_gb.is_finite() || self.gpu_mem_gb < 0.0 {
-            return Err("PlacementTask gpu_mem_gb must be finite and >= 0.0".to_string());
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -105,36 +46,6 @@ pub struct PeerInfo {
     pub gpu_mem_free_gb: f64,
 }
 
-impl PeerInfo {
-    /// Verifies peer identity, region, resident datasets, verified capabilities, and free capacity bounds.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `node_id` or `region` is blank, `datasets` or
-    /// `verified_caps` contains a blank entry, or `cpu_free`/`gpu_mem_free_gb` is non-finite or negative.
-    pub fn verify_peer_invariants(&self) -> Result<(), String> {
-        if self.node_id.trim().is_empty() {
-            return Err("PeerInfo node_id must not be blank".to_string());
-        }
-        if self.region.trim().is_empty() {
-            return Err("PeerInfo region must not be blank".to_string());
-        }
-        if self.datasets.iter().any(|d| d.trim().is_empty()) {
-            return Err("PeerInfo datasets must not contain blank entries".to_string());
-        }
-        if self.verified_caps.iter().any(|c| c.trim().is_empty()) {
-            return Err("PeerInfo verified_caps must not contain blank entries".to_string());
-        }
-        if !self.cpu_free.is_finite() || self.cpu_free < 0.0 {
-            return Err("PeerInfo cpu_free must be finite and >= 0.0".to_string());
-        }
-        if !self.gpu_mem_free_gb.is_finite() || self.gpu_mem_free_gb < 0.0 {
-            return Err("PeerInfo gpu_mem_free_gb must be finite and >= 0.0".to_string());
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Placement {
     pub node_id: String,
@@ -142,45 +53,11 @@ pub struct Placement {
     pub score: f64,
 }
 
-impl Placement {
-    /// Verifies that the selected placement has a non-empty `node_id` and a finite non-negative score.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `node_id` is blank or `score` is non-finite or negative.
-    pub fn verify_placement_invariants(&self) -> Result<(), String> {
-        if self.node_id.trim().is_empty() {
-            return Err("Placement node_id must not be blank".to_string());
-        }
-        if !self.score.is_finite() || self.score < 0.0 {
-            return Err("Placement score must be finite and >= 0.0".to_string());
-        }
-        Ok(())
-    }
-}
-
 /// Every refusal kept for the placement audit trail.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacementRejection {
     pub node_id: String,
     pub reason: &'static str,
-}
-
-impl PlacementRejection {
-    /// Verifies that the rejection record has both a non-empty `node_id` and a non-empty `reason`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `node_id` or `reason` is blank.
-    pub fn verify_rejection_invariants(&self) -> Result<(), String> {
-        if self.node_id.trim().is_empty() {
-            return Err("PlacementRejection node_id must not be blank".to_string());
-        }
-        if self.reason.trim().is_empty() {
-            return Err("PlacementRejection reason must not be blank".to_string());
-        }
-        Ok(())
-    }
 }
 
 fn residency_allows(task: &PlacementTask, peer: &PeerInfo) -> bool {
@@ -389,132 +266,5 @@ mod inline_tests {
         let (best, rejections) = place(&task, &[]);
         assert!(best.is_none());
         assert!(rejections.is_empty());
-    }
-
-    #[test]
-    fn residency_invariants_verify_valid_and_reject_corrupt_states() {
-        assert!(Residency::Anywhere.verify_residency_invariants().is_ok());
-        assert!(Residency::Region("eu-west".into())
-            .verify_residency_invariants()
-            .is_ok());
-        assert!(Residency::Region("   ".into())
-            .verify_residency_invariants()
-            .is_err());
-
-        let valid_local = Residency::LocalOnly {
-            permitted_hosts: BTreeSet::from(["host-1".to_string()]),
-        };
-        assert!(valid_local.verify_residency_invariants().is_ok());
-
-        let empty_local = Residency::LocalOnly {
-            permitted_hosts: BTreeSet::new(),
-        };
-        assert!(empty_local.verify_residency_invariants().is_err());
-
-        let blank_host_local = Residency::LocalOnly {
-            permitted_hosts: BTreeSet::from(["host-1".to_string(), "  ".to_string()]),
-        };
-        assert!(blank_host_local.verify_residency_invariants().is_err());
-    }
-
-    #[test]
-    fn placement_task_invariants_verify_valid_and_reject_corrupt_states() {
-        let valid = PlacementTask {
-            dataset_id: "ds-1".into(),
-            residency: Residency::Region("us-east".into()),
-            needs_caps: vec!["cap:a".into()],
-            cpu: 2.0,
-            gpu_mem_gb: 0.0,
-        };
-        assert!(valid.verify_task_invariants().is_ok());
-
-        let mut bad_ds = valid.clone();
-        bad_ds.dataset_id = " ".into();
-        assert!(bad_ds.verify_task_invariants().is_err());
-
-        let mut bad_residency = valid.clone();
-        bad_residency.residency = Residency::Region(String::new());
-        assert!(bad_residency.verify_task_invariants().is_err());
-
-        let mut bad_cap = valid.clone();
-        bad_cap.needs_caps.push("  ".into());
-        assert!(bad_cap.verify_task_invariants().is_err());
-
-        let mut bad_cpu = valid.clone();
-        bad_cpu.cpu = -1.0;
-        assert!(bad_cpu.verify_task_invariants().is_err());
-
-        let mut nan_gpu = valid;
-        nan_gpu.gpu_mem_gb = f64::NAN;
-        assert!(nan_gpu.verify_task_invariants().is_err());
-    }
-
-    #[test]
-    fn peer_info_invariants_verify_valid_and_reject_corrupt_states() {
-        let valid = sample_peer("node-1", "us-west", &["ds-1"], &["cap:1"], (4.0, 8.0));
-        assert!(valid.verify_peer_invariants().is_ok());
-
-        let mut bad_id = valid.clone();
-        bad_id.node_id = "  ".into();
-        assert!(bad_id.verify_peer_invariants().is_err());
-
-        let mut bad_region = valid.clone();
-        bad_region.region = String::new();
-        assert!(bad_region.verify_peer_invariants().is_err());
-
-        let mut bad_ds = valid.clone();
-        bad_ds.datasets.insert(" ".into());
-        assert!(bad_ds.verify_peer_invariants().is_err());
-
-        let mut bad_cap = valid.clone();
-        bad_cap.verified_caps.insert(String::new());
-        assert!(bad_cap.verify_peer_invariants().is_err());
-
-        let mut bad_cpu = valid.clone();
-        bad_cpu.cpu_free = f64::INFINITY;
-        assert!(bad_cpu.verify_peer_invariants().is_err());
-
-        let mut bad_gpu = valid;
-        bad_gpu.gpu_mem_free_gb = -0.5;
-        assert!(bad_gpu.verify_peer_invariants().is_err());
-    }
-
-    #[test]
-    fn placement_and_rejection_invariants_verify_valid_and_reject_corrupt_states() {
-        let valid_placement = Placement {
-            node_id: "node-1".into(),
-            score: 120.0,
-        };
-        assert!(valid_placement.verify_placement_invariants().is_ok());
-
-        let bad_placement_id = Placement {
-            node_id: " ".into(),
-            score: 10.0,
-        };
-        assert!(bad_placement_id.verify_placement_invariants().is_err());
-
-        let bad_placement_score = Placement {
-            node_id: "node-1".into(),
-            score: -1.0,
-        };
-        assert!(bad_placement_score.verify_placement_invariants().is_err());
-
-        let valid_rejection = PlacementRejection {
-            node_id: "node-2".into(),
-            reason: "residency constraint",
-        };
-        assert!(valid_rejection.verify_rejection_invariants().is_ok());
-
-        let bad_rejection_id = PlacementRejection {
-            node_id: String::new(),
-            reason: "residency constraint",
-        };
-        assert!(bad_rejection_id.verify_rejection_invariants().is_err());
-
-        let bad_rejection_reason = PlacementRejection {
-            node_id: "node-2".into(),
-            reason: "   ",
-        };
-        assert!(bad_rejection_reason.verify_rejection_invariants().is_err());
     }
 }
