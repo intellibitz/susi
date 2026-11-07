@@ -27,12 +27,8 @@ pub mod hf_discovery;
 pub mod local_ecosystem;
 pub mod model_license;
 pub mod resumable_downloads;
-pub mod runtime_lifecycle;
 pub mod transactional_download;
 
-#[cfg(test)]
-#[path = "tests/vc_201_042.rs"]
-mod vc_201_042_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_044_mastery.rs"]
 mod vc_201_044_mastery_tests;
