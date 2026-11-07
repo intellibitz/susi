@@ -44,7 +44,6 @@ pub mod local_ecosystem;
 pub mod model_deprecation;
 pub mod model_license;
 pub mod npu_detection;
-pub mod offline_bundle;
 pub mod open_weight;
 pub mod openrouter;
 pub mod price_catalog;
@@ -78,9 +77,6 @@ mod vc_201_044_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_044.rs"]
 mod vc_201_044_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_050.rs"]
-mod vc_201_050_tests;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries
