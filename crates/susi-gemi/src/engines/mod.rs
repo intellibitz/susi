@@ -49,14 +49,12 @@ mod slim_core_tests {
     fn slim_core_keeps_candle_behind_local_engine() {
         let gemi = include_str!("../../Cargo.toml");
         assert!(
-            gemi.contains("susi-vendor-candle = { workspace = true, optional = true }"),
-            "candle stays an optional dependency of susi-gemi"
+            !gemi.contains("susi-vendor-candle"),
+            "susi-gemi must not depend on susi-vendor-candle (moved to susi-gpu-fabric)"
         );
         assert!(
-            gemi.contains(
-                "local-engine = [\"dep:susi-vendor-candle\", \"susi-gemi-models/local-engine\"]"
-            ),
-            "local-engine is what links candle"
+            gemi.contains("local-engine = [\"susi-gemi-models/local-engine\"]"),
+            "local-engine feature remains forwarded to susi-gemi-models"
         );
         let features = gemi
             .split("[features]")

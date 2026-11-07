@@ -4068,7 +4068,6 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
- "susi-vendor-candle",
  "susi-vendor-flume",
  "susi-vendor-hex",
  "susi-vendor-parking-lot",
