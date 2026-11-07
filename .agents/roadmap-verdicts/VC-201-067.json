@@ -1,8 +1,8 @@
 {
   "vector": "VC-201-067",
-  "verdict": "delivered",
-  "evidence": "tests/vc_201_067_mastery.rs",
-  "missing": null,
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Moved out of scope 2026-11-07 by CEO direction: env_profiles multi-environment profile overlays migrated to susi-commercial-apps (susi-fleet-command).",
   "tracked_by": [],
   "recorded_by": "ANTIGRAVITY20261015214257121476",
   "recorded_unix": 1792113800

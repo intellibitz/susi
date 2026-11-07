@@ -68,14 +68,9 @@ pub use susi_gawd_agents::{
 pub use susi_gawd_a2a::{capabilities, executor, server, task_store};
 pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
-pub mod action_history;
 pub mod admin;
 pub mod audit_evidence;
-pub mod autonomous_builder;
 pub mod bloat_audit;
-pub mod brain_gap_audit;
-pub mod brain_gap_dedup;
-pub mod brain_gap_tasks;
 pub mod capacity_limits;
 pub mod cloud_rsi;
 pub mod cloud_rsi_delivery;
@@ -84,7 +79,6 @@ pub mod cloud_rsi_outcomes;
 pub mod cloud_session;
 pub mod cross_platform_service;
 pub mod dev_canary;
-pub mod disaster_recovery;
 pub mod eval_contamination;
 pub mod eval_receipt;
 pub mod eval_separation;
@@ -195,8 +189,6 @@ mod vc_201_019_tests;
 #[path = "tests/vc_201_079.rs"]
 mod vc_201_079_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_093.rs"]
-mod vc_201_093_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_094.rs"]
 mod vc_201_094_tests;

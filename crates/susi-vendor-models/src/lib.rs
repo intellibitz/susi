@@ -29,16 +29,11 @@ pub mod cloud_manage;
 pub mod cloud_quota;
 pub mod cloud_reconciler;
 pub mod default_models;
-pub mod eco_conflicts;
 pub mod eco_consistency;
-pub mod eco_coverage;
-pub mod eco_matrix;
 pub mod eco_profile;
-pub mod eco_provenance;
 pub mod eco_query;
 pub mod eco_relations;
 pub mod eco_schema;
-pub mod eco_signed_kb;
 pub mod eco_store;
 pub mod eco_taxonomy;
 pub mod frontier;
@@ -59,10 +54,7 @@ pub mod quant_recommender;
 pub mod resource_inventory;
 pub mod resumable_downloads;
 pub mod runtime_lifecycle;
-pub mod signed_catalog;
 pub mod transactional_download;
-pub mod zc_key_aliases;
-pub mod zc_key_sources;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]
@@ -104,8 +96,6 @@ mod vc_201_055_mastery_tests;
 #[path = "tests/vc_201_055.rs"]
 mod vc_201_055_tests;
 #[cfg(test)]
-#[path = "tests/vc_202_001_mastery.rs"]
-mod vc_202_001_mastery_tests;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries

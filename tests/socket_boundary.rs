@@ -31,7 +31,7 @@ fn third_party_product_implementations_only_shrink() {
     // a plug leaves core. Do not raise them.
     let ceilings = [
         ("crates/susi-vendor-agents/src", 10usize),
-        ("crates/susi-vendor-models/src", 61),
+        ("crates/susi-vendor-models/src", 52),
         ("crates/susi-vendor-cloud/src", 3),
         ("crates/susi-vendor-chrome/src", 1),
         ("crates/susi-vendor-web/src", 2),
