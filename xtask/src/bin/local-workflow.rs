@@ -2522,18 +2522,39 @@ fn gh_output(root: &Path, args: &[String]) -> Result<String> {
         .to_owned())
 }
 
+/// `owner/name` of the repository, read from the `origin` remote's URL.
+///
+/// `gh repo view --json nameWithOwner` answered this before, but that is a
+/// GraphQL query, which a cloud session's GitHub proxy refuses (REST only), so
+/// every status of a ship from such a host went unposted. The remote URL is
+/// local and already names the repository the push went to.
 fn repo_slug(root: &Path) -> Result<String> {
-    let slug = gh_output(
-        root,
-        &[
-            "repo".into(),
-            "view".into(),
-            "--json".into(),
-            "nameWithOwner".into(),
-            "-q".into(),
-            ".nameWithOwner".into(),
-        ],
-    )?;
+    slug_from_remote_url(&git(root, &["remote", "get-url", "origin"])?)
+}
+
+/// The `owner/name` a github.com remote URL names, in any of Git's spellings:
+/// `https://github.com/o/n[.git]` (with or without credentials before the
+/// host), `ssh://git@github.com/o/n[.git]` and `git@github.com:o/n[.git]`.
+fn slug_from_remote_url(url: &str) -> Result<String> {
+    let url = url.trim();
+    let path = if let Some(path) = url.strip_prefix("git@github.com:") {
+        path
+    } else {
+        let (scheme, rest) = url
+            .split_once("://")
+            .ok_or("origin is not a github.com remote")?;
+        if !matches!(scheme, "https" | "ssh") {
+            return Err("origin is not a github.com remote".into());
+        }
+        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+        let host = authority.rsplit('@').next().unwrap_or(authority);
+        if !host.eq_ignore_ascii_case("github.com") {
+            return Err("origin is not a github.com remote".into());
+        }
+        path
+    };
+    let path = path.trim_matches('/');
+    let slug = path.strip_suffix(".git").unwrap_or(path);
     let mut parts = slug.split('/');
     match (parts.next(), parts.next(), parts.next()) {
         (Some(owner), Some(name), None)
@@ -2546,7 +2567,7 @@ fn repo_slug(root: &Path) -> Result<String> {
                     byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' || byte == b'.'
                 }) =>
         {
-            Ok(slug)
+            Ok(slug.to_owned())
         }
         _ => Err("unexpected repository name".into()),
     }
@@ -5303,6 +5324,49 @@ mod tests {
         )
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn repo_slug_comes_from_the_origin_url_in_every_git_spelling() {
+        for url in [
+            "https://github.com/intellibitz/susi",
+            "https://github.com/intellibitz/susi.git",
+            "https://github.com/intellibitz/susi/",
+            "https://x-access-token:secret@github.com/intellibitz/susi.git",
+            "https://GitHub.com/intellibitz/susi",
+            "ssh://git@github.com/intellibitz/susi.git",
+            "git@github.com:intellibitz/susi.git",
+            "git@github.com:intellibitz/susi",
+            "  https://github.com/intellibitz/susi\n",
+        ] {
+            assert_eq!(
+                slug_from_remote_url(url).unwrap(),
+                "intellibitz/susi",
+                "{url}"
+            );
+        }
+        assert_eq!(
+            slug_from_remote_url("git@github.com:intellibitz/susi-commercial-apps.git").unwrap(),
+            "intellibitz/susi-commercial-apps"
+        );
+    }
+
+    #[test]
+    fn repo_slug_refuses_other_hosts_and_shapes() {
+        for url in [
+            "",
+            "https://gitlab.com/intellibitz/susi",
+            "https://github.com.evil.test/intellibitz/susi",
+            "https://github.com/intellibitz",
+            "https://github.com/intellibitz/susi/extra",
+            "https://github.com/intelli bitz/susi",
+            "git@github.com:intellibitz/su si",
+            "file:///srv/git/susi",
+            "/srv/git/susi",
+            "git://github.com/intellibitz/susi",
+        ] {
+            assert!(slug_from_remote_url(url).is_err(), "{url:?}");
+        }
     }
 
     #[test]
