@@ -71,7 +71,7 @@ fn every_core_tool_declares_typed_or_no_argument_schema() {
             );
         }
         // The schema compiles under the same validator registered tools use.
-        jsonschema::draft202012::new(&schema)
+        susi_gmcp::schema_check::Validator::compile(&schema)
             .unwrap_or_else(|e| panic!("{} schema does not compile: {e}", tool.name));
         assert_eq!(
             core_input_schema(&tool.name).as_deref(),

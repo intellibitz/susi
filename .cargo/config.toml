@@ -1,4 +1,5 @@
 [alias]
+xtask = "run --offline --locked --package xtask --bin xtask --"
 xb = "run --package xtask -- build"
 local-build = "run --offline --locked --package xtask --bin xtask -- local-build"
 local-workflow = "run --offline --locked --package xtask --bin local-workflow --"

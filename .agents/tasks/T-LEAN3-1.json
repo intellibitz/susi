@@ -1,0 +1,49 @@
+{
+  "id": "T-LEAN3-1",
+  "title": "Lean-core wave 3: unused jsonschema facade line out of GMCP, cargo xtask alias, landed-main compile measurement recorded",
+  "goal": "Remove the jsonschema dependency line from crates/susi-gmcp/Cargo.toml (nothing in GMCP uses the crate since the std schema validator landed), add the `cargo xtask` alias the docs name, record the 104.5 s / 1,083 CPU-second measurement of landed main in docs/lean-core.md, lower the third-party ceiling to the measured value, re-record GMCP evidence.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "lean3",
+  "native_worker": "lean3",
+  "created_by": "lean3",
+  "created_unix": 1794088969,
+  "updated_unix": 1794088969,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-lean3-1.json",
+    ".cargo/config.toml",
+    "cargo.lock",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-gmcp/src/lib.rs",
+    "crates/susi-gmcp/tests/tool_input_schemas.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "scope": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-lean3-1.json",
+    ".cargo/config.toml",
+    "cargo.lock",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-gmcp/src/lib.rs",
+    "crates/susi-gmcp/tests/tool_input_schemas.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "acceptance": "cargo test -p susi --test lean_core_ceilings --offline --locked",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

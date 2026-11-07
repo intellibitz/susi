@@ -3241,7 +3241,6 @@ dependencies = [
  "susi-vendor-http-body-util",
  "susi-vendor-hyper",
  "susi-vendor-hyper-util",
- "susi-vendor-jsonschema",
  "susi-vendor-libc",
  "susi-vendor-mcp-server",
  "susi-vendor-parking-lot",
