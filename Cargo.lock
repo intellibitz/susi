@@ -5007,27 +5007,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "candle-core"
-version = "0.11.1"
-
-[[patch.unused]]
-name = "esaxx-rs"
-version = "0.1.10"
-
-[[patch.unused]]
-name = "hashbrown"
-version = "0.16.1"
-
-[[patch.unused]]
-name = "htmlescape"
-version = "0.3.1"
-
-[[patch.unused]]
-name = "tantivy-sstable"
-version = "0.7.0"
-
-[[patch.unused]]
-name = "zip"
-version = "9.2.0"

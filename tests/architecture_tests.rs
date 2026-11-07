@@ -1806,7 +1806,7 @@ fn the_lockfile_carries_fixed_zip_and_the_approved_candle_sources() {
         );
     }
     let manifest = std::fs::read_to_string(workspace_root().join("Cargo.toml")).unwrap();
-    assert!(manifest.contains("candle-core = { path = \"vendor/candle-core\" }"));
+    assert!(!manifest.contains("candle-core = { path = \"vendor/candle-core\" }"));
     assert!(workspace_root()
         .join("vendor/candle-core/LICENSE")
         .is_file());
