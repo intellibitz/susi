@@ -1428,7 +1428,7 @@
       "id": "VC-202-013",
       "mastery_target": "Each mission yields a trace linking intent to plan to node to model to tokens to cost to outcome, queryable per agent and per task, and the audit trail is append-only and survives restarts.",
       "priority": "P1",
-      "progress": "DELIVERED: MissionTrace links intent, plan, agents, cluster-membership node, active task_id, and live model_calls (populated on every spend_tracker::record dispatch via mission_trace::record_active_model_call) durably to outcome, queryable per agent and per task via read_all_for_agent and read_all_for_task. Verified by `crates/susi-core/src/mission_trace.rs` and `crates/susi-gemi/src/spend_tracker.rs`.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-202-013.json): MissionTrace links intent, plan, agents, cluster-membership node, active task_id, and live model_calls (populated on every spend_tracker::record dispatch via mission_trace::record_active_model_call) durably to outcome, queryable per agent and per task via read_all_for_agent and read_all_for_task. Verified by `crates/susi-core/src/mission_trace.rs` and `crates/susi-gemi/src/spend_tracker.rs`.",
       "type": "OPERATIONS",
       "vector": "Every decision is observable and costed"
     },
