@@ -51,25 +51,42 @@ mod tests {
 
     #[test]
     fn wasm_host_rejects_missing_module_path() {
-        let missing = std::env::temp_dir().join("nonexistent-susi-wasm-1104.wat");
+        let missing = std::env::temp_dir().join("nonexistent-susi-wasm-1104.wasm");
         assert!(wasm::WasmHost::execute_reflex(&missing, "").is_err());
         assert!(wasm::WasmHost::execute_untrusted_wasm(&missing, "arg").is_err());
     }
 
+    /// Compile a readable fixture to the binary module the host accepts.
+    fn module(wat: &str) -> Vec<u8> {
+        wat::parse_str(wat).expect("test fixture compiles")
+    }
+
     #[test]
-    fn wasm_host_executes_minimal_wat_start_and_rejects_malformed_wat() {
+    fn wasm_host_executes_a_binary_module_and_rejects_uncompiled_input() {
         let dir = std::env::temp_dir().join(format!("susi-wasm-lib-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let valid_wat = dir.join("minimal.wat");
-        std::fs::write(&valid_wat, r#"(module (func (export "_start")))"#).unwrap();
+        let hero = dir.join("minimal.wasm");
+        std::fs::write(&hero, module(r#"(module (func (export "_start")))"#)).unwrap();
         assert_eq!(
-            wasm::WasmHost::execute_reflex(&valid_wat, "").unwrap(),
+            wasm::WasmHost::execute_reflex(&hero, "").unwrap(),
             "Wasm execution success (No Output)"
         );
 
-        let bad_wat = dir.join("bad.wat");
-        std::fs::write(&bad_wat, "not valid wat or wasm").unwrap();
-        assert!(wasm::WasmHost::execute_reflex(&bad_wat, "").is_err());
+        // Text that was never compiled is refused by the host: the compile
+        // step is the producer's, not the socket's.
+        let text = dir.join("uncompiled.wat");
+        std::fs::write(&text, r#"(module (func (export "_start")))"#).unwrap();
+        let error = wasm::WasmHost::execute_reflex(&text, "")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("binary WebAssembly module"),
+            "unexpected error: {error}"
+        );
+
+        let bad = dir.join("bad.wasm");
+        std::fs::write(&bad, "not valid wat or wasm").unwrap();
+        assert!(wasm::WasmHost::execute_reflex(&bad, "").is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

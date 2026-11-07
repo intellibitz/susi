@@ -200,21 +200,19 @@ impl WasmCell {
         Self::instantiate(&bytes, module_path)
     }
 
-    /// Instantiate a cell from in-memory WASM (binary or text format).
+    /// Instantiate a cell from an in-memory binary WASM module.
     ///
     /// # Errors
-    /// Fails when the bytes do not compile or instantiation fails.
+    /// Fails when the bytes are not a binary module, do not compile, or
+    /// instantiation fails.
     pub fn from_bytes(bytes: &[u8]) -> EaiResult<Self> {
         Self::instantiate(bytes, PathBuf::from("<memory>"))
     }
 
     fn instantiate(bytes: &[u8], module_path: PathBuf) -> EaiResult<Self> {
         crate::resources::check_module_size(bytes)?;
-        // `wat::parse_bytes` passes already-binary modules through, so cells
-        // built by rustc stay cheap and hand-written WAT still loads.
-        let wasm = wat::parse_bytes(bytes)
-            .map_err(|e| EaiError::sandbox(format!("Failed to parse WASM text: {e}")))?;
-        let wasm = cap_memory(&wasm)?;
+        crate::resources::check_binary_module(bytes)?;
+        let wasm = cap_memory(bytes)?;
         let engine = metered_engine()?;
         let mut store = Store::new(&engine, HostState::default());
         store.limiter(|state| &mut state.limits);
@@ -316,13 +314,20 @@ pub fn validate_module(wasm_bytes: &[u8]) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// Compile a readable test fixture to the bytes the host accepts. Test
+    /// only: the product boundary takes compiled modules, so every fixture
+    /// crosses `wat` here and nothing else.
+    fn module(wat: &str) -> Vec<u8> {
+        wat::parse_str(wat).expect("test fixture compiles")
+    }
+
     #[test]
     fn queued_payload_budget_refuses_growth_and_drain_restores_capacity() {
         let wat = r#"(module
             (import "env" "host_send" (func $send (param i32 i32) (result i32)))
             (memory (export "memory") 16)
             (func (export "_start") (result i32) (call $send (i32.const 0) (i32.const 1048576))))"#;
-        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(wat)).unwrap();
         for _ in 0..MAX_OUTBOX_BYTES / MAX_MESSAGE_BYTES {
             assert_eq!(
                 cell.execute("_start").unwrap(),
@@ -355,7 +360,7 @@ mod tests {
 
     #[test]
     fn host_send_copies_guest_payload_into_outbox() {
-        let mut cell = WasmCell::from_bytes(SENDER.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(SENDER)).unwrap();
         assert_eq!(
             cell.execute("_start").unwrap(),
             "WASM function '_start' returned 0"
@@ -371,7 +376,7 @@ mod tests {
             (memory (export "memory") 1)
             (func (export "_start") (result i32)
                 (call $send (i32.const 65530) (i32.const 100))))"#;
-        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(wat)).unwrap();
         assert!(cell.execute("_start").unwrap().ends_with("returned -3"));
         assert!(cell.take_messages().is_empty());
     }
@@ -382,7 +387,7 @@ mod tests {
             (import "env" "host_send" (func $send (param i32 i32) (result i32)))
             (func (export "_start") (result i32)
                 (call $send (i32.const 0) (i32.const 1))))"#;
-        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(wat)).unwrap();
         assert!(cell.execute("_start").unwrap().ends_with("returned -2"));
     }
 
@@ -392,7 +397,7 @@ mod tests {
             (func (export "_start") (result i32)
                 (loop $l (br $l))
                 (i32.const 0)))"#;
-        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(wat)).unwrap();
         assert!(cell.execute("_start").is_err(), "must trap, not hang");
     }
 
@@ -404,7 +409,7 @@ mod tests {
             (memory (export "memory") 1)
             (func (export "_start") (result i32)
                 (memory.grow (i32.const 8192))))"#;
-        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(wat)).unwrap();
         assert!(cell.execute("_start").unwrap().ends_with("returned -1"));
     }
 
@@ -416,7 +421,7 @@ mod tests {
             (memory (export "memory") 1 2)
             (func (export "_start") (result i32)
                 (memory.grow (i32.const 2))))"#;
-        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(wat)).unwrap();
         assert!(cell.execute("_start").unwrap().ends_with("returned -1"));
     }
 
@@ -424,13 +429,13 @@ mod tests {
     fn initial_memory_above_the_cap_is_rejected() {
         // 5000 pages = ~312 MiB > MAX_CELL_MEMORY_BYTES.
         let wat = r#"(module (memory 5000) (func (export "_start") (result i32) (i32.const 0)))"#;
-        assert!(WasmCell::from_bytes(wat.as_bytes()).is_err());
+        assert!(WasmCell::from_bytes(&module(wat)).is_err());
     }
 
     #[test]
     fn cells_without_imports_instantiate() {
         let wat = r#"(module (func (export "_start") (result i32) (i32.const 7)))"#;
-        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(wat)).unwrap();
         assert_eq!(
             cell.execute("_start").unwrap(),
             "WASM function '_start' returned 7"
@@ -444,7 +449,7 @@ mod tests {
             (memory (export "memory") 1)
             (func (export "_start") (result i32)
                 (call $send (i32.const -1) (i32.const 10))))"#;
-        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(wat)).unwrap();
         assert!(cell.execute("_start").unwrap().ends_with("returned -1"));
     }
 
@@ -455,7 +460,7 @@ mod tests {
             (memory (export "memory") 1)
             (func (export "_start") (result i32)
                 (call $send (i32.const 0) (i32.const 2000000))))"#;
-        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(wat)).unwrap();
         assert!(cell.execute("_start").unwrap().ends_with("returned -1"));
     }
 
@@ -465,8 +470,8 @@ mod tests {
         assert!(WasmCell::load(&missing).is_err());
 
         let wat = r#"(module (func (export "_start") (result i32) (i32.const 42)))"#;
-        let tmp = std::env::temp_dir().join(format!("susi_cell_test_{}.wat", std::process::id()));
-        std::fs::write(&tmp, wat).unwrap();
+        let tmp = std::env::temp_dir().join(format!("susi_cell_test_{}.wasm", std::process::id()));
+        std::fs::write(&tmp, module(wat)).unwrap();
         let mut cell = WasmCell::load(&tmp).unwrap();
         assert_eq!(
             cell.execute("_start").unwrap(),
@@ -476,8 +481,22 @@ mod tests {
     }
 
     #[test]
+    fn a_text_format_module_is_refused_by_name() {
+        // The host accepts compiled modules only; a `.wat` file that reaches
+        // it fails before the interpreter with the contract in the message.
+        let error = match WasmCell::from_bytes(br#"(module (func (export "_start")))"#) {
+            Ok(_) => panic!("a text-format module must not load"),
+            Err(error) => error.to_string(),
+        };
+        assert!(
+            error.contains("binary WebAssembly module"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
     fn host_send_rejects_when_outbox_full() {
-        let mut cell = WasmCell::from_bytes(SENDER.as_bytes()).unwrap();
+        let mut cell = WasmCell::from_bytes(&module(SENDER)).unwrap();
         for _ in 0..MAX_OUTBOX_MESSAGES {
             assert_eq!(
                 cell.execute("_start").unwrap(),
