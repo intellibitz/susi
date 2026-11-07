@@ -31,7 +31,6 @@ pub mod cloud_reconciler;
 pub mod default_models;
 pub mod eco_consistency;
 pub mod eco_profile;
-pub mod eco_provenance;
 pub mod eco_query;
 pub mod eco_relations;
 pub mod eco_schema;

@@ -31,7 +31,7 @@ pub use susi_core;
 pub use susi_vendor_models::model_license::ModelReadWindow;
 
 pub use susi_vendor_models::{
-    cloud, cloud_eligibility, cloud_manage, eco_consistency, eco_engine_capability_map, eco_profile, eco_provenance, eco_query, eco_relations,
+    cloud, cloud_eligibility, cloud_manage, eco_consistency, eco_engine_capability_map, eco_profile, eco_query, eco_relations,
     eco_schema, eco_store, eco_taxonomy, frontier, hf_discovery, llamacpp_launcher,
     local_ecosystem, open_weight, openrouter, price_catalog, resource_inventory, runtime_lifecycle,
 };
