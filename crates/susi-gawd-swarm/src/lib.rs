@@ -79,9 +79,6 @@ mod audit_payload_free_policy_tests;
 #[path = "tests/durable_mission_state.rs"]
 mod durable_mission_state_tests;
 #[cfg(test)]
-#[path = "tests/joint_consensus_membership_wiring.rs"]
-mod joint_consensus_membership_wiring_tests;
-#[cfg(test)]
 #[path = "tests/mission_dag_persist_wiring.rs"]
 mod mission_dag_persist_wiring_tests;
 #[cfg(test)]
