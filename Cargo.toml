@@ -35,7 +35,6 @@ members = [
     "crates/susi-harness",
     "crates/susi-vendor-anyhow",
     "crates/susi-vendor-axum",
-    "crates/susi-vendor-base64",
     "crates/susi-vendor-bytes",
     "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",

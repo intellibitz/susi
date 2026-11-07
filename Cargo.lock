@@ -3467,13 +3467,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-vendor-base64"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
-]
-
-[[package]]
 name = "susi-vendor-bytes"
 version = "0.1.0"
 dependencies = [

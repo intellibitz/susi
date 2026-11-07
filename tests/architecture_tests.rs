@@ -143,7 +143,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
 const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-anyhow",
     "susi-vendor-axum",
-    "susi-vendor-base64",
     "susi-vendor-bytes",
     "susi-vendor-chacha20poly1305",
     "susi-vendor-clap",
