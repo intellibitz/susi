@@ -118,11 +118,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-vendor-wasmtime", 2),
     ("susi-vendor-mcp", 0),
     ("susi-vendor-mcp-server", 0),
-    ("susi-vendor-tantivy", 2),
-    ("susi-vendor-fastembed", 4),
-    ("susi-vendor-chrome", 2),
     ("susi-vendor-syn", 0),
-    ("susi-vendor-cloud", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
@@ -133,7 +129,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-gawd-agents", 6),
     ("susi-gmcp", 5),
     ("susi-server", 5),
-    ("susi-universal-cell", 5),
     ("susi-gawd-swarm", 7),
     ("susi-gemi", 7),
     ("susi-gawd-a2a", 8),

@@ -32,8 +32,8 @@ fn third_party_product_implementations_only_shrink() {
     let ceilings = [
         ("crates/susi-vendor-agents/src", 0usize),
         ("crates/susi-vendor-models/src", 0),
-        ("crates/susi-vendor-cloud/src", 1),
-        ("crates/susi-vendor-chrome/src", 1),
+        ("crates/susi-vendor-cloud/src", 0),
+        ("crates/susi-vendor-chrome/src", 0),
         ("crates/susi-vendor-web/src", 0),
         ("crates/susi-vendor-candle/src", 4),
     ];

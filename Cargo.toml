@@ -16,11 +16,7 @@ members = [
     "crates/susi-vendor-wasmtime",
     "crates/susi-vendor-mcp",
     "crates/susi-vendor-mcp-server",
-    "crates/susi-vendor-tantivy",
-    "crates/susi-vendor-fastembed",
-    "crates/susi-vendor-chrome",
     "crates/susi-vendor-syn",
-    "crates/susi-vendor-cloud",
     "crates/susi-native-client",
     "crates/susi-config",
     "crates/susi-leaf-services",
@@ -40,7 +36,6 @@ members = [
     "crates/susi-gawd-a2a",
     "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon", "crates/susi-server",
     "crates/susi-harness",
-    "crates/susi-universal-cell",
     "crates/susi-vendor-anyhow",
     "crates/susi-vendor-axum",
     "crates/susi-vendor-base64",
@@ -152,11 +147,7 @@ susi-core = { path = "crates/susi-core" }
 susi-vendor-wasmtime = { path = "crates/susi-vendor-wasmtime" }
 susi-vendor-mcp = { path = "crates/susi-vendor-mcp" }
 susi-vendor-mcp-server = { path = "crates/susi-vendor-mcp-server" }
-susi-vendor-tantivy = { path = "crates/susi-vendor-tantivy" }
-susi-vendor-fastembed = { path = "crates/susi-vendor-fastembed" }
-susi-vendor-chrome = { path = "crates/susi-vendor-chrome" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
-susi-vendor-cloud = { path = "crates/susi-vendor-cloud" }
 susi-native-client = { path = "crates/susi-native-client" }
 susi-sandbox = { path = "crates/susi-sandbox" }
 susi-sandbox-client = { path = "crates/susi-sandbox-client" }
@@ -219,7 +210,6 @@ susi-error = { workspace = true }
 susi-config = { workspace = true }
 susi-cli-defs = { workspace = true }
 susi-wire-client = { workspace = true }
-susi-vendor-cloud = { workspace = true }
 susi-leaf-services = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }

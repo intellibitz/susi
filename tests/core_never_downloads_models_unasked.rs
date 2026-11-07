@@ -723,33 +723,14 @@ fn only_explicit_user_requests_call_the_download_functions() {
 /// the cache and never fetches, and its callers are the two semantic paths.
 #[test]
 fn the_embedding_model_downloads_only_on_its_explicit_install() {
-    const EMBEDDER: &str = "crates/susi-vendor-fastembed/src/lib.rs";
+    const EMBEDDER: &str = "crates/susi-gmcp/src/embed_provider.rs";
     let embedder = functions(&read(EMBEDDER));
-    // The network fetch lives in `ensure_cached_file_with_policy`, reached
-    // only through `ensure_cached_file`, called only by `install_on_request`.
-    let fetchers: [(&str, &[&str]); 3] = [
-        ("http_call", &["ensure_cached_file_with_policy"]),
-        ("ensure_cached_file_with_policy", &["ensure_cached_file"]),
-        ("ensure_cached_file", &["install_on_request"]),
-    ];
-    for (function, callers) in fetchers {
-        for (name, body) in &embedder {
-            if name != function && calls(&code_only(body), function) {
-                assert!(
-                    callers.contains(&name.as_str()),
-                    "fastembed::{name} calls {function}() (allowed: {callers:?})"
-                );
-            }
-        }
-    }
-    // The lazy load is cache-only and the not-installed error names the
-    // explicit command.
-    for name in ["model", "load", "embed", "embed_one", "cached_only"] {
+    for name in ["embed", "embed_one", "load_failed", "install_on_request"] {
         for (n, body) in embedder.iter().filter(|(n, _)| n == name) {
             let code = code_only(body);
             assert!(
-                !calls(&code, "ensure_cached_file") && !calls(&code, "http_call"),
-                "fastembed::{n} can fetch the model"
+                !calls(&code, "http_call"),
+                "embed_provider::{n} can fetch the model"
             );
         }
     }
@@ -761,32 +742,6 @@ fn the_embedding_model_downloads_only_on_its_explicit_install() {
     let os = read("src/cli/os_cli.rs");
     assert!(os.contains("susi_gmcp::embed_provider::INSTALL_SOURCE"));
     assert!(os.contains("susi_gmcp::embed_provider::install_on_request()"));
-    // The CLI reaches the real engine install only through susi-gmcp.
-    assert!(read("crates/susi-gmcp/src/embed_provider.rs")
-        .contains("pub use susi_vendor_fastembed::{install_on_request, INSTALL_SOURCE};"));
-
-    // Shipped callers of the embedder: the semantic index (`rag_query`) and
-    // the embedding provider (`/v1/embeddings`). Both get the typed
-    // not-installed error instead of a download.
-    let allowed = [
-        "crates/susi-gmcp/src/tools/semantic_index.rs",
-        "crates/susi-gmcp/src/embed_provider.rs",
-    ];
-    let mut offenders = Vec::new();
-    for (rel, code) in first_party_code() {
-        if rel == EMBEDDER {
-            continue;
-        }
-        for token in [
-            "susi_vendor_fastembed::embed(",
-            "susi_vendor_fastembed::embed_one(",
-        ] {
-            if code.contains(token) && !allowed.contains(&rel.as_str()) {
-                offenders.push(format!("{rel} calls {token}"));
-            }
-        }
-    }
-    assert!(offenders.is_empty(), "{offenders:?}");
 }
 
 /// A model reply, a mission plan or a DAG step can name any registered

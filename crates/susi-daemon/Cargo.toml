@@ -23,7 +23,6 @@ susi-harness = { workspace = true }
 dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 susi-http-transport = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
-susi-vendor-cloud = { workspace = true }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
