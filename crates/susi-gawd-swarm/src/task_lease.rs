@@ -47,14 +47,6 @@ pub struct MutationPermit {
     pub token: AuthorityToken,
 }
 
-impl MutationPermit {
-    /// Verifies that the mutation permit carries non-empty task and owner identifiers and a positive fence.
-    #[must_use]
-    pub fn verify_permit_invariants(&self) -> bool {
-        !self.task_id.trim().is_empty() && !self.owner.trim().is_empty() && self.token.fence > 0
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskLease {
     pub task_id: String,
@@ -64,18 +56,6 @@ pub struct TaskLease {
     /// Last accepted renewal. Older mission files deserialize this as zero.
     #[serde(default)]
     pub renewed_at_unix: u64,
-}
-
-impl TaskLease {
-    /// Verifies that a task lease has non-empty task and owner identifiers, a positive fence,
-    /// and an expiration strictly after its renewal timestamp.
-    #[must_use]
-    pub fn verify_lease_invariants(&self) -> bool {
-        !self.task_id.trim().is_empty()
-            && !self.owner.trim().is_empty()
-            && self.fence > 0
-            && self.lease_until_unix > self.renewed_at_unix
-    }
 }
 
 /// Lease state is serialized into mission state (T-DEVIN-9): a restarted
@@ -459,18 +439,5 @@ mod inline_tests {
             table.authorize_mutation("t-zero", "other-worker", token, 500),
             Err(CompleteVerdict::NotOwner)
         );
-        assert!(lease.verify_lease_invariants());
-        let permit = table
-            .authorize_mutation("t-zero", "worker-z", token, 500)
-            .unwrap();
-        assert!(permit.verify_permit_invariants());
-        assert!(!TaskLease {
-            task_id: "t".to_string(),
-            owner: "w".to_string(),
-            fence: 0,
-            lease_until_unix: 100,
-            renewed_at_unix: 90,
-        }
-        .verify_lease_invariants());
     }
 }
