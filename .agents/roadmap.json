@@ -1224,7 +1224,7 @@
       "id": "VC-201-096",
       "mastery_target": "Verify bounded critical primitives for lease fencing, budget transitions, and policy precedence with documented assumptions; CI retains counterexamples and reports proof bounds instead of claiming whole-system correctness.",
       "priority": "P1",
-      "progress": "DELIVERED (T-GAWDSWARM-2): bounded critical primitives for lease fencing, budget transition monotonicity, and policy precedence (including FreeOnly / LocalOnlyStrict deny-overrides-allow) are model-checked with explicit reported proof bounds (states_explored, max_depth) and deterministic counterexample retention. Verified by `crates/susi-gawd/src/tests/formal_invariants.rs`: formal_invariants_bounded_budget_transition_monotonicity_reports_proof_bounds, formal_invariants_policy_precedence_and_counterexample_retention, formal_invariants_exhaustive_three_agent_schedules, formal_invariants_leases_expire_monotonically.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-201-096.json): (T-GAWDSWARM-2): bounded critical primitives for lease fencing, budget transition monotonicity, and policy precedence (including FreeOnly / LocalOnlyStrict deny-overrides-allow) are model-checked with explicit reported proof bounds (states_explored, max_depth) and deterministic counterexample retention. Verified by `crates/susi-gawd/src/tests/formal_invariants.rs`: formal_invariants_bounded_budget_transition_monotonicity_reports_proof_bounds, formal_invariants_policy_precedence_and_counterexample_retention, formal_invariants_exhaustive_three_agent_schedules, formal_invariants_leases_expire_monotonically.",
       "type": "OPERATIONS",
       "vector": "Add targeted Kani verification harnesses"
     },
