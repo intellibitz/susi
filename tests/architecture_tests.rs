@@ -126,7 +126,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
-    ("susi-vendor-web", 5),
     ("susi-sandbox", 5),
     ("susi-leaf-services", 6),
     ("susi-tools", 5),

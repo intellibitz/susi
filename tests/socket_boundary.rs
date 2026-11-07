@@ -34,7 +34,7 @@ fn third_party_product_implementations_only_shrink() {
         ("crates/susi-vendor-models/src", 0),
         ("crates/susi-vendor-cloud/src", 1),
         ("crates/susi-vendor-chrome/src", 1),
-        ("crates/susi-vendor-web/src", 2),
+        ("crates/susi-vendor-web/src", 0),
         ("crates/susi-vendor-candle/src", 4),
     ];
     for (rel, ceiling) in ceilings {

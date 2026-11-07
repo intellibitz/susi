@@ -74,9 +74,8 @@ pub fn report(
     let runtimes = runtime_inventory();
     let models = susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
     let model_count = models.as_array().map_or(0, Vec::len);
-    let agent_catalog =
-        susi_gawd::external::catalog(susi_gawd::external::CatalogKind::Execution)
-            .map_err(|e| e.to_string())?;
+    let agent_catalog = susi_gawd::external::catalog(susi_gawd::external::CatalogKind::Execution)
+        .map_err(|e| e.to_string())?;
     let framework_catalog =
         susi_gawd::external::catalog(susi_gawd::external::CatalogKind::Framework)
             .map_err(|e| e.to_string())?;

@@ -3,9 +3,9 @@ use super::catalog_plane_cli::{launch, run_worker, LaunchOpts};
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use std::path::Path;
-use susi_gawd::external::{catalog, AgentManager, CatalogKind};
 pub use susi_cli_defs::agent::AgentCommands;
 use susi_daemon::adapter_ops::{self, AdapterKind};
+use susi_gawd::external::{catalog, AgentManager, CatalogKind};
 
 pub fn execute(action: AgentCommands, workspace: &Path) -> Result<()> {
     let manager = AgentManager::new(workspace)?;

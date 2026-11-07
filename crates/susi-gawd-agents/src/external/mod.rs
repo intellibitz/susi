@@ -255,7 +255,7 @@ impl AgentManager {
         }
         run.status = RunStatus::Running;
         self.save(&run)?;
-        let result = if run.adapter.is_cloud() {
+        let result: Result<()> = if run.adapter.is_cloud() {
             Err(susi_error::EaiError::internal(
                 "A2A external agent plug is in susi-commercial-apps",
             ))
