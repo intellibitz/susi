@@ -23,8 +23,6 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub use susi_config::{cloud_eligibility, cloud_quota};
 
-pub mod cloud;
-pub mod cloud_credentials;
 pub mod hf_discovery;
 pub mod local_ecosystem;
 pub mod model_license;

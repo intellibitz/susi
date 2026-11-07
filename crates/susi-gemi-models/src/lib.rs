@@ -32,8 +32,10 @@ pub use susi_core;
 pub use susi_vendor_models::model_license::ModelReadWindow;
 
 pub use susi_vendor_models::{
-    cloud, hf_discovery, local_ecosystem, price_catalog, resource_inventory, runtime_lifecycle,
+    hf_discovery, local_ecosystem, price_catalog, resource_inventory, runtime_lifecycle,
 };
+pub mod cloud;
+pub mod cloud_credentials;
 pub mod cloud_manage;
 pub mod coding_models;
 mod device;

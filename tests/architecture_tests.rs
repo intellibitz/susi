@@ -1519,7 +1519,7 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         (
             57,
             "max_budget_usd",
-            "crates/susi-vendor-models/src/cloud_credentials.rs",
+            "crates/susi-gemi-models/src/cloud_credentials.rs",
         ),
         (58, "GMCP 2026", "crates/susi-gmcp/src/lib.rs"),
         (
