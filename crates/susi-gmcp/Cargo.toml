@@ -31,10 +31,9 @@ http-body-util = { package = "susi-vendor-http-body-util", path = "../susi-vendo
 url = { package = "susi-vendor-url", path = "../susi-vendor-url" }
 libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
-# Heavy specialist tools (browser / full-text index / embeddings / syn AST),
+# Heavy specialist tools (full-text index / embeddings / syn AST),
 # each behind its own `susi-vendor-*` crate. Off in the default core.
 # Enable with `--features tools-rich` (or the root `plugins` feature).
-susi-vendor-chrome = { workspace = true, optional = true }
 susi-vendor-tantivy = { workspace = true, optional = true }
 susi-vendor-fastembed = { workspace = true, optional = true }
 susi-vendor-syn = { workspace = true, optional = true }
@@ -46,7 +45,7 @@ susi-wire-client = { path = "../susi-wire-client" }
 
 [features]
 default = []
-tools-rich = ["dep:susi-vendor-chrome", "dep:susi-vendor-tantivy", "dep:susi-vendor-fastembed", "dep:susi-vendor-syn"]
+tools-rich = ["dep:susi-vendor-tantivy", "dep:susi-vendor-fastembed", "dep:susi-vendor-syn"]
 
 [lints]
 workspace = true
