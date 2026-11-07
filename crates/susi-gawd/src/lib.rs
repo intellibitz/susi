@@ -71,7 +71,6 @@ pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 pub mod admin;
 pub mod audit_evidence;
 pub mod bloat_audit;
-pub mod capacity_limits;
 pub mod cloud_rsi;
 pub mod cloud_rsi_delivery;
 pub mod cloud_rsi_lifecycle;
@@ -190,8 +189,6 @@ mod vc_201_019_tests;
 mod vc_201_079_tests;
 #[cfg(test)]
 #[cfg(test)]
-#[path = "tests/vc_201_094.rs"]
-mod vc_201_094_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_096_mastery.rs"]
 mod vc_201_096_mastery_tests;
