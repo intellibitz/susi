@@ -1030,7 +1030,7 @@
       "id": "VC-201-082",
       "mastery_target": "Use a versioned relevance and grounded-answer suite to compare retrieval/index revisions; a larger index or higher recall alone cannot hide regression in answer correctness or private-data isolation.",
       "priority": "P1",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-082.json, T-DEVIN20261002053148-11, 2026-10-04): retrieval evaluation gates memory and index candidate promotion; candidate suites older than baseline are rejected as stale; unmeasured/NaN metrics are rejected; answer correctness and private isolation regressions are blocked despite higher recall. Verified by crates/susi-core/src/tests/vc_201_082_mastery.rs.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-sovereign-rag::retrieval_eval): (verdict .agents/roadmap-verdicts/VC-201-082.json, T-DEVIN20261002053148-11, 2026-10-04): retrieval evaluation gates memory and index candidate promotion; candidate suites older than baseline are rejected as stale; unmeasured/NaN metrics are rejected; answer correctness and private isolation regressions are blocked despite higher recall. Verified by crates/susi-core/src/tests/vc_201_082_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Evaluate retrieval quality before promoting memory changes"
     },
