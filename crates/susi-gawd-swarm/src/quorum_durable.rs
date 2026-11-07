@@ -38,6 +38,75 @@ impl CommitDurability {
     pub fn is_committed(&self) -> bool {
         matches!(self, CommitDurability::Durable { .. })
     }
+
+    /// Verifies structural, quorum-tally, and acknowledgement invariants of a [`CommitDurability`] outcome.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `acked > voters`, if `CommitRecord`
+    /// fields (`epoch`, `coordinator`, `leader`, `value_hash`, `signature`) are empty,
+    /// if `quorum_threshold == 0` or `tally < quorum_threshold` or `tally > electorate.len()`,
+    /// if `seq == 0` or `term == 0`, or if an `Undurable` reason is blank.
+    pub fn verify_durability_invariants(&self) -> Result<(), String> {
+        match self {
+            CommitDurability::Durable {
+                record,
+                acked,
+                voters,
+            } => {
+                if *acked > *voters {
+                    return Err(format!(
+                        "CommitDurability::Durable acked ({acked}) exceeds voters ({voters})"
+                    ));
+                }
+                if record.epoch.trim().is_empty() {
+                    return Err("CommitDurability::Durable record epoch must not be empty".into());
+                }
+                if record.coordinator.trim().is_empty() {
+                    return Err(
+                        "CommitDurability::Durable record coordinator must not be empty".into(),
+                    );
+                }
+                if record.leader.trim().is_empty() {
+                    return Err("CommitDurability::Durable record leader must not be empty".into());
+                }
+                if record.electorate.is_empty() {
+                    return Err(
+                        "CommitDurability::Durable record electorate must not be empty".into(),
+                    );
+                }
+                if record.quorum_threshold == 0
+                    || record.tally < record.quorum_threshold
+                    || record.tally > record.electorate.len()
+                {
+                    return Err(format!(
+                        "CommitDurability::Durable record tally ({}) / quorum_threshold ({}) / electorate ({}) out of bounds",
+                        record.tally,
+                        record.quorum_threshold,
+                        record.electorate.len()
+                    ));
+                }
+                if record.value_hash.trim().is_empty() || record.signature.trim().is_empty() {
+                    return Err(
+                        "CommitDurability::Durable record value_hash and signature must not be empty"
+                            .into(),
+                    );
+                }
+                if record.seq == 0 || record.term == 0 {
+                    return Err(
+                        "CommitDurability::Durable record seq and term must be > 0".into()
+                    );
+                }
+                Ok(())
+            }
+            CommitDurability::Undurable(detail) => {
+                if detail.trim().is_empty() {
+                    return Err("CommitDurability::Undurable detail must not be blank".into());
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Run the commit boundary for a quorum decision.
@@ -297,5 +366,46 @@ mod tests {
         assert!(!out.is_committed());
         let recovered = retained.lock().unwrap_or_else(|e| e.into_inner()).clone();
         assert_eq!(recovered.map(|rec| rec.value), Some("v".to_string()));
+    }
+
+    #[test]
+    fn commit_durability_verify_durability_invariants_validates_quorum_and_ack_bounds() {
+        let valid_durable = CommitDurability::Durable {
+            record: Box::new(record()),
+            acked: 2,
+            voters: 3,
+        };
+        assert!(valid_durable.verify_durability_invariants().is_ok());
+
+        let valid_undurable = CommitDurability::Undurable("append failed".to_string());
+        assert!(valid_undurable.verify_durability_invariants().is_ok());
+
+        let blank_undurable = CommitDurability::Undurable("   ".to_string());
+        assert!(blank_undurable.verify_durability_invariants().is_err());
+
+        let bad_acks = CommitDurability::Durable {
+            record: Box::new(record()),
+            acked: 4,
+            voters: 3,
+        };
+        assert!(bad_acks.verify_durability_invariants().is_err());
+
+        let mut below_quorum = record();
+        below_quorum.tally = 1;
+        let bad_quorum = CommitDurability::Durable {
+            record: Box::new(below_quorum),
+            acked: 1,
+            voters: 2,
+        };
+        assert!(bad_quorum.verify_durability_invariants().is_err());
+
+        let mut zero_seq = record();
+        zero_seq.seq = 0;
+        let bad_seq = CommitDurability::Durable {
+            record: Box::new(zero_seq),
+            acked: 2,
+            voters: 2,
+        };
+        assert!(bad_seq.verify_durability_invariants().is_err());
     }
 }

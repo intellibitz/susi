@@ -4,24 +4,25 @@
       "cargo",
       "test",
       "-p",
-      "susi-gawd",
+      "susi-gawd-swarm",
       "--lib",
       "--offline",
-      "--locked"
+      "--locked",
+      "quorum_durable"
     ]
   },
   "id": "T-GAWDSWARM-2",
   "size": "m",
-  "goal": "Deliver VC-201-096 bounded model checks (budget transition monotonicity, policy precedence, reported proof bounds, and deterministic counterexample retention) and VC-202-015 structured RSI loop telemetry (.agents/rsi-loop.jsonl and RsiScorecard).",
+  "goal": "Add CommitDurability::verify_durability_invariants in crates/susi-gawd-swarm/src/quorum_durable.rs validating ack bounds, quorum tally, electorate bounds, monotonic seq/term, and non-blank Undurable reasons.",
   "scopes": [
-    ".agents/roadmap.json",
     ".agents/tasks/T-GAWDSWARM-2.json",
-    "crates/susi-gawd"
+    "crates/susi-gawd-a2a",
+    "crates/susi-gawd-swarm/src/quorum_durable.rs"
   ],
   "deps": [],
   "created_by": "GAWDSWARM",
-  "created_unix": 1794001500,
+  "created_unix": 1794002500,
   "status": "completed",
-  "title": "Deliver VC-201-096 bounded model checks and VC-202-015 RSI loop telemetry",
+  "title": "Add CommitDurability::verify_durability_invariants in susi-gawd-swarm",
   "native_worker": "gawd-swarm"
 }
