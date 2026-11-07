@@ -86,6 +86,33 @@ pub struct Dispatch {
     pub outcome: Outcome,
 }
 
+impl Dispatch {
+    /// Verify structural and chronological invariants of a dispatch record.
+    #[must_use]
+    pub fn verify_dispatch_invariants(&self) -> bool {
+        if self.mission.trim().is_empty()
+            || self.task.trim().is_empty()
+            || self.attempt == 0
+            || self.model.trim().is_empty()
+            || self.provider.trim().is_empty()
+        {
+            return false;
+        }
+        if self.usage.cache_hit > self.usage.input {
+            return false;
+        }
+        if self.ended_unix_ms < self.started_unix_ms {
+            return false;
+        }
+        if let Outcome::Rejected { ref reason } = self.outcome {
+            if reason.trim().is_empty() {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 /// One settled row of the ledger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LedgerEntry {
@@ -173,6 +200,41 @@ impl LedgerEntry {
     #[must_use]
     pub fn latency_ms(&self) -> u64 {
         self.ended_unix_ms.saturating_sub(self.started_unix_ms)
+    }
+
+    /// Verify structural, chronological, and settled-cost invariants of a ledger row.
+    ///
+    /// Rejects blank identifiers, zero attempt numbers, `cache_hit > input`,
+    /// inverted timestamps, empty rejection reasons, non-zero cost on cached
+    /// rows, and tampered `cost` values on uncached catalogue-priced rows.
+    #[must_use]
+    pub fn verify_entry_invariants(&self) -> bool {
+        if self.mission.trim().is_empty()
+            || self.task.trim().is_empty()
+            || self.attempt == 0
+            || self.model.trim().is_empty()
+            || self.provider.trim().is_empty()
+        {
+            return false;
+        }
+        if self.usage.cache_hit > self.usage.input {
+            return false;
+        }
+        if self.ended_unix_ms < self.started_unix_ms {
+            return false;
+        }
+        if let Outcome::Rejected { ref reason } = self.outcome {
+            if reason.trim().is_empty() {
+                return false;
+            }
+        }
+        if self.cached {
+            return self.cost.is_zero();
+        }
+        if !self.reported && self.cost != self.price.cost(self.usage) {
+            return false;
+        }
+        true
     }
 }
 
@@ -378,6 +440,17 @@ impl LedgerIntegrityReport {
     #[must_use]
     pub const fn is_clean(&self) -> bool {
         self.corrupted_lines == 0 && self.non_monotonic_timestamps == 0
+    }
+
+    /// Verify arithmetic invariants of a [`LedgerIntegrityReport`].
+    #[must_use]
+    pub const fn verify_report_invariants(&self) -> bool {
+        if self.valid_entries == 0
+            && (!self.total_cost.is_zero() || self.non_monotonic_timestamps > 0)
+        {
+            return false;
+        }
+        self.non_monotonic_timestamps <= self.valid_entries
     }
 }
 
@@ -767,5 +840,76 @@ mod tests {
         assert_eq!(report.corrupted_lines, 0);
         assert_eq!(report.non_monotonic_timestamps, 2);
         assert!(!report.is_clean());
+        assert!(report.verify_report_invariants());
+    }
+
+    #[test]
+    fn ledger_entry_dispatch_and_report_verify_invariants_reject_tampering() {
+        let valid_dispatch = Dispatch {
+            mission: "VC-202-025".into(),
+            task: "T-1".into(),
+            attempt: 1,
+            model: "deepseek-flash".into(),
+            provider: "deepseek".into(),
+            usage: TokenUsage::new(3_000_000, 2_400_000, 200_000),
+            price: price(),
+            started_unix_ms: 1_000,
+            ended_unix_ms: 2_500,
+            outcome: Outcome::Accepted,
+        };
+        assert!(valid_dispatch.verify_dispatch_invariants());
+
+        let mut bad_dispatch = valid_dispatch.clone();
+        bad_dispatch.usage.cache_hit = bad_dispatch.usage.input + 1;
+        assert!(!bad_dispatch.verify_dispatch_invariants());
+
+        let mut inverted_dispatch = valid_dispatch.clone();
+        inverted_dispatch.ended_unix_ms = 500;
+        assert!(!inverted_dispatch.verify_dispatch_invariants());
+
+        let mut empty_reject = valid_dispatch.clone();
+        empty_reject.outcome = Outcome::Rejected {
+            reason: "   ".into(),
+        };
+        assert!(!empty_reject.verify_dispatch_invariants());
+
+        let settled = LedgerEntry::settle(valid_dispatch);
+        assert!(settled.verify_entry_invariants());
+
+        let cached = settled.clone().as_cached();
+        assert!(cached.verify_entry_invariants());
+
+        let reported = settled
+            .clone()
+            .at_provider_cost(Some(MicroUsd::from_micros(999_999)));
+        assert!(reported.verify_entry_invariants());
+
+        let mut tampered_cost = settled.clone();
+        tampered_cost.cost = MicroUsd::from_micros(settled.cost.micros() + 1);
+        assert!(!tampered_cost.verify_entry_invariants());
+
+        let mut tampered_cached_cost = cached;
+        tampered_cached_cost.cost = MicroUsd::from_micros(1);
+        assert!(!tampered_cached_cost.verify_entry_invariants());
+
+        let mut zero_attempt = settled;
+        zero_attempt.attempt = 0;
+        assert!(!zero_attempt.verify_entry_invariants());
+
+        let bad_report = LedgerIntegrityReport {
+            valid_entries: 0,
+            corrupted_lines: 0,
+            total_cost: MicroUsd::from_micros(100),
+            non_monotonic_timestamps: 0,
+        };
+        assert!(!bad_report.verify_report_invariants());
+
+        let excessive_non_monotonic = LedgerIntegrityReport {
+            valid_entries: 2,
+            corrupted_lines: 0,
+            total_cost: MicroUsd::from_micros(100),
+            non_monotonic_timestamps: 3,
+        };
+        assert!(!excessive_non_monotonic.verify_report_invariants());
     }
 }
