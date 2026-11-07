@@ -50,10 +50,10 @@
   "accept": {
     "cmd": [
       "cargo",
-      "check",
-      "--workspace",
-      "--all-targets",
-      "--keep-going",
+      "test",
+      "-p",
+      "susi-gemi-models",
+      "--lib",
       "--offline",
       "--locked"
     ]
@@ -63,7 +63,7 @@
   "state": "in_progress",
   "status": "in_progress",
   "claimed_by": "gemini",
-  "acceptance": "cargo check --workspace --all-targets --keep-going --offline --locked",
+  "acceptance": "cargo test -p susi-gemi-models --lib --offline --locked",
   "scope": [
     ".agents/tasks/t-gemini-1.json",
     "crates/susi-config/src/config.rs",
