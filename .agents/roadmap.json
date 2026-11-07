@@ -435,7 +435,7 @@
       "id": "VC-201-035",
       "mastery_target": "Tie task leases and authoritative mission writes to accepted leadership epochs; partition and reconnect tests reject stale-coordinator writes and preserve the surviving mission state.",
       "priority": "P1",
-      "progress": "DELIVERED: task leases and authoritative mission writes are tied to accepted leadership epochs - a stale coordinator after failover and a wrong coordinator in the same epoch are both rejected. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_035.rs`: rejects_stale_coordinator_after_failover, wrong_coordinator_same_epoch_rejected. Evidence: T-CLAUDE-369.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::coordinator_fence): task leases and authoritative mission writes are tied to accepted leadership epochs - a stale coordinator after failover and a wrong coordinator in the same epoch are both rejected. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_035.rs`: rejects_stale_coordinator_after_failover, wrong_coordinator_same_epoch_rejected. Evidence: T-CLAUDE-369.",
       "type": "FEDERATION",
       "vector": "Fence coordinator failover during live missions"
     },

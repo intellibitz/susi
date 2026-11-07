@@ -1,8 +1,8 @@
 {
   "vector": "VC-201-035",
-  "verdict": "delivered",
-  "evidence": "vc_201_035_rejects_stale_coordinator_after_failover and vc_201_035_wrong_coordinator_same_epoch_rejected (crates/susi-gawd-swarm/src/tests/vc_201_035.rs)",
-  "missing": "",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Moved out of scope 2026-11-07 by CEO direction: coordinator_fence lives in susi-commercial-apps (crates/susi-fleet-command/src/migrated/). The Apache-2.0 substrate concentrates on the four core protocol-router pillars (susi-gawd, susi-gemi, susi-gmcp, susi-harness).",
   "tracked_by": [],
   "recorded_by": "INTELLIBITZ202610030140553714905",
   "recorded_unix": 1790998498
