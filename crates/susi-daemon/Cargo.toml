@@ -30,7 +30,6 @@ sysinfo = { package = "susi-vendor-sysinfo", path = "../susi-vendor-sysinfo" }
 # RFC 5389 long-term TURN credentials: MD5(user:realm:pass) then HMAC-SHA1
 # MESSAGE-INTEGRITY. Crypto primitives, not vendor SDKs / HTTP clients.
 sha1 = { package = "susi-vendor-sha1", path = "../susi-vendor-sha1" }
-md5 = { package = "susi-vendor-md-5", path = "../susi-vendor-md-5" }
 
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }

@@ -1716,16 +1716,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
-name = "md-5"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
-dependencies = [
- "cfg-if",
- "digest 0.11.3",
-]
-
-[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1799,18 +1789,6 @@ dependencies = [
  "tempfile",
  "windows-sys 0.61.2",
  "zeroize",
-]
-
-[[package]]
-name = "nix"
-version = "0.31.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
-dependencies = [
- "bitflags",
- "cfg-if",
- "cfg_aliases",
- "libc",
 ]
 
 [[package]]
@@ -2234,20 +2212,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "process-wrap"
-version = "10.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f21b97672d2dc848e7b25701ab4535618b92f4861c13cc3f7f7bed52ad3c8da"
-dependencies = [
- "futures",
- "indexmap",
- "nix",
- "tokio",
- "tracing",
- "windows",
-]
-
-[[package]]
 name = "proptest"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2492,7 +2456,6 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "encoding_rs",
- "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -2513,7 +2476,6 @@ dependencies = [
  "rustls-pki-types",
  "serde",
  "serde_json",
- "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-native-tls",
@@ -2561,9 +2523,7 @@ dependencies = [
  "libc",
  "pastey",
  "pin-project-lite",
- "process-wrap",
  "rand",
- "reqwest",
  "rmcp-macros",
  "schemars",
  "serde",
@@ -3162,7 +3122,6 @@ dependencies = [
  "susi-vendor-getrandom",
  "susi-vendor-hex",
  "susi-vendor-libc",
- "susi-vendor-md-5",
  "susi-vendor-rcgen",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
@@ -3437,7 +3396,6 @@ dependencies = [
  "susi-error",
  "susi-http-transport",
  "susi-sandbox-client",
- "susi-vendor-base64",
  "susi-vendor-bytes",
  "susi-vendor-hex",
  "susi-vendor-http-body-util",
@@ -3448,7 +3406,6 @@ dependencies = [
  "susi-vendor-sha2",
  "susi-vendor-tokio",
  "susi-vendor-tokio-rustls",
- "susi-vendor-tokio-stream",
  "susi-vendor-tracing",
 ]
 
@@ -3463,10 +3420,10 @@ dependencies = [
  "susi-paths",
  "susi-sandbox-client",
  "susi-vendor-dashmap",
- "susi-vendor-mcp",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-tempfile",
+ "susi-vendor-url",
 ]
 
 [[package]]
@@ -3491,13 +3448,6 @@ name = "susi-vendor-axum"
 version = "0.1.0"
 dependencies = [
  "axum",
-]
-
-[[package]]
-name = "susi-vendor-base64"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
 ]
 
 [[package]]
@@ -3613,28 +3563,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-vendor-mcp"
-version = "0.1.0"
-dependencies = [
- "reqwest",
- "rmcp",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "susi-vendor-mcp-server"
 version = "0.1.0"
 dependencies = [
  "rmcp",
-]
-
-[[package]]
-name = "susi-vendor-md-5"
-version = "0.1.0"
-dependencies = [
- "md-5",
 ]
 
 [[package]]
@@ -3766,13 +3698,6 @@ dependencies = [
  "tokio-native-tls",
  "x509-cert",
  "zeroize",
-]
-
-[[package]]
-name = "susi-vendor-tokio-stream"
-version = "0.1.0"
-dependencies = [
- "tokio-stream",
 ]
 
 [[package]]
@@ -5078,27 +5003,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "candle-core"
-version = "0.11.1"
-
-[[patch.unused]]
-name = "esaxx-rs"
-version = "0.1.10"
-
-[[patch.unused]]
-name = "hashbrown"
-version = "0.16.1"
-
-[[patch.unused]]
-name = "htmlescape"
-version = "0.3.1"
-
-[[patch.unused]]
-name = "tantivy-sstable"
-version = "0.7.0"
-
-[[patch.unused]]
-name = "zip"
-version = "9.2.0"

@@ -115,7 +115,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-core", 3),
     ("susi-sandbox-client", 3),
     ("susi-vendor-wasmtime", 2),
-    ("susi-vendor-mcp", 0),
     ("susi-vendor-mcp-server", 0),
     ("susi-vendor-syn", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.
@@ -144,7 +143,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
 const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-anyhow",
     "susi-vendor-axum",
-    "susi-vendor-base64",
     "susi-vendor-bytes",
     "susi-vendor-chacha20poly1305",
     "susi-vendor-clap",
@@ -161,7 +159,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-hyper-util",
     "susi-vendor-jsonschema",
     "susi-vendor-libc",
-    "susi-vendor-md-5",
     "susi-vendor-parking-lot",
     "susi-vendor-proptest",
     "susi-vendor-ra2a",
@@ -179,7 +176,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-tempfile",
     "susi-vendor-tokio",
     "susi-vendor-tokio-rustls",
-    "susi-vendor-tokio-stream",
     "susi-vendor-tower",
     "susi-vendor-tower-service",
     "susi-vendor-tracing",
@@ -1810,7 +1806,7 @@ fn the_lockfile_carries_fixed_zip_and_the_approved_candle_sources() {
         );
     }
     let manifest = std::fs::read_to_string(workspace_root().join("Cargo.toml")).unwrap();
-    assert!(manifest.contains("candle-core = { path = \"vendor/candle-core\" }"));
+    assert!(!manifest.contains("candle-core = { path = \"vendor/candle-core\" }"));
     assert!(workspace_root()
         .join("vendor/candle-core/LICENSE")
         .is_file());

@@ -4,11 +4,11 @@
 //! HTTP shells for the microkernel's leaf services.
 //!
 //! `susi-paths`, `susi-error` and `susi-config` are foundation libraries
-//! every crate links, and `susi-sandbox` (bollard) / `susi-vendor-wasmtime` (wasmtime)
-//! are vendor integrations; none of them carries an HTTP framework. This
+//! every crate links, and `susi-sandbox-client` / `susi-vendor-wasmtime` (wasmtime)
+//! provide the sandbox and native reflex surfaces; none of them carries an HTTP framework. This
 //! crate is the one place the leaf services meet axum: one runtime/bind helper, one pair of
 //! bearer policies, one `service-run` dispatch. Standalone service bins enable
-//! only their own feature so Wasmer and Bollard stay out of unrelated binaries.
+//! only their own feature so Wasmtime stays out of unrelated binaries.
 //! The service logic stays in each library as plain functions, so a shell is only routing.
 
 #[cfg(any(
