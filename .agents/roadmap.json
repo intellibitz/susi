@@ -1166,7 +1166,7 @@
       "id": "VC-201-092",
       "mastery_target": "Measure availability, task success, queue delay, inference latency, and recovery duration from actual events; publish windows and denominators with explicit unknowns when samples are insufficient.",
       "priority": "P1",
-      "progress": "PARTIAL: the service-objective view publishes values with an explicit denominator and marks a metric unknown when samples are insufficient. Verified by `crates/susi-gawd/src/tests/vc_201_092.rs`: publishes_values_with_denominator, marks_unknown_when_samples_insufficient. Residual: measuring each of availability, task success, queue delay, inference latency and recovery duration from actual events, with published windows, is not enumerated by a named check. Evidence: T-CLAUDE-393.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-092.json, T-SOCKETDSP4-2): operating-layer SLOs (availability, task_success, queue_delay, inference_latency, recovery_duration) are measured directly from GawdA2AExecutor task events and published with explicit windows, denominators, and unknown markers.",
       "type": "OPERATIONS",
       "vector": "Define and measure operating-layer service objectives"
     },
@@ -1181,7 +1181,7 @@
       "id": "VC-201-093",
       "mastery_target": "Restore configuration, workflow state, keys under explicit policy, and required ledger history to isolated nodes; verify audit continuity and report measured recovery time and data loss against declared targets.",
       "priority": "P1",
-      "progress": "PARTIAL: restore completes with audit continuity and key policy applied. Verified by `crates/susi-gawd/src/tests/vc_201_093.rs`: restores_with_audit_continuity_and_key_policy. Residual: restoring to isolated nodes and reporting measured recovery time and data loss against declared targets are not enumerated by a named check. Evidence: T-CLAUDE-394.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-093.json, T-GAWDSWARM-2): restores configuration, workflow state, keys under explicit policy, and ledger history to isolated node processes; verifies audit continuity and reports measured recovery time (RTO) and data loss (RPO) against declared targets. Verified by `crates/susi-gawd/src/tests/vc_201_093.rs`: restores_to_isolated_node_and_reports_rto_rpo_against_targets, vc_201_093_restores_with_audit_continuity_and_key_policy.",
       "type": "OPERATIONS",
       "vector": "Exercise disaster recovery from authoritative backups"
     },
@@ -1196,7 +1196,7 @@
       "id": "VC-201-094",
       "mastery_target": "Load-test simultaneous missions, streaming calls, peer repair, and model churn with recorded hardware; report saturation points and verify overload rejection preserves health and cancellation responsiveness.",
       "priority": "P1",
-      "progress": "PARTIAL: overload is rejected while the control plane stays healthy. Verified by `crates/susi-gawd/src/tests/vc_201_094.rs`: rejects_overload_and_stays_healthy. Residual: load-testing simultaneous missions, streaming calls, peer repair and model churn with recorded hardware, and reporting saturation points with cancellation responsiveness, are not enumerated by a named check. Evidence: T-CLAUDE-395.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-094.json, T-GAWDSWARM-2): ControlPlaneCapacity and measure_control_plane_saturation load-test simultaneous missions, streaming calls, peer repair, and model churn with RECORDED_HARDWARE_PROFILE, report saturation points via saturation(), and verify overload rejection preserves health and measured cancellation responsiveness. Verified by `crates/susi-gawd/src/tests/vc_201_094.rs`: vc_201_094_load_tests_simultaneous_dimensions_and_measures_cancellation_responsiveness.",
       "type": "OPERATIONS",
       "vector": "Benchmark and enforce control-plane capacity limits"
     },
@@ -1379,7 +1379,7 @@
       "id": "VC-202-008",
       "mastery_target": "susi writes new roadmap vectors and queue tasks - scopes, acceptance, dependencies and rationale included - from its own analysis of failures and gaps, and those artifacts pass the same schema and queue gates as human-authored ones, under a reviewed rate limit.",
       "priority": "P1",
-      "progress": "PARTIAL: self-authored backlog path delivered (T-DEEPSEEK-104): tasks author batches vectors+tasks through the same schema/queue gates with rationale, batch pre-flight, the AUTHORED_OPEN_MAX bound and a tasks authored review surface; author_unqueued drafts verification work from the coverage audit; author_from_failures (T-DEEPSEEK-233) drafts one deduplicated repair task per failure kind from the durable mission trace, exposed via `susi tasks author --from-failures`. Remaining: audit-log denials and roadmap-verdict drift are not yet read as failure sources.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-008.json, T-DEEPSEEK-233, T-GAWDSWARM-2): self-authored backlog path batches vectors+tasks through schema/queue gates with rationale, batch pre-flight, AUTHORED_OPEN_MAX bound, and `susi tasks authored`; `author_unqueued` drafts verification work from coverage gaps; `author_from_failures` drafts deduplicated repair tasks from durable mission traces, `.susi/audit.jsonl` policy denials, and `.agents/roadmap-verdicts/*.json` verdict drift.",
       "type": "RSI_EXECUTION",
       "vector": "The system authors its own backlog"
     },

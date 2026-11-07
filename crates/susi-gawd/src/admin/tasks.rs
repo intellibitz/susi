@@ -785,6 +785,7 @@ struct FailureSignature {
     slug: String,
     title: String,
     goal: String,
+    roadmap: Option<String>,
 }
 
 /// Lowercase ASCII alphanumerics; every other run of characters collapses
@@ -835,19 +836,186 @@ fn mission_failure_signatures(ws: &Path) -> Vec<FailureSignature> {
                  correct. Evidence: crates/susi-core/src/mission_trace.rs (mission_id={}).",
                 t.goal, t.outcome, t.mission_id
             ),
+            roadmap: None,
         });
     }
     out
 }
 
-/// Susi's own failure analysis as an authored batch: a mission that did
-/// not succeed — today's recorded source is the durable mission trace;
-/// audit-log denials and roadmap-verdict drift are not read yet, see the
-/// module-level note — drafts its own repair task through [`author`],
-/// under the same gates and the same per-author bound as a human's
-/// `tasks add`. A failure already named by an open or done task's title
-/// is not re-authored, so a recurring failure stays one task, never one
-/// per occurrence.
+/// Policy and capability denials recorded in `.susi/audit.jsonl` (or
+/// `audit.jsonl`), deduplicated by the denied tool/action/reason kind.
+fn audit_denial_signatures(ws: &Path) -> Vec<FailureSignature> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for rel in [".susi/audit.jsonl", "audit.jsonl"] {
+        let path = ws.join(rel);
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+                continue;
+            };
+            let is_denied = ["outcome", "decision", "status", "event"]
+                .iter()
+                .filter_map(|k| val.get(*k).and_then(serde_json::Value::as_str))
+                .any(|s| {
+                    s.eq_ignore_ascii_case("denied")
+                        || s.eq_ignore_ascii_case("deny")
+                        || s.eq_ignore_ascii_case("refused")
+                        || s.eq_ignore_ascii_case("policy_denied")
+                })
+                || val.get("denied").and_then(serde_json::Value::as_bool) == Some(true);
+            if !is_denied {
+                continue;
+            }
+            let key = [
+                "tool",
+                "action",
+                "operation",
+                "capability",
+                "subject",
+                "reason",
+            ]
+            .iter()
+            .find_map(|k| {
+                val.get(*k)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+            })
+            .unwrap_or("policy_gate");
+            let detail = ["reason", "message", "policy", "actor"]
+                .iter()
+                .find_map(|k| {
+                    val.get(*k)
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                })
+                .unwrap_or("policy denial recorded");
+            let slug = failure_slug(&format!("audit_denial_{key}"));
+            if slug.is_empty() || !seen.insert(slug.clone()) {
+                continue;
+            }
+            out.push(FailureSignature {
+                slug,
+                title: format!("Repair: audit denial: {}", truncate_chars(key, 60)),
+                goal: format!(
+                    "Audit log recorded denial for `{key}` ({detail}). Repair the offending \
+                     caller or justify the policy denial. Evidence: {rel}."
+                ),
+                roadmap: None,
+            });
+        }
+    }
+    out
+}
+
+/// Roadmap-verdict drift and undelivered verdicts in `.agents/roadmap-verdicts/*.json`.
+fn verdict_drift_signatures(ws: &Path) -> Vec<FailureSignature> {
+    let verdicts_dir = ws.join(".agents").join("roadmap-verdicts");
+    let Ok(entries) = std::fs::read_dir(&verdicts_dir) else {
+        return Vec::new();
+    };
+    let (known_vectors, delivered_in_roadmap): (
+        std::collections::BTreeSet<String>,
+        std::collections::BTreeSet<String>,
+    ) = match roadmap_vectors(ws) {
+        Ok(vs) => {
+            let known = vs.iter().map(|v| v.id.clone()).collect();
+            let delivered = vs
+                .into_iter()
+                .filter(|v| v.progress.trim_start().starts_with("DELIVERED"))
+                .map(|v| v.id)
+                .collect();
+            (known, delivered)
+        }
+        Err(_) => (
+            std::collections::BTreeSet::new(),
+            std::collections::BTreeSet::new(),
+        ),
+    };
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .collect();
+    paths.sort();
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for path in paths {
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let fallback_id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        let vector_id = val
+            .get("vector")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(fallback_id);
+        if vector_id.is_empty() {
+            continue;
+        }
+        let verdict = val
+            .get("verdict")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        let explicit_drift = val.get("drift").and_then(serde_json::Value::as_bool) == Some(true);
+        let verdict_not_delivered = verdict.eq_ignore_ascii_case("not-delivered")
+            || verdict.eq_ignore_ascii_case("refuted")
+            || verdict.eq_ignore_ascii_case("drift");
+        let roadmap_mismatch =
+            delivered_in_roadmap.contains(vector_id) && !verdict.eq_ignore_ascii_case("delivered");
+        if !explicit_drift && !verdict_not_delivered && !roadmap_mismatch {
+            continue;
+        }
+        let missing = val
+            .get("missing")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("verdict reports undelivered or drifted state");
+        let slug = failure_slug(&format!("verdict_drift_{vector_id}"));
+        if slug.is_empty() || !seen.insert(slug.clone()) {
+            continue;
+        }
+        out.push(FailureSignature {
+            slug,
+            title: format!("Repair: verdict drift: {}", truncate_chars(vector_id, 60)),
+            goal: format!(
+                "Roadmap verdict `{vector_id}` reports drift or undelivered gap ({}). \
+                 Repair implementation or align verdict. Evidence: .agents/roadmap-verdicts/{vector_id}.json.",
+                truncate_chars(missing, 120)
+            ),
+            roadmap: known_vectors
+                .contains(vector_id)
+                .then(|| vector_id.to_string()),
+        });
+    }
+    out
+}
+
+/// Susi's own failure analysis as an authored batch: failed/refused missions
+/// from the durable mission trace, policy denials from `.susi/audit.jsonl`,
+/// and roadmap-verdict drift from `.agents/roadmap-verdicts/*.json` each
+/// draft their own repair task through [`author`], under the same gates and
+/// the same per-author bound as a human's `tasks add`. A failure already
+/// named by an open or done task's title is not re-authored, so a recurring
+/// failure stays one task, never one per occurrence.
 ///
 /// # Errors
 /// As [`author`]: an over-bound batch is refused whole.
@@ -858,9 +1026,12 @@ pub fn author_from_failures(ws: &Path, agent: &str) -> EaiResult<AuthoredReport>
         .map(|t| t.title)
         .collect();
 
+    let mut seen_slugs = std::collections::BTreeSet::new();
     let tasks: Vec<NewTask> = mission_failure_signatures(ws)
         .into_iter()
-        .filter(|f| !existing.contains(&f.title))
+        .chain(audit_denial_signatures(ws))
+        .chain(verdict_drift_signatures(ws))
+        .filter(|f| seen_slugs.insert(f.slug.clone()) && !existing.contains(&f.title))
         .map(|f| NewTask {
             title: f.title,
             goal: f.goal,
@@ -874,7 +1045,7 @@ pub fn author_from_failures(ws: &Path, agent: &str) -> EaiResult<AuthoredReport>
                 "-E".into(),
                 format!("test({}_repaired)", f.slug),
             ],
-            roadmap: None,
+            roadmap: f.roadmap,
         })
         .collect();
 
@@ -882,9 +1053,10 @@ pub fn author_from_failures(ws: &Path, agent: &str) -> EaiResult<AuthoredReport>
         ws,
         agent,
         &AuthoredSpec {
-            rationale: "failure analysis: a mission that did not succeed drafts its own repair \
-                        task, deduplicated by failure kind"
-                .into(),
+            rationale:
+                "failure analysis: mission failures, audit-log denials, and roadmap-verdict \
+                        drift each draft their own repair task, deduplicated by failure kind"
+                    .into(),
             vectors: vec![],
             tasks,
         },

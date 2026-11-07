@@ -441,3 +441,76 @@ fn author_unqueued_trims_a_long_backlog_to_the_bound() {
         "only one P2 fits the remaining budget: {roadmaps:?}"
     );
 }
+
+#[test]
+fn self_authored_backlog_reads_audit_denials_and_verdict_drift_without_duplicates() {
+    let root = ws("audit_and_verdict_drift");
+    std::fs::create_dir_all(root.join(".susi")).unwrap();
+    std::fs::create_dir_all(root.join(".agents/roadmap-verdicts")).unwrap();
+
+    // Two denials for the same tool ("exec_command") + one allowed entry + one distinct denial ("write_file").
+    std::fs::write(
+        root.join(".susi/audit.jsonl"),
+        concat!(
+            r#"{"outcome":"denied","tool":"exec_command","reason":"shell policy denied"}"#,
+            "\n",
+            r#"{"outcome":"DENIED","tool":"exec_command","reason":"duplicate occurrence"}"#,
+            "\n",
+            r#"{"outcome":"allowed","tool":"view_file","reason":"ok"}"#,
+            "\n",
+            r#"{"decision":"deny","action":"write_file","reason":"outside claimed scope"}"#,
+            "\n"
+        ),
+    )
+    .unwrap();
+
+    // Verdict drift for known vector VC-900-001 (not-delivered) + delivered vector VC-900-002 (no drift).
+    std::fs::write(
+        root.join(".agents/roadmap-verdicts/VC-900-001.json"),
+        r#"{
+            "vector": "VC-900-001",
+            "verdict": "not-delivered",
+            "missing": "isolated recovery verification is still missing"
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".agents/roadmap-verdicts/VC-900-002.json"),
+        r#"{
+            "vector": "VC-900-002",
+            "verdict": "delivered",
+            "missing": ""
+        }"#,
+    )
+    .unwrap();
+
+    let report = tasks::author_from_failures(&root, "deepseek").unwrap();
+    assert_eq!(
+        report.tasks.len(),
+        3,
+        "expected 2 distinct audit-denial tasks + 1 verdict-drift task, got: {:?}",
+        report.tasks
+    );
+
+    let open = tasks::list_open(&root);
+    assert_eq!(open.len(), 3);
+    assert!(open
+        .iter()
+        .any(|t| t.title == "Repair: audit denial: exec_command"));
+    assert!(open
+        .iter()
+        .any(|t| t.title == "Repair: audit denial: write_file"));
+    let drift_task = open
+        .iter()
+        .find(|t| t.title == "Repair: verdict drift: VC-900-001")
+        .expect("verdict drift task authored");
+    assert_eq!(drift_task.roadmap.as_deref(), Some("VC-900-001"));
+    assert!(open.iter().all(|t| t.authored));
+
+    // Re-running author_from_failures must not redraft any of the already-queued tasks.
+    let second = tasks::author_from_failures(&root, "deepseek").unwrap();
+    assert!(
+        second.tasks.is_empty(),
+        "recurring audit denials and verdict drift must not duplicate open tasks"
+    );
+}
