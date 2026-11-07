@@ -17,7 +17,7 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// Third-party (non-workspace) crates the four pillars compile. 2026-11-07:
 /// 331 before the lean-core program began, 313 after wave 1 (rayon, flume
 /// and jsonschema edges cut from the GAWD and GEMI crates).
-const THIRD_PARTY_CEILING: usize = 304;
+const THIRD_PARTY_CEILING: usize = 301;
 /// Workspace crates the four pillars compile (themselves included).
 const WORKSPACE_CEILING: usize = 52;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
