@@ -57,6 +57,7 @@
     "crates/susi-gawd-agents/cargo.toml",
     "crates/susi-gawd-agents/src/agents/fleet.rs",
     "crates/susi-gawd-agents/src/agents/native.rs",
+    "crates/susi-gawd-agents/src/lib.rs",
     "crates/susi-gawd-swarm/cargo.toml",
     "crates/susi-gawd-swarm/src/ama/master.rs",
     "crates/susi-gawd-swarm/src/amas.rs",
