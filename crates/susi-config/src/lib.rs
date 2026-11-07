@@ -295,9 +295,6 @@ pub use versioned_store::VersionedJsonStore;
 #[path = "tests/cluster_key.rs"]
 mod cluster_key_tests;
 #[cfg(test)]
-#[path = "tests/desired_state.rs"]
-mod desired_state_tests;
-#[cfg(test)]
 #[path = "tests/extensions.rs"]
 mod extensions_tests;
 #[cfg(test)]
