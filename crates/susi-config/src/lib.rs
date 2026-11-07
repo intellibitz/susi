@@ -56,7 +56,6 @@ pub mod windows_model_identity;
 pub mod zc_debt_ratchet;
 pub mod zc_debt_report;
 pub mod zc_path;
-pub mod zc_qualification;
 pub mod zc_susi_fix;
 
 /// IPC client for the standalone `susi-config` service. Only the global
