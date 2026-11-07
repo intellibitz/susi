@@ -34,7 +34,6 @@ pub mod eco_profile;
 pub mod eco_query;
 pub mod eco_relations;
 pub mod eco_schema;
-pub mod eco_signed_kb;
 pub mod eco_store;
 pub mod eco_taxonomy;
 pub mod frontier;
