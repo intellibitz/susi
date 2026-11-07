@@ -772,7 +772,8 @@ mod tests {
         ));
         assert!(!blackboard
             .iter()
-            .any(|entry| entry.key().starts_with("EvidenceRecord::")));
+            .into_iter()
+            .any(|entry| entry.0.starts_with("EvidenceRecord::")));
         std::env::remove_var("SUSI_TEST_MOCK_INFERENCE");
 
         let _ = std::fs::remove_dir_all(&tmp);
@@ -868,7 +869,7 @@ mod tests {
 
         rx.recv_timeout(std::time::Duration::from_secs(5))
             .expect("insert() past capacity deadlocked instead of evicting");
-        assert!(store.iter().count() <= 4);
+        assert!(store.iter().len() <= 4);
     }
 
     #[test]
@@ -989,6 +990,7 @@ mod tests {
         let agents = registry.list_agents();
         assert!(agents
             .iter()
+            .into_iter()
             .any(|a| a.semantic_anchors.contains(&"quantum".to_string())));
     }
 
@@ -1506,6 +1508,7 @@ mod tests {
                 .expect("agents.default.json parses");
         let in_defaults = defaults
             .iter()
+            .into_iter()
             .any(|e| e.get("name").and_then(|n| n.as_str()) == Some("TranslationAgent"));
         let has_native = instantiate_native_agent("TranslationAgent").is_some();
         assert!(

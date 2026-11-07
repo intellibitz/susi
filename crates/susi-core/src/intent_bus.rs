@@ -6,11 +6,11 @@
 //! attached by upper layers when available.
 
 use crate::susi_core::bus::global_bus;
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::sync::RwLock;
 
 /// Provide vs need.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,8 +135,8 @@ pub fn intent_similarity(a: &IntentMessage, b: &IntentMessage) -> f32 {
 
 /// Process-wide semantic intent bus.
 pub struct IntentBus {
-    providers: DashMap<String, IntentMessage>,
-    needs: DashMap<String, IntentMessage>,
+    providers: RwLock<HashMap<String, IntentMessage>>,
+    needs: RwLock<HashMap<String, IntentMessage>>,
     next_id: std::sync::atomic::AtomicU64,
     /// Shared rendezvous dir (`<cache>/bus/<pid>/intents/`) when wired —
     /// providers/needs persist as JSON files so every plane in this process
@@ -164,8 +164,8 @@ impl IntentBus {
 
     fn with_dir(dir: Option<PathBuf>) -> Self {
         Self {
-            providers: DashMap::new(),
-            needs: DashMap::new(),
+            providers: RwLock::new(HashMap::new()),
+            needs: RwLock::new(HashMap::new()),
             next_id: std::sync::atomic::AtomicU64::new(1),
             dir,
         }
@@ -261,7 +261,12 @@ impl IntentBus {
         };
         let mut seen: HashSet<String> = HashSet::new();
         let mut out: Vec<IntentMessage> = Vec::new();
-        for m in local.iter().map(|e| e.value().clone()) {
+        for m in local
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+        {
             if seen.insert(m.id.clone()) {
                 out.push(m);
             }
@@ -291,7 +296,10 @@ impl IntentBus {
             payload,
             created_at: now(),
         };
-        self.providers.insert(msg.id.clone(), msg.clone());
+        self.providers
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(msg.id.clone(), msg.clone());
         self.persist(&msg);
         self.route_pending_for_provider(&msg);
         msg
@@ -317,7 +325,10 @@ impl IntentBus {
             payload,
             created_at: now(),
         };
-        self.needs.insert(msg.id.clone(), msg.clone());
+        self.needs
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(msg.id.clone(), msg.clone());
         self.persist(&msg);
         let matches = self.match_need(&msg, min_score, limit);
         for m in &matches {
@@ -416,8 +427,14 @@ impl IntentBus {
     }
 
     pub fn clear(&self) {
-        self.providers.clear();
-        self.needs.clear();
+        self.providers
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.needs
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         // The rendezvous dir is per-process — every file under it belongs
         // to this process's copies, so clearing both kinds is safe.
         for kind in [IntentKind::Provide, IntentKind::Need] {

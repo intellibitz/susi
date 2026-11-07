@@ -20,12 +20,13 @@
 //!   swept on init where `/proc` is available.
 
 use crate::susi_core::plane_bus::PlaneHandler;
-use dashmap::DashMap;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use susi_paths::SusiDirs;
@@ -70,8 +71,8 @@ fn no_handler(topic: &str) -> String {
     format!("{NO_HANDLER} '{topic}' (composition root must register planes)")
 }
 
-type HandlerMap = Arc<DashMap<String, Arc<dyn PlaneHandler>>>;
-type StreamMap = Arc<DashMap<String, flume::Sender<Value>>>;
+type HandlerMap = Arc<RwLock<HashMap<String, Arc<dyn PlaneHandler>>>>;
+type StreamMap = Arc<RwLock<HashMap<String, std::sync::mpsc::Sender<Value>>>>;
 
 /// Process-scoped IPC plane bus — same method surface as
 /// [`crate::susi_core::plane_bus::PlaneBus`]. Every cell process backs its
@@ -127,9 +128,9 @@ impl IpcPlaneBus {
         }
         let secret = bus_secret(rendezvous.parent()).into();
         Self {
-            handlers: Arc::new(DashMap::new()),
-            prefixes: Arc::new(DashMap::new()),
-            streams: Arc::new(DashMap::new()),
+            handlers: Arc::new(RwLock::new(HashMap::new())),
+            prefixes: Arc::new(RwLock::new(HashMap::new())),
+            streams: Arc::new(RwLock::new(HashMap::new())),
             stream_seq: AtomicU64::new(0),
             rendezvous,
             endpoint: OnceLock::new(),
@@ -248,9 +249,11 @@ impl IpcPlaneBus {
     /// Local prefix match (rendezvous file may be missing).
     fn local_prefix(&self, topic: &str) -> Option<Arc<dyn PlaneHandler>> {
         self.prefixes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .find(|e| topic.starts_with(e.key().as_str()))
-            .map(|e| Arc::clone(e.value()))
+            .find(|e| topic.starts_with(e.0.as_str()))
+            .map(|(_, v)| Arc::clone(v))
     }
 
     /// `POST /handle` to a remote copy. `Remote::Dead` = transport failure
@@ -290,12 +293,18 @@ impl IpcPlaneBus {
     }
 
     pub fn register(&self, topic: &str, handler: Arc<dyn PlaneHandler>) {
-        self.handlers.insert(topic.to_string(), handler);
+        self.handlers
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(topic.to_string(), handler);
         self.publish_endpoint("topics", topic);
     }
 
     pub fn register_prefix(&self, prefix: &str, handler: Arc<dyn PlaneHandler>) {
-        self.prefixes.insert(prefix.to_string(), handler);
+        self.prefixes
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(prefix.to_string(), handler);
         self.publish_endpoint("prefixes", prefix);
     }
 
@@ -303,7 +312,12 @@ impl IpcPlaneBus {
     /// file is only deleted when it points at this copy's listener — another
     /// copy's registration is left alone.
     pub fn unregister(&self, topic: &str) -> bool {
-        let removed = self.handlers.remove(topic).is_some();
+        let removed = self
+            .handlers
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(topic)
+            .is_some();
         let file = self.rendezvous.join("topics").join(enc(topic));
         let owns_file = read_endpoint_key(&file)
             .is_some_and(|(ep, _)| self.endpoint.get().is_some_and(|e| *e == ep));
@@ -315,7 +329,13 @@ impl IpcPlaneBus {
 
     pub fn request(&self, topic: &str, payload: Value) -> Result<Value, String> {
         // Fast path: a handler registered in this copy stays in-process.
-        if let Some(h) = self.handlers.get(topic).map(|e| Arc::clone(e.value())) {
+        if let Some(h) = self
+            .handlers
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(topic)
+            .map(Arc::clone)
+        {
             return invoke(h, topic, payload);
         }
         for (file, ep) in self.candidates(topic) {
@@ -338,7 +358,7 @@ impl IpcPlaneBus {
 
     /// Allocate a stream channel; the id embeds this copy's endpoint so
     /// `stream_emit` from any peer process reaches `rx` over loopback.
-    pub fn open_stream(&self) -> (String, flume::Receiver<Value>) {
+    pub fn open_stream(&self) -> (String, std::sync::mpsc::Receiver<Value>) {
         let id = format!(
             "{}-{}",
             SystemTime::now()
@@ -347,8 +367,11 @@ impl IpcPlaneBus {
                 .unwrap_or(0),
             self.stream_seq.fetch_add(1, Ordering::Relaxed)
         );
-        let (tx, rx) = flume::unbounded();
-        self.streams.insert(id.clone(), tx);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.streams
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.clone(), tx);
         let sid = match self.endpoint() {
             Some(ep) => format!("ipc://{ep}/{id}"),
             None => id,
@@ -362,14 +385,24 @@ impl IpcPlaneBus {
                 return;
             };
             if self.endpoint.get().is_some_and(|e| addr == e.to_string()) {
-                if let Some(tx) = self.streams.get(id) {
+                if let Some(tx) = self
+                    .streams
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(id)
+                {
                     let _ = tx.send(chunk);
                 }
             } else if let Ok(ep) = addr.parse::<SocketAddr>() {
                 let body = json!({ "id": id, "chunk": chunk }).to_string();
                 let _ = post(ep, "/stream", &body, &self.secret);
             }
-        } else if let Some(tx) = self.streams.get(stream_id) {
+        } else if let Some(tx) = self
+            .streams
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(stream_id)
+        {
             let _ = tx.send(chunk);
         }
     }
@@ -379,11 +412,17 @@ impl IpcPlaneBus {
             .strip_prefix("ipc://")
             .and_then(|r| r.split_once('/').map(|(_, id)| id))
             .unwrap_or(stream_id);
-        self.streams.remove(id);
+        self.streams
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
     }
 
     pub fn is_wired(&self, topic: &str) -> bool {
-        self.handlers.contains_key(topic)
+        self.handlers
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(topic)
             || self.local_prefix(topic).is_some()
             || !self.candidates(topic).is_empty()
     }
@@ -639,7 +678,7 @@ fn serve_conn(
         "/stream" => {
             if let Ok(v) = serde_json::from_str::<Value>(&body) {
                 let id = v.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                if let Some(tx) = streams.get(id) {
+                if let Some(tx) = streams.read().unwrap_or_else(|e| e.into_inner()).get(id) {
                     let _ = tx.send(v.get("chunk").cloned().unwrap_or(Value::Null));
                 }
             }
@@ -658,13 +697,20 @@ fn dispatch(
     topic: &str,
     payload: Value,
 ) -> Option<Result<Value, String>> {
-    if let Some(h) = handlers.get(topic).map(|e| Arc::clone(e.value())) {
+    if let Some(h) = handlers
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(topic)
+        .map(Arc::clone)
+    {
         return Some(invoke(h, topic, payload));
     }
     let h = prefixes
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
         .iter()
-        .find(|e| topic.starts_with(e.key().as_str()))
-        .map(|e| Arc::clone(e.value()))?;
+        .find(|e| topic.starts_with(e.0.as_str()))
+        .map(|(_, v)| Arc::clone(v))?;
     Some(invoke(h, topic, payload))
 }
 
@@ -1187,9 +1233,12 @@ mod tests {
     /// `err` text older callers read; a handler's error carries no marker.
     #[test]
     fn a_dispatch_miss_is_marked_structurally() {
-        let handlers: HandlerMap = Arc::new(DashMap::new());
-        let prefixes: HandlerMap = Arc::new(DashMap::new());
-        handlers.insert("test.reject".into(), Arc::new(Reject));
+        let handlers: HandlerMap = Arc::new(RwLock::new(HashMap::new()));
+        let prefixes: HandlerMap = Arc::new(RwLock::new(HashMap::new()));
+        handlers
+            .write()
+            .unwrap()
+            .insert("test.reject".into(), Arc::new(Reject));
         assert!(dispatch(&handlers, &prefixes, "test.none", json!({})).is_none());
         assert_eq!(
             dispatch(&handlers, &prefixes, "test.reject", json!({})),

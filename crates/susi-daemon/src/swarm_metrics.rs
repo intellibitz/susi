@@ -48,7 +48,12 @@ pub fn snapshot_from_tasks(tasks: &[susi_core::task_manager::TaskRecord]) -> Swa
         );
         if matches!(status, TaskStatus::Completed) {
             snap.missions_succeeded += 1;
-            if let Some(result) = task.result.read().as_ref() {
+            if let Some(result) = task
+                .result
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+            {
                 solutions.insert(result.clone());
             }
         }
@@ -78,10 +83,19 @@ mod inline_tests {
             handle.mark_completed(r);
         } else {
             handle.mark_failed("none");
-            *handle.result.write() = None;
+            *handle.result.write().unwrap_or_else(|e| e.into_inner()) = None;
         }
-        let mut rec = mgr.tasks.get(&handle.task_id).unwrap().value().clone();
-        mgr.tasks.remove(&handle.task_id);
+        let mut rec = mgr
+            .tasks
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&handle.task_id)
+            .unwrap()
+            .clone();
+        mgr.tasks
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&handle.task_id);
         rec.task_id = id.into();
         rec.status = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(status as u8));
         rec.start_time_secs = start_secs;

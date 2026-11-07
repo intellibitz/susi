@@ -87,13 +87,16 @@ pub struct EmergencyStopBus {
 }
 
 impl EmergencyStopBus {
-    pub fn global() -> &'static parking_lot::RwLock<EmergencyStopBus> {
-        static INSTANCE: OnceLock<parking_lot::RwLock<EmergencyStopBus>> = OnceLock::new();
-        INSTANCE.get_or_init(|| parking_lot::RwLock::new(EmergencyStopBus::default()))
+    pub fn global() -> &'static std::sync::RwLock<EmergencyStopBus> {
+        static INSTANCE: OnceLock<std::sync::RwLock<EmergencyStopBus>> = OnceLock::new();
+        INSTANCE.get_or_init(|| std::sync::RwLock::new(EmergencyStopBus::default()))
     }
 
     pub fn is_globally_stopped(scope: &str) -> bool {
-        Self::global().read().rejects_new_work_for_scope(scope)
+        Self::global()
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .rejects_new_work_for_scope(scope)
     }
 
     pub fn register_peer(&mut self, id: &str, reachable: bool) {

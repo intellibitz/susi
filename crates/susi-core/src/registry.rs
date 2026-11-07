@@ -1,5 +1,6 @@
-use dashmap::DashMap;
 use std::any::{Any, TypeId};
+use std::collections::HashMap;
+use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
 
 type Service = Arc<dyn Any + Send + Sync>;
@@ -8,8 +9,8 @@ type ServiceFactory = Arc<dyn Fn() -> Service + Send + Sync>;
 /// Stores shared services by type and service factories by name.
 #[derive(Default)]
 pub struct DynamicServiceRegistry {
-    services: DashMap<TypeId, Service>,
-    factories: DashMap<String, ServiceFactory>,
+    services: RwLock<HashMap<TypeId, Service>>,
+    factories: RwLock<HashMap<String, ServiceFactory>>,
 }
 
 impl DynamicServiceRegistry {
@@ -19,7 +20,10 @@ impl DynamicServiceRegistry {
 
     /// Registers a generic service statically resolvable by its TypeId.
     pub fn register<T: Send + Sync + 'static>(&self, service: T) {
-        self.services.insert(TypeId::of::<T>(), Arc::new(service));
+        self.services
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(TypeId::of::<T>(), Arc::new(service));
     }
 
     /// Registers a factory by name, replacing any previous factory with that name.
@@ -27,25 +31,35 @@ impl DynamicServiceRegistry {
     where
         F: Fn() -> Arc<T> + Send + Sync + 'static,
     {
-        self.factories.insert(
-            name.into(),
-            Arc::new(move || {
-                let instance: Arc<T> = factory();
-                instance as Arc<dyn Any + Send + Sync>
-            }),
-        );
+        self.factories
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                name.into(),
+                Arc::new(move || {
+                    let instance: Arc<T> = factory();
+                    instance as Arc<dyn Any + Send + Sync>
+                }),
+            );
     }
 
     /// Instantiates a generic service dynamically via its registered String semantic identifier.
     pub fn instantiate<T: Send + Sync + 'static>(&self, name: &str) -> Option<Arc<T>> {
         // Release the map guard before calling user code, which may register factories.
-        let factory = Arc::clone(self.factories.get(name)?.value());
+        let factory = Arc::clone(
+            self.factories
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(name)?,
+        );
         factory().downcast::<T>().ok()
     }
 
     /// Dynamically resolves and downcasts the provided generic type at runtime.
     pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.services
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&TypeId::of::<T>())
             .and_then(|val| val.clone().downcast::<T>().ok())
     }

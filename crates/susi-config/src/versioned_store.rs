@@ -1,6 +1,6 @@
-use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::time::SystemTime;
 
 pub(crate) struct CacheEntry<T> {
@@ -69,7 +69,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         let (current_modified, current_len) = file_stamp(path);
 
         {
-            let guard = self.cache.read();
+            let guard = self.cache.read().unwrap_or_else(|e| e.into_inner());
             if let Some(cached) = guard.as_ref() {
                 if cached.path == path
                     && cached.modified == current_modified
@@ -81,7 +81,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
             }
         }
 
-        let mut guard = self.cache.write();
+        let mut guard = self.cache.write().unwrap_or_else(|e| e.into_inner());
 
         let (current_modified, current_len) = file_stamp(path);
 
@@ -135,7 +135,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         F: FnOnce() -> crate::susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
-        let mut guard = self.cache.write();
+        let mut guard = self.cache.write().unwrap_or_else(|e| e.into_inner());
         // A failed reload must not leave a previously valid value cached.
         *guard = None;
         let value = Arc::new(self.read_from_disk(path, on_missing, heal_fn, strict_parse)?);
@@ -165,7 +165,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         H: FnOnce(&mut T) -> bool,
         M: FnOnce(&mut T),
     {
-        let mut guard = self.cache.write();
+        let mut guard = self.cache.write().unwrap_or_else(|e| e.into_inner());
 
         let (current_modified, current_len) = file_stamp(path);
 
@@ -364,7 +364,11 @@ mod tests {
             )
             .expect("modify store");
         assert_eq!(updated.get("count"), Some(&42));
-        assert!(store.cache.read().is_some());
+        assert!(store
+            .cache
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some());
 
         std::fs::write(&path, "{ invalid json ").expect("write corrupt json");
 
@@ -373,7 +377,11 @@ mod tests {
             .expect_err("strict reload must fail on corrupt JSON");
         assert!(err.to_string().contains("Malformed configuration"));
         assert!(
-            store.cache.read().is_none(),
+            store
+                .cache
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_none(),
             "failed reload must evict previously cached snapshot"
         );
 

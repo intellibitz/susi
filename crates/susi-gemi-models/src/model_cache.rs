@@ -3,10 +3,10 @@
 use crate::device::Device;
 use crate::model_license::{ResidentLease, VerifiedArtifact};
 use crate::susi_error::{EaiError, EaiResult};
-use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::{Mutex, RwLock};
 use std::time::SystemTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -120,20 +120,21 @@ impl<T> ModelCache<T> {
         let slots: Vec<(PathBuf, Slot<T>)> = self
             .slots
             .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .map(|(path, slot)| (path.clone(), Arc::clone(slot)))
             .collect();
         let mut out: Vec<serde_json::Value> = slots
             .into_iter()
             .filter_map(|(path, slot)| {
-                let Some(guard) = slot.try_lock() else {
+                let Some(guard) = slot.try_lock().ok() else {
                     return Some(serde_json::json!({ "path": path, "state": "loading" }));
                 };
                 let entry = guard.as_ref()?;
                 let detail = entry.value.try_read().map(|value| describe(&value));
                 Some(serde_json::json!({
                     "path": path,
-                    "state": if detail.is_some() { "loaded" } else { "busy" },
+                    "state": if detail.is_ok() { "loaded" } else { "busy" },
                     "device": format!("{:?}", entry.device.location()),
                     "kv_capacity_tokens": entry.kv_capacity,
                     "bytes": entry.version.weights.len,
@@ -150,7 +151,7 @@ impl<T> ModelCache<T> {
                     // The cache holds one reference; the rest are requests
                     // currently using these weights.
                     "in_flight_users": Arc::strong_count(&entry.value).saturating_sub(1),
-                    "backend": detail,
+                    "backend": detail.ok(),
                 }))
             })
             .collect();
@@ -164,10 +165,16 @@ impl<T> ModelCache<T> {
         let Ok(path) = path.canonicalize() else {
             return false;
         };
-        let Some(slot) = self.slots.lock().get(&path).cloned() else {
+        let Some(slot) = self
+            .slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&path)
+            .cloned()
+        else {
             return false;
         };
-        slot.try_lock().is_none_or(|entry| entry.is_some())
+        slot.try_lock().ok().is_none_or(|entry| entry.is_some())
     }
 
     /// A completed cache entry that can be reused by `get_or_load` with these
@@ -198,10 +205,16 @@ impl<T> ModelCache<T> {
         let Ok(version) = ModelVersion::read(&path) else {
             return false;
         };
-        let Some(slot) = self.slots.lock().get(&path).cloned() else {
+        let Some(slot) = self
+            .slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&path)
+            .cloned()
+        else {
             return false;
         };
-        let Some(guard) = slot.try_lock() else {
+        let Some(guard) = slot.try_lock().ok() else {
             return false;
         };
         guard.as_ref().is_some_and(|entry| {
@@ -224,6 +237,7 @@ impl<T> ModelCache<T> {
         let slots: Vec<(PathBuf, Slot<T>)> = self
             .slots
             .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .filter(|(path, _)| exclude.as_deref() != Some(path.as_path()))
             .map(|(path, slot)| (path.clone(), Arc::clone(slot)))
@@ -231,7 +245,7 @@ impl<T> ModelCache<T> {
         let mut idle: Vec<(SystemTime, PathBuf, u64)> = slots
             .into_iter()
             .filter_map(|(path, slot)| {
-                let guard = slot.try_lock()?;
+                let guard = slot.try_lock().ok()?;
                 let entry = guard.as_ref()?;
                 (Arc::strong_count(&entry.value) == 1 && on_device(&entry.device)).then_some((
                     entry.last_used,
@@ -276,10 +290,16 @@ impl<T> ModelCache<T> {
     /// `get_or_load` never loads into an orphaned slot.
     pub fn evict(&self, path: &Path) -> EaiResult<Option<Evicted<T>>> {
         let path = path.canonicalize()?;
-        let Some(slot) = self.slots.lock().get(&path).cloned() else {
+        let Some(slot) = self
+            .slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&path)
+            .cloned()
+        else {
             return Ok(None);
         };
-        let Some(mut entry) = slot.try_lock() else {
+        let Some(mut entry) = slot.try_lock().ok() else {
             return Err(EaiError::inference(
                 "model is still loading; retry after the load finishes",
             ));
@@ -320,8 +340,14 @@ impl<T> ModelCache<T> {
         load: impl FnOnce(&Path) -> EaiResult<(T, Option<ResidentLease>)>,
     ) -> EaiResult<Arc<RwLock<T>>> {
         let path = path.canonicalize()?;
-        let slot = self.slots.lock().entry(path.clone()).or_default().clone();
-        let mut entry = slot.lock();
+        let slot = self
+            .slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(path.clone())
+            .or_default()
+            .clone();
+        let mut entry = slot.lock().unwrap_or_else(|e| e.into_inner());
         let version = ModelVersion::read(&path)?;
         if let Some(cached) = entry.as_mut() {
             if cached.version == version
@@ -402,7 +428,7 @@ mod tests {
         assert!(writer().is_err());
         cache.evict(&path).unwrap();
         assert!(writer().is_ok());
-        assert_eq!(*loaded.read(), 1);
+        assert_eq!(*loaded.read().unwrap_or_else(|e| e.into_inner()), 1);
     }
     #[test]
     fn authenticated_byte_digest_is_part_of_resident_identity() {
@@ -420,8 +446,8 @@ mod tests {
                 Ok((2, None))
             })
             .unwrap();
-        assert_eq!(*original.read(), 1);
-        assert_eq!(*updated.read(), 2);
+        assert_eq!(*original.read().unwrap_or_else(|e| e.into_inner()), 1);
+        assert_eq!(*updated.read().unwrap_or_else(|e| e.into_inner()), 2);
         assert!(cache.reusable_with_digest(&file.0, &Device::Cpu, 32, Some("replacement")));
     }
 
@@ -447,7 +473,7 @@ mod tests {
         let reloaded = cache
             .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(2))
             .unwrap();
-        assert_eq!(*reloaded.read(), 2);
+        assert_eq!(*reloaded.read().unwrap_or_else(|e| e.into_inner()), 2);
     }
 
     #[test]
@@ -467,7 +493,7 @@ mod tests {
         assert!(cache.is_reusable(&alias, &Device::Cpu, 32));
         assert!(!cache.is_reusable(&other.0, &Device::Cpu, 32)); // same basename
         assert!(!cache.is_reusable(&file.0, &Device::Cpu, 64));
-        let busy = weights.write();
+        let busy = weights.write().unwrap_or_else(|e| e.into_inner());
         assert!(cache.is_reusable(&file.0, &Device::Cpu, 32));
         drop(busy);
         std::fs::write(file.0.with_extension("license.json"), "changed-license").unwrap();
@@ -539,21 +565,23 @@ mod tests {
         let second = cache
             .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(2))
             .unwrap();
-        assert_eq!(*first.read(), 1);
-        assert_eq!(*second.read(), 2);
+        assert_eq!(*first.read().unwrap_or_else(|e| e.into_inner()), 1);
+        assert_eq!(*second.read().unwrap_or_else(|e| e.into_inner()), 2);
         std::fs::write(file.0.with_extension("provenance.json"), "{}").unwrap();
         assert_eq!(
             *cache
                 .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(3))
                 .unwrap()
-                .read(),
+                .read()
+                .unwrap_or_else(|e| e.into_inner()),
             3
         );
         assert_eq!(
             *cache
                 .get_or_load(&file.0, &Device::Cpu, 64, |_| Ok(4))
                 .unwrap()
-                .read(),
+                .read()
+                .unwrap_or_else(|e| e.into_inner()),
             4
         );
     }
@@ -573,7 +601,7 @@ mod tests {
         assert_eq!(snap[0]["kv_capacity_tokens"], 32);
         assert_eq!(snap[0]["in_flight_users"], 1);
         {
-            let _generating = value.write();
+            let _generating = value.write().unwrap_or_else(|e| e.into_inner());
             let busy = cache.snapshot(|_| serde_json::json!({}));
             assert_eq!(busy[0]["state"], "busy");
             assert!(busy[0]["backend"].is_null());
@@ -678,12 +706,12 @@ mod tests {
         drop(weights);
         assert!(cache.snapshot(|_| serde_json::json!({})).is_empty());
         // The in-flight holder keeps working on its own handle.
-        assert_eq!(*held.read(), 1);
+        assert_eq!(*held.read().unwrap_or_else(|e| e.into_inner()), 1);
         assert!(cache.evict(&file.0).unwrap().is_none());
         let reloaded = cache
             .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(2))
             .unwrap();
-        assert_eq!(*reloaded.read(), 2);
+        assert_eq!(*reloaded.read().unwrap_or_else(|e| e.into_inner()), 2);
     }
 
     #[test]
@@ -705,7 +733,8 @@ mod tests {
             *cache
                 .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(2))
                 .unwrap()
-                .read(),
+                .read()
+                .unwrap_or_else(|e| e.into_inner()),
             2
         );
     }
