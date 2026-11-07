@@ -150,7 +150,7 @@ impl ModelManager {
             .join(&step.hf_file)
             .with_extension("tokenizer.json");
         if path.exists() {
-            susi_vendor_models::model_license::verify_local(&path)
+            crate::model_license::verify_local(&path)
                 .map_err(crate::susi_error::EaiError::governance)?;
             #[cfg(feature = "local-engine")]
             let parsed = susi_vendor_candle::tokenizers::Tokenizer::from_file(&path).is_ok();
@@ -175,7 +175,7 @@ impl ModelManager {
         fs::create_dir_all(models_dir)?;
         let policy = cfg.model_lifecycle();
         let token = crate::susi_config::env_or_cloud_env("HF_TOKEN").ok();
-        let receipt = susi_vendor_models::model_license::admit_download(&url)
+        let receipt = crate::model_license::admit_download(&url)
             .map_err(crate::susi_error::EaiError::governance)?;
         let url = receipt.artifact_url.clone();
         let expected_sha256 = Some(receipt.sha256.clone());

@@ -4754,7 +4754,6 @@ dependencies = [
  "susi-vendor-rayon",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
- "susi-vendor-sha1",
  "susi-vendor-sha2",
  "susi-vendor-tempfile",
 ]

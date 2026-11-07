@@ -83,9 +83,9 @@ pub fn plan_first_run(
 ) -> FirstRunPlan {
     plan_with_verifier(host, starters, cached, models_dir, &|path| {
         let admitted = if host.offline {
-            susi_vendor_models::model_license::verify_local_offline(path)
+            crate::model_license::verify_local_offline(path)
         } else {
-            susi_vendor_models::model_license::verify_local(path)
+            crate::model_license::verify_local(path)
         };
         admitted.is_ok() && crate::ModelManager::valid_gguf_payload(path)
     })
@@ -148,8 +148,7 @@ pub fn fetch(
     transport: &dyn Fn(&RangeRequest) -> EaiResult<RangeResponse>,
     on_progress: &dyn Fn(u64),
 ) -> EaiResult<u64> {
-    let receipt = susi_vendor_models::model_license::admit_download(&plan.url)
-        .map_err(EaiError::governance)?;
+    let receipt = crate::model_license::admit_download(&plan.url).map_err(EaiError::governance)?;
     if plan
         .sha256
         .as_ref()
@@ -323,7 +322,7 @@ mod tests {
         let path = PathBuf::from(
             std::env::var("SUSI_QWEN_TEST_MODEL").expect("isolated Qwen model required"),
         );
-        let receipt = susi_vendor_models::model_license::admit_download(&format!(
+        let receipt = crate::model_license::admit_download(&format!(
             "https://huggingface.co/{}/resolve/{}/{}",
             audited_starter().hf_repo,
             STARTER_REVISION,
@@ -332,9 +331,9 @@ mod tests {
         .unwrap();
         receipt.record(&path).unwrap();
         let tokenizer_path = path.with_extension("tokenizer.json");
-        let tokenizer_receipt = susi_vendor_models::model_license::admit_download("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/7ae557604adf67be50417f59c2c2f167def9a775/tokenizer.json").unwrap();
+        let tokenizer_receipt = crate::model_license::admit_download("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/7ae557604adf67be50417f59c2c2f167def9a775/tokenizer.json").unwrap();
         tokenizer_receipt.record(&tokenizer_path).unwrap();
-        susi_vendor_models::model_license::verify_local_offline(&tokenizer_path).unwrap();
+        crate::model_license::verify_local_offline(&tokenizer_path).unwrap();
         assert!(
             path.to_string_lossy().contains("native"),
             "regression qualification must include native in an ancestor directory"

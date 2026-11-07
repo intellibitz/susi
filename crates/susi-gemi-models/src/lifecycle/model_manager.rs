@@ -437,7 +437,7 @@ impl ModelManager {
     }
 
     pub fn execute_download_stream(target: &str, task_handle: &TaskHandle) -> Result<(), String> {
-        let receipt = match susi_vendor_models::model_license::admit_download(target) {
+        let receipt = match crate::model_license::admit_download(target) {
             Ok(receipt) => receipt,
             Err(error) => {
                 Self::download_failed(target, task_handle, &error);

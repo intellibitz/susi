@@ -25,7 +25,6 @@ pub use susi_config::{cloud_eligibility, cloud_quota};
 
 pub mod hf_discovery;
 pub mod local_ecosystem;
-pub mod model_license;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries
@@ -71,11 +70,6 @@ mod inline_tests {
     fn set_selected_model_override_rejects_overlong_names_above_512_bytes() {
         let long_name = "m".repeat(513);
         assert!(set_selected_model_override(&long_name).is_err());
-    }
-
-    #[test]
-    fn model_read_window_is_accessible_from_vendor_models_root() {
-        let _win = model_license::ModelReadWindow::enter();
     }
 
     #[test]

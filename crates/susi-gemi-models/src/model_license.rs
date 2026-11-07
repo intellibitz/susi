@@ -88,6 +88,80 @@ fn digest_stream(source: &mut File, output: &mut impl Write) -> io::Result<Strin
     Ok(hex::encode(hash.finalize()))
 }
 
+fn private_snapshot_file() -> io::Result<File> {
+    static NEXT_SNAP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nonce = NEXT_SNAP.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("susi-model-snap-{}-{nonce}", std::process::id()));
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let file = opts.open(&path)?;
+    let _ = fs::remove_file(&path);
+    Ok(file)
+}
+
+#[allow(clippy::indexing_slicing)]
+fn git_blob_sha1_hex(bytes: &[u8]) -> String {
+    let mut msg = format!("blob {}\0", bytes.len()).into_bytes();
+    msg.extend_from_slice(bytes);
+    let bit_len = (msg.len() as u64).wrapping_mul(8);
+    msg.push(0x80);
+    while msg.len() % 64 != 56 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&bit_len.to_be_bytes());
+    let mut h0: u32 = 0x6745_2301;
+    let mut h1: u32 = 0xEFCD_AB89;
+    let mut h2: u32 = 0x98BA_DCFE;
+    let mut h3: u32 = 0x1032_5476;
+    let mut h4: u32 = 0xC3D2_E1F0;
+    for chunk in msg.chunks_exact(64) {
+        let mut w = [0u32; 80];
+        for (i, word) in chunk.chunks_exact(4).enumerate() {
+            w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        }
+        for i in 16..80 {
+            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
+        }
+        let (mut a, mut b, mut c, mut d, mut e) = (h0, h1, h2, h3, h4);
+        for (i, &wi) in w.iter().enumerate() {
+            let (f, k) = match i {
+                0..=19 => ((b & c) | ((!b) & d), 0x5A82_7999),
+                20..=39 => (b ^ c ^ d, 0x6ED9_EBA1),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1B_BCDC),
+                _ => (b ^ c ^ d, 0xCA62_C1D6),
+            };
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(wi);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+        h0 = h0.wrapping_add(a);
+        h1 = h1.wrapping_add(b);
+        h2 = h2.wrapping_add(c);
+        h3 = h3.wrapping_add(d);
+        h4 = h4.wrapping_add(e);
+    }
+    let mut out = [0u8; 20];
+    out[0..4].copy_from_slice(&h0.to_be_bytes());
+    out[4..8].copy_from_slice(&h1.to_be_bytes());
+    out[8..12].copy_from_slice(&h2.to_be_bytes());
+    out[12..16].copy_from_slice(&h3.to_be_bytes());
+    out[16..20].copy_from_slice(&h4.to_be_bytes());
+    hex::encode(out)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublisherLicense {
     pub repository: String,
@@ -299,10 +373,7 @@ pub fn admit_download(url: &str) -> Result<ModelLicenseReceipt, String> {
         let bytes = response
             .into_bytes(8 * 1024 * 1024)
             .map_err(|e| e.to_string())?;
-        let mut git_hash = sha1::Sha1::new();
-        git_hash.update(format!("blob {}\0", bytes.len()).as_bytes());
-        git_hash.update(&bytes);
-        if hex::encode(git_hash.finalize()) != git_blob.to_ascii_lowercase() {
+        if git_blob_sha1_hex(&bytes) != git_blob.to_ascii_lowercase() {
             return Err(
                 "[MODEL LICENSE] Companion differs from publisher Git blob identity".into(),
             );
