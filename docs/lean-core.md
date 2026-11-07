@@ -206,3 +206,7 @@ table once the clean baseline is recorded.
   sandbox crate out of core, GEMI local-engine modules re-homed in commercial) merged in:
   susi-gemi 32,938 -> 26,548 lines, susi-gemi-models 17,514 -> 17,056, third-party 307 -> 304,
   pillar lines 175,068; ceilings lowered to the measured values.
+- 2026-11-08 wave 1 + Gemini wave, batch landing: Gemini's std replacement of parking_lot,
+  dashmap and flume costs susi-gawd-swarm 8 lines (lock guards where DashMap entries were);
+  pinned at the combined tree's values. The exact line pin has now lost to three ungated pushes
+  and one legitimate cut; the next change makes it a per-change delta against the merge-base.
