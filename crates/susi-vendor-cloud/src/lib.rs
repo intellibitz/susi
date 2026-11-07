@@ -17,7 +17,6 @@
 //! `gcloud`, `az`) over `std::process::Command`. No AWS/GCP/Azure/K8s
 //! SDK and no HTTP client crate — those stay out of core/OS crates.
 
-pub mod autoscale;
 pub mod failover_policy;
 pub mod orphan_gc;
 pub mod preemptible;
@@ -561,9 +560,6 @@ pub fn apply_manifest(kind: CloudKind, manifest: &str) -> Result<String, String>
     }
 }
 
-#[cfg(test)]
-#[path = "tests/vc_201_056.rs"]
-mod vc_201_056_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_057.rs"]
 mod vc_201_057_tests;
