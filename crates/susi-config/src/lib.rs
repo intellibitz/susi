@@ -49,7 +49,6 @@ pub mod secret_ref;
 pub mod selfheal;
 pub mod setting_registry;
 pub mod setup_workflow;
-pub mod state_backup;
 pub mod state_migration;
 mod types;
 pub mod validate;
@@ -342,9 +341,6 @@ mod selfheal_tests;
 #[path = "tests/setup_workflow.rs"]
 mod setup_workflow_tests;
 #[cfg(test)]
-#[path = "tests/state_backup.rs"]
-mod state_backup_tests;
-#[cfg(test)]
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
 #[cfg(test)]
@@ -376,9 +372,6 @@ mod vc_201_067_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_069_mastery.rs"]
 mod vc_201_069_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_070_mastery.rs"]
-mod vc_201_070_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_077_mastery.rs"]
 mod vc_201_077_mastery_tests;
