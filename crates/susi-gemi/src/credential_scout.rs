@@ -94,26 +94,6 @@ pub struct CredentialTarget {
     pub api_key: String,
 }
 
-impl CredentialTarget {
-    /// Verify structural invariants on a configured credential target.
-    pub fn verify_target_invariants(&self) -> Result<(), String> {
-        if self.vendor.trim().is_empty() {
-            return Err("CredentialTarget vendor must not be empty".to_string());
-        }
-        let base = self.api_base.trim();
-        if base.is_empty() || (!base.starts_with("http://") && !base.starts_with("https://")) {
-            return Err(format!(
-                "CredentialTarget api_base ('{}') must be a non-empty http(s) URL",
-                self.api_base
-            ));
-        }
-        if self.api_key.trim().is_empty() {
-            return Err("CredentialTarget api_key must not be empty".to_string());
-        }
-        Ok(())
-    }
-}
-
 /// One probed credential's verdict — safe to log or persist.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CredentialVerdict {
@@ -129,55 +109,6 @@ pub struct CredentialVerdict {
     pub observed_unix: u64,
 }
 
-impl CredentialVerdict {
-    /// Verify structural invariants on a probed credential verdict.
-    pub fn verify_verdict_invariants(&self) -> Result<(), String> {
-        if self.vendor.trim().is_empty() {
-            return Err("CredentialVerdict vendor must not be empty".to_string());
-        }
-        if self.fingerprint.trim().is_empty() {
-            return Err("CredentialVerdict fingerprint must not be empty".to_string());
-        }
-        if self.observed_unix == 0 {
-            return Err("CredentialVerdict observed_unix must be > 0".to_string());
-        }
-        if let Some(status) = self.status {
-            if !(100..=599).contains(&status) {
-                return Err(format!(
-                    "CredentialVerdict HTTP status ({status}) must be in 100..=599"
-                ));
-            }
-        }
-        match self.liveness {
-            Liveness::Live => match self.status {
-                Some(status) if (200..300).contains(&status) => {}
-                Some(status) => {
-                    return Err(format!(
-                        "CredentialVerdict Live requires 2xx HTTP status, got {status}"
-                    ));
-                }
-                None => {
-                    return Err("CredentialVerdict Live requires Some(2xx) HTTP status".to_string());
-                }
-            },
-            Liveness::Expired
-            | Liveness::Unauthorized
-            | Liveness::RateLimited
-            | Liveness::Unknown => {
-                if let Some(status) = self.status {
-                    if (200..300).contains(&status) {
-                        return Err(format!(
-                            "CredentialVerdict {:?} cannot carry 2xx HTTP status ({status})",
-                            self.liveness
-                        ));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
 /// The single report: every configured credential, its liveness, and the
 /// evidence behind it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,23 +118,6 @@ pub struct ScoutReport {
 }
 
 impl ScoutReport {
-    /// Verify structural invariants across the scout report and all verdicts.
-    pub fn verify_report_invariants(&self) -> Result<(), String> {
-        if self.checked_unix == 0 {
-            return Err("ScoutReport checked_unix must be > 0".to_string());
-        }
-        for verdict in &self.verdicts {
-            verdict.verify_verdict_invariants()?;
-            if verdict.observed_unix > self.checked_unix {
-                return Err(format!(
-                    "ScoutReport verdict observed_unix ({}) must be <= checked_unix ({})",
-                    verdict.observed_unix, self.checked_unix
-                ));
-            }
-        }
-        Ok(())
-    }
-
     /// Verdicts for credentials that work today.
     pub fn live(&self) -> impl Iterator<Item = &CredentialVerdict> {
         self.verdicts
@@ -939,81 +853,5 @@ mod tests {
         assert_eq!(probes.count(), 2);
         assert!(statuses.contains(&Some(401)));
         let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn verify_target_verdict_and_report_invariants_reject_corrupt_states() {
-        let valid_target = target("openai", "sk-test-123");
-        assert!(valid_target.verify_target_invariants().is_ok());
-
-        let mut blank_vendor = valid_target.clone();
-        blank_vendor.vendor = "  ".to_string();
-        assert!(blank_vendor.verify_target_invariants().is_err());
-
-        let mut bad_url = valid_target.clone();
-        bad_url.api_base = "ftp://api.openai.example/v1".to_string();
-        assert!(bad_url.verify_target_invariants().is_err());
-
-        let mut blank_key = valid_target;
-        blank_key.api_key = "   ".to_string();
-        assert!(blank_key.verify_target_invariants().is_err());
-
-        let valid_verdict = CredentialVerdict {
-            vendor: "openai".to_string(),
-            env: "OPENAI_API_KEY".to_string(),
-            liveness: Liveness::Live,
-            status: Some(200),
-            detail: "HTTP 200: {}".to_string(),
-            fingerprint: "a1b2c3d4e5f60718".to_string(),
-            observed_unix: T0,
-        };
-        assert!(valid_verdict.verify_verdict_invariants().is_ok());
-
-        let mut blank_verdict_vendor = valid_verdict.clone();
-        blank_verdict_vendor.vendor = String::new();
-        assert!(blank_verdict_vendor.verify_verdict_invariants().is_err());
-
-        let mut blank_fp = valid_verdict.clone();
-        blank_fp.fingerprint = " ".to_string();
-        assert!(blank_fp.verify_verdict_invariants().is_err());
-
-        let mut zero_obs = valid_verdict.clone();
-        zero_obs.observed_unix = 0;
-        assert!(zero_obs.verify_verdict_invariants().is_err());
-
-        let mut bad_status = valid_verdict.clone();
-        bad_status.status = Some(999);
-        assert!(bad_status.verify_verdict_invariants().is_err());
-
-        let mut live_with_401 = valid_verdict.clone();
-        live_with_401.status = Some(401);
-        assert!(live_with_401.verify_verdict_invariants().is_err());
-
-        let mut live_with_none = valid_verdict.clone();
-        live_with_none.status = None;
-        assert!(live_with_none.verify_verdict_invariants().is_err());
-
-        let mut unauth_with_200 = valid_verdict.clone();
-        unauth_with_200.liveness = Liveness::Unauthorized;
-        unauth_with_200.status = Some(200);
-        assert!(unauth_with_200.verify_verdict_invariants().is_err());
-
-        let valid_report = ScoutReport {
-            checked_unix: T0,
-            verdicts: vec![valid_verdict.clone()],
-        };
-        assert!(valid_report.verify_report_invariants().is_ok());
-
-        let mut zero_checked = valid_report.clone();
-        zero_checked.checked_unix = 0;
-        assert!(zero_checked.verify_report_invariants().is_err());
-
-        let mut future_verdict = valid_verdict;
-        future_verdict.observed_unix = T0 + 10;
-        let bad_report = ScoutReport {
-            checked_unix: T0,
-            verdicts: vec![future_verdict],
-        };
-        assert!(bad_report.verify_report_invariants().is_err());
     }
 }
