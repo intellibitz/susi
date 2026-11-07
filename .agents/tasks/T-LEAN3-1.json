@@ -17,6 +17,8 @@
     ".cargo/config.toml",
     "cargo.lock",
     "crates/susi-gmcp/cargo.toml",
+    "crates/susi-gmcp/src/lib.rs",
+    "crates/susi-gmcp/tests/tool_input_schemas.rs",
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
   ],
@@ -26,6 +28,8 @@
     ".cargo/config.toml",
     "cargo.lock",
     "crates/susi-gmcp/cargo.toml",
+    "crates/susi-gmcp/src/lib.rs",
+    "crates/susi-gmcp/tests/tool_input_schemas.rs",
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
   ],
