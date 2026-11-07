@@ -28,6 +28,7 @@
 
 pub use susi_error;
 
+pub mod accel_reserve;
 pub mod cloud_env;
 pub mod cluster_key;
 mod config;
