@@ -86,14 +86,18 @@ threads). Baseline measured 2026-11-07 22:53 at origin/main `fc3f5a861`,
 **under load** (a test gate was running on the same machine; a clean re-run
 follows once the gate is idle):
 
-| measure | baseline | budget |
-|---------|----------|--------|
-| wall clock | 196 s | 60 s |
-| rustc CPU-seconds, all 478 units | 2,309 s | under 1,200 s |
-| of which workspace crates | 393 s | under 150 s |
-| of which third-party | 1,916 s | under 1,000 s, then towards 0 |
-| critical path | 18 units, 196 s | under 55 s |
-| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | under 15 s |
+| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | budget |
+|---------|----------|----------|--------|
+| wall clock | 196 s | 165 s | 60 s |
+| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | under 1,200 s |
+| of which workspace crates | 393 s | 359 s | under 150 s |
+| of which third-party | 1,916 s | 1,513 s | under 1,000 s, then towards 0 |
+| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | under 55 s |
+| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | measured by `cargo xtask build-time` once it lands | under 15 s |
+
+The idle number is the baseline the budget counts from. Between the two
+measurements Antigravity's iterations 341-350 removed candle, bollard and the
+sandbox crate from the host binary's closure.
 
 Two independent constraints, both binding:
 
