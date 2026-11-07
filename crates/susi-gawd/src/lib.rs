@@ -101,7 +101,6 @@ pub mod genome_distiller;
 pub mod intent_invariants;
 pub mod intent_ladder;
 pub mod kernel_loader;
-pub mod lane_overlap_warning;
 pub mod model_rate_arbitration;
 pub mod orchestrator_tier;
 pub mod paired_regression;
