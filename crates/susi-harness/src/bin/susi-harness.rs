@@ -40,6 +40,8 @@ usage:
   susi-harness                         find your keys, show the fleet and budget, start the gateway
   susi-harness up      [gateway flags]  the same, by name
   susi-harness fleet   [--workers auto|<m1,m2,...>] [--ledger PATH] [--catalogue PATH]
+  susi-harness adaptive [--json] [--port-offset N]
+  susi-harness status  [--json] [--port-offset N]
   susi-harness models  [--verify | --discover] [--provider ID] [--ledger PATH] [--catalogue PATH]
   susi-harness budget  [--ledger PATH]
   susi-harness env
@@ -88,6 +90,7 @@ fn run(args: &[String]) -> Result<(), String> {
     match command {
         "up" => up_command(&options),
         "fleet" => fleet_command(&options),
+        "adaptive" | "socket" | "status" => adaptive_command(&options),
         "models" => models_command(&options),
         "budget" => budget_command(&options),
         "env" => env_command(),
@@ -111,6 +114,8 @@ struct Options {
     timeout: u64,
     max_output_tokens: Option<u32>,
     accounts: Option<PathBuf>,
+    json: bool,
+    port_offset: u16,
 }
 
 impl Options {
@@ -127,6 +132,8 @@ impl Options {
             timeout: 120,
             max_output_tokens: None,
             accounts: None,
+            json: false,
+            port_offset: 0,
         };
         let mut args = args.iter();
         while let Some(flag) = args.next() {
@@ -161,6 +168,12 @@ impl Options {
                     );
                 }
                 "--accounts" => options.accounts = Some(PathBuf::from(value()?)),
+                "--json" => options.json = true,
+                "--port-offset" => {
+                    options.port_offset = value()?
+                        .parse()
+                        .map_err(|_| "--port-offset must be a number".to_string())?;
+                }
                 other => return Err(format!("unknown argument `{other}`")),
             }
         }
@@ -415,6 +428,19 @@ fn env_command() -> Result<(), String> {
     print_json(&fleet::environment())
 }
 
+/// Discovered monthly-subscription CLI tools, Susi AI OS Socket endpoints (`9090`/`9091`/`9094`),
+/// active adaptive execution policy, and embedded workflow readiness.
+fn adaptive_command(options: &Options) -> Result<(), String> {
+    let report = susi_harness::build_adaptive_supervisor_report(options.port_offset);
+    print_json(&report)
+}
+
+#[cfg(test)]
+fn adaptive_json(options: &Options) -> Result<String, String> {
+    let report = susi_harness::build_adaptive_supervisor_report(options.port_offset);
+    serde_json::to_string_pretty(&report).map_err(|error| error.to_string())
+}
+
 /// The metering gateway: OpenAI-compatible, routing each model to its
 /// provider with that provider's key.
 fn gateway_command(options: &Options) -> Result<(), String> {
@@ -619,5 +645,54 @@ mod tests {
         )
         .unwrap();
         assert!(local_providers(&keyed).is_empty());
+    }
+
+    #[test]
+    fn adaptive_and_status_commands_report_cli_fleet_and_socket_endpoints_as_json() {
+        let opts = Options::parse(&strings(&["--json", "--port-offset", "100"])).unwrap();
+        assert!(opts.json);
+        assert_eq!(opts.port_offset, 100);
+
+        let text = adaptive_json(&opts).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["embedded_workflow_ready"], true);
+        assert_eq!(value["socket_endpoints"]["gmcp_port"], 9190);
+        assert_eq!(value["socket_endpoints"]["gemi_port"], 9191);
+        assert_eq!(value["socket_endpoints"]["gawd_port"], 9194);
+        assert_eq!(
+            value["socket_endpoints"]["gmcp_http_url"],
+            "http://127.0.0.1:9190"
+        );
+        assert_eq!(
+            value["socket_endpoints"]["gemi_openai_url"],
+            "http://127.0.0.1:9191/v1/chat/completions"
+        );
+        assert_eq!(
+            value["socket_endpoints"]["gawd_a2a_url"],
+            "http://127.0.0.1:9194"
+        );
+
+        let cli_fleet = value["cli_fleet"].as_array().unwrap();
+        let kinds: Vec<&str> = cli_fleet
+            .iter()
+            .filter_map(|item| item["kind"].as_str())
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                "claude",
+                "codex",
+                "gemini",
+                "antigravity",
+                "qwen",
+                "aider",
+                "opencode"
+            ]
+        );
+
+        assert!(run(&strings(&["adaptive", "--json"])).is_ok());
+        assert!(run(&strings(&["status", "--json", "--port-offset", "10"])).is_ok());
+        assert!(run(&strings(&["socket"])).is_ok());
+        assert!(Options::parse(&strings(&["--port-offset", "bad"])).is_err());
     }
 }
