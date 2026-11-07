@@ -51,7 +51,8 @@
     "crates/susi-vendor-mcp",
     "docs/lean-core.md",
     "tests/architecture_tests.rs",
-    "tests/lean_core_ceilings.rs"
+    "tests/lean_core_ceilings.rs",
+    "tests/zc_matrix.rs"
   ],
   "scopes": [
     ".agents/gmcp/evidence",
@@ -93,7 +94,8 @@
     "crates/susi-vendor-mcp",
     "docs/lean-core.md",
     "tests/architecture_tests.rs",
-    "tests/lean_core_ceilings.rs"
+    "tests/lean_core_ceilings.rs",
+    "tests/zc_matrix.rs"
   ],
   "acceptance": "cargo test -p susi --test lean_core_ceilings --offline --locked",
   "accept": {

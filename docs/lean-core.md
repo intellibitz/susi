@@ -215,3 +215,6 @@ table once the clean baseline is recorded.
   reverted in core until a plug or the destination exists: `tests/mcp_call_cli_tests` failed
   on plain main. The third-party count goes back up by the rmcp family for now; the mandate
   (workspace AGENTS.md) forbids this kind of deletion from here on.
+- 2026-11-08 02:00, CEO decision "land with ignores": `tests/zc_matrix.rs` marks the two
+  Rust-model-runtime tests ignored (reason names iterations 341-347 and the restore list) so the
+  two waves land; the runtime's restoration is a separate gated change.
