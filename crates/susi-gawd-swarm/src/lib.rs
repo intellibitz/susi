@@ -68,7 +68,6 @@ pub mod wan_peers;
 pub mod worker_recovery;
 pub mod workspace_txn;
 pub mod writer_isolation;
-pub mod zc_trust_store;
 
 pub use susi_gawd_agents::{
     accountability, admin_hooks, agents, axiom, brain, dag_hooks, external_peers, goal_shape, pkb,
