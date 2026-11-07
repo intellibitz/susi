@@ -62,6 +62,41 @@ pub struct AssembledContext {
     pub defects: Vec<CacheDefect>,
 }
 
+impl AssembledContext {
+    /// Verify structural and mathematical invariants on an assembled context.
+    pub fn verify_context_invariants(&self) -> Result<(), String> {
+        if self.total_tokens == 0 {
+            return Err("AssembledContext total_tokens must be > 0".to_string());
+        }
+        if self.stable_prefix_tokens > self.total_tokens {
+            return Err(format!(
+                "AssembledContext stable_prefix_tokens ({}) must be <= total_tokens ({})",
+                self.stable_prefix_tokens, self.total_tokens
+            ));
+        }
+        if !self.cacheable_fraction.is_finite() || !(0.0..=1.0).contains(&self.cacheable_fraction) {
+            return Err(format!(
+                "AssembledContext cacheable_fraction ({}) must be finite and in 0.0..=1.0",
+                self.cacheable_fraction
+            ));
+        }
+        let under_threshold = self.stable_prefix_tokens < CACHEABLE_PREFIX_MIN_TOKENS;
+        let has_threshold_defect = self.defects.contains(&CacheDefect::PrefixUnderThreshold);
+        if under_threshold != has_threshold_defect {
+            return Err(format!(
+                "AssembledContext PrefixUnderThreshold defect ({has_threshold_defect}) disagrees with stable_prefix_tokens ({})",
+                self.stable_prefix_tokens
+            ));
+        }
+        for (i, d) in self.defects.iter().enumerate() {
+            if self.defects[..i].contains(d) {
+                return Err(format!("AssembledContext duplicate defect '{}'", d.label()));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Same ~4-chars-per-token estimate the server bills with.
 #[must_use]
 pub fn approx_tokens(text: &str) -> u64 {
@@ -152,6 +187,48 @@ pub struct CacheRecord {
     pub defects: Vec<String>,
 }
 
+impl CacheRecord {
+    /// Verify structural invariants on a persisted context-cache journal record.
+    pub fn verify_record_invariants(&self) -> Result<(), String> {
+        if self.unix == 0 {
+            return Err("CacheRecord unix timestamp must be > 0".to_string());
+        }
+        if let Some(provider) = &self.provider {
+            if provider.trim().is_empty() {
+                return Err("CacheRecord provider must not be blank when present".to_string());
+            }
+        }
+        if self.total_tokens == 0 {
+            return Err("CacheRecord total_tokens must be > 0".to_string());
+        }
+        if self.stable_prefix_tokens > self.total_tokens {
+            return Err(format!(
+                "CacheRecord stable_prefix_tokens ({}) must be <= total_tokens ({})",
+                self.stable_prefix_tokens, self.total_tokens
+            ));
+        }
+        if !self.cacheable_fraction.is_finite() || !(0.0..=1.0).contains(&self.cacheable_fraction) {
+            return Err(format!(
+                "CacheRecord cacheable_fraction ({}) must be finite and in 0.0..=1.0",
+                self.cacheable_fraction
+            ));
+        }
+        if let Some(saving) = self.estimated_saving_usd {
+            if !saving.is_finite() || saving < 0.0 {
+                return Err(format!(
+                    "CacheRecord estimated_saving_usd ({saving}) must be finite and >= 0.0"
+                ));
+            }
+        }
+        for defect in &self.defects {
+            if defect.trim().is_empty() {
+                return Err("CacheRecord defect label must not be empty".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
 #[must_use]
 pub fn default_journal_path() -> PathBuf {
     susi_paths::SusiDirs::config_dir().join("context_cache.jsonl")
@@ -234,6 +311,54 @@ pub struct CacheReport {
     pub total_estimated_saving_usd: f64,
     pub calls_below_cache_threshold: u64,
     pub defects: std::collections::BTreeMap<String, u64>,
+}
+
+impl CacheReport {
+    /// Verify structural invariants on an aggregated cache report.
+    pub fn verify_report_invariants(&self) -> Result<(), String> {
+        if !self.mean_cacheable_fraction.is_finite()
+            || !(0.0..=1.0).contains(&self.mean_cacheable_fraction)
+        {
+            return Err(format!(
+                "CacheReport mean_cacheable_fraction ({}) must be finite and in 0.0..=1.0",
+                self.mean_cacheable_fraction
+            ));
+        }
+        if !self.total_estimated_saving_usd.is_finite() || self.total_estimated_saving_usd < 0.0 {
+            return Err(format!(
+                "CacheReport total_estimated_saving_usd ({}) must be finite and >= 0.0",
+                self.total_estimated_saving_usd
+            ));
+        }
+        if self.calls_below_cache_threshold > self.calls {
+            return Err(format!(
+                "CacheReport calls_below_cache_threshold ({}) must be <= calls ({})",
+                self.calls_below_cache_threshold, self.calls
+            ));
+        }
+        if self.calls == 0
+            && (self.mean_cacheable_fraction != 0.0
+                || self.total_estimated_saving_usd != 0.0
+                || !self.defects.is_empty())
+        {
+            return Err(
+                "CacheReport with 0 calls must have zeroed fraction, saving, and defects"
+                    .to_string(),
+            );
+        }
+        for (defect, count) in &self.defects {
+            if defect.trim().is_empty() {
+                return Err("CacheReport defect key must not be empty".to_string());
+            }
+            if *count == 0 || *count > self.calls {
+                return Err(format!(
+                    "CacheReport defect '{defect}' count ({count}) must be in 1..={}",
+                    self.calls
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[must_use]
@@ -347,5 +472,89 @@ mod inline_tests {
         let report = cache_report_at(&missing);
         assert_eq!(report.calls, 0);
         assert!(report.defects.is_empty());
+    }
+
+    #[test]
+    fn verify_context_record_and_report_invariants_reject_corrupt_states() {
+        let turns = vec![
+            ("system".to_string(), "be concise".to_string()),
+            ("user".to_string(), "hello".to_string()),
+        ];
+        let valid_ctx = assemble(&turns);
+        assert!(valid_ctx.verify_context_invariants().is_ok());
+
+        let mut zero_total = valid_ctx.clone();
+        zero_total.total_tokens = 0;
+        zero_total.stable_prefix_tokens = 0;
+        assert!(zero_total.verify_context_invariants().is_err());
+
+        let mut prefix_gt_total = valid_ctx.clone();
+        prefix_gt_total.stable_prefix_tokens = prefix_gt_total.total_tokens + 1;
+        assert!(prefix_gt_total.verify_context_invariants().is_err());
+
+        let mut bad_fraction = valid_ctx.clone();
+        bad_fraction.cacheable_fraction = 1.2;
+        assert!(bad_fraction.verify_context_invariants().is_err());
+
+        let mut missing_threshold_defect = valid_ctx.clone();
+        missing_threshold_defect.defects.clear();
+        assert!(missing_threshold_defect
+            .verify_context_invariants()
+            .is_err());
+
+        let mut dup_defect = valid_ctx;
+        dup_defect.defects.push(CacheDefect::PrefixUnderThreshold);
+        assert!(dup_defect.verify_context_invariants().is_err());
+
+        let valid_record = CacheRecord {
+            unix: 1_700_000_000,
+            provider: Some("deepseek".to_string()),
+            stable_prefix_tokens: 512,
+            total_tokens: 1_024,
+            cacheable_fraction: 0.5,
+            estimated_saving_usd: Some(0.001),
+            defects: vec!["prefix-under-threshold".to_string()],
+        };
+        assert!(valid_record.verify_record_invariants().is_ok());
+
+        let mut zero_unix = valid_record.clone();
+        zero_unix.unix = 0;
+        assert!(zero_unix.verify_record_invariants().is_err());
+
+        let mut blank_provider = valid_record.clone();
+        blank_provider.provider = Some("  ".to_string());
+        assert!(blank_provider.verify_record_invariants().is_err());
+
+        let mut neg_saving = valid_record.clone();
+        neg_saving.estimated_saving_usd = Some(-0.01);
+        assert!(neg_saving.verify_record_invariants().is_err());
+
+        let mut blank_defect = valid_record;
+        blank_defect.defects.push(String::new());
+        assert!(blank_defect.verify_record_invariants().is_err());
+
+        assert!(CacheReport::default().verify_report_invariants().is_ok());
+        let valid_report = CacheReport {
+            calls: 4,
+            mean_cacheable_fraction: 0.5,
+            total_estimated_saving_usd: 0.01,
+            calls_below_cache_threshold: 2,
+            defects: std::collections::BTreeMap::from([("prefix-under-threshold".to_string(), 2)]),
+        };
+        assert!(valid_report.verify_report_invariants().is_ok());
+
+        let mut bad_below = valid_report.clone();
+        bad_below.calls_below_cache_threshold = 5;
+        assert!(bad_below.verify_report_invariants().is_err());
+
+        let bad_zero_calls = CacheReport {
+            mean_cacheable_fraction: 0.5,
+            ..CacheReport::default()
+        };
+        assert!(bad_zero_calls.verify_report_invariants().is_err());
+
+        let mut bad_defect_count = valid_report;
+        bad_defect_count.defects.insert("overflow".to_string(), 5);
+        assert!(bad_defect_count.verify_report_invariants().is_err());
     }
 }

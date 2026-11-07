@@ -1,12 +1,12 @@
 {
   "id": "T-SOCKETDSP4-2",
-  "title": "Add Wave 11 spend tracker, capability matrix, and operator report invariant verifiers",
-  "goal": "Implement verify_ceilings_invariants, verify_refusal_invariants, verify_intent_invariants, verify_cell_invariants, verify_matrix_invariants, verify_row_invariants, verify_snapshot_invariants, and verify_state_invariants in crates/susi-gemi with unit tests.",
+  "title": "Add Wave 12 context assembly and credential scout invariant verifiers",
+  "goal": "Implement verify_context_invariants, verify_record_invariants, verify_report_invariants, verify_target_invariants, and verify_verdict_invariants in crates/susi-gemi with unit tests.",
   "state": "in_progress",
   "claimed_by": "socket-dsp4",
   "created_by": "socket-dsp4",
   "created_unix": 1794010800,
-  "updated_unix": 1794028900,
+  "updated_unix": 1794039000,
   "size": "M",
   "deps": [],
   "scope": [
@@ -14,12 +14,12 @@
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
   "native_worker": "socket-dsp4",
-  "status": "completed",
+  "status": "implemented_pending_integration",
   "scopes": [
-    "crates/susi-gemi",
-    ".agents/tasks/T-SOCKETDSP4-2.json"
+    ".agents/tasks/t-socketdsp4-2.json",
+    "crates/susi-gemi"
   ],
-  "acceptance": "cargo test -p susi-gemi --lib spend_tracker --offline --locked",
+  "acceptance": "cargo test -p susi-gemi --lib --offline --locked context_assembly",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,9 +27,12 @@
       "-p",
       "susi-gemi",
       "--lib",
-      "spend_tracker",
       "--offline",
-      "--locked"
+      "--locked",
+      "context_assembly"
+    ],
+    "criteria": [
+      "AssembledContext, CacheRecord, CacheReport, CredentialTarget, CredentialVerdict, and ScoutReport expose fail-closed verify_*_invariants with unit tests"
     ]
   }
 }
