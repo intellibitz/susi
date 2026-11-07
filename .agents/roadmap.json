@@ -834,7 +834,7 @@
       "id": "VC-201-067",
       "mastery_target": "Support explicit development, staging, and production profiles with inspectable inheritance; a dev mission cannot accidentally resolve production endpoints or credentials from ambient configuration.",
       "priority": "P1",
-      "progress": "DELIVERED: ProfileSet validates the full graph before resolution, refuses dev→production inheritance (directly and transitively), cycles and unknown parents, records per-key provenance and the resolution chain, applies earlier-listed sibling parents on key collisions, and loads from path or workspace via ProfileSet::load and ProfileSet::load_workspace_or_default — verified by tests/vc_201_067_mastery.rs.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command): ProfileSet validates the full graph before resolution, refuses dev→production inheritance (directly and transitively), cycles and unknown parents, records per-key provenance and the resolution chain, applies earlier-listed sibling parents on key collisions, and loads from path or workspace via ProfileSet::load and ProfileSet::load_workspace_or_default — verified by tests/vc_201_067_mastery.rs.",
       "type": "CONFIGURATION",
       "vector": "Separate workspace and environment configuration profiles"
     },

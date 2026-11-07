@@ -33,7 +33,6 @@ pub mod cluster_key;
 mod config;
 pub mod credential;
 pub mod desired_state;
-pub mod env_profiles;
 pub mod explain;
 pub mod extensions;
 pub mod file_lock;
@@ -358,11 +357,7 @@ mod vc_201_066_mastery_tests;
 #[path = "tests/vc_201_066.rs"]
 mod vc_201_066_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_067_mastery.rs"]
-mod vc_201_067_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_067.rs"]
-mod vc_201_067_tests;
 #[cfg(test)]
 #[cfg(test)]
 #[cfg(test)]
