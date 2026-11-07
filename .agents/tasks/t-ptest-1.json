@@ -1,7 +1,7 @@
 {
   "id": "T-PTEST-1",
   "title": "Run the local gate's test binaries concurrently, each in a private home",
-  "goal": "Replace the serial `cargo test` run of a narrowed ship or check gate with Cargo's `--no-run` build followed by a concurrent runner (xtask/src/test_runner.rs) that launches every test binary beside the others, each with its own HOME/APPDATA/LOCALAPPDATA/XDG/SUSI_HOME tree and Cargo's runtime environment, appends each binary's output to the gate log under Cargo's own `Running` header so the existing pass counters and receipts read it unchanged, stops launching after the first failure, records per-binary durations for longest-first scheduling, and runs doctests through the companion doc gate. Measured on the 2026-11-07 Wave 10 ship: 574 s of serial binary time inside a 784 s test gate, 124 of 173 binaries under one second. Also restores rustfmt cleanliness of crates/susi-core/src/lib.rs (a double blank line pushed to main without the gate) so the format gate passes again. Repairs main after ungated pushes: drops the dangling `pub mod vc_201_093_mastery` in susi-gawd-a2a and restores rustfmt cleanliness of susi-gawd-swarm, susi-gemi-models and susi-core lib.rs.",
+  "goal": "Replace the serial `cargo test` run of a narrowed ship or check gate with Cargo's `--no-run` build followed by a concurrent runner (xtask/src/test_runner.rs) that launches every test binary beside the others, each with its own HOME/APPDATA/LOCALAPPDATA/XDG/SUSI_HOME tree and Cargo's runtime environment, appends each binary's output to the gate log under Cargo's own `Running` header so the existing pass counters and receipts read it unchanged, stops launching after the first failure, records per-binary durations for longest-first scheduling, and runs doctests through the companion doc gate. Measured on the 2026-11-07 Wave 10 ship: 574 s of serial binary time inside a 784 s test gate, 124 of 173 binaries under one second. Also restores rustfmt cleanliness of crates/susi-core/src/lib.rs (a double blank line pushed to main without the gate) so the format gate passes again. Repairs main after ungated pushes: drops the dangling `pub mod vc_201_093_mastery` in susi-gawd-a2a and restores rustfmt cleanliness of susi-gawd-swarm, susi-gemi-models and susi-core lib.rs. Also removes three orphaned #[cfg(test)] attributes in susi-vendor-models that compiled set_selected_model_override out, and formats susi-gawd lib.rs.",
   "state": "in_progress",
   "status": "in_progress",
   "claimed_by": "ptest",
@@ -18,6 +18,7 @@
     "crates/susi-gawd-swarm/src/lib.rs",
     "crates/susi-gawd/src/lib.rs",
     "crates/susi-gemi-models/src/lib.rs",
+    "crates/susi-vendor-models/src/lib.rs",
     "xtask/src/bin/local-workflow.rs",
     "xtask/src/test_runner.rs"
   ],
@@ -28,6 +29,7 @@
     "crates/susi-gawd-swarm/src/lib.rs",
     "crates/susi-gawd/src/lib.rs",
     "crates/susi-gemi-models/src/lib.rs",
+    "crates/susi-vendor-models/src/lib.rs",
     "xtask/src/bin/local-workflow.rs",
     "xtask/src/test_runner.rs"
   ],

@@ -349,5 +349,4 @@ mod inline_tests {
             .expect("benign input should pass");
         assert!(cleaned.contains("check cluster health"));
     }
-
 }
