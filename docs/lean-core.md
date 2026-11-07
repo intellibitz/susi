@@ -15,9 +15,9 @@ This page is the shared plan for every agent on the program. Numbers come from
 | Rung | Measure (four pillars, normal+build edges) | 2026-11-07 start | now |
 |------|--------------------------------------------|------------------|-----|
 | 0 | third-party crates compiled | 331 | 313 |
-| 0 | workspace crates compiled | 59 | 59 |
+| 0 | workspace crates compiled | 59 | 58 |
 | 0 | vendor facades named directly by the pillar crates | 26 | 26 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 180,441 |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 171,558 |
 | clean clone | shallow clone, `cargo check -p susi-gmcp` / `-p susi` | 60 s / 78 s online; offline impossible (crates.io) | same |
 
 Rungs, in order. Each is done when its number is on this table and the ceiling
@@ -84,3 +84,10 @@ made, `CONTRIBUTING.md` stands as written.
   scoped threads) replaces rayon in susi-gawd, susi-gawd-swarm and
   susi-gawd-agents (9 sites); jsonschema (unused) and flume (test-only) edges
   dropped from susi-gemi. Third-party reach 331 to 313.
+- 2026-11-07 wave 1, re-pin: Antigravity's iterations 301-310 (ungated) moved the
+  `set_selected_model_override` contract into susi-gemi-models (+128 lines) while cutting
+  vendor-models; pillar lines now 171,558 (from 180,441), workspace crates 59 -> 58. Rule: a
+  pillar may take lines only from a crate leaving core; the change re-pins every ceiling at
+  its measured value.
+- 2026-11-07: orphan-source ratchet (`tests/orphan_sources.rs`) in core (ceiling 0) and in
+  susi-commercial-apps (228 copied files under `crates/*/src/migrated` that nothing compiles).
