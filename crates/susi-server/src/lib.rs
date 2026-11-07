@@ -2224,7 +2224,6 @@ fn estimated_usage(prompt_tokens: u64, completion_tokens: u64) -> serde_json::Va
 mod tests {
     use super::*;
 
-    mod vc_201_099_mastery;
 
     #[test]
     fn model_ids_never_expose_local_paths() {
