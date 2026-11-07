@@ -8,12 +8,12 @@
       "--lib",
       "--offline",
       "--locked",
-      "fair_queue"
+      "locality_placement"
     ]
   },
   "id": "T-GAWDSWARM-2",
   "size": "m",
-  "goal": "Add QueueLimits, QueuedMission, FairQueue, ToolReceipt, ReviewConclusion, ReviewReceipt, Electorate, and MembershipTransition invariant verifiers in crates/susi-gawd-swarm.",
+  "goal": "Add Residency, PlacementTask, PeerInfo, Placement, PlacementRejection, and capacity_admission round/struct invariant verifiers in crates/susi-gawd-swarm.",
   "scope": [
     ".agents/tasks/T-GAWDSWARM-2.json",
     "crates/susi-gawd-swarm"
@@ -26,6 +26,6 @@
   "created_by": "GAWDSWARM",
   "created_unix": 1794005500,
   "status": "completed",
-  "title": "Add FairQueue, IndependentVerify, and JointConsensus invariant verifiers in susi-gawd-swarm",
+  "title": "Add LocalityPlacement and CapacityAdmission invariant verifiers in susi-gawd-swarm",
   "native_worker": "gawd-swarm"
 }

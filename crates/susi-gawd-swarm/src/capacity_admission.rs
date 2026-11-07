@@ -29,6 +29,17 @@ pub trait CapacityProbe: Send + Sync {
 #[derive(Debug, Default)]
 pub struct HostProbe;
 
+impl HostProbe {
+    /// Verifies that a live host measurement satisfies `Resources` invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if the measured resources fail verification.
+    pub fn verify_probe_invariants(&self) -> Result<(), String> {
+        self.measure().verify_resources_invariants()
+    }
+}
+
 impl CapacityProbe for HostProbe {
     fn measure(&self) -> Resources {
         measured()
@@ -38,6 +49,17 @@ impl CapacityProbe for HostProbe {
 /// A fixed snapshot for tests and for callers that already probed.
 #[derive(Debug)]
 pub struct FixedProbe(pub Resources);
+
+impl FixedProbe {
+    /// Verifies that the fixed resource snapshot satisfies `Resources` invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if the inner `Resources` snapshot is invalid.
+    pub fn verify_probe_invariants(&self) -> Result<(), String> {
+        self.0.verify_resources_invariants()
+    }
+}
 
 impl CapacityProbe for FixedProbe {
     fn measure(&self) -> Resources {
@@ -148,6 +170,76 @@ pub fn admit_round(
     (admitted, deferred, remaining)
 }
 
+fn is_subsequence(sub: &[usize], full: &[usize]) -> bool {
+    let mut it = full.iter();
+    sub.iter().all(|target| it.any(|&x| x == *target))
+}
+
+/// Verifies invariants of a single scheduling admission round.
+///
+/// # Errors
+///
+/// Returns a descriptive error string if `remaining` fails resource invariants,
+/// if `admitted.len() + deferred.len() != ready.len()`, if `admitted` and `deferred`
+/// contain duplicate indices when `ready` has unique indices, or if `admitted` and
+/// `deferred` do not form an order-preserving multiset partition of `ready`.
+pub fn verify_round_invariants(
+    ready: &[usize],
+    admitted: &[usize],
+    deferred: &[usize],
+    remaining: &Resources,
+) -> Result<(), String> {
+    remaining.verify_resources_invariants()?;
+    if admitted.len() + deferred.len() != ready.len() {
+        return Err(
+            "verify_round_invariants: admitted.len() + deferred.len() must equal ready.len()"
+                .to_string(),
+        );
+    }
+    let mut ready_set = std::collections::BTreeSet::new();
+    let ready_unique = ready.iter().all(|&idx| ready_set.insert(idx));
+    if ready_unique {
+        let mut seen = std::collections::BTreeSet::new();
+        for &idx in admitted.iter().chain(deferred.iter()) {
+            if !seen.insert(idx) {
+                return Err(
+                    "verify_round_invariants: duplicate index in admitted/deferred when ready has unique indices"
+                        .to_string(),
+                );
+            }
+            if !ready_set.contains(&idx) {
+                return Err(
+                    "verify_round_invariants: admitted/deferred index not present in ready"
+                        .to_string(),
+                );
+            }
+        }
+    }
+    let mut counts = std::collections::BTreeMap::<usize, usize>::new();
+    for &idx in ready {
+        *counts.entry(idx).or_insert(0) += 1;
+    }
+    for &idx in admitted.iter().chain(deferred.iter()) {
+        let Some(count) = counts.get_mut(&idx) else {
+            return Err(
+                "verify_round_invariants: admitted and deferred must partition ready".to_string(),
+            );
+        };
+        if *count == 0 {
+            return Err(
+                "verify_round_invariants: admitted and deferred must partition ready".to_string(),
+            );
+        }
+        *count -= 1;
+    }
+    if !is_subsequence(admitted, ready) || !is_subsequence(deferred, ready) {
+        return Err(
+            "verify_round_invariants: admitted and deferred must preserve ready order".to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// A resource reservation that is released exactly once when its owner drops
 /// it.  The token is deliberately the only way to decrement shared usage, so
 /// failures and cancellation cannot leave a stale reservation behind.
@@ -169,6 +261,30 @@ impl ResourceReservation {
     #[must_use]
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    /// Verifies that the reservation has a non-zero ID and is actively tracked in its admission state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `id == 0`, if the reservation is missing from the
+    /// active reservation table, or if its recorded footprint is non-finite or negative.
+    pub fn verify_reservation_invariants(&self) -> Result<(), String> {
+        if self.id == 0 {
+            return Err("ResourceReservation id must be > 0".to_string());
+        }
+        let state = self
+            .admission
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let Some(footprint) = state.active.get(&self.id) else {
+            return Err(
+                "ResourceReservation id must be present in active reservations".to_string(),
+            );
+        };
+        footprint.verify_footprint_invariants()?;
+        Ok(())
     }
 }
 
@@ -203,6 +319,23 @@ pub struct AdmissionBlock {
     pub reason: &'static str,
 }
 
+impl AdmissionBlock {
+    /// Verifies that the admission block has a non-empty `node_id` and non-empty `reason`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `node_id` or `reason` is blank.
+    pub fn verify_block_invariants(&self) -> Result<(), String> {
+        if self.node_id.trim().is_empty() {
+            return Err("AdmissionBlock node_id must not be blank".to_string());
+        }
+        if self.reason.trim().is_empty() {
+            return Err("AdmissionBlock reason must not be blank".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Result of one live admission pass.  `deferred` is intentionally retained
 /// by the caller as work to retry; it is not a successful completion record.
 pub struct AdmissionBatch {
@@ -215,6 +348,44 @@ impl AdmissionBatch {
     #[must_use]
     pub fn admitted_indices(&self) -> Vec<usize> {
         self.admitted.iter().map(|(idx, _)| *idx).collect()
+    }
+
+    /// Verifies invariants of a live admission batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if any reservation is invalid, if reservation IDs
+    /// or node indices are duplicated across `admitted` and `deferred`, or if `blocked` is
+    /// invalid or paired with non-empty `admitted` entries.
+    pub fn verify_batch_invariants(&self) -> Result<(), String> {
+        let mut seen_indices = std::collections::BTreeSet::new();
+        let mut seen_res_ids = std::collections::BTreeSet::new();
+        for (idx, res) in &self.admitted {
+            res.verify_reservation_invariants()?;
+            if !seen_res_ids.insert(res.id()) {
+                return Err("AdmissionBatch admitted contains duplicate reservation ID".to_string());
+            }
+            if !seen_indices.insert(*idx) {
+                return Err("AdmissionBatch admitted contains duplicate node index".to_string());
+            }
+        }
+        for &idx in &self.deferred {
+            if !seen_indices.insert(idx) {
+                return Err(
+                    "AdmissionBatch deferred contains duplicate or already-admitted node index"
+                        .to_string(),
+                );
+            }
+        }
+        if let Some(block) = &self.blocked {
+            block.verify_block_invariants()?;
+            if !self.admitted.is_empty() {
+                return Err(
+                    "AdmissionBatch blocked must not be set when admitted is non-empty".to_string(),
+                );
+            }
+        }
+        Ok(())
     }
 }
 
@@ -234,6 +405,19 @@ impl Footprint {
             mem_gb: node.mem_gb,
             subprocesses: node.subprocesses,
         }
+    }
+
+    fn verify_footprint_invariants(&self) -> Result<(), String> {
+        if !self.cpu.is_finite() || self.cpu < 0.0 {
+            return Err("Footprint cpu must be finite and >= 0.0".to_string());
+        }
+        if !self.gpu_mem_gb.is_finite() || self.gpu_mem_gb < 0.0 {
+            return Err("Footprint gpu_mem_gb must be finite and >= 0.0".to_string());
+        }
+        if !self.mem_gb.is_finite() || self.mem_gb < 0.0 {
+            return Err("Footprint mem_gb must be finite and >= 0.0".to_string());
+        }
+        Ok(())
     }
 }
 
@@ -313,6 +497,48 @@ impl LiveAdmission {
     #[must_use]
     pub fn host() -> Self {
         Self::new(std::sync::Arc::new(HostProbe))
+    }
+
+    /// Verifies invariants of the live admission controller and its internal reservation ledger.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if the probe snapshot is invalid, if the used footprint
+    /// or any active reservation footprint is invalid, or if reservation IDs or pending queue entries
+    /// violate ledger consistency.
+    pub fn verify_live_admission_invariants(&self) -> Result<(), String> {
+        self.inner.probe.measure().verify_resources_invariants()?;
+        let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.used.verify_footprint_invariants()?;
+        for (&id, fp) in &state.active {
+            if id == 0 || id > state.next_id {
+                return Err("LiveAdmission active reservation id out of bounds".to_string());
+            }
+            fp.verify_footprint_invariants()?;
+        }
+        for (key, &id) in &state.active_keys {
+            if key.trim().is_empty() {
+                return Err("LiveAdmission active_keys contains blank key".to_string());
+            }
+            if id == 0 || id > state.next_id {
+                return Err("LiveAdmission active_keys id out of bounds".to_string());
+            }
+        }
+        for (key, &id) in &state.granted {
+            if key.trim().is_empty() {
+                return Err("LiveAdmission granted contains blank key".to_string());
+            }
+            if id == 0 || id > state.next_id {
+                return Err("LiveAdmission granted id out of bounds".to_string());
+            }
+        }
+        for pending in &state.pending {
+            if pending.key.trim().is_empty() {
+                return Err("LiveAdmission pending entry has blank key".to_string());
+            }
+            pending.node.verify_node_invariants()?;
+        }
+        Ok(())
     }
 
     /// Atomically enqueue and admit a ready batch for one mission. If another
@@ -635,5 +861,71 @@ mod tests {
             .expect_err("undersized host must refuse the node");
         assert!(err.to_string().contains("no ready nodes admitted"), "{err}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn verify_round_invariants_validates_partition_order_and_remaining_resources() {
+        let valid_rem = res(2.0, 32.0, 0.0, true);
+        assert!(verify_round_invariants(&[0, 1, 2], &[0, 2], &[1], &valid_rem).is_ok());
+
+        // Length mismatch
+        assert!(verify_round_invariants(&[0, 1, 2], &[0], &[1], &valid_rem).is_err());
+
+        // Duplicate index when ready has unique indices
+        assert!(verify_round_invariants(&[0, 1, 2], &[0, 0], &[1], &valid_rem).is_err());
+
+        // Index not in ready
+        assert!(verify_round_invariants(&[0, 1, 2], &[0, 9], &[1], &valid_rem).is_err());
+
+        // Out-of-order relative to ready
+        assert!(verify_round_invariants(&[0, 1, 2], &[2, 0], &[1], &valid_rem).is_err());
+
+        // Invalid remaining resources
+        let bad_rem = res(-1.0, 32.0, 0.0, true);
+        assert!(verify_round_invariants(&[0, 1], &[0], &[1], &bad_rem).is_err());
+    }
+
+    #[test]
+    fn capacity_admission_struct_invariants_verify_valid_and_reject_corrupt_states() {
+        assert!(HostProbe.verify_probe_invariants().is_ok());
+
+        let valid_probe = FixedProbe(res(4.0, 16.0, 0.0, true));
+        assert!(valid_probe.verify_probe_invariants().is_ok());
+        let bad_probe = FixedProbe(res(-1.0, 16.0, 0.0, true));
+        assert!(bad_probe.verify_probe_invariants().is_err());
+
+        let valid_block = AdmissionBlock {
+            node_id: "n0".into(),
+            reason: "GPU memory unavailable",
+        };
+        assert!(valid_block.verify_block_invariants().is_ok());
+        let bad_block_id = AdmissionBlock {
+            node_id: "  ".into(),
+            reason: "GPU memory unavailable",
+        };
+        assert!(bad_block_id.verify_block_invariants().is_err());
+        let bad_block_reason = AdmissionBlock {
+            node_id: "n0".into(),
+            reason: "",
+        };
+        assert!(bad_block_reason.verify_block_invariants().is_err());
+
+        let live = LiveAdmission::fixed(res(2.0, 16.0, 0.0, true));
+        assert!(live.verify_live_admission_invariants().is_ok());
+
+        let batch = live.admit_batch(
+            "m1",
+            &[
+                (0, node("n0", 1.0, 4.0, 0.0, true)),
+                (1, node("n1", 2.0, 4.0, 0.0, true)),
+            ],
+        );
+        assert!(batch.verify_batch_invariants().is_ok());
+        assert!(live.verify_live_admission_invariants().is_ok());
+
+        // Corrupt batch: blocked set while admitted is non-empty
+        let mut bad_batch = batch;
+        bad_batch.blocked = Some(valid_block);
+        assert!(bad_batch.verify_batch_invariants().is_err());
     }
 }
