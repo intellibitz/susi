@@ -8,10 +8,7 @@
       "--lib",
       "--offline",
       "--locked",
-      "anti_entropy"
-    ],
-    "criteria": [
-      "anti_entropy, cancel_propagate, and deliberation structs expose fail-closed verify_*_invariants with unit tests"
+      "verify_swarm_wave13_invariants"
     ]
   },
   "id": "T-GAWDSWARM-2",
@@ -28,7 +25,7 @@
   "deps": [],
   "created_by": "GAWDSWARM",
   "created_unix": 1794005500,
-  "status": "implemented_pending_integration",
-  "title": "Add AntiEntropy, CancelPropagate, and Deliberation invariant verifiers in susi-gawd-swarm",
+  "status": "in_progress",
+  "title": "Wave 13 susi-gawd-swarm brain coordination, supervisor, cloud failover, and lockout invariant verifiers",
   "native_worker": "gawd-swarm"
 }

@@ -76,6 +76,34 @@ impl Default for LockoutPolicy {
     }
 }
 
+impl LockoutPolicy {
+    /// Verifies that cooldown bounds, failure thresholds, probe limits, and jitter are valid.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `base_cooldown_ms == 0`,
+    /// `max_cooldown_ms < base_cooldown_ms`, `max_consecutive_failures == 0`,
+    /// `half_open_probes == 0`, or `jitter_ppt > 1_000`.
+    pub fn verify_policy_invariants(&self) -> Result<(), String> {
+        if self.base_cooldown_ms == 0 {
+            return Err("LockoutPolicy base_cooldown_ms must be > 0".to_string());
+        }
+        if self.max_cooldown_ms < self.base_cooldown_ms {
+            return Err("LockoutPolicy max_cooldown_ms must be >= base_cooldown_ms".to_string());
+        }
+        if self.max_consecutive_failures == 0 {
+            return Err("LockoutPolicy max_consecutive_failures must be > 0".to_string());
+        }
+        if self.half_open_probes == 0 {
+            return Err("LockoutPolicy half_open_probes must be > 0".to_string());
+        }
+        if self.jitter_ppt > 1_000 {
+            return Err("LockoutPolicy jitter_ppt must be <= 1000".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Circuit state for one scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -102,6 +130,32 @@ pub enum Permit {
     /// Permanently blocked (auth/credit/access) — do not retry on a timer.
     /// Lifts only via fresh positive evidence.
     Permanent { reason: &'static str },
+}
+
+impl Permit {
+    /// Verifies that a lockout permit carries valid retry timestamps or permanent block reasons.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if a `Cooldown` or `CircuitOpen` permit has
+    /// `retry_at_ms == 0`, or if a `Permanent` permit has a blank `reason`.
+    pub fn verify_permit_invariants(&self) -> Result<(), String> {
+        match self {
+            Self::Allowed | Self::ProbesExhausted => Ok(()),
+            Self::Cooldown { retry_at_ms } | Self::CircuitOpen { retry_at_ms } => {
+                if *retry_at_ms == 0 {
+                    return Err("Permit retry_at_ms must be > 0".to_string());
+                }
+                Ok(())
+            }
+            Self::Permanent { reason } => {
+                if reason.trim().is_empty() {
+                    return Err("Permit::Permanent reason must not be blank".to_string());
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,6 +217,51 @@ impl Default for LockoutTracker {
 }
 
 impl LockoutTracker {
+    /// Verifies invariants of the lockout tracker, its policy, capacity, and per-scope entries.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if the policy is invalid, `cap == 0`, `entries.len() > cap`,
+    /// any scope key is blank, any permanent block reason is blank or has probes in flight, or
+    /// any half-open entry exceeds `policy.half_open_probes`.
+    pub fn verify_tracker_invariants(&self) -> Result<(), String> {
+        self.policy.verify_policy_invariants()?;
+        if self.cap == 0 {
+            return Err("LockoutTracker cap must be > 0".to_string());
+        }
+        if self.entries.len() > self.cap {
+            return Err("LockoutTracker entries length must be <= cap".to_string());
+        }
+        for (scope, entry) in &self.entries {
+            if scope.trim().is_empty() {
+                return Err("LockoutTracker scope key must not be blank".to_string());
+            }
+            match entry.circuit {
+                Circuit::Closed | Circuit::Open => {}
+                Circuit::HalfOpen => {
+                    if entry.probes_in_flight > self.policy.half_open_probes {
+                        return Err(
+                            "LockoutTracker HalfOpen entry probes_in_flight exceeds half_open_probes"
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+            if let Some(perm) = &entry.permanent {
+                if perm.trim().is_empty() {
+                    return Err("LockoutTracker permanent reason must not be blank".to_string());
+                }
+                if entry.probes_in_flight > 0 {
+                    return Err(
+                        "LockoutTracker permanently blocked entry must have 0 probes_in_flight"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[must_use]
     pub fn new(policy: LockoutPolicy, clock: Clock) -> Self {
         Self {
@@ -898,5 +997,72 @@ mod tests {
             t.record(&format!("p:c{i}:m"), &fail(503, "down"));
         }
         assert!(t.len() <= 4);
+    }
+
+    #[test]
+    fn cloud_lockout_verify_swarm_wave13_invariants() {
+        let valid_policy = LockoutPolicy::default();
+        assert!(valid_policy.verify_policy_invariants().is_ok());
+
+        let zero_base = LockoutPolicy {
+            base_cooldown_ms: 0,
+            ..LockoutPolicy::default()
+        };
+        assert!(zero_base.verify_policy_invariants().is_err());
+
+        let inverted_max = LockoutPolicy {
+            base_cooldown_ms: 5_000,
+            max_cooldown_ms: 1_000,
+            ..LockoutPolicy::default()
+        };
+        assert!(inverted_max.verify_policy_invariants().is_err());
+
+        let zero_probes = LockoutPolicy {
+            half_open_probes: 0,
+            ..LockoutPolicy::default()
+        };
+        assert!(zero_probes.verify_policy_invariants().is_err());
+
+        let excessive_jitter = LockoutPolicy {
+            jitter_ppt: 1_500,
+            ..LockoutPolicy::default()
+        };
+        assert!(excessive_jitter.verify_policy_invariants().is_err());
+
+        assert!(Permit::Allowed.verify_permit_invariants().is_ok());
+        assert!(Permit::Cooldown { retry_at_ms: 100 }
+            .verify_permit_invariants()
+            .is_ok());
+        assert!(Permit::Cooldown { retry_at_ms: 0 }
+            .verify_permit_invariants()
+            .is_err());
+        assert!(Permit::Permanent { reason: "   " }
+            .verify_permit_invariants()
+            .is_err());
+
+        set_now(1_700_000_000);
+        let mut t = tracker();
+        t.record("p:c:m", &fail(503, "down"));
+        assert!(t.verify_tracker_invariants().is_ok());
+
+        t.entries.insert(
+            "  ".into(),
+            Entry {
+                circuit: Circuit::Closed,
+                ..Entry::default()
+            },
+        );
+        assert!(t.verify_tracker_invariants().is_err());
+        t.entries.remove("  ");
+
+        t.entries.insert(
+            "p:bad-probes:m".into(),
+            Entry {
+                circuit: Circuit::HalfOpen,
+                probes_in_flight: 99,
+                ..Entry::default()
+            },
+        );
+        assert!(t.verify_tracker_invariants().is_err());
     }
 }
