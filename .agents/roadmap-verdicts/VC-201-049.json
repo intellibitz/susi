@@ -1,8 +1,8 @@
 {
   "vector": "VC-201-049",
-  "verdict": "delivered",
-  "evidence": "vc_201_049_drain_quiesces_and_checkpoints_resumable (crates/susi-vendor-models/src/tests/vc_201_049.rs)",
-  "missing": "",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Moved out of scope 2026-11-07 by CEO direction: workload_drain lives in susi-commercial-apps (crates/susi-gpu-fabric/src/migrated/). The Apache-2.0 substrate concentrates on the four core protocol-router pillars (susi-gawd, susi-gemi, susi-gmcp, susi-harness).",
   "tracked_by": [],
   "recorded_by": "INTELLIBITZ202610030140553714905",
   "recorded_unix": 1790982840

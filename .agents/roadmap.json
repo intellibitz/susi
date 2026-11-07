@@ -612,7 +612,7 @@
       "id": "VC-201-049",
       "mastery_target": "Quiesce supported jobs, checkpoint resumable work, and re-probe runtimes after resume or driver reset; interrupted requests report their actual outcome and stale GPU readiness is discarded.",
       "priority": "P1",
-      "progress": "DELIVERED: drain quiesces and checkpoints resumable work, resume re-probes and replays checkpoints, stale GPU readiness is discarded, and an interrupted request reports its actual outcome; draining an empty workload is safe. Verified by `crates/susi-vendor-models/src/tests/vc_201_049.rs`: drain_quiesces_and_checkpoints_resumable, resume_reprobes_and_replays_checkpoints, stale_gpu_readiness_is_discarded_on_drain, interrupted_requests_report_their_actual_outcome, drain_on_empty_workload_is_safe. Evidence: T-CLAUDE-378.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-gpu-fabric::workload_drain): drain quiesces and checkpoints resumable work, resume re-probes and replays checkpoints, stale GPU readiness is discarded, and an interrupted request reports its actual outcome; draining an empty workload is safe. Verified by `crates/susi-vendor-models/src/tests/vc_201_049.rs`: drain_quiesces_and_checkpoints_resumable, resume_reprobes_and_replays_checkpoints, stale_gpu_readiness_is_discarded_on_drain, interrupted_requests_report_their_actual_outcome, drain_on_empty_workload_is_safe. Evidence: T-CLAUDE-378.",
       "type": "LOCAL_HOSTING",
       "vector": "Drain local AI workloads for suspend and maintenance"
     },
