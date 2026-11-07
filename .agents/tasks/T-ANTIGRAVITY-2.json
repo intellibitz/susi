@@ -17,10 +17,11 @@
     "crates/susi-harness/src/lib.rs"
   ],
   "scopes": [
-    ".agents/tasks/T-ANTIGRAVITY-2.json",
-    "crates/susi-harness/src/supervisor.rs",
+    ".agents/tasks/t-antigravity-2.json",
+    ".agents/tasks/t-harnessdiamond-1.json",
     "crates/susi-harness/src/bin/susi-harness.rs",
-    "crates/susi-harness/src/lib.rs"
+    "crates/susi-harness/src/lib.rs",
+    "crates/susi-harness/src/supervisor.rs"
   ],
   "accept": {
     "cmd": [
@@ -28,6 +29,7 @@
       "test",
       "-p",
       "susi-harness",
+      "--lib",
       "--offline",
       "--locked"
     ]
