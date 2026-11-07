@@ -62,7 +62,6 @@ pub mod untrusted_content;
 pub mod vertical_workflow;
 pub mod wasm_grants;
 pub mod zc_egress_allowlist;
-pub mod zc_privacy_default;
 pub use susi_adapters_llm::inference_wire;
 pub mod intent_bus;
 pub mod intent_plan;
