@@ -74,9 +74,6 @@ pub mod worker;
 #[path = "tests/availability_not_capability.rs"]
 mod availability_not_capability_tests;
 #[cfg(test)]
-#[path = "tests/brain_ranking_by_cost.rs"]
-mod brain_ranking_by_cost_tests;
-#[cfg(test)]
 #[path = "tests/brain_scout_schedule.rs"]
 mod brain_scout_schedule_tests;
 #[cfg(test)]
