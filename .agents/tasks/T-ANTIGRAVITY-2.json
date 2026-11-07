@@ -19,7 +19,7 @@
       "--lib",
       "--offline",
       "--locked",
-      "verify_harness_wave14_invariants"
+      "verify_invariants_reject_corrupt_state"
     ]
   }
 }
