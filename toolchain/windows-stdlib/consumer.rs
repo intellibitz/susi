@@ -6,12 +6,12 @@ fn platform_unicode_and_standard_library_behave_on_real_inputs() {
     // Linux selects the newest qualified OS ICU present; the constant is the
     // oldest qualified repertoire. Observe the library this process loaded.
     #[cfg(target_os = "linux")]
-    assert_eq!(char::UNICODE_VERSION, (15, 1, 0));
+    assert_eq!(char::UNICODE_VERSION, (15, 0, 0));
     #[cfg(target_os = "linux")]
     let icu_major = {
         assert!('δ'.is_alphabetic());
         let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
-        let loaded: Vec<u8> = [76, 74]
+        let loaded: Vec<u8> = [76, 74, 72]
             .into_iter()
             .filter(|major| maps.contains(&format!("/libicuuc.so.{major}")))
             .collect();
@@ -27,7 +27,7 @@ fn platform_unicode_and_standard_library_behave_on_real_inputs() {
     assert_eq!('\n'.escape_debug().to_string(), "\\n");
     #[cfg(windows)]
     assert_eq!('\u{1c89}'.escape_debug().to_string(), "\\u{1c89}");
-    // U+1C89 is assigned in Unicode 16.0 (ICU 76) and unassigned in 15.1.
+    // U+1C89 is assigned in Unicode 16.0 (ICU 76) and unassigned in 15.1 / 15.0.
     #[cfg(target_os = "linux")]
     assert_eq!(
         '\u{1c89}'.escape_debug().to_string(),
