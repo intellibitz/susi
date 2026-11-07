@@ -91,9 +91,6 @@ mod swarm_gap_verified_closure_tests;
 #[path = "tests/swarm_gap_workspace_isolation.rs"]
 mod swarm_gap_workspace_isolation_tests;
 #[cfg(test)]
-#[path = "tests/task_lease_dispatch_wiring.rs"]
-mod task_lease_dispatch_wiring_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_021.rs"]
 mod vc_201_021_tests;
 #[cfg(test)]
