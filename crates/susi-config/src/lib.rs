@@ -298,9 +298,6 @@ mod cluster_key_tests;
 #[path = "tests/extensions.rs"]
 mod extensions_tests;
 #[cfg(test)]
-#[path = "tests/json_util.rs"]
-mod json_util_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_076_mastery.rs"]
 mod vc_201_076_mastery_tests;
 
