@@ -2005,12 +2005,12 @@ mod tests {
             7,
             ResNode {
                 id: "n7".into(),
-                need: Resources {
-                    cpu_millis: 100,
-                    ram_mb: 64,
-                    vram_mb: 0,
-                    subprocesses: 1,
-                },
+                cpu: 1.0,
+                gpu_mem_gb: 0.0,
+                mem_gb: 1.0,
+                subprocesses: 1,
+                needs_model: false,
+                needs_tools: Vec::new(),
             },
         );
         assert!(bad_req.verify_dag_invariants().is_err());
