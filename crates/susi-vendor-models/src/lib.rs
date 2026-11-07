@@ -61,7 +61,6 @@ pub mod resumable_downloads;
 pub mod runtime_lifecycle;
 pub mod signed_catalog;
 pub mod transactional_download;
-pub mod workload_drain;
 pub mod zc_key_aliases;
 pub mod zc_key_sources;
 
@@ -95,9 +94,6 @@ mod vc_201_046_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_046.rs"]
 mod vc_201_046_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_049.rs"]
-mod vc_201_049_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_050.rs"]
 mod vc_201_050_tests;
