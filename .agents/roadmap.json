@@ -1140,7 +1140,7 @@
       "id": "VC-201-090",
       "mastery_target": "Run an evidence-backed workspace task using local retrieval, an allowed model target, an MCP tool, and a delegated agent when policy permits; demonstrate offline, denied-egress, and failed-dependency outcomes.",
       "priority": "P1",
-      "progress": "DELIVERED: one vertical workflow completes online using an MCP tool and a delegated agent, and the offline, denied-egress and failed-dependency outcomes are demonstrated. Verified by `crates/susi-core/src/tests/vc_201_090.rs`: online_completes_with_mcp_and_delegate, offline_denied_and_dependency_failures. Evidence: T-CLAUDE-392.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-sovereign-rag::vertical_workflow): one vertical workflow completes online using an MCP tool and a delegated agent, and the offline, denied-egress and failed-dependency outcomes are demonstrated. Verified by `crates/susi-core/src/tests/vc_201_090.rs`: online_completes_with_mcp_and_delegate, offline_denied_and_dependency_failures. Evidence: T-CLAUDE-392.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Deliver one vertical workflow across the AI ecosystem"
     },
