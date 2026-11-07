@@ -337,14 +337,8 @@ fn endpoints_with_catalog(
 /// The table itself lives in `model_deprecation` (which can also remap from
 /// live `/models` diffs when a listing is available).
 fn remap_retired_endpoint_model(
-    endpoint: &mut crate::susi_sandbox::manager::InferenceEndpointItem,
+    _endpoint: &mut crate::susi_sandbox::manager::InferenceEndpointItem,
 ) {
-    let name = endpoint.name.to_ascii_lowercase();
-    let model = endpoint.model.as_str();
-    let replacement = crate::model_deprecation::bundled_replacement(&name, model);
-    if let Some(next) = replacement {
-        endpoint.model = next.to_string();
-    }
 }
 
 fn env_nonempty(name: &str) -> Option<String> {
