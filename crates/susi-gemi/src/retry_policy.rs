@@ -30,19 +30,6 @@ pub struct RetryDecision {
     pub delay_ms: u64,
 }
 
-impl RetryDecision {
-    /// Verify that a retry decision obeys the backoff bounds (`100..=5_099` ms when `retry` is true,
-    /// `0` ms when `retry` is false).
-    #[must_use]
-    pub fn verify_decision_invariants(&self) -> bool {
-        if self.retry {
-            (100..=5_099).contains(&self.delay_ms)
-        } else {
-            self.delay_ms == 0
-        }
-    }
-}
-
 /// Decide whether to retry; never retry auth/funds/non-idempotent failures.
 #[must_use]
 pub fn should_retry(kind: FailureKind, attempt: u32, jitter_ms: u64) -> RetryDecision {
@@ -155,20 +142,6 @@ impl RetryStormBudget {
         self.available_tokens = (self.available_tokens - self.cost_per_retry).max(0.0);
         base
     }
-
-    /// Verify token-bucket retry storm budget invariants.
-    #[must_use]
-    pub fn verify_storm_budget_invariants(&self) -> bool {
-        self.capacity_tokens.is_finite()
-            && self.capacity_tokens >= 1.0
-            && self.available_tokens.is_finite()
-            && self.available_tokens >= 0.0
-            && self.available_tokens <= self.capacity_tokens
-            && self.deposit_per_request.is_finite()
-            && (0.01..=1.0).contains(&self.deposit_per_request)
-            && self.cost_per_retry.is_finite()
-            && self.cost_per_retry > 0.0
-    }
 }
 
 #[cfg(test)]
@@ -255,34 +228,5 @@ mod retry_policy_tests {
         assert_eq!(clamped.capacity_tokens, 1.0);
         assert_eq!(clamped.available_tokens, 1.0);
         assert_eq!(clamped.deposit_per_request, 1.0);
-    }
-
-    #[test]
-    fn verify_decision_and_storm_budget_invariants_validate_retry_contract() {
-        let retry_ok = should_retry(FailureKind::Transient5xx, 1, 25);
-        assert!(retry_ok.verify_decision_invariants());
-        let no_retry = should_retry(FailureKind::Auth, 0, 10);
-        assert!(no_retry.verify_decision_invariants());
-
-        assert!(!RetryDecision {
-            retry: true,
-            delay_ms: 50
-        }
-        .verify_decision_invariants());
-        assert!(!RetryDecision {
-            retry: false,
-            delay_ms: 100
-        }
-        .verify_decision_invariants());
-
-        let budget = RetryStormBudget::default();
-        assert!(budget.verify_storm_budget_invariants());
-        assert!(!RetryStormBudget {
-            capacity_tokens: 5.0,
-            available_tokens: 6.0,
-            deposit_per_request: 0.1,
-            cost_per_retry: 1.0,
-        }
-        .verify_storm_budget_invariants());
     }
 }

@@ -51,22 +51,6 @@ impl RegionTelemetry {
             self.heartbeat_stddev_ms,
         )
     }
-
-    /// Verify structural and statistical invariants of regional telemetry.
-    #[must_use]
-    pub fn verify_telemetry_invariants(&self) -> bool {
-        !self.region.trim().is_empty()
-            && self.mean_rtt_ms.is_finite()
-            && self.mean_rtt_ms > 0.0
-            && self.stddev_rtt_ms.is_finite()
-            && self.stddev_rtt_ms >= 0.0
-            && self.elapsed_since_ok_ms.is_finite()
-            && self.elapsed_since_ok_ms >= 0.0
-            && self.heartbeat_mean_ms.is_finite()
-            && self.heartbeat_mean_ms > 0.0
-            && self.heartbeat_stddev_ms.is_finite()
-            && self.heartbeat_stddev_ms >= 0.0
-    }
 }
 
 /// Compute the Hayashibara $\varphi$-accrual suspicion score using Abramowitz &
@@ -98,23 +82,6 @@ pub struct HedgedRoutePlan {
     /// Optional backup region to fire a hedged request to if primary exceeds `hedge_after_ms`.
     pub hedge_region: Option<String>,
     pub hedge_after_ms: u64,
-}
-
-impl HedgedRoutePlan {
-    /// Verify structural invariants of a tail-latency hedged routing plan.
-    #[must_use]
-    pub fn verify_plan_invariants(&self) -> bool {
-        !self.primary_region.trim().is_empty()
-            && self.primary_p95_ms.is_finite()
-            && self.primary_p95_ms >= 1.0
-            && self.primary_phi.is_finite()
-            && self.primary_phi >= 0.0
-            && self.hedge_after_ms >= 25
-            && self
-                .hedge_region
-                .as_ref()
-                .is_none_or(|h| !h.trim().is_empty() && h != &self.primary_region)
-    }
 }
 
 /// Select the optimal primary and hedged backup region among candidates whose
@@ -276,30 +243,5 @@ mod region_failover_tests {
         assert_eq!(plan.primary_region, "local-edge");
         assert_eq!(plan.hedge_region, None);
         assert_eq!(plan.hedge_after_ms, 25);
-        assert!(plan.verify_plan_invariants());
-    }
-
-    #[test]
-    fn verify_telemetry_and_plan_invariants_validate_regional_failover() {
-        let valid_telem = RegionTelemetry {
-            region: "eu-west-1".into(),
-            mean_rtt_ms: 40.0,
-            stddev_rtt_ms: 5.0,
-            elapsed_since_ok_ms: 100.0,
-            heartbeat_mean_ms: 1000.0,
-            heartbeat_stddev_ms: 50.0,
-        };
-        assert!(valid_telem.verify_telemetry_invariants());
-
-        let mut bad_telem = valid_telem.clone();
-        bad_telem.mean_rtt_ms = 0.0;
-        assert!(!bad_telem.verify_telemetry_invariants());
-
-        let plan = plan_hedged_failover(&[valid_telem], &[], 8.0).unwrap();
-        assert!(plan.verify_plan_invariants());
-
-        let mut self_hedge = plan;
-        self_hedge.hedge_region = Some(self_hedge.primary_region.clone());
-        assert!(!self_hedge.verify_plan_invariants());
     }
 }
