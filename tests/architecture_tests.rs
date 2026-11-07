@@ -1368,7 +1368,7 @@ fn self_build_contract_reaches_every_code_writing_path() {
 
     for (rel, needle) in [
         (
-            "crates/susi-vendor-agents/src/external/mod.rs",
+            "crates/susi-gawd-agents/src/external/mod.rs",
             "self_build::brief_task",
         ),
         (

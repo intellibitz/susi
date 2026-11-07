@@ -35,6 +35,7 @@ pub mod brain;
 pub mod cloud_budget;
 pub mod cloud_intent;
 pub mod dag_hooks;
+pub mod external;
 pub mod external_peers;
 pub mod goal_shape;
 pub(crate) use susi_vendor_web::live_search;

@@ -61,8 +61,8 @@ pub use susi_core;
 pub mod plane_handler;
 
 pub use susi_gawd_agents::{
-    accountability, admin_hooks, agents, axiom, brain, dag_hooks, external_peers, goal_shape, pkb,
-    safety, scheduler, security, self_core, system_observe,
+    accountability, admin_hooks, agents, axiom, brain, dag_hooks, external, external_peers,
+    goal_shape, pkb, safety, scheduler, security, self_core, system_observe,
 };
 
 pub use susi_gawd_a2a::{capabilities, executor, server, task_store};
