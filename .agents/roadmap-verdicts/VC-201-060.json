@@ -1,7 +1,8 @@
 {
   "vector": "VC-201-060",
-  "verdict": "delivered",
-  "evidence": "crates/susi-vendor-models/src/tests/vc_201_060_mastery.rs",
+  "verdict": "not-delivered",
+  "evidence": "",
   "recorded_by": "INTELLIBITZ20261005030120687099",
-  "recorded_unix": 1791175365
+  "recorded_unix": 1791175365,
+  "missing": "Moved out of scope 2026-11-07 by CEO direction: deployment_spec lives in susi-commercial-apps (crates/susi-gpu-fabric/src/migrated/). The Apache-2.0 substrate concentrates on the four core protocol-router pillars (susi-gawd, susi-gemi, susi-gmcp, susi-harness)."
 }

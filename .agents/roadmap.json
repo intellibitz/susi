@@ -752,7 +752,7 @@
       "id": "VC-201-060",
       "mastery_target": "Round-trip supported model endpoints, runtime requirements, secret references, and placement policies between local and supported cloud targets; compatibility checks surface nonportable settings before any changes.",
       "priority": "P1",
-      "progress": "DELIVERED: DeploymentSpec is a closed, versioned JSON artifact that round-trips model endpoints, runtime requirements, secret references, and placement policies through export_spec/restore_spec. restore_for_target performs pure pre-change compatibility checks for endpoint protocols, secret stores, accelerators, and local/cloud placement constraints. Verified by `crates/susi-vendor-models/src/tests/vc_201_060_mastery.rs` (cargo test -p susi-vendor-models vc_201_060 --locked). Evidence: T-DEVIN20261002053148-33.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-gpu-fabric::deployment_spec): DeploymentSpec is a closed, versioned JSON artifact that round-trips model endpoints, runtime requirements, secret references, and placement policies through export_spec/restore_spec. restore_for_target performs pure pre-change compatibility checks for endpoint protocols, secret stores, accelerators, and local/cloud placement constraints. Verified by `crates/susi-vendor-models/src/tests/vc_201_060_mastery.rs` (cargo test -p susi-vendor-models vc_201_060 --locked). Evidence: T-DEVIN20261002053148-33.",
       "type": "CLOUD_HOSTING",
       "vector": "Export and restore portable AI deployment specifications"
     },
