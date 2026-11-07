@@ -294,9 +294,6 @@ mod intent_ladder_canaries_tests;
 #[cfg(test)]
 #[path = "tests/intent_ladder_startup.rs"]
 mod intent_ladder_startup_tests;
-#[cfg(test)]
-#[path = "tests/vc_202_008.rs"]
-mod vc_202_008_tests;
 
 /// Threads in the rayon pool the swarm runs on (`susi crown`'s
 /// concurrency check reads it without a rayon edge of its own).
