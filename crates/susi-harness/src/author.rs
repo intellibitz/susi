@@ -22,6 +22,28 @@ pub struct AuthorConfig {
     pub timeout_secs: u64,
 }
 
+impl AuthorConfig {
+    /// Verify structural invariants of an [`AuthorConfig`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable error if `gateway_url` does not start with
+    /// `http://` or `https://`, `model` is blank, or `timeout_secs` is zero.
+    pub fn verify_config_invariants(&self) -> Result<(), String> {
+        let url = self.gateway_url.trim();
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err("AuthorConfig.gateway_url must start with http:// or https://".to_string());
+        }
+        if self.model.trim().is_empty() {
+            return Err("AuthorConfig.model must not be empty".to_string());
+        }
+        if self.timeout_secs == 0 {
+            return Err("AuthorConfig.timeout_secs must be greater than zero".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// What to author from.
 pub struct AuthorRequest {
     /// Vector id and title, e.g. `VC-202-025 agent identity`.
@@ -38,6 +60,45 @@ pub struct AuthorRequest {
     pub max_tasks: usize,
     /// The previous answer's validation error, when this call is a retry.
     pub retry_hint: Option<String>,
+}
+
+impl AuthorRequest {
+    /// Verify structural invariants of an [`AuthorRequest`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable error if `vector` or `target` is blank,
+    /// `packages` or `workers` is empty or contains blank entries, `max_tasks`
+    /// is zero, or `retry_hint` is `Some` with a blank string.
+    pub fn verify_request_invariants(&self) -> Result<(), String> {
+        if self.vector.trim().is_empty() {
+            return Err("AuthorRequest.vector must not be empty".to_string());
+        }
+        if self.target.trim().is_empty() {
+            return Err("AuthorRequest.target must not be empty".to_string());
+        }
+        if self.packages.is_empty() {
+            return Err("AuthorRequest.packages must not be empty".to_string());
+        }
+        if self.packages.iter().any(|pkg| pkg.trim().is_empty()) {
+            return Err("AuthorRequest.packages entries must not be empty".to_string());
+        }
+        if self.workers.is_empty() {
+            return Err("AuthorRequest.workers must not be empty".to_string());
+        }
+        if self.workers.iter().any(|worker| worker.trim().is_empty()) {
+            return Err("AuthorRequest.workers entries must not be empty".to_string());
+        }
+        if self.max_tasks == 0 {
+            return Err("AuthorRequest.max_tasks must be greater than zero".to_string());
+        }
+        if let Some(ref hint) = self.retry_hint {
+            if hint.trim().is_empty() {
+                return Err("AuthorRequest.retry_hint must not be blank when present".to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The user prompt for one authoring call.
@@ -240,5 +301,93 @@ mod tests {
         let text = prompt(&request);
         assert!(text.contains("previous answer was rejected"));
         assert!(text.contains("scopes must exist under the repository"));
+    }
+
+    #[test]
+    fn author_config_and_request_verify_invariants_reject_corrupt_state() {
+        let valid_cfg = AuthorConfig {
+            gateway_url: "https://gateway.local:9185".to_string(),
+            model: "deepseek-flash".to_string(),
+            timeout_secs: 30,
+        };
+        assert!(valid_cfg.verify_config_invariants().is_ok());
+
+        let bad_url = AuthorConfig {
+            gateway_url: "ftp://gateway.local".to_string(),
+            model: valid_cfg.model.clone(),
+            timeout_secs: valid_cfg.timeout_secs,
+        };
+        assert!(bad_url.verify_config_invariants().is_err());
+
+        let blank_model = AuthorConfig {
+            gateway_url: valid_cfg.gateway_url.clone(),
+            model: "   ".to_string(),
+            timeout_secs: valid_cfg.timeout_secs,
+        };
+        assert!(blank_model.verify_config_invariants().is_err());
+
+        let zero_timeout = AuthorConfig {
+            gateway_url: valid_cfg.gateway_url,
+            model: valid_cfg.model,
+            timeout_secs: 0,
+        };
+        assert!(zero_timeout.verify_config_invariants().is_err());
+
+        let valid_req = request();
+        assert!(valid_req.verify_request_invariants().is_ok());
+
+        let with_hint = AuthorRequest {
+            retry_hint: Some("fix scope overlap".to_string()),
+            ..request()
+        };
+        assert!(with_hint.verify_request_invariants().is_ok());
+
+        let blank_vector = AuthorRequest {
+            vector: " ".to_string(),
+            ..request()
+        };
+        assert!(blank_vector.verify_request_invariants().is_err());
+
+        let blank_target = AuthorRequest {
+            target: String::new(),
+            ..request()
+        };
+        assert!(blank_target.verify_request_invariants().is_err());
+
+        let empty_packages = AuthorRequest {
+            packages: Vec::new(),
+            ..request()
+        };
+        assert!(empty_packages.verify_request_invariants().is_err());
+
+        let blank_package_entry = AuthorRequest {
+            packages: vec!["susi-harness".to_string(), "  ".to_string()],
+            ..request()
+        };
+        assert!(blank_package_entry.verify_request_invariants().is_err());
+
+        let empty_workers = AuthorRequest {
+            workers: Vec::new(),
+            ..request()
+        };
+        assert!(empty_workers.verify_request_invariants().is_err());
+
+        let blank_worker_entry = AuthorRequest {
+            workers: vec![String::new()],
+            ..request()
+        };
+        assert!(blank_worker_entry.verify_request_invariants().is_err());
+
+        let zero_max_tasks = AuthorRequest {
+            max_tasks: 0,
+            ..request()
+        };
+        assert!(zero_max_tasks.verify_request_invariants().is_err());
+
+        let blank_retry_hint = AuthorRequest {
+            retry_hint: Some("   ".to_string()),
+            ..request()
+        };
+        assert!(blank_retry_hint.verify_request_invariants().is_err());
     }
 }
