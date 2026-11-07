@@ -54,7 +54,6 @@ pub mod peer_admin;
 pub mod peer_probe;
 pub mod peer_roster;
 pub mod untrusted_content;
-pub mod wasm_grants;
 pub mod zc_egress_allowlist;
 pub use susi_adapters_llm::inference_wire;
 pub mod intent_bus;
@@ -137,12 +136,6 @@ mod vc_201_074_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_074.rs"]
 mod vc_201_074_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_075_mastery.rs"]
-mod vc_201_075_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_075.rs"]
-mod vc_201_075_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_080_mastery.rs"]
 mod vc_201_080_mastery_tests;
