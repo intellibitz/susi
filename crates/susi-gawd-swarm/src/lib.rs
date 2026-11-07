@@ -29,7 +29,6 @@ pub mod ama;
 pub mod amas;
 pub mod anti_entropy;
 pub mod audit;
-pub mod brain_coordination;
 pub mod brain_supervisor;
 pub mod cancel_propagate;
 pub mod capacity_admission;
