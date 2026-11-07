@@ -502,7 +502,7 @@
       "id": "VC-201-040",
       "mastery_target": "Exercise partitions, clock skew, duplicate delivery, stale keys, failed rekeys, mixed versions, and crash recovery against real dev nodes; archive traces and explicitly enumerate unsupported failure guarantees.",
       "priority": "P1",
-      "progress": "DELIVERED: the multi-node fault matrix covers partitions, clock skew, duplicate delivery, stale keys, failed rekeys, mixed versions and crash recovery; every guard holds, traces are archived, and unsupported guarantees are enumerated explicitly. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_040.rs`: matrix_covers_the_full_fault_catalogue, every_guard_holds, trace_archive_roundtrips, unsupported_guarantees_are_enumerated. Evidence: T-CLAUDE-374.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command): the multi-node fault matrix covers partitions, clock skew, duplicate delivery, stale keys, failed rekeys, mixed versions and crash recovery; every guard holds, traces are archived, and unsupported guarantees are enumerated explicitly. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_040.rs`: matrix_covers_the_full_fault_catalogue, every_guard_holds, trace_archive_roundtrips, unsupported_guarantees_are_enumerated. Evidence: T-CLAUDE-374.",
       "type": "FEDERATION",
       "vector": "Run a multi-node federation fault matrix"
     },

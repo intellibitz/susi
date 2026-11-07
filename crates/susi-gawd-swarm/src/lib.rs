@@ -36,7 +36,6 @@ pub(crate) mod cloud_recovery;
 pub mod dag;
 pub mod deliberation;
 pub mod fair_queue;
-pub mod fault_matrix;
 pub mod host_hooks;
 pub mod identity_revoke;
 pub mod independent_verify;
@@ -184,8 +183,6 @@ mod vc_201_033_tests;
 #[path = "tests/vc_201_037.rs"]
 mod vc_201_037_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_040.rs"]
-mod vc_201_040_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_043_mastery.rs"]
 mod vc_201_043_mastery_tests;
@@ -226,20 +223,6 @@ mod inline_tests {
         assert!(sanitized.contains("verify swarm status"));
     }
 
-    #[test]
-    fn fault_matrix_run_matrix_passes_all_scenarios_via_swarm_root() {
-        let report = fault_matrix::run_matrix();
-        assert!(report.all_passed());
-        assert!(!report.scenarios.is_empty());
-    }
-
-    #[test]
-    fn fault_kind_serde_roundtrip_preserves_variant() {
-        let kind = fault_matrix::FaultKind::Partition;
-        let json = serde_json::to_string(&kind).expect("serialize");
-        let decoded: fault_matrix::FaultKind = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(decoded, kind);
-    }
 
     #[test]
     fn susi_error_reexport_constructs_process_error_from_swarm_root() {
