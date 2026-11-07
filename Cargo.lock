@@ -5943,10 +5943,10 @@ version = "0.1.0"
 dependencies = [
  "susi-build-os-ucrt",
  "susi-build-policy",
+ "susi-config",
  "susi-vendor-serde-json",
  "susi-vendor-sha1",
  "susi-vendor-sha2",
- "susi-vendor-sysinfo",
  "susi-windows-runtime",
 ]
 

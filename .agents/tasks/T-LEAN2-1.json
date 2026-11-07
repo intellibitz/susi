@@ -50,7 +50,13 @@
     "crates/susi-vendor-winapi/src/host.rs",
     "crates/susi-vendor-winapi/src/lib.rs",
     "docs/harness-coordination.md",
-    "tests/orphan_sources.rs"
+    "tests/architecture_tests.rs",
+    "tests/orphan_sources.rs",
+    "xtask/cargo.toml",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/build_time.rs",
+    "xtask/src/main.rs"
   ],
   "acceptance": "cargo test -p susi-gmcp --lib --offline --locked schema_check",
   "accept": {

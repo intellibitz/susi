@@ -493,6 +493,7 @@ pub fn process_environment(pid: u32) -> Option<Vec<String>> {
 }
 
 #[cfg(test)]
+// Test-only assertions: a `None` here is the failure the test exists to report.
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;

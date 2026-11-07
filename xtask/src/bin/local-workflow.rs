@@ -1227,13 +1227,7 @@ fn free_space(path: &Path) -> Option<u64> {
     // On Windows `canonicalize` answers in verbatim form (`\\?\C:\...`),
     // which a mount point (`C:\`) is never a prefix of: compare the DOS form.
     let canonical = dos_path(&canonical);
-    let disks = sysinfo::Disks::new_with_refreshed_list();
-    disks
-        .list()
-        .iter()
-        .filter(|disk| canonical.starts_with(disk.mount_point()))
-        .max_by_key(|disk| disk.mount_point().as_os_str().len())
-        .map(sysinfo::Disk::available_space)
+    susi_config::host_metrics::filesystem_of(&canonical).map(|fs| fs.available_bytes)
 }
 
 /// `path` without Windows' verbatim prefix: `\\?\C:\x` becomes `C:\x` and
