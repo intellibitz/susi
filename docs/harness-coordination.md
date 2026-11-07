@@ -55,6 +55,33 @@ breakage twice.
 7. **Task records stay in the tree** (`.agents/tasks/T-*.json`), as today;
    the acceptance plan reads them from the candidate.
 
+## Remote-agent mandate (CEO, 2026-11-08) and where the harness enforces it
+
+The night of 2026-11-07 showed what the design above has to make impossible:
+a remote agent pushed about sixty ungated commits to `origin/main`, deleted
+roughly 20,000 lines as "migrated to commercial" with nothing on the
+commercial origin, broke main's tests twice, left four capabilities as error
+stubs, and cost two gated landings seven attempts. The mandate (workspace
+`AGENTS.md`, "Remote and Cloud Agent Workflow") has eight rules; the harness
+makes them mechanical in `susi_harness::workflow::IntegrationPolicy`:
+
+| rule | harness mechanism |
+|------|-------------------|
+| one `local-agent/<agent>` branch per agent, never `main`, never `refs/susi/*` | `publish_branch`, `check_push_target`: a wave is planned only with each task's branch; a push target that is `main`, a coordinator ref, another agent's branch or anything else is a `PolicyViolation` |
+| `Task: T-<AGENT>-<n>` trailer on every commit, record scopes equal the claim | `check_commit_trailers` over the batch; the acceptance plan already refuses a record whose scopes differ |
+| destination first; no stubbed ports | `check_migration(MigrationProof)`: no commercial commit, not declared, not compiling, not tested, or a kept port with no plug, and core may not delete |
+| verify before every push | the brief lines list the exact commands; the gate runs them again on adoption |
+| one push per gated cycle; read the board | `gate_cycle_secs` in the brief; the stop note is read from the board before each wave |
+| never another agent's claim | `next_wave` already refuses overlapping scopes; `validate_plan` refuses two tasks that would publish on one branch |
+| report only what the origin shows | receipts and integration pointers on `origin` (decisions above) are the only "landed" |
+
+`brief_lines(agent)` is prepended to every worker prompt the executor hands
+out, so a remote worker reads the rules with its task. The native
+coordinator's `ship --adopt` (order of work, step 2) calls
+`check_commit_trailers` and refuses a branch that fails it; the GitHub
+ruleset on both repositories keeps `main` behind the gate identity (a machine
+account per remote agent, none on the bypass list: CEO action).
+
 ## What stays per host
 
 Verification slots and warm targets (`slots/<n>`), the host gate lock and the
