@@ -48,11 +48,28 @@ as SSE. An unknown method returns JSON-RPC `-32601`. `tools/list` is paginated
 and answers without waiting for external MCP servers, which are listed as
 `server:*` until a background probe resolves their tool names.
 
+```bash
+# Example: Stateless MCP 2026-07-28 tools/list call
+TOKEN="$(cat ~/.susi/api_token)"
+curl -sS -X POST http://127.0.0.1:9090/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/list" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}'
+```
+
 ## A2A (9094)
 
 Fetch the agent card from `/.well-known/agent-card.json`, then call JSON-RPC
 on `/` with the bearer token. Errors use the standard JSON-RPC codes: `-32601`
 for an unknown method and `-32602` for invalid params.
+
+```bash
+# Public discovery (no bearer token required)
+curl -sS http://127.0.0.1:9094/.well-known/agent-card.json
+```
 
 ## OpenAI-compatible inference (9091)
 
@@ -61,12 +78,25 @@ its API key. `/v1/models` lists local models by file stem (never a local
 path), configured providers, and the aliases `susi` and `auto`. Echo an `id`
 from that list back as `model`.
 
+```bash
+# Example: Chat completion with inspectable placement routing
+TOKEN="$(cat ~/.susi/api_token)"
+curl -sS -X POST http://127.0.0.1:9091/v1/chat/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Summarize the host contract ports."}],
+    "susi": {"allow_cloud": true}
+  }'
+```
+
 ## Extensions
 
 Extension packs add capabilities, catalogs and routing without changing
 Susi. Core ships and seeds no pack and never installs one on its own: the user
 or Susi Commercial Apps installs it, and core admits it. A third party writes
-its own adapter. Core does not include that adapter. See [extension-pack.md](extension-pack.md) for the manifest. Packs live
+its own adapter. Core does not include that adapter. See [extension-pack.md](extension-pack.md) for the manifest and a 5-minute starter walkthrough. Packs live
 in `~/.susi/extensions/<id>/`, declare an `apiVersion` whose major must match
 the host's, and run only with the permissions they declare. Check a pack before you ship it with
 `susi extensions validate <pack-dir>`: it applies the host's admission rules
@@ -92,6 +122,14 @@ its own home and offset:
 SUSI_HOME=/tmp/susi-it SUSI_PORT_OFFSET=700 susi start
 SUSI_HOME=/tmp/susi-it SUSI_PORT_OFFSET=700 susi stop
 ```
+
+## Portable source targets
+
+macOS is a portable source target using `Security.framework`, Linux uses
+platform OpenSSL, and Windows uses `Schannel` (verified by
+`tests/zc_matrix.rs`). Developers on any portable source target can compile and
+run the conformance suite or work with the workspace directly via Cargo
+(`cargo test --locked`).
 
 ## What stays outside this repository
 
