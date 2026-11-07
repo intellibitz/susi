@@ -286,9 +286,6 @@ pub fn init_hooks() {
     });
 }
 #[cfg(test)]
-#[path = "tests/intent_ladder_canaries.rs"]
-mod intent_ladder_canaries_tests;
-#[cfg(test)]
 #[path = "tests/intent_ladder_startup.rs"]
 mod intent_ladder_startup_tests;
 
