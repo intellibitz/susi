@@ -162,14 +162,20 @@ mod tests {
     feature = "service-sandbox",
     feature = "service-native"
 ))]
+/// Serialises every test in this crate that reads or mutates process-wide
+/// env (`SUSI_HOME`, `SUSI_HOST_TOKEN`, `DOCKER_HOST`): the router tests set
+/// `SUSI_HOME` to a temp dir, and a service test that reads the paths
+/// contract meanwhile compares a response against a different root (seen
+/// once in the 2026-11-07 gate, 1 of ~40). Async-aware because the guard
+/// must span the `.await`s that read the env it protects.
+#[cfg(test)]
+pub(crate) static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 mod router_tests {
+    use super::ENV_LOCK;
     use axum::body::Body;
     use axum::http::{header::AUTHORIZATION, Request, StatusCode};
     use tower::ServiceExt;
-
-    /// Serialises the env-mutating tests. Async-aware because the guard must
-    /// span the `.await`s that read the env it protects.
-    static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn get(uri: &str) -> Request<Body> {
         Request::get(uri).body(Body::empty()).unwrap()
