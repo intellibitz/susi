@@ -82,6 +82,125 @@ pub struct UnifiedOperatorState {
     pub evidence: Option<EvidenceStateRow>,
 }
 
+impl ProviderRow {
+    /// Verify structural invariants on a provider telemetry row.
+    pub fn verify_row_invariants(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("ProviderRow name must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl GpuRow {
+    /// Verify structural invariants on a GPU telemetry row.
+    pub fn verify_row_invariants(&self) -> Result<(), String> {
+        if !self.util_pct.is_finite() || !(0.0..=100.0).contains(&self.util_pct) {
+            return Err(format!(
+                "GpuRow util_pct ({}) must be finite and in 0.0..=100.0",
+                self.util_pct
+            ));
+        }
+        if !self.temp_c.is_finite() {
+            return Err(format!("GpuRow temp_c ({}) must be finite", self.temp_c));
+        }
+        if self.vram_used_mb > self.vram_total_mb {
+            return Err(format!(
+                "GpuRow vram_used_mb ({}) must be <= vram_total_mb ({})",
+                self.vram_used_mb, self.vram_total_mb
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl QueueRow {
+    /// Verify structural invariants on an active queue task row.
+    pub fn verify_row_invariants(&self) -> Result<(), String> {
+        if self.task_id.trim().is_empty() {
+            return Err("QueueRow task_id must not be empty".to_string());
+        }
+        if self.holder.trim().is_empty() {
+            return Err("QueueRow holder must not be empty".to_string());
+        }
+        if self.title.trim().is_empty() {
+            return Err("QueueRow title must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl TopSnapshot {
+    /// Verify structural invariants across all providers, GPU, and queue rows in a snapshot.
+    pub fn verify_snapshot_invariants(&self) -> Result<(), String> {
+        for provider in &self.providers {
+            provider.verify_row_invariants()?;
+        }
+        if let Some(gpu) = &self.gpu {
+            gpu.verify_row_invariants()?;
+        }
+        for row in &self.queue {
+            row.verify_row_invariants()?;
+        }
+        Ok(())
+    }
+}
+
+impl UnifiedOperatorState {
+    /// Verify structural invariants across all sections of the unified operator state.
+    pub fn verify_state_invariants(&self) -> Result<(), String> {
+        self.snapshot.verify_snapshot_invariants()?;
+        if let Some(resources) = &self.resources {
+            if !resources.cpu_util_pct.is_finite()
+                || !(0.0..=100.0).contains(&resources.cpu_util_pct)
+            {
+                return Err(format!(
+                    "SystemResourceRow cpu_util_pct ({}) must be finite and in 0.0..=100.0",
+                    resources.cpu_util_pct
+                ));
+            }
+            if resources.mem_used_mb > resources.mem_total_mb {
+                return Err(format!(
+                    "SystemResourceRow mem_used_mb ({}) must be <= mem_total_mb ({})",
+                    resources.mem_used_mb, resources.mem_total_mb
+                ));
+            }
+        }
+        for blocked in &self.blocked_work {
+            if blocked.task_id.trim().is_empty() {
+                return Err("BlockedWorkRow task_id must not be empty".to_string());
+            }
+            if blocked.title.trim().is_empty() {
+                return Err("BlockedWorkRow title must not be empty".to_string());
+            }
+            if blocked.reason.trim().is_empty() {
+                return Err("BlockedWorkRow reason must not be empty".to_string());
+            }
+        }
+        if let Some(config) = &self.config {
+            if config.profile.trim().is_empty() {
+                return Err("ConfigStateRow profile must not be empty".to_string());
+            }
+            if config.port == 0 {
+                return Err("ConfigStateRow port must be > 0".to_string());
+            }
+            if config.workspace_root.trim().is_empty() {
+                return Err("ConfigStateRow workspace_root must not be empty".to_string());
+            }
+        }
+        if let Some(federation) = &self.federation {
+            for agent in &federation.active_agents {
+                if agent.trim().is_empty() {
+                    return Err(
+                        "FederationStateRow active_agents entry must not be empty".to_string()
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Render a headless TUI frame (no terminal dependency).
 #[must_use]
 pub fn render_frame(snap: &TopSnapshot) -> String {
@@ -739,5 +858,130 @@ mod inline_tests {
         assert!(rendered.contains("  (default)\n"));
         assert!(rendered.contains("  standalone\n"));
         assert!(rendered.contains("  (untracked)\n"));
+    }
+
+    #[test]
+    fn verify_row_snapshot_and_state_invariants_reject_corrupt_states() {
+        let valid_provider = ProviderRow {
+            name: "openai".to_string(),
+            healthy: true,
+            latency_ms: 25,
+        };
+        assert!(valid_provider.verify_row_invariants().is_ok());
+
+        let blank_provider = ProviderRow {
+            name: "   ".to_string(),
+            healthy: false,
+            latency_ms: 0,
+        };
+        assert!(blank_provider.verify_row_invariants().is_err());
+
+        let valid_gpu = GpuRow {
+            util_pct: 55.0,
+            temp_c: 62.5,
+            vram_used_mb: 8192,
+            vram_total_mb: 24576,
+        };
+        assert!(valid_gpu.verify_row_invariants().is_ok());
+
+        let mut bad_gpu_util = valid_gpu.clone();
+        bad_gpu_util.util_pct = 105.0;
+        assert!(bad_gpu_util.verify_row_invariants().is_err());
+
+        let mut nan_gpu_temp = valid_gpu.clone();
+        nan_gpu_temp.temp_c = f32::NAN;
+        assert!(nan_gpu_temp.verify_row_invariants().is_err());
+
+        let mut bad_gpu_vram = valid_gpu.clone();
+        bad_gpu_vram.vram_used_mb = 32768;
+        assert!(bad_gpu_vram.verify_row_invariants().is_err());
+
+        let valid_queue = QueueRow {
+            task_id: "T-100".to_string(),
+            holder: "agent-a".to_string(),
+            title: "Verify telemetry".to_string(),
+        };
+        assert!(valid_queue.verify_row_invariants().is_ok());
+
+        let mut blank_task_id = valid_queue.clone();
+        blank_task_id.task_id = String::new();
+        assert!(blank_task_id.verify_row_invariants().is_err());
+
+        let mut blank_holder = valid_queue.clone();
+        blank_holder.holder = "  ".to_string();
+        assert!(blank_holder.verify_row_invariants().is_err());
+
+        let mut blank_title = valid_queue.clone();
+        blank_title.title = String::new();
+        assert!(blank_title.verify_row_invariants().is_err());
+
+        let valid_snap = TopSnapshot {
+            providers: vec![valid_provider],
+            gpu: Some(valid_gpu),
+            queue: vec![valid_queue],
+        };
+        assert!(valid_snap.verify_snapshot_invariants().is_ok());
+
+        let mut bad_snap = valid_snap.clone();
+        bad_snap.providers.push(blank_provider);
+        assert!(bad_snap.verify_snapshot_invariants().is_err());
+
+        let valid_state = UnifiedOperatorState {
+            snapshot: valid_snap,
+            resources: Some(SystemResourceRow {
+                cpu_util_pct: 42.0,
+                mem_used_mb: 16384,
+                mem_total_mb: 65536,
+            }),
+            blocked_work: vec![BlockedWorkRow {
+                task_id: "T-200".to_string(),
+                title: "Blocked task".to_string(),
+                reason: "unmet dependency: T-199".to_string(),
+            }],
+            config: Some(ConfigStateRow {
+                profile: "default".to_string(),
+                port: 9190,
+                workspace_root: "/workspace".to_string(),
+            }),
+            federation: Some(FederationStateRow {
+                peer_count: 2,
+                quorum_healthy: true,
+                active_agents: vec!["codex-worker".to_string()],
+            }),
+            evidence: Some(EvidenceStateRow {
+                verified_receipts: 12,
+                audit_chain_intact: true,
+            }),
+        };
+        assert!(valid_state.verify_state_invariants().is_ok());
+
+        let mut bad_cpu = valid_state.clone();
+        bad_cpu.resources.as_mut().unwrap().cpu_util_pct = -1.0;
+        assert!(bad_cpu.verify_state_invariants().is_err());
+
+        let mut bad_mem = valid_state.clone();
+        bad_mem.resources.as_mut().unwrap().mem_used_mb = 100_000;
+        assert!(bad_mem.verify_state_invariants().is_err());
+
+        let mut bad_blocked = valid_state.clone();
+        bad_blocked.blocked_work[0].reason = "   ".to_string();
+        assert!(bad_blocked.verify_state_invariants().is_err());
+
+        let mut bad_port = valid_state.clone();
+        bad_port.config.as_mut().unwrap().port = 0;
+        assert!(bad_port.verify_state_invariants().is_err());
+
+        let mut bad_root = valid_state.clone();
+        bad_root.config.as_mut().unwrap().workspace_root = String::new();
+        assert!(bad_root.verify_state_invariants().is_err());
+
+        let mut bad_agent = valid_state;
+        bad_agent
+            .federation
+            .as_mut()
+            .unwrap()
+            .active_agents
+            .push("  ".to_string());
+        assert!(bad_agent.verify_state_invariants().is_err());
     }
 }

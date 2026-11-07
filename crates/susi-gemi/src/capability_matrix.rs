@@ -12,7 +12,7 @@
 
 use crate::engines::brain::{self, Ranked, TaskClass};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 /// Every measured dimension of one provider at one task class — the row
@@ -56,6 +56,48 @@ impl MatrixCell {
             last_failure: r.last_failure,
         }
     }
+
+    /// Verify structural invariants on a single capability matrix cell.
+    pub fn verify_cell_invariants(&self) -> Result<(), String> {
+        if self.provider.trim().is_empty() {
+            return Err("MatrixCell provider must not be empty".to_string());
+        }
+        if self.capability.trim().is_empty() {
+            return Err("MatrixCell capability must not be empty".to_string());
+        }
+        if let Some(rate) = self.success_rate {
+            if !rate.is_finite() || !(0.0..=1.0).contains(&rate) {
+                return Err(format!(
+                    "MatrixCell success_rate ({rate}) must be finite and in 0.0..=1.0"
+                ));
+            }
+        }
+        if let Some(ms) = self.avg_latency_ms {
+            if ms == 0 {
+                return Err("MatrixCell avg_latency_ms must be > 0".to_string());
+            }
+        }
+        if let Some(cost) = self.expected_cost_usd {
+            if !cost.is_finite() || cost < 0.0 {
+                return Err(format!(
+                    "MatrixCell expected_cost_usd ({cost}) must be finite and >= 0.0"
+                ));
+            }
+        }
+        if let Some(cost) = self.cost_per_outcome_usd {
+            if !cost.is_finite() || cost < 0.0 {
+                return Err(format!(
+                    "MatrixCell cost_per_outcome_usd ({cost}) must be finite and >= 0.0"
+                ));
+            }
+        }
+        if let Some((_, streak)) = self.last_failure {
+            if streak == 0 {
+                return Err("MatrixCell last_failure streak must be > 0".to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The full matrix: task-class label → provider → cell, in rank order per
@@ -64,6 +106,31 @@ impl MatrixCell {
 pub struct CapabilityMatrix {
     pub unix: u64,
     pub classes: BTreeMap<String, Vec<MatrixCell>>,
+}
+
+impl CapabilityMatrix {
+    /// Verify structural invariants on the full capability matrix.
+    pub fn verify_matrix_invariants(&self) -> Result<(), String> {
+        if self.unix == 0 {
+            return Err("CapabilityMatrix unix timestamp must be > 0".to_string());
+        }
+        for (class_label, cells) in &self.classes {
+            if class_label.trim().is_empty() {
+                return Err("CapabilityMatrix class label must not be empty".to_string());
+            }
+            let mut seen_providers = HashSet::new();
+            for cell in cells {
+                cell.verify_cell_invariants()?;
+                if !seen_providers.insert(cell.provider.as_str()) {
+                    return Err(format!(
+                        "CapabilityMatrix duplicate provider '{}' in class '{class_label}'",
+                        cell.provider
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Build the matrix for `providers` from the live evidence store — the
@@ -188,5 +255,69 @@ mod inline_tests {
         let encoded = serde_json::to_string(&cell).unwrap();
         let decoded: MatrixCell = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, cell);
+    }
+
+    #[test]
+    fn verify_cell_and_matrix_invariants_reject_corrupt_states() {
+        let valid_cell = MatrixCell {
+            provider: "deepseek".into(),
+            capability: "coding".into(),
+            meets_floor: true,
+            unfit: false,
+            samples: 18,
+            success_rate: Some(0.95),
+            avg_latency_ms: Some(350),
+            expected_cost_usd: Some(0.0012),
+            cost_per_outcome_usd: Some(0.0013),
+            last_failure: Some((brain::FailureKind::RateLimit, 2)),
+        };
+        assert!(valid_cell.verify_cell_invariants().is_ok());
+
+        let mut blank_provider = valid_cell.clone();
+        blank_provider.provider = "  ".into();
+        assert!(blank_provider.verify_cell_invariants().is_err());
+
+        let mut blank_capability = valid_cell.clone();
+        blank_capability.capability = String::new();
+        assert!(blank_capability.verify_cell_invariants().is_err());
+
+        let mut bad_rate = valid_cell.clone();
+        bad_rate.success_rate = Some(1.05);
+        assert!(bad_rate.verify_cell_invariants().is_err());
+
+        let mut zero_latency = valid_cell.clone();
+        zero_latency.avg_latency_ms = Some(0);
+        assert!(zero_latency.verify_cell_invariants().is_err());
+
+        let mut neg_expected = valid_cell.clone();
+        neg_expected.expected_cost_usd = Some(-0.001);
+        assert!(neg_expected.verify_cell_invariants().is_err());
+
+        let mut nan_outcome = valid_cell.clone();
+        nan_outcome.cost_per_outcome_usd = Some(f64::NAN);
+        assert!(nan_outcome.verify_cell_invariants().is_err());
+
+        let mut zero_streak = valid_cell.clone();
+        zero_streak.last_failure = Some((brain::FailureKind::RateLimit, 0));
+        assert!(zero_streak.verify_cell_invariants().is_err());
+
+        let store = brain::Store::default();
+        let providers = vec!["deepseek".to_string(), "ollama".to_string()];
+        let valid_matrix = build_in(&store, &providers, 1_700_000_000);
+        assert!(valid_matrix.verify_matrix_invariants().is_ok());
+
+        let mut zero_unix = valid_matrix.clone();
+        zero_unix.unix = 0;
+        assert!(zero_unix.verify_matrix_invariants().is_err());
+
+        let mut blank_class = valid_matrix.clone();
+        blank_class.classes.insert("   ".to_string(), Vec::new());
+        assert!(blank_class.verify_matrix_invariants().is_err());
+
+        let mut duplicate_provider = valid_matrix.clone();
+        duplicate_provider
+            .classes
+            .insert("code".to_string(), vec![valid_cell.clone(), valid_cell]);
+        assert!(duplicate_provider.verify_matrix_invariants().is_err());
     }
 }

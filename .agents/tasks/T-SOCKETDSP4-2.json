@@ -1,12 +1,12 @@
 {
   "id": "T-SOCKETDSP4-2",
-  "title": "Add Wave 10 key arbitration, region eligibility, and consensus mode invariant verifiers",
-  "goal": "Implement verify_window_spec_invariants, verify_limits_invariants, verify_quota_view_invariants, verify_status_invariants, verify_region_meta_invariants, verify_target_invariants, verify_result_invariants, verify_vote_invariants, and verify_report_invariants in crates/susi-gemi with unit tests.",
+  "title": "Add Wave 11 spend tracker, capability matrix, and operator report invariant verifiers",
+  "goal": "Implement verify_ceilings_invariants, verify_refusal_invariants, verify_intent_invariants, verify_cell_invariants, verify_matrix_invariants, verify_row_invariants, verify_snapshot_invariants, and verify_state_invariants in crates/susi-gemi with unit tests.",
   "state": "in_progress",
   "claimed_by": "socket-dsp4",
   "created_by": "socket-dsp4",
   "created_unix": 1794010800,
-  "updated_unix": 1794022000,
+  "updated_unix": 1794028900,
   "size": "M",
   "deps": [],
   "scope": [
@@ -19,7 +19,7 @@
     "crates/susi-gemi",
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
-  "acceptance": "cargo test -p susi-gemi --lib key_arbitration --offline --locked",
+  "acceptance": "cargo test -p susi-gemi --lib spend_tracker --offline --locked",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,7 +27,7 @@
       "-p",
       "susi-gemi",
       "--lib",
-      "key_arbitration",
+      "spend_tracker",
       "--offline",
       "--locked"
     ]
