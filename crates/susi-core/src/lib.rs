@@ -72,9 +72,6 @@ pub mod queue;
 pub mod receipt_archive;
 pub use crate::susi_error::redact;
 pub mod bounded_cmd;
-#[cfg(test)]
-#[path = "tests/bounded_cmd.rs"]
-mod bounded_cmd_tests;
 pub mod bounded_io;
 #[cfg(test)]
 #[path = "tests/bounded_io.rs"]
