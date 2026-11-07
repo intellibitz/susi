@@ -1048,14 +1048,12 @@ fn measured_health(
         .stderr(stderr.try_clone()?);
     let started = std::time::Instant::now();
     let mut child = command.spawn()?;
-    let pid = sysinfo::Pid::from_u32(child.id());
-    let mut system = sysinfo::System::new();
+    let pid = child.id();
     let mut sampled_rss = 0;
     let outcome = (|| -> Result<_> {
         loop {
-            system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-            if let Some(process) = system.process(pid) {
-                sampled_rss = sampled_rss.max(process.memory());
+            if let Some(kb) = susi_config::process_probe::rss_kb(pid) {
+                sampled_rss = sampled_rss.max(kb * 1024);
             }
             let output_bytes = stdout.metadata()?.len() + stderr.metadata()?.len();
             if sampled_rss > HEALTH_RSS_BUDGET_BYTES
@@ -1138,15 +1136,15 @@ fn bounded_evidence(path: &Path) -> Result<String> {
 fn verify_runtime_stopped(runtime: &Path) -> Result<()> {
     let runtime = runtime.canonicalize()?;
     let started = std::time::Instant::now();
-    let mut system = sysinfo::System::new();
     loop {
-        system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-        let owned = system.processes().values().any(|process| {
-            process
-                .exe()
-                .and_then(|path| path.canonicalize().ok())
-                .is_some_and(|path| path.starts_with(&runtime))
-        });
+        let owned = susi_config::process_probe::processes(false)
+            .into_iter()
+            .any(|process| {
+                process
+                    .exe
+                    .and_then(|path| path.canonicalize().ok())
+                    .is_some_and(|path| path.starts_with(&runtime))
+            });
         if !owned {
             return Ok(());
         }

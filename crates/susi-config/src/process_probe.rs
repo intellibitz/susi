@@ -4,16 +4,16 @@
 //! Linux answers from `/proc`. Windows answers from the process object
 //! itself (`OpenProcess`, then `GetExitCodeProcess` /
 //! `K32GetProcessMemoryInfo`); that FFI is the only `unsafe` here, wrapped in
-//! an owned handle so callers stay safe code. macOS answers through the
-//! vendored `sysinfo` facade. Elsewhere the answer is unknown (`None`) and
-//! callers keep their own conservative default.
+//! an owned handle so callers stay safe code. Elsewhere the answer is unknown
+//! (`None`) and callers keep their own conservative default.
 //!
 //! Process enumeration and identity ([`processes`], [`exe_path`], [`argv`],
-//! [`environment_var`]) work on every supported OS through `sysinfo`, except
-//! that Linux keeps the kernel's own `/proc/<pid>/exe` and
-//! `/proc/<pid>/environ` records for identity: the raw exe link carries the
-//! ` (deleted)` marker of a replaced binary, which `sysinfo` strips, and trust
-//! checks must see it.
+//! [`environment_var`]) read `/proc` on Linux (the raw `/proc/<pid>/exe`
+//! link carries the ` (deleted)` marker of a replaced binary, and trust
+//! checks must see it) and the Win32 process table, image path and PEB
+//! through the `winapi` facade's `host` module on Windows. Until 2026-11-07
+//! this went through the `sysinfo` facade (lean-core: 85 s of `windows`
+//! crate on every build's critical path).
 
 /// Whether `pid` names a running process: `Some(true)` running, `Some(false)`
 /// gone, `None` when this platform cannot tell.
@@ -30,11 +30,7 @@ pub fn pid_alive(pid: u32) -> Option<bool> {
     {
         windows::pid_alive(pid)
     }
-    #[cfg(target_os = "macos")]
-    {
-        Some(with_process(pid, sysinfo::ProcessRefreshKind::nothing(), |_| ()).is_some())
-    }
-    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = pid;
         None
@@ -56,16 +52,7 @@ pub fn rss_kb(pid: u32) -> Option<u64> {
     {
         windows::rss_kb(pid)
     }
-    #[cfg(target_os = "macos")]
-    {
-        with_process(
-            pid,
-            sysinfo::ProcessRefreshKind::nothing().with_memory(),
-            |p| p.memory() / 1024,
-        )
-        .filter(|kb| *kb > 0)
-    }
-    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = pid;
         None
@@ -77,6 +64,8 @@ pub fn rss_kb(pid: u32) -> Option<u64> {
 pub struct ProcessSnapshot {
     /// Process id.
     pub pid: u32,
+    /// Parent process id as the OS records it (the parent may be gone).
+    pub parent_pid: Option<u32>,
     /// Short process name (`comm` on Linux, the image name on Windows).
     pub name: String,
     /// Executable path, when the OS lets this process read it.
@@ -87,63 +76,20 @@ pub struct ProcessSnapshot {
     pub rss_kb: u64,
 }
 
-fn snapshot_of(pid: u32, process: &sysinfo::Process) -> ProcessSnapshot {
-    ProcessSnapshot {
-        pid,
-        name: process.name().to_string_lossy().into_owned(),
-        exe: process.exe().map(std::path::Path::to_path_buf),
-        cmd: process
-            .cmd()
-            .iter()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect(),
-        rss_kb: process.memory() / 1024,
-    }
-}
-
-/// Refresh just `pid` with `kind` and read it through `read`; `None` when
-/// no such process exists.
-fn with_process<T>(
-    pid: u32,
-    kind: sysinfo::ProcessRefreshKind,
-    read: impl FnOnce(&sysinfo::Process) -> T,
-) -> Option<T> {
-    let target = sysinfo::Pid::from_u32(pid);
-    let mut system = sysinfo::System::new();
-    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[target]), true, kind);
-    system.process(target).map(read)
-}
-
-/// Every process this OS lets us see, with name, exe and resident memory.
-/// `with_cmd` also reads each command line, which costs one extra read per
-/// process (a remote memory read on Windows), so listings that only need
-/// names leave it off. Empty on targets `sysinfo` does not support.
-/// Processes only: on Linux `sysinfo` would otherwise list every thread
-/// (`/proc/<pid>/task/<tid>`) as its own row, so tasks are not walked and any
-/// thread row that still appears is dropped.
+/// Every process the OS lists, sorted by pid, with its name, exe, resident
+/// memory and (when `with_cmd`) its command line. Processes the caller may
+/// not inspect keep `None`/empty identity fields. Empty on unsupported
+/// targets. Processes only: Linux walks `/proc/<pid>` and never
+/// `/proc/<pid>/task/<tid>`, so threads are not rows.
 pub fn processes(with_cmd: bool) -> Vec<ProcessSnapshot> {
-    let mut kind = sysinfo::ProcessRefreshKind::nothing()
-        .without_tasks()
-        .with_memory()
-        .with_exe(sysinfo::UpdateKind::Always);
-    if with_cmd {
-        kind = kind.with_cmd(sysinfo::UpdateKind::Always);
-    }
-    let mut system = sysinfo::System::new();
-    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, kind);
-    let mut rows: Vec<ProcessSnapshot> = system
-        .processes()
-        .iter()
-        .filter(|(_, process)| process.thread_kind().is_none())
-        .map(|(pid, process)| snapshot_of(pid.as_u32(), process))
-        .collect();
+    let mut rows = platform::processes(with_cmd);
     rows.sort_by_key(|row| row.pid);
     rows
 }
 
 /// The executable `pid` runs, as the OS records it. Linux returns the raw
-/// `/proc/<pid>/exe` link, ` (deleted)` marker included; other platforms
-/// ask `sysinfo`. `None` when the process is gone or not ours to inspect.
+/// `/proc/<pid>/exe` link, ` (deleted)` marker included; Windows the image
+/// path. `None` when the process is gone or not ours to inspect.
 pub fn exe_path(pid: u32) -> Option<std::path::PathBuf> {
     #[cfg(target_os = "linux")]
     {
@@ -151,29 +97,14 @@ pub fn exe_path(pid: u32) -> Option<std::path::PathBuf> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        with_process(
-            pid,
-            sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::Always),
-            |p| p.exe().map(std::path::Path::to_path_buf),
-        )
-        .flatten()
+        platform::exe_path(pid)
     }
 }
 
 /// The command line of `pid`; `None` when the process is gone or its
 /// arguments are unreadable (an empty argv reads as unreadable).
 pub fn argv(pid: u32) -> Option<Vec<String>> {
-    with_process(
-        pid,
-        sysinfo::ProcessRefreshKind::nothing().with_cmd(sysinfo::UpdateKind::Always),
-        |p| {
-            p.cmd()
-                .iter()
-                .map(|arg| arg.to_string_lossy().into_owned())
-                .collect::<Vec<_>>()
-        },
-    )
-    .filter(|args| !args.is_empty())
+    platform::argv(pid).filter(|args| !args.is_empty())
 }
 
 /// The value of environment variable `key` in process `pid`:
@@ -182,8 +113,8 @@ pub fn argv(pid: u32) -> Option<Vec<String>> {
 /// process always carries some environment, so an empty one reads as
 /// unreadable rather than as "unset".
 ///
-/// Linux reads `/proc/<pid>/environ`; other platforms ask `sysinfo`, which
-/// copies the environment block out of the process's memory. Meant for
+/// Linux reads `/proc/<pid>/environ`; Windows copies the environment block
+/// out of the process's memory (the facade's `host` module). Meant for
 /// other processes: a copy of the calling process's own block can come back
 /// unreadable or torn while one of its threads runs `std::env::set_var`
 /// (and on Linux it shows the environment at exec, not later changes), so
@@ -205,17 +136,13 @@ pub fn environment_var(pid: u32, key: &str) -> Option<Option<std::ffi::OsString>
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let entries = with_process(
-            pid,
-            sysinfo::ProcessRefreshKind::nothing().with_environ(sysinfo::UpdateKind::Always),
-            |p| p.environ().to_vec(),
-        )?;
+        let entries = platform::environment(pid)?;
         if entries.is_empty() {
             return None;
         }
         let prefix = format!("{key}=");
         Some(entries.iter().find_map(|kv| {
-            let kv = kv.to_string_lossy();
+            let kv = kv.as_str();
             // Windows variable names are case-insensitive.
             let head = kv.get(..prefix.len())?;
             let matches = if cfg!(windows) {
@@ -225,6 +152,118 @@ pub fn environment_var(pid: u32, key: &str) -> Option<Option<std::ffi::OsString>
             };
             matches.then(|| std::ffi::OsString::from(kv.get(prefix.len()..).unwrap_or_default()))
         }))
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod platform {
+    use super::ProcessSnapshot;
+
+    fn status_field(text: &str, key: &str) -> Option<String> {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key)?.strip_prefix(':'))
+            .map(|v| v.trim().to_string())
+    }
+
+    pub(super) fn processes(with_cmd: bool) -> Vec<ProcessSnapshot> {
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return Vec::new();
+        };
+        let mut rows = Vec::new();
+        for entry in entries.flatten() {
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|n| n.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            let Ok(status) = std::fs::read_to_string(format!("/proc/{pid}/status")) else {
+                continue;
+            };
+            rows.push(ProcessSnapshot {
+                pid,
+                parent_pid: status_field(&status, "PPid").and_then(|v| v.parse().ok()),
+                name: status_field(&status, "Name").unwrap_or_default(),
+                exe: std::fs::read_link(format!("/proc/{pid}/exe")).ok(),
+                cmd: if with_cmd {
+                    argv(pid).unwrap_or_default()
+                } else {
+                    Vec::new()
+                },
+                rss_kb: status_field(&status, "VmRSS")
+                    .and_then(|v| v.trim_end_matches("kB").trim().parse().ok())
+                    .unwrap_or(0),
+            });
+        }
+        rows
+    }
+
+    pub(super) fn argv(pid: u32) -> Option<Vec<String>> {
+        let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+        Some(
+            raw.split(|b| *b == 0)
+                .filter(|arg| !arg.is_empty())
+                .map(|arg| String::from_utf8_lossy(arg).into_owned())
+                .collect(),
+        )
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use super::ProcessSnapshot;
+    use winapi::host;
+
+    pub(super) fn processes(with_cmd: bool) -> Vec<ProcessSnapshot> {
+        host::processes()
+            .into_iter()
+            .map(|entry| ProcessSnapshot {
+                pid: entry.pid,
+                parent_pid: Some(entry.parent_pid),
+                name: entry.name,
+                exe: host::process_image_path(entry.pid),
+                cmd: if with_cmd {
+                    host::process_command_line(entry.pid).unwrap_or_default()
+                } else {
+                    Vec::new()
+                },
+                rss_kb: super::windows::rss_kb(entry.pid).unwrap_or(0),
+            })
+            .collect()
+    }
+
+    pub(super) fn exe_path(pid: u32) -> Option<std::path::PathBuf> {
+        host::process_image_path(pid)
+    }
+
+    pub(super) fn argv(pid: u32) -> Option<Vec<String>> {
+        host::process_command_line(pid)
+    }
+
+    pub(super) fn environment(pid: u32) -> Option<Vec<String>> {
+        host::process_environment(pid)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
+mod platform {
+    use super::ProcessSnapshot;
+
+    pub(super) fn processes(_with_cmd: bool) -> Vec<ProcessSnapshot> {
+        Vec::new()
+    }
+
+    pub(super) fn exe_path(_pid: u32) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    pub(super) fn argv(_pid: u32) -> Option<Vec<String>> {
+        None
+    }
+
+    pub(super) fn environment(_pid: u32) -> Option<Vec<String>> {
+        None
     }
 }
 
@@ -334,7 +373,7 @@ mod tests {
     /// A process that has run and exited, with its pid. The `Child` stays
     /// alive with it: on Windows that keeps the exited process object (and so
     /// its pid) from being recycled while the test asks about it.
-    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", windows))]
     fn exited_process() -> (std::process::Child, u32) {
         let exe = std::env::current_exe().unwrap();
         let mut child = std::process::Command::new(exe)
@@ -351,7 +390,7 @@ mod tests {
     // Linux, Windows and macOS are the platforms with a liveness source; on
     // every other target `pid_alive`/`rss_kb` answer `None`, which
     // `unknown_platforms_answer_none` below pins.
-    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", windows))]
     #[test]
     fn a_running_process_is_alive_and_an_exited_one_is_gone() {
         assert_eq!(pid_alive(std::process::id()), Some(true));
@@ -362,7 +401,7 @@ mod tests {
         assert_eq!(pid_alive(4_194_304 * 4 + 4), Some(false));
     }
 
-    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", windows))]
     #[test]
     fn rss_reads_a_running_process_and_none_for_an_exited_one() {
         assert!(rss_kb(std::process::id()).is_some_and(|kb| kb > 0));
@@ -370,14 +409,14 @@ mod tests {
         assert_eq!(rss_kb(pid), None, "exited pid {pid}");
     }
 
-    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", windows)))]
     #[test]
     fn unknown_platforms_answer_none() {
         assert_eq!(pid_alive(std::process::id()), None);
         assert_eq!(rss_kb(std::process::id()), None);
     }
 
-    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", windows))]
     #[test]
     fn this_process_is_listed_with_its_identity() {
         let own = std::process::id();
@@ -398,20 +437,20 @@ mod tests {
     }
 
     /// Variable the environment probe child is started with, and its value.
-    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", windows))]
     const PROBE_CHILD_MARKER: (&str, &str) = ("SUSI_PROBE_CHILD_MARKER", "present-9f3a");
     /// Variable the environment probe child is started without.
-    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", windows))]
     const PROBE_CHILD_UNSET: &str = "SUSI_DEFINITELY_UNSET_VARIABLE_9F3A";
     /// Line the probe child prints once it runs, before it parks.
-    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", windows))]
     const PROBE_CHILD_READY: &str = "susi-environ-probe-ready";
 
     /// Body of the environment probe child: when started by
     /// [`another_process_environment_is_read`] (marker variable set), announce
     /// readiness and park until the parent closes stdin. Run any other way it
     /// returns at once, so `--ignored` runs never block.
-    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", windows))]
     #[test]
     #[ignore = "helper process for another_process_environment_is_read"]
     fn environ_probe_child() {
@@ -435,7 +474,7 @@ mod tests {
     /// unreadable or torn snapshot of our own environment is a property of
     /// that race, not of the probe. Production callers only ask about other
     /// processes, whose blocks no thread of ours rewrites.
-    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", windows))]
     #[test]
     fn another_process_environment_is_read() {
         use std::io::BufRead;

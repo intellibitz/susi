@@ -26,7 +26,6 @@ susi-vendor-wasmtime = { workspace = true }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
-sysinfo = { package = "susi-vendor-sysinfo", path = "../susi-vendor-sysinfo" }
 # RFC 5389 long-term TURN credentials: MD5(user:realm:pass) then HMAC-SHA1
 # MESSAGE-INTEGRITY. Crypto primitives, not vendor SDKs / HTTP clients.
 sha1 = { package = "susi-vendor-sha1", path = "../susi-vendor-sha1" }

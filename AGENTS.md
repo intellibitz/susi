@@ -337,3 +337,62 @@ GitHub; skip any copy another agent is actively using.
 
 If you hit your weekly limit, leave a note in the task log for the next agent
 saying where you stopped.
+
+## CEO Mandate: Remote and Cloud Agent Workflow (2026-11-08, after the Antigravity incident)
+
+Written after a Linux-hosted agent pushed about sixty ungated commits straight to `origin/main`
+of `intellibitz/susi` between 17:50 and 00:20, deleting roughly 20,000 lines of product code
+under the message "migrated to commercial" while the commercial origin received none of it,
+breaking main's test suite twice, leaving four capabilities as error stubs, and costing the
+gated landings of two other agents seven attempts. Every agent that is not the gated host
+(any cloud session, any remote machine, any agent whose pushes do not go through
+`cargo local-workflow ship` on the CEO laptop) follows these rules. The harness encodes them
+(`susi_harness::workflow::IntegrationPolicy`); a brief that violates them is refused before a
+worker starts.
+
+1. **Own identity, no bypass.** Each remote agent pushes as its own machine account with a
+   token of its own, never as the CEO. The repository ruleset keeps `main` behind the gate:
+   the gate identity is the only pusher on `main`, machine accounts are not on the bypass
+   list. An agent that finds itself able to push `main` reports that as a defect.
+2. **Branches only, the gate integrates.** A remote agent publishes on
+   `local-agent/<agent>` (one branch per agent per repository), with a `Task: T-<AGENT>-<n>`
+   trailer on every commit and the task record in `.agents/tasks/`. It never pushes `main`,
+   never force-pushes a shared branch, never moves `refs/susi/*`. A gated host adopts the
+   branch (`cargo local-workflow ship --adopt`, or a merge into a claimed worktree and `ship`)
+   and that is the only way its work reaches `main`.
+3. **Destination first.** A move from core to `susi-commercial-apps` counts only when the
+   destination commit is on the commercial origin, with the module declared in its crate's
+   real module tree, compiling, and its tests passing there. The core deletion follows in a
+   separate change that names that commercial commit. Deleting first, or copying into a
+   folder nothing declares, is not a migration; it is a deletion.
+4. **No stubs for removed capabilities.** When a capability leaves core, core either keeps a
+   working implementation behind the same port, serves it from the commercial side through a
+   plug, or drops the port in the same change with its callers and tests. An error that tells
+   the user to rebuild with a feature that restores nothing is a defect.
+5. **Verify before every push, on the exact tree pushed:** `cargo fmt --all --check`;
+   `cargo check --workspace --all-targets --keep-going --offline --locked`;
+   `cargo clippy --workspace --all-targets --offline --locked -- -D warnings`; the library tests
+   of every touched crate; the guard tests that read the tree (`architecture_tests`,
+   `orphan_sources`, `lean_core_ceilings`, `core_docs_promise_no_ui_or_plugins`); and, for any
+   change under `crates/susi-gmcp` or its manifest, both phases of
+   `scripts/gmcp-record-evidence.sh` committed with the change. Before declaring a module
+   unreferenced, grep every `cfg` (`#[cfg(windows)]` code never compiles on a Linux host).
+6. **Pace and batching.** One push per gated cycle (about 20 minutes on the laptop). Read the
+   coordination board and the agent's own brief before each push; a stop note on either halts
+   pushes at once. Ten small iterations become one push, not ten.
+7. **Claims, records, endings.** Reserve scopes before editing; never touch a file in another
+   agent's claim (ask the owner through the board); keep the task record's `scopes` equal to
+   the claim, `accept.cmd` an array running `cargo test`, and every file LF-ended. A diff that
+   rewrites line endings is reverted, not reviewed.
+8. **Report only what the origin shows.** A status says "landed" only with the commit on the
+   target origin, "migrated" only with the commercial commit, "tests pass" only with the exact
+   command and its counts. Local-only work is reported as local-only.
+
+Enforcement: the gate tool refuses a `ship --adopt` of a branch whose commits lack task
+trailers or whose task record does not match; the harness refuses a wave whose task would
+publish anywhere but its `local-agent/<agent>` branch or would delete from core without a
+destination commit; the GitHub ruleset on both repositories keeps `main` behind the gate
+identity (CEO action: one machine account and token per remote agent, none on the bypass
+list).
+
+Enforced in code by `susi_harness::workflow::IntegrationPolicy` (see `docs/harness-coordination.md`).

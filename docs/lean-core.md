@@ -14,9 +14,9 @@ This page is the shared plan for every agent on the program. Numbers come from
 
 | Rung | Measure (four pillars, normal+build edges) | 2026-11-07 start | now |
 |------|--------------------------------------------|------------------|-----|
-| 0 | third-party crates compiled | 331 | 304 |
-| 0 | workspace crates compiled | 59 | 52 |
-| 0 | vendor facades named directly by the pillar crates | 26 | 25 |
+| 0 | third-party crates compiled | 331 | 295 |
+| 0 | workspace crates compiled | 59 | 51 |
+| 0 | vendor facades named directly by the pillar crates | 26 | 24 |
 | 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 175,068 |
 | clean clone | shallow clone, `cargo check -p susi-gmcp` / `-p susi` | 60 s / 78 s online; offline impossible (crates.io) | same |
 
@@ -218,3 +218,8 @@ table once the clean baseline is recorded.
 - 2026-11-08 02:00, CEO decision "land with ignores": `tests/zc_matrix.rs` marks the two
   Rust-model-runtime tests ignored (reason names iterations 341-347 and the restore list) so the
   two waves land; the runtime's restoration is a separate gated change.
+- 2026-11-08 wave 2 (T-LEAN2-1): the sysinfo facade is gone (host metrics and the process probe
+  read /proc and Win32 through the winapi facade's new `host` module), the 85-second `windows`
+  unit leaves the critical path; GMCP's std JSON Schema validator replaces jsonschema; the
+  orphan-source ratchet; `cargo xtask build-time`; the harness `IntegrationPolicy` (remote-agent
+  mandate). Third-party 295, workspace 51, direct facade edges 24.

@@ -62,7 +62,6 @@ members = [
     "crates/susi-vendor-sha2",
     "crates/susi-vendor-shlex",
     "crates/susi-vendor-signal-hook",
-    "crates/susi-vendor-sysinfo",
     "crates/susi-vendor-windows-registry",
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tokio-rustls",
@@ -220,7 +219,6 @@ console-subscriber = { package = "susi-vendor-console-subscriber", path = "crate
 rayon = { package = "susi-vendor-rayon", path = "crates/susi-vendor-rayon" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
-sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo" }
 susi-windows-runtime = { workspace = true }
 
 [build-dependencies]
