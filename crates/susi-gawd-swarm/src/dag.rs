@@ -34,6 +34,35 @@ pub struct TaskNode {
     pub completed: bool,
 }
 
+impl TaskNode {
+    /// Verifies invariants of a single DAG task node.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `title` or `goal` is blank, if the node lists
+    /// its own `task_id` in `dependencies`, or if `assigned_agent` is `Some` with a blank string.
+    pub fn verify_task_node_invariants(&self) -> Result<(), String> {
+        if self.title.trim().is_empty() {
+            return Err("TaskNode.title must not be blank".to_string());
+        }
+        if self.goal.trim().is_empty() {
+            return Err("TaskNode.goal must not be blank".to_string());
+        }
+        if self.dependencies.contains(&self.task_id) {
+            return Err(format!(
+                "TaskNode {} must not depend on itself",
+                self.task_id
+            ));
+        }
+        if let Some(agent) = &self.assigned_agent {
+            if agent.trim().is_empty() {
+                return Err("TaskNode.assigned_agent must not be blank when present".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
 pub struct MissionDag {
     pub nodes: Vec<TaskNode>,
     /// Per-dispatch ownership fences (VC-201-022). Completions without the
@@ -79,6 +108,32 @@ pub type SwarmDag = MissionDag;
 pub struct MissionPersistCtx<'a> {
     pub mission: &'a mut PersistedMission,
     pub dir: &'a Path,
+}
+
+impl MissionPersistCtx<'_> {
+    /// Verifies invariants of a mission persistence context.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `mission.mission_id` is blank, `dir` is empty,
+    /// or any persisted node map key disagrees with its `PersistedNode.id`.
+    pub fn verify_persist_ctx_invariants(&self) -> Result<(), String> {
+        if self.mission.mission_id.trim().is_empty() {
+            return Err("MissionPersistCtx.mission.mission_id must not be blank".to_string());
+        }
+        if self.dir.as_os_str().is_empty() {
+            return Err("MissionPersistCtx.dir must not be empty".to_string());
+        }
+        for (key, node) in &self.mission.nodes {
+            if key.trim().is_empty() || key != &node.id {
+                return Err(format!(
+                    "MissionPersistCtx node key '{key}' does not match node.id '{}'",
+                    node.id
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// One node's run: index, output, elapsed ms, receipt args, lease owner,
@@ -131,6 +186,62 @@ fn production_tool_executor() -> DagToolExecutor {
 static DAG_EXEC_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl MissionDag {
+    /// Verifies structural and domain invariants of the mission DAG.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `nodes` is empty, if any node's `task_id` disagrees
+    /// with its slice index, if any node fails [`TaskNode::verify_task_node_invariants`], if any
+    /// dependency index is out of bounds or self-referential, if `cancel` fails bus invariants,
+    /// or if any map key in `side_effects`, `resource_requests`, or `verification_receipts` is
+    /// invalid.
+    pub fn verify_dag_invariants(&self) -> Result<(), String> {
+        if self.nodes.is_empty() {
+            return Err("MissionDag.nodes must not be empty".to_string());
+        }
+        let node_count = self.nodes.len();
+        for (idx, node) in self.nodes.iter().enumerate() {
+            if node.task_id != idx {
+                return Err(format!(
+                    "MissionDag.nodes[{idx}] has mismatched task_id {}",
+                    node.task_id
+                ));
+            }
+            node.verify_task_node_invariants()?;
+            for &dep in &node.dependencies {
+                if dep >= node_count || dep == idx {
+                    return Err(format!(
+                        "MissionDag.nodes[{idx}] has invalid dependency index {dep} (node_count={node_count})"
+                    ));
+                }
+            }
+        }
+        for key in self.side_effects.keys() {
+            if key.trim().is_empty() {
+                return Err("MissionDag.side_effects must not contain blank keys".to_string());
+            }
+        }
+        self.cancel.verify_bus_invariants()?;
+        for (&idx, req) in &self.resource_requests {
+            if idx >= node_count {
+                return Err(format!(
+                    "MissionDag.resource_requests key {idx} out of bounds for {node_count} nodes"
+                ));
+            }
+            if req.id.trim().is_empty() {
+                return Err(format!("MissionDag.resource_requests[{idx}] has blank id"));
+            }
+        }
+        for &idx in self.verification_receipts.keys() {
+            if idx >= node_count {
+                return Err(format!(
+                    "MissionDag.verification_receipts key {idx} out of bounds for {node_count} nodes"
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn new(initial_goal: &str) -> Self {
         Self {
             nodes: vec![TaskNode {
@@ -1828,6 +1939,105 @@ mod tests {
         assert!(!restored.nodes[1].completed);
         assert_eq!(restored.nodes[1].dependencies, vec![0]);
         assert_eq!(restored.nodes[2].dependencies, vec![0, 1]);
+    }
+
+    #[test]
+    fn task_node_verify_swarm_wave14_invariants() {
+        let valid = TaskNode {
+            task_id: 1,
+            title: "Subtask A".into(),
+            goal: "Verify module".into(),
+            dependencies: vec![0],
+            assigned_agent: Some("worker-1".into()),
+            completed: false,
+        };
+        assert!(valid.verify_task_node_invariants().is_ok());
+
+        let blank_title = TaskNode {
+            title: "   ".into(),
+            ..valid.clone()
+        };
+        assert!(blank_title.verify_task_node_invariants().is_err());
+
+        let blank_goal = TaskNode {
+            goal: String::new(),
+            ..valid.clone()
+        };
+        assert!(blank_goal.verify_task_node_invariants().is_err());
+
+        let self_dep = TaskNode {
+            dependencies: vec![0, 1],
+            ..valid.clone()
+        };
+        assert!(self_dep.verify_task_node_invariants().is_err());
+
+        let blank_agent = TaskNode {
+            assigned_agent: Some("  ".into()),
+            ..valid
+        };
+        assert!(blank_agent.verify_task_node_invariants().is_err());
+    }
+
+    #[test]
+    fn mission_dag_verify_swarm_wave14_invariants() {
+        let mut dag = MissionDag::new("root-goal");
+        let _ = dag.push_node("ChildA", "goal-a", vec![0]);
+        assert!(dag.verify_dag_invariants().is_ok());
+
+        // Out-of-bounds dependency is rejected.
+        let mut bad_dep = MissionDag::new("root-goal");
+        bad_dep.nodes[0].dependencies = vec![99];
+        assert!(bad_dep.verify_dag_invariants().is_err());
+
+        // Mismatched task_id is rejected.
+        let mut bad_id = MissionDag::new("root-goal");
+        bad_id.nodes[0].task_id = 5;
+        assert!(bad_id.verify_dag_invariants().is_err());
+
+        // Empty nodes list is rejected.
+        let mut empty_dag = MissionDag::new("root-goal");
+        empty_dag.nodes.clear();
+        assert!(empty_dag.verify_dag_invariants().is_err());
+
+        // Out-of-bounds resource_requests index is rejected.
+        let mut bad_req = MissionDag::new("root-goal");
+        bad_req.resource_requests.insert(
+            7,
+            ResNode {
+                id: "n7".into(),
+                cpu: 1.0,
+                gpu_mem_gb: 0.0,
+                mem_gb: 1.0,
+                subprocesses: 1,
+                needs_model: false,
+                needs_tools: Vec::new(),
+            },
+        );
+        assert!(bad_req.verify_dag_invariants().is_err());
+    }
+
+    #[test]
+    fn mission_persist_ctx_verify_swarm_wave14_invariants() {
+        let mut persisted = PersistedMission::new("mission-1");
+        let valid_ctx = MissionPersistCtx {
+            mission: &mut persisted,
+            dir: Path::new("/tmp/susi-missions"),
+        };
+        assert!(valid_ctx.verify_persist_ctx_invariants().is_ok());
+
+        let mut blank_mission = PersistedMission::new("   ");
+        let bad_mission_ctx = MissionPersistCtx {
+            mission: &mut blank_mission,
+            dir: Path::new("/tmp/susi-missions"),
+        };
+        assert!(bad_mission_ctx.verify_persist_ctx_invariants().is_err());
+
+        let mut empty_dir_mission = PersistedMission::new("mission-2");
+        let bad_dir_ctx = MissionPersistCtx {
+            mission: &mut empty_dir_mission,
+            dir: Path::new(""),
+        };
+        assert!(bad_dir_ctx.verify_persist_ctx_invariants().is_err());
     }
 }
 
