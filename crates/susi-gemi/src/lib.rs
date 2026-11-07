@@ -73,7 +73,6 @@ pub mod thermal_routing;
 pub mod tool_call_normalisation;
 pub mod usage_accounting;
 pub mod worker;
-pub mod zc_kv_auto;
 
 #[cfg(test)]
 #[path = "tests/availability_not_capability.rs"]
