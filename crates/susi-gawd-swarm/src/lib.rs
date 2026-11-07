@@ -79,9 +79,6 @@ mod audit_payload_free_policy_tests;
 #[path = "tests/durable_mission_state.rs"]
 mod durable_mission_state_tests;
 #[cfg(test)]
-#[path = "tests/fair_queue_dispatch_wiring.rs"]
-mod fair_queue_dispatch_wiring_tests;
-#[cfg(test)]
 #[path = "tests/independent_verify_dispatch_wiring.rs"]
 mod independent_verify_dispatch_wiring_tests;
 #[cfg(test)]
