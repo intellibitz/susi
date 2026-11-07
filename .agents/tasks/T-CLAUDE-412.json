@@ -1,0 +1,27 @@
+{
+  "id": "T-CLAUDE-412",
+  "parent": "T-CLAUDE-411",
+  "title": "Wave 13 McpTool and extension-registry invariant verifiers in susi-gmcp",
+  "goal": "McpTool::verify_tool_invariants in tool_types.rs, and ExtensionDescriptor/Negotiated/ExtensionRegistry verifiers in extensions.rs, with unit tests.",
+  "status": "completed",
+  "created_by": "claude",
+  "created_unix": 1794046010,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-CLAUDE-412.json",
+    "crates/susi-gmcp/src/tool_types.rs",
+    "crates/susi-gmcp/src/extensions.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

@@ -351,3 +351,120 @@ mod inline_tests {
         assert_eq!(reg.status("io.susi/nonexistent"), None);
     }
 }
+
+// ---- Wave 13 (T-CLAUDE-412) structural invariant verifiers ----
+
+impl ExtensionDescriptor {
+    /// A descriptor carries a `vendor/name` namespaced id, a version of at least 1,
+    /// and a status consistent with the published official-extensions list: an id in
+    /// [`OFFICIAL_EXTENSIONS`] is Official, any other id is Experimental.
+    pub fn verify_descriptor_invariants(&self) -> Result<(), String> {
+        if !namespaced(&self.id) {
+            return Err(format!(
+                "ExtensionDescriptor id `{}` is not vendor/name namespaced",
+                self.id
+            ));
+        }
+        if self.version < 1 {
+            return Err("ExtensionDescriptor version must be at least 1".to_string());
+        }
+        let official = OFFICIAL_EXTENSIONS.contains(&self.id.as_str());
+        match (official, self.status) {
+            (true, ExtensionStatus::Official) => Ok(()),
+            (false, ExtensionStatus::Experimental) => Ok(()),
+            (true, ExtensionStatus::Experimental) => Err(format!(
+                "official extension `{}` must carry Official status",
+                self.id
+            )),
+            (false, ExtensionStatus::Official) => Err(format!(
+                "non-official extension `{}` must carry Experimental status",
+                self.id
+            )),
+        }
+    }
+}
+
+impl Negotiated {
+    /// A negotiation never classifies the same extension id as both active and unknown.
+    pub fn verify_negotiation_invariants(&self) -> Result<(), String> {
+        for id in self.active.keys() {
+            if self.unknown.contains_key(id) {
+                return Err(format!("extension `{id}` is both active and unknown"));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl ExtensionRegistry {
+    /// Every entry is keyed by its own id and verifies as a descriptor.
+    pub fn verify_registry_invariants(&self) -> Result<(), String> {
+        for (key, desc) in &self.entries {
+            if key != &desc.id {
+                return Err(format!(
+                    "registry key `{key}` does not match descriptor id `{}`",
+                    desc.id
+                ));
+            }
+            desc.verify_descriptor_invariants()?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod wave13_verifier_tests {
+    use super::*;
+
+    #[test]
+    fn descriptor_negotiated_and_registry_verifiers_reject_corrupt_state() {
+        let official = ExtensionDescriptor {
+            id: "io.modelcontextprotocol/tasks".to_string(),
+            status: ExtensionStatus::Official,
+            version: 1,
+            settings: Map::new(),
+            enabled: true,
+        };
+        assert_eq!(official.verify_descriptor_invariants(), Ok(()));
+
+        let mut mislabelled = official.clone();
+        mislabelled.status = ExtensionStatus::Experimental;
+        assert!(mislabelled.verify_descriptor_invariants().is_err());
+
+        let mut not_namespaced = official.clone();
+        not_namespaced.id = "tasks".to_string();
+        assert!(not_namespaced.verify_descriptor_invariants().is_err());
+
+        let experimental = ExtensionDescriptor {
+            id: "com.acme/widget".to_string(),
+            status: ExtensionStatus::Experimental,
+            version: 2,
+            settings: Map::new(),
+            enabled: true,
+        };
+        assert_eq!(experimental.verify_descriptor_invariants(), Ok(()));
+        let mut bad_version = experimental.clone();
+        bad_version.version = 0;
+        assert!(bad_version.verify_descriptor_invariants().is_err());
+
+        assert_eq!(
+            ExtensionRegistry::shipped().verify_registry_invariants(),
+            Ok(())
+        );
+
+        let mut active = ExtensionMap::new();
+        active.insert("com.acme/widget".to_string(), Map::new());
+        let mut unknown = ExtensionMap::new();
+        unknown.insert("org.other/thing".to_string(), Map::new());
+        let good = Negotiated {
+            active: active.clone(),
+            unknown,
+        };
+        assert_eq!(good.verify_negotiation_invariants(), Ok(()));
+        let clash = Negotiated {
+            active: active.clone(),
+            unknown: active,
+        };
+        assert!(clash.verify_negotiation_invariants().is_err());
+    }
+}

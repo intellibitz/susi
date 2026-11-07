@@ -1,0 +1,38 @@
+{
+  "id": "T-CLAUDE-411",
+  "native_worker": "corewave13",
+  "title": "Wave 13 invariant verifiers in susi-gawd-agents and susi-gmcp (native worker corewave13; sub-records T-CLAUDE-412, T-CLAUDE-413)",
+  "goal": "Add structural invariant verifiers to under-covered core data modules: cloud dispatch (cloud_intent, cloud_explain) and brain ranking in susi-gawd-agents, and MCP tool and extension types in susi-gmcp.",
+  "status": "completed",
+  "created_by": "claude",
+  "created_unix": 1794046000,
+  "size": "S",
+  "deps": [],
+  "subtasks": [
+    "T-CLAUDE-412",
+    "T-CLAUDE-413"
+  ],
+  "scopes": [
+    ".agents/tasks/T-CLAUDE-411.json",
+    ".agents/tasks/T-CLAUDE-412.json",
+    ".agents/tasks/T-CLAUDE-413.json",
+    "crates/susi-gawd-agents/src/brain_ranking.rs",
+    "crates/susi-gawd-agents/src/cloud_explain.rs",
+    "crates/susi-gawd-agents/src/cloud_intent.rs",
+    "crates/susi-gmcp/src/extensions.rs",
+    "crates/susi-gmcp/src/tool_types.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "-p",
+      "susi-gmcp",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

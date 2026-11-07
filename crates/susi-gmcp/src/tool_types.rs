@@ -119,3 +119,56 @@ mod inline_tests {
         assert!(labels.contains(&"IntelligenceBridge".to_string()));
     }
 }
+
+// ---- Wave 13 (T-CLAUDE-412) structural invariant verifiers ----
+
+impl McpTool {
+    /// A tool the core may advertise: a non-empty name that is a safe MCP identifier
+    /// (ASCII letters, digits, `_`, `-`, `.`, with no whitespace), and a non-empty
+    /// description so a caller can tell what it does.
+    pub fn verify_tool_invariants(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("McpTool name must not be empty".to_string());
+        }
+        if self
+            .name
+            .chars()
+            .any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')))
+        {
+            return Err(format!(
+                "McpTool name `{}` has characters outside [A-Za-z0-9_.-]",
+                self.name
+            ));
+        }
+        if self.description.trim().is_empty() {
+            return Err("McpTool description must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod wave13_verifier_tests {
+    use super::*;
+
+    #[test]
+    fn mcp_tool_verifier_rejects_bad_names_and_empty_descriptions() {
+        let ok = McpTool {
+            name: "workspace.read_file".to_string(),
+            description: "Read a file from the workspace".to_string(),
+        };
+        assert_eq!(ok.verify_tool_invariants(), Ok(()));
+
+        let mut spaced = ok.clone();
+        spaced.name = "read file".to_string();
+        assert!(spaced.verify_tool_invariants().is_err());
+
+        let mut empty_name = ok.clone();
+        empty_name.name = "  ".to_string();
+        assert!(empty_name.verify_tool_invariants().is_err());
+
+        let mut no_desc = ok;
+        no_desc.description = String::new();
+        assert!(no_desc.verify_tool_invariants().is_err());
+    }
+}

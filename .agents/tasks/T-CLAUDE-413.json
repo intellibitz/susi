@@ -1,0 +1,28 @@
+{
+  "id": "T-CLAUDE-413",
+  "parent": "T-CLAUDE-411",
+  "title": "Wave 13 cloud-dispatch and brain-ranking invariant verifiers in susi-gawd-agents",
+  "goal": "Candidate/Ranked/Rejection/Selection verifiers in cloud_intent.rs, EvalEvidence/RankedBrain and verify_ranking_invariants in brain_ranking.rs, and ExplainedPick/Exclusion/ExplainReport verifiers in cloud_explain.rs, with unit tests.",
+  "status": "completed",
+  "created_by": "claude",
+  "created_unix": 1794046020,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-CLAUDE-413.json",
+    "crates/susi-gawd-agents/src/cloud_intent.rs",
+    "crates/susi-gawd-agents/src/brain_ranking.rs",
+    "crates/susi-gawd-agents/src/cloud_explain.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

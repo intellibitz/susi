@@ -708,3 +708,165 @@ mod tests {
         assert_eq!(order[2], "m-free-mid");
     }
 }
+
+// ---- Wave 13 (T-CLAUDE-411) structural invariant verifiers ----
+
+impl Candidate {
+    /// A dispatch candidate is well formed: it names a provider and model, carries
+    /// no blank modality, every recorded quality tuple has a positive denominator
+    /// with successes that do not exceed it, and a cost ceiling, when set, is finite
+    /// and non-negative. The api_key field is never inspected here.
+    pub fn verify_candidate_invariants(&self) -> Result<(), String> {
+        if self.provider.trim().is_empty() {
+            return Err("Candidate provider must not be empty".to_string());
+        }
+        if self.model.trim().is_empty() {
+            return Err("Candidate model must not be empty".to_string());
+        }
+        if self.modalities.iter().any(|m| m.trim().is_empty()) {
+            return Err("Candidate modalities must not contain blank entries".to_string());
+        }
+        for (class, (ok, n)) in &self.quality {
+            if *n == 0 {
+                return Err(format!(
+                    "Candidate quality for `{class}` has a zero denominator"
+                ));
+            }
+            if ok > n {
+                return Err(format!(
+                    "Candidate quality for `{class}` records {ok} successes over {n} samples"
+                ));
+            }
+        }
+        if let Some(cost) = self.cost_per_mtok {
+            if !cost.is_finite() || cost < 0.0 {
+                return Err("Candidate cost_per_mtok must be finite and non-negative".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Ranked {
+    /// A ranked entry names a candidate and carries a finite score.
+    pub fn verify_rank_invariants(&self) -> Result<(), String> {
+        if self.candidate.trim().is_empty() {
+            return Err("Ranked candidate must not be empty".to_string());
+        }
+        if !self.score.is_finite() {
+            return Err("Ranked score must be finite".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl Rejection {
+    /// A rejection names the candidate it blocked.
+    pub fn verify_rejection_invariants(&self) -> Result<(), String> {
+        if self.candidate.trim().is_empty() {
+            return Err("Rejection candidate must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl Selection {
+    /// Every ranked and rejected entry verifies, the ranked order is score-descending
+    /// as [`select`] produces it, and no candidate is reported as both ranked and rejected.
+    pub fn verify_selection_invariants(&self) -> Result<(), String> {
+        for r in &self.ranked {
+            r.verify_rank_invariants()?;
+        }
+        for r in &self.rejected {
+            r.verify_rejection_invariants()?;
+        }
+        for pair in self.ranked.windows(2) {
+            if pair[0].score < pair[1].score {
+                return Err("Selection ranked order is not score-descending".to_string());
+            }
+        }
+        for r in &self.ranked {
+            if self.rejected.iter().any(|x| x.candidate == r.candidate) {
+                return Err(format!(
+                    "candidate `{}` is both ranked and rejected",
+                    r.candidate
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod wave13_verifier_tests {
+    use super::*;
+
+    fn candidate(provider: &str, model: &str) -> Candidate {
+        Candidate {
+            provider: provider.to_string(),
+            api_key: "sk-secret".to_string(),
+            account: None,
+            region: None,
+            model: model.to_string(),
+            context_tokens: 8192,
+            modalities: vec!["text".to_string()],
+            supports_tools: true,
+            supports_structured_output: true,
+            residency: None,
+            est_latency_ms: 100,
+            cost_per_mtok: Some(2.0),
+            quality: std::collections::BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn candidate_ranked_rejection_and_selection_verifiers_reject_corrupt_state() {
+        let mut c = candidate("openai", "gpt-x");
+        assert_eq!(c.verify_candidate_invariants(), Ok(()));
+        c.quality.insert("coding".to_string(), (3, 10));
+        assert_eq!(c.verify_candidate_invariants(), Ok(()));
+        let mut bad_q = c.clone();
+        bad_q.quality.insert("math".to_string(), (5, 0));
+        assert!(bad_q.verify_candidate_invariants().is_err());
+        let mut over = c.clone();
+        over.quality.insert("math".to_string(), (11, 10));
+        assert!(over.verify_candidate_invariants().is_err());
+        let mut blank = c;
+        blank.provider = "  ".to_string();
+        assert!(blank.verify_candidate_invariants().is_err());
+
+        let ranked = |cand: &str, score: f64| Ranked {
+            index: 0,
+            candidate: cand.to_string(),
+            discovery: false,
+            pinned: false,
+            score,
+        };
+        assert_eq!(ranked("a", 0.9).verify_rank_invariants(), Ok(()));
+        assert!(ranked("a", f64::NAN).verify_rank_invariants().is_err());
+
+        let sel = Selection {
+            ranked: vec![ranked("a", 0.9), ranked("b", 0.4)],
+            rejected: vec![Rejection {
+                candidate: "c".to_string(),
+                reason: BlockReason::QuotaExhausted,
+            }],
+        };
+        assert_eq!(sel.verify_selection_invariants(), Ok(()));
+
+        let misordered = Selection {
+            ranked: vec![ranked("a", 0.4), ranked("b", 0.9)],
+            rejected: vec![],
+        };
+        assert!(misordered.verify_selection_invariants().is_err());
+
+        let both = Selection {
+            ranked: vec![ranked("a", 0.9)],
+            rejected: vec![Rejection {
+                candidate: "a".to_string(),
+                reason: BlockReason::QuotaExhausted,
+            }],
+        };
+        assert!(both.verify_selection_invariants().is_err());
+    }
+}

@@ -391,3 +391,114 @@ mod tests {
         assert!(!ser.contains("sk-2"));
     }
 }
+
+// ---- Wave 13 (T-CLAUDE-411) structural invariant verifiers ----
+
+impl ExplainedPick {
+    /// A pick names its candidate and carries a non-empty reason.
+    pub fn verify_pick_invariants(&self) -> Result<(), String> {
+        if self.candidate.trim().is_empty() {
+            return Err("ExplainedPick candidate must not be empty".to_string());
+        }
+        if self.reason.trim().is_empty() {
+            return Err("ExplainedPick reason must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl Exclusion {
+    /// An exclusion names the candidate it blocked and states a cause.
+    pub fn verify_exclusion_invariants(&self) -> Result<(), String> {
+        if self.candidate.trim().is_empty() {
+            return Err("Exclusion candidate must not be empty".to_string());
+        }
+        if self.cause.trim().is_empty() {
+            return Err("Exclusion cause must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl ExplainReport {
+    /// The report is dispatchable exactly when at least one candidate is ranked, every
+    /// pick and exclusion verifies, and the picks carry the zero-based rank sequence
+    /// [`explain`] assigns (position `i` has `rank == i`).
+    pub fn verify_report_invariants(&self) -> Result<(), String> {
+        if self.dispatchable != !self.ranked.is_empty() {
+            return Err(
+                "ExplainReport dispatchable must match whether any candidate is ranked".to_string(),
+            );
+        }
+        for (i, pick) in self.ranked.iter().enumerate() {
+            pick.verify_pick_invariants()?;
+            if pick.rank != i {
+                return Err(format!(
+                    "ExplainReport rank {} is out of sequence at position {i}",
+                    pick.rank
+                ));
+            }
+        }
+        for excl in &self.excluded {
+            excl.verify_exclusion_invariants()?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod wave13_verifier_tests {
+    use super::*;
+
+    fn pick(candidate: &str, rank: usize) -> ExplainedPick {
+        ExplainedPick {
+            candidate: candidate.to_string(),
+            rank,
+            reason: "fresh inference evidence: usable; ~100ms".to_string(),
+            discovery: false,
+            pinned: false,
+        }
+    }
+
+    #[test]
+    fn pick_exclusion_and_report_verifiers_reject_corrupt_state() {
+        assert_eq!(pick("a", 0).verify_pick_invariants(), Ok(()));
+        let mut blank = pick("a", 0);
+        blank.reason = "   ".to_string();
+        assert!(blank.verify_pick_invariants().is_err());
+
+        let excl = Exclusion {
+            candidate: "b".to_string(),
+            cause: "over budget".to_string(),
+            kind: None,
+        };
+        assert_eq!(excl.verify_exclusion_invariants(), Ok(()));
+        let mut no_cause = excl.clone();
+        no_cause.cause = String::new();
+        assert!(no_cause.verify_exclusion_invariants().is_err());
+
+        let ok = ExplainReport {
+            ranked: vec![pick("a", 0), pick("b", 1)],
+            excluded: vec![excl],
+            actions: Vec::new(),
+            dispatchable: true,
+        };
+        assert_eq!(ok.verify_report_invariants(), Ok(()));
+
+        let wrong_flag = ExplainReport {
+            ranked: Vec::new(),
+            excluded: Vec::new(),
+            actions: Vec::new(),
+            dispatchable: true,
+        };
+        assert!(wrong_flag.verify_report_invariants().is_err());
+
+        let bad_rank = ExplainReport {
+            ranked: vec![pick("a", 0), pick("b", 5)],
+            excluded: Vec::new(),
+            actions: Vec::new(),
+            dispatchable: true,
+        };
+        assert!(bad_rank.verify_report_invariants().is_err());
+    }
+}

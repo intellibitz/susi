@@ -508,3 +508,116 @@ mod tests {
         let _ = fs::remove_dir_all(_d);
     }
 }
+
+// ---- Wave 13 (T-CLAUDE-411) structural invariant verifiers ----
+
+impl EvalEvidence {
+    /// One measurement is well formed: it names the task class, model and version,
+    /// its score is finite in `0..=1`, and it rests on at least one sample.
+    pub fn verify_evidence_invariants(&self) -> Result<(), String> {
+        if self.task_class.trim().is_empty()
+            || self.model.trim().is_empty()
+            || self.version.trim().is_empty()
+        {
+            return Err("EvalEvidence task_class, model and version must not be empty".to_string());
+        }
+        if !self.score.is_finite() || !(0.0..=1.0).contains(&self.score) {
+            return Err(format!(
+                "EvalEvidence score {} must be finite in 0..=1",
+                self.score
+            ));
+        }
+        if self.samples == 0 {
+            return Err("EvalEvidence must rest on at least one sample".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl RankedBrain {
+    /// A ranked model names its model and version and carries a finite score and
+    /// confidence, each in `0..=1`.
+    pub fn verify_ranked_invariants(&self) -> Result<(), String> {
+        if self.model.trim().is_empty() || self.version.trim().is_empty() {
+            return Err("RankedBrain model and version must not be empty".to_string());
+        }
+        for (label, value) in [("score", self.score), ("confidence", self.confidence)] {
+            if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+                return Err(format!(
+                    "RankedBrain {label} {value} must be finite in 0..=1"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A ranking is well formed: every entry verifies, the order is score-descending
+/// then confidence-descending (the deterministic order the ranker emits), and no
+/// model appears twice.
+pub fn verify_ranking_invariants(ranked: &[RankedBrain]) -> Result<(), String> {
+    for r in ranked {
+        r.verify_ranked_invariants()?;
+    }
+    for pair in ranked.windows(2) {
+        let (a, b) = (&pair[0], &pair[1]);
+        let ordered = a.score > b.score || (a.score == b.score && a.confidence >= b.confidence);
+        if !ordered {
+            return Err(format!(
+                "ranking is not score/confidence-descending at `{}` before `{}`",
+                a.model, b.model
+            ));
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for r in ranked {
+        if !seen.insert(r.model.as_str()) {
+            return Err(format!("model `{}` is ranked more than once", r.model));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod wave13_verifier_tests {
+    use super::*;
+
+    #[test]
+    fn evidence_ranked_and_ranking_order_verifiers_reject_corrupt_state() {
+        let ev = EvalEvidence {
+            task_class: "coding".to_string(),
+            model: "m".to_string(),
+            version: "v1".to_string(),
+            dimension: EvalDimension::Correctness,
+            score: 0.8,
+            samples: 12,
+            observed_unix: 1_700_000_000,
+            provenance: EvalProvenance::VerifiedOutcome,
+        };
+        assert_eq!(ev.verify_evidence_invariants(), Ok(()));
+        let mut out = ev.clone();
+        out.score = 1.5;
+        assert!(out.verify_evidence_invariants().is_err());
+        let mut no_samples = ev;
+        no_samples.samples = 0;
+        assert!(no_samples.verify_evidence_invariants().is_err());
+
+        let rb = |model: &str, score: f64, confidence: f64| RankedBrain {
+            model: model.to_string(),
+            version: "v1".to_string(),
+            score,
+            confidence,
+            evidence_n: 4,
+            working: true,
+        };
+        assert_eq!(rb("m", 0.7, 0.6).verify_ranked_invariants(), Ok(()));
+        assert!(rb("m", 0.7, 1.4).verify_ranked_invariants().is_err());
+
+        assert_eq!(
+            verify_ranking_invariants(&[rb("a", 0.9, 0.8), rb("b", 0.9, 0.5), rb("c", 0.2, 0.9)]),
+            Ok(())
+        );
+        assert!(verify_ranking_invariants(&[rb("a", 0.2, 0.9), rb("b", 0.9, 0.5)]).is_err());
+        assert!(verify_ranking_invariants(&[rb("a", 0.9, 0.8), rb("a", 0.5, 0.5)]).is_err());
+    }
+}
