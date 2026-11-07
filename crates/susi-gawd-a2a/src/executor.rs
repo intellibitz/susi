@@ -6,10 +6,116 @@ use super::capabilities::GawdCapabilities;
 use ra2a::error::Result;
 use ra2a::server::{AgentExecutor, Event, EventQueue, RequestContext};
 use ra2a::types::{Message, Part, Task, TaskState, TaskStatus};
+use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
+
+/// Time-windowed operating-layer Service Level Objective (SLO) sample
+/// measured directly from A2A task execution, queue, inference, and recovery events (`VC-201-092`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SloSample {
+    /// Window length in seconds over which events were aggregated.
+    pub window_secs: u64,
+    /// Successful or handled completions (`Completed` + `Failed`) vs total attempts (`Completed` + `Failed` + `Rejected`).
+    pub availability_num: u64,
+    pub availability_den: u64,
+    /// `Completed` outcomes vs (`Completed` + `Failed` + `Canceled`).
+    pub task_success_num: u64,
+    pub task_success_den: u64,
+    /// Sum of measured queue delays in microseconds and sample count.
+    pub queue_delay_total_us: u64,
+    pub queue_delay_samples: u64,
+    /// Sum of measured inference execution latencies in microseconds and sample count.
+    pub inference_latency_total_us: u64,
+    pub inference_latency_samples: u64,
+    /// Sum of measured recovery durations in microseconds (from failure/cancel to recovered completion) and sample count.
+    pub recovery_duration_total_us: u64,
+    pub recovery_duration_samples: u64,
+}
+
+impl SloSample {
+    /// Formats all 5 operating-layer SLO metrics with explicit windows, denominators,
+    /// and `"unknown"` markers whenever the sample count is below `min_samples`.
+    #[must_use]
+    pub fn publish_slos(&self, min_samples: u64) -> BTreeMap<String, String> {
+        let mut out = BTreeMap::new();
+        out.insert("window_secs".to_string(), format!("{}s", self.window_secs));
+
+        let fmt_ratio = |num: u64, den: u64| -> String {
+            if den < min_samples || den == 0 {
+                format!("unknown (0/{den}, min_samples={min_samples})")
+            } else {
+                let pct = (num as f64 / den as f64) * 100.0;
+                format!("{pct:.2}% ({num}/{den}, window={}s)", self.window_secs)
+            }
+        };
+
+        let fmt_latency = |total_us: u64, samples: u64| -> String {
+            if samples < min_samples || samples == 0 {
+                format!("unknown (0/{samples}, min_samples={min_samples})")
+            } else {
+                let mean_us = total_us / samples;
+                format!(
+                    "{mean_us}us ({total_us}us/{samples}, window={}s)",
+                    self.window_secs
+                )
+            }
+        };
+
+        out.insert(
+            "availability".to_string(),
+            fmt_ratio(self.availability_num, self.availability_den),
+        );
+        out.insert(
+            "task_success".to_string(),
+            fmt_ratio(self.task_success_num, self.task_success_den),
+        );
+        out.insert(
+            "queue_delay".to_string(),
+            fmt_latency(self.queue_delay_total_us, self.queue_delay_samples),
+        );
+        out.insert(
+            "inference_latency".to_string(),
+            fmt_latency(
+                self.inference_latency_total_us,
+                self.inference_latency_samples,
+            ),
+        );
+        out.insert(
+            "recovery_duration".to_string(),
+            fmt_latency(
+                self.recovery_duration_total_us,
+                self.recovery_duration_samples,
+            ),
+        );
+        out
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RecordedTaskEvent {
+    recorded_unix_secs: u64,
+    state: TaskState,
+    queue_delay_us: Option<u64>,
+    inference_latency_us: Option<u64>,
+    recovery_duration_us: Option<u64>,
+}
+
+#[derive(Debug, Default)]
+struct SloEventCollector {
+    events: Vec<RecordedTaskEvent>,
+    pending_recovery_starts: BTreeMap<String, Instant>,
+}
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 /// Concurrent fleet executions are bounded: each task owns a dedicated OS
 /// thread while the fleet runs (see `run_fleet`), and unbounded thread growth
@@ -77,6 +183,7 @@ async fn run_mission(
 pub struct GawdA2AExecutor {
     runner: MissionRunner,
     capabilities: GawdCapabilities,
+    slo_collector: Arc<Mutex<SloEventCollector>>,
 }
 
 impl Default for GawdA2AExecutor {
@@ -96,7 +203,83 @@ impl GawdA2AExecutor {
         Self {
             runner,
             capabilities: GawdCapabilities::orchestrator(),
+            slo_collector: Arc::new(Mutex::new(SloEventCollector::default())),
         }
+    }
+
+    /// Aggregates recorded task events within `window_secs` into a measured [`SloSample`].
+    #[must_use]
+    pub fn slo_sample(&self, window_secs: u64) -> SloSample {
+        let now = now_unix_secs();
+        let cutoff = now.saturating_sub(window_secs);
+        let mut sample = SloSample {
+            window_secs,
+            availability_num: 0,
+            availability_den: 0,
+            task_success_num: 0,
+            task_success_den: 0,
+            queue_delay_total_us: 0,
+            queue_delay_samples: 0,
+            inference_latency_total_us: 0,
+            inference_latency_samples: 0,
+            recovery_duration_total_us: 0,
+            recovery_duration_samples: 0,
+        };
+        if let Ok(guard) = self.slo_collector.lock() {
+            for ev in guard
+                .events
+                .iter()
+                .filter(|e| e.recorded_unix_secs >= cutoff)
+            {
+                match ev.state {
+                    TaskState::Completed => {
+                        sample.availability_num += 1;
+                        sample.availability_den += 1;
+                        sample.task_success_num += 1;
+                        sample.task_success_den += 1;
+                    }
+                    TaskState::Failed => {
+                        sample.availability_num += 1;
+                        sample.availability_den += 1;
+                        sample.task_success_den += 1;
+                    }
+                    TaskState::Rejected => {
+                        sample.availability_den += 1;
+                        sample.task_success_den += 1;
+                    }
+                    TaskState::Canceled => {
+                        sample.task_success_den += 1;
+                    }
+                    TaskState::Unspecified
+                    | TaskState::Submitted
+                    | TaskState::Working
+                    | TaskState::InputRequired
+                    | TaskState::AuthRequired => {}
+                }
+                if let Some(q_us) = ev.queue_delay_us {
+                    sample.queue_delay_total_us = sample.queue_delay_total_us.saturating_add(q_us);
+                    sample.queue_delay_samples += 1;
+                }
+                if let Some(inf_us) = ev.inference_latency_us {
+                    sample.inference_latency_total_us =
+                        sample.inference_latency_total_us.saturating_add(inf_us);
+                    sample.inference_latency_samples += 1;
+                }
+                if let Some(rec_us) = ev.recovery_duration_us {
+                    sample.recovery_duration_total_us =
+                        sample.recovery_duration_total_us.saturating_add(rec_us);
+                    sample.recovery_duration_samples += 1;
+                }
+            }
+        }
+        sample
+    }
+
+    /// Publishes time-windowed operating-layer SLOs formatted with explicit denominators
+    /// and `"unknown"` markers when samples are below `min_samples`.
+    #[must_use]
+    pub fn publish_slos(&self, window_secs: u64, min_samples: u64) -> BTreeMap<String, String> {
+        self.slo_sample(window_secs).publish_slos(min_samples)
     }
 
     pub fn agent_card(&self) -> ra2a::types::AgentCard {
@@ -236,6 +419,7 @@ impl AgentExecutor for GawdA2AExecutor {
         queue: &'a EventQueue,
     ) -> Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
+            let enqueue_instant = Instant::now();
             // Extract message content
             let content = ctx
                 .message
@@ -253,6 +437,18 @@ impl AgentExecutor for GawdA2AExecutor {
             // A task without a text part is invalid input at the protocol
             // edge: fail it here instead of relying on the mission layer.
             if content.trim().is_empty() {
+                if let Ok(mut guard) = self.slo_collector.lock() {
+                    guard
+                        .pending_recovery_starts
+                        .insert(ctx.task_id.clone(), Instant::now());
+                    guard.events.push(RecordedTaskEvent {
+                        recorded_unix_secs: now_unix_secs(),
+                        state: TaskState::Failed,
+                        queue_delay_us: Some(enqueue_instant.elapsed().as_micros() as u64),
+                        inference_latency_us: None,
+                        recovery_duration_us: None,
+                    });
+                }
                 let mut task = Task::new(&ctx.task_id, &ctx.context_id);
                 task.status = TaskStatus::with_message(
                     TaskState::Failed,
@@ -273,6 +469,18 @@ impl AgentExecutor for GawdA2AExecutor {
             ) {
                 Ok(content) => content,
                 Err(reason) => {
+                    if let Ok(mut guard) = self.slo_collector.lock() {
+                        guard
+                            .pending_recovery_starts
+                            .insert(ctx.task_id.clone(), Instant::now());
+                        guard.events.push(RecordedTaskEvent {
+                            recorded_unix_secs: now_unix_secs(),
+                            state: TaskState::Failed,
+                            queue_delay_us: Some(enqueue_instant.elapsed().as_micros() as u64),
+                            inference_latency_us: None,
+                            recovery_duration_us: None,
+                        });
+                    }
                     let mut task = Task::new(&ctx.task_id, &ctx.context_id);
                     task.status = TaskStatus::with_message(
                         TaskState::Failed,
@@ -286,22 +494,55 @@ impl AgentExecutor for GawdA2AExecutor {
             // The mission must not run on this executor's tokio worker —
             // see `run_mission`.
             let permit = InflightPermit::try_acquire();
-            let (state, response_content) = match permit {
-                Some(_) => match run_mission(Arc::clone(&self.runner), content).await {
-                    Ok(response) => (
-                        TaskState::Completed,
-                        wrap_tool_output("a2a:mission-reply", &response).redacted_for_sink(),
-                    ),
-                    Err(error) => (
-                        TaskState::Failed,
-                        wrap_tool_output("a2a:mission-error", &error).redacted_for_sink(),
-                    ),
-                },
+            let exec_start_instant = Instant::now();
+            let queue_delay_us = exec_start_instant
+                .saturating_duration_since(enqueue_instant)
+                .as_micros() as u64;
+            let (state, response_content, inference_latency_us) = match permit {
+                Some(_) => {
+                    let res = run_mission(Arc::clone(&self.runner), content).await;
+                    let inf_us = exec_start_instant.elapsed().as_micros() as u64;
+                    match res {
+                        Ok(response) => (
+                            TaskState::Completed,
+                            wrap_tool_output("a2a:mission-reply", &response).redacted_for_sink(),
+                            Some(inf_us),
+                        ),
+                        Err(error) => (
+                            TaskState::Failed,
+                            wrap_tool_output("a2a:mission-error", &error).redacted_for_sink(),
+                            Some(inf_us),
+                        ),
+                    }
+                }
                 None => (
                     TaskState::Rejected,
                     "Request rejected: fleet at capacity".to_string(),
+                    None,
                 ),
             };
+
+            if let Ok(mut guard) = self.slo_collector.lock() {
+                let recovery_duration_us = if state == TaskState::Completed {
+                    guard
+                        .pending_recovery_starts
+                        .remove(&ctx.task_id)
+                        .map(|started| started.elapsed().as_micros() as u64)
+                } else {
+                    guard
+                        .pending_recovery_starts
+                        .entry(ctx.task_id.clone())
+                        .or_insert_with(Instant::now);
+                    None
+                };
+                guard.events.push(RecordedTaskEvent {
+                    recorded_unix_secs: now_unix_secs(),
+                    state,
+                    queue_delay_us: Some(queue_delay_us),
+                    inference_latency_us,
+                    recovery_duration_us,
+                });
+            }
 
             // Create task with response
             let mut task = Task::new(&ctx.task_id, &ctx.context_id);
@@ -319,6 +560,18 @@ impl AgentExecutor for GawdA2AExecutor {
         queue: &'a EventQueue,
     ) -> Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
+            if let Ok(mut guard) = self.slo_collector.lock() {
+                guard
+                    .pending_recovery_starts
+                    .insert(ctx.task_id.clone(), Instant::now());
+                guard.events.push(RecordedTaskEvent {
+                    recorded_unix_secs: now_unix_secs(),
+                    state: TaskState::Canceled,
+                    queue_delay_us: None,
+                    inference_latency_us: None,
+                    recovery_duration_us: None,
+                });
+            }
             let mut task = Task::new(&ctx.task_id, &ctx.context_id);
             task.status = TaskStatus::new(TaskState::Canceled);
             queue.send(Event::Task(task))?;
