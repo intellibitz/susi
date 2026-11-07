@@ -19,129 +19,26 @@ use std::sync::Arc;
 use std::time::Duration;
 use susi_gawd_agents::security::SecurityDetector;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum CompletionStatus {
+enum CompletionStatus {
     Complete,
     Failed,
 }
 
-impl CompletionStatus {
-    /// Verifies that the completion status variant is well-formed.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Ok(())` for all defined variants (`Complete` and `Failed`).
-    pub fn verify_status_invariants(&self) -> Result<(), String> {
-        match self {
-            Self::Complete | Self::Failed => Ok(()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct CloudAnswer {
-    pub status: CompletionStatus,
+#[derive(Deserialize)]
+struct CloudAnswer {
+    status: CompletionStatus,
     /// Prose, or `{"citations":[...]}` selecting receipts from the mission's
     /// evidence ledger. Only the latter is independently verifiable.
-    pub answer: serde_json::Value,
-}
-
-impl CloudAnswer {
-    /// Verifies invariants of a structured cloud recovery answer.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `status` fails invariants, if `answer` is null,
-    /// if a string `answer` is blank, if an array `answer` is empty, or if an object `answer`
-    /// is empty or carries malformed `"citations"`.
-    pub fn verify_answer_invariants(&self) -> Result<(), String> {
-        self.status.verify_status_invariants()?;
-        match &self.answer {
-            serde_json::Value::Null => Err("CloudAnswer.answer must not be null".to_string()),
-            serde_json::Value::String(s) => {
-                if s.trim().is_empty() {
-                    return Err("CloudAnswer.answer string must not be blank".to_string());
-                }
-                Ok(())
-            }
-            serde_json::Value::Array(arr) => {
-                if arr.is_empty() {
-                    return Err("CloudAnswer.answer array must not be empty".to_string());
-                }
-                Ok(())
-            }
-            serde_json::Value::Object(map) => {
-                if map.is_empty() {
-                    return Err("CloudAnswer.answer object must not be empty".to_string());
-                }
-                if let Some(citations) = map.get("citations") {
-                    let Some(list) = citations.as_array() else {
-                        return Err("CloudAnswer.answer citations must be an array".to_string());
-                    };
-                    if list.is_empty() {
-                        return Err(
-                            "CloudAnswer.answer citations array must not be empty".to_string()
-                        );
-                    }
-                    for entry in list {
-                        let receipt_id = entry
-                            .get("receipt_id")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("");
-                        if receipt_id.trim().is_empty() {
-                            return Err(
-                                "CloudAnswer.answer citation entry must have non-blank receipt_id"
-                                    .to_string(),
-                            );
-                        }
-                    }
-                }
-                Ok(())
-            }
-            serde_json::Value::Bool(_) => Ok(()),
-            serde_json::Value::Number(num) => {
-                if num.as_f64().is_some_and(|v| !v.is_finite()) {
-                    return Err("CloudAnswer.answer number must be finite".to_string());
-                }
-                Ok(())
-            }
-        }
-    }
+    answer: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalRecoveryCandidate {
-    pub model_id: String,
-    pub tier: u8,
-    pub file_size_bytes: u64,
-}
-
-impl LocalRecoveryCandidate {
-    /// Verifies invariants of a ranked local recovery candidate.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `model_id` is blank, `tier > 2` (outside the
-    /// supported `0.5B`/`1.5B`/`7B` ladder), or `file_size_bytes < 4` (smaller than a GGUF header).
-    pub fn verify_candidate_invariants(&self) -> Result<(), String> {
-        if self.model_id.trim().is_empty() {
-            return Err("LocalRecoveryCandidate.model_id must not be blank".to_string());
-        }
-        if self.tier > 2 {
-            return Err(format!(
-                "LocalRecoveryCandidate.tier {} exceeds max supported tier 2",
-                self.tier
-            ));
-        }
-        if self.file_size_bytes < 4 {
-            return Err(
-                "LocalRecoveryCandidate.file_size_bytes must be at least 4 bytes (GGUF header)"
-                    .to_string(),
-            );
-        }
-        Ok(())
-    }
+struct LocalRecoveryCandidate {
+    model_id: String,
+    tier: u8,
+    file_size_bytes: u64,
 }
 
 fn parameter_tier(text: &str) -> Option<u8> {
@@ -1617,88 +1514,5 @@ mod tests {
         assert_eq!(parameter_tier("Qwen2.5-7B"), Some(2));
         assert_eq!(parameter_tier("Qwen2.5-17B"), None);
         assert_eq!(parameter_tier("Llama-70B"), None);
-    }
-
-    #[test]
-    fn completion_status_and_cloud_answer_verify_swarm_wave14_invariants() {
-        assert!(CompletionStatus::Complete
-            .verify_status_invariants()
-            .is_ok());
-        assert!(CompletionStatus::Failed.verify_status_invariants().is_ok());
-
-        let valid_prose = CloudAnswer {
-            status: CompletionStatus::Complete,
-            answer: serde_json::Value::String("Observed output is 42".into()),
-        };
-        assert!(valid_prose.verify_answer_invariants().is_ok());
-
-        let valid_cited = CloudAnswer {
-            status: CompletionStatus::Complete,
-            answer: serde_json::json!({
-                "citations": [{ "receipt_id": "rcpt-1", "json_pointer": null }]
-            }),
-        };
-        assert!(valid_cited.verify_answer_invariants().is_ok());
-
-        let null_answer = CloudAnswer {
-            status: CompletionStatus::Complete,
-            answer: serde_json::Value::Null,
-        };
-        assert!(null_answer.verify_answer_invariants().is_err());
-
-        let blank_answer = CloudAnswer {
-            status: CompletionStatus::Failed,
-            answer: serde_json::Value::String("   ".into()),
-        };
-        assert!(blank_answer.verify_answer_invariants().is_err());
-
-        let empty_obj = CloudAnswer {
-            status: CompletionStatus::Complete,
-            answer: serde_json::json!({}),
-        };
-        assert!(empty_obj.verify_answer_invariants().is_err());
-
-        let empty_citations = CloudAnswer {
-            status: CompletionStatus::Complete,
-            answer: serde_json::json!({ "citations": [] }),
-        };
-        assert!(empty_citations.verify_answer_invariants().is_err());
-
-        let blank_receipt_id = CloudAnswer {
-            status: CompletionStatus::Complete,
-            answer: serde_json::json!({ "citations": [{ "receipt_id": "  " }] }),
-        };
-        assert!(blank_receipt_id.verify_answer_invariants().is_err());
-    }
-
-    #[test]
-    fn local_recovery_candidate_verify_swarm_wave14_invariants() {
-        let valid = LocalRecoveryCandidate {
-            model_id: "/models/qwen-0.5b.gguf".into(),
-            tier: 0,
-            file_size_bytes: 4096,
-        };
-        assert!(valid.verify_candidate_invariants().is_ok());
-
-        let blank_id = LocalRecoveryCandidate {
-            model_id: "   ".into(),
-            tier: 1,
-            file_size_bytes: 4096,
-        };
-        assert!(blank_id.verify_candidate_invariants().is_err());
-
-        let invalid_tier = LocalRecoveryCandidate {
-            model_id: "/models/qwen-14b.gguf".into(),
-            tier: 3,
-            file_size_bytes: 4096,
-        };
-        assert!(invalid_tier.verify_candidate_invariants().is_err());
-
-        let tiny_file = LocalRecoveryCandidate {
-            model_id: "/models/qwen-0.5b.gguf".into(),
-            tier: 0,
-            file_size_bytes: 3,
-        };
-        assert!(tiny_file.verify_candidate_invariants().is_err());
     }
 }

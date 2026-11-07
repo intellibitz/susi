@@ -32,77 +32,6 @@ impl FakeProvider {
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
-
-    /// Verifies invariants of the fake provider state.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if any recorded call index is out of bounds for
-    /// `plans` or if any queued [`AttemptOutcome`] has an invalid or blank payload.
-    pub fn verify_provider_invariants(&self) -> Result<(), String> {
-        let plans = self.plans.lock().unwrap_or_else(|e| e.into_inner());
-        let calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
-        for &idx in calls.iter() {
-            if idx >= plans.len() {
-                return Err(format!(
-                    "FakeProvider recorded call index {idx} out of bounds for {} candidate plans",
-                    plans.len()
-                ));
-            }
-        }
-        for (plan_idx, queue) in plans.iter().enumerate() {
-            for outcome in queue {
-                match outcome {
-                    AttemptOutcome::Success(output) => {
-                        if output.trim().is_empty() {
-                            return Err(format!(
-                                "FakeProvider plan[{plan_idx}] contains blank Success output"
-                            ));
-                        }
-                    }
-                    AttemptOutcome::WorkerFailed(msg) => {
-                        if msg.trim().is_empty() {
-                            return Err(format!(
-                                "FakeProvider plan[{plan_idx}] contains blank WorkerFailed message"
-                            ));
-                        }
-                    }
-                    AttemptOutcome::MidStream { result, partial } => {
-                        if partial.trim().is_empty() {
-                            return Err(format!(
-                                "FakeProvider plan[{plan_idx}] contains MidStream with blank partial output"
-                            ));
-                        }
-                        if let susi_vendor_models::cloud_eligibility::InferenceResult::Failed {
-                            status: Some(code),
-                            ..
-                        } = result
-                        {
-                            if *code < 100 || *code > 599 {
-                                return Err(format!(
-                                    "FakeProvider plan[{plan_idx}] MidStream status {code} outside HTTP range 100..=599"
-                                ));
-                            }
-                        }
-                    }
-                    AttemptOutcome::PreDispatch(result) | AttemptOutcome::Ambiguous(result) => {
-                        if let susi_vendor_models::cloud_eligibility::InferenceResult::Failed {
-                            status: Some(code),
-                            ..
-                        } = result
-                        {
-                            if *code < 100 || *code > 599 {
-                                return Err(format!(
-                                    "FakeProvider plan[{plan_idx}] status {code} outside HTTP range 100..=599"
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 impl crate::cloud_failover::Runner for FakeProvider {
@@ -580,42 +509,5 @@ mod tests {
         );
         assert_eq!(out.output.as_deref(), Some("answer-1"));
         assert!(!out.output.as_deref().unwrap().contains("GARBAGE"));
-    }
-
-    #[test]
-    fn fake_provider_verify_swarm_wave14_invariants() {
-        use crate::cloud_failover::Runner;
-
-        let mut valid = FakeProvider::new(scripts(3, &[0, 2]));
-        assert!(valid.verify_provider_invariants().is_ok());
-        let _ = valid.attempt(0, 1000);
-        assert!(valid.verify_provider_invariants().is_ok());
-
-        // Out-of-bounds call index is rejected.
-        let _ = valid.attempt(9, 1000);
-        assert!(valid.verify_provider_invariants().is_err());
-
-        // Blank Success output is rejected.
-        let blank_success = FakeProvider::new(vec![vec![AttemptOutcome::Success("   ".into())]]);
-        assert!(blank_success.verify_provider_invariants().is_err());
-
-        // Blank WorkerFailed message is rejected.
-        let blank_worker =
-            FakeProvider::new(vec![vec![AttemptOutcome::WorkerFailed(String::new())]]);
-        assert!(blank_worker.verify_provider_invariants().is_err());
-
-        // Blank MidStream partial is rejected.
-        let blank_midstream = FakeProvider::new(vec![vec![AttemptOutcome::MidStream {
-            result: fail(500, "stream interrupted"),
-            partial: "  ".into(),
-        }]]);
-        assert!(blank_midstream.verify_provider_invariants().is_err());
-
-        // Invalid HTTP status code (< 100) is rejected.
-        let bad_status = FakeProvider::new(vec![vec![AttemptOutcome::PreDispatch(fail(
-            42,
-            "invalid status",
-        ))]]);
-        assert!(bad_status.verify_provider_invariants().is_err());
     }
 }

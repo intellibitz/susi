@@ -25,25 +25,6 @@ pub enum FaultKind {
     CrashRecovery,
 }
 
-impl FaultKind {
-    /// Verifies that the fault kind variant is well-formed.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Ok(())` for all defined variants.
-    pub fn verify_kind_invariants(&self) -> Result<(), String> {
-        match self {
-            Self::Partition
-            | Self::ClockSkew
-            | Self::DuplicateDelivery
-            | Self::StaleKey
-            | Self::FailedRekey
-            | Self::MixedVersion
-            | Self::CrashRecovery => Ok(()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScenarioResult {
     pub kind: FaultKind,
@@ -52,31 +33,6 @@ pub struct ScenarioResult {
     pub passed: bool,
     /// Ordered steps — archived so a failed guard reproduces offline.
     pub trace: Vec<String>,
-}
-
-impl ScenarioResult {
-    /// Verifies invariants of a fault matrix scenario result.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `kind` fails invariants, if `injected` or
-    /// `expected_guard` is blank, or if `trace` is empty or contains blank step entries.
-    pub fn verify_scenario_invariants(&self) -> Result<(), String> {
-        self.kind.verify_kind_invariants()?;
-        if self.injected.trim().is_empty() {
-            return Err("ScenarioResult.injected must not be blank".to_string());
-        }
-        if self.expected_guard.trim().is_empty() {
-            return Err("ScenarioResult.expected_guard must not be blank".to_string());
-        }
-        if self.trace.is_empty() {
-            return Err("ScenarioResult.trace must not be empty".to_string());
-        }
-        if self.trace.iter().any(|step| step.trim().is_empty()) {
-            return Err("ScenarioResult.trace must not contain blank entries".to_string());
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,29 +44,6 @@ pub struct MatrixReport {
 }
 
 impl MatrixReport {
-    /// Verifies invariants of a federation fault matrix report.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `scenarios` is empty, if any scenario fails
-    /// [`ScenarioResult::verify_scenario_invariants`], or if `unsupported` is empty or contains
-    /// blank entries.
-    pub fn verify_report_invariants(&self) -> Result<(), String> {
-        if self.scenarios.is_empty() {
-            return Err("MatrixReport.scenarios must not be empty".to_string());
-        }
-        for scenario in &self.scenarios {
-            scenario.verify_scenario_invariants()?;
-        }
-        if self.unsupported.is_empty() {
-            return Err("MatrixReport.unsupported must not be empty".to_string());
-        }
-        if self.unsupported.iter().any(|u| u.trim().is_empty()) {
-            return Err("MatrixReport.unsupported must not contain blank entries".to_string());
-        }
-        Ok(())
-    }
-
     #[must_use]
     pub fn all_passed(&self) -> bool {
         self.scenarios.iter().all(|s| s.passed)
@@ -496,77 +429,5 @@ mod inline_tests {
                 FaultKind::CrashRecovery,
             ]
         );
-    }
-
-    #[test]
-    fn fault_kind_and_scenario_result_verify_swarm_wave14_invariants() {
-        for kind in [
-            FaultKind::Partition,
-            FaultKind::ClockSkew,
-            FaultKind::DuplicateDelivery,
-            FaultKind::StaleKey,
-            FaultKind::FailedRekey,
-            FaultKind::MixedVersion,
-            FaultKind::CrashRecovery,
-        ] {
-            assert!(kind.verify_kind_invariants().is_ok());
-        }
-
-        let valid = ScenarioResult {
-            kind: FaultKind::Partition,
-            injected: "partition c".into(),
-            expected_guard: "converges after heal".into(),
-            passed: true,
-            trace: vec!["step 1".into(), "step 2".into()],
-        };
-        assert!(valid.verify_scenario_invariants().is_ok());
-
-        let blank_injected = ScenarioResult {
-            injected: "   ".into(),
-            ..valid.clone()
-        };
-        assert!(blank_injected.verify_scenario_invariants().is_err());
-
-        let blank_guard = ScenarioResult {
-            expected_guard: String::new(),
-            ..valid.clone()
-        };
-        assert!(blank_guard.verify_scenario_invariants().is_err());
-
-        let empty_trace = ScenarioResult {
-            trace: Vec::new(),
-            ..valid.clone()
-        };
-        assert!(empty_trace.verify_scenario_invariants().is_err());
-
-        let blank_trace_entry = ScenarioResult {
-            trace: vec!["step 1".into(), "   ".into()],
-            ..valid
-        };
-        assert!(blank_trace_entry.verify_scenario_invariants().is_err());
-    }
-
-    #[test]
-    fn matrix_report_verify_swarm_wave14_invariants() {
-        let report = run_matrix();
-        assert!(report.verify_report_invariants().is_ok());
-
-        let empty_scenarios = MatrixReport {
-            scenarios: Vec::new(),
-            ..report.clone()
-        };
-        assert!(empty_scenarios.verify_report_invariants().is_err());
-
-        let empty_unsupported = MatrixReport {
-            unsupported: Vec::new(),
-            ..report.clone()
-        };
-        assert!(empty_unsupported.verify_report_invariants().is_err());
-
-        let blank_unsupported = MatrixReport {
-            unsupported: vec!["valid".into(), "   ".into()],
-            ..report
-        };
-        assert!(blank_unsupported.verify_report_invariants().is_err());
     }
 }
