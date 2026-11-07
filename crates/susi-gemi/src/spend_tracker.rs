@@ -55,44 +55,6 @@ impl BudgetCeilings {
             && self.task_usd.is_none()
             && self.vendor_daily_usd.is_empty()
     }
-
-    /// Verify structural invariants on configured budget ceilings.
-    pub fn verify_ceilings_invariants(&self) -> Result<(), String> {
-        for (name, val) in [
-            ("hourly_usd", self.hourly_usd),
-            ("daily_usd", self.daily_usd),
-            ("mission_usd", self.mission_usd),
-            ("task_usd", self.task_usd),
-        ] {
-            if let Some(v) = val {
-                if !v.is_finite() || v < 0.0 {
-                    return Err(format!(
-                        "BudgetCeilings {name} ({v}) must be finite and >= 0.0"
-                    ));
-                }
-            }
-        }
-        if let (Some(hourly), Some(daily)) = (self.hourly_usd, self.daily_usd) {
-            if hourly > daily {
-                return Err(format!(
-                    "BudgetCeilings hourly_usd ({hourly}) must be <= daily_usd ({daily})"
-                ));
-            }
-        }
-        for (vendor, cap) in &self.vendor_daily_usd {
-            if vendor.trim().is_empty() {
-                return Err(
-                    "BudgetCeilings vendor_daily_usd vendor name must not be empty".to_string(),
-                );
-            }
-            if !cap.is_finite() || *cap < 0.0 {
-                return Err(format!(
-                    "BudgetCeilings vendor_daily_usd[{vendor}] ({cap}) must be finite and >= 0.0"
-                ));
-            }
-        }
-        Ok(())
-    }
 }
 
 /// Which ceiling refused the call.
@@ -142,41 +104,6 @@ impl BudgetRefusal {
             self.projected_usd,
         )
     }
-
-    /// Verify structural invariants on a pre-spend budget refusal.
-    pub fn verify_refusal_invariants(&self) -> Result<(), String> {
-        if !self.cap_usd.is_finite() || self.cap_usd < 0.0 {
-            return Err(format!(
-                "BudgetRefusal cap_usd ({}) must be finite and >= 0.0",
-                self.cap_usd
-            ));
-        }
-        if !self.spent_usd.is_finite() || self.spent_usd < 0.0 {
-            return Err(format!(
-                "BudgetRefusal spent_usd ({}) must be finite and >= 0.0",
-                self.spent_usd
-            ));
-        }
-        if !self.projected_usd.is_finite() || self.projected_usd < 0.0 {
-            return Err(format!(
-                "BudgetRefusal projected_usd ({}) must be finite and >= 0.0",
-                self.projected_usd
-            ));
-        }
-        if self.projected_usd < self.spent_usd {
-            return Err(format!(
-                "BudgetRefusal projected_usd ({}) must be >= spent_usd ({})",
-                self.projected_usd, self.spent_usd
-            ));
-        }
-        if self.projected_usd <= self.cap_usd {
-            return Err(format!(
-                "BudgetRefusal projected_usd ({}) must be > cap_usd ({})",
-                self.projected_usd, self.cap_usd
-            ));
-        }
-        Ok(())
-    }
 }
 
 /// One proposed dispatch the governor prices: the provider it would run
@@ -187,22 +114,6 @@ pub struct SpendIntent<'a> {
     pub provider: &'a str,
     pub expected_usd: f64,
     pub mission: &'a str,
-}
-
-impl SpendIntent<'_> {
-    /// Verify structural invariants on a proposed spend intent.
-    pub fn verify_intent_invariants(&self) -> Result<(), String> {
-        if self.provider.trim().is_empty() {
-            return Err("SpendIntent provider must not be empty".to_string());
-        }
-        if !self.expected_usd.is_finite() || self.expected_usd < 0.0 {
-            return Err(format!(
-                "SpendIntent expected_usd ({}) must be finite and >= 0.0",
-                self.expected_usd
-            ));
-        }
-        Ok(())
-    }
 }
 
 /// Pure ceiling check against an already-loaded ledger. `now_ms` anchors
@@ -561,96 +472,5 @@ mod inline_tests {
         assert_eq!(trace.model_calls.len(), 1);
         assert_eq!(trace.model_calls[0].model, "openrouter/qwen3-coder|code");
         assert_eq!(trace.total_cost_micros(), 1_250);
-    }
-
-    #[test]
-    fn verify_ceilings_refusal_and_intent_invariants_reject_corrupt_states() {
-        let valid_ceilings = BudgetCeilings {
-            hourly_usd: Some(5.0),
-            daily_usd: Some(25.0),
-            mission_usd: Some(10.0),
-            task_usd: Some(1.0),
-            vendor_daily_usd: BTreeMap::from([("openai".to_string(), 15.0)]),
-        };
-        assert!(valid_ceilings.verify_ceilings_invariants().is_ok());
-        assert!(BudgetCeilings::default()
-            .verify_ceilings_invariants()
-            .is_ok());
-
-        let mut neg_hourly = valid_ceilings.clone();
-        neg_hourly.hourly_usd = Some(-0.1);
-        assert!(neg_hourly.verify_ceilings_invariants().is_err());
-
-        let mut nan_task = valid_ceilings.clone();
-        nan_task.task_usd = Some(f64::NAN);
-        assert!(nan_task.verify_ceilings_invariants().is_err());
-
-        let mut inverted_windows = valid_ceilings.clone();
-        inverted_windows.hourly_usd = Some(30.0);
-        inverted_windows.daily_usd = Some(25.0);
-        assert!(inverted_windows.verify_ceilings_invariants().is_err());
-
-        let mut empty_vendor = valid_ceilings.clone();
-        empty_vendor.vendor_daily_usd.insert("   ".to_string(), 5.0);
-        assert!(empty_vendor.verify_ceilings_invariants().is_err());
-
-        let mut neg_vendor_cap = valid_ceilings.clone();
-        neg_vendor_cap
-            .vendor_daily_usd
-            .insert("deepseek".to_string(), -1.0);
-        assert!(neg_vendor_cap.verify_ceilings_invariants().is_err());
-
-        let valid_refusal = BudgetRefusal {
-            window: BudgetWindow::Hourly,
-            cap_usd: 5.0,
-            spent_usd: 4.5,
-            projected_usd: 5.5,
-        };
-        assert!(valid_refusal.verify_refusal_invariants().is_ok());
-
-        let mut neg_cap = valid_refusal.clone();
-        neg_cap.cap_usd = -1.0;
-        assert!(neg_cap.verify_refusal_invariants().is_err());
-
-        let mut neg_spent = valid_refusal.clone();
-        neg_spent.spent_usd = -0.1;
-        assert!(neg_spent.verify_refusal_invariants().is_err());
-
-        let mut projected_below_spent = valid_refusal.clone();
-        projected_below_spent.spent_usd = 6.0;
-        projected_below_spent.projected_usd = 5.5;
-        assert!(projected_below_spent.verify_refusal_invariants().is_err());
-
-        let mut projected_within_cap = valid_refusal.clone();
-        projected_within_cap.projected_usd = 5.0;
-        assert!(projected_within_cap.verify_refusal_invariants().is_err());
-
-        let valid_intent = SpendIntent {
-            provider: "openai-gpt-4o",
-            expected_usd: 0.25,
-            mission: "m-1",
-        };
-        assert!(valid_intent.verify_intent_invariants().is_ok());
-
-        let blank_provider = SpendIntent {
-            provider: "  ",
-            expected_usd: 0.25,
-            mission: "m-1",
-        };
-        assert!(blank_provider.verify_intent_invariants().is_err());
-
-        let neg_expected = SpendIntent {
-            provider: "openai-gpt-4o",
-            expected_usd: -0.01,
-            mission: "m-1",
-        };
-        assert!(neg_expected.verify_intent_invariants().is_err());
-
-        let inf_expected = SpendIntent {
-            provider: "openai-gpt-4o",
-            expected_usd: f64::INFINITY,
-            mission: "m-1",
-        };
-        assert!(inf_expected.verify_intent_invariants().is_err());
     }
 }
