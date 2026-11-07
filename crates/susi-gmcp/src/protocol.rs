@@ -97,8 +97,8 @@ impl McpGatewayProxy {
 struct RegisteredTool {
     definition: Tool,
     handler: ToolHandler,
-    input: Arc<jsonschema::Validator>,
-    output: Option<Arc<jsonschema::Validator>>,
+    input: Arc<crate::schema_check::Validator>,
+    output: Option<Arc<crate::schema_check::Validator>>,
 }
 
 #[derive(Default)]
@@ -288,7 +288,7 @@ impl GmcpService {
     }
 }
 
-fn compile_schema(schema: &Value) -> Result<Arc<jsonschema::Validator>, ErrorData> {
+fn compile_schema(schema: &Value) -> Result<Arc<crate::schema_check::Validator>, ErrorData> {
     fn bounded(value: &Value, depth: usize, remaining: &mut usize) -> bool {
         if depth > 64 || *remaining == 0 {
             return false;
@@ -303,15 +303,10 @@ fn compile_schema(schema: &Value) -> Result<Arc<jsonschema::Validator>, ErrorDat
     if !bounded(schema, 0, &mut 10000) {
         return Err(invalid("Schema exceeds complexity limit"));
     }
-    // External network/file retrieval is disabled at the dependency level.
-    // Local $defs/$ref are supported; providers must bundle external references.
-    jsonschema::draft202012::options()
-        .with_pattern_options(
-            jsonschema::PatternOptions::fancy_regex()
-                .backtrack_limit(20_000)
-                .size_limit(1_000_000),
-        )
-        .build(schema)
+    // No network or file retrieval: only local `$defs`/`$ref`; providers
+    // bundle external references. Unsupported keywords fail here, at
+    // registration (see `schema_check`).
+    crate::schema_check::Validator::compile(schema)
         .map(Arc::new)
         .map_err(|e| invalid(&format!("Invalid tool schema: {e}")))
 }

@@ -1,0 +1,53 @@
+{
+  "id": "T-LEAN2-1",
+  "title": "Lean-core wave 2: std JSON Schema validation in GMCP, OS probes without sysinfo",
+  "goal": "Second wave of docs/lean-core.md. GMCP validates tool input and output schemas with crates/susi-gmcp/src/schema_check.rs, a standard-library draft 2020-12 subset that implements every keyword the tool catalog, the MCP schemas and the extension packs use and fails closed at registration on any other validation keyword; the jsonschema facade (29 third-party crates of exclusive reach in the pillar closure) leaves GMCP. Then sysinfo leaves susi-gemi, susi-config and susi-gawd-agents for std and OS probes.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "lean2",
+  "native_worker": "lean2",
+  "created_by": "lean2",
+  "created_unix": 1794066943,
+  "updated_unix": 1794066943,
+  "size": "M",
+  "deps": [],
+  "scope": [
+    ".agents/tasks/t-lean2-1.json",
+    "crates/susi-config/src/host_metrics.rs",
+    "crates/susi-config/src/lib.rs",
+    "crates/susi-config/src/process_probe.rs",
+    "crates/susi-gawd-agents/src/system_observe.rs",
+    "crates/susi-gemi/src/benchmark.rs",
+    "crates/susi-gemi/src/credential_scout.rs",
+    "crates/susi-gmcp/src/direct_call.rs",
+    "crates/susi-gmcp/src/lib.rs",
+    "crates/susi-gmcp/src/protocol.rs",
+    "crates/susi-gmcp/src/schema_check.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-lean2-1.json",
+    "crates/susi-config/src/host_metrics.rs",
+    "crates/susi-config/src/lib.rs",
+    "crates/susi-config/src/process_probe.rs",
+    "crates/susi-gawd-agents/src/system_observe.rs",
+    "crates/susi-gemi/src/benchmark.rs",
+    "crates/susi-gemi/src/credential_scout.rs",
+    "crates/susi-gmcp/src/direct_call.rs",
+    "crates/susi-gmcp/src/lib.rs",
+    "crates/susi-gmcp/src/protocol.rs",
+    "crates/susi-gmcp/src/schema_check.rs"
+  ],
+  "acceptance": "cargo test -p susi-gmcp --lib --offline --locked schema_check",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "--lib",
+      "--offline",
+      "--locked",
+      "schema_check"
+    ]
+  }
+}
