@@ -1,0 +1,34 @@
+{
+  "id": "T-CLAUDE-414",
+  "native_worker": "corewave14",
+  "title": "Wave 14 invariant verifiers in susi-config (native worker corewave14; sub-records T-CLAUDE-415, T-CLAUDE-416)",
+  "goal": "Add structural invariant verifiers to under-covered susi-config data modules: secret references and environment profiles (T-CLAUDE-415) and offline bootstrap bundles (T-CLAUDE-416).",
+  "status": "completed",
+  "created_by": "claude",
+  "created_unix": 1794048000,
+  "size": "S",
+  "deps": [],
+  "subtasks": [
+    "T-CLAUDE-415",
+    "T-CLAUDE-416"
+  ],
+  "scopes": [
+    ".agents/tasks/T-CLAUDE-414.json",
+    ".agents/tasks/T-CLAUDE-415.json",
+    ".agents/tasks/T-CLAUDE-416.json",
+    "crates/susi-config/src/env_profiles.rs",
+    "crates/susi-config/src/offline_bundle.rs",
+    "crates/susi-config/src/secret_ref.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

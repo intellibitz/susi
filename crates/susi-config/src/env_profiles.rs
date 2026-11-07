@@ -561,3 +561,149 @@ mod tests {
         assert!(set.resolve("missing_profile").is_err());
     }
 }
+
+// ---- Wave 14 (T-CLAUDE-415) structural invariant verifiers ----
+
+impl Profile {
+    /// A profile lists no blank or duplicate parent in `extends` and no blank value key.
+    pub fn verify_profile_invariants(&self) -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for parent in &self.extends {
+            if parent.trim().is_empty() {
+                return Err("Profile extends must not contain a blank parent".to_string());
+            }
+            if !seen.insert(parent.as_str()) {
+                return Err(format!("Profile extends lists `{parent}` more than once"));
+            }
+        }
+        if self.values.keys().any(|k| k.trim().is_empty()) {
+            return Err("Profile values must not contain a blank key".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl ProfileSet {
+    /// Every profile verifies, no profile extends itself, and every `extends` target
+    /// names a profile present in the set (so resolution never dangles).
+    pub fn verify_set_invariants(&self) -> Result<(), String> {
+        for (name, profile) in &self.profiles {
+            profile.verify_profile_invariants()?;
+            for parent in &profile.extends {
+                if parent == name {
+                    return Err(format!("profile `{name}` extends itself"));
+                }
+                if !self.profiles.contains_key(parent) {
+                    return Err(format!(
+                        "profile `{name}` extends `{parent}`, which is not in the set"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Resolved {
+    /// Every resolved value has exactly one provenance entry and vice versa, every
+    /// provenance supplier is named, and the inheritance chain has no blank or
+    /// repeated entry.
+    pub fn verify_resolved_invariants(&self) -> Result<(), String> {
+        for key in self.values.keys() {
+            if !self.provenance.contains_key(key) {
+                return Err(format!("resolved value `{key}` has no provenance"));
+            }
+        }
+        for (key, source) in &self.provenance {
+            if !self.values.contains_key(key) {
+                return Err(format!("provenance key `{key}` has no resolved value"));
+            }
+            if source.profile.trim().is_empty() {
+                return Err(format!("provenance for `{key}` names no profile"));
+            }
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for link in &self.chain {
+            if link.trim().is_empty() {
+                return Err("resolution chain must not contain a blank entry".to_string());
+            }
+            if !seen.insert(link.as_str()) {
+                return Err(format!("resolution chain repeats `{link}`"));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod wave14_verifier_tests {
+    use super::*;
+
+    fn profile(extends: &[&str]) -> Profile {
+        Profile {
+            env: EnvKind::Development,
+            extends: extends.iter().map(|s| (*s).to_string()).collect(),
+            values: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn profile_set_and_resolved_verifiers_reject_corrupt_state() {
+        assert_eq!(profile(&["base"]).verify_profile_invariants(), Ok(()));
+        assert!(profile(&["base", "base"])
+            .verify_profile_invariants()
+            .is_err());
+
+        let mut profiles = BTreeMap::new();
+        profiles.insert("base".to_string(), profile(&[]));
+        profiles.insert("dev".to_string(), profile(&["base"]));
+        let set = ProfileSet { profiles };
+        assert_eq!(set.verify_set_invariants(), Ok(()));
+
+        let mut dangling = set.profiles.clone();
+        dangling.insert("x".to_string(), profile(&["missing"]));
+        assert!(ProfileSet { profiles: dangling }
+            .verify_set_invariants()
+            .is_err());
+
+        let mut selfref = set.profiles.clone();
+        selfref.insert("loop".to_string(), profile(&["loop"]));
+        assert!(ProfileSet { profiles: selfref }
+            .verify_set_invariants()
+            .is_err());
+
+        let mut values = BTreeMap::new();
+        values.insert("A".to_string(), Value::from("1"));
+        let mut provenance = BTreeMap::new();
+        provenance.insert(
+            "A".to_string(),
+            Source {
+                profile: "base".to_string(),
+                env: EnvKind::Shared,
+            },
+        );
+        let resolved = Resolved {
+            env: EnvKind::Development,
+            values: values.clone(),
+            provenance,
+            chain: vec!["base".to_string(), "dev".to_string()],
+        };
+        assert_eq!(resolved.verify_resolved_invariants(), Ok(()));
+
+        let orphan = Resolved {
+            env: EnvKind::Development,
+            values,
+            provenance: BTreeMap::new(),
+            chain: vec!["base".to_string()],
+        };
+        assert!(orphan.verify_resolved_invariants().is_err());
+
+        let repeated_chain = Resolved {
+            env: EnvKind::Development,
+            values: BTreeMap::new(),
+            provenance: BTreeMap::new(),
+            chain: vec!["base".to_string(), "base".to_string()],
+        };
+        assert!(repeated_chain.verify_resolved_invariants().is_err());
+    }
+}

@@ -436,3 +436,209 @@ mod tests {
         assert!(validate_relative_artifact_path("models/local.gguf").is_ok());
     }
 }
+
+// ---- Wave 14 (T-CLAUDE-416) structural invariant verifiers ----
+
+/// A 64-character lowercase hex SHA-256 digest.
+fn is_lower_sha256_hex(s: &str) -> bool {
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+impl BundleArtifactEntry {
+    /// A manifest entry names an artifact, carries a confined relative path (no
+    /// traversal, drive prefix or backslash), a 64-character lowercase hex SHA-256,
+    /// and a non-zero size.
+    pub fn verify_entry_invariants(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("BundleArtifactEntry name must not be empty".to_string());
+        }
+        validate_relative_artifact_path(&self.relative_path).map_err(|e| e.to_string())?;
+        if !is_lower_sha256_hex(&self.sha256_hex) {
+            return Err(format!(
+                "BundleArtifactEntry `{}` sha256_hex must be 64 lowercase hex characters",
+                self.name
+            ));
+        }
+        if self.size_bytes == 0 {
+            return Err(format!(
+                "BundleArtifactEntry `{}` size_bytes must be non-zero",
+                self.name
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl OfflineBundleManifest {
+    /// A manifest is identified, carries at least one artifact, every entry verifies,
+    /// and no artifact name or relative path repeats.
+    pub fn verify_manifest_invariants(&self) -> Result<(), String> {
+        if self.bundle_id.trim().is_empty() || self.version.trim().is_empty() {
+            return Err(
+                "OfflineBundleManifest bundle_id and version must not be empty".to_string(),
+            );
+        }
+        if self.artifacts.is_empty() {
+            return Err("OfflineBundleManifest must carry at least one artifact".to_string());
+        }
+        let mut names = std::collections::BTreeSet::new();
+        let mut paths = std::collections::BTreeSet::new();
+        for entry in &self.artifacts {
+            entry.verify_entry_invariants()?;
+            if !names.insert(entry.name.as_str()) {
+                return Err(format!("duplicate artifact name `{}`", entry.name));
+            }
+            if !paths.insert(entry.relative_path.as_str()) {
+                return Err(format!("duplicate artifact path `{}`", entry.relative_path));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl MissingArtifactDiagnosis {
+    /// A diagnosis names the artifact, where it was expected, and why it failed.
+    pub fn verify_diagnosis_invariants(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("MissingArtifactDiagnosis name must not be empty".to_string());
+        }
+        if self.expected_path.trim().is_empty() {
+            return Err("MissingArtifactDiagnosis expected_path must not be empty".to_string());
+        }
+        if self.reason.trim().is_empty() {
+            return Err("MissingArtifactDiagnosis reason must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl OfflineReadinessReport {
+    /// The drill's verdict is internally consistent: a report that declares readiness
+    /// must have the network disabled, nothing missing or corrupt, and a captured local
+    /// mission output; any missing/corrupt artifact means it is not ready; and every
+    /// diagnosis verifies.
+    pub fn verify_report_invariants(&self) -> Result<(), String> {
+        if self.ready_for_local_mission {
+            if !self.network_disabled {
+                return Err("a ready offline report must have the network disabled".to_string());
+            }
+            if !self.missing_or_corrupt.is_empty() {
+                return Err(
+                    "a ready offline report must have nothing missing or corrupt".to_string(),
+                );
+            }
+            if self.local_mission_output.is_none() {
+                return Err(
+                    "a ready offline report must capture its local mission output".to_string(),
+                );
+            }
+        } else if self.missing_or_corrupt.is_empty()
+            && self.network_disabled
+            && self.local_mission_output.is_some()
+        {
+            return Err(
+                "an offline report with the network disabled, nothing missing and an output must be ready"
+                    .to_string(),
+            );
+        }
+        for diag in &self.missing_or_corrupt {
+            diag.verify_diagnosis_invariants()?;
+        }
+        if self.verified_artifacts.iter().any(|a| a.trim().is_empty()) {
+            return Err("verified_artifacts must not contain a blank name".to_string());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod wave14_verifier_tests {
+    use super::*;
+
+    fn entry(name: &str, path: &str) -> BundleArtifactEntry {
+        BundleArtifactEntry {
+            name: name.to_string(),
+            kind: ArtifactKind::Binary,
+            relative_path: path.to_string(),
+            sha256_hex: "a".repeat(64),
+            size_bytes: 128,
+        }
+    }
+
+    #[test]
+    fn bundle_entry_and_manifest_verifiers_reject_corrupt_state() {
+        assert_eq!(entry("susi", "bin/susi").verify_entry_invariants(), Ok(()));
+        let mut traversal = entry("susi", "../bin/susi");
+        assert!(traversal.verify_entry_invariants().is_err());
+        traversal = entry("susi", "bin/susi");
+        traversal.sha256_hex = "A".repeat(64);
+        assert!(traversal.verify_entry_invariants().is_err());
+        let mut zero = entry("susi", "bin/susi");
+        zero.size_bytes = 0;
+        assert!(zero.verify_entry_invariants().is_err());
+
+        let manifest = OfflineBundleManifest {
+            bundle_id: "b1".to_string(),
+            version: "1.0.0".to_string(),
+            artifacts: vec![entry("susi", "bin/susi"), entry("model", "models/m.gguf")],
+        };
+        assert_eq!(manifest.verify_manifest_invariants(), Ok(()));
+        let dup = OfflineBundleManifest {
+            bundle_id: "b1".to_string(),
+            version: "1.0.0".to_string(),
+            artifacts: vec![entry("susi", "bin/susi"), entry("susi", "bin/other")],
+        };
+        assert!(dup.verify_manifest_invariants().is_err());
+        let empty = OfflineBundleManifest {
+            bundle_id: "b1".to_string(),
+            version: "1.0.0".to_string(),
+            artifacts: vec![],
+        };
+        assert!(empty.verify_manifest_invariants().is_err());
+    }
+
+    #[test]
+    fn readiness_report_verifier_enforces_consistent_verdict() {
+        let diag = MissingArtifactDiagnosis {
+            name: "model".to_string(),
+            kind: ArtifactKind::Model,
+            expected_path: "models/m.gguf".to_string(),
+            reason: "sha256 mismatch".to_string(),
+        };
+        assert_eq!(diag.verify_diagnosis_invariants(), Ok(()));
+
+        let ready = OfflineReadinessReport {
+            ready_for_local_mission: true,
+            network_disabled: true,
+            cloud_fallback_attempted: false,
+            verified_artifacts: vec!["susi".to_string()],
+            missing_or_corrupt: vec![],
+            local_mission_output: Some("42".to_string()),
+        };
+        assert_eq!(ready.verify_report_invariants(), Ok(()));
+
+        let ready_but_online = OfflineReadinessReport {
+            network_disabled: false,
+            ..ready.clone()
+        };
+        assert!(ready_but_online.verify_report_invariants().is_err());
+
+        let ready_but_missing = OfflineReadinessReport {
+            missing_or_corrupt: vec![diag.clone()],
+            ..ready.clone()
+        };
+        assert!(ready_but_missing.verify_report_invariants().is_err());
+
+        let not_ready = OfflineReadinessReport {
+            ready_for_local_mission: false,
+            network_disabled: true,
+            cloud_fallback_attempted: false,
+            verified_artifacts: vec![],
+            missing_or_corrupt: vec![diag],
+            local_mission_output: None,
+        };
+        assert_eq!(not_ready.verify_report_invariants(), Ok(()));
+    }
+}

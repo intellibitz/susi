@@ -503,3 +503,80 @@ mod tests {
         );
     }
 }
+
+// ---- Wave 14 (T-CLAUDE-415) structural invariant verifiers ----
+
+impl SecretRef {
+    /// A reference is safe to carry across the boundary: a non-empty scope with no
+    /// `/`, whitespace or control character (so it is the sole segment before the
+    /// name), a non-empty single-line name, and — the property the `secret://` form
+    /// exists for — it round-trips through [`SecretRef::display`] and
+    /// [`SecretRef::parse`] back to itself. It never inspects any secret body.
+    pub fn verify_ref_invariants(&self) -> Result<(), String> {
+        if self.scope.is_empty() {
+            return Err("SecretRef scope must not be empty".to_string());
+        }
+        if self
+            .scope
+            .chars()
+            .any(|c| c == '/' || c.is_whitespace() || c.is_control())
+        {
+            return Err(format!(
+                "SecretRef scope `{}` must have no '/', whitespace or control character",
+                self.scope
+            ));
+        }
+        if self.name.is_empty() {
+            return Err("SecretRef name must not be empty".to_string());
+        }
+        if self.name.chars().any(char::is_control) {
+            return Err("SecretRef name must not contain a control character".to_string());
+        }
+        if SecretRef::parse(&self.display()).as_ref() != Some(self) {
+            return Err(format!(
+                "SecretRef `{}` does not round-trip through secret:// form",
+                self.display()
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod wave14_verifier_tests {
+    use super::*;
+
+    #[test]
+    fn secret_ref_verifier_requires_a_clean_roundtripping_reference() {
+        let ok = SecretRef {
+            scope: "deploy".to_string(),
+            name: "api/token".to_string(),
+        };
+        assert_eq!(ok.verify_ref_invariants(), Ok(()));
+        assert_eq!(SecretRef::parse(&ok.display()).as_ref(), Some(&ok));
+
+        let slash_scope = SecretRef {
+            scope: "de/ploy".to_string(),
+            name: "token".to_string(),
+        };
+        assert!(slash_scope.verify_ref_invariants().is_err());
+
+        let empty_name = SecretRef {
+            scope: "deploy".to_string(),
+            name: String::new(),
+        };
+        assert!(empty_name.verify_ref_invariants().is_err());
+
+        let spaced = SecretRef {
+            scope: "de ploy".to_string(),
+            name: "token".to_string(),
+        };
+        assert!(spaced.verify_ref_invariants().is_err());
+
+        let newline = SecretRef {
+            scope: "deploy".to_string(),
+            name: "to\nken".to_string(),
+        };
+        assert!(newline.verify_ref_invariants().is_err());
+    }
+}

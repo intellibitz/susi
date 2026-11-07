@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDE-416",
+  "parent": "T-CLAUDE-414",
+  "title": "Wave 14 offline bootstrap bundle invariant verifiers in susi-config",
+  "goal": "BundleArtifactEntry/OfflineBundleManifest/MissingArtifactDiagnosis/OfflineReadinessReport verifiers in offline_bundle.rs, with unit tests.",
+  "status": "completed",
+  "created_by": "claude",
+  "created_unix": 1794048020,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-CLAUDE-416.json",
+    "crates/susi-config/src/offline_bundle.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

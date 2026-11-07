@@ -1,0 +1,27 @@
+{
+  "id": "T-CLAUDE-415",
+  "parent": "T-CLAUDE-414",
+  "title": "Wave 14 SecretRef and environment-profile invariant verifiers in susi-config",
+  "goal": "SecretRef::verify_ref_invariants (clean, round-tripping secret:// reference) in secret_ref.rs, and Profile/ProfileSet/Resolved verifiers in env_profiles.rs, with unit tests.",
+  "status": "completed",
+  "created_by": "claude",
+  "created_unix": 1794048010,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-CLAUDE-415.json",
+    "crates/susi-config/src/secret_ref.rs",
+    "crates/susi-config/src/env_profiles.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}
