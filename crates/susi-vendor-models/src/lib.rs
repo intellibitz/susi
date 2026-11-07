@@ -45,7 +45,6 @@ pub mod npu_detection;
 pub mod open_weight;
 pub mod openrouter;
 pub mod price_catalog;
-pub mod quant_recommender;
 pub mod resource_inventory;
 pub mod resumable_downloads;
 pub mod runtime_lifecycle;
