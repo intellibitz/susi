@@ -159,7 +159,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-hyper-util",
     "susi-vendor-jsonschema",
     "susi-vendor-libc",
-    "susi-vendor-md-5",
     "susi-vendor-parking-lot",
     "susi-vendor-proptest",
     "susi-vendor-ra2a",
