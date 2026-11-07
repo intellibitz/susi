@@ -126,11 +126,9 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
-    ("susi-vendor-agents", 5),
     ("susi-vendor-web", 5),
     ("susi-sandbox", 5),
     ("susi-leaf-services", 6),
-    ("susi-agents", 6),
     ("susi-tools", 5),
     ("susi-gemi-models", 6),
     ("susi-gawd-agents", 6),
@@ -462,23 +460,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-gmcp",
                 "susi-tools",
                 "susi-agents",
-                "susi-daemon",
-                "susi-server",
-                "susi-sandbox",
-                "susi-vendor-wasmtime",
-            ],
-        ),
-        (
-            "susi-agents",
-            &[
-                "susi-gemi",
-                "susi-gemi-models",
-                "susi-gmcp",
-                "susi-gawd",
-                "susi-gawd-agents",
-                "susi-gawd-swarm",
-                "susi-gawd-a2a",
-                "susi-tools",
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
@@ -2197,7 +2178,6 @@ fn pruned_non_ai_os_bloat_modules_and_deps_stay_removed() {
         "crates/susi-core/Cargo.toml",
         "crates/susi-gawd-a2a/Cargo.toml",
         "crates/susi-gmcp/Cargo.toml",
-        "crates/susi-vendor-agents/Cargo.toml",
     ] {
         let manifest =
             std::fs::read_to_string(root.join(manifest_rel)).expect("read crate Cargo.toml");
