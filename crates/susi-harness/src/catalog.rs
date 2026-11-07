@@ -115,6 +115,39 @@ impl PriceCatalogue {
     pub fn is_empty(&self) -> bool {
         self.models.is_empty()
     }
+
+    /// Verify fail-closed invariants of a [`PriceCatalogue`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the schema tag does not match [`PRICE_SCHEMA`], if
+    /// the model table is empty, if any model id is blank or has surrounding
+    /// whitespace, or if any model price violates [`ModelPrice::verify_price_invariants`].
+    pub fn verify_catalogue_invariants(&self) -> Result<(), String> {
+        if self.schema != PRICE_SCHEMA {
+            return Err(format!(
+                "price catalogue schema must be {PRICE_SCHEMA}, got {}",
+                self.schema
+            ));
+        }
+        if self.models.is_empty() {
+            return Err("price catalogue models map must not be empty".to_string());
+        }
+        for (model_id, price) in &self.models {
+            if model_id.trim().is_empty() {
+                return Err("price catalogue contains a blank model id".to_string());
+            }
+            if model_id != model_id.trim() {
+                return Err(format!(
+                    "price catalogue model id '{model_id}' has leading or trailing whitespace"
+                ));
+            }
+            price
+                .verify_price_invariants()
+                .map_err(|err| format!("price catalogue model '{model_id}': {err}"))?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -172,5 +205,36 @@ mod tests {
     fn a_missing_file_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         assert!(PriceCatalogue::load(&dir.path().join("absent.json")).is_err());
+    }
+
+    #[test]
+    fn price_catalogue_verify_invariants_reject_corrupt_state() {
+        let builtin = PriceCatalogue::builtin();
+        assert!(builtin.verify_catalogue_invariants().is_ok());
+
+        let mut bad_schema = builtin.clone();
+        bad_schema.schema = "susi/harness/prices/v0".to_string();
+        assert!(bad_schema.verify_catalogue_invariants().is_err());
+
+        let mut empty_models = builtin.clone();
+        empty_models.models.clear();
+        assert!(empty_models.verify_catalogue_invariants().is_err());
+
+        let mut padded_id = builtin.clone();
+        padded_id.models.insert(
+            " padded-model ".to_string(),
+            ModelPrice {
+                input_miss: MicroUsd::from_micros(100),
+                input_hit: MicroUsd::from_micros(10),
+                output: MicroUsd::from_micros(200),
+            },
+        );
+        assert!(padded_id.verify_catalogue_invariants().is_err());
+
+        let mut invalid_price = builtin;
+        invalid_price
+            .models
+            .insert("zero-model".to_string(), ModelPrice::default());
+        assert!(invalid_price.verify_catalogue_invariants().is_err());
     }
 }

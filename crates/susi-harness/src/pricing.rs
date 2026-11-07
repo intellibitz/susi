@@ -51,6 +51,28 @@ impl TokenUsage {
     pub const fn total(self) -> u64 {
         self.input.saturating_add(self.output)
     }
+
+    /// Verify fail-closed invariants of a [`TokenUsage`] record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `cache_hit` exceeds `input` or if `input + output`
+    /// overflows `u64`.
+    pub fn verify_usage_invariants(&self) -> Result<(), String> {
+        if self.cache_hit > self.input {
+            return Err(format!(
+                "token usage cache_hit ({}) exceeds input ({})",
+                self.cache_hit, self.input
+            ));
+        }
+        if self.input.checked_add(self.output).is_none() {
+            return Err(format!(
+                "token usage input ({}) + output ({}) overflows u64",
+                self.input, self.output
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// A model's published price, per million tokens, in micro-USD.
@@ -80,6 +102,28 @@ impl ModelPrice {
             + output * u128::from(self.output.micros());
         let rounded = priced.div_ceil(u128::from(TOKENS_PER_PRICE_UNIT));
         MicroUsd::from_micros(u64::try_from(rounded).unwrap_or(u64::MAX))
+    }
+
+    /// Verify fail-closed invariants of a published [`ModelPrice`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if all three rates are zero or if `input_hit` exceeds
+    /// `input_miss`.
+    pub fn verify_price_invariants(&self) -> Result<(), String> {
+        if self.input_miss == MicroUsd::ZERO
+            && self.input_hit == MicroUsd::ZERO
+            && self.output == MicroUsd::ZERO
+        {
+            return Err("model price rates must not all be zero".to_string());
+        }
+        if self.input_hit > self.input_miss {
+            return Err(format!(
+                "model price input_hit ({}) exceeds input_miss ({})",
+                self.input_hit, self.input_miss
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -154,5 +198,34 @@ mod tests {
         };
         let huge_usage = TokenUsage::new(u64::MAX, 0, 0);
         assert_eq!(huge_price.cost(huge_usage), MicroUsd::from_micros(u64::MAX));
+    }
+
+    #[test]
+    fn usage_and_price_verify_invariants_reject_corrupt_state() {
+        let valid_usage = TokenUsage::new(1_000, 400, 200);
+        assert!(valid_usage.verify_usage_invariants().is_ok());
+
+        let hit_exceeds_input = TokenUsage {
+            input: 100,
+            cache_hit: 101,
+            output: 10,
+        };
+        assert!(hit_exceeds_input.verify_usage_invariants().is_err());
+
+        let overflow_total = TokenUsage {
+            input: u64::MAX,
+            cache_hit: 0,
+            output: 1,
+        };
+        assert!(overflow_total.verify_usage_invariants().is_err());
+
+        assert!(flash().verify_price_invariants().is_ok());
+        assert!(ModelPrice::default().verify_price_invariants().is_err());
+        let inverted = ModelPrice {
+            input_miss: MicroUsd::from_micros(100),
+            input_hit: MicroUsd::from_micros(200),
+            output: MicroUsd::from_micros(300),
+        };
+        assert!(inverted.verify_price_invariants().is_err());
     }
 }
