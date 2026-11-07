@@ -1,11 +1,8 @@
 {
   "id": "T-ANTIGRAVITY-2",
   "native_worker": "antigravity",
-  "title": "Wave 13 susi-harness author, executor, fleet, and ingress invariant verifiers",
-  "created_by": "ANTIGRAVITY",
-  "created_unix": 1794038400,
+  "title": "Wave 14 susi-harness lifecycle, money, policy, and providers invariant verifiers",
   "status": "in_progress",
-  "dependencies": [],
   "scopes": [
     ".agents/tasks/t-antigravity-2.json",
     "crates/susi-harness"
