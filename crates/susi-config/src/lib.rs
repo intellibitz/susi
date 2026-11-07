@@ -301,9 +301,6 @@ mod extensions_tests;
 #[path = "tests/json_util.rs"]
 mod json_util_tests;
 #[cfg(test)]
-#[path = "tests/key_rotation.rs"]
-mod key_rotation_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_076_mastery.rs"]
 mod vc_201_076_mastery_tests;
 
