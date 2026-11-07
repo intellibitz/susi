@@ -55,7 +55,6 @@ pub mod resource_inventory;
 pub mod resumable_downloads;
 pub mod runtime_lifecycle;
 pub mod transactional_download;
-pub mod zc_key_sources;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]
@@ -97,8 +96,6 @@ mod vc_201_055_mastery_tests;
 #[path = "tests/vc_201_055.rs"]
 mod vc_201_055_tests;
 #[cfg(test)]
-#[path = "tests/vc_202_001_mastery.rs"]
-mod vc_202_001_mastery_tests;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries
