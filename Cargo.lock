@@ -4321,7 +4321,6 @@ dependencies = [
  "susi-vendor-dashmap",
  "susi-vendor-hex",
  "susi-vendor-libc",
- "susi-vendor-models",
  "susi-vendor-parking-lot",
  "susi-vendor-proptest",
  "susi-vendor-serde",
@@ -4745,17 +4744,7 @@ name = "susi-vendor-models"
 version = "0.1.0"
 dependencies = [
  "susi-config",
- "susi-core",
- "susi-error",
- "susi-http-transport",
  "susi-paths",
- "susi-sandbox-client",
- "susi-vendor-hex",
- "susi-vendor-rayon",
- "susi-vendor-serde",
- "susi-vendor-serde-json",
- "susi-vendor-sha2",
- "susi-vendor-tempfile",
 ]
 
 [[package]]

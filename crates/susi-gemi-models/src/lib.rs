@@ -29,7 +29,6 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub use susi_config::{accel_reserve, cloud_eligibility, cloud_quota};
 pub use susi_core;
-pub use susi_vendor_models::{hf_discovery, local_ecosystem};
 pub mod cloud;
 pub mod cloud_credentials;
 pub mod cloud_manage;
@@ -39,8 +38,10 @@ pub(crate) mod download;
 pub mod eco_query;
 pub mod frontier;
 pub mod hardware;
+pub mod hf_discovery;
 pub mod intent;
 mod lifecycle;
+pub mod local_ecosystem;
 pub mod model_cache;
 pub mod model_license;
 pub mod open_weight;

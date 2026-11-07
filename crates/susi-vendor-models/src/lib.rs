@@ -17,14 +17,7 @@
 //! consumer paths (`susi_gemi_models::openrouter::*`, …) are unchanged.
 
 pub use susi_config;
-pub use susi_core;
-pub use susi_error;
-pub use susi_sandbox_client as susi_sandbox;
-
 pub use susi_config::{cloud_eligibility, cloud_quota};
-
-pub mod hf_discovery;
-pub mod local_ecosystem;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries

@@ -7,17 +7,7 @@ publish = false
 
 [dependencies]
 susi-paths = { workspace = true }
-susi-error = { workspace = true }
 susi-config = { workspace = true }
-susi-core = { workspace = true }
-susi-sandbox-client = { workspace = true }
-susi-http-transport = { workspace = true }
-hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
-sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
-rayon = { package = "susi-vendor-rayon", path = "../susi-vendor-rayon" }
-serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
-serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
-tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 
 [lints]
 workspace = true
