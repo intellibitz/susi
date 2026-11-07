@@ -9,16 +9,8 @@
 mod alpha_avail;
 mod alpha_pure;
 
-#[cfg(feature = "local-engine")]
-#[path = "alpha.rs"]
 pub mod alpha;
-#[cfg(not(feature = "local-engine"))]
-#[path = "alpha_off.rs"]
-pub mod alpha;
-
 pub mod brain;
-#[cfg(feature = "local-engine")]
-pub(crate) mod candle_err;
 pub mod candle_provider;
 pub mod capability;
 pub mod cost;
@@ -26,11 +18,6 @@ pub mod http_provider;
 pub mod mcp_provider;
 pub mod native_lifecycle;
 pub mod reflex;
-#[cfg(feature = "local-engine")]
-#[path = "reflex_llm.rs"]
-pub mod reflex_llm;
-#[cfg(not(feature = "local-engine"))]
-#[path = "reflex_llm_off.rs"]
 pub mod reflex_llm;
 pub mod routing;
 /// Core local/cloud inference runtime (`GemiEngine`, `NeuralBackend`, …).
