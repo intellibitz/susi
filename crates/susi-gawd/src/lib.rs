@@ -73,7 +73,6 @@ pub mod admin;
 pub mod audit_evidence;
 pub mod autonomous_builder;
 pub mod bloat_audit;
-pub mod brain_gap_audit;
 pub mod capacity_limits;
 pub mod cloud_rsi;
 pub mod cloud_rsi_delivery;
