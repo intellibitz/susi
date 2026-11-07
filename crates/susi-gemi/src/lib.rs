@@ -140,7 +140,6 @@ mod quota_window_accounting_tests;
 #[path = "tests/ranking_by_marginal_cost.rs"]
 mod ranking_by_marginal_cost_tests;
 #[cfg(test)]
-#[cfg(test)]
 #[path = "tests/routing_ladder.rs"]
 mod routing_ladder_tests;
 #[cfg(test)]
@@ -154,7 +153,6 @@ mod vc_201_045_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_047_mastery.rs"]
 mod vc_201_047_mastery_tests;
-#[cfg(test)]
 #[cfg(test)]
 #[path = "tests/vc_201_051.rs"]
 mod vc_201_051_tests;

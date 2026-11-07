@@ -109,7 +109,6 @@ mod native_role_select_wiring_tests;
 #[path = "tests/parallel_roadmap_e2e.rs"]
 mod parallel_roadmap_e2e_tests;
 #[cfg(test)]
-#[cfg(test)]
 #[path = "tests/resource_schedule_dispatch_wiring.rs"]
 mod resource_schedule_dispatch_wiring_tests;
 #[cfg(test)]
@@ -121,7 +120,6 @@ mod side_effects_dispatch_wiring_tests;
 #[cfg(test)]
 #[path = "tests/snapshot_rollback.rs"]
 mod snapshot_rollback_tests;
-#[cfg(test)]
 #[cfg(test)]
 #[path = "tests/swarm_gap_durable_fencing.rs"]
 mod swarm_gap_durable_fencing_tests;
@@ -180,13 +178,11 @@ mod vc_201_033_tests;
 #[path = "tests/vc_201_037.rs"]
 mod vc_201_037_tests;
 #[cfg(test)]
-#[cfg(test)]
 #[path = "tests/vc_201_043_mastery.rs"]
 mod vc_201_043_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_052_mastery.rs"]
 mod vc_201_052_mastery_tests;
-#[cfg(test)]
 #[cfg(test)]
 #[path = "tests/vc_202_007_mastery.rs"]
 mod vc_202_007_mastery_tests;
@@ -196,7 +192,6 @@ mod vc_202_009_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_014_mastery.rs"]
 mod vc_202_014_mastery_tests;
-#[cfg(test)]
 
 /// Wire the MissionDag post-swarm hook into the agents leaf.
 ///

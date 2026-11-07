@@ -102,7 +102,6 @@ pub mod worker_identity;
 pub mod zc_agent_identity;
 
 #[cfg(test)]
-#[cfg(test)]
 #[path = "tests/native_verifier.rs"]
 mod native_verifier;
 #[cfg(test)]
@@ -166,17 +165,11 @@ mod vc_201_017_mastery_tests;
 #[path = "tests/vc_201_017.rs"]
 mod vc_201_017_tests;
 #[cfg(test)]
-#[cfg(test)]
 #[path = "tests/vc_201_018.rs"]
 mod vc_201_018_tests;
 #[cfg(test)]
-#[cfg(test)]
-#[cfg(test)]
 #[path = "tests/vc_201_079.rs"]
 mod vc_201_079_tests;
-#[cfg(test)]
-#[cfg(test)]
-#[cfg(test)]
 #[cfg(test)]
 #[path = "tests/vc_201_097_mastery.rs"]
 mod vc_201_097_mastery_tests;
