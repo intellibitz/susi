@@ -8,11 +8,15 @@ and gives AI workloads the contracts an operating layer should provide:
 discovery, admission, placement, identity, capability control, lifecycle,
 coordination, evidence, audit, observability, and recovery.
 
-The free Apache-2.0 core is a pure CLI plus standards socket: it has no UI,
-bundles no plugin content, starts no third-party software on its own, and is
-released only for x86_64 Windows and Linux (the source stays portable). The
-desktop, every visual view and curated plugin packs live in Susi Commercial
-Apps, which reaches core through the same public protocols.
+The free Apache-2.0 core is a pure CLI plus standards socket organized around
+four primary pillars on `susi-core` — `susi-gawd` (evidence-gated swarm and A2A
+coordination), `susi-gemi` (local and cloud model inference router), `susi-gmcp`
+(MCP 2025-11-25 protocol server and tool plane), and `susi-harness` (unique
+parallel multi-agent self-build workflow): it has no UI, bundles no plugin
+content, starts no third-party software on its own, and is released only for
+x86_64 Windows and Linux (the source stays portable). The desktop, every visual
+view and curated plugin packs live in Susi Commercial Apps, which reaches core
+through the same public protocols.
 
 This document states direction. Current product truth is defined by
 `.agents/identity.json`, verified claims by `.agents/evidence.json`, and
