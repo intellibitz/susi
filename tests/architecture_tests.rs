@@ -115,6 +115,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-core", 3),
     ("susi-sandbox-client", 3),
     ("susi-vendor-wasmtime", 2),
+    ("susi-vendor-mcp", 0),
     ("susi-vendor-mcp-server", 0),
     ("susi-vendor-syn", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.

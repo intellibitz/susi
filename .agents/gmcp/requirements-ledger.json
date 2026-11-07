@@ -108,7 +108,7 @@
    "clause": "`susi-vendor-mcp` connects over stdio or HTTP and lists/calls tools",
    "disposition": {
     "status": "modern",
-    "reason": "published implementation claim: the program must prove it or retract the claim. NOT IMPLEMENTED in core since 2026-11-08: the production path was deleted from core in iterations 351-352 (d73374e00, ba8a2ade9: \"migrate MCP client SDK adapter to susi-commercial-apps (susi-ecosystem-hub)\"); no such adapter exists on the commercial origin as of 2026-11-08 00:50, and core's susi-tools answers an error for external MCP tool discovery and execution. Restore list: ANTIGRAVITY-NEXT-100.md, item 4."
+    "reason": "published implementation claim: the program must prove it or retract the claim."
    },
    "trace": {
     "vector": "VC-203-017",

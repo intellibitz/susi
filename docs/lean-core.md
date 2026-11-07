@@ -210,3 +210,8 @@ table once the clean baseline is recorded.
   dashmap and flume costs susi-gawd-swarm 8 lines (lock guards where DashMap entries were);
   pinned at the combined tree's values. The exact line pin has now lost to three ungated pushes
   and one legitimate cut; the next change makes it a per-change delta against the merge-base.
+- 2026-11-08 wave 1, batch landing: iterations 351 and 352 (MCP client adapter stubbed, the
+  rmcp facade deleted, "migrated to commercial" with nothing on the commercial origin) are
+  reverted in core until a plug or the destination exists: `tests/mcp_call_cli_tests` failed
+  on plain main. The third-party count goes back up by the rmcp family for now; the mandate
+  (workspace AGENTS.md) forbids this kind of deletion from here on.
