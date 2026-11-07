@@ -257,7 +257,7 @@ impl TelemetryHistoryStore {
                 }
             }
             let mut binding = self.profiles.write().unwrap_or_else(|e| e.into_inner());
-            let mut profile =
+            let profile =
                 binding
                     .entry(category.to_string())
                     .or_insert_with(|| IntentTelemetryProfile {
@@ -679,8 +679,8 @@ impl SwarmTaskManager {
         self.tasks
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .map(|(_, v)| v.clone())
+            .values()
+            .cloned()
             .collect()
     }
 

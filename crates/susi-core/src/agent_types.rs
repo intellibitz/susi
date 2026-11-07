@@ -145,8 +145,8 @@ impl HighDensityContextStore {
             .inner
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .map(|(k, _)| k.clone())
+            .keys()
+            .cloned()
             .collect();
         for k in live_keys {
             if !snap.contains_key(&k) {

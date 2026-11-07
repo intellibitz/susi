@@ -181,11 +181,8 @@ impl TxManager {
         entry.status = TxStatus::Committed;
         entry.closed_at = Some(now());
         let out = entry.clone();
-        drop(entry);
-        self.open
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(tx_id);
+        guard.remove(tx_id);
+        drop(guard);
         // A commit that stays Open on disk would let a later process's
         // abort roll back committed work.
         self.persist(&out)?;
@@ -222,11 +219,8 @@ impl TxManager {
         entry.status = TxStatus::Aborted;
         entry.closed_at = Some(now());
         let out = entry.clone();
-        drop(entry);
-        self.open
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(tx_id);
+        guard.remove(tx_id);
+        drop(guard);
         self.persist(&out)?;
         Ok(out)
     }
@@ -298,8 +292,8 @@ impl TxManager {
         self.open
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .map(|(_, v)| v.clone())
+            .values()
+            .cloned()
             .collect()
     }
 }

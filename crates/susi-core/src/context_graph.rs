@@ -166,7 +166,9 @@ pub struct ContextGraphStats {
 pub struct ContextGraph {
     nodes: RwLock<HashMap<NodeId, Node>>,
     edges: RwLock<HashMap<String, Edge>>,
+    #[allow(clippy::type_complexity)]
     adjacency: RwLock<HashMap<NodeId, RwLock<HashMap<NodeId, String>>>>,
+    #[allow(clippy::type_complexity)]
     reverse: RwLock<HashMap<NodeId, RwLock<HashMap<NodeId, String>>>>,
     storage_path: std::sync::Mutex<Option<PathBuf>>,
     /// Bytes of the log already folded into the in-memory indexes —
@@ -383,21 +385,21 @@ impl ContextGraph {
             self.nodes
                 .write()
                 .unwrap_or_else(|e| e.into_inner())
-                .remove(&id);
+                .remove(id);
             if let Some(out) = self
                 .adjacency
                 .write()
                 .unwrap_or_else(|e| e.into_inner())
-                .remove(&id)
+                .remove(id)
             {
                 for (target, eid) in out.read().unwrap_or_else(|e| e.into_inner()).iter() {
                     if let Some(rev) = self
                         .reverse
                         .read()
                         .unwrap_or_else(|e| e.into_inner())
-                        .get(&target)
+                        .get(target)
                     {
-                        rev.write().unwrap_or_else(|e| e.into_inner()).remove(&id);
+                        rev.write().unwrap_or_else(|e| e.into_inner()).remove(id);
                     }
                     self.edges
                         .write()
@@ -409,16 +411,16 @@ impl ContextGraph {
                 .reverse
                 .write()
                 .unwrap_or_else(|e| e.into_inner())
-                .remove(&id)
+                .remove(id)
             {
                 for (source, eid) in inc.read().unwrap_or_else(|e| e.into_inner()).iter() {
                     if let Some(fwd) = self
                         .adjacency
                         .read()
                         .unwrap_or_else(|e| e.into_inner())
-                        .get(&source)
+                        .get(source)
                     {
-                        fwd.write().unwrap_or_else(|e| e.into_inner()).remove(&id);
+                        fwd.write().unwrap_or_else(|e| e.into_inner()).remove(id);
                     }
                     self.edges
                         .write()

@@ -264,8 +264,8 @@ impl IntentBus {
         for m in local
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .map(|(_, v)| v.clone())
+            .values()
+            .cloned()
         {
             if seen.insert(m.id.clone()) {
                 out.push(m);

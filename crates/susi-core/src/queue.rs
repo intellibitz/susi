@@ -21,6 +21,7 @@ pub struct PulseEntry {
 struct Lane {
     tx: std::sync::mpsc::Sender<PulseEntry>,
     rx: std::sync::Mutex<std::sync::mpsc::Receiver<PulseEntry>>,
+    len: std::sync::atomic::AtomicUsize,
 }
 
 impl Lane {
@@ -29,24 +30,30 @@ impl Lane {
         Self {
             tx,
             rx: std::sync::Mutex::new(rx),
+            len: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
     fn push(&self, entry: PulseEntry) {
-        // Cannot fail: `rx` is owned alongside `tx` for the queue's lifetime.
         let _ = self.tx.send(entry);
+        self.len.fetch_add(1, Ordering::SeqCst);
     }
 
     fn pop(&self) -> Option<PulseEntry> {
-        self.rx
+        let res = self
+            .rx
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .try_recv()
-            .ok()
+            .ok();
+        if res.is_some() {
+            self.len.fetch_sub(1, Ordering::SeqCst);
+        }
+        res
     }
 
     fn is_empty(&self) -> bool {
-        false
+        self.len.load(Ordering::SeqCst) == 0
     }
 }
 

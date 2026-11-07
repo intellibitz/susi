@@ -484,7 +484,7 @@ impl RateLimiter {
         }
 
         let mut binding = self.buckets.write().unwrap_or_else(|e| e.into_inner());
-        let mut entry = binding.entry(ip).or_insert((now, 0));
+        let entry = binding.entry(ip).or_insert((now, 0));
         if now.duration_since(entry.0) >= Self::WINDOW {
             *entry = (now, 1);
             return true;

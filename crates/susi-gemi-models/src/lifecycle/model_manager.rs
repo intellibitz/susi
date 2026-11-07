@@ -1,4 +1,3 @@
-use std::collections::{HashMap, HashSet};
 // Model Manager: GGUF, Cloud & Autonomous Model Discovery
 // 100% Rust implementation for world-scale model orchestration with expert background Stop/Pause/Resume controller & ~/Downloads testing integration
 
@@ -7,7 +6,7 @@ use crate::resumable_downloads::DownloadPlan;
 use crate::susi_core::task_manager::TaskHandle;
 use crate::susi_sandbox::manager::DynamicModelInfo;
 use crate::transactional_download::Store;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -125,7 +124,7 @@ impl ModelManager {
         MODEL_FAILURES
             .get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .get(model)
             .is_some_and(|failed| failed.elapsed().as_secs() < cooldown)
     }

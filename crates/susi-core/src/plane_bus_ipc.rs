@@ -334,7 +334,7 @@ impl IpcPlaneBus {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .get(topic)
-            .map(|v| Arc::clone(v))
+            .map(Arc::clone)
         {
             return invoke(h, topic, payload);
         }
@@ -701,7 +701,7 @@ fn dispatch(
         .read()
         .unwrap_or_else(|e| e.into_inner())
         .get(topic)
-        .map(|v| Arc::clone(v))
+        .map(Arc::clone)
     {
         return Some(invoke(h, topic, payload));
     }

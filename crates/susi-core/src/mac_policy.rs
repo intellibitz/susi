@@ -521,7 +521,7 @@ impl MacPolicy {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .get(&grant_key(subject, action, resource))
-            .map(|t| t.clone())
+            .cloned()
             .filter(matches)
     }
 

@@ -554,7 +554,7 @@ impl EvidenceSession {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .get(id)
-            .map(|entry| entry.clone())
+            .cloned()
     }
 
     /// Compact audit trail for the mission report: provenance and hashes only,
@@ -705,7 +705,7 @@ impl EvidenceSession {
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&citation.receipt_id)
-                .map(|r| r.clone())
+                .cloned()
                 .ok_or_else(|| {
                     EaiError::governance("TRUTH_UNVERIFIED: citation not captured in this mission")
                 })?;

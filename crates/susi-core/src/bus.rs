@@ -106,6 +106,7 @@ type Subscribers<E> = std::sync::Mutex<Vec<std::sync::mpsc::Sender<E>>>;
 /// receiver shares that subscription's queue rather than creating a new one.
 #[derive(Default, Clone)]
 pub struct TypedEventBus {
+    #[allow(clippy::type_complexity)]
     channels: Arc<RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
 
@@ -121,7 +122,7 @@ impl TypedEventBus {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .get(&TypeId::of::<E>())
-            .map(|entry| entry.clone());
+            .cloned();
         if let Some(subscribers) = subscribers {
             // Mandate 42: safe - the map is keyed by TypeId::of::<E>(), and
             // subscribe() (below) only ever inserts an Arc<Subscribers<E>>
@@ -157,7 +158,7 @@ impl TypedEventBus {
             .expect("event type must match its subscriber list");
         let (sender, receiver) = std::sync::mpsc::channel();
         let mut subscribers = subscribers.lock().unwrap_or_else(|e| e.into_inner());
-        subscribers.retain(|sender| true);
+        subscribers.retain(|_sender| true);
         subscribers.push(sender);
         receiver
     }

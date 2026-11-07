@@ -290,7 +290,9 @@ impl Provider for RemoteProvider {
 #[derive(Clone)]
 pub struct IpcCapabilityRegistry {
     bus: Arc<IpcPlaneBus>,
+    #[allow(clippy::type_complexity)]
     tools: Arc<RwLock<HashMap<String, Arc<dyn Tool>>>>,
+    #[allow(clippy::type_complexity)]
     providers: Arc<RwLock<HashMap<String, Arc<dyn Provider>>>>,
     agents: Arc<RwLock<HashMap<String, AgentCapability>>>,
     provider_rt: Arc<OnceLock<Option<tokio::runtime::Runtime>>>,
@@ -425,8 +427,8 @@ impl IpcCapabilityRegistry {
             .tools
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .map(|(k, _)| k.clone())
+            .keys()
+            .cloned()
             .collect();
         for dir in self.cap_dirs("tool") {
             for meta in scan_caps(&dir) {
@@ -497,8 +499,8 @@ impl IpcCapabilityRegistry {
             .providers
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .map(|(k, _)| k.clone())
+            .keys()
+            .cloned()
             .collect();
         for dir in self.cap_dirs("provider") {
             for meta in scan_caps(&dir) {
@@ -560,8 +562,8 @@ impl IpcCapabilityRegistry {
             .agents
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .map(|(_, v)| v.clone())
+            .values()
+            .cloned()
             .collect();
         for dir in self.cap_dirs("agent") {
             for meta in scan_caps(&dir) {
