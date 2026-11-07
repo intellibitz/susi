@@ -30,7 +30,6 @@ pub mod anti_entropy;
 pub mod audit;
 pub mod cancel_propagate;
 pub mod capacity_admission;
-pub mod chaos_deployment;
 pub mod cloud_failover;
 pub mod cloud_lockout;
 pub(crate) mod cloud_recovery;
@@ -194,8 +193,6 @@ mod vc_201_043_mastery_tests;
 #[path = "tests/vc_201_052_mastery.rs"]
 mod vc_201_052_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_095_mastery.rs"]
-mod vc_201_095_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_007_mastery.rs"]
 mod vc_202_007_mastery_tests;
