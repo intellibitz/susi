@@ -40,7 +40,6 @@ pub mod dag;
 pub mod deliberation;
 pub mod fair_queue;
 pub mod fault_matrix;
-pub mod federation_compat;
 pub mod host_hooks;
 pub mod identity_revoke;
 pub mod independent_verify;
@@ -197,9 +196,6 @@ mod vc_201_032_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_033.rs"]
 mod vc_201_033_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_034.rs"]
-mod vc_201_034_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_036.rs"]
 mod vc_201_036_tests;
