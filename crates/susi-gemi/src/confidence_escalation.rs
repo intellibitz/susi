@@ -42,6 +42,33 @@ pub struct EvoiEscalationInput {
     pub safety_floor: f64,
 }
 
+impl EvoiEscalationInput {
+    /// Verify structural invariants on EVOI escalation inputs.
+    pub fn verify_input_invariants(&self) -> Result<(), String> {
+        if !self.cheap_confidence.is_finite() || !(0.0..=1.0).contains(&self.cheap_confidence) {
+            return Err("cheap_confidence must be finite and within 0.0..=1.0".to_string());
+        }
+        if !self.frontier_reliability.is_finite()
+            || !(0.0..=1.0).contains(&self.frontier_reliability)
+        {
+            return Err("frontier_reliability must be finite and within 0.0..=1.0".to_string());
+        }
+        if !self.cheap_cost_usd.is_finite() || self.cheap_cost_usd < 0.0 {
+            return Err("cheap_cost_usd must be finite and non-negative".to_string());
+        }
+        if !self.frontier_cost_usd.is_finite() || self.frontier_cost_usd < 0.0 {
+            return Err("frontier_cost_usd must be finite and non-negative".to_string());
+        }
+        if !self.task_value_usd.is_finite() || self.task_value_usd <= 0.0 {
+            return Err("task_value_usd must be finite and strictly positive".to_string());
+        }
+        if !self.safety_floor.is_finite() || !(0.0..=1.0).contains(&self.safety_floor) {
+            return Err("safety_floor must be finite and within 0.0..=1.0".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Decision-theoretic output of [`evoi_escalate`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvoiDecision {
@@ -52,6 +79,24 @@ pub struct EvoiDecision {
     /// Risk-calibrated indifferent confidence threshold $\tau^* = p_{\text{frontier}} - \Delta C / V_{\text{task}}$.
     pub optimal_threshold: f64,
     pub reason: String,
+}
+
+impl EvoiDecision {
+    /// Verify structural invariants on an EVOI escalation decision.
+    pub fn verify_decision_invariants(&self) -> Result<(), String> {
+        if !self.evoi_usd.is_finite() {
+            return Err("EvoiDecision evoi_usd must be finite".to_string());
+        }
+        if !self.optimal_threshold.is_finite() || !(0.0..=1.0).contains(&self.optimal_threshold) {
+            return Err(
+                "EvoiDecision optimal_threshold must be finite and within 0.0..=1.0".to_string(),
+            );
+        }
+        if self.reason.trim().is_empty() {
+            return Err("EvoiDecision reason must not be empty".to_string());
+        }
+        Ok(())
+    }
 }
 
 /// Compute whether escalating from a cheap/local tier to a frontier tier has
@@ -168,6 +213,32 @@ impl SprtEscalator {
             SprtVerdict::Continue
         }
     }
+
+    /// Verify structural invariants on a Wald SPRT escalator.
+    pub fn verify_escalator_invariants(&self) -> Result<(), String> {
+        if !self.p0_healthy.is_finite() || !(0.51..=0.999).contains(&self.p0_healthy) {
+            return Err("SprtEscalator p0_healthy must be finite and in 0.51..=0.999".to_string());
+        }
+        if !self.p1_degraded.is_finite()
+            || self.p1_degraded <= 0.0
+            || self.p1_degraded >= self.p0_healthy
+        {
+            return Err(
+                "SprtEscalator p1_degraded must be finite, positive, and strictly less than p0_healthy"
+                    .to_string(),
+            );
+        }
+        if !self.lower_bound_a.is_finite() || self.lower_bound_a >= 0.0 {
+            return Err("SprtEscalator lower_bound_a must be finite and negative".to_string());
+        }
+        if !self.upper_bound_b.is_finite() || self.upper_bound_b <= 0.0 {
+            return Err("SprtEscalator upper_bound_b must be finite and positive".to_string());
+        }
+        if !self.log_likelihood_ratio.is_finite() {
+            return Err("SprtEscalator log_likelihood_ratio must be finite".to_string());
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -268,5 +339,42 @@ mod confidence_escalation_tests {
         let decoded: SprtEscalator =
             serde_json::from_str(&encoded).expect("deserialize SprtEscalator");
         assert_eq!(decoded, sprt);
+    }
+
+    #[test]
+    fn verify_evoi_and_sprt_invariants() {
+        let valid_input = EvoiEscalationInput {
+            cheap_confidence: 0.70,
+            frontier_reliability: 0.95,
+            cheap_cost_usd: 0.0,
+            frontier_cost_usd: 0.02,
+            task_value_usd: 1.5,
+            safety_floor: 0.35,
+        };
+        assert!(valid_input.verify_input_invariants().is_ok());
+
+        let bad_input = EvoiEscalationInput {
+            task_value_usd: 0.0,
+            ..valid_input
+        };
+        assert!(bad_input.verify_input_invariants().is_err());
+
+        let decision = evoi_escalate(valid_input);
+        assert!(decision.verify_decision_invariants().is_ok());
+
+        let bad_decision = EvoiDecision {
+            reason: "   ".to_string(),
+            ..decision
+        };
+        assert!(bad_decision.verify_decision_invariants().is_err());
+
+        let sprt = SprtEscalator::new(0.85, 0.45, 0.05, 0.05);
+        assert!(sprt.verify_escalator_invariants().is_ok());
+
+        let inverted_sprt = SprtEscalator {
+            p1_degraded: 0.90,
+            ..sprt
+        };
+        assert!(inverted_sprt.verify_escalator_invariants().is_err());
     }
 }
