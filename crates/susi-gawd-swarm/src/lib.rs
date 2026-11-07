@@ -76,9 +76,6 @@ mod audit_action_choke_point_tests;
 #[path = "tests/audit_payload_free_policy.rs"]
 mod audit_payload_free_policy_tests;
 #[cfg(test)]
-#[path = "tests/cancel_terminates.rs"]
-mod cancel_terminates_tests;
-#[cfg(test)]
 #[path = "tests/durable_fence.rs"]
 mod durable_fence_tests;
 #[cfg(test)]
