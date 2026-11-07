@@ -82,13 +82,55 @@ impl NativeInferenceEngine for SusiGgufEngine {
 impl SusiGgufEngine {
     fn run_inference_stream_inner(
         &self,
-        _prompt: &str,
-        _callback: &dyn Fn(String),
-        _selected_model: Option<&str>,
+        prompt: &str,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
         _task_handle: &Arc<crate::susi_core::task_manager::TaskHandle>,
     ) -> EaiResult<String> {
+        if let Some(plug) = crate::engines::local_plug::local_engine_plug() {
+            return plug.run_inference_stream(prompt, callback, selected_model);
+        }
+        if let Some(res) = crate::engines::local_plug::call_bus_plug(
+            crate::engines::local_plug::TOPIC_LOCAL_INFER_STREAM,
+            serde_json::json!({
+                "prompt": prompt,
+                "selected_model": selected_model,
+            }),
+        ) {
+            let val = res?;
+            if let Some(text) = val.get("text").and_then(serde_json::Value::as_str) {
+                callback(text.to_string());
+                return Ok(text.to_string());
+            }
+        }
+        let eco = crate::models::local_ecosystem::scan(&crate::models::local_ecosystem::HostProbe);
+        for eng in eco.engines.iter().filter(|e| e.running) {
+            if let Some(endpoint) = &eng.endpoint {
+                let model = selected_model
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or("default")
+                    .to_string();
+                let provider = crate::engines::http_provider::HttpProvider {
+                    name: format!("local-{}", eng.id),
+                    api_base: endpoint.clone(),
+                    model,
+                    protocol: crate::engines::http_provider::InferenceProtocol::OpenAiCompletions,
+                    api_key: String::new(),
+                };
+                if let Some(rt) = GemiEngine::provider_runtime() {
+                    if let Ok(out) =
+                        rt.block_on(crate::susi_core::Provider::generate(&provider, prompt))
+                    {
+                        if !out.trim().is_empty() {
+                            callback(out.clone());
+                            return Ok(out);
+                        }
+                    }
+                }
+            }
+        }
         Err(EaiError::inference(
-            "built-in local model engine is not in this core; rebuild with --features local-engine",
+            "local model engine is not attached; register a LocalEnginePlug (susi-gpu-fabric) or build with --features local-engine",
         ))
     }
 }

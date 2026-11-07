@@ -15,6 +15,7 @@ pub mod candle_provider;
 pub mod capability;
 pub mod cost;
 pub mod http_provider;
+pub mod local_plug;
 pub mod mcp_provider;
 pub mod native_lifecycle;
 pub mod reflex;
