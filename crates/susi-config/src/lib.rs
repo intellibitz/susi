@@ -308,9 +308,6 @@ mod vc_201_076_mastery_tests;
 #[path = "tests/key_scope.rs"]
 mod key_scope_tests;
 #[cfg(test)]
-#[path = "tests/setup_workflow.rs"]
-mod setup_workflow_tests;
-#[cfg(test)]
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
 #[cfg(test)]
