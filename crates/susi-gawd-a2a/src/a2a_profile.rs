@@ -39,6 +39,40 @@ impl A2aProfile {
         self.selected_dialect = Some(dialect.to_string());
         Ok(())
     }
+
+    /// Verify structural and selection invariants on an [`A2aProfile`]:
+    /// non-empty versions and dialects without blank entries, coupled selection
+    /// (`selected_version.is_some() == selected_dialect.is_some()`), and membership
+    /// of any selected version/dialect in the supported lists.
+    pub fn verify_profile_invariants(&self) -> Result<(), String> {
+        if self.versions.is_empty() || self.versions.iter().any(|v| v.trim().is_empty()) {
+            return Err("A2aProfile versions must be non-empty without blank entries".to_string());
+        }
+        if self.dialects.is_empty() || self.dialects.iter().any(|d| d.trim().is_empty()) {
+            return Err("A2aProfile dialects must be non-empty without blank entries".to_string());
+        }
+        if self.selected_version.is_some() != self.selected_dialect.is_some() {
+            return Err(
+                "A2aProfile selected_version and selected_dialect must both be set or both be None"
+                    .to_string(),
+            );
+        }
+        if let Some(ref v) = self.selected_version {
+            if !self.versions.iter().any(|item| item == v) {
+                return Err(format!(
+                    "selected_version `{v}` is not in supported versions"
+                ));
+            }
+        }
+        if let Some(ref d) = self.selected_dialect {
+            if !self.dialects.iter().any(|item| item == d) {
+                return Err(format!(
+                    "selected_dialect `{d}` is not in supported dialects"
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -159,5 +193,26 @@ mod eco_a2a_security_tests {
             .iter()
             .any(|s| s["name"] == "agent-card"));
         assert_eq!(p["provenance"]["confidence"], "verified");
+    }
+
+    #[test]
+    fn a2a_profile_invariants_validate_selection_and_reject_unlisted_or_half_selected_state() {
+        let mut p = super::A2aProfile::default_profile();
+        assert!(p.verify_profile_invariants().is_ok());
+
+        p.select(ra2a::PROTOCOL_VERSION, "json-rpc").unwrap();
+        assert!(p.verify_profile_invariants().is_ok());
+
+        let mut half = p.clone();
+        half.selected_dialect = None;
+        assert!(half.verify_profile_invariants().is_err());
+
+        let mut unlisted = p.clone();
+        unlisted.selected_version = Some("99.0".to_string());
+        assert!(unlisted.verify_profile_invariants().is_err());
+
+        let mut empty_versions = p;
+        empty_versions.versions.clear();
+        assert!(empty_versions.verify_profile_invariants().is_err());
     }
 }

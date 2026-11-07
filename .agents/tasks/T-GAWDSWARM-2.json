@@ -4,25 +4,28 @@
       "cargo",
       "test",
       "-p",
-      "susi-gawd-swarm",
+      "susi-gawd-a2a",
       "--lib",
       "--offline",
       "--locked",
-      "quorum_durable"
+      "a2a_profile"
     ]
   },
   "id": "T-GAWDSWARM-2",
   "size": "m",
-  "goal": "Add CommitDurability::verify_durability_invariants in crates/susi-gawd-swarm/src/quorum_durable.rs validating ack bounds, quorum tally, electorate bounds, monotonic seq/term, and non-blank Undurable reasons.",
+  "goal": "Add A2aProfile::verify_profile_invariants in crates/susi-gawd-a2a/src/a2a_profile.rs validating versions, dialects, and coupled selection invariants.",
+  "scope": [
+    ".agents/tasks/T-GAWDSWARM-2.json",
+    "crates/susi-gawd-a2a"
+  ],
   "scopes": [
     ".agents/tasks/T-GAWDSWARM-2.json",
-    "crates/susi-gawd-a2a",
-    "crates/susi-gawd-swarm/src/quorum_durable.rs"
+    "crates/susi-gawd-a2a"
   ],
   "deps": [],
   "created_by": "GAWDSWARM",
   "created_unix": 1794002500,
   "status": "completed",
-  "title": "Add CommitDurability::verify_durability_invariants in susi-gawd-swarm",
+  "title": "Add A2aProfile::verify_profile_invariants in susi-gawd-a2a",
   "native_worker": "gawd-swarm"
 }
