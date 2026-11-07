@@ -257,6 +257,57 @@ impl BenchmarkRunner {
         }
         out
     }
+
+    /// Verify structural invariants on the benchmark runner's canonical prompt suite.
+    pub fn verify_runner_invariants(&self) -> Result<(), String> {
+        if BENCHMARK_PROMPTS.is_empty() {
+            return Err("BENCHMARK_PROMPTS must not be empty".to_string());
+        }
+        for prompt in BENCHMARK_PROMPTS {
+            if prompt.trim().is_empty() {
+                return Err("BENCHMARK_PROMPTS entry must not be blank".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// Verify structural invariants on a measured model benchmark result.
+    pub fn verify_result_invariants(res: &ModelBenchmarkResult) -> Result<(), String> {
+        if res.model_id.trim().is_empty() {
+            return Err("ModelBenchmarkResult model_id must not be empty".to_string());
+        }
+        if res.name.trim().is_empty() {
+            return Err("ModelBenchmarkResult name must not be empty".to_string());
+        }
+        if !res.tokens_per_sec.is_finite() || res.tokens_per_sec < 0.0 {
+            return Err(format!(
+                "ModelBenchmarkResult tokens_per_sec ({}) must be finite and >= 0.0",
+                res.tokens_per_sec
+            ));
+        }
+        if res.status.trim().is_empty() {
+            return Err("ModelBenchmarkResult status must not be empty".to_string());
+        }
+        if !res.memory_used_mb.is_finite() || res.memory_used_mb < 0.0 {
+            return Err(format!(
+                "ModelBenchmarkResult memory_used_mb ({}) must be finite and >= 0.0",
+                res.memory_used_mb
+            ));
+        }
+        if !res.peak_memory_mb.is_finite() || res.peak_memory_mb < 0.0 {
+            return Err(format!(
+                "ModelBenchmarkResult peak_memory_mb ({}) must be finite and >= 0.0",
+                res.peak_memory_mb
+            ));
+        }
+        if res.memory_used_mb > res.peak_memory_mb + 1e-3 {
+            return Err(format!(
+                "ModelBenchmarkResult memory_used_mb ({}) must be <= peak_memory_mb ({})",
+                res.memory_used_mb, res.peak_memory_mb
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -314,5 +365,42 @@ mod tests {
             BenchmarkRunner::completion_count(&body).unwrap(),
             (7, "OK".into())
         );
+    }
+
+    #[test]
+    fn verify_gemi_wave14_invariants_benchmark() {
+        let runner = BenchmarkRunner;
+        assert!(runner.verify_runner_invariants().is_ok());
+
+        let valid = ModelBenchmarkResult {
+            model_id: "qwen2.5-coder-7b".to_string(),
+            name: "Local".to_string(),
+            is_local: true,
+            latency_ms: 250,
+            tokens_per_sec: 48.0,
+            status: "OK".to_string(),
+            memory_used_mb: 120.0,
+            peak_memory_mb: 4096.0,
+        };
+        assert!(BenchmarkRunner::verify_result_invariants(&valid).is_ok());
+
+        let blank_model = ModelBenchmarkResult {
+            model_id: "  ".to_string(),
+            ..valid.clone()
+        };
+        assert!(BenchmarkRunner::verify_result_invariants(&blank_model).is_err());
+
+        let neg_tps = ModelBenchmarkResult {
+            tokens_per_sec: -1.0,
+            ..valid.clone()
+        };
+        assert!(BenchmarkRunner::verify_result_invariants(&neg_tps).is_err());
+
+        let inverted_mem = ModelBenchmarkResult {
+            memory_used_mb: 5000.0,
+            peak_memory_mb: 4096.0,
+            ..valid
+        };
+        assert!(BenchmarkRunner::verify_result_invariants(&inverted_mem).is_err());
     }
 }

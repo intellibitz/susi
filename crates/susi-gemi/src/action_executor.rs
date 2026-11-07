@@ -19,6 +19,29 @@ pub struct ParsedAction {
     pub args: Vec<String>,
 }
 
+impl ParsedAction {
+    /// Verify structural invariants on a parsed reflex action.
+    pub fn verify_action_invariants(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() || self.name.chars().any(char::is_whitespace) {
+            return Err("ParsedAction name must be non-empty and free of whitespace".to_string());
+        }
+        if self.name != self.name.to_ascii_lowercase() {
+            return Err(format!(
+                "ParsedAction name '{}' must be lowercase ASCII",
+                self.name
+            ));
+        }
+        for arg in &self.args {
+            if arg.trim().is_empty() || arg.chars().any(char::is_whitespace) {
+                return Err(
+                    "ParsedAction arg token must be non-empty and whitespace-free".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Parse a served reflex line. Returns `None` for generative (non-ACTION)
 /// output and for a bare `ACTION:` with no name.
 #[must_use]
@@ -69,6 +92,43 @@ pub enum ActionOutcome {
     PassedThrough { line: String },
     /// Not an ACTION line / unparseable — treat as generative text.
     Generative,
+}
+
+impl ActionOutcome {
+    /// Verify structural invariants on an action execution outcome.
+    pub fn verify_outcome_invariants(&self) -> Result<(), String> {
+        match self {
+            Self::Executed { receipt, output } => {
+                let Some(name) = receipt.strip_prefix("reflex:") else {
+                    return Err(format!(
+                        "ActionOutcome::Executed receipt '{receipt}' must start with 'reflex:'"
+                    ));
+                };
+                if !is_read_only(name) {
+                    return Err(format!(
+                        "ActionOutcome::Executed action '{name}' must be read-only"
+                    ));
+                }
+                if output.trim().is_empty() {
+                    return Err("ActionOutcome::Executed output must not be empty".to_string());
+                }
+                Ok(())
+            }
+            Self::Escalated { action } => {
+                if action.trim().is_empty() {
+                    return Err("ActionOutcome::Escalated action must not be empty".to_string());
+                }
+                Ok(())
+            }
+            Self::PassedThrough { line } => {
+                if line.trim().is_empty() {
+                    return Err("ActionOutcome::PassedThrough line must not be empty".to_string());
+                }
+                Ok(())
+            }
+            Self::Generative => Ok(()),
+        }
+    }
 }
 
 /// Decide (and for read-only, execute) a served Tier-0/1 line.
@@ -228,5 +288,48 @@ mod tests {
             ActionOutcome::Escalated { action } => assert!(action.contains("tool error")),
             other => panic!("expected Escalated, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn verify_gemi_wave14_invariants_action_executor() {
+        let parsed = parse_action("ACTION: list_directory /ws").unwrap();
+        assert!(parsed.verify_action_invariants().is_ok());
+
+        let upper_name = ParsedAction {
+            name: "STATUS".to_string(),
+            args: vec![],
+        };
+        assert!(upper_name.verify_action_invariants().is_err());
+
+        let blank_arg = ParsedAction {
+            name: "status".to_string(),
+            args: vec![" ".to_string()],
+        };
+        assert!(blank_arg.verify_action_invariants().is_err());
+
+        let tool = StubTool::new();
+        assert!(resolve("ACTION: status", false, &tool)
+            .verify_outcome_invariants()
+            .is_ok());
+        assert!(resolve("ACTION: deploy", false, &tool)
+            .verify_outcome_invariants()
+            .is_ok());
+        assert!(resolve("ACTION: deploy", true, &tool)
+            .verify_outcome_invariants()
+            .is_ok());
+        assert!(ActionOutcome::Generative
+            .verify_outcome_invariants()
+            .is_ok());
+
+        let bad_receipt = ActionOutcome::Executed {
+            receipt: "reflex:delete_file".to_string(),
+            output: "deleted".to_string(),
+        };
+        assert!(bad_receipt.verify_outcome_invariants().is_err());
+
+        let empty_escalated = ActionOutcome::Escalated {
+            action: "   ".to_string(),
+        };
+        assert!(empty_escalated.verify_outcome_invariants().is_err());
     }
 }

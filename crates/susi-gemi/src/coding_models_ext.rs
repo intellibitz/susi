@@ -9,6 +9,52 @@ use susi_gemi_models::coding_models::CodingModelManager;
 
 use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
 
+/// Specification for a coding-model paid probe request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodingProbeSpec {
+    pub id: String,
+    pub prompt: String,
+}
+
+impl CodingProbeSpec {
+    /// Verify structural invariants on a coding-model probe specification.
+    pub fn verify_probe_spec_invariants(&self) -> std::result::Result<(), String> {
+        if self.id.trim().is_empty() {
+            return Err("CodingProbeSpec id must not be empty".to_string());
+        }
+        if self.prompt.trim().is_empty() {
+            return Err("CodingProbeSpec prompt must not be empty".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// Verify structural invariants on an [`HttpProvider`] constructed for a curated coding model.
+pub fn verify_coding_provider_invariants(
+    provider: &HttpProvider,
+) -> std::result::Result<(), String> {
+    if !provider.name.starts_with("coding-") || provider.name["coding-".len()..].trim().is_empty() {
+        return Err(format!(
+            "coding HttpProvider name ('{}') must start with non-empty 'coding-' prefix",
+            provider.name
+        ));
+    }
+    let base = provider.api_base.trim();
+    if base.is_empty() || (!base.starts_with("http://") && !base.starts_with("https://")) {
+        return Err(format!(
+            "coding HttpProvider api_base ('{}') must be a non-empty http(s) URL",
+            provider.api_base
+        ));
+    }
+    if provider.model.trim().is_empty() {
+        return Err("coding HttpProvider model must not be empty".to_string());
+    }
+    if provider.api_key.trim().is_empty() {
+        return Err("coding HttpProvider api_key must not be empty".to_string());
+    }
+    Ok(())
+}
+
 /// Build an [`HttpProvider`] for a curated coding/agent model.
 pub fn provider(manager: &CodingModelManager, id: &str) -> Result<HttpProvider> {
     let ep = manager.resolve_endpoint(id)?;
@@ -93,5 +139,62 @@ mod inline_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn verify_gemi_wave14_invariants_coding_models_ext() {
+        let valid_spec = CodingProbeSpec {
+            id: "deepseek-chat".to_string(),
+            prompt: "reply ok".to_string(),
+        };
+        assert!(valid_spec.verify_probe_spec_invariants().is_ok());
+
+        let blank_id = CodingProbeSpec {
+            id: "  ".to_string(),
+            prompt: "reply ok".to_string(),
+        };
+        assert!(blank_id.verify_probe_spec_invariants().is_err());
+
+        let blank_prompt = CodingProbeSpec {
+            id: "deepseek-chat".to_string(),
+            prompt: String::new(),
+        };
+        assert!(blank_prompt.verify_probe_spec_invariants().is_err());
+
+        let valid_provider = HttpProvider {
+            name: "coding-deepseek".to_string(),
+            api_base: "https://api.deepseek.com/v1".to_string(),
+            model: "deepseek-coder".to_string(),
+            protocol: InferenceProtocol::OpenAiChat,
+            api_key: "sk-test-key".to_string(),
+        };
+        assert!(verify_coding_provider_invariants(&valid_provider).is_ok());
+
+        let bad_prefix = HttpProvider {
+            name: "deepseek".to_string(),
+            api_base: "https://api.deepseek.com/v1".to_string(),
+            model: "deepseek-coder".to_string(),
+            protocol: InferenceProtocol::OpenAiChat,
+            api_key: "sk-test-key".to_string(),
+        };
+        assert!(verify_coding_provider_invariants(&bad_prefix).is_err());
+
+        let bad_base = HttpProvider {
+            name: "coding-deepseek".to_string(),
+            api_base: "ftp://api.deepseek.com".to_string(),
+            model: "deepseek-coder".to_string(),
+            protocol: InferenceProtocol::OpenAiChat,
+            api_key: "sk-test-key".to_string(),
+        };
+        assert!(verify_coding_provider_invariants(&bad_base).is_err());
+
+        let blank_key = HttpProvider {
+            name: "coding-deepseek".to_string(),
+            api_base: "https://api.deepseek.com/v1".to_string(),
+            model: "deepseek-coder".to_string(),
+            protocol: InferenceProtocol::OpenAiChat,
+            api_key: "   ".to_string(),
+        };
+        assert!(verify_coding_provider_invariants(&blank_key).is_err());
     }
 }
