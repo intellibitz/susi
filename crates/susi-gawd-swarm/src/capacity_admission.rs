@@ -279,7 +279,9 @@ impl ResourceReservation {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let Some(footprint) = state.active.get(&self.id) else {
-            return Err("ResourceReservation id must be present in active reservations".to_string());
+            return Err(
+                "ResourceReservation id must be present in active reservations".to_string(),
+            );
         };
         footprint.verify_footprint_invariants()?;
         Ok(())
@@ -506,11 +508,7 @@ impl LiveAdmission {
     /// violate ledger consistency.
     pub fn verify_live_admission_invariants(&self) -> Result<(), String> {
         self.inner.probe.measure().verify_resources_invariants()?;
-        let state = self
-            .inner
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         state.used.verify_footprint_invariants()?;
         for (&id, fp) in &state.active {
             if id == 0 || id > state.next_id {
