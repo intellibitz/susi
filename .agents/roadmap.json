@@ -138,7 +138,7 @@
       "id": "VC-201-010",
       "mastery_target": "Expose candidate-versus-baseline metrics and receipt links through CLI and machine-readable output; failed, inconclusive, and rejected trials remain visible alongside successful ones.",
       "priority": "P1",
-      "progress": "DELIVERED: candidate-versus-baseline comparisons publish every outcome, so failed, inconclusive and rejected trials stay visible alongside successful ones. Verified by `crates/susi-gawd/src/tests/vc_201_010.rs`: publishes_all_outcomes, with the evidence-ranking companion `crates/susi-gawd-agents/src/brain_ranking.rs` (powerful_cloud_brain_ranking_is_task_class_specific, powerful_cloud_brain_ranking_self_reported_never_counts, powerful_cloud_brain_ranking_current_failure_excludes_leadership). Evidence: T-CLAUDE-357, T-CODEX-25.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-frontier-lab::rsi_comparisons): candidate-versus-baseline comparisons publish every outcome, so failed, inconclusive and rejected trials stay visible alongside successful ones. Verified by `crates/susi-gawd/src/tests/vc_201_010.rs`: publishes_all_outcomes, with the evidence-ranking companion `crates/susi-gawd-agents/src/brain_ranking.rs` (powerful_cloud_brain_ranking_is_task_class_specific, powerful_cloud_brain_ranking_self_reported_never_counts, powerful_cloud_brain_ranking_current_failure_excludes_leadership). Evidence: T-CLAUDE-357, T-CODEX-25.",
       "type": "RSI_EVALUATION",
       "vector": "Publish evidence-backed RSI experiment comparisons"
     },
