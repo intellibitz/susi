@@ -913,7 +913,7 @@
       "id": "VC-201-073",
       "mastery_target": "Propagate local-only, workspace-private, and approved-cloud labels through inference, MCP, A2A, generated tools, and artifacts; indirect delegation cannot strip a label to bypass an egress denial.",
       "priority": "P0",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-073.json, T-DEVIN20261002053148-32, 2026-10-04): classification labels (local-only, workspace-private, approved-cloud) are propagated and enforced at egress boundaries; held credentials under arbitrary key names (including passwords and short tokens) and obfuscated secrets are detected; and the default prompt scan policy fails closed (Block). Verified by crates/susi-core/src/tests/vc_201_073_mastery.rs.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-sovereign-rag::prompt_secret_scan): (verdict .agents/roadmap-verdicts/VC-201-073.json, T-DEVIN20261002053148-32, 2026-10-04): classification labels (local-only, workspace-private, approved-cloud) are propagated and enforced at egress boundaries; held credentials under arbitrary key names (including passwords and short tokens) and obfuscated secrets are detected; and the default prompt scan policy fails closed (Block). Verified by crates/susi-core/src/tests/vc_201_073_mastery.rs.",
       "type": "GOVERNANCE",
       "vector": "Enforce data classifications at every egress boundary"
     },
