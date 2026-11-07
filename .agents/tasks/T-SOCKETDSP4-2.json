@@ -1,12 +1,12 @@
 {
   "id": "T-SOCKETDSP4-2",
-  "title": "Add structural invariant verifiers to susi-gemi provider contract, seat provider, and usage accounting",
-  "goal": "Implement verify_claim_invariants, verify_fixture_invariants, verify_seat_invariants, verify_usage_invariants, verify_outcome_invariants, verify_price_invariants, and verify_summary_invariants in crates/susi-gemi with unit tests.",
+  "title": "Add protocol and routing invariant verifiers to susi-gemi retry_policy, region_failover, and thermal_routing",
+  "goal": "Implement verify_decision_invariants, verify_storm_budget_invariants, verify_telemetry_invariants, verify_plan_invariants, verify_sample_invariants, and verify_router_invariants in crates/susi-gemi with unit tests.",
   "state": "in_progress",
   "claimed_by": "socket-dsp4",
   "created_by": "socket-dsp4",
   "created_unix": 1794010800,
-  "updated_unix": 1794017000,
+  "updated_unix": 1794019000,
   "size": "M",
   "deps": [],
   "scope": [
@@ -19,7 +19,7 @@
     "crates/susi-gemi",
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
-  "acceptance": "cargo test -p susi-gemi --lib provider_contract --offline --locked",
+  "acceptance": "cargo test -p susi-gemi --lib retry_policy --offline --locked",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,7 +27,7 @@
       "-p",
       "susi-gemi",
       "--lib",
-      "provider_contract",
+      "retry_policy",
       "--offline",
       "--locked"
     ]
