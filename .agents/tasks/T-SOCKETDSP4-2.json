@@ -1,33 +1,35 @@
 {
   "id": "T-SOCKETDSP4-2",
-  "title": "Deliver VC-201-092 operating-layer SLO event instrumentation and windowed sample publication in susi-gawd-a2a",
-  "goal": "Instrument GawdA2AExecutor::execute and cancel to measure availability, task_success, queue_delay, inference_latency, and recovery_duration from actual task events, aggregate them into time-windowed SloSample records, and publish formatted SLOs with explicit denominators and unknown markers when samples are insufficient.",
+  "title": "Deliver VC-201-098 host lifecycle capability matrix and VC-201-099 unified operator drill-down parity",
+  "goal": "Add isolated host-platform install/start/stop/upgrade/local-runtime smoke verification and machine-readable feature/GPU/sandbox capability matrix tests in tests/zc_platform_installers.rs (VC-201-098), and unified operator control surface drill-down and grant/precondition parity tests in tests/tui_top.rs (VC-201-099).",
   "state": "in_progress",
   "claimed_by": "socket-dsp4",
   "created_by": "socket-dsp4",
   "created_unix": 1794010800,
-  "updated_unix": 1794010800,
+  "updated_unix": 1794012000,
   "size": "M",
   "deps": [],
   "scope": [
-    "crates/susi-gawd-a2a/src/executor.rs",
-    "crates/susi-gawd-a2a/src/mastery_tests/vc_201_092_mastery.rs"
+    "tests/zc_platform_installers.rs",
+    "tests/tui_top.rs",
+    ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
   "native_worker": "socket-dsp4",
   "status": "completed",
   "scopes": [
-    ".agents/tasks/t-socketdsp4-1.json",
-    ".agents/tasks/t-socketdsp4-2.json",
-    "crates/susi-gawd-a2a/src/executor.rs",
-    "crates/susi-gawd-a2a/src/mastery_tests/vc_201_092_mastery.rs"
+    "tests/zc_platform_installers.rs",
+    "tests/tui_top.rs",
+    ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
+  "acceptance": "cargo test --test zc_platform_installers --test tui_top --offline --locked",
   "accept": {
     "cmd": [
       "cargo",
       "test",
-      "-p",
-      "susi-gawd-a2a",
-      "--lib",
+      "--test",
+      "zc_platform_installers",
+      "--test",
+      "tui_top",
       "--offline",
       "--locked"
     ]
