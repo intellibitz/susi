@@ -56,7 +56,6 @@ pub mod memory_tombstone;
 pub mod peer_admin;
 pub mod peer_probe;
 pub mod peer_roster;
-pub mod privacy_profiles;
 pub mod retrieval_eval;
 pub mod skill_artifacts;
 pub mod untrusted_content;
