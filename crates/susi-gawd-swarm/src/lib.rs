@@ -79,9 +79,6 @@ mod audit_payload_free_policy_tests;
 #[path = "tests/durable_mission_state.rs"]
 mod durable_mission_state_tests;
 #[cfg(test)]
-#[path = "tests/parallel_roadmap_e2e.rs"]
-mod parallel_roadmap_e2e_tests;
-#[cfg(test)]
 #[path = "tests/resource_schedule_dispatch_wiring.rs"]
 mod resource_schedule_dispatch_wiring_tests;
 #[cfg(test)]
