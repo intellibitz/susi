@@ -43,39 +43,6 @@ impl Default for CacheBounds {
     }
 }
 
-impl CacheBounds {
-    /// Verify fail-closed invariants of [`CacheBounds`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any bound is zero or if `memory_bytes` or
-    /// `disk_bytes` is smaller than `entry_bytes`.
-    pub fn verify_bounds_invariants(&self) -> Result<(), String> {
-        if self.entry_bytes == 0 {
-            return Err("cache bounds entry_bytes must be greater than zero".to_string());
-        }
-        if self.memory_entries == 0 {
-            return Err("cache bounds memory_entries must be greater than zero".to_string());
-        }
-        if self.memory_bytes < self.entry_bytes {
-            return Err(format!(
-                "cache bounds memory_bytes ({}) must be >= entry_bytes ({})",
-                self.memory_bytes, self.entry_bytes
-            ));
-        }
-        if self.disk_entries == 0 {
-            return Err("cache bounds disk_entries must be greater than zero".to_string());
-        }
-        if self.disk_bytes < self.entry_bytes as u64 {
-            return Err(format!(
-                "cache bounds disk_bytes ({}) must be >= entry_bytes ({})",
-                self.disk_bytes, self.entry_bytes
-            ));
-        }
-        Ok(())
-    }
-}
-
 /// The disk is trimmed to its bounds on startup and after this many writes.
 const PRUNE_EVERY: u64 = 256;
 
@@ -239,64 +206,6 @@ impl ResponseCache {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    /// Verify fail-closed invariants of the [`ResponseCache`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if [`CacheBounds::verify_bounds_invariants`] fails, if
-    /// `state_dir` is an empty path, or if the in-memory entries violate entry
-    /// count, byte accounting, or logical clock bounds.
-    pub fn verify_cache_invariants(&self) -> Result<(), String> {
-        self.bounds.verify_bounds_invariants()?;
-        if let Some(ref dir) = self.state_dir {
-            if dir.as_os_str().is_empty() {
-                return Err("response cache state_dir must not be empty".to_string());
-            }
-        }
-        let mem = self.memory();
-        if mem.entries.len() > self.bounds.memory_entries {
-            return Err(format!(
-                "response cache entries ({}) exceed memory_entries bound ({})",
-                mem.entries.len(),
-                self.bounds.memory_entries
-            ));
-        }
-        if mem.bytes > self.bounds.memory_bytes {
-            return Err(format!(
-                "response cache bytes ({}) exceed memory_bytes bound ({})",
-                mem.bytes, self.bounds.memory_bytes
-            ));
-        }
-        let mut accounted_bytes = 0usize;
-        for (key, slot) in &mem.entries {
-            if key.trim().is_empty() {
-                return Err("response cache contains a blank entry key".to_string());
-            }
-            if slot.bytes == 0 || slot.bytes > self.bounds.entry_bytes {
-                return Err(format!(
-                    "response cache entry '{key}' has out-of-bounds size {} (entry_bytes={})",
-                    slot.bytes, self.bounds.entry_bytes
-                ));
-            }
-            if slot.used == 0 || slot.used > mem.clock {
-                return Err(format!(
-                    "response cache entry '{key}' used clock {} is outside 1..={}",
-                    slot.used, mem.clock
-                ));
-            }
-            accounted_bytes = accounted_bytes
-                .checked_add(slot.bytes)
-                .ok_or_else(|| "response cache byte accounting overflowed usize".to_string())?;
-        }
-        if accounted_bytes != mem.bytes {
-            return Err(format!(
-                "response cache tracked bytes ({}) != sum of slot bytes ({accounted_bytes})",
-                mem.bytes
-            ));
-        }
-        Ok(())
     }
 
     fn memory(&self) -> std::sync::MutexGuard<'_, Memory> {
@@ -535,54 +444,5 @@ mod tests {
         assert_eq!(kept, ["k1.json", "k2.json", "k3.json"]);
         assert_eq!(restarted.get("k1"), Some(answer("k1")));
         assert_eq!(restarted.get("k5"), None);
-    }
-
-    #[test]
-    fn cache_bounds_and_response_cache_verify_invariants_reject_corrupt_state() {
-        let bounds = CacheBounds::default();
-        assert!(bounds.verify_bounds_invariants().is_ok());
-
-        assert!(CacheBounds {
-            entry_bytes: 0,
-            ..bounds
-        }
-        .verify_bounds_invariants()
-        .is_err());
-        assert!(CacheBounds {
-            memory_entries: 0,
-            ..bounds
-        }
-        .verify_bounds_invariants()
-        .is_err());
-        assert!(CacheBounds {
-            memory_bytes: bounds.entry_bytes - 1,
-            ..bounds
-        }
-        .verify_bounds_invariants()
-        .is_err());
-        assert!(CacheBounds {
-            disk_entries: 0,
-            ..bounds
-        }
-        .verify_bounds_invariants()
-        .is_err());
-        assert!(CacheBounds {
-            disk_bytes: (bounds.entry_bytes as u64) - 1,
-            ..bounds
-        }
-        .verify_bounds_invariants()
-        .is_err());
-
-        let cache = ResponseCache::new(None);
-        cache.set("k1", &answer("valid"));
-        assert!(cache.verify_cache_invariants().is_ok());
-
-        let empty_dir = ResponseCache::with_bounds(Some(PathBuf::new()), bounds);
-        assert!(empty_dir.verify_cache_invariants().is_err());
-
-        let bad_accounting = ResponseCache::new(None);
-        bad_accounting.set("k1", &answer("valid"));
-        bad_accounting.memory().bytes += 1;
-        assert!(bad_accounting.verify_cache_invariants().is_err());
     }
 }
