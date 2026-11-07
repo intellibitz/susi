@@ -3411,7 +3411,6 @@ dependencies = [
  "susi-error",
  "susi-http-transport",
  "susi-sandbox-client",
- "susi-vendor-base64",
  "susi-vendor-bytes",
  "susi-vendor-hex",
  "susi-vendor-http-body-util",

@@ -2196,9 +2196,28 @@ fn embedding_texts(input: &serde_json::Value) -> Result<Vec<String>, &'static st
 /// `encoding_format: "base64"` — the vector's little-endian f32 bytes,
 /// standard base64, as the OpenAI API returns it.
 fn embedding_base64(embedding: &[f32]) -> String {
-    use base64::Engine;
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes: Vec<u8> = embedding.iter().flat_map(|v| v.to_le_bytes()).collect();
-    base64::engine::general_purpose::STANDARD.encode(bytes)
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = u32::from(chunk[0]);
+        let b1 = u32::from(*chunk.get(1).unwrap_or(&0));
+        let b2 = u32::from(*chunk.get(2).unwrap_or(&0));
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(char::from(TABLE[((n >> 18) & 0x3f) as usize]));
+        out.push(char::from(TABLE[((n >> 12) & 0x3f) as usize]));
+        out.push(if chunk.len() > 1 {
+            char::from(TABLE[((n >> 6) & 0x3f) as usize])
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            char::from(TABLE[(n & 0x3f) as usize])
+        } else {
+            '='
+        });
+    }
+    out
 }
 
 /// Token-count approximation for `usage` reporting — the true BPE count

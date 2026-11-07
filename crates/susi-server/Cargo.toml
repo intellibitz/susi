@@ -10,7 +10,6 @@ susi-http-transport = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
-base64 = { package = "susi-vendor-base64", path = "../susi-vendor-base64" }
 hyper = { package = "susi-vendor-hyper", path = "../susi-vendor-hyper" }
 http-body-util = { package = "susi-vendor-http-body-util", path = "../susi-vendor-http-body-util" }
 hyper-util = { package = "susi-vendor-hyper-util", path = "../susi-vendor-hyper-util" }
