@@ -1,4 +1,12 @@
 {
+  "id": "T-GAWDSWARM-2",
+  "native_worker": "gawd-swarm",
+  "title": "Wave 14 susi-gawd-swarm cloud e2e, cloud recovery, dag, and fault matrix invariant verifiers",
+  "status": "in_progress",
+  "scopes": [
+    ".agents/tasks/t-gawdswarm-2.json",
+    "crates/susi-gawd-swarm"
+  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -8,24 +16,7 @@
       "--lib",
       "--offline",
       "--locked",
-      "verify_swarm_wave13_invariants"
+      "verify_swarm_wave14_invariants"
     ]
-  },
-  "id": "T-GAWDSWARM-2",
-  "size": "m",
-  "goal": "Add CatchUpCursor, CatchUpBook, CatchUpBounds, SweepOutcome, CancelToken, Descendant, CancelBus, CandidatePlan, Deliberation, and HistorySignals invariant verifiers in crates/susi-gawd-swarm.",
-  "scope": [
-    ".agents/tasks/T-GAWDSWARM-2.json",
-    "crates/susi-gawd-swarm"
-  ],
-  "scopes": [
-    ".agents/tasks/t-gawdswarm-2.json",
-    "crates/susi-gawd-swarm"
-  ],
-  "deps": [],
-  "created_by": "GAWDSWARM",
-  "created_unix": 1794005500,
-  "status": "in_progress",
-  "title": "Wave 13 susi-gawd-swarm brain coordination, supervisor, cloud failover, and lockout invariant verifiers",
-  "native_worker": "gawd-swarm"
+  }
 }
