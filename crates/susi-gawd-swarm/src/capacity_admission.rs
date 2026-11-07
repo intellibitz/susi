@@ -623,7 +623,7 @@ mod tests {
         let mut dag = MissionDag::new("gate");
         dag.capacity = Some(res(0.5, 64.0, 0.0, true));
         let board = susi_gawd_agents::agents::MissionBlackboard::default();
-        let (tx, _rx) = flume::unbounded();
+        let (tx, _rx) = std::sync::mpsc::channel();
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())

@@ -2,13 +2,13 @@
 // 100% Neural implementation - Zero Hardcoded Heuristics.
 
 use crate::engines::alpha::SusiAlphaModel;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::LazyLock as Lazy;
+use std::sync::RwLock;
 use susi_error::{eai_err as anyhow, EaiResult as Result};
 
 pub struct SusiPulse;
@@ -149,13 +149,17 @@ fn workspace_suppressed(workspace: &Path) -> std::collections::HashSet<String> {
     let mtime = std::fs::metadata(workspace.join(".susi").join("mission_traces.jsonl"))
         .and_then(|m| m.modified())
         .ok();
-    if let Some((cached_at, set)) = CACHE.read().get(workspace) {
+    if let Some((cached_at, set)) = CACHE
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(workspace)
+    {
         if *cached_at == mtime {
             return set.clone();
         }
     }
     let set = suppressed_actions(&crate::susi_core::mission_trace::read_all(workspace));
-    let mut cache = CACHE.write();
+    let mut cache = CACHE.write().unwrap_or_else(|e| e.into_inner());
     if cache.len() >= REFLEX_CACHE_CAP {
         cache.clear();
     }
@@ -361,19 +365,25 @@ impl SusiPulse {
         // Neural Synchronization (Cache Invalidation)
         {
             let fingerprint = SusiAlphaModel::get_model_fingerprint(&global_dir);
-            let mut current = CURRENT_FINGERPRINT.write();
+            let mut current = CURRENT_FINGERPRINT
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
             if *current != fingerprint {
                 if workspace.join(".agents").exists() && std::env::var("SUSI_VERBOSE").is_ok() {
                     eprintln!("[Tier 0 Reflex] Neural substrate evolved. Invalidating cache...");
                 }
                 *current = fingerprint;
-                let mut cache = REFLEX_CACHE.write();
+                let mut cache = REFLEX_CACHE.write().unwrap_or_else(|e| e.into_inner());
                 cache.clear();
             }
         }
 
         // Sub-100us Reflex Cache
-        if let Some(cached) = cache_lookup(&REFLEX_CACHE.read(), &key, std::time::Instant::now()) {
+        if let Some(cached) = cache_lookup(
+            &REFLEX_CACHE.read().unwrap_or_else(|e| e.into_inner()),
+            &key,
+            std::time::Instant::now(),
+        ) {
             // Tier-0 entries never expire by time, so a cached action must
             // still be runnable: its tool may have been uninstalled since.
             let suppressed = action_name(&cached)
@@ -383,7 +393,10 @@ impl SusiPulse {
                 record_latency(start);
                 return Ok(cached);
             }
-            REFLEX_CACHE.write().remove(&key);
+            REFLEX_CACHE
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&key);
         }
 
         // Neural Reflex Attempt (Tier 0 Classifier)
@@ -400,7 +413,11 @@ impl SusiPulse {
             {
                 let final_action = bind_workspace(neural_action, workspace);
 
-                cache_insert(&mut REFLEX_CACHE.write(), key, (final_action.clone(), None));
+                cache_insert(
+                    &mut REFLEX_CACHE.write().unwrap_or_else(|e| e.into_inner()),
+                    key,
+                    (final_action.clone(), None),
+                );
                 TIER0_NEURAL_HITS.fetch_add(1, Ordering::Relaxed);
                 record_latency(start);
                 return Ok(final_action);
@@ -415,7 +432,7 @@ impl SusiPulse {
         ) {
             let expires = std::time::Instant::now() + TIER1_CACHE_TTL;
             cache_insert(
-                &mut REFLEX_CACHE.write(),
+                &mut REFLEX_CACHE.write().unwrap_or_else(|e| e.into_inner()),
                 key,
                 (answer.clone(), Some(expires)),
             );

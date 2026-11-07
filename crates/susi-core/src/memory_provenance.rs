@@ -202,9 +202,9 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
-    pub fn global() -> &'static parking_lot::RwLock<MemoryStore> {
-        static INSTANCE: OnceLock<parking_lot::RwLock<MemoryStore>> = OnceLock::new();
-        INSTANCE.get_or_init(|| parking_lot::RwLock::new(MemoryStore::default()))
+    pub fn global() -> &'static std::sync::RwLock<MemoryStore> {
+        static INSTANCE: OnceLock<std::sync::RwLock<MemoryStore>> = OnceLock::new();
+        INSTANCE.get_or_init(|| std::sync::RwLock::new(MemoryStore::default()))
     }
 
     pub fn insert(&mut self, record: MemoryRecord) {

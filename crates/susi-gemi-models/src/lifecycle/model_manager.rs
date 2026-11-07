@@ -6,9 +6,10 @@ use crate::resumable_downloads::DownloadPlan;
 use crate::susi_core::task_manager::TaskHandle;
 use crate::susi_sandbox::manager::DynamicModelInfo;
 use crate::transactional_download::Store;
-use dashmap::DashMap;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 #[derive(Debug, Clone)]
 /// Filesystem-walk rules for `recursive_scan_model_dir`, loaded once per scan
@@ -24,7 +25,7 @@ pub(crate) struct ModelScanRules {
 pub(super) static MODEL_SCAN_GENERATION: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
-static MODEL_FAILURES: std::sync::OnceLock<DashMap<String, std::time::Instant>> =
+static MODEL_FAILURES: std::sync::OnceLock<RwLock<HashMap<String, std::time::Instant>>> =
     std::sync::OnceLock::new();
 
 pub struct ModelManager;
@@ -100,11 +101,18 @@ impl<R: std::io::Seek> std::io::Seek for PositionedReader<R> {
 
 impl ModelManager {
     pub fn record_inference_result(model: &str, success: bool) {
-        let failures = MODEL_FAILURES.get_or_init(DashMap::new);
+        let failures =
+            MODEL_FAILURES.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
         if success {
-            failures.remove(model);
+            failures
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(model);
         } else {
-            failures.insert(model.into(), std::time::Instant::now());
+            failures
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(model.into(), std::time::Instant::now());
         }
     }
 
@@ -114,7 +122,9 @@ impl ModelManager {
             .model_lifecycle()
             .failure_cooldown_secs;
         MODEL_FAILURES
-            .get_or_init(DashMap::new)
+            .get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .get(model)
             .is_some_and(|failed| failed.elapsed().as_secs() < cooldown)
     }
@@ -780,6 +790,9 @@ mod tests {
 
     #[test]
     fn managed_download_waits_through_forward_progress_but_times_out_a_stalled_publisher() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use std::time::Duration;
 
         let Some(root) = private_download_fixture(
@@ -820,6 +833,9 @@ mod tests {
 
     #[test]
     fn managed_download_waits_for_publication_and_reuses_verified_artifact() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let Some(root) = private_download_fixture(
             "managed_download_waits_for_publication_and_reuses_verified_artifact",
         ) else {
@@ -882,6 +898,9 @@ mod tests {
 
     #[test]
     fn vc_201_044_download_publish_called_by_production() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let root =
             std::env::temp_dir().join(format!("susi-vc-201-044-production-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
@@ -915,6 +934,9 @@ mod tests {
 
     #[test]
     fn test_automatic_admission_is_a_hard_gate() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         assert!(!ModelManager::fits_memory(32.0, 8.0, 2.0, 1.25));
         assert!(!ModelManager::fits_memory(5.0, 8.0, 2.0, 1.25));
         assert!(ModelManager::fits_memory(4.0, 8.0, 2.0, 1.25));
@@ -923,6 +945,9 @@ mod tests {
 
     #[test]
     fn starter_download_is_small_even_with_large_gpu() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let host = crate::zc_first_model::FirstRunHost {
             ram: 128_000_000_000,
             vram: 48_000_000_000,
@@ -949,6 +974,9 @@ mod tests {
     }
     #[test]
     fn test_failed_model_recovers_after_success() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let name = "test_failure_cooldown_model";
         ModelManager::record_inference_result(name, false);
         assert!(ModelManager::cooling_down(name));
@@ -958,6 +986,9 @@ mod tests {
 
     #[test]
     fn test_complete_gguf_requires_the_managed_artifact_size() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         assert!(ModelManager::is_complete_gguf(true, 10_000, Some(10_000)));
         assert!(
             !ModelManager::is_complete_gguf(true, 9_999, Some(10_000)),
@@ -968,6 +999,9 @@ mod tests {
 
     #[test]
     fn test_header_only_gguf_is_not_complete() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let path =
             std::env::temp_dir().join(format!("susi_header_only_{}.gguf", std::process::id()));
         fs::write(&path, b"GGUF").unwrap();
@@ -999,6 +1033,9 @@ mod tests {
 
     #[test]
     fn the_positioned_reader_tracks_reads_and_seeks() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use std::io::{Read, Seek, SeekFrom};
         let data: Vec<u8> = (0..=255).collect();
         let mut reader = PositionedReader::new(std::io::Cursor::new(data)).unwrap();
@@ -1019,6 +1056,9 @@ mod tests {
     /// never remembered.
     #[test]
     fn a_gguf_read_error_is_told_apart_from_a_bad_file() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!(
             "susi_gguf_read_error_{}_{}",
             std::process::id(),
@@ -1048,6 +1088,9 @@ mod tests {
     /// must make a *smaller* model score higher, not lower.
     #[test]
     fn test_size_preference_score_simple_favors_smaller_models() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::intent::TaskComplexity;
         let small_score =
             ModelManager::size_preference_score(1.5, 1.5, 40.0, Some(TaskComplexity::Simple));
@@ -1061,6 +1104,9 @@ mod tests {
 
     #[test]
     fn test_size_preference_score_complex_favors_bigger_models() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::intent::TaskComplexity;
         let small_score =
             ModelManager::size_preference_score(1.5, 1.5, 40.0, Some(TaskComplexity::Complex));
@@ -1074,6 +1120,9 @@ mod tests {
 
     #[test]
     fn test_size_preference_score_none_matches_complex_default() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::intent::TaskComplexity;
         assert_eq!(
             ModelManager::size_preference_score(14.0, 1.5, 40.0, None),
@@ -1088,6 +1137,9 @@ mod tests {
     /// could only ever produce.
     #[test]
     fn test_size_preference_score_moderate_favors_middle_sized_model_over_both_extremes() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::intent::TaskComplexity;
         let small =
             ModelManager::size_preference_score(1.5, 1.5, 45.0, Some(TaskComplexity::Moderate));
@@ -1103,6 +1155,9 @@ mod tests {
 
     #[test]
     fn test_size_preference_score_falls_back_to_magnitude_when_no_size_range() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::intent::TaskComplexity;
         // min == max: nothing to target between (e.g. only one distinct
         // size among candidates) - must not divide by zero or panic, and
@@ -1123,6 +1178,9 @@ mod tests {
     /// annotated) retry prompt is still low.
     #[test]
     fn test_resolve_complexity_floor_floor_wins_over_lower_heuristic() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::intent::TaskComplexity;
         assert_eq!(
             ModelManager::resolve_complexity_floor(
@@ -1135,6 +1193,9 @@ mod tests {
 
     #[test]
     fn test_resolve_complexity_floor_heuristic_wins_when_already_above_floor() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::intent::TaskComplexity;
         assert_eq!(
             ModelManager::resolve_complexity_floor(
@@ -1147,6 +1208,9 @@ mod tests {
 
     #[test]
     fn test_resolve_complexity_floor_none_means_pure_heuristic() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::intent::TaskComplexity;
         assert_eq!(
             ModelManager::resolve_complexity_floor(TaskComplexity::Simple, None),
@@ -1156,6 +1220,9 @@ mod tests {
 
     #[test]
     fn test_universal_format_recognition() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp_dir =
             std::env::temp_dir().join(format!("susi_model_test_v2-{}", std::process::id()));
         let _ = fs::create_dir_all(&tmp_dir);
@@ -1195,6 +1262,9 @@ mod tests {
 
     #[test]
     fn foreground_install_rejects_non_https_sources() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let error =
             ModelManager::install_model_foreground("http://example.test/model.gguf").unwrap_err();
         assert!(error.contains("HTTPS"));
@@ -1205,6 +1275,9 @@ mod tests {
     /// messages-only loop must not.
     #[test]
     fn chat_template_tool_detection_covers_shipping_dialects() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         for capable in [
             // qwen2.5-style: a `tools` JSON block plus <tool_call> delimiters
             "{% if tools is not none %}<|im_start|>tools{% endif %}{% for m in messages %}{{ m }}{% endfor %}<tool_call>",
@@ -1232,6 +1305,9 @@ mod tests {
 
     #[test]
     fn supports_tool_calling_is_false_without_a_parseable_template() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         assert!(!ModelManager::supports_tool_calling(Path::new(
             "/nonexistent/model.gguf"
         )));
@@ -1268,6 +1344,9 @@ mod tests {
 
     #[test]
     fn admitted_download_uses_one_get_and_preserves_a_conflicting_final_file() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::download::tests::{server, workspace};
         let root = workspace("admitted_weight");
         let models = root.join("models");
@@ -1302,6 +1381,9 @@ mod tests {
 
     #[test]
     fn failed_staging_manifest_does_not_record_a_license_or_complete_the_task() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::download::tests::{server, workspace};
         use crate::susi_core::task_manager::{SwarmTaskManager, TaskStatus};
         let root = workspace("failed_staging_manifest");
@@ -1343,6 +1425,9 @@ mod tests {
 
     #[test]
     fn receipt_storage_failure_cannot_report_completion_even_when_reusing_published_bytes() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::download::tests::{server, workspace};
         use crate::susi_core::task_manager::{SwarmTaskManager, TaskStatus};
         use std::sync::atomic::Ordering;
@@ -1409,6 +1494,9 @@ mod tests {
 
     #[test]
     fn admitted_download_retries_corrupt_bytes_and_unpinned_download_still_checks_head() {
+        let _environment = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use crate::download::tests::{server, workspace};
         let good = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
         let bad = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghik";

@@ -5,12 +5,13 @@
 //! for mission workflows (not a full ACID DB).
 
 use crate::susi_error::{EaiError, EaiResult};
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::RwLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -80,14 +81,14 @@ fn confined(workspace: &Path, rel: &str) -> EaiResult<PathBuf> {
 
 /// Process-wide transaction registry.
 pub struct TxManager {
-    open: DashMap<String, AgentTransaction>,
+    open: RwLock<HashMap<String, AgentTransaction>>,
     next_id: AtomicU64,
 }
 
 impl TxManager {
     pub fn new() -> Self {
         Self {
-            open: DashMap::new(),
+            open: RwLock::new(HashMap::new()),
             next_id: AtomicU64::new(1),
         }
     }
@@ -136,7 +137,10 @@ impl TxManager {
         // call) abort this transaction; a begin that could not write it
         // must not report success.
         self.persist(&tx)?;
-        self.open.insert(id, tx.clone());
+        self.open
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, tx.clone());
         Ok(tx)
     }
 
@@ -166,19 +170,19 @@ impl TxManager {
     }
 
     pub fn commit(&self, tx_id: &str, workspace: &Path) -> EaiResult<AgentTransaction> {
-        let mut entry = self
-            .open
+        let mut guard = self.open.write().unwrap_or_else(|e| e.into_inner());
+        let entry = guard
             .get_mut(tx_id)
             .ok_or_else(|| EaiError::governance(format!("unknown tx {tx_id}")))?;
         if entry.status != TxStatus::Open {
             return Err(EaiError::governance("transaction not open"));
         }
-        ensure_same_workspace(&entry, workspace)?;
+        ensure_same_workspace(entry, workspace)?;
         entry.status = TxStatus::Committed;
         entry.closed_at = Some(now());
         let out = entry.clone();
-        drop(entry);
-        self.open.remove(tx_id);
+        guard.remove(tx_id);
+        drop(guard);
         // A commit that stays Open on disk would let a later process's
         // abort roll back committed work.
         self.persist(&out)?;
@@ -187,8 +191,8 @@ impl TxManager {
 
     /// Abort: restore snapshotted files. Returns blackboard map to restore by caller.
     pub fn abort(&self, tx_id: &str, workspace: &Path) -> EaiResult<AgentTransaction> {
-        let mut entry = self
-            .open
+        let mut guard = self.open.write().unwrap_or_else(|e| e.into_inner());
+        let entry = guard
             .get_mut(tx_id)
             .ok_or_else(|| EaiError::governance(format!("unknown tx {tx_id}")))?;
         if entry.status != TxStatus::Open {
@@ -196,7 +200,7 @@ impl TxManager {
         }
         // Snapshots are relative paths: restoring them under another
         // workspace would write one project's contents into another.
-        ensure_same_workspace(&entry, workspace)?;
+        ensure_same_workspace(entry, workspace)?;
         for snap in &entry.files {
             let path = confined(workspace, &snap.rel_path)?;
             match &snap.content {
@@ -215,8 +219,8 @@ impl TxManager {
         entry.status = TxStatus::Aborted;
         entry.closed_at = Some(now());
         let out = entry.clone();
-        drop(entry);
-        self.open.remove(tx_id);
+        guard.remove(tx_id);
+        drop(guard);
         self.persist(&out)?;
         Ok(out)
     }
@@ -251,9 +255,15 @@ impl TxManager {
                 max_id = max_id.max(n + 1);
             }
             if tx.status == TxStatus::Open {
-                self.open.insert(tx.id.clone(), tx);
+                self.open
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(tx.id.clone(), tx);
             } else {
-                self.open.remove(&tx.id);
+                self.open
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&tx.id);
             }
         }
         // A hydrated tx-7 must not collide with the next `begin` minting
@@ -271,11 +281,20 @@ impl TxManager {
     }
 
     pub fn get(&self, tx_id: &str) -> Option<AgentTransaction> {
-        self.open.get(tx_id).map(|e| e.value().clone())
+        self.open
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(tx_id)
+            .cloned()
     }
 
     pub fn list_open(&self) -> Vec<AgentTransaction> {
-        self.open.iter().map(|e| e.value().clone()).collect()
+        self.open
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect()
     }
 }
 

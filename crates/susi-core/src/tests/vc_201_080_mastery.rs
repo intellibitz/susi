@@ -147,6 +147,7 @@ fn vc_201_080_mastery_production_caller_wired() {
     // Apply emergency stop to test_scope on global bus
     EmergencyStopBus::global()
         .write()
+        .unwrap_or_else(|e| e.into_inner())
         .apply_stop(test_scope, "operator test halt");
 
     // After stop: registering task in stopped scope immediately marks it killed and cancelled
@@ -162,5 +163,9 @@ fn vc_201_080_mastery_production_caller_wired() {
     );
 
     // Clean up global stop
-    EmergencyStopBus::global().write().status.stop = None;
+    EmergencyStopBus::global()
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .status
+        .stop = None;
 }

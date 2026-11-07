@@ -272,10 +272,11 @@ pub fn init_hooks() {
 #[path = "tests/intent_ladder_startup.rs"]
 mod intent_ladder_startup_tests;
 
-/// Threads in the rayon pool the swarm runs on (`susi crown`'s
-/// concurrency check reads it without a rayon edge of its own).
+/// Worker threads the swarm's parallel maps use (`susi crown`'s
+/// concurrency check reads it): the host's logical cores, see
+/// `susi_core::parallel`.
 pub fn swarm_pool_threads() -> usize {
-    rayon::current_num_threads()
+    susi_core::parallel::threads()
 }
 
 #[cfg(test)]
@@ -285,7 +286,7 @@ mod inline_tests {
     use super::*;
 
     #[test]
-    fn swarm_pool_threads_reports_positive_rayon_worker_count() {
+    fn swarm_pool_threads_reports_positive_worker_count() {
         assert!(swarm_pool_threads() >= 1);
     }
 

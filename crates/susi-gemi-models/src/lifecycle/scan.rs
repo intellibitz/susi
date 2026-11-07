@@ -89,7 +89,7 @@ impl ModelManager {
     #[allow(clippy::type_complexity)] // one-off function-local cache tuple; a named type would add no clarity
     pub fn scan_system_for_local_models(workspace: &Path) -> Vec<DynamicModelInfo> {
         static MODEL_SCAN_CACHE: std::sync::LazyLock<
-            parking_lot::RwLock<
+            std::sync::RwLock<
                 Option<(
                     PathBuf,
                     u64,
@@ -98,7 +98,7 @@ impl ModelManager {
                     Vec<DynamicModelInfo>,
                 )>,
             >,
-        > = std::sync::LazyLock::new(|| parking_lot::RwLock::new(None));
+        > = std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
 
         // Another process (the daemon, a second shell) can publish a model
         // into the shared directory; that bumps no in-process generation,
@@ -108,7 +108,7 @@ impl ModelManager {
             .and_then(|meta| meta.modified())
             .ok();
         {
-            let cache = MODEL_SCAN_CACHE.read();
+            let cache = MODEL_SCAN_CACHE.read().unwrap_or_else(|e| e.into_inner());
             if let Some((ref cached_workspace, generation, stamp, ts, ref list)) = *cache {
                 if cached_workspace == workspace
                     && generation
@@ -153,7 +153,7 @@ impl ModelManager {
         discovered.dedup_by(|a, b| a.model_id() == b.model_id());
 
         {
-            let mut cache = MODEL_SCAN_CACHE.write();
+            let mut cache = MODEL_SCAN_CACHE.write().unwrap_or_else(|e| e.into_inner());
             *cache = Some((
                 workspace.to_path_buf(),
                 MODEL_SCAN_GENERATION.load(std::sync::atomic::Ordering::Acquire),
@@ -280,7 +280,7 @@ impl ModelManager {
         sub_paths.dedup();
 
         let found_folders =
-            std::sync::Arc::new(parking_lot::RwLock::new(std::collections::HashSet::new()));
+            std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashSet::new()));
         let mut handles = Vec::new();
 
         for sub_path in sub_paths {
@@ -296,7 +296,7 @@ impl ModelManager {
                     &rules,
                 );
                 if !local_discovered.is_empty() {
-                    let mut lock = ff.write();
+                    let mut lock = ff.write().unwrap_or_else(|e| e.into_inner());
                     for p in local_discovered {
                         lock.insert(p);
                     }
@@ -311,7 +311,7 @@ impl ModelManager {
         let mut new_paths_added = 0;
 
         let mut paths = cfg.local_scan_paths();
-        let lock = found_folders.read();
+        let lock = found_folders.read().unwrap_or_else(|e| e.into_inner());
         for folder in lock.iter() {
             if !paths.contains(folder) {
                 paths.push(folder.clone());

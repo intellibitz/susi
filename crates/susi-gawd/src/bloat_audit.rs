@@ -1,11 +1,10 @@
 // SUSI Bloat & Security Auditor
-// Deterministic, AST-driven (`susi-vendor-syn`), rayon-parallel static analysis over the
+// Deterministic, AST-driven (`susi-vendor-syn`), thread-parallel static analysis over the
 // substrate's own Rust source tree. Backs Mandate 3 (100% Bloat Rejection)
 // and the recursive src/+target/ audit missions with real evidence instead
 // of LLM narration (Mandate 8: Epistemic Chain of Truth).
 
 use crate::susi_error::EaiResult;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -61,7 +60,7 @@ pub struct BloatAuditor;
 
 impl BloatAuditor {
     /// Recursively audits every Rust source under `workspace` (AST + heuristic
-    /// scan, rayon-parallel across all available cores; `target/` and dot
+    /// scan, parallel across all available cores; `target/` and dot
     /// directories skipped) and `<workspace>/target` (build artifact bloat).
     /// Only `<workspace>/src` used to be scanned — in a workspace whose code
     /// lives under `crates/`, the audit saw a small fraction of the source.
@@ -71,10 +70,9 @@ impl BloatAuditor {
 
         let secret_patterns = Self::load_secret_patterns();
 
-        let findings: Vec<FileFinding> = files
-            .par_iter()
-            .map(|path| Self::scan_file(path, workspace, &secret_patterns))
-            .collect();
+        let findings: Vec<FileFinding> = crate::susi_core::parallel::map_ref(&files, |path| {
+            Self::scan_file(path, workspace, &secret_patterns)
+        });
 
         let (target_dir_bytes, target_dir_file_count) =
             Self::measure_target_dir(&workspace.join("target"));
@@ -93,7 +91,7 @@ impl BloatAuditor {
             total_secret_pattern_hits: findings.iter().map(|f| f.secret_pattern_hits).sum(),
             target_dir_bytes,
             target_dir_file_count,
-            threads_used: rayon::current_num_threads(),
+            threads_used: crate::susi_core::parallel::threads(),
             elapsed_ms: start.elapsed().as_millis(),
             worst_offenders: Vec::new(),
         };
@@ -305,7 +303,7 @@ impl BloatAuditor {
 
     pub fn render_report(report: &BloatAuditReport) -> String {
         let mut out = String::new();
-        out.push_str("# SUSI Bloat & Security Audit (AST + rayon parallel, Mandate 3)\n\n");
+        out.push_str("# SUSI Bloat & Security Audit (AST + thread parallel, Mandate 3)\n\n");
         out.push_str(&format!(
             "- **Files Scanned**: {} ({} failed to parse)\n",
             report.files_scanned, report.files_failed_to_parse

@@ -3030,10 +3030,10 @@ mod exec_pipe_tests {
     #[test]
     fn exec_pipe_progress_comes_only_from_output() {
         let manager = SwarmTaskManager {
-            tasks: dashmap::DashMap::new(),
-            cancel_map: dashmap::DashMap::new(),
-            pause_map: dashmap::DashMap::new(),
-            cancelled_scopes: dashmap::DashSet::new(),
+            tasks: std::sync::RwLock::new(std::collections::HashMap::new()),
+            cancel_map: std::sync::RwLock::new(std::collections::HashMap::new()),
+            pause_map: std::sync::RwLock::new(std::collections::HashMap::new()),
+            cancelled_scopes: std::sync::RwLock::new(std::collections::HashSet::new()),
         };
         let silent = manager.register_task("exec_pipe_test", "silent");
         let out = drain_exec_pipe(Some(std::io::Cursor::new(Vec::new())), silent.clone());
