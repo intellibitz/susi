@@ -14,7 +14,7 @@ This page is the shared plan for every agent on the program. Numbers come from
 
 | Rung | Measure (four pillars, normal+build edges) | 2026-11-07 start | now |
 |------|--------------------------------------------|------------------|-----|
-| 0 | third-party crates compiled | 331 | 295 |
+| 0 | third-party crates compiled | 331 | 268 |
 | 0 | workspace crates compiled | 59 | 51 |
 | 0 | vendor facades named directly by the pillar crates | 26 | 24 |
 | 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 175,068 |
@@ -86,14 +86,14 @@ threads). Baseline measured 2026-11-07 22:53 at origin/main `fc3f5a861`,
 **under load** (a test gate was running on the same machine; a clean re-run
 follows once the gate is idle):
 
-| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | budget |
-|---------|----------|----------|--------|
-| wall clock | 196 s | 165 s | 60 s |
-| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | under 1,200 s |
-| of which workspace crates | 393 s | 359 s | under 150 s |
-| of which third-party | 1,916 s | 1,513 s | under 1,000 s, then towards 0 |
-| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | under 55 s |
-| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | measured by `cargo xtask build-time` once it lands | under 15 s |
+| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | budget |
+|---------|----------|----------|----------|--------|
+| wall clock | 196 s | 165 s | 104.5 s | 60 s |
+| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | under 1,200 s |
+| of which workspace crates | 393 s | 359 s | 184 s | under 150 s |
+| of which third-party | 1,916 s | 1,513 s | 899 s | under 1,000 s, then towards 0 |
+| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | under 55 s |
+| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | under 15 s |
 
 The idle number is the baseline the budget counts from. Between the two
 measurements Antigravity's iterations 341-350 removed candle, bollard and the
@@ -170,7 +170,7 @@ crate (rung 3).
 
 ### Measuring
 
-`cargo xtask build-time` (next) does the cold build into a temporary target
+`cargo xtask build-time` (alias for `cargo run -p xtask --bin xtask -- build-time`) does the cold build into a temporary target
 directory with `--timings`, prints wall, CPU-seconds and the critical path,
 and appends a line to `.agents/build-time.jsonl`. The ship gate's own
 whole-workspace build already records `timings.jsonl`; the two must agree in
@@ -223,3 +223,6 @@ table once the clean baseline is recorded.
   unit leaves the critical path; GMCP's std JSON Schema validator replaces jsonschema; the
   orphan-source ratchet; `cargo xtask build-time`; the harness `IntegrationPolicy` (remote-agent
   mandate). Third-party 295, workspace 51, direct facade edges 24.
+- 2026-11-08 wave 3 (T-LEAN3-1): landed main measured at 104.5 s wall / 1,083 CPU-seconds (from
+  165 / 1,872 at iteration 350): the sysinfo cut and Antigravity's crate deletions. The unused
+  jsonschema line leaves GMCP's manifest; `cargo xtask` alias added. Third-party 268.
