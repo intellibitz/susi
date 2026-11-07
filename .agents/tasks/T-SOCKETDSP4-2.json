@@ -1,8 +1,11 @@
 {
   "id": "T-SOCKETDSP4-2",
   "native_worker": "socket-dsp4",
-  "title": "Wave 14 susi-gemi action executor, benchmark, coding models, and eco compat invariant verifiers",
+  "title": "Wave 14 susi-gemi action_executor, benchmark, coding_models_ext, and eco_compat_gate invariant verifiers",
+  "created_by": "socket-dsp4",
+  "created_unix": 1794010800,
   "status": "in_progress",
+  "dependencies": [],
   "scopes": [
     ".agents/tasks/t-socketdsp4-2.json",
     "crates/susi-gemi"
