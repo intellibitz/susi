@@ -599,7 +599,7 @@
       "id": "VC-201-048",
       "mastery_target": "Use available thermal and power telemetry with explicit unknown states and operator limits; simulated pressure throttles or reroutes eligible work while preserving local-only requirements.",
       "priority": "P1",
-      "progress": "DELIVERED: ThermalRouter tracks explicit HostFitness::Unknown telemetry states, enforces OperatorThermalLimits (max_temp_c and max_power_w), and decides placement via ThermalPlacement (RunLocal, RerouteCloud, QueueLocal, ThrottleLocal) while preserving local-only requirements under pressure. Verified by `crates/susi-gemi/src/tests/vc_201_048_mastery.rs`.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-201-048.json): ThermalRouter tracks explicit HostFitness::Unknown telemetry states, enforces OperatorThermalLimits (max_temp_c and max_power_w), and decides placement via ThermalPlacement (RunLocal, RerouteCloud, QueueLocal, ThrottleLocal) while preserving local-only requirements under pressure. Verified by `crates/susi-gemi/src/tests/vc_201_048_mastery.rs`.",
       "type": "LOCAL_HOSTING",
       "vector": "Make placement respect host thermal and power limits"
     },
