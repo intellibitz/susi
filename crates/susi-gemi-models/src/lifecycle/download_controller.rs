@@ -217,6 +217,7 @@ impl ModelDownloadController {
 }
 
 #[cfg(test)]
+// Test-only assertions: a failure here is the failure the test exists to report.
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;

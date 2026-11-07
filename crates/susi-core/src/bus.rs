@@ -115,6 +115,7 @@ impl TypedEventBus {
         Self::default()
     }
 
+    // Mandate 42: justified at the downcast below (TypeId-keyed invariant).
     #[allow(clippy::expect_used)]
     pub fn publish<E: Send + Sync + Clone + 'static>(&self, event: E) {
         let subscribers = self
