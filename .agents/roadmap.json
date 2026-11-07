@@ -1111,7 +1111,7 @@
       "id": "VC-201-088",
       "mastery_target": "Join provider, model, MCP, A2A, and extension probe results by exact version with freshness windows; operators can filter verified, stale, failed, and untested combinations.",
       "priority": "P1",
-      "progress": "DELIVERED: the compatibility gate admits a compatible component and refuses an unknown component, an unrecorded version and any pair without a common protocol, warning on a superseded pin. Verified by `crates/susi-gemi/src/eco_compat_gate.rs`: allows_compatible_component, refuses_unknown_component, refuses_unrecorded_version, refuses_without_common_protocol, warns_on_superseded_pin, with the inventory companions eco_schema, eco_matrix and eco_coverage. Evidence: T-CLAUDE-252, T-CLAUDE-258, T-CLAUDE-261, T-CLAUDE-346.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-frontier-lab::eco_compat_gate): the compatibility gate admits a compatible component and refuses an unknown component, an unrecorded version and any pair without a common protocol, warning on a superseded pin. Verified by `crates/susi-gemi/src/eco_compat_gate.rs`: allows_compatible_component, refuses_unknown_component, refuses_unrecorded_version, refuses_without_common_protocol, warns_on_superseded_pin, with the inventory companions eco_schema, eco_matrix and eco_coverage. Evidence: T-CLAUDE-252, T-CLAUDE-258, T-CLAUDE-261, T-CLAUDE-346.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Maintain a live ecosystem compatibility inventory"
     },
