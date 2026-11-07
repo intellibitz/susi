@@ -38,6 +38,7 @@
     "crates/susi-gemi/cargo.toml",
     "crates/susi-gemi/src/engines/runtime.rs",
     "crates/susi-server/src/lib.rs",
+    "crates/susi-vendor-cloud/src/lib.rs",
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
   ],
@@ -68,6 +69,7 @@
     "crates/susi-gemi/cargo.toml",
     "crates/susi-gemi/src/engines/runtime.rs",
     "crates/susi-server/src/lib.rs",
+    "crates/susi-vendor-cloud/src/lib.rs",
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
   ],
