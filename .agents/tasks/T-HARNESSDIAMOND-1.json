@@ -1,27 +1,24 @@
 {
-    "accept":  {
-                   "cmd":  [
-                               "cargo",
-                               "test",
-                               "-p",
-                               "susi-harness",
-                               "--offline",
-                               "--locked"
-                           ]
-               },
-    "id":  "T-HARNESSDIAMOND-1",
-    "size":  "l",
-    "goal":  "Prevent budget leaks on worker panic/abort via RAII BudgetReservation, catch runner panics, self-heal torn ledger lines, and embed a native dependency + scope-disjoint workflow wave engine in susi-harness.",
-    "scopes":  [
-                   ".agents/tasks/t-harnessdiamond-1.json",
-                   "crates/susi-harness"
-               ],
-    "deps":  [
-
-             ],
-    "created_by":  "antigravity",
-    "created_unix":  1794000200,
-    "status":  "completed",
-    "title":  "Harden susi-harness with RAII budget reservations, panic-safe scheduler, self-healing ledger, and embedded workflow engine",
-    "native_worker":  "antigravity"
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "id": "T-HARNESSDIAMOND-1",
+  "size": "l",
+  "goal": "Prevent budget leaks on worker panic/abort via RAII BudgetReservation, catch runner panics, self-heal torn ledger lines, and embed a native dependency + scope-disjoint workflow wave engine in susi-harness.",
+  "scopes": [
+    ".agents/tasks/t-harnessdiamond-1.json",
+    "crates/susi-harness"
+  ],
+  "deps": [],
+  "created_by": "antigravity",
+  "created_unix": 1794000200,
+  "status": "completed",
+  "title": "Harden susi-harness with RAII budget reservations, panic-safe scheduler, self-healing ledger, and embedded workflow engine"
 }

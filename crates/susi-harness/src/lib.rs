@@ -113,6 +113,13 @@ pub mod worker;
 
 pub use budget::BudgetReservation;
 pub use ledger::{verify_integrity, LedgerIntegrityReport};
+pub use supervisor::{
+    build_adaptive_supervisor_report, discover_cli_fleet, discover_cli_fleet_in,
+    execute_adaptive_task_with, AdaptiveExecutionPolicy, AdaptiveSupervisorReport,
+    AdaptiveTaskOutcome, AdaptiveTaskRequest, CliAgentBackend, CliToolStatus,
+    EmbeddedWorkflowOrchestrator, SusiSocketReport, WorkflowEmbedError, WorkflowNode,
+    WorkflowWavePlan,
+};
 
 #[cfg(test)]
 // Test-only assertions in inline unit tests.

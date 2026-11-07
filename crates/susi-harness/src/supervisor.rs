@@ -12,10 +12,14 @@
 use crate::adapter::{
     land, run_task, CommandRunner, SusiRunPolicy, SusiRunReport, SusiTarget, SusiTaskSpec,
 };
+use crate::adaptive::{
+    self, AdaptiveRunner, CliSubRunner, CliToolKind, SusiSocketEndpoints, GAWD_A2A_PORT,
+    GEMI_OPENAI_PORT, GMCP_HTTP_PORT,
+};
 use crate::budget::{Budget, BudgetGuard};
 use crate::catalog::PriceCatalogue;
 use crate::control::ControlState;
-use crate::executor::{RunOutcome, Runner};
+use crate::executor::{ExecutorConfig, NativeWorker, RunOutcome, Runner};
 use crate::lifecycle::{self, LifecycleEvent};
 use crate::policy::Policy;
 use crate::workflow;
@@ -25,6 +29,403 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use susi_error::{EaiError, EaiResult};
+
+/// Alias for [`CliToolKind`] representing a monthly-subscription CLI agent backend.
+pub type CliAgentBackend = CliToolKind;
+
+/// Status of one monthly-subscription CLI backend (`claude`, `codex`, `gemini`, `agy`, `qwen`, `aider`, `opencode`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliToolStatus {
+    /// Canonical tool identifier (e.g. `"claude"`, `"codex"`).
+    pub kind: String,
+    /// True when an executable for this tool was found in the search directories.
+    pub installed: bool,
+    /// Discovered executable path, when installed.
+    pub executable_path: Option<PathBuf>,
+    /// Candidate binary names searched for this tool.
+    pub candidates: Vec<String>,
+}
+
+/// Active adaptive execution policy (strategy and failover models).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdaptiveExecutionPolicy {
+    /// Strategy name (`"auto"`, `"cli-first"`, `"payg-first"`, `"payg-only"`, `"cli-only"`).
+    pub strategy: String,
+    /// Optional CLI spec PAYG fails over to (e.g. `"cli:claude"`).
+    pub fallback_cli_model: Option<String>,
+    /// Optional PAYG model a CLI turn fails over to (e.g. `"deepseek-flash"`).
+    pub fallback_payg_model: Option<String>,
+}
+
+impl Default for AdaptiveExecutionPolicy {
+    fn default() -> Self {
+        Self::from_runner(&AdaptiveRunner::default())
+    }
+}
+
+impl AdaptiveExecutionPolicy {
+    /// Snapshot the policy configured on `runner`.
+    #[must_use]
+    pub fn from_runner<P: Runner, C: Runner>(runner: &AdaptiveRunner<P, C>) -> Self {
+        Self {
+            strategy: runner.strategy.as_str().to_string(),
+            fallback_cli_model: runner.fallback_cli_model.clone(),
+            fallback_payg_model: runner.fallback_payg_model.clone(),
+        }
+    }
+
+    /// Snapshot the policy from environment variables.
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self::from_runner(&AdaptiveRunner::from_env())
+    }
+}
+
+/// Serializable Susi AI OS Socket endpoints (`9090` GMCP, `9091` GEMI, `9094` GAWD).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SusiSocketReport {
+    /// GMCP streamable-HTTP tool socket URL.
+    pub gmcp_http_url: String,
+    /// Gemi OpenAI-compatible chat-completions socket URL.
+    pub gemi_openai_url: String,
+    /// Gawd agent-to-agent socket URL.
+    pub gawd_a2a_url: String,
+    /// GMCP HTTP port (`9090 + offset`).
+    pub gmcp_port: u16,
+    /// Gemi OpenAI port (`9091 + offset`).
+    pub gemi_port: u16,
+    /// Gawd A2A port (`9094 + offset`).
+    pub gawd_port: u16,
+}
+
+impl SusiSocketReport {
+    /// Build a socket report for `offset`.
+    #[must_use]
+    pub fn from_port_offset(offset: u16) -> Self {
+        let endpoints = SusiSocketEndpoints::from_port_offset(offset);
+        Self {
+            gmcp_http_url: endpoints.gmcp_http_url,
+            gemi_openai_url: endpoints.gemi_openai_url,
+            gawd_a2a_url: endpoints.gawd_a2a_url,
+            gmcp_port: GMCP_HTTP_PORT.saturating_add(offset),
+            gemi_port: GEMI_OPENAI_PORT.saturating_add(offset),
+            gawd_port: GAWD_A2A_PORT.saturating_add(offset),
+        }
+    }
+}
+
+impl Default for SusiSocketReport {
+    fn default() -> Self {
+        Self::from_port_offset(0)
+    }
+}
+
+/// Request to execute a single task turn through the adaptive CLI + PAYG BYOK runner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdaptiveTaskRequest {
+    /// Mission identifier.
+    pub mission: String,
+    /// Task key.
+    pub task: String,
+    /// Model or `cli:<tool>` spec.
+    pub model: String,
+    /// Task prompt piped to the worker.
+    pub prompt: String,
+    /// Workspace directory.
+    pub workspace: PathBuf,
+    /// Per-task state directory.
+    pub state_dir: PathBuf,
+    /// Metering gateway base URL.
+    pub gateway_url: String,
+    /// Turn timeout in seconds.
+    pub timeout_secs: u64,
+}
+
+impl AdaptiveTaskRequest {
+    /// Convert into an [`ExecutorConfig`].
+    #[must_use]
+    pub fn to_executor_config(&self) -> ExecutorConfig {
+        ExecutorConfig {
+            gateway_url: self.gateway_url.clone(),
+            model: self.model.clone(),
+            workspace: self.workspace.clone(),
+            state_dir: self.state_dir.clone(),
+            mission: self.mission.clone(),
+            task: self.task.clone(),
+            attempt: 1,
+            timeout: Duration::from_secs(self.timeout_secs.max(1)),
+            prompt: self.prompt.clone(),
+        }
+    }
+}
+
+/// Outcome of an [`AdaptiveTaskRequest`] executed by [`AdaptiveRunner`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AdaptiveTaskOutcome {
+    /// Primary billing mode (`"payg-byok"` or `"monthly-sub-cli"`).
+    pub primary_mode: String,
+    /// Primary model or CLI spec.
+    pub primary_model: String,
+    /// Failover billing mode, if configured.
+    pub failover_mode: Option<String>,
+    /// Failover model or CLI spec, if configured.
+    pub failover_model: Option<String>,
+    /// True when the turn succeeded on either primary or failover.
+    pub succeeded: bool,
+    /// Human-readable status description.
+    pub status: String,
+    /// Final text returned by the worker on success.
+    pub final_text: Option<String>,
+    /// Reported PAYG cost in USD (`Some(0.0)` for subscription CLIs).
+    pub reported_cost_usd: Option<f64>,
+}
+
+/// One node in an embedded workflow wave plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowNode {
+    /// Unique task key within the wave plan.
+    pub key: String,
+    /// Task keys that must complete before this node starts.
+    #[serde(default)]
+    pub deps: Vec<String>,
+    /// Repository-relative file or directory scopes reserved by this node.
+    pub scopes: Vec<String>,
+}
+
+impl workflow::WorkflowTask for WorkflowNode {
+    fn key(&self) -> &str {
+        &self.key
+    }
+
+    fn deps(&self) -> &[String] {
+        &self.deps
+    }
+
+    fn scopes(&self) -> &[String] {
+        &self.scopes
+    }
+}
+
+/// Wave schedule produced by [`EmbeddedWorkflowOrchestrator`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowWavePlan {
+    /// Identifier of this wave plan.
+    pub wave_id: String,
+    /// Ordered waves; each wave lists task keys that can run concurrently without scope or dependency conflicts.
+    pub waves: Vec<Vec<String>>,
+    /// Task keys blocked by external active claims.
+    pub blocked: Vec<String>,
+}
+
+/// Error returned when planning an embedded workflow wave fails.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowEmbedError {
+    /// Reason the workflow plan was rejected.
+    pub message: String,
+}
+
+impl std::fmt::Display for WorkflowEmbedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for WorkflowEmbedError {}
+
+/// In-process orchestrator for dependency- and scope-disjoint wave planning.
+#[derive(Debug, Clone)]
+pub struct EmbeddedWorkflowOrchestrator {
+    /// Maximum concurrent tasks per wave.
+    pub max_parallel: usize,
+    /// Already-completed task keys.
+    pub completed: BTreeSet<String>,
+    /// Scopes currently claimed by external agents.
+    pub active_claimed_scopes: Vec<String>,
+}
+
+impl Default for EmbeddedWorkflowOrchestrator {
+    fn default() -> Self {
+        Self {
+            max_parallel: 4,
+            completed: BTreeSet::new(),
+            active_claimed_scopes: Vec::new(),
+        }
+    }
+}
+
+impl EmbeddedWorkflowOrchestrator {
+    /// Create an orchestrator with `max_parallel` concurrency.
+    #[must_use]
+    pub fn new(max_parallel: usize) -> Self {
+        Self {
+            max_parallel: max_parallel.max(1),
+            ..Self::default()
+        }
+    }
+
+    /// Partition `nodes` into dependency-ready, pairwise scope-disjoint waves.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkflowEmbedError`] if any scope is invalid or if dependencies contain an unknown key or cycle.
+    pub fn plan_wave(
+        &self,
+        wave_id: &str,
+        nodes: &[WorkflowNode],
+    ) -> Result<WorkflowWavePlan, WorkflowEmbedError> {
+        if wave_id.trim().is_empty() {
+            return Err(WorkflowEmbedError {
+                message: "wave_id must not be empty".to_string(),
+            });
+        }
+        for node in nodes {
+            if node.scopes.is_empty() {
+                return Err(WorkflowEmbedError {
+                    message: format!("task {} reserves no scopes", node.key),
+                });
+            }
+            for scope in &node.scopes {
+                workflow::normalize_scope(scope).map_err(|error| WorkflowEmbedError {
+                    message: format!("task {} scope: {error}", node.key),
+                })?;
+            }
+        }
+        let schedule = workflow::WorkflowSchedule::build(
+            nodes,
+            &self.completed,
+            &self.active_claimed_scopes,
+            self.max_parallel.max(1),
+        )
+        .map_err(|error| WorkflowEmbedError {
+            message: error.to_string(),
+        })?;
+        Ok(WorkflowWavePlan {
+            wave_id: wave_id.to_string(),
+            waves: schedule
+                .waves
+                .into_iter()
+                .map(|w| w.tasks.into_iter().map(|t| t.key.clone()).collect())
+                .collect(),
+            blocked: schedule
+                .blocked
+                .into_iter()
+                .map(|t| t.key.clone())
+                .collect(),
+        })
+    }
+}
+
+/// Complete report of discovered CLI subscription tools, Susi AI OS Socket endpoints,
+/// active adaptive execution policy, and embedded workflow readiness.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdaptiveSupervisorReport {
+    /// Status of all 7 supported monthly-subscription CLI tools.
+    pub cli_fleet: Vec<CliToolStatus>,
+    /// Susi AI OS Socket endpoint bindings (`9090` GMCP, `9091` GEMI, `9094` GAWD).
+    pub socket_endpoints: SusiSocketReport,
+    /// Active adaptive execution policy.
+    pub policy: AdaptiveExecutionPolicy,
+    /// True when the embedded workflow engine is ready in-process.
+    pub embedded_workflow_ready: bool,
+}
+
+/// Discover the status of all 7 supported monthly-subscription CLIs in `dirs`.
+#[must_use]
+pub fn discover_cli_fleet_in(dirs: &[PathBuf]) -> Vec<CliToolStatus> {
+    let found = adaptive::discover_cli_tools_in(dirs);
+    CliToolKind::ALL
+        .iter()
+        .map(|kind| {
+            let path = found
+                .iter()
+                .find(|entry| entry.kind == *kind)
+                .map(|entry| entry.path.clone());
+            CliToolStatus {
+                kind: kind.as_str().to_string(),
+                installed: path.is_some(),
+                executable_path: path,
+                candidates: kind.candidates().into_iter().map(str::to_string).collect(),
+            }
+        })
+        .collect()
+}
+
+/// Discover the status of all 7 supported monthly-subscription CLIs in [`adaptive::default_search_dirs`].
+#[must_use]
+pub fn discover_cli_fleet() -> Vec<CliToolStatus> {
+    discover_cli_fleet_in(&adaptive::default_search_dirs())
+}
+
+/// Build an [`AdaptiveSupervisorReport`] for `port_offset`.
+#[must_use]
+pub fn build_adaptive_supervisor_report(port_offset: u16) -> AdaptiveSupervisorReport {
+    AdaptiveSupervisorReport {
+        cli_fleet: discover_cli_fleet(),
+        socket_endpoints: SusiSocketReport::from_port_offset(port_offset),
+        policy: AdaptiveExecutionPolicy::from_env(),
+        embedded_workflow_ready: true,
+    }
+}
+
+/// Execute `request` with `runner` and return a structured [`AdaptiveTaskOutcome`].
+#[must_use]
+pub fn execute_adaptive_task_with<P: Runner, C: Runner>(
+    runner: &AdaptiveRunner<P, C>,
+    request: &AdaptiveTaskRequest,
+) -> AdaptiveTaskOutcome {
+    let route = runner.plan(&request.model);
+    let config = request.to_executor_config();
+    let (primary_mode, primary_model) = (route.primary.0.as_str().to_string(), route.primary.1);
+    let (failover_mode, failover_model) = match route.failover {
+        Some((mode, model)) => (Some(mode.as_str().to_string()), Some(model)),
+        None => (None, None),
+    };
+    match runner.run(&config) {
+        Ok(RunOutcome::Succeeded {
+            final_text,
+            reported_cost_usd,
+        }) => AdaptiveTaskOutcome {
+            primary_mode,
+            primary_model,
+            failover_mode,
+            failover_model,
+            succeeded: true,
+            status: "succeeded".to_string(),
+            final_text: Some(final_text),
+            reported_cost_usd,
+        },
+        Ok(RunOutcome::Failed { message }) => AdaptiveTaskOutcome {
+            primary_mode,
+            primary_model,
+            failover_mode,
+            failover_model,
+            succeeded: false,
+            status: format!("failed: {message}"),
+            final_text: None,
+            reported_cost_usd: None,
+        },
+        Ok(RunOutcome::TimedOut) => AdaptiveTaskOutcome {
+            primary_mode,
+            primary_model,
+            failover_mode,
+            failover_model,
+            succeeded: false,
+            status: "timed_out".to_string(),
+            final_text: None,
+            reported_cost_usd: None,
+        },
+        Err(error) => AdaptiveTaskOutcome {
+            primary_mode,
+            primary_model,
+            failover_mode,
+            failover_model,
+            succeeded: false,
+            status: format!("error: {error}"),
+            final_text: None,
+            reported_cost_usd: None,
+        },
+    }
+}
 
 /// One task in a supervisor plan.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -281,6 +682,56 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
     pub fn with_controls(mut self, path: impl Into<PathBuf>) -> Self {
         self.control_path = Some(path.into());
         self
+    }
+
+    /// Build the default [`AdaptiveRunner`] configured from the environment.
+    #[must_use]
+    pub fn adaptive_runner(&self) -> AdaptiveRunner<NativeWorker, CliSubRunner> {
+        AdaptiveRunner::from_env()
+    }
+
+    /// Discover the status of all 7 supported monthly-subscription CLI backends.
+    #[must_use]
+    pub fn discover_cli_fleet(&self) -> Vec<CliToolStatus> {
+        discover_cli_fleet()
+    }
+
+    /// Partition `nodes` into dependency-ready, scope-disjoint waves using this supervisor's
+    /// `max_parallel` concurrency limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkflowEmbedError`] if `wave_id` is empty, a scope is invalid, or dependencies
+    /// contain an unknown key or cycle.
+    pub fn plan_embedded_workflow(
+        &self,
+        wave_id: &str,
+        nodes: Vec<WorkflowNode>,
+    ) -> Result<WorkflowWavePlan, WorkflowEmbedError> {
+        EmbeddedWorkflowOrchestrator::new(self.max_parallel).plan_wave(wave_id, &nodes)
+    }
+
+    /// Execute `request` through the default [`AdaptiveRunner`].
+    #[must_use]
+    pub fn execute_adaptive_task(&self, request: &AdaptiveTaskRequest) -> AdaptiveTaskOutcome {
+        execute_adaptive_task_with(&self.adaptive_runner(), request)
+    }
+
+    /// Execute `request` through a caller-supplied [`AdaptiveRunner`].
+    #[must_use]
+    pub fn execute_adaptive_task_with<P: Runner, C: Runner>(
+        &self,
+        runner: &AdaptiveRunner<P, C>,
+        request: &AdaptiveTaskRequest,
+    ) -> AdaptiveTaskOutcome {
+        execute_adaptive_task_with(runner, request)
+    }
+
+    /// Build a complete [`AdaptiveSupervisorReport`] of discovered CLI subscription tools,
+    /// Susi AI OS Socket endpoints, active adaptive execution policy, and embedded workflow readiness.
+    #[must_use]
+    pub fn adaptive_status_report(&self) -> AdaptiveSupervisorReport {
+        build_adaptive_supervisor_report(0)
     }
 
     /// Run the plan, skipping tasks an earlier run landed.
@@ -1098,5 +1549,144 @@ mod tests {
 
         let nothing = work_events("T-1", false, false, "no work".into(), 10);
         assert_eq!(phases(&nothing), vec!["defect"]);
+    }
+
+    struct StubRunner {
+        outcome: RunOutcome,
+    }
+
+    impl Runner for StubRunner {
+        fn run(&self, _config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+            Ok(self.outcome.clone())
+        }
+    }
+
+    #[test]
+    fn supervisor_discovers_cli_fleet_and_reports_socket_endpoints() {
+        let bin_dir = tempfile::tempdir().unwrap();
+        std::fs::write(bin_dir.path().join("claude.exe"), b"").unwrap();
+        std::fs::write(bin_dir.path().join("codex.exe"), b"").unwrap();
+        std::fs::write(bin_dir.path().join("agy.exe"), b"").unwrap();
+
+        let fleet = discover_cli_fleet_in(&[bin_dir.path().to_path_buf()]);
+        assert_eq!(fleet.len(), 7);
+        assert!(fleet.iter().find(|t| t.kind == "claude").unwrap().installed);
+        assert!(fleet.iter().find(|t| t.kind == "codex").unwrap().installed);
+        assert!(
+            fleet
+                .iter()
+                .find(|t| t.kind == "antigravity")
+                .unwrap()
+                .installed
+        );
+        assert!(!fleet.iter().find(|t| t.kind == "qwen").unwrap().installed);
+
+        let dir = tempfile::tempdir().unwrap();
+        let executor = FakeExecutor::new(vec![]);
+        let sup = Supervisor::new(dir.path().join("state.json"), &executor).with_parallelism(3);
+        let status = sup.adaptive_status_report();
+        assert_eq!(status.cli_fleet.len(), 7);
+        assert_eq!(status.socket_endpoints.gmcp_port, 9090);
+        assert_eq!(status.socket_endpoints.gemi_port, 9091);
+        assert_eq!(status.socket_endpoints.gawd_port, 9094);
+        assert!(status
+            .socket_endpoints
+            .gmcp_http_url
+            .contains("127.0.0.1:9090"));
+        assert!(status
+            .socket_endpoints
+            .gemi_openai_url
+            .contains("127.0.0.1:9091/v1/chat/completions"));
+        assert!(status
+            .socket_endpoints
+            .gawd_a2a_url
+            .contains("127.0.0.1:9094"));
+        assert!(status.embedded_workflow_ready);
+    }
+
+    #[test]
+    fn supervisor_plans_embedded_workflow_and_executes_adaptive_task_with_failover() {
+        use crate::adaptive::AdaptiveStrategy;
+
+        let dir = tempfile::tempdir().unwrap();
+        let executor = FakeExecutor::new(vec![]);
+        let sup = Supervisor::new(dir.path().join("state.json"), &executor).with_parallelism(2);
+
+        let nodes = vec![
+            WorkflowNode {
+                key: "t-core".to_string(),
+                deps: vec![],
+                scopes: vec!["crates/susi-core".to_string()],
+            },
+            WorkflowNode {
+                key: "t-harness".to_string(),
+                deps: vec![],
+                scopes: vec!["crates/susi-harness".to_string()],
+            },
+            WorkflowNode {
+                key: "t-core-sub".to_string(),
+                deps: vec!["t-core".to_string()],
+                scopes: vec!["crates/susi-core/src/lib.rs".to_string()],
+            },
+        ];
+        let plan = sup.plan_embedded_workflow("wave-3", nodes).unwrap();
+        assert_eq!(plan.wave_id, "wave-3");
+        assert_eq!(plan.waves.len(), 2);
+        assert_eq!(plan.waves[0], vec!["t-core", "t-harness"]);
+        assert_eq!(plan.waves[1], vec!["t-core-sub"]);
+        assert!(plan.blocked.is_empty());
+
+        // Reject cyclic dependencies.
+        let cyclic = vec![
+            WorkflowNode {
+                key: "a".to_string(),
+                deps: vec!["b".to_string()],
+                scopes: vec!["docs/a.md".to_string()],
+            },
+            WorkflowNode {
+                key: "b".to_string(),
+                deps: vec!["a".to_string()],
+                scopes: vec!["docs/b.md".to_string()],
+            },
+        ];
+        assert!(sup.plan_embedded_workflow("wave-bad", cyclic).is_err());
+
+        // Simulated CLI failure -> PAYG BYOK failover succeeds.
+        let cli_fail = StubRunner {
+            outcome: RunOutcome::Failed {
+                message: "429 usage limit exceeded".to_string(),
+            },
+        };
+        let payg_ok = StubRunner {
+            outcome: RunOutcome::Succeeded {
+                final_text: "completed on PAYG BYOK".to_string(),
+                reported_cost_usd: Some(0.0125),
+            },
+        };
+        let adaptive =
+            AdaptiveRunner::new(payg_ok, cli_fail, AdaptiveStrategy::PreferCliSubThenPayg)
+                .with_fallback_payg_model("deepseek-flash");
+
+        let req = AdaptiveTaskRequest {
+            mission: "m-adaptive".to_string(),
+            task: "t-1".to_string(),
+            model: "cli:claude:opus".to_string(),
+            prompt: "implement feature".to_string(),
+            workspace: dir.path().to_path_buf(),
+            state_dir: dir.path().join("task-state"),
+            gateway_url: "http://127.0.0.1:9180".to_string(),
+            timeout_secs: 30,
+        };
+        let outcome = sup.execute_adaptive_task_with(&adaptive, &req);
+        assert!(outcome.succeeded);
+        assert_eq!(outcome.primary_mode, "monthly-sub-cli");
+        assert_eq!(outcome.primary_model, "cli:claude:opus");
+        assert_eq!(outcome.failover_mode.as_deref(), Some("payg-byok"));
+        assert_eq!(outcome.failover_model.as_deref(), Some("deepseek-flash"));
+        assert_eq!(
+            outcome.final_text.as_deref(),
+            Some("completed on PAYG BYOK")
+        );
+        assert_eq!(outcome.reported_cost_usd, Some(0.0125));
     }
 }
