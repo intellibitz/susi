@@ -737,7 +737,7 @@
       "id": "VC-201-059",
       "mastery_target": "Tag owned resources with mission and deployment identities and reconcile them against authoritative state; dry-run and apply tests remove only expired SUSI-owned resources and preserve explicitly retained assets.",
       "priority": "P1",
-      "progress": "DELIVERED: orphan collection removes only expired SUSI-owned resources, keeps the resource of a live deployment, and a dry run reports the identical set without deleting. Verified by `crates/susi-vendor-cloud/src/tests/vc_201_059.rs`: deletes_only_expired_susi_owned_orphans, live_deployment_also_keeps_resource, dry_run_reports_identical_set_without_deleting. Evidence: T-CLAUDE-382.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::orphan_gc): orphan collection removes only expired SUSI-owned resources, keeps the resource of a live deployment, and a dry run reports the identical set without deleting. Verified by `crates/susi-vendor-cloud/src/tests/vc_201_059.rs`: deletes_only_expired_susi_owned_orphans, live_deployment_also_keeps_resource, dry_run_reports_identical_set_without_deleting. Evidence: T-CLAUDE-382.",
       "type": "CLOUD_HOSTING",
       "vector": "Collect orphaned managed cloud resources"
     },
