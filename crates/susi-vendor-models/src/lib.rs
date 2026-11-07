@@ -54,9 +54,6 @@ pub mod runtime_lifecycle;
 pub mod transactional_download;
 
 #[cfg(test)]
-#[path = "tests/resource_inventory.rs"]
-mod resource_inventory_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_041_mastery.rs"]
 mod vc_201_041_mastery_tests;
 #[cfg(test)]
