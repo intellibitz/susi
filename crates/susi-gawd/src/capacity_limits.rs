@@ -95,7 +95,7 @@ impl ControlPlaneCapacity {
         let next = checked_add(self.in_flight, requested)?;
         if admit(&next, &self.limits) == AdmitLoad::RejectOverload {
             return Err(CapacityError::Overloaded {
-                report: saturation_report(&next, &self.limits),
+                report: saturation(&next, &self.limits),
             });
         }
         self.in_flight = next;
@@ -187,11 +187,82 @@ pub fn saturation_report(load: &LoadPoint, limits: &CapacityLimits) -> Saturatio
     }
 }
 
-/// Compatibility helper retained for the pure unit-model tests.
-#[cfg(test)]
+/// Evaluate saturation on a load point against recorded capacity limits.
 #[must_use]
 pub fn saturation(load: &LoadPoint, limits: &CapacityLimits) -> SaturationReport {
     saturation_report(load, limits)
+}
+
+/// Measured saturation and cancellation responsiveness report across a
+/// stressed control-plane workload on `RECORDED_HARDWARE_PROFILE`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SaturationBenchmarkReport {
+    pub hardware_profile: String,
+    pub admitted_count: usize,
+    pub rejected_overload_count: usize,
+    pub saturation_points: Vec<SaturationReport>,
+    pub measured_cancel_latency_ms: u64,
+    pub healthy: bool,
+    pub cancel_responsive: bool,
+}
+
+/// Load-test simultaneous missions, streaming calls, peer repair, and model
+/// churn against `ControlPlaneCapacity`, recording saturation points and
+/// measuring real reservation cancellation/release latency against `cancel_budget_ms`.
+#[must_use]
+pub fn measure_control_plane_saturation(
+    limits: CapacityLimits,
+    workload: &[LoadPoint],
+    cancel_budget_ms: u64,
+) -> SaturationBenchmarkReport {
+    let mut controller = ControlPlaneCapacity::new(limits);
+    let mut reservations = Vec::with_capacity(workload.len());
+    let mut saturation_points = Vec::new();
+    let mut admitted_count = 0usize;
+    let mut rejected_overload_count = 0usize;
+    let mut counter_healthy = true;
+
+    for point in workload {
+        match controller.reserve(*point) {
+            Ok(reservation) => {
+                admitted_count = admitted_count.saturating_add(1);
+                reservations.push(reservation);
+            }
+            Err(CapacityError::Overloaded { report }) => {
+                rejected_overload_count = rejected_overload_count.saturating_add(1);
+                saturation_points.push(report);
+            }
+            Err(CapacityError::CounterOverflow | CapacityError::ReleaseUnderflow) => {
+                counter_healthy = false;
+            }
+        }
+    }
+
+    let cancel_started = std::time::Instant::now();
+    for reservation in reservations {
+        if controller.release(reservation).is_err() {
+            counter_healthy = false;
+        }
+    }
+    let measured_cancel_latency_ms =
+        u64::try_from(cancel_started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let healthy = counter_healthy && controller.in_flight() == LoadPoint::default();
+    let cancel_responsive = healthy && measured_cancel_latency_ms <= cancel_budget_ms;
+
+    for report in &mut saturation_points {
+        report.healthy = healthy;
+        report.cancel_responsive = cancel_responsive;
+    }
+
+    SaturationBenchmarkReport {
+        hardware_profile: RECORDED_HARDWARE_PROFILE.to_string(),
+        admitted_count,
+        rejected_overload_count,
+        saturation_points,
+        measured_cancel_latency_ms,
+        healthy,
+        cancel_responsive,
+    }
 }
 
 #[cfg(test)]

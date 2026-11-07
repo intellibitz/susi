@@ -1,5 +1,6 @@
 use crate::capacity_limits::{
-    admit, saturation, AdmitLoad, CapacityError, CapacityLimits, ControlPlaneCapacity, LoadPoint,
+    admit, measure_control_plane_saturation, saturation, AdmitLoad, CapacityError, CapacityLimits,
+    ControlPlaneCapacity, LoadPoint, RECORDED_HARDWARE_PROFILE,
 };
 
 #[test]
@@ -150,4 +151,85 @@ fn vc_201_094_exact_limit_load_is_accepted_and_not_saturated() {
     let sat = saturation(&exact, &limits);
     assert_eq!(sat.saturated_on, None);
     assert!(sat.healthy && sat.cancel_responsive);
+}
+
+#[test]
+fn vc_201_094_load_tests_simultaneous_dimensions_and_measures_cancellation_responsiveness() {
+    let limits = CapacityLimits {
+        max_missions: 4,
+        max_streaming: 8,
+        max_peer_repair: 2,
+        max_model_churn: 1,
+    };
+    let workload = [
+        // Admitted wave 1: simultaneous missions + streaming
+        LoadPoint {
+            missions: 2,
+            streaming: 4,
+            peer_repair: 1,
+            model_churn: 0,
+        },
+        // Admitted wave 2: reaches exact capacity across all 4 dimensions
+        LoadPoint {
+            missions: 2,
+            streaming: 4,
+            peer_repair: 1,
+            model_churn: 1,
+        },
+        // Overloaded on missions
+        LoadPoint {
+            missions: 1,
+            streaming: 0,
+            peer_repair: 0,
+            model_churn: 0,
+        },
+        // Overloaded on streaming
+        LoadPoint {
+            missions: 0,
+            streaming: 1,
+            peer_repair: 0,
+            model_churn: 0,
+        },
+        // Overloaded on peer_repair
+        LoadPoint {
+            missions: 0,
+            streaming: 0,
+            peer_repair: 1,
+            model_churn: 0,
+        },
+        // Overloaded on model_churn
+        LoadPoint {
+            missions: 0,
+            streaming: 0,
+            peer_repair: 0,
+            model_churn: 1,
+        },
+    ];
+
+    let report = measure_control_plane_saturation(limits, &workload, 1_000);
+    assert_eq!(report.hardware_profile, RECORDED_HARDWARE_PROFILE);
+    assert_eq!(report.admitted_count, 2);
+    assert_eq!(report.rejected_overload_count, 4);
+    assert!(report.healthy);
+    assert!(report.cancel_responsive);
+    assert!(report.measured_cancel_latency_ms <= 1_000);
+
+    let saturated_dims: Vec<Option<&'static str>> = report
+        .saturation_points
+        .iter()
+        .map(|s| s.saturated_on)
+        .collect();
+    assert_eq!(
+        saturated_dims,
+        vec![
+            Some("missions"),
+            Some("streaming"),
+            Some("peer_repair"),
+            Some("model_churn"),
+        ]
+    );
+    assert!(report
+        .saturation_points
+        .iter()
+        .all(|s| s.healthy && s.cancel_responsive));
 }
