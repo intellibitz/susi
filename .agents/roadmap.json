@@ -447,7 +447,7 @@
       "id": "VC-201-036",
       "mastery_target": "Bootstrap a new peer from a signed snapshot manifest plus verified ledger tail; reject tampered state, missing anchors, and roster histories that cannot establish the snapshot's authority.",
       "priority": "P1",
-      "progress": "DELIVERED: peer bootstrap accepts a signed snapshot manifest with a verified ledger tail and rejects tampered state, missing anchors and roster histories that cannot establish the snapshot's authority. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_036.rs`: accepts_signed_snapshot, rejects_tampered_missing_unauthorized. Evidence: T-CLAUDE-370.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::snapshot_bootstrap): peer bootstrap accepts a signed snapshot manifest with a verified ledger tail and rejects tampered state, missing anchors and roster histories that cannot establish the snapshot's authority. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_036.rs`: accepts_signed_snapshot, rejects_tampered_missing_unauthorized. Evidence: T-CLAUDE-370.",
       "type": "FEDERATION",
       "vector": "Authenticate snapshot-based peer bootstrap"
     },
