@@ -471,7 +471,7 @@
       "id": "VC-201-038",
       "mastery_target": "Support pinned remote endpoints and authenticated relay or direct transport through the existing peer contract; reconnect tests preserve identity, confidentiality, replay checks, and operator egress policy.",
       "priority": "P1",
-      "progress": "DELIVERED: pinned WAN peers and relays are admitted only within the configured egress policy, and a replayed nonce or a wrong endpoint, transport or identity is refused. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_038.rs`: pinned_direct_peer_admits_and_reconnects, replay_nonce_is_refused, wrong_endpoint_transport_or_identity_is_refused, egress_policy_bounds_pinned_endpoints_and_relays. Evidence: T-CLAUDE-372.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::wan_peers): pinned WAN peers and relays are admitted only within the configured egress policy, and a replayed nonce or a wrong endpoint, transport or identity is refused. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_038.rs`: pinned_direct_peer_admits_and_reconnects, replay_nonce_is_refused, wrong_endpoint_transport_or_identity_is_refused, egress_policy_bounds_pinned_endpoints_and_relays. Evidence: T-CLAUDE-372.",
       "type": "FEDERATION",
       "vector": "Admit explicitly configured WAN peers"
     },
