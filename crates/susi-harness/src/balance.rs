@@ -144,6 +144,64 @@ impl ProviderBudget {
         self.expires_day
             .filter(|day| *day >= today && self.active())
     }
+
+    /// Verify structural invariants of a provider budget entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string when `provider` or `note` is blank,
+    /// when `source` and `remaining` disagree (`Source::Unknown` must have
+    /// `remaining: None`, whereas `Source::Api` and `Source::Configured` must
+    /// have `remaining: Some(_)`), when `key_refused` is `true` while `working`
+    /// is also `true`, or when `absent` contains blank or duplicate model ids.
+    pub fn verify_budget_invariants(&self) -> Result<(), String> {
+        if self.provider.trim().is_empty() {
+            return Err("ProviderBudget provider must not be empty".to_string());
+        }
+        if self.note.trim().is_empty() {
+            return Err(format!(
+                "ProviderBudget '{}' note must not be empty",
+                self.provider
+            ));
+        }
+        match (self.source, self.remaining) {
+            (Source::Unknown, Some(_)) => {
+                return Err(format!(
+                    "ProviderBudget '{}' with Source::Unknown must have remaining == None",
+                    self.provider
+                ));
+            }
+            (Source::Api | Source::Configured, None) => {
+                return Err(format!(
+                    "ProviderBudget '{}' with {:?} must have remaining == Some(_)",
+                    self.provider, self.source
+                ));
+            }
+            (Source::Unknown, None) | (Source::Api | Source::Configured, Some(_)) => {}
+        }
+        if self.key_refused && self.working {
+            return Err(format!(
+                "ProviderBudget '{}' cannot have both key_refused and working set",
+                self.provider
+            ));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for model in &self.absent {
+            if model.trim().is_empty() {
+                return Err(format!(
+                    "ProviderBudget '{}' absent list contains an empty model id",
+                    self.provider
+                ));
+            }
+            if !seen.insert(model.as_str()) {
+                return Err(format!(
+                    "ProviderBudget '{}' absent list contains duplicate model id '{model}'",
+                    self.provider
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Every keyed provider's budget, in registry order.
@@ -154,6 +212,26 @@ pub struct Budgets {
 }
 
 impl Budgets {
+    /// Verify structural invariants across all keyed provider budgets.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string when any entry fails
+    /// [`ProviderBudget::verify_budget_invariants`] or when duplicate provider
+    /// ids appear in `providers`.
+    pub fn verify_budgets_invariants(&self) -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for entry in &self.providers {
+            entry.verify_budget_invariants()?;
+            if !seen.insert(entry.provider.as_str()) {
+                return Err(format!(
+                    "Budgets contains duplicate provider entry '{}'",
+                    entry.provider
+                ));
+            }
+        }
+        Ok(())
+    }
     /// Whether `provider` may run. A provider with no keyed entry is not
     /// active: its models cannot be budgeted.
     #[must_use]
@@ -1024,5 +1102,49 @@ mod tests {
         let spent_past_budget = BTreeMap::from([("gemini".to_string(), usd("9.00"))]);
         let zero = configured_budget("gemini", usd("2.50"), &spent_past_budget);
         assert_eq!(zero.remaining, Some(MicroUsd::ZERO));
+    }
+
+    #[test]
+    fn balance_provider_and_budgets_verify_invariants_reject_corrupt_state() {
+        let valid_api = entry("deepseek", Some("18.19"));
+        assert!(valid_api.verify_budget_invariants().is_ok());
+
+        let valid_unknown = entry("gemini", None);
+        assert!(valid_unknown.verify_budget_invariants().is_ok());
+
+        let mut blank_provider = valid_api.clone();
+        blank_provider.provider = "   ".to_string();
+        assert!(blank_provider.verify_budget_invariants().is_err());
+
+        let mut blank_note = valid_api.clone();
+        blank_note.note = String::new();
+        assert!(blank_note.verify_budget_invariants().is_err());
+
+        let mut mismatch_unknown = valid_unknown.clone();
+        mismatch_unknown.remaining = Some(usd("5.00"));
+        assert!(mismatch_unknown.verify_budget_invariants().is_err());
+
+        let mut mismatch_api = valid_api.clone();
+        mismatch_api.remaining = None;
+        assert!(mismatch_api.verify_budget_invariants().is_err());
+
+        let mut refused_and_working = valid_unknown.clone();
+        refused_and_working.key_refused = true;
+        refused_and_working.working = true;
+        assert!(refused_and_working.verify_budget_invariants().is_err());
+
+        let mut dup_absent = valid_api.clone();
+        dup_absent.absent = vec!["m1".to_string(), "m1".to_string()];
+        assert!(dup_absent.verify_budget_invariants().is_err());
+
+        let budgets = Budgets {
+            providers: vec![valid_api.clone(), valid_unknown],
+        };
+        assert!(budgets.verify_budgets_invariants().is_ok());
+
+        let dup_budgets = Budgets {
+            providers: vec![valid_api.clone(), valid_api],
+        };
+        assert!(dup_budgets.verify_budgets_invariants().is_err());
     }
 }
