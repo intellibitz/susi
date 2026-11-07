@@ -34,7 +34,6 @@ pub mod brain_supervisor;
 pub mod cancel_propagate;
 pub mod capacity_admission;
 pub mod chaos_deployment;
-pub mod cloud_e2e;
 pub mod cloud_failover;
 pub mod cloud_lockout;
 pub(crate) mod cloud_recovery;
