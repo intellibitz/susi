@@ -50,6 +50,34 @@ impl McpTool {
     pub fn to_spec(&self, policy: Policy) -> ToolSpec {
         ToolSpec::mcp(&self.name, &self.description, self.schema.clone(), policy)
     }
+
+    /// Verify structural invariants of an advertised MCP tool.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EaiError::Config`] when the tool name is blank, the input
+    /// schema is not a JSON object, or the schema's `"type"` field is present
+    /// and not `"object"`.
+    pub fn verify_tool_invariants(&self) -> EaiResult<()> {
+        if self.name.trim().is_empty() {
+            return Err(EaiError::config("mcp tool name must not be empty"));
+        }
+        if !self.schema.is_object() {
+            return Err(EaiError::config(format!(
+                "mcp tool '{}' schema must be a JSON object",
+                self.name
+            )));
+        }
+        if let Some(schema_type) = self.schema.get("type") {
+            if !matches!(schema_type, Value::String(t) if t == "object") {
+                return Err(EaiError::config(format!(
+                    "mcp tool '{}' schema type must be \"object\"",
+                    self.name
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A JSON-RPC channel to one MCP server.
@@ -412,6 +440,76 @@ impl HttpSocketTransport {
     #[must_use]
     pub fn session_id(&self) -> Option<&str> {
         self.session_id.as_deref()
+    }
+
+    /// Verify structural invariants of this HTTP socket transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EaiError::Config`] when the URL scheme, host, port, or path
+    /// is invalid, the timeout is zero, or a negotiated protocol version is not
+    /// in [`SUPPORTED_PROTOCOL_VERSIONS`].
+    pub fn verify_transport_invariants(&self) -> EaiResult<()> {
+        let (after_scheme, default_port) = if let Some(rest) = self.url.strip_prefix("http://") {
+            (rest, 80u16)
+        } else if let Some(rest) = self.url.strip_prefix("https://") {
+            (rest, 443u16)
+        } else {
+            return Err(EaiError::config(format!(
+                "mcp http transport url '{}' must start with http:// or https://",
+                self.url
+            )));
+        };
+
+        let (authority, path) = match after_scheme.find('/') {
+            Some(idx) => (&after_scheme[..idx], &after_scheme[idx..]),
+            None => (after_scheme, ""),
+        };
+
+        let (host, port) = match authority.rsplit_once(':') {
+            Some((h, p)) => {
+                let parsed = p.parse::<u16>().map_err(|_| {
+                    EaiError::config(format!(
+                        "mcp http transport url '{}' has invalid port '{p}'",
+                        self.url
+                    ))
+                })?;
+                (h, parsed)
+            }
+            None => (authority, default_port),
+        };
+
+        if host.trim().is_empty() {
+            return Err(EaiError::config(format!(
+                "mcp http transport url '{}' must have a non-empty host",
+                self.url
+            )));
+        }
+        if port == 0 {
+            return Err(EaiError::config(format!(
+                "mcp http transport url '{}' must have a port > 0",
+                self.url
+            )));
+        }
+        if !path.starts_with('/') {
+            return Err(EaiError::config(format!(
+                "mcp http transport url '{}' path must start with '/'",
+                self.url
+            )));
+        }
+        if self.timeout_secs == 0 {
+            return Err(EaiError::config(
+                "mcp http transport timeout_secs must be greater than zero",
+            ));
+        }
+        if let Some(ref version) = self.protocol_version {
+            if !is_supported_protocol_version(version) {
+                return Err(EaiError::config(format!(
+                    "mcp http transport protocol_version '{version}' is not supported"
+                )));
+            }
+        }
+        Ok(())
     }
 
     fn post(&mut self, message: &Value) -> EaiResult<susi_http_transport::HttpCall> {
@@ -915,5 +1013,72 @@ mod tests {
         let mut closed =
             McpClient::new(HttpSocketTransport::new("http://127.0.0.1:1").with_timeout_secs(2));
         assert!(closed.initialize().is_err());
+    }
+
+    #[test]
+    fn mcp_tool_and_http_socket_transport_verify_invariants_reject_corrupt_state() {
+        let valid_tool = McpTool {
+            name: "susi.status".to_string(),
+            description: "Inspect Susi status".to_string(),
+            schema: json!({"type": "object", "properties": {}}),
+        };
+        assert!(valid_tool.verify_tool_invariants().is_ok());
+
+        let untyped_object_tool = McpTool {
+            name: "susi.ping".to_string(),
+            description: "Ping".to_string(),
+            schema: json!({"properties": {}}),
+        };
+        assert!(untyped_object_tool.verify_tool_invariants().is_ok());
+
+        let blank_name = McpTool {
+            name: "   ".to_string(),
+            ..valid_tool.clone()
+        };
+        assert!(blank_name.verify_tool_invariants().is_err());
+
+        let non_object_schema = McpTool {
+            schema: json!(["not", "an", "object"]),
+            ..valid_tool.clone()
+        };
+        assert!(non_object_schema.verify_tool_invariants().is_err());
+
+        let wrong_schema_type = McpTool {
+            schema: json!({"type": "array"}),
+            ..valid_tool.clone()
+        };
+        assert!(wrong_schema_type.verify_tool_invariants().is_err());
+
+        let non_string_schema_type = McpTool {
+            schema: json!({"type": 123}),
+            ..valid_tool
+        };
+        assert!(non_string_schema_type.verify_tool_invariants().is_err());
+
+        let mut valid_transport =
+            HttpSocketTransport::new("http://127.0.0.1:9090").with_timeout_secs(15);
+        assert!(valid_transport.verify_transport_invariants().is_ok());
+        valid_transport.set_protocol_version("2025-11-25");
+        assert!(valid_transport.verify_transport_invariants().is_ok());
+
+        let mut empty_host = valid_transport.clone();
+        empty_host.url = "http://:9090/mcp".to_string();
+        assert!(empty_host.verify_transport_invariants().is_err());
+
+        let mut zero_port = valid_transport.clone();
+        zero_port.url = "http://127.0.0.1:0/mcp".to_string();
+        assert!(zero_port.verify_transport_invariants().is_err());
+
+        let mut missing_path = valid_transport.clone();
+        missing_path.url = "http://127.0.0.1:9090".to_string();
+        assert!(missing_path.verify_transport_invariants().is_err());
+
+        let mut zero_timeout = valid_transport.clone();
+        zero_timeout.timeout_secs = 0;
+        assert!(zero_timeout.verify_transport_invariants().is_err());
+
+        let mut bad_protocol = valid_transport;
+        bad_protocol.protocol_version = Some("1999-01-01".to_string());
+        assert!(bad_protocol.verify_transport_invariants().is_err());
     }
 }
