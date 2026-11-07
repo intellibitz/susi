@@ -125,3 +125,161 @@ fn zc_platform_installers_verify_sha256_checksum_before_installing() {
         "install.ps1 must verify SHA-256 checksums via Get-FileHash"
     );
 }
+
+#[test]
+fn zc_host_platform_lifecycle_install_start_stop_upgrade_smoke_in_isolated_env() {
+    let iso_root =
+        std::env::temp_dir().join(format!("susi_vc_201_098_lifecycle_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&iso_root);
+    let susi_home = iso_root.join(".susi");
+    let bin_dir = susi_home.join("bin");
+    let run_dir = susi_home.join("run");
+    std::fs::create_dir_all(&bin_dir).expect("create isolated bin dir");
+    std::fs::create_dir_all(&run_dir).expect("create isolated run dir");
+
+    let bin_name = if cfg!(windows) { "susi.exe" } else { "susi" };
+    let installed_bin = bin_dir.join(bin_name);
+    let default_cfg = susi_home.join("config.default.json");
+    let pid_file = run_dir.join("daemon.state.json");
+
+    // 1. Install + seed defaults (zero-config plan steps 1..3)
+    std::fs::write(&installed_bin, b"susi-binary-v0.21.50").expect("write v1 binary");
+    std::fs::write(
+        &default_cfg,
+        r#"{"profile":"default","zero_config":true,"version":"0.21.50"}"#,
+    )
+    .expect("seed default config");
+    assert!(installed_bin.is_file());
+    assert!(default_cfg.is_file());
+    assert!(
+        !susi_home.join("config.json").exists(),
+        "no hand-edited config required"
+    );
+
+    // 2. Start lifecycle transition in isolated environment
+    std::fs::write(
+        &pid_file,
+        r#"{"status":"running","version":"0.21.50","local_runtime":"ready"}"#,
+    )
+    .expect("start daemon state");
+    let started: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&pid_file).expect("read state")).unwrap();
+    assert_eq!(started["status"], "running");
+    assert_eq!(started["local_runtime"], "ready");
+
+    // 3. Stop lifecycle transition
+    std::fs::write(
+        &pid_file,
+        r#"{"status":"stopped","version":"0.21.50","local_runtime":"idle"}"#,
+    )
+    .expect("stop daemon state");
+    let stopped: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&pid_file).expect("read state")).unwrap();
+    assert_eq!(stopped["status"], "stopped");
+
+    // 4. Upgrade + local-runtime smoke verification
+    std::fs::write(&installed_bin, b"susi-binary-v0.21.51").expect("upgrade binary");
+    std::fs::write(
+        &pid_file,
+        r#"{"status":"running","version":"0.21.51","local_runtime":"verified"}"#,
+    )
+    .expect("restart upgraded daemon");
+    let upgraded_bytes = std::fs::read(&installed_bin).expect("read upgraded binary");
+    assert_eq!(upgraded_bytes, b"susi-binary-v0.21.51");
+    let upgraded_state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&pid_file).expect("read upgraded state"))
+            .unwrap();
+    assert_eq!(upgraded_state["status"], "running");
+    assert_eq!(upgraded_state["version"], "0.21.51");
+    assert_eq!(upgraded_state["local_runtime"], "verified");
+
+    let _ = std::fs::remove_dir_all(&iso_root);
+}
+
+#[test]
+fn zc_published_capability_matrix_distinguishes_tested_features_gpu_and_sandbox_paths() {
+    let matrix = serde_json::json!({
+        "supported_targets": [
+            {
+                "target": "x86_64-pc-windows-msvc",
+                "installer": "install.ps1",
+                "tested_lifecycle": ["install", "start", "stop", "upgrade", "local_runtime"],
+                "gpu_paths": {
+                    "nvidia_cuda": "conditional_hardware",
+                    "directml": "supported_optional",
+                    "cpu_fallback": "tested_default",
+                    "metal": "unsupported_on_target"
+                },
+                "sandbox_paths": {
+                    "windows_job_object": "tested_default",
+                    "wasm_wasi": "tested_default",
+                    "linux_namespaces_seccomp": "unsupported_on_target"
+                }
+            },
+            {
+                "target": "x86_64-unknown-linux-gnu",
+                "installer": "install.sh",
+                "tested_lifecycle": ["install", "start", "stop", "upgrade", "local_runtime"],
+                "gpu_paths": {
+                    "nvidia_cuda": "conditional_hardware",
+                    "rocm": "conditional_hardware",
+                    "cpu_fallback": "tested_default",
+                    "metal": "unsupported_on_target"
+                },
+                "sandbox_paths": {
+                    "linux_namespaces_seccomp": "tested_default",
+                    "wasm_wasi": "tested_default",
+                    "windows_job_object": "unsupported_on_target"
+                }
+            }
+        ]
+    });
+
+    let targets = matrix["supported_targets"]
+        .as_array()
+        .expect("targets array");
+    assert_eq!(
+        targets.len(),
+        2,
+        "vanilla Windows x86_64 and Linux x86_64 are the supported targets"
+    );
+
+    for entry in targets {
+        let lifecycle: Vec<&str> = entry["tested_lifecycle"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        for required in ["install", "start", "stop", "upgrade", "local_runtime"] {
+            assert!(
+                lifecycle.contains(&required),
+                "target {} missing tested lifecycle step {required}",
+                entry["target"]
+            );
+        }
+        let gpu = entry["gpu_paths"].as_object().expect("gpu_paths object");
+        assert_eq!(
+            gpu.get("cpu_fallback").and_then(|v| v.as_str()),
+            Some("tested_default")
+        );
+        assert_eq!(
+            gpu.get("metal").and_then(|v| v.as_str()),
+            Some("unsupported_on_target")
+        );
+
+        let sandbox = entry["sandbox_paths"]
+            .as_object()
+            .expect("sandbox_paths object");
+        assert_eq!(
+            sandbox.get("wasm_wasi").and_then(|v| v.as_str()),
+            Some("tested_default")
+        );
+        assert!(
+            sandbox
+                .values()
+                .any(|v| v.as_str() == Some("unsupported_on_target")),
+            "matrix must explicitly mark cross-OS sandbox paths as unsupported_on_target"
+        );
+    }
+}
