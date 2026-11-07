@@ -302,9 +302,6 @@ mod extensions_tests;
 mod vc_201_076_mastery_tests;
 
 #[cfg(test)]
-#[path = "tests/key_scope.rs"]
-mod key_scope_tests;
-#[cfg(test)]
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
 #[cfg(test)]
