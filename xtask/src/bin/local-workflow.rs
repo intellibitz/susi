@@ -22,6 +22,8 @@ mod compiler_env;
 mod native_provenance;
 #[path = "../sysroot_sources.rs"]
 mod sysroot_sources;
+#[path = "../test_runner.rs"]
+mod test_runner;
 #[path = "../trusted_sysroot.rs"]
 mod trusted_sysroot;
 #[path = "../workspace_test_count.rs"]
@@ -997,6 +999,194 @@ fn sign_workspace_pass(root: &Path, key: &str) -> Result<String> {
 /// Verify the exact merged checkout, using only native executable invocations.
 /// The isolated home prevents tests from consuming the operator's runtime state;
 /// Cargo and rustup retain their provisioned toolchain/cache locations.
+/// The environment every gate command and every test binary of a gate gets:
+/// a private home tree, the operator's real cargo and rustup homes, the
+/// gate's target directory, no wrappers, and no credentials or endpoints
+/// from the operator's session.
+#[derive(Clone, Copy)]
+struct GateEnv<'a> {
+    home: &'a Path,
+    cargo_home: &'a Path,
+    rustup_home: &'a Path,
+    target: &'a Path,
+    sysroot: Option<&'a trusted_sysroot::VerifiedSysroot>,
+}
+
+fn apply_gate_env(command: &mut Command, gate: &GateEnv<'_>) -> Result<()> {
+    compiler_env::apply_checked(command)?;
+    for (key, _) in env::vars_os() {
+        let name = key.to_string_lossy().to_ascii_uppercase();
+        if name.starts_with("SUSI_")
+            || [
+                "TOKEN",
+                "SECRET",
+                "PASSWORD",
+                "CREDENTIAL",
+                "API_KEY",
+                "ACCESS_KEY",
+                "API_BASE",
+                "BASE_URL",
+                "API_URL",
+                "CUSTOM_HEADERS",
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
+            ]
+            .iter()
+            .any(|part| name.contains(part))
+        {
+            command.env_remove(key);
+        }
+    }
+    if let Some(sysroot) = gate.sysroot {
+        sysroot.apply(command)?;
+    }
+    let home = gate.home;
+    command
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env("SUSI_HOME", home.join("susi"))
+        .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("XDG_CACHE_HOME", home.join("cache"))
+        .env("APPDATA", home.join("appdata"))
+        .env("LOCALAPPDATA", home.join("localappdata"))
+        .env("CARGO_HOME", gate.cargo_home)
+        .env("RUSTUP_HOME", gate.rustup_home)
+        .env("CARGO_TARGET_DIR", gate.target)
+        .env("CARGO_BUILD_TARGET_DIR", gate.target)
+        .env("CARGO_BUILD_BUILD_DIR", gate.target)
+        // Evidence logs are parsed; hosted CI exports CARGO_TERM_COLOR=always.
+        .env("CARGO_TERM_COLOR", "never")
+        // Host compiler wrappers may consult non-hermetic user-profile
+        // configuration or run a shared daemon. The local gate is self-contained.
+        .env("RUSTC_WRAPPER", "")
+        .env("RUSTC_WORKSPACE_WRAPPER", "");
+    Ok(())
+}
+
+/// An exit status with `code` for a gate whose outcome this process decided
+/// (the runner's binaries each have their own status in the log).
+fn exit_status(code: i32) -> std::process::ExitStatus {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(u32::from_ne_bytes(code.to_ne_bytes()))
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(code << 8)
+    }
+}
+
+/// A narrowed test gate run as Cargo's build plus the concurrent binary
+/// runner (`test_runner`).
+struct TestBinariesGate<'a> {
+    candidate: &'a Path,
+    attempt: &'a Path,
+    /// The planned `cargo test ...` arguments (without `cargo`).
+    args: &'a [String],
+    host: &'a str,
+    target: &'a Path,
+    log_path: &'a Path,
+    share: GateShare,
+    env: GateEnv<'a>,
+}
+
+/// Build the gate's test binaries with `cargo test ... --no-run`, then run
+/// them through the concurrent runner, each in its own home under the
+/// attempt directory. Returns the gate's status (0 only when the build and
+/// every binary succeeded) and a note for the evidence line.
+fn run_test_binaries(
+    gate: &TestBinariesGate<'_>,
+) -> Result<(std::process::ExitStatus, Option<String>)> {
+    let mut log = fs::OpenOptions::new().append(true).open(gate.log_path)?;
+    let mut build = Command::new("cargo");
+    apply_gate_env(&mut build, &gate.env)?;
+    build
+        .current_dir(gate.candidate)
+        .args(gate.args)
+        .args(["--no-run", "--message-format=json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(log.try_clone()?));
+    apply_gate_share(&mut build, gate.share);
+    let started = std::time::Instant::now();
+    let output = build.output()?;
+    record_phase("test build", started.elapsed().as_millis());
+    let (binaries, diagnostics) =
+        test_runner::parse_artifacts(&String::from_utf8_lossy(&output.stdout))?;
+    for rendered in &diagnostics {
+        log.write_all(rendered.as_bytes())?;
+    }
+    writeln!(
+        log,
+        "test build: cargo {} --no-run => exit code: {}; {} test binaries",
+        gate.args.join(" "),
+        output
+            .status
+            .code()
+            .map_or_else(|| "none".to_owned(), |code| code.to_string()),
+        binaries.len()
+    )?;
+    if !output.status.success() {
+        return Ok((output.status, Some("runner=binaries:build failed".into())));
+    }
+    let lanes = test_runner::concurrency(gate.share.jobs);
+    let heavy = test_runner::heavy_binaries(gate.candidate);
+    let home_root = gate.attempt.join("test-homes");
+    let durations = gate
+        .attempt
+        .parent()
+        .unwrap_or(gate.attempt)
+        .join("test-durations.json");
+    let settings = test_runner::Settings {
+        concurrency: lanes,
+        test_threads: test_runner::threads_per_binary(gate.share.test_threads, lanes),
+        build_jobs: test_runner::threads_per_binary(gate.share.jobs, lanes),
+        home_root: &home_root,
+        target_dir: gate.target,
+        triple: Some(gate.host),
+        durations: &durations,
+        heavy: &heavy,
+        log: gate.log_path,
+    };
+    eprintln!(
+        "test runner: {} binaries on {} lanes, {} test threads each",
+        binaries.len(),
+        lanes,
+        settings.test_threads
+    );
+    let env = gate.env;
+    let launch = move |binary: &test_runner::Binary, home: &Path| -> Result<Command> {
+        let mut command = Command::new(&binary.executable);
+        apply_gate_env(&mut command, &GateEnv { home, ..env })?;
+        Ok(command)
+    };
+    let outcome = test_runner::run(&binaries, &settings, &launch)?;
+    record_phase("test binaries", outcome.elapsed_ms);
+    let _ = fs::remove_dir_all(&home_root);
+    for (id, code) in &outcome.failed {
+        eprintln!(
+            "test runner: {id} failed ({})",
+            code.map_or_else(
+                || "no exit code".to_owned(),
+                |code| format!("exit code {code}")
+            )
+        );
+    }
+    let complete = outcome.failed.is_empty() && outcome.ran == binaries.len();
+    Ok((
+        exit_status(i32::from(!complete)),
+        Some(format!(
+            "runner=binaries:{lanes} lanes, {} of {} ran, {} failed",
+            outcome.ran,
+            binaries.len(),
+            outcome.failed.len()
+        )),
+    ))
+}
+
 const GIB: u64 = 1 << 30;
 
 fn gib(bytes: u64) -> String {
@@ -1034,6 +1224,9 @@ fn free_space(path: &Path) -> Option<u64> {
         }
         probe = probe.parent()?;
     };
+    // On Windows `canonicalize` answers in verbatim form (`\\?\C:\...`),
+    // which a mount point (`C:\`) is never a prefix of: compare the DOS form.
+    let canonical = dos_path(&canonical);
     let disks = sysinfo::Disks::new_with_refreshed_list();
     disks
         .list()
@@ -1041,6 +1234,20 @@ fn free_space(path: &Path) -> Option<u64> {
         .filter(|disk| canonical.starts_with(disk.mount_point()))
         .max_by_key(|disk| disk.mount_point().as_os_str().len())
         .map(sysinfo::Disk::available_space)
+}
+
+/// `path` without Windows' verbatim prefix: `\\?\C:\x` becomes `C:\x` and
+/// `\\?\UNC\host\share\x` becomes `\\host\share\x`; any other path is
+/// returned as it is.
+fn dos_path(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = text.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    path.to_path_buf()
 }
 
 /// Whether a gate log says the disk ran out: ENOSPC on Linux and macOS, the
@@ -1323,8 +1530,21 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         let all: BTreeSet<String> = ["xtask".to_owned()].into();
         include_release_tooling_for_xtask(&mut gates, &all);
     }
+    // A narrowed `cargo test` gate runs its binaries through the concurrent
+    // runner, which (like nextest) leaves doctests to a companion gate. The
+    // whole-workspace gate keeps serial `cargo test`: its signed test proof
+    // is keyed on that exact invocation.
+    let parallel_tests = !nextest
+        && !test_runner::serial_requested()
+        && matches!(selection, affected::Selection::Packages(_));
     let doc = if nextest {
         doc_gate(&gates[3], libraries.as_ref())
+    } else if parallel_tests {
+        // `doc_gate` skips the `nextest run` prefix; give the `test` gate
+        // the same two-word prefix so its package flags survive.
+        let mut as_runner: Vec<String> = vec!["test".into(), "run".into()];
+        as_runner.extend(gates[3].iter().skip(1).cloned());
+        doc_gate(&as_runner, libraries.as_ref())
     } else {
         None
     };
@@ -1408,61 +1628,22 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         let log_path = attempt.join(format!("gate-{index}.log"));
         let log = fs::File::create(&log_path)?;
         let started = std::time::Instant::now();
-        let mut command = Command::new("cargo");
-        compiler_env::apply_checked(&mut command)?;
-        for (key, _) in env::vars_os() {
-            let name = key.to_string_lossy().to_ascii_uppercase();
-            if name.starts_with("SUSI_")
-                || [
-                    "TOKEN",
-                    "SECRET",
-                    "PASSWORD",
-                    "CREDENTIAL",
-                    "API_KEY",
-                    "ACCESS_KEY",
-                    "API_BASE",
-                    "BASE_URL",
-                    "API_URL",
-                    "CUSTOM_HEADERS",
-                    "HTTP_PROXY",
-                    "HTTPS_PROXY",
-                    "ALL_PROXY",
-                ]
-                .iter()
-                .any(|part| name.contains(part))
-            {
-                command.env_remove(key);
-            }
-        }
-        if let Some(sysroot) = &sysroot {
-            sysroot.apply(&mut command)?;
-        }
         let gate_target = args
             .windows(2)
             .find_map(|pair| (pair[0] == "--target-dir").then(|| PathBuf::from(&pair[1])))
             .unwrap_or_else(|| target.clone());
+        let gate_env = GateEnv {
+            home: &home,
+            cargo_home: &cargo_home,
+            rustup_home: &rustup_home,
+            target: &gate_target,
+            sysroot: sysroot.as_ref(),
+        };
+        let mut command = Command::new("cargo");
+        apply_gate_env(&mut command, &gate_env)?;
         command
             .current_dir(candidate)
             .args(args)
-            .env("HOME", &home)
-            .env("USERPROFILE", &home)
-            .env("SUSI_HOME", home.join("susi"))
-            .env("XDG_CONFIG_HOME", home.join("config"))
-            .env("XDG_DATA_HOME", home.join("data"))
-            .env("XDG_CACHE_HOME", home.join("cache"))
-            .env("APPDATA", home.join("appdata"))
-            .env("LOCALAPPDATA", home.join("localappdata"))
-            .env("CARGO_HOME", &cargo_home)
-            .env("RUSTUP_HOME", &rustup_home)
-            .env("CARGO_TARGET_DIR", &gate_target)
-            .env("CARGO_BUILD_TARGET_DIR", &gate_target)
-            .env("CARGO_BUILD_BUILD_DIR", &gate_target)
-            // Evidence logs are parsed; hosted CI exports CARGO_TERM_COLOR=always.
-            .env("CARGO_TERM_COLOR", "never")
-            // Host compiler wrappers may consult non-hermetic user-profile
-            // configuration or run a shared daemon. The local gate is self-contained.
-            .env("RUSTC_WRAPPER", "")
-            .env("RUSTC_WORKSPACE_WRAPPER", "")
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
         let share = current_gate_share();
@@ -1485,8 +1666,36 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             })
         };
         let test_key = measure(&command);
-        let mut status = command.status()?;
-        if !status.success() && gate_out_of_space(&fs::read(&log_path).unwrap_or_default()) {
+        let binaries_gate = parallel_tests
+            && gate_ids
+                .get(index)
+                .is_some_and(|id| id == "workspace-tests")
+            && args.first().map(String::as_str) == Some("test");
+        let (mut status, runner_note) = if binaries_gate {
+            // Cargo builds the binaries; the runner executes them beside
+            // each other. The planned `cargo test` argv stays the gate's
+            // identity in the evidence and the receipt. (`command` stays
+            // for the proof fingerprint re-measure below; it never runs.)
+            run_test_binaries(&TestBinariesGate {
+                candidate,
+                attempt,
+                args,
+                host,
+                target: &gate_target,
+                log_path: &log_path,
+                share,
+                env: gate_env,
+            })?
+        } else {
+            (command.status()?, None)
+        };
+        // Out of disk mid-gate: reclaim the ship's idle caches and run the
+        // command once more (serial gates only; the runner's binaries each
+        // report their own status in the log).
+        if !binaries_gate
+            && !status.success()
+            && gate_out_of_space(&fs::read(&log_path).unwrap_or_default())
+        {
             let gate = gate_ids.get(index).map_or("?", String::as_str);
             if let Some(line) = reclaim_for_rerun(candidate, &log_path, &mut command, gate)? {
                 evidence.push(line);
@@ -1523,6 +1732,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
                 })?;
                 result.push_str(&format!("; observed-passes={passed}"));
             }
+        }
+        if let Some(note) = runner_note {
+            result.push_str(&format!("; {note}"));
         }
         evidence.push(result.clone());
         evidence.push(format!(
@@ -2956,8 +3168,8 @@ struct SourceInput {
 }
 
 fn ship_scope_base(root: &Path, claim: &Claim, source: &str, publish_base: &str) -> Result<String> {
-    match scope_base(root, claim, source) {
-        Ok(base) => Ok(base),
+    let base = match scope_base(root, claim, source) {
+        Ok(base) => base,
         Err(error) => {
             let on_publish_base =
                 claim.base == publish_base || is_ancestor(root, &claim.base, publish_base)?;
@@ -2967,12 +3179,28 @@ fn ship_scope_base(root: &Path, claim: &Claim, source: &str, publish_base: &str)
             let recoverable = message.contains("accepted history does not descend")
                 || message.contains("accepted integration has no matching durable");
             if recoverable && is_ancestor(root, &claim.base, source)? && on_publish_base {
-                Ok(claim.base.clone())
+                claim.base.clone()
             } else {
-                Err(error)
+                return Err(error);
             }
         }
+    };
+    // History the source shares with the publish base is already on
+    // origin/main: ship merges onto it and gates the result, so it is not
+    // this worker's change to answer for. When origin/main advanced past the
+    // accepted integration without a receipt (a push around the gate, seen
+    // 2026-11-07: 170 commits) and the agent merged it, measuring from the
+    // accepted integration would blame every one of those files on the
+    // agent. The scope base moves up to the shared ancestor, never past
+    // anything the agent added itself.
+    let shared = git(root, &["merge-base", "--all", source, publish_base])?;
+    let shared: Vec<_> = shared.lines().collect();
+    if let [shared] = shared.as_slice() {
+        if *shared != base && is_ancestor(root, &base, shared)? {
+            return Ok((*shared).to_owned());
+        }
     }
+    Ok(base)
 }
 
 fn check_ship_source(root: &Path, claim: &Claim, publish_base: &str) -> Result<String> {
@@ -3916,6 +4144,7 @@ fn gh_input(root: &Path, args: &[String], input: &[u8]) -> Result<String> {
 /// `integrate`/`ship` gate stays the acceptance.
 fn check(root: &Path) -> Result<()> {
     let top = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
+    move_running_tool_out_of_the_target(&top);
     let base = git(&top, &["merge-base", "HEAD", "origin/main"])?;
     let changed = changed_paths(&top, &base)?;
     let mut gates: Vec<Vec<String>> = vec![
@@ -3968,8 +4197,17 @@ fn check(root: &Path) -> Result<()> {
         let all: BTreeSet<String> = ["xtask".to_owned()].into();
         include_release_tooling_for_xtask(&mut gates, &all);
     }
+    // A narrowed `cargo test` gate runs through the concurrent binary runner
+    // (see `test_runner`), which leaves doctests to the companion gate.
+    let runner_tests = !nextest && !test_runner::serial_requested() && !workspace_selected;
     if nextest {
         if let Some(doc) = doc_gate(&gates[2], Some(&workspace.libraries)) {
+            gates.push(doc);
+        }
+    } else if runner_tests {
+        let mut as_runner: Vec<String> = vec!["test".into(), "run".into()];
+        as_runner.extend(gates[2].iter().skip(1).cloned());
+        if let Some(doc) = doc_gate(&as_runner, Some(&workspace.libraries)) {
             gates.push(doc);
         }
     }
@@ -4007,7 +4245,23 @@ fn check(root: &Path) -> Result<()> {
         let share = current_gate_share();
         apply_gate_share(&mut command, share);
         print_gate_share(args.first().map_or("?", String::as_str), share);
-        let status = command.status()?;
+        let binaries_gate = runner_tests
+            && args.first().map(String::as_str) == Some("test")
+            && !args.iter().any(|arg| arg == "--doc");
+        let status = if binaries_gate {
+            check_test_binaries(
+                &CheckGate {
+                    top: &top,
+                    target: &target,
+                    home: &home,
+                    homes: (&cargo_home, &rustup_home),
+                    share,
+                },
+                args,
+            )?
+        } else {
+            command.status()?
+        };
         println!(
             "check: cargo {} => {} in {:.1}s",
             args.first().map_or("", String::as_str),
@@ -4033,9 +4287,57 @@ fn check_command(
     args: &[String],
     target: &Path,
     home: &Path,
-    (cargo_home, rustup_home): (&Path, &Path),
+    homes: (&Path, &Path),
 ) -> Command {
     let mut command = Command::new("cargo");
+    check_env(&mut command, target, home, homes);
+    command.current_dir(top).args(args);
+    command
+}
+
+/// `cargo local-workflow check` runs this executable from
+/// `<worktree>/target/debug/`, and a check that selects `xtask` rebuilds
+/// that very file: the alias builds it without `release-tooling`, the gate
+/// with it, so each relinks the same path. Windows refuses to replace a
+/// running program ("Access is denied"), which failed every xtask check
+/// until 2026-11-07. A running program may be renamed, though, so the file
+/// moves aside (to `<target>/check-exe/`) before the gates run: Cargo then
+/// links a fresh `local-workflow.exe` beside it, and the next alias build
+/// links one again. Best effort: when the move fails the gate runs as before.
+fn move_running_tool_out_of_the_target(top: &Path) {
+    let Ok(exe) = env::current_exe() else {
+        return;
+    };
+    let target = top.join("target");
+    if !exe.starts_with(&target) {
+        return;
+    }
+    let aside = target.join("check-exe");
+    if fs::create_dir_all(&aside).is_err() {
+        return;
+    }
+    // Files from earlier checks: whichever are no longer running go now.
+    if let Ok(entries) = fs::read_dir(&aside) {
+        for entry in entries.flatten() {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+    let moved = aside.join(format!(
+        "local-workflow-{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    ));
+    let _ = fs::rename(&exe, &moved);
+}
+
+/// The `check` environment for a cargo command or one of the test binaries
+/// it built: see `check_command`.
+fn check_env(
+    command: &mut Command,
+    target: &Path,
+    home: &Path,
+    (cargo_home, rustup_home): (&Path, &Path),
+) {
     for (key, _) in env::vars_os() {
         let name = key.to_string_lossy().to_ascii_uppercase();
         if name.starts_with("SUSI_")
@@ -4054,8 +4356,6 @@ fn check_command(
         }
     }
     command
-        .current_dir(top)
-        .args(args)
         .env("CARGO_TARGET_DIR", target)
         .env("CARGO_HOME", cargo_home)
         .env("RUSTUP_HOME", rustup_home)
@@ -4067,7 +4367,103 @@ fn check_command(
         .env("XDG_CONFIG_HOME", home.join("config"))
         .env("XDG_DATA_HOME", home.join("data"))
         .env("XDG_CACHE_HOME", home.join("cache"));
-    command
+}
+
+/// `check`'s narrowed test gate: Cargo builds the binaries, the concurrent
+/// runner executes them (each in its own home under the worktree target),
+/// and every binary's output goes to `<target>/check-tests.log`.
+#[derive(Clone, Copy)]
+struct CheckGate<'a> {
+    top: &'a Path,
+    target: &'a Path,
+    home: &'a Path,
+    homes: (&'a Path, &'a Path),
+    share: GateShare,
+}
+
+fn check_test_binaries(gate: &CheckGate<'_>, args: &[String]) -> Result<std::process::ExitStatus> {
+    let CheckGate {
+        top,
+        target,
+        home,
+        homes,
+        share,
+    } = *gate;
+    let log_path = target.join("check-tests.log");
+    fs::write(&log_path, b"")?;
+    let mut build = check_command(top, args, target, home, homes);
+    build
+        .args(["--no-run", "--message-format=json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
+    apply_gate_share(&mut build, share);
+    let started = std::time::Instant::now();
+    let output = build.output()?;
+    let (binaries, diagnostics) =
+        test_runner::parse_artifacts(&String::from_utf8_lossy(&output.stdout))?;
+    for rendered in &diagnostics {
+        eprint!("{rendered}");
+    }
+    println!(
+        "check: test build => {} in {:.1}s; {} test binaries",
+        if output.status.success() {
+            "ok"
+        } else {
+            "FAILED"
+        },
+        started.elapsed().as_secs_f64(),
+        binaries.len()
+    );
+    if !output.status.success() {
+        return Ok(output.status);
+    }
+    let lanes = test_runner::concurrency(share.jobs);
+    let heavy = test_runner::heavy_binaries(top);
+    let home_root = target.join("susi-check-homes");
+    let durations = target.join("test-durations.json");
+    let settings = test_runner::Settings {
+        concurrency: lanes,
+        test_threads: test_runner::threads_per_binary(share.test_threads, lanes),
+        build_jobs: test_runner::threads_per_binary(share.jobs, lanes),
+        home_root: &home_root,
+        target_dir: target,
+        triple: None,
+        durations: &durations,
+        heavy: &heavy,
+        log: &log_path,
+    };
+    println!(
+        "check: {} test binaries on {} lanes, {} test threads each; output in {}",
+        binaries.len(),
+        lanes,
+        settings.test_threads,
+        log_path.display()
+    );
+    let launch = move |binary: &test_runner::Binary, bin_home: &Path| -> Result<Command> {
+        let mut command = Command::new(&binary.executable);
+        check_env(&mut command, target, bin_home, homes);
+        Ok(command)
+    };
+    let outcome = test_runner::run(&binaries, &settings, &launch)?;
+    let _ = fs::remove_dir_all(&home_root);
+    for (id, code) in &outcome.failed {
+        println!(
+            "check: {id} FAILED ({})",
+            code.map_or_else(
+                || "no exit code".to_owned(),
+                |code| format!("exit code {code}")
+            )
+        );
+    }
+    let complete = outcome.failed.is_empty() && outcome.ran == binaries.len();
+    println!(
+        "check: {} of {} test binaries ran in {:.1}s, {} failed",
+        outcome.ran,
+        binaries.len(),
+        outcome.elapsed_ms as f64 / 1000.0,
+        outcome.failed.len()
+    );
+    Ok(exit_status(i32::from(!complete)))
 }
 
 /// A verification slot that a ship currently holds.
@@ -6222,8 +6618,16 @@ mod tests {
         let claim = bare_claim(&repo, &base);
         let error = scope_base(&repo, &claim, &source).unwrap_err();
         assert!(error.to_string().contains("no matching durable"), "{error}");
+        // The fallback is the claim base, raised to what the source shares
+        // with the publish base: `accepted` is already published, so only
+        // `probe.rs` on top of it is this worker's change.
         assert_eq!(
             ship_scope_base(&repo, &claim, &source, &accepted).unwrap(),
+            accepted
+        );
+        // With a publish base behind the claim base nothing is raised.
+        assert_eq!(
+            ship_scope_base(&repo, &claim, &source, &base).unwrap(),
             base
         );
         // A claim base that is not on the publish base still fails.

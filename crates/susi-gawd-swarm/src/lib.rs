@@ -215,7 +215,6 @@ mod inline_tests {
         assert!(sanitized.contains("verify swarm status"));
     }
 
-
     #[test]
     fn susi_error_reexport_constructs_process_error_from_swarm_root() {
         let err = susi_error::EaiError::process("swarm root test");
