@@ -209,7 +209,7 @@
       "id": "VC-201-016",
       "mastery_target": "Store source, compiler, Wasm digest, intent tests, and grants per reflex revision; pinned callers retain their revision while revocation blocks new execution and rollback restores a previously verified artifact.",
       "priority": "P1",
-      "progress": "DELIVERED: reflex revisions are versioned and revocable - a pinned caller keeps its revision across revocation, and rollback restores the previously verified artifact. Verified by `crates/susi-gawd/src/tests/vc_201_016.rs`: pin_survives_revoke_for_caller, rollback_restores_pin. Evidence: T-CLAUDE-359.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-frontier-lab::reflex_revisions): reflex revisions are versioned and revocable - a pinned caller keeps its revision across revocation, and rollback restores the previously verified artifact. Verified by `crates/susi-gawd/src/tests/vc_201_016.rs`: pin_survives_revoke_for_caller, rollback_restores_pin. Evidence: T-CLAUDE-359.",
       "type": "RSI_EXECUTION",
       "vector": "Version and revoke generated reflexes"
     },
