@@ -29,9 +29,122 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use susi_vendor_tantivy::DocIndex;
 
 use crate::susi_error::{EaiError, EaiResult};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct StoredDoc {
+    doc_id: String,
+    source: String,
+    content: String,
+}
+
+struct DocIndex {
+    docs_path: PathBuf,
+}
+
+struct DocWriter {
+    docs_path: PathBuf,
+    docs: Vec<StoredDoc>,
+}
+
+impl DocIndex {
+    fn open_or_create(dir: &Path) -> EaiResult<Self> {
+        fs::create_dir_all(dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        Ok(Self {
+            docs_path: dir.join("docs.jsonl"),
+        })
+    }
+
+    fn load_docs(&self) -> EaiResult<Vec<StoredDoc>> {
+        if !self.docs_path.exists() {
+            return Ok(Vec::new());
+        }
+        let f = fs::File::open(&self.docs_path).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        let mut out = Vec::new();
+        for line in BufReader::new(f).lines().map_while(Result::ok) {
+            if let Ok(doc) = serde_json::from_str::<StoredDoc>(&line) {
+                out.push(doc);
+            }
+        }
+        Ok(out)
+    }
+
+    fn writer(&self, _heap_bytes: usize) -> EaiResult<DocWriter> {
+        Ok(DocWriter {
+            docs_path: self.docs_path.clone(),
+            docs: self.load_docs()?,
+        })
+    }
+
+    fn search(&self, query: &str, limit: usize) -> EaiResult<Vec<(f32, StoredDoc)>> {
+        let terms: Vec<String> = query
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|s| !s.is_empty())
+            .map(str::to_lowercase)
+            .collect();
+        if terms.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut hits: Vec<(f32, StoredDoc)> = self
+            .load_docs()?
+            .into_iter()
+            .filter_map(|doc| {
+                let lower = doc.content.to_lowercase();
+                let matched = terms.iter().filter(|t| lower.contains(t.as_str())).count();
+                if matched == 0 {
+                    None
+                } else {
+                    Some((matched as f32, doc))
+                }
+            })
+            .collect();
+        hits.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        hits.truncate(limit);
+        Ok(hits)
+    }
+
+    fn all_docs(&self, limit: usize) -> EaiResult<Vec<StoredDoc>> {
+        let mut docs = self.load_docs()?;
+        docs.truncate(limit);
+        Ok(docs)
+    }
+
+    fn get(&self, doc_id: &str) -> EaiResult<Option<StoredDoc>> {
+        Ok(self
+            .load_docs()?
+            .into_iter()
+            .find(|doc| doc.doc_id == doc_id))
+    }
+}
+
+impl DocWriter {
+    fn add(&mut self, doc_id: &str, source: &str, content: &str) -> EaiResult<()> {
+        self.docs.push(StoredDoc {
+            doc_id: doc_id.to_string(),
+            source: source.to_string(),
+            content: content.to_string(),
+        });
+        Ok(())
+    }
+
+    fn replace(&mut self, doc_id: &str, source: &str, content: &str) -> EaiResult<()> {
+        self.docs.retain(|d| d.doc_id != doc_id);
+        self.add(doc_id, source, content)
+    }
+
+    fn commit(self) -> EaiResult<()> {
+        let mut bytes = Vec::new();
+        for doc in &self.docs {
+            let line = serde_json::to_string(doc)
+                .map_err(|e| EaiError::internal(format!("serialize doc: {e}")))?;
+            bytes.extend_from_slice(line.as_bytes());
+            bytes.push(b'\n');
+        }
+        crate::susi_config::atomic_write_bytes(&self.docs_path, &bytes)
+            .map_err(|e| EaiError::filesystem(format!("persist docs index: {e}")))
+    }
+}
 
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 const FILE_EXTS: &[&str] = &["rs", "md", "txt", "toml", "json", "py", "ts"];
