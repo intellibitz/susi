@@ -48,7 +48,6 @@ pub mod brain_explain;
 pub mod brain_export;
 pub mod capability_matrix;
 pub mod coding_models_ext;
-pub mod confidence_escalation;
 pub mod consensus_mode;
 pub mod context_assembly;
 pub mod credential_scout;
