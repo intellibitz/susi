@@ -3,30 +3,30 @@
 use super::{Adapter, AgentManager, RunRecord};
 use susi_error::{eai_bail as bail, EaiResult as Result};
 
-pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
+pub(super) fn execute(_manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
     if matches!(run.adapter, Adapter::A2a { .. }) {
-        return super::a2a::execute(manager, run);
+        bail!("A2A external agent plug is in susi-commercial-apps");
     }
     bail!("not a cloud adapter")
 }
 
-pub(super) fn refresh(manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
+pub(super) fn refresh(_manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
     if matches!(run.adapter, Adapter::A2a { .. }) {
-        return super::a2a::refresh(manager, run);
+        bail!("A2A external agent plug is in susi-commercial-apps");
     }
     bail!("not a cloud adapter")
 }
 
 pub(super) fn cancel(run: &RunRecord) -> Result<()> {
     if matches!(run.adapter, Adapter::A2a { .. }) {
-        return super::a2a::cancel(run);
+        bail!("A2A external agent plug is in susi-commercial-apps");
     }
     bail!("not a cloud adapter")
 }
 
-pub(super) fn send(run: &RunRecord, message: &str) -> Result<()> {
+pub(super) fn send(run: &RunRecord, _message: &str) -> Result<()> {
     if matches!(run.adapter, Adapter::A2a { .. }) {
-        return super::a2a::send(run, message);
+        bail!("A2A external agent plug is in susi-commercial-apps");
     }
     bail!("not a cloud adapter")
 }

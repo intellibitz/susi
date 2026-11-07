@@ -1,16 +1,11 @@
 //! Durable management of external task executors over Susi's standard protocol
 //! sockets (`Command`, `A2a`, `Acp`). Provider output is evidence of execution,
 //! never proof that the requested code change is correct.
-mod a2a;
-mod acp;
 mod catalog;
 mod cloud;
 mod git_identity;
 mod process;
 
-pub use acp::{
-    drive as acp_drive, Outcome as AcpOutcome, Permission as AcpPermission, Task as AcpTask,
-};
 pub use catalog::{
     catalog, catalog_with_host_dir, definition, resolve_managed, Adapter, AgentDefinition,
     CatalogKind,
@@ -266,7 +261,9 @@ impl AgentManager {
         let result = if run.adapter.is_cloud() {
             cloud::execute(self, &mut run)
         } else if matches!(run.adapter, Adapter::Acp { .. }) {
-            acp::execute(self, &mut run)
+            Err(susi_error::EaiError::internal(
+                "ACP external agent plug is in susi-commercial-apps",
+            ))
         } else {
             process::execute(self, &mut run)
         };
