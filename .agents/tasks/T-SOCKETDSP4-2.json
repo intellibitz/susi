@@ -1,35 +1,32 @@
 {
   "id": "T-SOCKETDSP4-2",
-  "title": "Deliver VC-201-098 host lifecycle capability matrix and VC-201-099 unified operator drill-down parity",
-  "goal": "Add isolated host-platform install/start/stop/upgrade/local-runtime smoke verification and machine-readable feature/GPU/sandbox capability matrix tests in tests/zc_platform_installers.rs (VC-201-098), and unified operator control surface drill-down and grant/precondition parity tests in tests/tui_top.rs (VC-201-099).",
+  "title": "Add A2A v1.0 verify_message_send_request wire validator in susi-core",
+  "goal": "Implement verify_message_send_request in crates/susi-core/src/a2a_wire.rs validating JSON-RPC 2.0 envelope, message/send method, id, ROLE_USER role, non-empty messageId, and non-empty text parts with unit tests.",
   "state": "in_progress",
   "claimed_by": "socket-dsp4",
   "created_by": "socket-dsp4",
   "created_unix": 1794010800,
-  "updated_unix": 1794012000,
+  "updated_unix": 1794013600,
   "size": "M",
   "deps": [],
   "scope": [
-    "tests/zc_platform_installers.rs",
-    "tests/tui_top.rs",
+    "crates/susi-core/src/a2a_wire.rs",
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
   "native_worker": "socket-dsp4",
   "status": "completed",
   "scopes": [
-    "tests/zc_platform_installers.rs",
-    "tests/tui_top.rs",
+    "crates/susi-core/src/a2a_wire.rs",
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
-  "acceptance": "cargo test --test zc_platform_installers --test tui_top --offline --locked",
+  "acceptance": "cargo test -p susi-core a2a_wire --offline --locked",
   "accept": {
     "cmd": [
       "cargo",
       "test",
-      "--test",
-      "zc_platform_installers",
-      "--test",
-      "tui_top",
+      "-p",
+      "susi-core",
+      "a2a_wire",
       "--offline",
       "--locked"
     ]

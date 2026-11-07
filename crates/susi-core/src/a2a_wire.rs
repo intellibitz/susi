@@ -27,6 +27,54 @@ pub fn message_send_request(text: &str) -> Value {
     })
 }
 
+/// Validate that a JSON-RPC document conforms to the A2A v1.0 `message/send` request contract.
+///
+/// # Errors
+/// Returns a descriptive error string if any required JSON-RPC envelope or A2A v1.0 message
+/// field is missing or malformed.
+pub fn verify_message_send_request(doc: &Value) -> Result<(), String> {
+    if doc.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return Err("invalid or missing jsonrpc version (expected \"2.0\")".to_string());
+    }
+    if doc.get("method").and_then(Value::as_str) != Some("message/send") {
+        return Err("invalid or missing method (expected \"message/send\")".to_string());
+    }
+    if !doc
+        .get("id")
+        .is_some_and(|v| v.is_number() || v.is_string())
+    {
+        return Err("invalid or missing id (expected number or string)".to_string());
+    }
+    if doc.pointer("/params/message/role").and_then(Value::as_str) != Some("ROLE_USER") {
+        return Err("invalid or missing /params/message/role (expected \"ROLE_USER\")".to_string());
+    }
+    if !doc
+        .pointer("/params/message/messageId")
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.trim().is_empty())
+    {
+        return Err("invalid or missing /params/message/messageId".to_string());
+    }
+    let parts = doc
+        .pointer("/params/message/parts")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "missing or non-array /params/message/parts".to_string())?;
+    if parts.is_empty() {
+        return Err("/params/message/parts must not be empty".to_string());
+    }
+    if !parts.iter().all(|part| {
+        part.get("text")
+            .and_then(Value::as_str)
+            .is_some_and(|t| !t.is_empty())
+    }) {
+        return Err(
+            "every element in /params/message/parts must carry a non-empty \"text\" string"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Text parts of a v1.0 `parts` array, newline-joined.
 fn parts_text(parts: Option<&Value>) -> String {
     parts
@@ -196,5 +244,68 @@ mod tests {
             reply_summary(&reply).unwrap(),
             "task completed: first-artifact\nsecond-artifact".to_string()
         );
+    }
+
+    #[test]
+    fn verify_message_send_request_validates_v1_envelope_and_parts() {
+        let valid = message_send_request("hello");
+        assert_eq!(verify_message_send_request(&valid), Ok(()));
+
+        // String id is also valid in JSON-RPC 2.0
+        let mut string_id = valid.clone();
+        string_id["id"] = json!("req-42");
+        assert_eq!(verify_message_send_request(&string_id), Ok(()));
+
+        // Invalid jsonrpc version
+        let mut bad_rpc = valid.clone();
+        bad_rpc["jsonrpc"] = json!("1.0");
+        assert!(verify_message_send_request(&bad_rpc)
+            .unwrap_err()
+            .contains("jsonrpc"));
+
+        // Invalid method
+        let mut bad_method = valid.clone();
+        bad_method["method"] = json!("tasks/get");
+        assert!(verify_message_send_request(&bad_method)
+            .unwrap_err()
+            .contains("method"));
+
+        // Invalid id (null or boolean)
+        let mut bad_id = valid.clone();
+        bad_id["id"] = Value::Null;
+        assert!(verify_message_send_request(&bad_id)
+            .unwrap_err()
+            .contains("id"));
+
+        // Invalid role
+        let mut bad_role = valid.clone();
+        bad_role["params"]["message"]["role"] = json!("user");
+        assert!(verify_message_send_request(&bad_role)
+            .unwrap_err()
+            .contains("role"));
+
+        // Blank messageId
+        let mut bad_msg_id = valid.clone();
+        bad_msg_id["params"]["message"]["messageId"] = json!("   ");
+        assert!(verify_message_send_request(&bad_msg_id)
+            .unwrap_err()
+            .contains("messageId"));
+
+        // Empty parts array
+        let mut empty_parts = valid.clone();
+        empty_parts["params"]["message"]["parts"] = json!([]);
+        assert!(verify_message_send_request(&empty_parts)
+            .unwrap_err()
+            .contains("must not be empty"));
+
+        // Part with empty text
+        let mut empty_text = message_send_request("");
+        assert!(verify_message_send_request(&empty_text)
+            .unwrap_err()
+            .contains("non-empty \"text\""));
+        empty_text["params"]["message"]["parts"] = json!([{"other": "value"}]);
+        assert!(verify_message_send_request(&empty_text)
+            .unwrap_err()
+            .contains("non-empty \"text\""));
     }
 }
