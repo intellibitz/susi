@@ -43,7 +43,6 @@ pub mod key_rotation;
 pub mod key_scope;
 pub mod keyring_storage;
 pub mod offline_bundle;
-pub mod plan_apply;
 pub mod process_probe;
 pub mod rekey_schedule;
 pub mod secret_ref;
@@ -354,12 +353,6 @@ mod vc_201_061_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_062_mastery.rs"]
 mod vc_201_062_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_063_mastery.rs"]
-mod vc_201_063_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_063.rs"]
-mod vc_201_063_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_065_mastery.rs"]
 mod vc_201_065_mastery_tests;
