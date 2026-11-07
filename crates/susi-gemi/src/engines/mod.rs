@@ -9,16 +9,8 @@
 mod alpha_avail;
 mod alpha_pure;
 
-#[cfg(feature = "local-engine")]
-#[path = "alpha.rs"]
 pub mod alpha;
-#[cfg(not(feature = "local-engine"))]
-#[path = "alpha_off.rs"]
-pub mod alpha;
-
 pub mod brain;
-#[cfg(feature = "local-engine")]
-pub(crate) mod candle_err;
 pub mod candle_provider;
 pub mod capability;
 pub mod cost;
@@ -26,19 +18,10 @@ pub mod http_provider;
 pub mod mcp_provider;
 pub mod native_lifecycle;
 pub mod reflex;
-#[cfg(feature = "local-engine")]
-#[path = "reflex_llm.rs"]
-pub mod reflex_llm;
-#[cfg(not(feature = "local-engine"))]
-#[path = "reflex_llm_off.rs"]
 pub mod reflex_llm;
 pub mod routing;
 /// Core local/cloud inference runtime (`GemiEngine`, `NeuralBackend`, …).
 pub mod runtime;
-#[cfg(feature = "local-engine")]
-pub mod speculative;
-#[cfg(feature = "local-engine")]
-pub(crate) mod token_stream;
 
 /// Serializes every test in this crate that mutates the process-global
 /// `HOME`/`XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`SUSI_XDG` env vars, or that
@@ -66,14 +49,12 @@ mod slim_core_tests {
     fn slim_core_keeps_candle_behind_local_engine() {
         let gemi = include_str!("../../Cargo.toml");
         assert!(
-            gemi.contains("susi-vendor-candle = { workspace = true, optional = true }"),
-            "candle stays an optional dependency of susi-gemi"
+            !gemi.contains("susi-vendor-candle"),
+            "susi-gemi must not depend on susi-vendor-candle (moved to susi-gpu-fabric)"
         );
         assert!(
-            gemi.contains(
-                "local-engine = [\"dep:susi-vendor-candle\", \"susi-gemi-models/local-engine\"]"
-            ),
-            "local-engine is what links candle"
+            gemi.contains("local-engine = [\"susi-gemi-models/local-engine\"]"),
+            "local-engine feature remains forwarded to susi-gemi-models"
         );
         let features = gemi
             .split("[features]")

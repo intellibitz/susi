@@ -6,7 +6,7 @@
 use crate::cli_json::print_json;
 use anyhow::Result;
 pub use susi_cli_defs::extensions::ExtensionCommands;
-use susi_sandbox::extensions::{
+use susi_sandbox_client::extensions::{
     create_pack, list_packs, load_report, status_report, unload_report, validate_report,
 };
 

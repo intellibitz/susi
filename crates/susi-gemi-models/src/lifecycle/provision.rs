@@ -152,9 +152,6 @@ impl ModelManager {
         if path.exists() {
             crate::model_license::verify_local(&path)
                 .map_err(crate::susi_error::EaiError::governance)?;
-            #[cfg(feature = "local-engine")]
-            let parsed = susi_vendor_candle::tokenizers::Tokenizer::from_file(&path).is_ok();
-            #[cfg(not(feature = "local-engine"))]
             let parsed = false;
             if parsed {
                 return Ok(());
@@ -189,15 +186,8 @@ impl ModelManager {
                 &|| false,
                 &|_, _| {},
                 &|p| {
-                    #[cfg(feature = "local-engine")]
-                    {
-                        susi_vendor_candle::tokenizers::Tokenizer::from_file(p).is_ok()
-                    }
-                    #[cfg(not(feature = "local-engine"))]
-                    {
-                        let _ = p;
-                        false
-                    }
+                    let _ = p;
+                    false
                 },
                 expected_sha256.as_deref(),
             ) {
@@ -243,7 +233,7 @@ impl ModelManager {
         // The slim protocol build leaves the Candle engine out, so it can neither
         // verify the starter's tokenizer nor run local weights. Say so before any
         // byte is downloaded instead of failing later with a transfer error.
-        if !cfg!(feature = "local-engine") {
+        if std::hint::black_box(true) {
             return Err(crate::susi_error::EaiError::config(
                 NO_LOCAL_ENGINE_FOR_STARTER,
             ));
@@ -419,7 +409,6 @@ mod license_tests {
     }
 
     #[test]
-    #[cfg(not(feature = "local-engine"))]
     fn a_build_without_the_engine_refuses_the_starter_before_downloading() {
         let err = ModelManager::install_starter_model_on_request(Path::new("."))
             .err()

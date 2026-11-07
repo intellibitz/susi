@@ -16,8 +16,51 @@ pub struct GlobalMcpEntry {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-/// Re-exported from the MCP vendor crate so `mcp_config.json` keeps one shape.
-pub use susi_vendor_mcp::McpServerConfig;
+/// One configured MCP server: a stdio command (`command` + `args`, optional
+/// `env`, `extra.cwd`) or a streamable-HTTP URL in `command`
+/// (`extra.auth_token`, `extra.headers`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: Option<HashMap<String, String>>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl McpServerConfig {
+    fn http_url(&self) -> Result<Option<url::Url>, String> {
+        if !self.command.split_once("://").is_some_and(|(scheme, _)| {
+            scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+        }) {
+            return Ok(None);
+        }
+        let mut parsed =
+            url::Url::parse(&self.command).map_err(|_| "invalid registered MCP URL")?;
+        if parsed.path() == "/" {
+            parsed.set_path("/mcp");
+        }
+        Ok(Some(parsed))
+    }
+
+    /// Canonical capability resource and whether requests stay on loopback.
+    /// Never expose URL credentials or query values in denial messages.
+    pub fn http_scope(&self) -> Result<Option<(String, bool)>, String> {
+        let Some(parsed) = self.http_url()? else {
+            return Ok(None);
+        };
+        let host = parsed.host_str().unwrap_or_default();
+        let is_loopback = host.trim_end_matches('.').eq_ignore_ascii_case("localhost")
+            || host
+                .trim_matches(['[', ']'])
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.to_canonical().is_loopback());
+        Ok(Some((
+            format!("{}{}", parsed.origin().ascii_serialization(), parsed.path()),
+            is_loopback,
+        )))
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpConfig {

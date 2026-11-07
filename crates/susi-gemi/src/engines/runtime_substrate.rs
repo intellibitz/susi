@@ -1,97 +1,25 @@
-// GEMI: Universal AI Inference & Reasoning Bridge
-// 100% Rust implementation for Native Intelligence Substrate
-// Competitive Inference Racing (unrelated to the release Motion Rule, identity.json Pillar IV item 3 — this file predates that name and reused it for a different concept)
+//! Inference substrate when the Candle local engine is not linked.
+//!
+//! Prompt formatting, architecture names, and the repeat penalty stay so the
+//! protocol tests keep running. Loading weights returns a typed error.
 
-use crate::models::hardware::HardwareProfiler;
-use crate::models::ModelManager;
-use crate::susi_error::{EaiError, EaiResult};
-use parking_lot::RwLock;
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
 
-use susi_vendor_candle::candle_core;
-use susi_vendor_candle::candle_core::quantized::gguf_file;
-use susi_vendor_candle::candle_transformers::models::quantized_llama as llama;
-use susi_vendor_candle::moe_gguf;
-use susi_vendor_candle::qwen2_split as qwen2gguf;
+use crate::susi_error::{EaiError, EaiResult};
 
-/// Inference graph for explicitly supported GGUF architectures. Dense Qwen2
-/// requires its bias-aware backend; Llama uses Candle's quantized Llama graph.
-pub trait NeuralBackend: Send + Sync {
-    fn forward(
-        &mut self,
-        x: &candle_core::Tensor,
-        index_pos: usize,
-    ) -> candle_core::Result<candle_core::Tensor>;
-    fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> {
-        None
-    }
-    /// `(gpu_layers, total_layers)` when the backend tracks per-layer
-    /// placement; `None` means placement is uniform on the load device.
-    fn gpu_layers(&self) -> Option<(usize, usize)> {
-        None
-    }
-}
+const LOCAL_ENGINE_ABSENT: &str =
+    "built-in local model engine is not in this core; rebuild with --features local-engine";
 
-impl NeuralBackend for llama::ModelWeights {
-    fn forward(
-        &mut self,
-        x: &candle_core::Tensor,
-        index_pos: usize,
-    ) -> candle_core::Result<candle_core::Tensor> {
-        self.forward(x, index_pos)
-    }
-}
-
-impl NeuralBackend for qwen2gguf::ModelWeights {
-    fn forward(
-        &mut self,
-        x: &candle_core::Tensor,
-        index_pos: usize,
-    ) -> candle_core::Result<candle_core::Tensor> {
-        self.forward(x, index_pos)
-    }
-    fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> {
-        Some(self)
-    }
-    fn gpu_layers(&self) -> Option<(usize, usize)> {
-        Some(self.gpu_layer_count())
-    }
-}
-
-impl NeuralBackend for moe_gguf::ModelWeights {
-    fn forward(
-        &mut self,
-        x: &candle_core::Tensor,
-        index_pos: usize,
-    ) -> candle_core::Result<candle_core::Tensor> {
-        self.forward(x, index_pos)
-    }
-}
+pub trait NeuralBackend: Send + Sync {}
 
 pub type ModelBackend = Box<dyn NeuralBackend>;
 
-/// Loaded neural weights (Mandate 23: Substrate Purity). See `ModelBackend`
-/// for why Qwen2 needs its own graph rather than the Llama backend.
-///
-/// Also carries the model's own declared stop token(s) and chat-prompt
-/// format, both read from the GGUF's own metadata at load time (never
-/// hardcoded per model), since an instruct-tuned model only behaves
-/// correctly - and only knows when to stop - within the exact turn format
-/// it was fine-tuned on.
+/// Loaded weights. The slim core never constructs one.
 pub struct ModelSubstrate {
     pub(crate) weights: ModelBackend,
-    pub(crate) eos_token_ids: Vec<u32>,
     pub(crate) prompt_format: PromptFormat,
 }
 
-/// The chat-turn wrapper a model expects, detected from its GGUF-embedded
-/// `tokenizer.chat_template` Jinja string by the control-token family it
-/// references. This is pattern-matching on well-known token families, not a
-/// Jinja engine - it covers the common instruct-tuning conventions without
-/// requiring a template interpreter, and falls back to `Raw` (feed the
-/// prompt unwrapped, today's behavior) for anything unrecognized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PromptFormat {
     ChatMl,
@@ -119,10 +47,6 @@ impl PromptFormat {
         }
     }
 
-    /// Wraps a raw instruction in the turn format this model was tuned on.
-    /// Only verified empirically against Qwen2.5's ChatML template on this
-    /// host; Llama3/Gemma/Mistral follow the same well-documented
-    /// conventions but are not independently verified here.
     pub(crate) fn wrap(self, prompt: &str) -> String {
         match self {
             Self::ChatMl => format!(
@@ -142,437 +66,41 @@ impl PromptFormat {
 
 pub struct InferenceHost;
 
-/// How often the idle sweeper checks: a quarter of the timeout, clamped to
-/// 5-60 seconds (a disabled timeout re-checks the config every minute).
-fn sweep_interval(timeout_secs: u64) -> std::time::Duration {
-    let secs = if timeout_secs == 0 {
-        60
-    } else {
-        (timeout_secs / 4).clamp(5, 60)
-    };
-    std::time::Duration::from_secs(secs)
-}
-
-/// Estimated VRAM for a model: its weights plus 1/8 headroom for the KV
-/// cache and activations. A heuristic — if it undershoots, the loader's
-/// live-budget layer split still keeps the load from failing.
-fn estimated_vram_bytes(file_len: u64) -> u64 {
-    file_len.saturating_add(file_len / 8)
-}
-
-/// Which idle models (LRU order, with their weight sizes) to evict so that
-/// `free + reclaimed >= need`. Empty when the model already fits; all
-/// candidates when even that is not enough (evict as much as possible).
-fn plan_evictions(
-    free: u64,
-    need: u64,
-    lru: &[(std::path::PathBuf, u64)],
-) -> Vec<std::path::PathBuf> {
-    let mut reclaimed = free;
-    lru.iter()
-        .take_while(|(_, bytes)| {
-            let short = reclaimed < need;
-            reclaimed = reclaimed.saturating_add(*bytes);
-            short
-        })
-        .map(|(path, _)| path.clone())
-        .collect()
-}
-
-/// Drop evicted CPU/Metal weights. No CUDA driver pool is owned by Susi.
-#[allow(clippy::unnecessary_wraps)] // preserves the eviction error-handling contract
-pub(super) fn release_on_device<T>(
-    weights: Arc<T>,
-    _device: &candle_core::Device,
-) -> Result<bool, String> {
-    drop(weights);
-    Ok(false)
-}
-
 impl InferenceHost {
-    pub(super) fn cache() -> &'static crate::models::model_cache::ModelCache<ModelSubstrate> {
-        static CACHE: OnceLock<crate::models::model_cache::ModelCache<ModelSubstrate>> =
-            OnceLock::new();
-        let cache = CACHE.get_or_init(|| {
-            // Only processes that actually load models run the sweeper.
-            let spawned = std::thread::Builder::new()
-                .name("model-idle-sweeper".to_string())
-                .spawn(Self::idle_sweeper);
-            if let Err(error) = spawned {
-                tracing::warn!(%error, "model idle sweeper did not start; idle models stay loaded");
-            }
-            crate::models::model_cache::ModelCache::default()
-        });
-        ModelManager::register_residency_probe(Self::model_is_reusable);
-        cache
+    pub(crate) fn model_is_reusable(_path: &Path) -> bool {
+        false
     }
 
-    /// Current admitted weights on the device and KV budget inference would
-    /// request. This is stronger than a diagnostic snapshot or filename match.
-    pub(crate) fn model_is_reusable(path: &Path) -> bool {
-        let Some(verified) = ModelManager::admitted_local_weights(path) else {
-            return false;
-        };
-        let Ok(metadata) = verified.metadata() else {
-            return false;
-        };
-        let device = HardwareProfiler::get_dynamic_device(
-            usize::try_from(metadata.len()).unwrap_or(usize::MAX),
-        );
-        let kv_capacity = crate::susi_sandbox::manager::SusiConfig::load_global()
-            .unwrap_or_default()
-            .kv_cache_capacity_tokens();
-        Self::cache().is_reusable_admitted(path, &device, kv_capacity, &verified)
-    }
-
-    /// Background loop: unload models idle longer than
-    /// `model_idle_timeout_secs`, re-read every pass so a config change
-    /// applies without a restart. Checks at a quarter of the timeout
-    /// (5-60s), so a model outlives its timeout by at most that interval.
-    fn idle_sweeper() {
-        loop {
-            let timeout = crate::susi_sandbox::manager::SusiConfig::load_global()
-                .unwrap_or_default()
-                .model_idle_timeout_secs();
-            std::thread::sleep(sweep_interval(timeout));
-            if timeout > 0 {
-                Self::evict_idle(std::time::Duration::from_secs(timeout));
-            }
-        }
-    }
-
-    /// Unload every model unused for longer than `timeout` and not serving a
-    /// request. Returns the unloaded paths.
-    pub fn evict_idle(timeout: std::time::Duration) -> Vec<std::path::PathBuf> {
-        let Some(cutoff) = std::time::SystemTime::now().checked_sub(timeout) else {
-            return Vec::new();
-        };
-        let mut unloaded = Vec::new();
-        for path in Self::cache().idle_since(cutoff) {
-            let Ok(Some((weights, device))) = Self::cache().evict(&path) else {
-                continue;
-            };
-            tracing::debug!(
-                "- [Inference Substrate] Idle for over {}s: unloading {}",
-                timeout.as_secs(),
-                path.display()
-            );
-            if let Err(error) = release_on_device(weights, &device) {
-                tracing::warn!(%error, model = %path.display(), "idle unload release failed");
-            }
-            unloaded.push(path);
-        }
-        unloaded
-    }
-
-    /// LRU eviction under VRAM pressure: before a new model loads onto a
-    /// CUDA device, evict idle cached models (least recently used first)
-    /// until live free VRAM covers its estimated footprint, so it lands
-    /// fully on the GPU instead of being split onto the CPU. Models serving
-    /// a request are never evicted. Best effort: when nothing idle remains,
-    /// the loader splits layers exactly as before.
-    fn make_room(model_path: &Path, device: &candle_core::Device) {
-        if !device.is_cuda() || Self::cache().is_loaded(model_path) {
-            return;
-        }
-        let Ok(meta) = std::fs::metadata(model_path) else {
-            return;
-        };
-        let need = estimated_vram_bytes(meta.len());
-        let free = HardwareProfiler::gpu_vram_budget_bytes();
-        let candidates = Self::cache().idle_lru(model_path, candle_core::Device::is_cuda);
-        for victim in plan_evictions(free, need, &candidates) {
-            // Re-measure: the estimate is by file size, the truth is live.
-            if HardwareProfiler::gpu_vram_budget_bytes() >= need {
-                break;
-            }
-            let Ok(Some((weights, victim_device))) = Self::cache().evict(&victim) else {
-                continue;
-            };
-            tracing::debug!(
-                "- [Inference Substrate] VRAM pressure: evicting least-recently-used {}",
-                victim.display()
-            );
-            if let Err(error) = release_on_device(weights, &victim_device) {
-                tracing::warn!(%error, victim = %victim.display(), "LRU eviction release failed");
-            }
-        }
-    }
-
-    /// Resolve an operator-supplied model id (a stem or file name, never a
-    /// path) to its weights, the same way inference resolves `model`.
-    fn resolve_model_id(model_id: &str) -> EaiResult<std::path::PathBuf> {
-        let id = model_id.trim();
-        if id.is_empty() || id.contains('/') || id.contains('\\') {
-            return Err(EaiError::inference(
-                "model must be a model id or file name, not a path",
-            ));
-        }
-        let id = id.strip_suffix(".gguf").unwrap_or(id);
-        susi_gemi_models::ModelManager::get_model_path(id)
-            .ok_or_else(|| EaiError::inference(format!("model '{id}' not found")))
-    }
-
-    /// Load a model into the cache on the device inference would pick for
-    /// it, so the next request for it is served warm.
     pub fn preload(model_id: &str) -> EaiResult<serde_json::Value> {
-        let path = Self::resolve_model_id(model_id)?;
-        Self::preload_resolved(&path)
+        let _path = resolve_model_id(model_id)?;
+        Err(EaiError::inference(LOCAL_ENGINE_ABSENT))
     }
 
-    /// Internal lifecycle entry for weights already resolved by `ModelManager`.
-    /// Public model-management requests still pass through the id-only gate.
     pub(crate) fn preload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
-        let file_size = std::fs::metadata(path)
-            .map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX))
-            .unwrap_or(0);
-        let device = crate::models::hardware::HardwareProfiler::get_dynamic_device(file_size);
-        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
-            .register_task("model_preload", &path.to_string_lossy());
-        match Self::get_model(path, &device, &task) {
-            Ok(_) => {
-                task.mark_completed("model preloaded");
-                Ok(serde_json::json!({ "loaded": path }))
-            }
-            Err(error) => {
-                task.mark_failed(&error.to_string());
-                Err(error)
-            }
-        }
+        let _ = path;
+        Err(EaiError::inference(LOCAL_ENGINE_ABSENT))
     }
 
-    /// Evict a model from the cache.
     pub fn unload(model_id: &str) -> EaiResult<serde_json::Value> {
-        let path = Self::resolve_model_id(model_id)?;
-        Self::unload_resolved(&path)
+        let _path = resolve_model_id(model_id)?;
+        Err(EaiError::inference(LOCAL_ENGINE_ABSENT))
     }
 
-    /// Internal counterpart of [`Self::preload_resolved`], preserving the exact path.
     pub(crate) fn unload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
-        let evicted = Self::cache().evict(path)?;
-        let Some((weights, device)) = evicted else {
-            return Ok(serde_json::json!({
-                "path": path,
-                "unloaded": false,
-                "in_flight_users": null,
-                "gpu_pool": "not_applicable",
-            }));
-        };
-        let in_flight = Arc::strong_count(&weights).saturating_sub(1);
-        // Weights a running request still holds are freed by that request's
-        // thread, which has the context bound; only trim once nothing does.
-        let gpu_pool = if in_flight > 0 {
-            drop(weights);
-            "pending_in_flight"
-        } else {
-            match release_on_device(weights, &device) {
-                Ok(true) => "trimmed",
-                Ok(false) => "not_applicable",
-                Err(error) => {
-                    tracing::warn!(%error, "GPU memory release failed after unload");
-                    "release_failed"
-                }
-            }
-        };
         Ok(serde_json::json!({
             "path": path,
-            "unloaded": true,
-            "in_flight_users": in_flight,
-            "gpu_pool": gpu_pool,
+            "unloaded": false,
+            "in_flight_users": null,
+            "gpu_pool": "not_applicable",
         }))
     }
 
-    /// Weights currently held by this process's inference cache: the
-    /// ground truth for "which model is loaded", unlike file-mapping
-    /// heuristics. Never blocks on a load or an in-flight generation.
     pub fn loaded_models() -> Vec<serde_json::Value> {
-        Self::cache().snapshot(|substrate| {
-            let gpu = substrate.weights.gpu_layers();
-            serde_json::json!({
-                "gpu_layers": gpu.map(|(on_gpu, _)| on_gpu),
-                "total_layers": gpu.map(|(_, total)| total),
-                "prompt_format": format!("{:?}", substrate.prompt_format),
-            })
-        })
-    }
-
-    /// Loads a supported local GGUF, reusing weights only for the same file
-    /// version, device context, and KV cache capacity.
-    pub fn get_model(
-        model_path: &Path,
-        device: &candle_core::Device,
-        task_handle: &Arc<crate::susi_core::task_manager::TaskHandle>,
-    ) -> EaiResult<Arc<RwLock<ModelSubstrate>>> {
-        if task_handle.is_cancelled() {
-            return Err(EaiError::inference("Model loading cancelled"));
-        }
-        let kv_capacity = crate::susi_sandbox::manager::SusiConfig::load_global()
-            .unwrap_or_default()
-            .kv_cache_capacity_tokens();
-        // Cache hits do not waive current publisher/license admission.
-        let verified = ModelManager::open_verified_model(model_path)?;
-        Self::make_room(model_path, device);
-        Self::cache().get_or_load_admitted(
-            (model_path, verified),
-            device,
-            kv_capacity,
-            |path, artifact| {
-                if task_handle.is_cancelled() {
-                    return Err(susi_gemi_models::susi_error::EaiError::inference(
-                        "Model loading cancelled",
-                    ));
-                }
-                if !ModelManager::cold_load_fits_memory(path) {
-                    return Err(susi_gemi_models::susi_error::EaiError::inference(
-                        "Insufficient current memory for a new model allocation; cached residency changed",
-                    ));
-                }
-                // The original cold-load boundary checks the current publisher
-                // receipt again. Decode only its verified stream for this cache key.
-                let current = ModelManager::open_verified_model(path)?;
-                if current.digest() != artifact.digest() {
-                    return Err(EaiError::inference("Model changed during load; retry the request"));
-                }
-                let model = Self::load_model(path, current.into_decoder_reader()?, device, kv_capacity)?;
-                if task_handle.is_cancelled() {
-                    return Err(susi_gemi_models::susi_error::EaiError::inference(
-                        "Model loading cancelled",
-                    ));
-                }
-                Ok(model)
-            },
-        )
-    }
-
-    fn load_model(
-        model_path: &Path,
-        mut file: impl std::io::Read + std::io::Seek,
-        device: &candle_core::Device,
-        kv_cache_capacity: usize,
-    ) -> EaiResult<ModelSubstrate> {
-        // 2. Load Weights (Outside global cache lock to prevent substrate-wide stalls)
-        tracing::debug!(
-            "- [Substrate Operation] Loading neural weights: {}",
-            model_path.display()
-        );
-
-        // Plain start/done log lines instead of a terminal spinner: core is a
-        // CLI plus a protocol socket and never redraws the terminal.
-        let load_started = std::time::Instant::now();
-        tracing::info!("loading weights: {}", model_path.display());
-
-        // Parse the exact handle whose publisher receipt and bytes were admitted.
-        let mut model_data = ModelManager::read_gguf_metadata(&mut file)
-            .map_err(|e| EaiError::inference(format!("GGUF Metadata Error: {}", e)))?;
-
-        // Architectural Scout: Inspect metadata for dynamic dispatch
-        let arch = model_data
-            .metadata
-            .get("general.architecture")
-            .and_then(|v| v.to_string().ok())
-            .map(|s| s.to_lowercase())
-            .ok_or_else(|| EaiError::inference("GGUF is missing general.architecture"))?;
-        Self::validate_architecture(&arch)?;
-
-        // Dynamic Metadata Shimming
-        if arch != "llama" {
-            Self::shim_llama_compatible_metadata(&mut model_data.metadata);
-        }
-
-        // Extracted before from_gguf consumes model_data below. The model's
-        // own declared EOS (e.g. Qwen2.5-Instruct's <|im_end|>, id 151645)
-        // is frequently a different token than the static config-level
-        // eos_token_ids list covers, and its chat_template's control-token
-        // family determines whether the raw prompt needs wrapping at all -
-        // an instruct model given an unwrapped prompt has no learned signal
-        // for either "this is a turn" or "the turn is over".
-        let eos_token_ids: Vec<u32> = model_data
-            .metadata
-            .get("tokenizer.ggml.eos_token_id")
-            .and_then(|v| v.to_u32().ok())
-            .into_iter()
-            .collect();
-        let prompt_format = PromptFormat::detect(
-            model_data
-                .metadata
-                .get("tokenizer.chat_template")
-                .and_then(|v| v.to_string().ok())
-                .map(|s| s.as_str()),
-        );
-
-        tracing::debug!(
-            "- [Substrate Operation] Initializing {:?} weights on {:?}...",
-            arch,
-            device
-        );
-
-        let weights = if Self::needs_qwen2_backend(&arch) {
-            let cpu_dev = candle_core::Device::Cpu;
-            let gpu_dev = device;
-            let vram_budget = if device.is_cpu() {
-                0
-            } else {
-                HardwareProfiler::gpu_vram_budget_bytes()
-            };
-            let split = qwen2gguf::ModelWeights::plan_gpu_layers(
-                &model_data,
-                vram_budget,
-                kv_cache_capacity,
-            );
-            tracing::debug!(
-                "- [Inference Substrate] Executing Heterogeneous Layer Split: {} layers on GPU",
-                split
-            );
-            qwen2gguf::ModelWeights::from_gguf_split(
-                model_data,
-                &mut file,
-                &cpu_dev,
-                gpu_dev,
-                split,
-                kv_cache_capacity,
-            )
-            .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
-        } else if Self::is_moe_gguf(&arch, &model_data.metadata) {
-            // Sparse MoE: only the active experts' matmuls hit the compute
-            // path per token, so a 30B-A3B-class file stays cheap on
-            // CPU-rich hosts. Candle's own quantized MoE loaders call
-            // `moe_gemm_gguf`, which is CUDA-only — the vendored loader
-            // does per-expert quantized matmul instead, so MoE runs on
-            // every backend. The placement gate upstream already chose
-            // CPU when the file exceeds the VRAM budget.
-            let dtype = if device.is_cuda() {
-                candle_core::DType::BF16
-            } else {
-                candle_core::DType::F32
-            };
-            moe_gguf::ModelWeights::from_gguf(model_data, &mut file, device, dtype)
-                .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
-        } else {
-            llama::ModelWeights::from_gguf(model_data, &mut file, device)
-                .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
-        }
-        .map_err(|e| EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e)))?;
-
-        tracing::debug!("- [Substrate Operation] Model substrate ready.");
-        tracing::info!(
-            "loaded weights: {} in {} ms",
-            model_path.display(),
-            load_started.elapsed().as_millis()
-        );
-
-        Ok(ModelSubstrate {
-            weights,
-            eos_token_ids,
-            prompt_format,
-        })
+        Vec::new()
     }
 
     pub(crate) fn validate_architecture(arch: &str) -> EaiResult<()> {
         match arch {
-            // Mixtral exports `llama` arch — `is_moe_gguf` discriminates on
-            // the expert_count metadata. gpt-oss stays refused: its expert
-            // tensors are MXFP4, a dtype candle's quantized layer cannot
-            // dequantize.
             "llama" | "qwen2" | "qwen2moe" | "qwen3moe" => Ok(()),
             _ => Err(EaiError::inference(format!(
                 "Unsupported GGUF architecture '{arch}'; supported architectures: llama, qwen2, qwen2moe, qwen3moe"
@@ -580,80 +108,25 @@ impl InferenceHost {
         }
     }
 
-    /// True when the file needs the MoE backend: explicit `qwen2moe` /
-    /// `qwen3moe` archs, or a `llama`-arch GGUF carrying expert tensors
-    /// (Mixtral). llama.cpp exports Mixtral under `llama` arch, so the arch
-    /// string alone cannot distinguish it from a dense Llama.
-    pub(crate) fn is_moe_gguf(arch: &str, metadata: &HashMap<String, gguf_file::Value>) -> bool {
-        if arch == "qwen2moe" || arch == "qwen3moe" {
-            return true;
-        }
-        arch == "llama"
-            && metadata
-                .get("llama.expert_count")
-                .and_then(|v| v.to_u32().ok())
-                .is_some_and(|n| n > 0)
-    }
-
     pub(crate) fn needs_qwen2_backend(arch: &str) -> bool {
         arch == "qwen2"
     }
+}
 
-    pub(crate) fn shim_llama_compatible_metadata(metadata: &mut HashMap<String, gguf_file::Value>) {
-        let common_keys = [
-            "attention.head_count",
-            "attention.head_count_kv",
-            "embedding_length",
-            "feed_forward_length",
-            "block_count",
-            "attention.layer_norm_rms_epsilon",
-            "rope.dimension_count",
-        ];
-
-        for k in common_keys {
-            let llama_key = format!("llama.{}", k);
-            if !metadata.contains_key(&llama_key) {
-                let found_key = metadata.keys().find(|mk| mk.ends_with(k)).cloned();
-                if let Some(fk) = found_key {
-                    if let Some(val) = metadata.get(&fk).cloned() {
-                        metadata.insert(llama_key, val);
-                    }
-                }
-            }
-        }
-
-        // llama.cpp-produced GGUFs for several architectures (Qwen2 included)
-        // omit rope.dimension_count entirely, since it's implicitly
-        // embedding_length / head_count - unlike the other common_keys above,
-        // there is no source key to copy for these, so candle_transformers'
-        // hard `md_get("llama.rope.dimension_count")?` requirement fails
-        // every load for those architectures unless we derive it ourselves
-        // the same way llama.cpp does.
-        if !metadata.contains_key("llama.rope.dimension_count") {
-            let head_count = metadata
-                .get("llama.attention.head_count")
-                .and_then(|v| v.to_u32().ok());
-            let embedding_length = metadata
-                .get("llama.embedding_length")
-                .and_then(|v| v.to_u32().ok());
-            if let (Some(hc), Some(el)) = (head_count, embedding_length) {
-                if hc > 0 && el % hc == 0 {
-                    metadata.insert(
-                        "llama.rope.dimension_count".to_string(),
-                        gguf_file::Value::U32(el / hc),
-                    );
-                }
-            }
-        }
+fn resolve_model_id(model_id: &str) -> EaiResult<std::path::PathBuf> {
+    let id = model_id.trim();
+    if id.is_empty() || id.contains('/') || id.contains('\\') {
+        return Err(EaiError::inference(
+            "model must be a model id or file name, not a path",
+        ));
     }
+    let id = id.strip_suffix(".gguf").unwrap_or(id);
+    crate::models::ModelManager::get_model_path(id)
+        .ok_or_else(|| EaiError::inference(format!("model '{id}' not found")))
 }
 
 /// Dampens the logits of already-seen tokens (llama.cpp convention: divide a
-/// positive logit or multiply a negative one by `penalty`) so greedy argmax
-/// decoding doesn't loop on its own recent output. A no-op for `penalty <= 0`
-/// or `penalty == 1.0`. `context` is the caller's choice of window - see the
-/// call site in `SusiGgufEngine::run_inference_stream` for why it must be
-/// generated tokens only, never the prompt.
+/// positive logit or multiply a negative one by `penalty`).
 pub fn apply_repeat_penalty(logits: &mut [f32], penalty: f32, context: &[u32]) {
     if penalty == 1.0 || penalty <= 0.0 {
         return;
@@ -674,129 +147,28 @@ pub fn apply_repeat_penalty(logits: &mut [f32], penalty: f32, context: &[u32]) {
 
 pub struct ContextSummarizer;
 
-impl ContextSummarizer {}
-
 #[cfg(test)]
-mod eviction_tests {
-    #[test]
-    #[ignore = "requires immutable verified Qwen qualification cache copied to a private model directory"]
-    fn real_resident_qwen_is_reused_under_low_free_memory_without_waiving_license() {
-        use super::*;
-        let directory = std::env::var_os("SUSI_QUALIFICATION_MODEL_CACHE")
-            .expect("private verified qualification cache required");
-        let directory = std::path::PathBuf::from(directory);
-        assert!(
-            directory.join(".susi-owned-residency-fixture").is_file(),
-            "refuse to mutate a cache without the private qualification ownership marker"
-        );
-        let path = directory.join("qwen2.5-0.5b-instruct-q4_0.gguf");
-        assert!(ModelManager::admitted_local_path(&path));
-        // A cold .5B load must still honor the unchanged 4GiB reserve.
-        assert!(!ModelManager::weight_allocation_fits_memory(
-            &path, 3.0, 4.0, 1.25
-        ));
-        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
-            .register_task("resident_model_qualification", "real Qwen cache reuse");
-        let device = HardwareProfiler::get_dynamic_device(path.metadata().unwrap().len() as usize);
-        let first = InferenceHost::get_model(&path, &device, &task).unwrap();
-        assert!(InferenceHost::model_is_reusable(&path));
-        assert!(!ModelManager::weight_allocation_fits_memory(
-            &path, 0.0, 4.0, 1.25
-        ));
-        assert!(ModelManager::weight_allocation_fits_memory(
-            &path, 3.0, 4.0, 1.25
-        ));
-        let second = InferenceHost::get_model(&path, &device, &task).unwrap();
-        assert!(
-            Arc::ptr_eq(&first, &second),
-            "second request must reuse actual weights"
-        );
-        // This fixture is explicitly a private copy; never edit source cache.
-        let receipt = path.with_extension("license.json");
-        let original = std::fs::read(&receipt).unwrap();
-        struct RestoreReceipt(std::path::PathBuf, Vec<u8>);
-        impl Drop for RestoreReceipt {
-            fn drop(&mut self) {
-                let _ = std::fs::write(&self.0, &self.1);
-            }
-        }
-        let restore = RestoreReceipt(receipt.clone(), original);
-        std::fs::write(&receipt, b"invalid receipt").unwrap();
-        let rejected = !ModelManager::weight_allocation_fits_memory(&path, 3.0, 4.0, 1.25)
-            && InferenceHost::get_model(&path, &device, &task).is_err();
-        drop(restore);
-        assert!(rejected, "residency cannot waive current license admission");
-        task.mark_completed("real resident Qwen reuse verified");
-    }
+mod tests {
     use super::*;
-    use std::path::PathBuf;
 
-    fn lru() -> Vec<(PathBuf, u64)> {
-        vec![
-            ("old".into(), 400),
-            ("mid".into(), 300),
-            ("new".into(), 200),
-        ]
+    #[test]
+    fn preload_names_the_missing_engine_when_the_model_exists() {
+        let err =
+            InferenceHost::preload_resolved(std::path::Path::new("weights.gguf")).unwrap_err();
+        assert!(err.to_string().contains("local-engine"));
     }
 
     #[test]
-    fn cpu_eviction_releases_the_last_handle_on_another_thread() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        struct CountDrop(Arc<AtomicUsize>);
-        impl Drop for CountDrop {
-            fn drop(&mut self) {
-                self.0.fetch_add(1, Ordering::SeqCst);
-            }
-        }
-        let drops = Arc::new(AtomicUsize::new(0));
-        let weights = Arc::new(CountDrop(drops.clone()));
-        let in_flight = weights.clone();
-        assert_eq!(
-            release_on_device(weights, &candle_core::Device::Cpu),
-            Ok(false)
-        );
-        assert_eq!(drops.load(Ordering::SeqCst), 0);
-        assert_eq!(
-            std::thread::spawn(move || release_on_device(in_flight, &candle_core::Device::Cpu))
-                .join()
-                .unwrap(),
-            Ok(false)
-        );
-        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    fn an_empty_model_id_is_rejected_before_the_engine_check() {
+        let err = InferenceHost::preload("  ").unwrap_err();
+        assert!(err.to_string().contains("not a path"));
     }
 
     #[test]
-    fn no_eviction_when_the_model_fits() {
-        assert!(plan_evictions(1000, 900, &lru()).is_empty());
-    }
-
-    #[test]
-    fn evicts_least_recently_used_until_it_fits() {
-        assert_eq!(plan_evictions(300, 600, &lru()), vec![PathBuf::from("old")]);
-        assert_eq!(
-            plan_evictions(0, 650, &lru()),
-            vec![PathBuf::from("old"), PathBuf::from("mid")]
-        );
-    }
-
-    #[test]
-    fn evicts_everything_idle_when_even_that_is_short() {
-        assert_eq!(plan_evictions(0, 10_000, &lru()).len(), 3);
-        assert!(plan_evictions(0, 10, &[]).is_empty());
-    }
-
-    #[test]
-    fn sweep_interval_is_a_quarter_of_the_timeout_within_bounds() {
-        use std::time::Duration;
-        assert_eq!(sweep_interval(0), Duration::from_secs(60));
-        assert_eq!(sweep_interval(8), Duration::from_secs(5));
-        assert_eq!(sweep_interval(120), Duration::from_secs(30));
-        assert_eq!(sweep_interval(1800), Duration::from_secs(60));
-    }
-
-    #[test]
-    fn estimate_adds_headroom_without_overflow() {
-        assert_eq!(estimated_vram_bytes(800), 900);
-        assert_eq!(estimated_vram_bytes(u64::MAX), u64::MAX);
+    fn qwen2_is_the_only_dense_qwen_backend() {
+        assert!(InferenceHost::needs_qwen2_backend("qwen2"));
+        assert!(!InferenceHost::needs_qwen2_backend("llama"));
+        assert!(InferenceHost::validate_architecture("qwen3moe").is_ok());
+        assert!(InferenceHost::validate_architecture("gpt2").is_err());
     }
 }

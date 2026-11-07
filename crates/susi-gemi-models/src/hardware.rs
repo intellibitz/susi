@@ -493,14 +493,7 @@ impl HardwareProfiler {
             }
         }
 
-        #[cfg(feature = "local-engine")]
-        {
-            return susi_vendor_candle::device::cached_device();
-        }
-        #[cfg(not(feature = "local-engine"))]
-        {
-            Device::Cpu
-        }
+        Device::Cpu
     }
 
     fn get_os_info() -> String {
@@ -1063,8 +1056,6 @@ mod gpu_probe_cache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "local-engine")]
-    use susi_vendor_candle::candle_core;
 
     #[test]
     fn test_hardware_profile_generation() {
@@ -1263,20 +1254,6 @@ mod tests {
             Device::Cuda(_) => {}
             Device::Metal(_) => {}
         }
-    }
-
-    /// Exercise the selected CPU or Metal device with real matrix multiplication.
-    /// Selection alone is not proof that the device executes kernels.
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn test_selected_device_actually_computes() {
-        let device = HardwareProfiler::get_candle_device();
-        use candle_core::Tensor;
-        let a = Tensor::from_slice(&[1f32, 2., 3., 4.], (2, 2), &device).unwrap();
-        let b = Tensor::from_slice(&[5f32, 6., 7., 8.], (2, 2), &device).unwrap();
-        let c = a.matmul(&b).unwrap();
-        let result: Vec<Vec<f32>> = c.to_vec2().unwrap();
-        assert_eq!(result, vec![vec![19., 22.], vec![43., 50.]]);
     }
 
     #[test]

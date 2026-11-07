@@ -14,18 +14,15 @@ members = [
     "crates/susi-vendor-proptest",
     "crates/susi-vendor-tempfile",
     "crates/susi-vendor-wasmtime",
-    "crates/susi-vendor-mcp",
     "crates/susi-vendor-mcp-server",
     "crates/susi-vendor-syn",
     "crates/susi-native-client",
     "crates/susi-config",
     "crates/susi-leaf-services",
-    "crates/susi-sandbox",
     "crates/susi-sandbox-client",
     "crates/susi-http-transport",
     "crates/susi-conformance",
     "crates/susi-wire-client",
-    "crates/susi-vendor-candle",
     "crates/susi-adapters-llm",
     "crates/susi-tools",
     "crates/susi-gemi-models",
@@ -38,8 +35,6 @@ members = [
     "crates/susi-harness",
     "crates/susi-vendor-anyhow",
     "crates/susi-vendor-axum",
-    "crates/susi-vendor-base64",
-    "crates/susi-vendor-bollard",
     "crates/susi-vendor-bytes",
     "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",
@@ -55,7 +50,6 @@ members = [
     "crates/susi-vendor-hyper-util",
     "crates/susi-vendor-jsonschema",
     "crates/susi-vendor-libc",
-    "crates/susi-vendor-md-5",
     "crates/susi-vendor-parking-lot",
     "crates/susi-vendor-ra2a",
     "crates/susi-vendor-rayon",
@@ -71,7 +65,6 @@ members = [
     "crates/susi-vendor-windows-registry",
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tokio-rustls",
-    "crates/susi-vendor-tokio-stream",
     "crates/susi-vendor-tower",
     "crates/susi-vendor-tower-service",
     "crates/susi-vendor-tracing",
@@ -145,15 +138,12 @@ susi-windows-runtime = { path = "crates/susi-windows-runtime" }
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-vendor-wasmtime = { path = "crates/susi-vendor-wasmtime" }
-susi-vendor-mcp = { path = "crates/susi-vendor-mcp" }
 susi-vendor-mcp-server = { path = "crates/susi-vendor-mcp-server" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
 susi-native-client = { path = "crates/susi-native-client" }
-susi-sandbox = { path = "crates/susi-sandbox" }
 susi-sandbox-client = { path = "crates/susi-sandbox-client" }
 susi-http-transport = { path = "crates/susi-http-transport" }
 susi-wire-client = { path = "crates/susi-wire-client" }
-susi-vendor-candle = { path = "crates/susi-vendor-candle" }
 susi-adapters-llm = { path = "crates/susi-adapters-llm" }
 susi-gemi-models = { path = "crates/susi-gemi-models", default-features = false }
 susi-gemi = { path = "crates/susi-gemi", default-features = false }
@@ -199,7 +189,7 @@ susi-daemon = { path = "crates/susi-daemon", default-features = false }
 susi-server = { path = "crates/susi-server" }
 susi-core = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
-susi-sandbox = { workspace = true }
+susi-sandbox-client = { workspace = true }
 susi-gemi = { workspace = true }
 susi-gmcp = { workspace = true }
 susi-harness = { workspace = true }
@@ -235,28 +225,16 @@ susi-windows-runtime = { workspace = true }
 susi-build-os-ucrt = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 
-# The candle crates come from crates.io again: candle-core 0.11.0 there wanted
-# tokenizers ^0.22 (a second copy beside the 0.23.x used elsewhere) and zip
-# 8.6.0 (five GitHub advisories, one critical), so they were patched to a
-# candle git revision. 0.11.1 requires tokenizers ^0.23.1 and zip ^9.1.3, so
-# the registry build is one graph with a fixed zip, and a registry crate is a
-# compiler-cache hit where a git one is not (susi-vendor-candle asks for it).
 [patch.crates-io]
 regex-syntax = { path = "vendor/regex-syntax" }
 idna_adapter = { path = "vendor/idna-adapter" }
 unicode-ident = { path = "vendor/unicode-ident" }
-htmlescape = { path = "vendor/htmlescape" }
 native-tls = { path = "vendor/native-tls" }
 fluent-uri = { path = "vendor/fluent-uri" }
 # Ship the exact patched sources with Susi: a fresh checkout must not need
 # GitHub to resolve its build. Provenance and patch notes: vendor/README.md.
 reqwest = { path = "vendor/reqwest" }
-esaxx-rs = { path = "vendor/esaxx-rs" }
 hashbrown = { path = "vendor/hashbrown" }
-hashbrown-016 = { package = "hashbrown", path = "vendor/hashbrown-016" }
-zip = { path = "vendor/zip" }
-candle-core = { path = "vendor/candle-core" }
-tantivy-sstable = { path = "vendor/tantivy-sstable" }
 # CPU inference is portable. Metal remains an explicit platform feature.
 # CUDA/MKL are retired: their foreign implementation/license requirements
 # fail the product gates. Unknown feature requests fail instead of falling back.

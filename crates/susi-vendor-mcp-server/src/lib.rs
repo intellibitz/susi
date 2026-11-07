@@ -13,8 +13,8 @@
 //! # susi-vendor-mcp-server
 //!
 //! The one crate that links the MCP *server* SDK (`rmcp`). Feature planes
-//! (GMCP) depend on this crate and never declare `rmcp` themselves. The
-//! client SDK and its reqwest transport stay in `susi-vendor-mcp`.
+//! (GMCP) depend on this crate and never declare `rmcp` themselves. Outbound
+//! MCP client adapters live in `susi-commercial-apps` (`susi-ecosystem-hub`).
 
 /// JSON Schema derivation for typed tool inputs (`#[derive(JsonSchema)]` with
 /// `#[schemars(crate = "susi_vendor_mcp_server::schemars")]`), the same

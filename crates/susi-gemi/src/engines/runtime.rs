@@ -5,9 +5,8 @@
 
 #[path = "runtime_native.rs"]
 mod runtime_native;
-#[cfg_attr(not(feature = "local-engine"), allow(dead_code))]
-#[cfg_attr(feature = "local-engine", path = "runtime_substrate.rs")]
-#[cfg_attr(not(feature = "local-engine"), path = "runtime_substrate_off.rs")]
+#[allow(dead_code)]
+#[path = "runtime_substrate.rs"]
 mod runtime_substrate;
 
 pub use runtime_native::{
@@ -50,16 +49,6 @@ fn reflex_serve_label(action: &str) -> String {
 
 #[cfg(test)]
 use runtime_substrate::PromptFormat;
-#[cfg(all(test, feature = "local-engine"))]
-use std::collections::HashMap;
-#[cfg(all(test, feature = "local-engine"))]
-use std::sync::Arc;
-#[cfg(all(test, feature = "local-engine"))]
-use susi_vendor_candle::candle_core;
-#[cfg(all(test, feature = "local-engine"))]
-use susi_vendor_candle::candle_core::quantized::gguf_file;
-#[cfg(all(test, feature = "local-engine"))]
-use susi_vendor_candle::tokenizers::Tokenizer;
 
 /// Prefer admitted native Candle weights for ordinary automatic text work. Output
 /// formatting is not a second reasoning step; the substantive request still
@@ -1326,176 +1315,6 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn local_model_loads_on_cpu_and_reuses_cached_weights() {
-        let path =
-            susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
-        if !path.is_file() {
-            eprintln!("skipping: {} not present on this host", path.display());
-            return;
-        }
-        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
-            .register_task("model_load_test", "CPU model loading");
-        let model = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();
-        let again = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();
-        assert!(Arc::ptr_eq(&model, &again));
-        let mut model = model.write();
-        let backend = model.weights.as_qwen2_mut().expect("dense Qwen2 backend");
-        assert!(!backend.is_fully_gpu_resident());
-        let input = candle_core::Tensor::new(&[[100_u32, 200]], &candle_core::Device::Cpu).unwrap();
-        let logits = backend.forward(&input, 0).unwrap();
-        assert!(logits.device().is_cpu());
-        assert!(logits.elem_count() > 0);
-    }
-
-    /// Engine-level live smoke test — opt-in via
-    /// SUSI_MOE_GGUF=<path to a real MoE .gguf>; ignored by default so the
-    /// suite stays hermetic. Exercises what the loader-level sibling cannot:
-    /// `get_model` dispatch (is_moe_gguf, not the dense backend), and the
-    /// GGUF-derived substrate fields (EOS ids, prompt format) the generation
-    /// loop depends on.
-    ///   SUSI_MOE_GGUF=~/models/qwen3-30b-a3b-q4_k_m.gguf \
-    ///     cargo test -p susi-gemi --release -- --ignored live_moe
-    #[cfg(feature = "local-engine")]
-    #[test]
-    #[ignore = "requires a real MoE GGUF at $SUSI_MOE_GGUF"]
-    fn live_moe_gguf_loads_through_the_engine_dispatch() {
-        let path = std::path::PathBuf::from(
-            std::env::var("SUSI_MOE_GGUF")
-                .expect("SUSI_MOE_GGUF must name a MoE .gguf (qwen2moe/qwen3moe/mixtral)"),
-        );
-        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
-            .register_task("moe_engine_smoke", "MoE engine dispatch smoke");
-        let model = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();
-        let mut model = model.write();
-        assert!(
-            model.weights.as_qwen2_mut().is_none(),
-            "an MoE file must not reach the dense Qwen2 backend"
-        );
-        assert!(
-            !model.eos_token_ids.is_empty(),
-            "MoE instruct GGUFs ship tokenizer.ggml.eos_token_id"
-        );
-        assert_ne!(
-            model.prompt_format,
-            PromptFormat::Raw,
-            "instruct MoE chat templates should resolve to a known format, got {:?}",
-            model.prompt_format
-        );
-        // Small, universally-valid ids — every supported MoE vocab is ≥32k.
-        let input = candle_core::Tensor::new(
-            &[[9707_u32, 11, 1879, 330, 15546]],
-            &candle_core::Device::Cpu,
-        )
-        .unwrap();
-        let logits = model.weights.forward(&input, 0).unwrap();
-        let logits = logits.flatten_all().unwrap().to_vec1::<f32>().unwrap();
-        assert!(
-            logits.iter().all(|v| v.is_finite()),
-            "non-finite logits through engine dispatch"
-        );
-    }
-
-    /// Real generation on a live MoE model — opt-in via SUSI_MOE_GGUF +
-    /// SUSI_MOE_TOKENIZER; ignored by default (multi-GB files, minutes of
-    /// CPU). Greedy decode through the engine's exact forward convention
-    /// (prefill at pos 0, single-token steps at absolute position) and
-    /// reports tokens/sec — the number that decides whether a CPU-resident
-    /// MoE is a usable brain or a fallback of last resort.
-    ///   SUSI_MOE_GGUF=~/models/qwen3-30b-a3b-q4_k_m.gguf \
-    ///   SUSI_MOE_TOKENIZER=~/models/qwen3-30b-a3b.tokenizer.json \
-    ///     cargo test -p susi-gemi --release -- --ignored live_moe_generates
-    #[cfg(feature = "local-engine")]
-    #[test]
-    #[ignore = "requires real MoE GGUF + tokenizer at $SUSI_MOE_GGUF / $SUSI_MOE_TOKENIZER"]
-    fn live_moe_gguf_generates_tokens_on_cpu() {
-        let gguf = std::path::PathBuf::from(
-            std::env::var("SUSI_MOE_GGUF")
-                .expect("SUSI_MOE_GGUF must name a MoE .gguf (qwen2moe/qwen3moe/mixtral)"),
-        );
-        let tokenizer = Tokenizer::from_file(
-            std::env::var("SUSI_MOE_TOKENIZER")
-                .expect("SUSI_MOE_TOKENIZER must name a matching tokenizer.json"),
-        )
-        .unwrap();
-        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
-            .register_task("moe_generation_smoke", "MoE generation smoke");
-        let device = candle_core::Device::Cpu;
-        let model = InferenceHost::get_model(&gguf, &device, &task).unwrap();
-        let mut model = model.write();
-
-        let prompt = model
-            .prompt_format
-            .wrap("Name the planets of the solar system in order, comma separated.");
-        let prompt_ids = tokenizer
-            .encode(prompt.as_str(), true)
-            .unwrap()
-            .get_ids()
-            .to_vec();
-        assert!(
-            prompt_ids.len() > 4,
-            "prompt tokenized to {:?} ids",
-            prompt_ids.len()
-        );
-
-        let prompt_len = prompt_ids.len();
-        let mut to_process = prompt_ids;
-        let mut generated: Vec<u32> = Vec::new();
-        let started = std::time::Instant::now();
-        let mut decode_started = None;
-        for i in 0..24 {
-            if i == 1 {
-                decode_started = Some(std::time::Instant::now());
-            }
-            let pos = if i == 0 { 0 } else { prompt_len + i - 1 };
-            let input = candle_core::Tensor::new(to_process.as_slice(), &device)
-                .unwrap()
-                .unsqueeze(0)
-                .unwrap();
-            let logits = model.weights.forward(&input, pos).unwrap();
-            let slice = logits.squeeze(0).unwrap();
-            let last = if slice.rank() == 2 {
-                let n = slice.dim(0).unwrap();
-                slice.get(n - 1).unwrap()
-            } else {
-                slice
-            };
-            let logits_v = last.flatten_all().unwrap().to_vec1::<f32>().unwrap();
-            let (mut next, mut best) = (0u32, f32::NEG_INFINITY);
-            for (id, &logit) in logits_v.iter().enumerate() {
-                if logit > best {
-                    best = logit;
-                    next = id as u32;
-                }
-            }
-            assert!(best.is_finite(), "non-finite logits at step {i}");
-            if model.eos_token_ids.contains(&next) {
-                break;
-            }
-            generated.push(next);
-            to_process = vec![next];
-        }
-        let elapsed = started.elapsed().as_secs_f64();
-        assert!(
-            !generated.is_empty(),
-            "model produced only an EOS on the first step"
-        );
-        let text = tokenizer.decode(&generated, true).unwrap();
-        let decode_rate = decode_started
-            .map(|t| (generated.len().saturating_sub(1)) as f64 / t.elapsed().as_secs_f64())
-            .filter(|r| r.is_finite() && generated.len() > 1)
-            .unwrap_or(f64::NAN);
-        eprintln!(
-            "MoE generation: prefill({} tok) + {} decode in {:.1}s = {:.2} tok/s → {:?}",
-            prompt_len,
-            generated.len(),
-            elapsed,
-            decode_rate,
-            text
-        );
-    }
-
     #[test]
     fn test_backend_dispatch_rejects_unsupported_architectures() {
         // Regression: quantized_llama (the generic GGUF loader) never reads
@@ -1520,25 +1339,6 @@ mod tests {
         assert!(!InferenceHost::needs_qwen2_backend("qwen3"));
         assert!(!InferenceHost::needs_qwen2_backend("qwen3moe"));
         assert!(!InferenceHost::needs_qwen2_backend("gemma"));
-    }
-
-    /// Mixtral exports GGUF `general.architecture = llama`; the expert
-    /// count in metadata is what discriminates it from a dense Llama and
-    /// selects the MoE backend, which does per-expert quantized matmul
-    /// where candle's fused MoE kernels are CUDA-only.
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn test_moe_gguf_detection_uses_expert_count() {
-        use susi_vendor_candle::candle_core::quantized::gguf_file::Value;
-        let mut md = std::collections::HashMap::new();
-        assert!(!InferenceHost::is_moe_gguf("llama", &md));
-        md.insert("llama.expert_count".to_string(), Value::U32(8));
-        assert!(InferenceHost::is_moe_gguf("llama", &md));
-        md.insert("llama.expert_count".to_string(), Value::U32(0));
-        assert!(!InferenceHost::is_moe_gguf("llama", &md));
-        assert!(InferenceHost::is_moe_gguf("qwen2moe", &md));
-        assert!(InferenceHost::is_moe_gguf("qwen3moe", &md));
-        assert!(!InferenceHost::is_moe_gguf("qwen2", &md));
     }
 
     #[test]
@@ -1589,60 +1389,6 @@ mod tests {
     #[test]
     fn test_raw_wrap_is_passthrough() {
         assert_eq!(PromptFormat::Raw.wrap("hello"), "hello");
-    }
-
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn test_shim_derives_missing_rope_dimension_count_from_embedding_and_head_count() {
-        // Regression: qwen2.5's own GGUF metadata has no *.rope.dimension_count
-        // key at all (verified against a real qwen2.5-0.5b-instruct GGUF),
-        // which previously made every qwen2 load fail instantly inside
-        // candle_transformers' hard `md_get("llama.rope.dimension_count")?`.
-        let mut metadata: HashMap<String, gguf_file::Value> = HashMap::new();
-        metadata.insert(
-            "qwen2.attention.head_count".to_string(),
-            gguf_file::Value::U32(14),
-        );
-        metadata.insert(
-            "qwen2.embedding_length".to_string(),
-            gguf_file::Value::U32(896),
-        );
-
-        InferenceHost::shim_llama_compatible_metadata(&mut metadata);
-
-        assert_eq!(
-            metadata
-                .get("llama.rope.dimension_count")
-                .and_then(|v| v.to_u32().ok()),
-            Some(64) // 896 / 14
-        );
-    }
-
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn test_shim_prefers_existing_rope_dimension_count_over_derived_value() {
-        let mut metadata: HashMap<String, gguf_file::Value> = HashMap::new();
-        metadata.insert(
-            "qwen2.attention.head_count".to_string(),
-            gguf_file::Value::U32(14),
-        );
-        metadata.insert(
-            "qwen2.embedding_length".to_string(),
-            gguf_file::Value::U32(896),
-        );
-        metadata.insert(
-            "qwen2.rope.dimension_count".to_string(),
-            gguf_file::Value::U32(128),
-        );
-
-        InferenceHost::shim_llama_compatible_metadata(&mut metadata);
-
-        assert_eq!(
-            metadata
-                .get("llama.rope.dimension_count")
-                .and_then(|v| v.to_u32().ok()),
-            Some(128)
-        );
     }
 
     #[test]
@@ -1886,17 +1632,6 @@ mod tests {
         let (out, _ladder) =
             GemiEngine::try_providers(&registry, "hello", None, Some("mixtral"), &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("mixtral"));
-    }
-
-    #[cfg(feature = "local-engine")]
-    #[test]
-    fn test_native_tokenization() {
-        let _home = susi_paths::SusiDirs::home_dir();
-        let tokenizer_path = susi_paths::SusiDirs::data_dir().join("models/tokenizer.json");
-        if tokenizer_path.exists() {
-            let tokenizer = Tokenizer::from_file(tokenizer_path);
-            assert!(tokenizer.is_ok());
-        }
     }
 
     /// `axiomatic_risk_patterns` is config-driven now, not a hardcoded Rust
