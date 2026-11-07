@@ -70,7 +70,6 @@ pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
 pub mod admin;
 pub mod audit_evidence;
-pub mod autonomous_builder;
 pub mod bloat_audit;
 pub mod capacity_limits;
 pub mod cloud_rsi;
