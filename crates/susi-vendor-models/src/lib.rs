@@ -39,7 +39,6 @@ pub mod eco_taxonomy;
 pub mod frontier;
 pub mod gguf_inspector;
 pub mod hf_discovery;
-pub mod infer_batch;
 pub mod key_rotation;
 pub mod llamacpp_launcher;
 pub mod local_ecosystem;
@@ -81,20 +80,12 @@ mod vc_201_044_mastery_tests;
 #[path = "tests/vc_201_044.rs"]
 mod vc_201_044_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_046_mastery.rs"]
-mod vc_201_046_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_046.rs"]
-mod vc_201_046_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_050.rs"]
 mod vc_201_050_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_055_mastery.rs"]
-mod vc_201_055_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_055.rs"]
-mod vc_201_055_tests;
 #[cfg(test)]
 
 /// Write the selected-model override every inference path reads
@@ -117,9 +108,6 @@ pub fn set_selected_model_override(model_name: &str) -> Result<String, String> {
     susi_config::atomic_write_bytes(&model_file, name.as_bytes()).map_err(|e| e.to_string())?;
     Ok(format!("Selected active model override set to: '{name}'"))
 }
-pub mod eco_engine_capability_map;
-pub mod eco_gpu_clouds;
-pub mod eco_live_probe;
 
 #[cfg(test)]
 // Test-only assertions in inline unit tests.

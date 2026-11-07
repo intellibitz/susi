@@ -1,11 +1,11 @@
 {
-  "evidence": "tests/vc_201_046_mastery.rs (vc_201_046_mastery). Bounded inference batching for capable backends verified: unsupported backends rejected at construction, per-request deadlines and cancellation honored without hitting backend execution, max_wait_ms prevents starvation, queue depth strictly bounded by max_queue, and load tests prove batch collapse under configured limits.",
-  "missing": null,
+  "evidence": "",
+  "missing": "Moved out of scope 2026-11-07 by CEO direction: infer_batch GPU inference request batching migrated to susi-commercial-apps (susi-gpu-fabric).",
   "recorded_by": "ANTIGRAVITYHARNESSORCHESTRATION",
   "recorded_unix": 1792644261,
   "tracked_by": [
     "T-AGENT202610180733582018588-4"
   ],
   "vector": "VC-201-046",
-  "verdict": "delivered"
+  "verdict": "not-delivered"
 }

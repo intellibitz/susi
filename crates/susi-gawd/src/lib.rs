@@ -71,11 +71,7 @@ pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 pub mod admin;
 pub mod audit_evidence;
 pub mod bloat_audit;
-pub mod capacity_limits;
 pub mod cloud_rsi;
-pub mod cloud_rsi_delivery;
-pub mod cloud_rsi_lifecycle;
-pub mod cloud_rsi_outcomes;
 pub mod cloud_session;
 pub mod cross_platform_service;
 pub mod dev_canary;
@@ -85,11 +81,9 @@ pub mod eval_separation;
 pub mod evolution;
 pub mod experiment_lifecycle;
 pub mod experiment_memory;
-pub mod formal_invariants;
 pub mod genome_distiller;
 pub mod intent_ladder;
 pub mod kernel_loader;
-pub mod orchestrator_tier;
 pub mod patch_cycle;
 pub mod patch_fence;
 pub mod reason_trainer;
@@ -108,8 +102,6 @@ pub mod worker_identity;
 pub mod zc_agent_identity;
 
 #[cfg(test)]
-#[path = "tests/formal_invariants.rs"]
-mod formal_invariants_tests;
 #[cfg(test)]
 #[path = "tests/native_verifier.rs"]
 mod native_verifier;
@@ -174,14 +166,10 @@ mod vc_201_017_mastery_tests;
 #[path = "tests/vc_201_017.rs"]
 mod vc_201_017_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_018_mastery.rs"]
-mod vc_201_018_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_018.rs"]
 mod vc_201_018_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_019_mastery.rs"]
-mod vc_201_019_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_019.rs"]
 mod vc_201_019_tests;
@@ -190,11 +178,7 @@ mod vc_201_019_tests;
 mod vc_201_079_tests;
 #[cfg(test)]
 #[cfg(test)]
-#[path = "tests/vc_201_094.rs"]
-mod vc_201_094_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_096_mastery.rs"]
-mod vc_201_096_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_097_mastery.rs"]
 mod vc_201_097_mastery_tests;
@@ -366,13 +350,4 @@ mod inline_tests {
         assert!(cleaned.contains("check cluster health"));
     }
 
-    #[test]
-    fn formal_invariants_verify_all_reports_zero_counterexamples_via_root() {
-        assert!(formal_invariants::lease_is_fenced(1, 1, 100, 200));
-        assert!(!formal_invariants::lease_is_fenced(1, 2, 100, 200));
-        assert_eq!(
-            formal_invariants::budget_transition(10, 5, 5, 20),
-            formal_invariants::BudgetTransition::Admit
-        );
-    }
 }

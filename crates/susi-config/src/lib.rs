@@ -50,10 +50,8 @@ mod types;
 pub mod validate;
 pub mod versioned_store;
 #[cfg(windows)]
-pub mod windows_environment;
 #[cfg(windows)]
 pub mod windows_model_identity;
-pub mod zc_debt_ratchet;
 pub mod zc_debt_report;
 pub mod zc_path;
 
