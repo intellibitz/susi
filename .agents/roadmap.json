@@ -877,7 +877,7 @@
       "id": "VC-201-070",
       "mastery_target": "Export versioned configuration, artifact references, and encrypted secret material only when explicitly included; restore to a clean dev instance verifies references and reports unavailable external resources.",
       "priority": "P1",
-      "progress": "DELIVERED: backup and restore uses versioned authenticated encryption, requires explicit secret-section inclusion, reports unavailable requested resources, and verifies file/artifact references before returning restored state. Verified by `crates/susi-config/src/tests/vc_201_070_mastery.rs`: explicit inclusion, wrong-key authentication, known-plaintext resistance, missing-resource reporting, dangling-reference refusal, version checks, and dry-run refusal. Evidence: T-DEVIN20261002053148-34.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::state_backup): backup and restore uses versioned authenticated encryption, requires explicit secret-section inclusion, reports unavailable requested resources, and verifies file/artifact references before returning restored state. Verified by `crates/susi-config/src/tests/vc_201_070_mastery.rs`: explicit inclusion, wrong-key authentication, known-plaintext resistance, missing-resource reporting, dangling-reference refusal, version checks, and dry-run refusal. Evidence: T-DEVIN20261002053148-34.",
       "type": "CONFIGURATION",
       "vector": "Back up and restore ecosystem configuration"
     },
