@@ -107,11 +107,6 @@ mod native_verifier;
 #[cfg(test)]
 #[path = "tests/rsi_corpus.rs"]
 mod rsi_corpus_tests;
-// Test-only support for cloud_rsi's tests (a compiled native verifier
-// program and its argv); not a suite, so it stays with the code it serves.
-#[cfg(test)]
-#[path = "tests/native_verifier.rs"]
-mod native_verifier;
 #[cfg(test)]
 #[path = "tests/vc_200_002.rs"]
 mod vc_200_002_tests;
