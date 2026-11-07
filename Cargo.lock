@@ -4090,7 +4090,6 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
- "susi-vendor-candle",
  "susi-vendor-dashmap",
  "susi-vendor-hex",
  "susi-vendor-libc",

@@ -7,7 +7,6 @@ publish = false
 
 [dependencies]
 susi-core = { workspace = true }
-susi-vendor-candle = { workspace = true, optional = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
@@ -24,8 +23,8 @@ libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
 [features]
 default = []
-local-engine = ["dep:susi-vendor-candle"]
-metal = ["local-engine", "susi-vendor-candle/metal"]
+local-engine = []
+metal = ["local-engine"]
 
 [dev-dependencies]
 proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }
