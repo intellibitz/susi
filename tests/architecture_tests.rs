@@ -2413,6 +2413,11 @@ fn enterprise_capabilities_live_in_commercial_apps() {
         "crates/susi-config/src/zc_debt_ratchet.rs",
         "crates/susi-config/src/windows_environment.rs",
         "crates/susi-core/src/secret.rs",
+        "crates/susi-vendor-models/src/cloud_reconciler.rs",
+        "crates/susi-vendor-models/src/offline_bundle.rs",
+        "crates/susi-config/src/offline_bundle.rs",
+        "crates/susi-vendor-cloud/src/preemptible.rs",
+        "crates/susi-error/src/redact_tests.rs",
     ] {
         assert!(
             !root.join(rel).exists(),
