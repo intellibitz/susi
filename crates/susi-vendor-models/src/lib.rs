@@ -55,7 +55,6 @@ pub mod resource_inventory;
 pub mod resumable_downloads;
 pub mod runtime_lifecycle;
 pub mod transactional_download;
-pub mod zc_key_aliases;
 pub mod zc_key_sources;
 
 #[cfg(test)]
