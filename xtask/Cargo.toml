@@ -12,13 +12,13 @@ susi-build-policy = { workspace = true }
 sha2 = { package = "susi-vendor-sha2", path = "../crates/susi-vendor-sha2" }
 sha1 = { package = "susi-vendor-sha1", path = "../crates/susi-vendor-sha1", optional = true }
 serde_json = { package = "susi-vendor-serde-json", path = "../crates/susi-vendor-serde-json" }
-sysinfo = { package = "susi-vendor-sysinfo", path = "../crates/susi-vendor-sysinfo", optional = true }
+sysinfo = { package = "susi-vendor-sysinfo", path = "../crates/susi-vendor-sysinfo" }
 
 [build-dependencies]
 susi-build-os-ucrt = { workspace = true }
 
 [features]
-release-tooling = ["dep:sha1", "dep:sysinfo"]
+release-tooling = ["dep:sha1"]
 
 [lints]
 workspace = true

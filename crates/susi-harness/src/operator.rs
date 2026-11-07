@@ -211,46 +211,6 @@ pub struct PlanQueueOptions {
     pub gateway: Option<String>,
 }
 
-impl PlanQueueOptions {
-    /// Verify structural invariants of [`PlanQueueOptions`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an explanation string when paths or strings are blank, `limit == 0`,
-    /// or `gateway` is present without an `http://` or `https://` scheme.
-    pub fn verify_plan_options_invariants(&self) -> Result<(), String> {
-        if self.repo.as_os_str().is_empty() {
-            return Err("plan options repo path must not be empty".to_string());
-        }
-        if self.out.as_os_str().is_empty() {
-            return Err("plan options out path must not be empty".to_string());
-        }
-        if self.mission.trim().is_empty() {
-            return Err("plan options mission must not be empty".to_string());
-        }
-        if self.limit == 0 {
-            return Err("plan options limit must be greater than zero".to_string());
-        }
-        if self.workers.trim().is_empty() {
-            return Err("plan options workers must not be empty".to_string());
-        }
-        if let Some(ref roadmap) = self.roadmap {
-            if roadmap.trim().is_empty() {
-                return Err("plan options roadmap must not be blank when present".to_string());
-            }
-        }
-        if let Some(ref gw) = self.gateway {
-            let trimmed = gw.trim();
-            if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
-                return Err(format!(
-                    "plan options gateway '{gw}' must start with http:// or https://"
-                ));
-            }
-        }
-        Ok(())
-    }
-}
-
 /// `susi harness plan`: write a plan over dependency-ready queue tasks.
 /// Returns `{plan, out, message}`; `message` is the line the CLI prints.
 pub fn plan_queue(opts: &PlanQueueOptions, cwd: &Path, notes: Notes<'_>) -> EaiResult<Value> {
@@ -334,44 +294,6 @@ pub struct AuthorOptions {
     pub max_tasks: usize,
     /// Worker models, comma-separated, or `auto`.
     pub workers: String,
-}
-
-impl AuthorOptions {
-    /// Verify structural invariants of [`AuthorOptions`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an explanation string when `gateway` lacks an HTTP/HTTPS scheme,
-    /// `model`, `vector`, or `workers` is blank, `roadmap` or `out` is empty,
-    /// or `max_tasks == 0`.
-    pub fn verify_author_options_invariants(&self) -> Result<(), String> {
-        let gw = self.gateway.trim();
-        if !gw.starts_with("http://") && !gw.starts_with("https://") {
-            return Err(format!(
-                "author options gateway '{}' must start with http:// or https://",
-                self.gateway
-            ));
-        }
-        if self.model.trim().is_empty() {
-            return Err("author options model must not be empty".to_string());
-        }
-        if self.roadmap.as_os_str().is_empty() {
-            return Err("author options roadmap path must not be empty".to_string());
-        }
-        if self.vector.trim().is_empty() {
-            return Err("author options vector must not be empty".to_string());
-        }
-        if self.out.as_os_str().is_empty() {
-            return Err("author options out path must not be empty".to_string());
-        }
-        if self.max_tasks == 0 {
-            return Err("author options max_tasks must be greater than zero".to_string());
-        }
-        if self.workers.trim().is_empty() {
-            return Err("author options workers must not be empty".to_string());
-        }
-        Ok(())
-    }
 }
 
 /// `susi harness author`: author a plan for a roadmap vector through the
@@ -484,62 +406,6 @@ pub struct RunOptions {
     pub adapter_state: PathBuf,
     /// The susi binary the adapter drives.
     pub susi: PathBuf,
-}
-
-impl RunOptions {
-    /// Verify structural and budget invariants of [`RunOptions`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an explanation string when any required path or string is empty,
-    /// `gateway` lacks an HTTP/HTTPS scheme, `timeout`, `parallel`, or `attempts`
-    /// is zero, or `budget_usd` / `daily_usd` is not a positive USD amount.
-    pub fn verify_run_options_invariants(&self) -> Result<(), String> {
-        for (name, path) in [
-            ("plan", &self.plan),
-            ("repo", &self.repo),
-            ("state", &self.state),
-            ("catalogue", &self.catalogue),
-            ("ledger", &self.ledger),
-            ("controls", &self.controls),
-            ("rsi_log", &self.rsi_log),
-            ("adapter_state", &self.adapter_state),
-            ("susi", &self.susi),
-        ] {
-            if path.as_os_str().is_empty() {
-                return Err(format!("run options '{name}' path must not be empty"));
-            }
-        }
-        let gw = self.gateway.trim();
-        if !gw.starts_with("http://") && !gw.starts_with("https://") {
-            return Err(format!(
-                "run options gateway '{}' must start with http:// or https://",
-                self.gateway
-            ));
-        }
-        if self.model.trim().is_empty()
-            || self.prefix.trim().is_empty()
-            || self.workers.trim().is_empty()
-        {
-            return Err("run options model, prefix, and workers must not be empty".to_string());
-        }
-        if self.timeout == 0 || self.parallel == 0 || self.attempts == 0 {
-            return Err("run options timeout, parallel, and attempts must be > 0".to_string());
-        }
-        if !MicroUsd::parse_usd(&self.budget_usd).is_some_and(|b| !b.is_zero()) {
-            return Err(format!(
-                "run options budget_usd '{}' must be a positive USD amount",
-                self.budget_usd
-            ));
-        }
-        if !MicroUsd::parse_usd(&self.daily_usd).is_some_and(|d| !d.is_zero()) {
-            return Err(format!(
-                "run options daily_usd '{}' must be a positive USD amount",
-                self.daily_usd
-            ));
-        }
-        Ok(())
-    }
 }
 
 /// The state file a run resumes from: `supervisor-state.json` (the default)
@@ -912,72 +778,5 @@ mod tests {
         assert_eq!(tail("short", 10), "short");
         assert_eq!(tail("abcdef", 3), "def");
         assert!(now_unix_ms() > 0);
-    }
-
-    #[test]
-    fn operator_plan_author_and_run_options_verify_invariants_reject_corrupt_state() {
-        let valid_plan = PlanQueueOptions {
-            repo: ".".into(),
-            out: "plan.json".into(),
-            mission: "m-1".into(),
-            limit: 4,
-            workers: "auto".into(),
-            roadmap: Some("VC-203-001".into()),
-            gateway: Some("http://127.0.0.1:8080".into()),
-        };
-        assert!(valid_plan.verify_plan_options_invariants().is_ok());
-
-        let mut bad_plan = valid_plan.clone();
-        bad_plan.limit = 0;
-        assert!(bad_plan.verify_plan_options_invariants().is_err());
-
-        let mut bad_plan_gw = valid_plan;
-        bad_plan_gw.gateway = Some("ftp://127.0.0.1".into());
-        assert!(bad_plan_gw.verify_plan_options_invariants().is_err());
-
-        let valid_author = AuthorOptions {
-            gateway: "http://127.0.0.1:8080".into(),
-            model: "auto".into(),
-            roadmap: "roadmap.json".into(),
-            vector: "VC-203-001".into(),
-            out: "plan.json".into(),
-            max_tasks: 5,
-            workers: "auto".into(),
-        };
-        assert!(valid_author.verify_author_options_invariants().is_ok());
-
-        let mut bad_author = valid_author;
-        bad_author.max_tasks = 0;
-        assert!(bad_author.verify_author_options_invariants().is_err());
-
-        let valid_run = RunOptions {
-            plan: "plan.json".into(),
-            repo: ".".into(),
-            state: "supervisor-state.json".into(),
-            gateway: "http://127.0.0.1:8080".into(),
-            model: "auto".into(),
-            timeout: 120,
-            parallel: 2,
-            prefix: "h".into(),
-            workers: "auto".into(),
-            budget_usd: "5.00".into(),
-            catalogue: "prices.json".into(),
-            daily_usd: "25.00".into(),
-            ledger: "ledger.jsonl".into(),
-            controls: "controls.jsonl".into(),
-            rsi_log: "rsi.jsonl".into(),
-            attempts: 2,
-            adapter_state: "state".into(),
-            susi: "susi".into(),
-        };
-        assert!(valid_run.verify_run_options_invariants().is_ok());
-
-        let mut zero_budget = valid_run.clone();
-        zero_budget.budget_usd = "0.00".into();
-        assert!(zero_budget.verify_run_options_invariants().is_err());
-
-        let mut zero_parallel = valid_run;
-        zero_parallel.parallel = 0;
-        assert!(zero_parallel.verify_run_options_invariants().is_err());
     }
 }

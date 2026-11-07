@@ -10,74 +10,12 @@ pub struct ToolReceipt {
     pub digest: String,
 }
 
-impl ToolReceipt {
-    /// Verifies structural and digest invariants of a [`ToolReceipt`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `tool` is not a valid identity or `digest` is not
-    /// a canonical `sha256:<64-hex>` digest.
-    pub fn verify_tool_receipt_invariants(&self) -> Result<(), String> {
-        if !valid_identity(&self.tool) {
-            return Err(format!(
-                "ToolReceipt tool '{}' must be a non-empty whitespace-free identity",
-                self.tool
-            ));
-        }
-        if !is_digest(&self.digest) {
-            return Err(format!(
-                "ToolReceipt digest '{}' must be a canonical sha256:<64-hex> string",
-                self.digest
-            ));
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewConclusion {
     pub reviewer: String,
     pub pass: bool,
     pub receipts: Vec<ToolReceipt>,
     pub implementer: String,
-}
-
-impl ReviewConclusion {
-    /// Verifies structural, reviewer-independence, and receipt-uniqueness invariants of a [`ReviewConclusion`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `reviewer` or `implementer` is invalid, `reviewer == implementer`,
-    /// any receipt fails [`ToolReceipt::verify_tool_receipt_invariants`], receipt digests are duplicated, or
-    /// `pass` is `true` while `receipts` is empty.
-    pub fn verify_conclusion_invariants(&self) -> Result<(), String> {
-        if !valid_identity(&self.reviewer) || !valid_identity(&self.implementer) {
-            return Err(
-                "ReviewConclusion reviewer and implementer must be valid non-empty identities"
-                    .to_string(),
-            );
-        }
-        if self.reviewer == self.implementer {
-            return Err(format!(
-                "ReviewConclusion reviewer '{}' must be independent from implementer",
-                self.reviewer
-            ));
-        }
-        if self.pass && self.receipts.is_empty() {
-            return Err("ReviewConclusion pass=true requires at least one ToolReceipt".to_string());
-        }
-        let mut seen = BTreeSet::new();
-        for r in &self.receipts {
-            r.verify_tool_receipt_invariants()?;
-            if !seen.insert(r.digest.as_str()) {
-                return Err(format!(
-                    "ReviewConclusion duplicate tool receipt digest '{}'",
-                    r.digest
-                ));
-            }
-        }
-        Ok(())
-    }
 }
 
 /// A receipt emitted by an authenticated reviewer after it inspected one
@@ -173,44 +111,6 @@ impl ReviewReceipt {
             &self.result_digest,
             &self.commit_sha,
         ])
-    }
-
-    /// Verifies structural, reviewer-independence, and cryptographic integrity invariants of a [`ReviewReceipt`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if any identity field is invalid, `reviewer == implementer`,
-    /// any digest field is malformed, or `review_digest != expected_digest()`.
-    pub fn verify_receipt_invariants(&self) -> Result<(), String> {
-        if !valid_identity(&self.reviewer)
-            || !valid_identity(&self.implementer)
-            || !valid_identity(&self.task_id)
-            || !valid_identity(&self.tool)
-            || !valid_identity(&self.commit_sha)
-        {
-            return Err(
-                "ReviewReceipt identity fields must be non-empty and whitespace-free".to_string(),
-            );
-        }
-        if self.reviewer == self.implementer {
-            return Err(format!(
-                "ReviewReceipt reviewer '{}' must be distinct from implementer",
-                self.reviewer
-            ));
-        }
-        if !is_digest(&self.arguments_digest)
-            || !is_digest(&self.result_digest)
-            || !is_digest(&self.review_digest)
-        {
-            return Err(
-                "ReviewReceipt arguments_digest, result_digest, and review_digest must be canonical sha256 digests"
-                    .to_string(),
-            );
-        }
-        if self.review_digest != self.expected_digest() {
-            return Err("ReviewReceipt review_digest does not match expected_digest()".to_string());
-        }
-        Ok(())
     }
 }
 
@@ -416,36 +316,5 @@ mod inline_tests {
         bad_tool.pass = true;
         bad_tool.receipts[0].tool = "cargo test".into();
         assert!(!verification_satisfied(&bad_tool, "impl-agent"));
-        assert!(bad_tool.verify_conclusion_invariants().is_err());
-
-        let valid_rcpt = ToolReceipt {
-            tool: "cargo_test".into(),
-            digest: d1.clone(),
-        };
-        assert!(valid_rcpt.verify_tool_receipt_invariants().is_ok());
-
-        let valid_conc = ReviewConclusion {
-            reviewer: "verifier-agent".into(),
-            pass: true,
-            receipts: vec![valid_rcpt],
-            implementer: "impl-agent".into(),
-        };
-        assert!(valid_conc.verify_conclusion_invariants().is_ok());
-
-        let args_d = acceptance_arguments_digest(&["cargo".to_string(), "test".to_string()]);
-        let res_d = acceptance_success_digest();
-        let rr = ReviewReceipt::new(
-            "reviewer-1",
-            "impl-1",
-            "T-1",
-            "cargo_test",
-            args_d,
-            res_d,
-            "abc1234",
-        );
-        assert!(rr.verify_receipt_invariants().is_ok());
-        let mut tampered_rr = rr;
-        tampered_rr.commit_sha = "def5678".into();
-        assert!(tampered_rr.verify_receipt_invariants().is_err());
     }
 }

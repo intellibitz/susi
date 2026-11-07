@@ -18,7 +18,7 @@ CLI (susi) / daemon / HTTP servers
         ↓
 composition roots (wire hooks, packs, discovery, bind)
         ↓
-feature planes: GAWD · GEMI · GMCP · agents · tools
+four major pillars: GAWD (swarm/agents/a2a) · GEMI (inference/models) · GMCP (MCP socket) · Harness (parallel self-build workflow)
         ↕  (in-process only: `susi_core::plane_bus` — no Cargo edges between planes)
         ↓
 susi-core (Evidence, Truth, Provider, Tool, CapabilityRegistry, plane_bus)

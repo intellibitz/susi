@@ -29,53 +29,37 @@ pub mod ama;
 pub mod amas;
 pub mod anti_entropy;
 pub mod audit;
-pub mod brain_coordination;
 pub mod brain_supervisor;
 pub mod cancel_propagate;
 pub mod capacity_admission;
 pub mod chaos_deployment;
-pub mod cloud_e2e;
 pub mod cloud_failover;
 pub mod cloud_lockout;
 pub(crate) mod cloud_recovery;
-pub mod coordinator_fence;
 pub mod dag;
 pub mod deliberation;
 pub mod fair_queue;
 pub mod fault_matrix;
-pub mod federation_compat;
 pub mod host_hooks;
 pub mod identity_revoke;
 pub mod independent_verify;
-pub mod jobs_status;
 pub mod joint_consensus;
-pub mod locality_placement;
-pub mod membership_model;
 pub mod mission_persist;
 pub mod mission_resume;
-pub mod model_placement;
 pub mod node_enrollment;
 pub mod parallel_admission;
 pub mod parallel_dispatch;
 pub mod peer_registry;
-pub mod production_lifecycle;
 pub mod quorum_durable;
 pub mod resource_schedule;
 pub mod roadmap_agents;
 pub mod role_select;
 pub mod side_effect_journal;
 pub mod side_effects;
-pub mod snapshot_bootstrap;
 pub mod swarm_chaos;
 pub mod task_lease;
-pub mod wan_peers;
 pub mod worker_recovery;
-pub mod workspace_txn;
 pub mod writer_isolation;
-pub mod zc_agent_pick;
-pub mod zc_nat_auto;
-pub mod zc_threshold_tuning;
-pub mod zc_trust_store;
 
 pub use susi_gawd_agents::{
     accountability, admin_hooks, agents, axiom, brain, dag_hooks, external_peers, goal_shape, pkb,
@@ -193,14 +177,8 @@ mod vc_201_027_tests;
 #[path = "tests/vc_201_028.rs"]
 mod vc_201_028_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_029.rs"]
-mod vc_201_029_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_030.rs"]
 mod vc_201_030_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_031.rs"]
-mod vc_201_031_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_032.rs"]
 mod vc_201_032_tests;
@@ -208,23 +186,8 @@ mod vc_201_032_tests;
 #[path = "tests/vc_201_033.rs"]
 mod vc_201_033_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_034.rs"]
-mod vc_201_034_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_035.rs"]
-mod vc_201_035_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_036.rs"]
-mod vc_201_036_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_037.rs"]
 mod vc_201_037_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_038.rs"]
-mod vc_201_038_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_039.rs"]
-mod vc_201_039_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_040.rs"]
 mod vc_201_040_tests;

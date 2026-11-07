@@ -1,4 +1,15 @@
 {
+  "id": "T-GAWDSWARM-2",
+  "native_worker": "gawd-swarm",
+  "title": "Wave 14 susi-gawd-swarm cloud_e2e, cloud_recovery, dag, and fault_matrix invariant verifiers",
+  "created_by": "GAWDSWARM",
+  "created_unix": 1794005500,
+  "status": "in_progress",
+  "dependencies": [],
+  "scopes": [
+    ".agents/tasks/t-gawdswarm-2.json",
+    "crates/susi-gawd-swarm"
+  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -8,24 +19,7 @@
       "--lib",
       "--offline",
       "--locked",
-      "fair_queue"
+      "verify_swarm_wave14_invariants"
     ]
-  },
-  "id": "T-GAWDSWARM-2",
-  "size": "m",
-  "goal": "Add QueueLimits, QueuedMission, FairQueue, ToolReceipt, ReviewConclusion, ReviewReceipt, Electorate, and MembershipTransition invariant verifiers in crates/susi-gawd-swarm.",
-  "scope": [
-    ".agents/tasks/T-GAWDSWARM-2.json",
-    "crates/susi-gawd-swarm"
-  ],
-  "scopes": [
-    ".agents/tasks/T-GAWDSWARM-2.json",
-    "crates/susi-gawd-swarm"
-  ],
-  "deps": [],
-  "created_by": "GAWDSWARM",
-  "created_unix": 1794005500,
-  "status": "completed",
-  "title": "Add FairQueue, IndependentVerify, and JointConsensus invariant verifiers in susi-gawd-swarm",
-  "native_worker": "gawd-swarm"
+  }
 }

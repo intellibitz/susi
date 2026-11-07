@@ -1,8 +1,8 @@
 {
   "vector": "VC-201-088",
-  "verdict": "delivered",
-  "evidence": "eco_compat_gate_refuses_unknown_component (crates/susi-gemi/src/eco_compat_gate.rs)",
-  "missing": "",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Moved out of scope 2026-11-07 by CEO direction: eco_compat_gate lives in susi-commercial-apps (crates/susi-frontier-lab/src/migrated/). The Apache-2.0 substrate concentrates on the four core protocol-router pillars (susi-gawd, susi-gemi, susi-gmcp, susi-harness).",
   "tracked_by": [],
   "recorded_by": "INTELLIBITZ202610030140553714905",
   "recorded_unix": 1790986340

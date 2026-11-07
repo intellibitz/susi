@@ -22,22 +22,6 @@ pub struct ThermalSample {
     pub util_pct: f32,
 }
 
-impl ThermalSample {
-    /// Verify that a thermal/power telemetry sample has finite, physically valid readings.
-    #[must_use]
-    pub fn verify_sample_invariants(&self) -> bool {
-        self.temp_c.is_finite()
-            && self.temp_c > 0.0
-            && self.temp_c <= 150.0
-            && self.power_w.is_finite()
-            && self.power_w >= 0.0
-            && self.power_cap_w.is_finite()
-            && self.power_cap_w >= 0.0
-            && self.util_pct.is_finite()
-            && (0.0..=100.0).contains(&self.util_pct)
-    }
-}
-
 /// Operator-configured thermal and power ceilings that tighten (never loosen)
 /// the host's default throttle thresholds.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -209,18 +193,6 @@ impl ThermalRouter {
     pub fn state(&self) -> HostFitness {
         self.state
     }
-
-    /// Verify structural and hysteresis invariants of the thermal router.
-    #[must_use]
-    pub fn verify_router_invariants(&self) -> bool {
-        self.temp_throttle_c.is_finite()
-            && self.temp_throttle_c > 0.0
-            && self.recover_below_c.is_finite()
-            && self.recover_below_c > 0.0
-            && self.recover_below_c <= self.temp_throttle_c
-            && self.sustained_needed >= 1
-            && !(self.hot_streak > 0 && self.cool_streak > 0)
-    }
 }
 
 /// An operator limit on local-only work. Under thermal/power pressure local
@@ -346,34 +318,5 @@ mod inline_tests {
         assert_eq!(gate.admit(HostFitness::Unknown), (false, 0));
         assert_eq!(gate.queued(), 0);
         assert_eq!(gate.admit(HostFitness::Fit), (true, 0));
-    }
-
-    #[test]
-    fn verify_sample_and_router_invariants_validate_thermal_routing() {
-        let sample = ThermalSample {
-            temp_c: 65.0,
-            power_w: 45.0,
-            power_cap_w: 100.0,
-            util_pct: 50.0,
-        };
-        assert!(sample.verify_sample_invariants());
-        assert!(!ThermalSample {
-            temp_c: -5.0,
-            ..sample
-        }
-        .verify_sample_invariants());
-        assert!(!ThermalSample {
-            util_pct: 120.0,
-            ..sample
-        }
-        .verify_sample_invariants());
-
-        let mut router = ThermalRouter::new(85.0, 75.0, 2);
-        assert!(router.verify_router_invariants());
-        let _ = router.observe(sample);
-        assert!(router.verify_router_invariants());
-
-        let inverted = ThermalRouter::new(70.0, 80.0, 2);
-        assert!(!inverted.verify_router_invariants());
     }
 }

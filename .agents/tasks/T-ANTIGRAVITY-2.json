@@ -1,25 +1,15 @@
 {
   "id": "T-ANTIGRAVITY-2",
-  "title": "Add Wave 10 mission control and operator invariant verifiers in susi-harness",
-  "goal": "Add GraphMessage::verify_message_invariants, GraphView::verify_graph_view_invariants, ReplayEvent::verify_replay_event_invariants, and Replay::verify_replay_invariants in crates/susi-harness/src/mission_control.rs, plus PlanQueueOptions::verify_plan_options_invariants, AuthorOptions::verify_author_options_invariants, and RunOptions::verify_run_options_invariants in crates/susi-harness/src/operator.rs.",
-  "state": "in_progress",
-  "status": "completed",
-  "claimed_by": "antigravity",
   "native_worker": "antigravity",
-  "created_by": "antigravity",
-  "created_unix": 1794025503,
-  "updated_unix": 1794038000,
-  "size": "M",
-  "deps": [],
-  "scope": [
-    "crates/susi-harness",
-    ".agents/tasks/T-ANTIGRAVITY-2.json"
-  ],
+  "title": "Wave 14 susi-harness lifecycle, money, policy, and providers invariant verifiers",
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1794038400,
+  "status": "in_progress",
+  "dependencies": [],
   "scopes": [
-    "crates/susi-harness",
-    ".agents/tasks/T-ANTIGRAVITY-2.json"
+    ".agents/tasks/t-antigravity-2.json",
+    "crates/susi-harness"
   ],
-  "acceptance": "mission_control::tests::graph_view_and_replay_verify_invariants_reject_corrupt_state and operator::tests::operator_plan_author_and_run_options_verify_invariants_reject_corrupt_state",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,9 +17,9 @@
       "-p",
       "susi-harness",
       "--lib",
-      "verify_invariants_reject_corrupt_state",
       "--offline",
-      "--locked"
+      "--locked",
+      "verify_invariants_reject_corrupt_state"
     ]
   }
 }

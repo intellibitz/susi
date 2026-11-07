@@ -40,24 +40,19 @@ pub mod engines;
 pub use susi_gemi_models as models;
 
 // Cross-cutting surfaces that use both tiers
-pub mod action_executor;
-pub mod placement_uses_task_class;
 pub mod plane_handler;
 
 pub mod benchmark;
 pub mod brain_explain;
 pub mod brain_export;
-pub mod brain_per_workspace;
 pub mod capability_matrix;
 pub mod coding_models_ext;
-pub mod confidence_escalation;
 pub mod consensus_mode;
 pub mod context_assembly;
 pub mod credential_scout;
 pub mod engine_benchmark;
 pub mod frontier_ext;
 pub mod key_arbitration;
-pub mod learned_classifier;
 pub mod local_tool_calls;
 pub mod model_preload;
 pub mod open_weight_ext;
@@ -68,20 +63,14 @@ pub mod primary_election;
 pub mod provider_contract;
 pub mod pulse;
 pub mod rate_limit_scheduler;
-pub mod region_eligibility;
-pub mod region_failover;
-pub mod retry_policy;
 pub mod scout_probe;
 pub mod scout_schedule;
 pub mod seat_provider;
 pub mod spend_tracker;
-pub mod sse_streaming;
-pub mod structured_output;
 pub mod thermal_routing;
 pub mod tool_call_normalisation;
 pub mod usage_accounting;
 pub mod worker;
-pub mod zc_kv_auto;
 
 #[cfg(test)]
 #[path = "tests/availability_not_capability.rs"]
@@ -113,7 +102,6 @@ mod capability_matrix_by_class_tests;
 #[cfg(test)]
 #[path = "tests/delegated_verification_by_risk.rs"]
 mod delegated_verification_by_risk_tests;
-pub mod eco_compat_gate;
 #[cfg(test)]
 #[path = "tests/engine_benchmark.rs"]
 mod engine_benchmark_tests;
@@ -178,9 +166,6 @@ mod vc_201_048_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_051.rs"]
 mod vc_201_051_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_054.rs"]
-mod vc_201_054_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_001_mastery.rs"]
 mod vc_202_001_mastery_tests;

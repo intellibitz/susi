@@ -328,7 +328,7 @@ fn run() -> Result<()> {
             "cargo_sha256": hash(&fs::read(&cargo)?),
             "virtual_destination": VIRTUAL_BUILD_ROOT, "encoded_rustflags": flags,
         },
-        "char_methods_sha256": hash(text.as_bytes()), "os_unicode_versions": if target.contains("linux") { json!([{"icu": 76, "unicode": [16,0,0]}, {"icu": 74, "unicode": [15,1,0]}]) } else { json!([{"icu": "windows", "unicode": [15,1,0]}]) },
+        "char_methods_sha256": hash(text.as_bytes()), "os_unicode_versions": if target.contains("linux") { json!([{"icu": 76, "unicode": [16,0,0]}, {"icu": 74, "unicode": [15,1,0]}, {"icu": 72, "unicode": [15,0,0]}]) } else { json!([{"icu": "windows", "unicode": [15,1,0]}]) },
         "removed_const_apis": ["char::is_lowercase", "char::is_uppercase", "char::is_whitespace"],
         "artifacts": artifacts,
         "limitations": ["not a general standard-library compatibility promise", "production source/link/behavior/license admission remains mandatory"]

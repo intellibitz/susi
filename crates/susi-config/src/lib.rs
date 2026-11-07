@@ -41,17 +41,13 @@ pub mod host_metrics;
 mod json_util;
 pub mod key_rotation;
 pub mod key_scope;
-pub mod keyring_storage;
-pub mod managed_drift;
 pub mod offline_bundle;
-pub mod plan_apply;
 pub mod process_probe;
 pub mod rekey_schedule;
 pub mod secret_ref;
 pub mod selfheal;
 pub mod setting_registry;
 pub mod setup_workflow;
-pub mod state_backup;
 pub mod state_migration;
 mod types;
 pub mod validate;
@@ -63,8 +59,6 @@ pub mod windows_model_identity;
 pub mod zc_bare_susi;
 pub mod zc_debt_ratchet;
 pub mod zc_debt_report;
-pub mod zc_env_classify;
-pub mod zc_local_progress;
 pub mod zc_path;
 pub mod zc_qualification;
 pub mod zc_susi_fix;
@@ -334,9 +328,6 @@ mod vc_201_076_mastery_tests;
 #[path = "tests/key_scope.rs"]
 mod key_scope_tests;
 #[cfg(test)]
-#[path = "tests/keyring_storage.rs"]
-mod keyring_storage_tests;
-#[cfg(test)]
 #[path = "tests/rekey_schedule.rs"]
 mod rekey_schedule_tests;
 #[cfg(test)]
@@ -346,9 +337,6 @@ mod selfheal_tests;
 #[path = "tests/setup_workflow.rs"]
 mod setup_workflow_tests;
 #[cfg(test)]
-#[path = "tests/state_backup.rs"]
-mod state_backup_tests;
-#[cfg(test)]
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
 #[cfg(test)]
@@ -357,18 +345,6 @@ mod vc_201_061_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_062_mastery.rs"]
 mod vc_201_062_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_063_mastery.rs"]
-mod vc_201_063_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_063.rs"]
-mod vc_201_063_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_064_mastery.rs"]
-mod vc_201_064_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_064.rs"]
-mod vc_201_064_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_065_mastery.rs"]
 mod vc_201_065_mastery_tests;
@@ -392,9 +368,6 @@ mod vc_201_067_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_069_mastery.rs"]
 mod vc_201_069_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_070_mastery.rs"]
-mod vc_201_070_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_077_mastery.rs"]
 mod vc_201_077_mastery_tests;

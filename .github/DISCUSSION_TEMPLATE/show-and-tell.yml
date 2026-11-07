@@ -1,0 +1,29 @@
+title: "[Extension Pack / Reflex] "
+labels:
+  - extension-pack
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share an Extension Pack (`manifest.json`), Wasm reflex (`wasm32-wasip1`), or MCP/A2A integration you built for `susi`!
+  - type: input
+    id: pack-name
+    attributes:
+      label: Extension Pack or Reflex Name
+      description: Short identifier (e.g., `github-mcp-pack` or `pii-redactor-reflex`)
+      placeholder: my-extension-pack
+    validations:
+      required: true
+  - type: input
+    id: repo-url
+    attributes:
+      label: Repository or Gist URL
+      description: Link to your repository, manifest, or example code
+      placeholder: https://github.com/...
+  - type: textarea
+    id: overview
+    attributes:
+      label: What does it do and how can others try it?
+      description: Include the `susi extensions validate` / `susi extensions load` commands or sample `curl` calls against ports `9090`–`9094`.
+    validations:
+      required: true

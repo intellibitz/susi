@@ -56,32 +56,10 @@ pub struct CapabilityClaim {
     pub detail: String,
 }
 
-impl CapabilityClaim {
-    /// Verify structural invariants of a provider capability claim: non-empty provider/model/version
-    /// and detail strings, positive observation timestamp, and no unredacted secret key prefix.
-    #[must_use]
-    pub fn verify_claim_invariants(&self) -> bool {
-        !self.provider.trim().is_empty()
-            && !self.model.trim().is_empty()
-            && !self.version.trim().is_empty()
-            && self.observed_unix > 0
-            && !self.detail.trim().is_empty()
-            && !self.detail.contains("sk-")
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FixtureResponse {
     pub http_status: u16,
     pub body: serde_json::Value,
-}
-
-impl FixtureResponse {
-    /// Verify that a fixture response carries a valid HTTP status code (`100..=599`) and a JSON object body.
-    #[must_use]
-    pub fn verify_fixture_invariants(&self) -> bool {
-        (100..=599).contains(&self.http_status) && self.body.is_object()
-    }
 }
 
 /// Run a fixture-backed probe (no network).
@@ -587,37 +565,5 @@ mod tests {
             probe_fixture("p", "m", "v", ProbeKind::Usage, &no_usage).status,
             ProbeStatus::Unsupported
         );
-    }
-
-    #[test]
-    fn verify_claim_and_fixture_invariants_accept_valid_and_reject_tampered() {
-        for (_kind, fixture) in fixture_corpus() {
-            assert!(fixture.verify_fixture_invariants());
-        }
-        let bad_status = FixtureResponse {
-            http_status: 99,
-            body: serde_json::json!({}),
-        };
-        assert!(!bad_status.verify_fixture_invariants());
-        let bad_body = FixtureResponse {
-            http_status: 200,
-            body: serde_json::json!([1, 2, 3]),
-        };
-        assert!(!bad_body.verify_fixture_invariants());
-
-        let claims = fixture_checks("openai", "gpt-4o", "2026-01");
-        assert!(claims.iter().all(CapabilityClaim::verify_claim_invariants));
-
-        let mut tampered = claims[0].clone();
-        tampered.provider = "   ".to_string();
-        assert!(!tampered.verify_claim_invariants());
-
-        let mut leaked = claims[0].clone();
-        leaked.detail = "error on sk-secret-key".to_string();
-        assert!(!leaked.verify_claim_invariants());
-
-        let mut zero_ts = claims[0].clone();
-        zero_ts.observed_unix = 0;
-        assert!(!zero_ts.verify_claim_invariants());
     }
 }

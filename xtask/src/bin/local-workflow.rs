@@ -1187,6 +1187,236 @@ fn run_test_binaries(
     ))
 }
 
+const GIB: u64 = 1 << 30;
+
+fn gib(bytes: u64) -> String {
+    format!("{:.1} GiB", bytes as f64 / GIB as f64)
+}
+
+/// Free bytes a gate must find on the filesystem of its target before it
+/// starts, by the workspace it gates. Measured 2026-11-07 on Linux x86_64: a
+/// whole-workspace clippy and test gate of Susi core filled a cold slot target
+/// to 13 GB, the same gate on a warm target added about 2 GB, a gate narrowed
+/// to a few packages stayed under 2 GB, and the commercial workspace's whole
+/// gate filled a cold target to 2.5 GB. A workspace this tool does not know
+/// (a test fixture) needs only room to compile at all. A gate that runs out
+/// of disk fails only after its compile time, with an error that reads like
+/// a compiler bug, so a doomed gate is refused first.
+fn gate_disk_floor(kind: Option<RepoKind>, whole_workspace: bool, warm: bool) -> u64 {
+    match (kind, whole_workspace, warm) {
+        (Some(RepoKind::Susi), true, false) => 12 * GIB,
+        (Some(RepoKind::Susi), true, true) => 4 * GIB,
+        (Some(RepoKind::Susi), false, _) => 2 * GIB,
+        (Some(RepoKind::Commercial), true, false) => 3 * GIB,
+        (Some(RepoKind::Commercial), _, _) => GIB,
+        (None, _, _) => GIB / 2,
+    }
+}
+
+/// Free bytes on the filesystem that holds `path`, or its nearest existing
+/// ancestor when it does not exist yet. `None` when no mounted filesystem
+/// claims the path: the check is then skipped, never a refusal.
+fn free_space(path: &Path) -> Option<u64> {
+    let mut probe = path;
+    let canonical = loop {
+        if let Ok(canonical) = probe.canonicalize() {
+            break canonical;
+        }
+        probe = probe.parent()?;
+    };
+    // On Windows `canonicalize` answers in verbatim form (`\\?\C:\...`),
+    // which a mount point (`C:\`) is never a prefix of: compare the DOS form.
+    let canonical = dos_path(&canonical);
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    disks
+        .list()
+        .iter()
+        .filter(|disk| canonical.starts_with(disk.mount_point()))
+        .max_by_key(|disk| disk.mount_point().as_os_str().len())
+        .map(sysinfo::Disk::available_space)
+}
+
+/// `path` without Windows' verbatim prefix: `\\?\C:\x` becomes `C:\x` and
+/// `\\?\UNC\host\share\x` becomes `\\host\share\x`; any other path is
+/// returned as it is.
+fn dos_path(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = text.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    path.to_path_buf()
+}
+
+/// Whether a gate log says the disk ran out: ENOSPC on Linux and macOS, the
+/// Windows ERROR_DISK_FULL text and code, and LLVM's output-stream failure,
+/// which is how rustc reports a full disk while writing an object file.
+fn gate_out_of_space(log: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(log);
+    [
+        "No space left on device",
+        "os error 28)",
+        "There is not enough space on the disk",
+        "os error 112)",
+        "IO failure on output stream",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
+fn dir_size(path: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.metadata() {
+            Ok(meta) if meta.is_dir() => dir_size(&entry.path()),
+            Ok(meta) if meta.is_file() => meta.len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// Remove the caches the ship machinery owns and rebuilds on demand: the warm
+/// targets stashed for idle slots, those slots' leftover candidate targets, and
+/// the legacy integration target. A slot another ship holds locked is busy and
+/// is left alone, as is this candidate's own target. Returns what was removed
+/// with its size.
+fn reclaim_gate_caches(workflow: &Path, candidate: &Path) -> Vec<(PathBuf, u64)> {
+    let mut freed = Vec::new();
+    let mut remove = |path: PathBuf| {
+        if path.is_dir() {
+            let size = dir_size(&path);
+            if fs::remove_dir_all(&path).is_ok() {
+                freed.push((path, size));
+            }
+        }
+    };
+    remove(workflow.join("integration-target"));
+    let name = candidate
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    let (stem, current) = name.rsplit_once("-verify-candidate-").unwrap_or((name, ""));
+    let slots = workflow.join("slots");
+    let Ok(entries) = fs::read_dir(&slots) else {
+        return freed;
+    };
+    for entry in entries.flatten() {
+        let slot = entry.file_name();
+        let Some(slot) = slot.to_str() else {
+            continue;
+        };
+        if slot.is_empty() || !slot.bytes().all(|byte| byte.is_ascii_digit()) || slot == current {
+            continue;
+        }
+        // The slot's lock, taken without waiting: a busy slot is another ship's.
+        let Ok(lock) = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(slots.join(format!("{slot}.lock")))
+        else {
+            continue;
+        };
+        if lock.try_lock().is_err() {
+            continue;
+        }
+        remove(entry.path().join("target"));
+        if let Some(parent) = candidate.parent() {
+            remove(
+                parent
+                    .join(format!("{stem}-verify-candidate-{slot}"))
+                    .join("target"),
+            );
+        }
+        drop(lock);
+    }
+    freed
+}
+
+/// Refuse a gate whose filesystem is too full to finish, after reclaiming the
+/// ship's own idle caches. A gate that cannot be measured is not refused.
+fn require_gate_disk(candidate: &Path, target: &Path, whole_workspace: bool) -> Result<()> {
+    let warm = target.join("CACHEDIR.TAG").is_file();
+    let floor = gate_disk_floor(repo_kind(candidate).ok(), whole_workspace, warm);
+    let Some(free) = free_space(candidate) else {
+        return Ok(());
+    };
+    if free >= floor {
+        return Ok(());
+    }
+    let workflow = state(candidate)?;
+    for (path, size) in reclaim_gate_caches(&workflow, candidate) {
+        eprintln!("gate: reclaimed {} ({})", path.display(), gib(size));
+    }
+    let Some(free) = free_space(candidate) else {
+        return Ok(());
+    };
+    if free >= floor {
+        return Ok(());
+    }
+    Err(format!(
+        "gate refused before compiling: {} free on the filesystem holding {}, and a {} gate on a {} target needs about {}; free space (worktree target/ directories, old candidates) and run ship again",
+        gib(free),
+        candidate.display(),
+        if whole_workspace { "whole-workspace" } else { "narrowed" },
+        if warm { "warm" } else { "cold" },
+        gib(floor)
+    )
+    .into())
+}
+
+/// A gate that ran out of disk runs once more after the ship's idle caches
+/// are reclaimed: the first attempt's log is kept beside the rerun's, and the
+/// command is pointed at a fresh log. `None` when nothing could be reclaimed,
+/// so the gate fails as it did.
+fn reclaim_for_rerun(
+    candidate: &Path,
+    log_path: &Path,
+    command: &mut Command,
+    gate: &str,
+) -> Result<Option<String>> {
+    let workflow = state(candidate)?;
+    let freed = reclaim_gate_caches(&workflow, candidate);
+    if freed.is_empty() {
+        return Ok(None);
+    }
+    let total: u64 = freed.iter().map(|(_, size)| *size).sum();
+    for (path, size) in &freed {
+        eprintln!("gate {gate}: reclaimed {} ({})", path.display(), gib(*size));
+    }
+    eprintln!(
+        "gate {gate}: out of disk space; {} reclaimed, running it again",
+        gib(total)
+    );
+    let _ = fs::rename(log_path, log_path.with_extension("out-of-space.log"));
+    let log = fs::File::create(log_path)?;
+    command
+        .stdout(Stdio::from(log.try_clone()?))
+        .stderr(Stdio::from(log));
+    Ok(Some(format!(
+        "reclaim gate={gate} freed-bytes={total} caches={}",
+        freed.len()
+    )))
+}
+
+/// The disk-full prefix of a failed gate's error, or nothing.
+fn out_of_space_prefix(candidate: &Path, log: &[u8]) -> String {
+    if !gate_out_of_space(log) {
+        return String::new();
+    }
+    format!(
+        "out of disk space ({} free on the filesystem holding {}); ",
+        free_space(candidate).map_or_else(|| "unknown".to_owned(), gib),
+        candidate.display()
+    )
+}
+
 fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     // No queue: this gate runs now, beside any other, and each of its cargo
     // commands takes an even share of the host (`gate_share`).
@@ -1285,6 +1515,13 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         }
     }
     vendor_regressions::include_release_tooling(candidate, &mut gates);
+    timed("gate disk check", || {
+        require_gate_disk(
+            candidate,
+            &target,
+            matches!(selection, affected::Selection::Workspace(_)),
+        )
+    })?;
     if matches!(selection, affected::Selection::Workspace(_))
         && candidate.join("crates/susi-core/Cargo.toml").is_file()
     {
@@ -1434,7 +1671,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
                 .get(index)
                 .is_some_and(|id| id == "workspace-tests")
             && args.first().map(String::as_str) == Some("test");
-        let (status, runner_note) = if binaries_gate {
+        let (mut status, runner_note) = if binaries_gate {
             // Cargo builds the binaries; the runner executes them beside
             // each other. The planned `cargo test` argv stays the gate's
             // identity in the evidence and the receipt. (`command` stays
@@ -1452,6 +1689,19 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         } else {
             (command.status()?, None)
         };
+        // Out of disk mid-gate: reclaim the ship's idle caches and run the
+        // command once more (serial gates only; the runner's binaries each
+        // report their own status in the log).
+        if !binaries_gate
+            && !status.success()
+            && gate_out_of_space(&fs::read(&log_path).unwrap_or_default())
+        {
+            let gate = gate_ids.get(index).map_or("?", String::as_str);
+            if let Some(line) = reclaim_for_rerun(candidate, &log_path, &mut command, gate)? {
+                evidence.push(line);
+                status = command.status()?;
+            }
+        }
         // ExitStatus Display differs across OSes ("exit status" on Unix).
         // Durable receipts use one explicit numeric wire representation.
         let status_text = status
@@ -1496,13 +1746,15 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         ));
         fs::write(attempt.join("verification.txt"), evidence.join("\n"))?;
         if !status.success() {
-            let failed_log = native_provenance::store_blob(candidate, &fs::read(&log_path)?)?;
+            let log_bytes = fs::read(&log_path)?;
+            let failed_log = native_provenance::store_blob(candidate, &log_bytes)?;
             fs::write(
                 attempt.join(format!("gate-{index}.log.oid")),
                 format!("{failed_log}\n"),
             )?;
             return Err(format!(
-                "gate failed: {result}; log-blob={failed_log}; logs retained at {}",
+                "gate failed: {}{result}; log-blob={failed_log}; logs retained at {}",
+                out_of_space_prefix(candidate, &log_bytes),
                 attempt.display(),
             )
             .into());
@@ -2711,18 +2963,39 @@ fn gh_output(root: &Path, args: &[String]) -> Result<String> {
         .to_owned())
 }
 
+/// `owner/name` of the repository, read from the `origin` remote's URL.
+///
+/// `gh repo view --json nameWithOwner` answered this before, but that is a
+/// GraphQL query, which a cloud session's GitHub proxy refuses (REST only), so
+/// every status of a ship from such a host went unposted. The remote URL is
+/// local and already names the repository the push went to.
 fn repo_slug(root: &Path) -> Result<String> {
-    let slug = gh_output(
-        root,
-        &[
-            "repo".into(),
-            "view".into(),
-            "--json".into(),
-            "nameWithOwner".into(),
-            "-q".into(),
-            ".nameWithOwner".into(),
-        ],
-    )?;
+    slug_from_remote_url(&git(root, &["remote", "get-url", "origin"])?)
+}
+
+/// The `owner/name` a github.com remote URL names, in any of Git's spellings:
+/// `https://github.com/o/n[.git]` (with or without credentials before the
+/// host), `ssh://git@github.com/o/n[.git]` and `git@github.com:o/n[.git]`.
+fn slug_from_remote_url(url: &str) -> Result<String> {
+    let url = url.trim();
+    let path = if let Some(path) = url.strip_prefix("git@github.com:") {
+        path
+    } else {
+        let (scheme, rest) = url
+            .split_once("://")
+            .ok_or("origin is not a github.com remote")?;
+        if !matches!(scheme, "https" | "ssh") {
+            return Err("origin is not a github.com remote".into());
+        }
+        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+        let host = authority.rsplit('@').next().unwrap_or(authority);
+        if !host.eq_ignore_ascii_case("github.com") {
+            return Err("origin is not a github.com remote".into());
+        }
+        path
+    };
+    let path = path.trim_matches('/');
+    let slug = path.strip_suffix(".git").unwrap_or(path);
     let mut parts = slug.split('/');
     match (parts.next(), parts.next(), parts.next()) {
         (Some(owner), Some(name), None)
@@ -2735,7 +3008,7 @@ fn repo_slug(root: &Path) -> Result<String> {
                     byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' || byte == b'.'
                 }) =>
         {
-            Ok(slug)
+            Ok(slug.to_owned())
         }
         _ => Err("unexpected repository name".into()),
     }
@@ -3649,11 +3922,14 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     fs::create_dir_all(home.join("AppData/Local"))?;
     let target = restore_candidate_target(candidate);
     let mut gates = commercial_gate_argv();
-    if let Ok((affected::Selection::Packages(packages), _)) = gate_selection(candidate, attempt) {
+    let selection = gate_selection(candidate, attempt).map(|(selection, _)| selection);
+    let whole_workspace = !matches!(selection, Ok(affected::Selection::Packages(_)));
+    if let Ok(affected::Selection::Packages(packages)) = &selection {
         for args in &mut gates {
-            affected::narrow(args, &packages);
+            affected::narrow(args, packages);
         }
     }
+    require_gate_disk(candidate, &target, whole_workspace)?;
     let mut evidence = Vec::new();
     for args in gates {
         let started = std::time::Instant::now();
@@ -3691,7 +3967,14 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         let share = current_gate_share();
         apply_gate_share(&mut command, share);
         print_gate_share(args.first().map_or("?", String::as_str), share);
-        let status = command.status()?;
+        let mut status = command.status()?;
+        if !status.success() && gate_out_of_space(&fs::read(&log_path).unwrap_or_default()) {
+            let gate = args.first().map_or("?", String::as_str);
+            if let Some(line) = reclaim_for_rerun(candidate, &log_path, &mut command, gate)? {
+                evidence.push(line);
+                status = command.status()?;
+            }
+        }
         let code = status.code().unwrap_or(1);
         let line = format!(
             "cargo {} => exit code: {code}; elapsed-ms={}",
@@ -3704,7 +3987,8 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         );
         evidence.push(line.clone());
         if !status.success() {
-            return Err(format!("gate failed: {line}; log {}", log_path.display()).into());
+            let prefix = out_of_space_prefix(candidate, &fs::read(&log_path).unwrap_or_default());
+            return Err(format!("gate failed: {prefix}{line}; log {}", log_path.display()).into());
         }
     }
     require_ship_evidence(&evidence)?;
@@ -3922,6 +4206,13 @@ fn check(root: &Path) -> Result<()> {
         .unwrap_or_else(|| original_home.join(".rustup"));
     let target = top.join("target");
     seed_worktree_target(&top, &top, false);
+    // The same refusal a ship makes: a check that would run out of disk
+    // fails after its compile time with an error that reads like a compiler
+    // bug, so a doomed one is refused first, after the idle caches are
+    // reclaimed.
+    timed("gate disk check", || {
+        require_gate_disk(&top, &target, workspace_selected)
+    })?;
     let home = target.join("susi-check-home");
     fs::create_dir_all(home.join("AppData/Local"))?;
     // Only this worktree's own target is locked: checks in other worktrees
@@ -5660,6 +5951,178 @@ mod tests {
         )
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn repo_slug_comes_from_the_origin_url_in_every_git_spelling() {
+        for url in [
+            "https://github.com/intellibitz/susi",
+            "https://github.com/intellibitz/susi.git",
+            "https://github.com/intellibitz/susi/",
+            "https://x-access-token:secret@github.com/intellibitz/susi.git",
+            "https://GitHub.com/intellibitz/susi",
+            "ssh://git@github.com/intellibitz/susi.git",
+            "git@github.com:intellibitz/susi.git",
+            "git@github.com:intellibitz/susi",
+            "  https://github.com/intellibitz/susi\n",
+        ] {
+            assert_eq!(
+                slug_from_remote_url(url).unwrap(),
+                "intellibitz/susi",
+                "{url}"
+            );
+        }
+        assert_eq!(
+            slug_from_remote_url("git@github.com:intellibitz/susi-commercial-apps.git").unwrap(),
+            "intellibitz/susi-commercial-apps"
+        );
+    }
+
+    #[test]
+    fn repo_slug_refuses_other_hosts_and_shapes() {
+        for url in [
+            "",
+            "https://gitlab.com/intellibitz/susi",
+            "https://github.com.evil.test/intellibitz/susi",
+            "https://github.com/intellibitz",
+            "https://github.com/intellibitz/susi/extra",
+            "https://github.com/intelli bitz/susi",
+            "git@github.com:intellibitz/su si",
+            "file:///srv/git/susi",
+            "/srv/git/susi",
+            "git://github.com/intellibitz/susi",
+        ] {
+            assert!(slug_from_remote_url(url).is_err(), "{url:?}");
+        }
+    }
+
+    #[test]
+    fn disk_full_signatures_are_recognized_in_gate_logs() {
+        for log in [
+            "error: failed to write: No space left on device (os error 28)",
+            "LLVM ERROR: IO failure on output stream: No space left on device",
+            "There is not enough space on the disk. (os error 112)",
+        ] {
+            assert!(gate_out_of_space(log.as_bytes()), "{log}");
+        }
+        for log in [
+            "",
+            "error[E0308]: mismatched types",
+            "test result: FAILED. 1 passed; 1 failed",
+            "No such file or directory (os error 2)",
+        ] {
+            assert!(!gate_out_of_space(log.as_bytes()), "{log}");
+        }
+    }
+
+    #[test]
+    fn disk_floor_follows_the_workspace_the_gate_and_the_warm_target() {
+        let susi = Some(RepoKind::Susi);
+        let cold = gate_disk_floor(susi, true, false);
+        let warm = gate_disk_floor(susi, true, true);
+        let narrowed_cold = gate_disk_floor(susi, false, false);
+        let narrowed_warm = gate_disk_floor(susi, false, true);
+        assert!(cold > warm, "{cold} {warm}");
+        assert!(warm > narrowed_cold, "{warm} {narrowed_cold}");
+        assert_eq!(narrowed_cold, narrowed_warm);
+        assert!(narrowed_warm >= GIB);
+        let commercial = Some(RepoKind::Commercial);
+        assert!(gate_disk_floor(commercial, true, false) < cold);
+        assert!(gate_disk_floor(commercial, true, false) > gate_disk_floor(commercial, true, true));
+        assert_eq!(
+            gate_disk_floor(commercial, true, true),
+            gate_disk_floor(commercial, false, false)
+        );
+        // A fixture workspace only needs room to compile at all.
+        let fixture = gate_disk_floor(None, true, false);
+        assert!(
+            fixture < gate_disk_floor(commercial, true, true),
+            "{fixture}"
+        );
+        assert!(fixture > 0);
+    }
+
+    #[test]
+    fn disk_free_space_is_measured_for_existing_and_future_paths() {
+        let scratch = Scratch::new();
+        assert!(free_space(&scratch.0).is_some_and(|free| free > 0));
+        assert!(free_space(&scratch.0.join("not").join("yet")).is_some());
+        assert_eq!(gib(3 * GIB / 2), "1.5 GiB");
+    }
+
+    #[test]
+    fn disk_reclaim_frees_idle_caches_and_keeps_busy_and_current_ones() {
+        let scratch = Scratch::new();
+        let workflow = scratch.0.join("wf");
+        let slots = workflow.join("slots");
+        let seed = |dir: &Path| {
+            fs::create_dir_all(dir).unwrap();
+            fs::write(dir.join("unit.o"), vec![7u8; 2048]).unwrap();
+        };
+        seed(&workflow.join("integration-target"));
+        seed(&slots.join("2").join("target"));
+        seed(&slots.join("3").join("target"));
+        seed(&slots.join("owner-notes"));
+        let candidate = scratch.0.join("susi-verify-candidate-1");
+        seed(&candidate.join("target"));
+        seed(&scratch.0.join("susi-verify-candidate-2").join("target"));
+        seed(&scratch.0.join("susi-verify-candidate-3").join("target"));
+        // Slot 3 is a running ship's: its lock is held.
+        let busy = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(slots.join("3.lock"))
+            .unwrap();
+        busy.try_lock().unwrap();
+        let freed = reclaim_gate_caches(&workflow, &candidate);
+        let mut paths: Vec<_> = freed.iter().map(|(path, _)| path.clone()).collect();
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec![
+                scratch.0.join("susi-verify-candidate-2").join("target"),
+                workflow.join("integration-target"),
+                slots.join("2").join("target"),
+            ]
+        );
+        assert!(freed.iter().all(|(_, size)| *size == 2048), "{freed:?}");
+        assert!(
+            candidate.join("target").is_dir(),
+            "the current candidate keeps its target"
+        );
+        assert!(
+            slots.join("3").join("target").is_dir(),
+            "a busy slot keeps its stash"
+        );
+        assert!(
+            scratch
+                .0
+                .join("susi-verify-candidate-3")
+                .join("target")
+                .is_dir(),
+            "a busy slot keeps its candidate target"
+        );
+        assert!(
+            slots.join("owner-notes").is_dir(),
+            "only numbered slots are caches"
+        );
+        // Once that ship is gone, its caches are idle too; then nothing is left.
+        drop(busy);
+        let mut released: Vec<_> = reclaim_gate_caches(&workflow, &candidate)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        released.sort();
+        assert_eq!(
+            released,
+            vec![
+                scratch.0.join("susi-verify-candidate-3").join("target"),
+                slots.join("3").join("target"),
+            ]
+        );
+        assert!(reclaim_gate_caches(&workflow, &candidate).is_empty());
     }
 
     #[test]

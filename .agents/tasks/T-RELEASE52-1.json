@@ -1,0 +1,37 @@
+{
+  "id": "T-RELEASE52-1",
+  "native_worker": "release52",
+  "title": "Cut Susi 0.21.52: bump the engine version and ship it from a native Linux x86_64 host",
+  "goal": "Release main as 0.21.52. v0.21.51's published binaries were built without the local engine (fixed on main by #1668, release builds select --features local-engine); this cut ships the engine. Bump the seven engine-version manifests, Cargo.lock, the README badge and the three governance ledgers together (matching fc4df627b), and land the bump through cargo local-workflow ship on a native x86_64-unknown-linux-gnu host. Then build the Linux x86_64 artifacts from the shipped commit with the product features, run the former release.yml offline checks on them, and publish them as v0.21.52; the Windows x86_64 artifacts are added to the same release from the CEO's Windows host. If the release tooling refuses for a structural reason, report the exact refusal instead of forging receipts, refs or coordinator trust inputs. Installed production promotion is a separate, evidence-gated step and is not claimed by this cut.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-release52-1.json",
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "cargo.lock",
+    "cargo.toml",
+    "readme.md",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-harness/cargo.toml",
+    "crates/susi-server/cargo.toml"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "admin::version"
+    ]
+  },
+  "created_by": "RELEASE52",
+  "created_unix": 1794027600
+}

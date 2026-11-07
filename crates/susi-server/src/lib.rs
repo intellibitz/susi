@@ -20,7 +20,6 @@ pub use susi_core;
 
 pub mod anthropic_gateway;
 pub mod prometheus_metrics;
-pub mod zc_bind_auto;
 
 // GEMI HTTP REST Substrate: the OpenAI-compatible inference socket (plus the
 // Anthropic Messages translation and a Prometheus scrape). Control-plane

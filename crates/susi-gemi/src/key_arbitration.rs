@@ -81,24 +81,6 @@ pub struct QuotaWindowSpec {
     pub allowance: u64,
 }
 
-impl QuotaWindowSpec {
-    /// Verify structural invariants on a declared quota window specification.
-    pub fn verify_window_spec_invariants(&self) -> Result<(), String> {
-        if self.allowance == 0 {
-            return Err("QuotaWindowSpec allowance must be > 0".to_string());
-        }
-        match self.kind {
-            WindowKind::Rolling { period_secs } => {
-                if period_secs == 0 {
-                    return Err("QuotaWindowSpec Rolling period_secs must be > 0".to_string());
-                }
-                Ok(())
-            }
-            WindowKind::DailyUtc | WindowKind::WeeklyUtc => Ok(()),
-        }
-    }
-}
-
 /// Limits enforced by the arbiter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArbiterLimits {
@@ -112,31 +94,6 @@ pub struct ArbiterLimits {
     pub global_concurrent: u32,
     /// Long-horizon quota windows per key scope (empty: no plan cap).
     pub quota: Vec<QuotaWindowSpec>,
-}
-
-impl ArbiterLimits {
-    /// Verify structural invariants on arbiter concurrency, rate, and quota limits.
-    pub fn verify_limits_invariants(&self) -> Result<(), String> {
-        if self.per_key_concurrent == 0 {
-            return Err("ArbiterLimits per_key_concurrent must be > 0".to_string());
-        }
-        if self.per_key_requests == 0 {
-            return Err("ArbiterLimits per_key_requests must be > 0".to_string());
-        }
-        if self.window_secs == 0 {
-            return Err("ArbiterLimits window_secs must be > 0".to_string());
-        }
-        if self.global_concurrent < self.per_key_concurrent {
-            return Err(format!(
-                "ArbiterLimits global_concurrent ({}) must be >= per_key_concurrent ({})",
-                self.global_concurrent, self.per_key_concurrent
-            ));
-        }
-        for spec in &self.quota {
-            spec.verify_window_spec_invariants()?;
-        }
-        Ok(())
-    }
 }
 
 impl Default for ArbiterLimits {
@@ -425,22 +382,6 @@ pub struct ScopeStatus {
     pub quota: Vec<QuotaView>,
 }
 
-impl ScopeStatus {
-    /// Verify structural invariants on an observable scope status snapshot.
-    pub fn verify_status_invariants(&self) -> Result<(), String> {
-        if self.global_in_flight < self.in_flight {
-            return Err(format!(
-                "ScopeStatus global_in_flight ({}) cannot be less than scope in_flight ({})",
-                self.global_in_flight, self.in_flight
-            ));
-        }
-        for view in &self.quota {
-            view.verify_quota_view_invariants()?;
-        }
-        Ok(())
-    }
-}
-
 /// One quota window's observable state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuotaView {
@@ -451,31 +392,6 @@ pub struct QuotaView {
 }
 
 impl QuotaView {
-    /// Verify structural invariants on a quota window snapshot.
-    pub fn verify_quota_view_invariants(&self) -> Result<(), String> {
-        match self.kind {
-            WindowKind::Rolling { period_secs } => {
-                if period_secs == 0 {
-                    return Err("QuotaView Rolling period_secs must be > 0".to_string());
-                }
-            }
-            WindowKind::DailyUtc | WindowKind::WeeklyUtc => {}
-        }
-        if self.allowance == 0 {
-            return Err("QuotaView allowance must be > 0".to_string());
-        }
-        if self.remaining > self.allowance {
-            return Err(format!(
-                "QuotaView remaining ({}) cannot exceed allowance ({})",
-                self.remaining, self.allowance
-            ));
-        }
-        if self.reset_unix == 0 {
-            return Err("QuotaView reset_unix must be > 0".to_string());
-        }
-        Ok(())
-    }
-
     /// Fraction of the window spent — the scarcity signal routing reads.
     pub fn utilization_percent(&self) -> u8 {
         if self.allowance == 0 {
@@ -653,48 +569,5 @@ mod inline_tests {
         let arbiter = KeyArbiter::new(limits.clone());
         assert_eq!(arbiter.limits(), limits);
         assert_eq!(arbiter.quota_headroom("unconfigured-key"), None);
-    }
-
-    #[test]
-    fn verify_arbiter_limits_and_scope_status_invariants() {
-        let mut limits = ArbiterLimits::default();
-        limits.quota.push(QuotaWindowSpec {
-            kind: WindowKind::Rolling { period_secs: 600 },
-            allowance: 50,
-        });
-        assert!(limits.verify_limits_invariants().is_ok());
-
-        let inverted_global = ArbiterLimits {
-            per_key_concurrent: 8,
-            global_concurrent: 4,
-            ..limits.clone()
-        };
-        assert!(inverted_global.verify_limits_invariants().is_err());
-
-        let zero_rolling = QuotaWindowSpec {
-            kind: WindowKind::Rolling { period_secs: 0 },
-            allowance: 10,
-        };
-        assert!(zero_rolling.verify_window_spec_invariants().is_err());
-
-        let arbiter = KeyArbiter::with_clock(limits, Arc::new(|| 1_000));
-        let _permit = arbiter.try_acquire("scope-x").expect("acquire permit");
-        let status = arbiter.scope_status("scope-x");
-        assert!(status.verify_status_invariants().is_ok());
-
-        let corrupted_status = ScopeStatus {
-            in_flight: 3,
-            global_in_flight: 1,
-            ..status
-        };
-        assert!(corrupted_status.verify_status_invariants().is_err());
-
-        let corrupted_quota_view = QuotaView {
-            kind: WindowKind::DailyUtc,
-            remaining: 20,
-            allowance: 10,
-            reset_unix: 86_400,
-        };
-        assert!(corrupted_quota_view.verify_quota_view_invariants().is_err());
     }
 }

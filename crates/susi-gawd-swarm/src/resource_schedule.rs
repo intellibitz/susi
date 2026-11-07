@@ -23,30 +23,6 @@ const fn unmeasured_mem() -> f64 {
     f64::MAX
 }
 
-impl Resources {
-    /// Verifies non-negative finite capacity bounds and non-empty tool grant strings.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `cpu`, `gpu_mem_gb`, or `mem_gb` is
-    /// non-finite or negative, or if any entry in `tool_grants` is blank.
-    pub fn verify_resources_invariants(&self) -> Result<(), String> {
-        if !self.cpu.is_finite() || self.cpu < 0.0 {
-            return Err("Resources cpu must be finite and >= 0.0".to_string());
-        }
-        if !self.gpu_mem_gb.is_finite() || self.gpu_mem_gb < 0.0 {
-            return Err("Resources gpu_mem_gb must be finite and >= 0.0".to_string());
-        }
-        if !self.mem_gb.is_finite() || self.mem_gb < 0.0 {
-            return Err("Resources mem_gb must be finite and >= 0.0".to_string());
-        }
-        if self.tool_grants.iter().any(|g| g.trim().is_empty()) {
-            return Err("Resources tool_grants must not contain blank entries".to_string());
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DagNode {
     pub id: String,
@@ -60,33 +36,6 @@ pub struct DagNode {
     pub subprocesses: u32,
     pub needs_model: bool,
     pub needs_tools: Vec<String>,
-}
-
-impl DagNode {
-    /// Verifies node identity, non-negative finite resource requests, and non-empty tool requirements.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `id` is blank, if `cpu`, `gpu_mem_gb`,
-    /// or `mem_gb` is non-finite or negative, or if any entry in `needs_tools` is blank.
-    pub fn verify_node_invariants(&self) -> Result<(), String> {
-        if self.id.trim().is_empty() {
-            return Err("DagNode id must not be blank".to_string());
-        }
-        if !self.cpu.is_finite() || self.cpu < 0.0 {
-            return Err("DagNode cpu must be finite and >= 0.0".to_string());
-        }
-        if !self.gpu_mem_gb.is_finite() || self.gpu_mem_gb < 0.0 {
-            return Err("DagNode gpu_mem_gb must be finite and >= 0.0".to_string());
-        }
-        if !self.mem_gb.is_finite() || self.mem_gb < 0.0 {
-            return Err("DagNode mem_gb must be finite and >= 0.0".to_string());
-        }
-        if self.needs_tools.iter().any(|t| t.trim().is_empty()) {
-            return Err("DagNode needs_tools must not contain blank entries".to_string());
-        }
-        Ok(())
-    }
 }
 
 const fn default_subprocesses() -> u32 {
@@ -239,20 +188,5 @@ mod inline_tests {
         .unwrap();
         assert!(node.mem_gb.abs() < f64::EPSILON);
         assert_eq!(node.subprocesses, 1);
-    }
-
-    #[test]
-    fn resources_and_dag_node_invariants_verify_and_reject_invalid_bounds() {
-        let free = sample_free();
-        assert!(free.verify_resources_invariants().is_ok());
-        let mut bad_free = free;
-        bad_free.cpu = -1.0;
-        assert!(bad_free.verify_resources_invariants().is_err());
-
-        let node = sample_node();
-        assert!(node.verify_node_invariants().is_ok());
-        let mut bad_node = node;
-        bad_node.id = "  ".into();
-        assert!(bad_node.verify_node_invariants().is_err());
     }
 }

@@ -48,12 +48,6 @@ impl MissionSpec {
         }
         Ok(())
     }
-
-    /// Verify structural invariants of a [`MissionSpec`].
-    #[must_use]
-    pub fn verify_spec_invariants(&self) -> bool {
-        self.validate().is_ok()
-    }
 }
 
 /// Where a mission stands, in the operator's terms.
@@ -201,12 +195,6 @@ impl ControlAck {
             message: message.into(),
         }
     }
-
-    /// Verify structural invariants of a [`ControlAck`].
-    #[must_use]
-    pub fn verify_ack_invariants(&self) -> bool {
-        !self.message.trim().is_empty()
-    }
 }
 
 fn require(value: &str, field: &str) -> EaiResult<()> {
@@ -304,23 +292,5 @@ mod tests {
     fn acks_say_what_happened() {
         assert!(ControlAck::accepted("queued").accepted);
         assert!(!ControlAck::refused("unknown mission").accepted);
-    }
-
-    #[test]
-    fn mission_spec_and_control_ack_verify_invariants() {
-        assert!(spec("m-1").verify_spec_invariants());
-        assert!(!spec("").verify_spec_invariants());
-        assert!(!spec("bad id!").verify_spec_invariants());
-        assert!(!MissionSpec {
-            id: "m-1".into(),
-            title: "   ".into(),
-            roadmap: None,
-        }
-        .verify_spec_invariants());
-
-        assert!(ControlAck::accepted("accepted").verify_ack_invariants());
-        assert!(ControlAck::refused("mission_id is required").verify_ack_invariants());
-        assert!(!ControlAck::accepted("   ").verify_ack_invariants());
-        assert!(!ControlAck::refused("").verify_ack_invariants());
     }
 }

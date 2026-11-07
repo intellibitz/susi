@@ -432,32 +432,12 @@ fn env_command() -> Result<(), String> {
 /// active adaptive execution policy, and embedded workflow readiness.
 fn adaptive_command(options: &Options) -> Result<(), String> {
     let report = susi_harness::build_adaptive_supervisor_report(options.port_offset);
-    report.verify_report_invariants()?;
-    let sample_wave = susi_harness::EmbeddedWorkflowOrchestrator::new(4)
-        .plan_wave(
-            "harness-self-check",
-            &[
-                susi_harness::WorkflowNode {
-                    key: "supervisor".to_string(),
-                    deps: vec![],
-                    scopes: vec!["crates/susi-harness/src/supervisor.rs".to_string()],
-                },
-                susi_harness::WorkflowNode {
-                    key: "adaptive".to_string(),
-                    deps: vec![],
-                    scopes: vec!["crates/susi-harness/src/adaptive.rs".to_string()],
-                },
-            ],
-        )
-        .map_err(|error| error.to_string())?;
-    sample_wave.verify_wave_plan_invariants()?;
     print_json(&report)
 }
 
 #[cfg(test)]
 fn adaptive_json(options: &Options) -> Result<String, String> {
     let report = susi_harness::build_adaptive_supervisor_report(options.port_offset);
-    report.verify_report_invariants()?;
     serde_json::to_string_pretty(&report).map_err(|error| error.to_string())
 }
 

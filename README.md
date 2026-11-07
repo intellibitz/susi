@@ -1,12 +1,91 @@
 # susi
 
-![SUSI Version](https://img.shields.io/badge/version-v0.21.51-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
+![SUSI Version](https://img.shields.io/badge/version-v0.21.52-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
+
+**[60-Second Quickstart](#-60-second-quickstart)** · **[Host Contract (`9090–9094`)](#host-contract)** · **[Integrate Your App](docs/integrating-with-susi.md)** · **[Author an Extension Pack](docs/extension-pack.md)** · **[Contributing](CONTRIBUTING.md)** · **[Architecture](ARCHITECTURE.md)**
+
+**One local Rust daemon (`9090–9094`) that unifies your local models (Ollama, llama.cpp, vLLM, GGUF) and cloud AI providers (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter) behind standard MCP, OpenAI/Anthropic HTTP, and A2A sockets—with evidence-gated agent consensus, fuel-metered Wasm sandboxing, and cryptographic audit receipts.**
 
 **The RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS or a chatbot wrapper; Mandate 45). Verify the crown with `susi crown`.
+
+### Why developers build on `susi`
+
+| Problem in today's AI stack | How `susi` solves it on one local socket |
+|---|---|
+| **Fragmented local & cloud APIs** | Point any OpenAI/Anthropic SDK, MCP client, or A2A peer at `127.0.0.1:9090–9094`. Route across local engines (`Ollama`, `vLLM`, `llama.cpp`, `GGUF`) and cloud APIs through one inspectable policy (`susi os route`). |
+| **Opaque model routing & wasted spend** | Evidence-ranked **Brain** (`susi brain`) learns which provider succeeds per workload class (`reflex`, `chat`, `code`, `reasoning`), quarantines out-of-credit keys, and enforces `SUSI_BUDGET=low\|balanced\|max`. |
+| **Hallucinated agent claims** | **Evidence-gated completion**: missions record live tool receipts (`EvidenceSession` / `ToolReceipt`), verify citations against the workspace, and seal actions into an append-only HMAC-SHA256 audit chain. |
+| **Data egress & untrusted tools** | `local_only` privacy policy blocks off-host model and tool egress; deterministic Tier-0 **Wasm reflexes** execute inside a fuel-metered `Wasmi` sandbox. |
+
+```mermaid
+flowchart LR
+    subgraph Clients["Clients, Editors & Agent SDKs"]
+        MCPClient["MCP Clients (Claude Code, Cursor, IDEs)"]
+        OAI["OpenAI & Anthropic SDKs"]
+        A2APeer["A2A Peers & Custom Apps"]
+    end
+
+    subgraph Host["susi Host Contract (127.0.0.1)"]
+        P9090["Port 9090 / 9093: MCP HTTP & SSE"]
+        P9091["Port 9091: OpenAI /v1 & Anthropic /v1/messages"]
+        P9094["Port 9094: A2A JSON-RPC & Agent Card"]
+    end
+
+    subgraph Kernel["Governed Decision & Swarm Plane"]
+        Brain["Evidence-Ranked Brain Router"]
+        Swarm["Consensus Swarm & Truth Verifier"]
+        Audit["HMAC-SHA256 Audit & Privacy Gate"]
+        Wasm["Fuel-Metered Wasmi Reflex Sandbox"]
+    end
+
+    subgraph Backends["Local & Cloud AI Ecosystem"]
+        Local["Local AI: Ollama, llama.cpp, vLLM, GGUF"]
+        Cloud["Cloud AI: OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter"]
+        Ext["Admitted MCP Servers & Extension Packs"]
+    end
+
+    MCPClient --> P9090
+    OAI --> P9091
+    A2APeer --> P9094
+    P9090 & P9091 & P9094 --> Brain
+    Brain --> Swarm
+    Swarm --> Audit
+    Swarm --> Wasm
+    Audit --> Local
+    Audit --> Cloud
+    Audit --> Ext
+```
+
+### ⚡ 60-Second Quickstart
+
+```bash
+# 1. Start the local host daemon (binds ports 9090–9094 and seeds ~/.susi/api_token)
+susi start
+
+# 2. Scan your local hardware & running engines (Ollama, llama.cpp, vLLM) or check cloud keys
+susi ecosystem scan
+susi keys check
+
+# 3. Run an evidence-gated swarm mission in your current workspace
+susi "analyze this repository and summarize its architecture"
+
+# 4. Call the OpenAI-compatible HTTP socket from curl or any OpenAI SDK
+curl -s http://127.0.0.1:9091/v1/models \
+  -H "Authorization: Bearer $(cat ~/.susi/api_token)"
+```
 
 susi core is the free open-source socket. It speaks the standard host protocols and admits plugs. It does not ship a third-party product implementation; the third party writes that plug.
 
 susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud inference behind one router, and agents that require evidence before declaring a mission complete. Native Windows uses MSVC and the Rust installer. Platform qualification is recorded in [Step 1 acceptance](docs/step1-acceptance.md).
+
+### Four Core Pillars on `susi-core`
+
+| Pillar | Crate(s) | Role in the Open-Standards RSI AI OS Router |
+|---|---|---|
+| **GAWD** | `susi-gawd`, `susi-gawd-swarm`, `susi-gawd-agents`, `susi-gawd-a2a` | Evidence-gated multi-agent swarm consensus, A2A (`:9094`) protocol execution, truth verification, and Tier-0 Wasm reflex synthesis |
+| **GEMI** | `susi-gemi`, `susi-gemi-models` | Unified local (Ollama, llama.cpp, vLLM, GGUF/Candle) and cloud (OpenAI, Anthropic, Gemini, OpenRouter) inference router (`:9091`) |
+| **GMCP** | `susi-gmcp` | Standards-compliant MCP 2025-11-25 HTTP/SSE (`:9090` / `:9093`) and stdio server exposing governed host tools and resources |
+| **Harness** | `susi-harness` | Unique parallel multi-agent self-build workflow: isolated worktree reservations, serialized combined-tree verification, and metered cost accounting |
 
 > Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including external coding agents and agent frameworks from an installed extension pack or `~/.susi/execution-agents/` adapter files via `susi agents` / `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers from an installed extension pack via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmtime) and optional shell (Docker), distills routine intelligence into **reflexes**, and reports a missing **MCP** tool as a typed capability gap (core never installs or launches one on its own). **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start over what is already installed (engines / Candle fallback); it launches no third-party engine, CLI or MCP server (`tests/core_boot_starts_nothing.rs`). Core is a pure CLI plus standards socket: it ships no UI and bundles no plugin content; the desktop, any visual view and curated plugin packs live in Susi Commercial Apps. Install + optional API keys still apply.
 

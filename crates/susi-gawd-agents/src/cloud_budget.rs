@@ -114,23 +114,6 @@ pub struct ReserveRequest<'a> {
     pub estimate: Micros,
 }
 
-impl ReserveRequest<'_> {
-    /// Verifies structural and policy invariants of a [`ReserveRequest`]:
-    /// - `credential_fp` and `model` must be non-empty.
-    /// - Paid or ask-first spend policies must declare a strictly positive `max_spend_micro` cap.
-    #[must_use]
-    pub fn verify_request_invariants(&self) -> bool {
-        if self.credential_fp.trim().is_empty() || self.model.trim().is_empty() {
-            return false;
-        }
-        match self.policy {
-            SpendPolicy::FreeOnly => true,
-            SpendPolicy::PaidAuthorized { max_spend_micro }
-            | SpendPolicy::AskFirst { max_spend_micro } => max_spend_micro > 0,
-        }
-    }
-}
-
 /// Free-quota view handed in by the caller (from `cloud_quota`) — the ledger
 /// does not inspect headers itself, it only consumes the boolean.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -566,19 +549,5 @@ mod tests {
                 .unwrap_err(),
             Denial::OverBudget { .. }
         ));
-    }
-
-    #[test]
-    fn reserve_request_verify_invariants_validates_credential_model_and_cap() {
-        let valid = req("acct", POLICY, false, FreeHeadroom::Available, 500);
-        assert!(valid.verify_request_invariants());
-
-        let mut empty_fp = valid;
-        empty_fp.credential_fp = "   ";
-        assert!(!empty_fp.verify_request_invariants());
-
-        let mut zero_cap = valid;
-        zero_cap.policy = SpendPolicy::PaidAuthorized { max_spend_micro: 0 };
-        assert!(!zero_cap.verify_request_invariants());
     }
 }

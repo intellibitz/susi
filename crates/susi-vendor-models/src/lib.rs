@@ -29,7 +29,6 @@ pub mod cloud_manage;
 pub mod cloud_quota;
 pub mod cloud_reconciler;
 pub mod default_models;
-pub mod deployment_spec;
 pub mod eco_conflicts;
 pub mod eco_consistency;
 pub mod eco_coverage;
@@ -62,7 +61,6 @@ pub mod resumable_downloads;
 pub mod runtime_lifecycle;
 pub mod signed_catalog;
 pub mod transactional_download;
-pub mod workload_drain;
 pub mod zc_key_aliases;
 pub mod zc_key_sources;
 
@@ -97,9 +95,6 @@ mod vc_201_046_mastery_tests;
 #[path = "tests/vc_201_046.rs"]
 mod vc_201_046_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_049.rs"]
-mod vc_201_049_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_050.rs"]
 mod vc_201_050_tests;
 #[cfg(test)]
@@ -108,9 +103,6 @@ mod vc_201_055_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_055.rs"]
 mod vc_201_055_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_060_mastery.rs"]
-mod vc_201_060_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_001_mastery.rs"]
 mod vc_202_001_mastery_tests;

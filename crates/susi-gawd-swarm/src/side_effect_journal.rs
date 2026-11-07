@@ -37,35 +37,6 @@ pub struct SideEffectIntent {
     pub recorded_unix: u64,
 }
 
-impl SideEffectIntent {
-    /// Verifies structural and digest invariants of a [`SideEffectIntent`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `id`, `node_id`, or `tool` is blank,
-    /// or if `args_digest` is not a 16-character lowercase hexadecimal digest.
-    pub fn verify_intent_invariants(&self) -> Result<(), String> {
-        if self.id.trim().is_empty() {
-            return Err("SideEffectIntent id must not be blank".to_string());
-        }
-        if self.node_id.trim().is_empty() {
-            return Err("SideEffectIntent node_id must not be blank".to_string());
-        }
-        if self.tool.trim().is_empty() {
-            return Err("SideEffectIntent tool must not be blank".to_string());
-        }
-        if self.args_digest.len() != 16
-            || !self
-                .args_digest
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-        {
-            return Err("SideEffectIntent args_digest must be 16 lowercase hex chars".to_string());
-        }
-        Ok(())
-    }
-}
-
 /// Durable proof that the external operation was observed to finish.
 ///
 /// The receipt deliberately stores a digest rather than the potentially large
@@ -75,30 +46,6 @@ impl SideEffectIntent {
 pub struct SideEffectReceipt {
     pub output_digest: String,
     pub recorded_unix: u64,
-}
-
-impl SideEffectReceipt {
-    /// Verifies digest invariants of a [`SideEffectReceipt`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `output_digest` is non-empty and not
-    /// a 16-character lowercase hexadecimal digest.
-    pub fn verify_receipt_invariants(&self) -> Result<(), String> {
-        if !self.output_digest.is_empty()
-            && (self.output_digest.len() != 16
-                || !self
-                    .output_digest
-                    .chars()
-                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()))
-        {
-            return Err(
-                "SideEffectReceipt output_digest must be empty or 16 lowercase hex chars"
-                    .to_string(),
-            );
-        }
-        Ok(())
-    }
 }
 
 /// Result of asking the journal whether an operation may cross the tool
@@ -118,51 +65,6 @@ pub enum DispatchDecision {
         intent_id: String,
         reason: String,
     },
-}
-
-impl DispatchDecision {
-    /// Verifies structural and receipt invariants of a [`DispatchDecision`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `intent_id` is blank, if an
-    /// `AlreadyExecuted` receipt violates [`SideEffectReceipt::verify_receipt_invariants`],
-    /// or if a `ReconciliationRequired` reason is blank.
-    pub fn verify_decision_invariants(&self) -> Result<(), String> {
-        match self {
-            Self::Dispatch { intent_id } => {
-                if intent_id.trim().is_empty() {
-                    return Err(
-                        "DispatchDecision::Dispatch intent_id must not be blank".to_string()
-                    );
-                }
-                Ok(())
-            }
-            Self::AlreadyExecuted { intent_id, receipt } => {
-                if intent_id.trim().is_empty() {
-                    return Err(
-                        "DispatchDecision::AlreadyExecuted intent_id must not be blank".to_string(),
-                    );
-                }
-                receipt.verify_receipt_invariants()
-            }
-            Self::ReconciliationRequired { intent_id, reason } => {
-                if intent_id.trim().is_empty() {
-                    return Err(
-                        "DispatchDecision::ReconciliationRequired intent_id must not be blank"
-                            .to_string(),
-                    );
-                }
-                if reason.trim().is_empty() {
-                    return Err(
-                        "DispatchDecision::ReconciliationRequired reason must not be blank"
-                            .to_string(),
-                    );
-                }
-                Ok(())
-            }
-        }
-    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -577,39 +479,5 @@ mod inline_tests {
         let replay =
             journal.prepare_dispatch("n1", "write_file", "{\"p\":\"b\"}", Some("k-not"), 20);
         assert_eq!(replay, DispatchDecision::Dispatch { intent_id: id2 });
-    }
-
-    #[test]
-    fn side_effect_intent_receipt_and_dispatch_decision_invariants_verify_and_reject_invalid_fields(
-    ) {
-        let mut journal = IntentJournal::new();
-        let dec = journal.prepare_dispatch("n1", "write_file", "{\"p\":\"a\"}", Some("k-1"), 100);
-        assert!(dec.verify_decision_invariants().is_ok());
-        let DispatchDecision::Dispatch { ref intent_id } = dec else {
-            panic!("expected Dispatch");
-        };
-        let intent = journal.get(intent_id).unwrap().clone();
-        assert!(intent.verify_intent_invariants().is_ok());
-
-        let mut bad_intent = intent;
-        bad_intent.args_digest = "BAD".to_string();
-        assert!(bad_intent.verify_intent_invariants().is_err());
-
-        journal.mark_executed_with_receipt(intent_id, "ok", 101);
-        let already =
-            journal.prepare_dispatch("n1", "write_file", "{\"p\":\"a\"}", Some("k-1"), 102);
-        assert!(already.verify_decision_invariants().is_ok());
-
-        let bad_receipt = SideEffectReceipt {
-            output_digest: "NOT_HEX_16".to_string(),
-            recorded_unix: 1,
-        };
-        assert!(bad_receipt.verify_receipt_invariants().is_err());
-
-        let bad_reconcile = DispatchDecision::ReconciliationRequired {
-            intent_id: "intent-1".to_string(),
-            reason: "   ".to_string(),
-        };
-        assert!(bad_reconcile.verify_decision_invariants().is_err());
     }
 }

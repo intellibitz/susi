@@ -1,0 +1,27 @@
+{
+  "id": "T-SLUG-1",
+  "native_worker": "slug",
+  "title": "local-workflow ship resolves the repository slug from the origin URL so its commit statuses post from REST-only hosts",
+  "goal": "ship posts its four susi-local/* commit statuses with `gh api repos/{slug}/statuses/{sha}` (REST), but resolved the slug with `gh repo view --json nameWithOwner`, a GraphQL query that a cloud session's GitHub proxy refuses; every status of the v0.21.52 and commercial v3.1.3 ships went unposted. Read owner/name from `git remote get-url origin` instead, accepting the https (with or without credentials), ssh:// and scp-like github.com spellings and refusing other hosts and shapes, with the same owner/name character validation as before.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-slug-1.json",
+    "xtask/src/bin/local-workflow.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "repo_slug"
+    ]
+  },
+  "created_by": "SLUG",
+  "created_unix": 1794032400
+}
