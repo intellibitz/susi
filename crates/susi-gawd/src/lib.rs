@@ -106,7 +106,6 @@ pub mod orchestrator_tier;
 pub mod paired_regression;
 pub mod patch_cycle;
 pub mod patch_fence;
-pub mod perf_regression_gate;
 pub mod reason_trainer;
 pub mod reflex_intent;
 pub mod reflex_revisions;
