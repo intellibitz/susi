@@ -1265,7 +1265,7 @@
       "id": "VC-201-099",
       "mastery_target": "Expose actual workload, resource, provider, configuration, federation, and evidence state through consistent CLI/API views; drill-down explains blocked work and actions obey the same grants and preconditions as automation.",
       "priority": "P1",
-      "progress": "DELIVERED (T-SOCKETDSP4-2): the unified operator control surface exposes workload, resources, providers, configuration, federation, and evidence consistently across TUI and JSON API views, drills down into blocked work with dependency reasons, and enforces grant and precondition parity with automation. Verified by `tests/tui_top.rs`: tui_top_unified_operator_surface_drills_down_blocked_work_and_matches_json_surface, tui_top_operator_actions_obey_automation_grants_and_preconditions.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-201-099.json): (T-SOCKETDSP4-2): the unified operator control surface exposes workload, resources, providers, configuration, federation, and evidence consistently across TUI and JSON API views, drills down into blocked work with dependency reasons, and enforces grant and precondition parity with automation. Verified by `tests/tui_top.rs`: tui_top_unified_operator_surface_drills_down_blocked_work_and_matches_json_surface, tui_top_operator_actions_obey_automation_grants_and_preconditions.",
       "type": "OPERATIONS",
       "vector": "Provide a unified operator control surface"
     },
