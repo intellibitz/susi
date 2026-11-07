@@ -46,6 +46,14 @@ impl ControlRecord {
             message,
         }
     }
+
+    /// Verify structural and semantic invariants of a [`ControlRecord`].
+    #[must_use]
+    pub fn verify_record_invariants(&self) -> bool {
+        self.at_unix_ms > 0
+            && !self.message.trim().is_empty()
+            && (!self.accepted || self.command.validate().is_ok())
+    }
 }
 
 /// Append one record as a JSON line.
@@ -251,5 +259,37 @@ mod tests {
         let records = read_records(&path);
         assert_eq!(records.len(), 1);
         assert!(!records[0].accepted);
+    }
+
+    #[test]
+    fn control_record_verify_record_invariants_validates_and_rejects_corrupt_records() {
+        let valid_accepted = ControlRecord::answer(ControlCommand::Pause {
+            mission_id: "m-1".into(),
+        });
+        assert!(valid_accepted.verify_record_invariants());
+
+        let valid_refused = ControlRecord::answer(ControlCommand::Pause {
+            mission_id: String::new(),
+        });
+        assert!(!valid_refused.accepted);
+        assert!(valid_refused.verify_record_invariants());
+
+        let zero_time = ControlRecord {
+            at_unix_ms: 0,
+            ..valid_accepted.clone()
+        };
+        assert!(!zero_time.verify_record_invariants());
+
+        let blank_message = ControlRecord {
+            message: "   ".into(),
+            ..valid_accepted
+        };
+        assert!(!blank_message.verify_record_invariants());
+
+        let accepted_invalid_command = ControlRecord {
+            accepted: true,
+            ..valid_refused
+        };
+        assert!(!accepted_invalid_command.verify_record_invariants());
     }
 }

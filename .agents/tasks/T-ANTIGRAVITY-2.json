@@ -1,14 +1,14 @@
 {
   "id": "T-ANTIGRAVITY-2",
-  "title": "Add spend ledger and audit event invariant verifiers in susi-harness",
-  "goal": "Add Dispatch::verify_dispatch_invariants, LedgerEntry::verify_entry_invariants, LedgerIntegrityReport::verify_report_invariants in crates/susi-harness/src/ledger.rs and Event::verify_event_invariants in crates/susi-harness/src/event.rs with comprehensive unit tests.",
+  "title": "Add MissionSpec, ControlAck, and ControlRecord invariant verifiers in susi-harness",
+  "goal": "Add MissionSpec::verify_spec_invariants and ControlAck::verify_ack_invariants in crates/susi-harness/src/api.rs and ControlRecord::verify_record_invariants in crates/susi-harness/src/control.rs with unit tests.",
   "state": "in_progress",
   "status": "completed",
   "claimed_by": "antigravity",
   "native_worker": "antigravity",
   "created_by": "antigravity",
-  "created_unix": 1794025500,
-  "updated_unix": 1794032900,
+  "created_unix": 1794025501,
+  "updated_unix": 1794034600,
   "size": "M",
   "deps": [],
   "scope": [
@@ -19,7 +19,7 @@
     "crates/susi-harness",
     ".agents/tasks/T-ANTIGRAVITY-2.json"
   ],
-  "acceptance": "Dispatch::verify_dispatch_invariants, LedgerEntry::verify_entry_invariants, LedgerIntegrityReport::verify_report_invariants, and Event::verify_event_invariants validate structural, chronological, and settled-cost invariants and reject adversarial tampering.",
+  "acceptance": "MissionSpec::verify_spec_invariants, ControlAck::verify_ack_invariants, and ControlRecord::verify_record_invariants validate structural and semantic invariants of operator control commands and acknowledgements.",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,7 +27,7 @@
       "-p",
       "susi-harness",
       "--lib",
-      "ledger_entry_dispatch_and_report_verify_invariants_reject_tampering",
+      "control_record_verify_record_invariants",
       "--offline",
       "--locked"
     ]
