@@ -29,7 +29,6 @@ pub mod cloud_manage;
 pub mod cloud_quota;
 pub mod cloud_reconciler;
 pub mod default_models;
-pub mod deployment_spec;
 pub mod eco_conflicts;
 pub mod eco_consistency;
 pub mod eco_coverage;
@@ -108,9 +107,6 @@ mod vc_201_055_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_055.rs"]
 mod vc_201_055_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_060_mastery.rs"]
-mod vc_201_060_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_001_mastery.rs"]
 mod vc_202_001_mastery_tests;
