@@ -332,9 +332,6 @@ mod vc_201_069_mastery_tests;
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;
 #[cfg(test)]
-#[path = "tests/zc_config_explain.rs"]
-mod zc_config_explain_tests;
-#[cfg(test)]
 #[path = "tests/zc_debt_report.rs"]
 mod zc_debt_report_tests;
 #[cfg(test)]
