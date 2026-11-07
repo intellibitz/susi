@@ -114,28 +114,6 @@ impl MicroUsd {
         };
         Some(Self(dollars.checked_mul(1_000_000)?.checked_add(cents)?))
     }
-
-    /// Verify structural invariants of a [`MicroUsd`] amount.
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if the amount is saturated at
-    /// `u64::MAX` (the overflow/unpriced sentinel).
-    pub fn verify_money_invariants(&self) -> Result<(), String> {
-        if self.0 == u64::MAX {
-            return Err("MicroUsd amount is saturated at u64::MAX overflow sentinel".to_string());
-        }
-        Ok(())
-    }
-
-    /// Alias for [`Self::verify_money_invariants`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the amount is saturated at `u64::MAX`.
-    pub fn verify_amount_invariants(&self) -> Result<(), String> {
-        self.verify_money_invariants()
-    }
 }
 
 impl fmt::Display for MicroUsd {
@@ -209,20 +187,5 @@ mod tests {
         let json = serde_json::to_string(&money).unwrap();
         assert_eq!(json, "42");
         assert_eq!(serde_json::from_str::<MicroUsd>("42").unwrap(), money);
-    }
-
-    #[test]
-    fn micro_usd_verify_invariants_reject_corrupt_state() {
-        assert!(MicroUsd::ZERO.verify_money_invariants().is_ok());
-        assert!(MicroUsd::from_micros(250_000)
-            .verify_amount_invariants()
-            .is_ok());
-        assert!(MicroUsd::from_micros(u64::MAX - 1)
-            .verify_money_invariants()
-            .is_ok());
-
-        let saturated = MicroUsd::from_micros(u64::MAX);
-        assert!(saturated.verify_money_invariants().is_err());
-        assert!(saturated.verify_amount_invariants().is_err());
     }
 }

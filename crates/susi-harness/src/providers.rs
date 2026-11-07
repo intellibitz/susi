@@ -104,22 +104,6 @@ impl Capabilities {
             .map(|capability| capability.label())
             .collect()
     }
-
-    /// Verify structural invariants of [`Capabilities`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `context` is `Some(0)`.
-    pub fn verify_capabilities_invariants(&self) -> Result<(), String> {
-        if let Some(ctx) = self.context {
-            if ctx == 0 {
-                return Err(
-                    "Capabilities.context must be greater than zero when present".to_string(),
-                );
-            }
-        }
-        Ok(())
-    }
 }
 
 /// Where a model sits on the automatic ladder built from the environment.
@@ -161,30 +145,6 @@ pub struct ModelRecord {
     pub price_ref: Option<String>,
     /// Automatic-ladder placement; `None` keeps the model off the ladder.
     pub tier: Option<Tier>,
-}
-
-impl ModelRecord {
-    /// Verify structural invariants of a [`ModelRecord`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `id` or `backend` is blank,
-    /// `capabilities` is invalid, or `price_ref` is `Some` with a blank string.
-    pub fn verify_model_invariants(&self) -> Result<(), String> {
-        if self.id.trim().is_empty() {
-            return Err("ModelRecord.id must not be empty".to_string());
-        }
-        if self.backend.trim().is_empty() {
-            return Err("ModelRecord.backend must not be empty".to_string());
-        }
-        self.capabilities.verify_capabilities_invariants()?;
-        if let Some(ref price_ref) = self.price_ref {
-            if price_ref.trim().is_empty() {
-                return Err("ModelRecord.price_ref must not be blank when present".to_string());
-            }
-        }
-        Ok(())
-    }
 }
 
 /// The ladder built from the API keys present in the environment.
@@ -348,64 +308,6 @@ impl AutoConfig {
             .cloned()
             .collect()
     }
-
-    /// Verify structural invariants of an [`AutoConfig`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `orchestrator` is blank when present
-    /// or not in `workers`/`rescue`, if any entry in `use_first`, `workers`,
-    /// `rescue`, `unpriced`, `failed`, or `preferred` is blank, or if any model
-    /// appears in both `workers` and `rescue` or in both the ladder and
-    /// `failed`.
-    pub fn verify_config_invariants(&self) -> Result<(), String> {
-        if let Some(ref orch) = self.orchestrator {
-            if orch.trim().is_empty() {
-                return Err("AutoConfig.orchestrator must not be blank when present".to_string());
-            }
-            if !self.workers.contains(orch) && !self.rescue.contains(orch) {
-                return Err("AutoConfig.orchestrator must appear in workers or rescue".to_string());
-            }
-        }
-        if self.use_first.iter().any(|s| s.trim().is_empty()) {
-            return Err("AutoConfig.use_first entries must not be empty".to_string());
-        }
-        if self.workers.iter().any(|s| s.trim().is_empty()) {
-            return Err("AutoConfig.workers entries must not be empty".to_string());
-        }
-        if self.rescue.iter().any(|s| s.trim().is_empty()) {
-            return Err("AutoConfig.rescue entries must not be empty".to_string());
-        }
-        if self.unpriced.iter().any(|s| s.trim().is_empty()) {
-            return Err("AutoConfig.unpriced entries must not be empty".to_string());
-        }
-        if self.failed.iter().any(|s| s.trim().is_empty()) {
-            return Err("AutoConfig.failed entries must not be empty".to_string());
-        }
-        if self.preferred.iter().any(|s| s.trim().is_empty()) {
-            return Err("AutoConfig.preferred entries must not be empty".to_string());
-        }
-        for worker in &self.workers {
-            if self.rescue.contains(worker) {
-                return Err(format!(
-                    "AutoConfig model '{worker}' cannot be in both workers and rescue"
-                ));
-            }
-            if self.failed.contains(worker) {
-                return Err(format!(
-                    "AutoConfig model '{worker}' cannot be in both workers and failed"
-                ));
-            }
-        }
-        for rescue_model in &self.rescue {
-            if self.failed.contains(rescue_model) {
-                return Err(format!(
-                    "AutoConfig model '{rescue_model}' cannot be in both rescue and failed"
-                ));
-            }
-        }
-        Ok(())
-    }
 }
 
 /// One provider endpoint.
@@ -434,61 +336,6 @@ pub struct ProviderRecord {
     pub models: Vec<ModelRecord>,
 }
 
-impl ProviderRecord {
-    /// Verify structural invariants of a [`ProviderRecord`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `id` is blank, `endpoint` lacks an
-    /// HTTP(S) scheme, `key_envs` contains blank entries, optional metadata
-    /// fields are blank when present, or `models` contains invalid or duplicate
-    /// model records.
-    pub fn verify_provider_invariants(&self) -> Result<(), String> {
-        if self.id.trim().is_empty() {
-            return Err("ProviderRecord.id must not be empty".to_string());
-        }
-        let ep = self.endpoint.trim();
-        if !(ep.starts_with("http://") || ep.starts_with("https://")) {
-            return Err("ProviderRecord.endpoint must start with http:// or https://".to_string());
-        }
-        if self.key_envs.iter().any(|k| k.trim().is_empty()) {
-            return Err("ProviderRecord.key_envs entries must not be empty".to_string());
-        }
-        if let Some(ref prefix) = self.key_prefix {
-            if prefix.trim().is_empty() {
-                return Err("ProviderRecord.key_prefix must not be blank when present".to_string());
-            }
-        }
-        if let Some(ref url) = self.key_url {
-            if url.trim().is_empty() {
-                return Err("ProviderRecord.key_url must not be blank when present".to_string());
-            }
-        }
-        if let Some(ref query) = self.models_query {
-            if query.trim().is_empty() {
-                return Err(
-                    "ProviderRecord.models_query must not be blank when present".to_string()
-                );
-            }
-        }
-        for (idx, model) in self.models.iter().enumerate() {
-            model.verify_model_invariants()?;
-            if self
-                .models
-                .iter()
-                .skip(idx + 1)
-                .any(|other| other.id == model.id)
-            {
-                return Err(format!(
-                    "ProviderRecord.models contains duplicate model id '{}'",
-                    model.id
-                ));
-            }
-        }
-        Ok(())
-    }
-}
-
 /// A model resolved to an endpoint and a wire.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedModel {
@@ -508,33 +355,6 @@ pub struct ResolvedModel {
     pub known: bool,
 }
 
-impl ResolvedModel {
-    /// Verify structural invariants of a [`ResolvedModel`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `provider` or `model_id` is blank,
-    /// `endpoint` lacks an HTTP(S) scheme, `key_envs` contains blank entries,
-    /// or `capabilities` fails its invariant check.
-    pub fn verify_resolved_invariants(&self) -> Result<(), String> {
-        if self.provider.trim().is_empty() {
-            return Err("ResolvedModel.provider must not be empty".to_string());
-        }
-        let ep = self.endpoint.trim();
-        if !(ep.starts_with("http://") || ep.starts_with("https://")) {
-            return Err("ResolvedModel.endpoint must start with http:// or https://".to_string());
-        }
-        if self.model_id.trim().is_empty() {
-            return Err("ResolvedModel.model_id must not be empty".to_string());
-        }
-        if self.key_envs.iter().any(|k| k.trim().is_empty()) {
-            return Err("ResolvedModel.key_envs entries must not be empty".to_string());
-        }
-        self.capabilities.verify_capabilities_invariants()?;
-        Ok(())
-    }
-}
-
 /// The data every dispatch resolves through.
 #[derive(Debug, Clone, Default)]
 pub struct Registry {
@@ -547,41 +367,6 @@ pub struct Registry {
 pub const OVERLAY_ENV: &str = "SUSI_HARNESS_PROVIDERS";
 
 impl Registry {
-    /// Verify structural invariants of a [`Registry`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `providers` is empty, any provider
-    /// fails [`ProviderRecord::verify_provider_invariants`] or has a duplicate
-    /// `id`, or any alias key or target is blank.
-    pub fn verify_registry_invariants(&self) -> Result<(), String> {
-        if self.providers.is_empty() {
-            return Err("Registry.providers must not be empty".to_string());
-        }
-        for (idx, provider) in self.providers.iter().enumerate() {
-            provider.verify_provider_invariants()?;
-            if self
-                .providers
-                .iter()
-                .skip(idx + 1)
-                .any(|other| other.id == provider.id)
-            {
-                return Err(format!(
-                    "Registry.providers contains duplicate provider id '{}'",
-                    provider.id
-                ));
-            }
-        }
-        if self
-            .aliases
-            .iter()
-            .any(|(alias, target)| alias.trim().is_empty() || target.trim().is_empty())
-        {
-            return Err("Registry.aliases keys and targets must not be empty".to_string());
-        }
-        Ok(())
-    }
-
     /// The tier a model is placed in, when the registry places it.
     #[must_use]
     pub fn tier_of(&self, model: &str) -> Option<Tier> {
@@ -2844,106 +2629,5 @@ mod tests {
         let broken = r#"{"providers":[{"id":"x","wire":"grpc","endpoint":"https://x"}]}"#;
         let error = Registry::parse(broken).unwrap_err().to_string();
         assert!(error.contains("grpc"), "{error}");
-    }
-
-    #[test]
-    fn providers_verify_invariants_reject_corrupt_state() {
-        assert!(Capabilities::assumed()
-            .verify_capabilities_invariants()
-            .is_ok());
-        let zero_ctx_caps = Capabilities {
-            context: Some(0),
-            ..Capabilities::assumed()
-        };
-        assert!(zero_ctx_caps.verify_capabilities_invariants().is_err());
-
-        let valid_model = ModelRecord {
-            id: "deepseek-flash".into(),
-            backend: "deepseek-chat".into(),
-            capabilities: Capabilities::assumed(),
-            price_ref: None,
-            tier: Some(Tier::Worker),
-        };
-        assert!(valid_model.verify_model_invariants().is_ok());
-
-        let blank_model_id = ModelRecord {
-            id: " ".into(),
-            ..valid_model.clone()
-        };
-        assert!(blank_model_id.verify_model_invariants().is_err());
-
-        let blank_price_ref = ModelRecord {
-            price_ref: Some("  ".into()),
-            ..valid_model.clone()
-        };
-        assert!(blank_price_ref.verify_model_invariants().is_err());
-
-        let valid_auto = AutoConfig {
-            orchestrator: Some("deepseek-pro".into()),
-            use_first: Vec::new(),
-            workers: vec!["deepseek-flash".into()],
-            rescue: vec!["deepseek-pro".into()],
-            unpriced: Vec::new(),
-            failed: vec!["kimi-k2".into()],
-            preferred: vec!["deepseek".into()],
-        };
-        assert!(valid_auto.verify_config_invariants().is_ok());
-
-        let orphan_orch = AutoConfig {
-            orchestrator: Some("claude-opus".into()),
-            ..valid_auto.clone()
-        };
-        assert!(orphan_orch.verify_config_invariants().is_err());
-
-        let overlap_auto = AutoConfig {
-            rescue: vec!["deepseek-flash".into()],
-            orchestrator: Some("deepseek-flash".into()),
-            ..valid_auto.clone()
-        };
-        assert!(overlap_auto.verify_config_invariants().is_err());
-
-        let failed_overlap_auto = AutoConfig {
-            failed: vec!["deepseek-flash".into()],
-            ..valid_auto
-        };
-        assert!(failed_overlap_auto.verify_config_invariants().is_err());
-
-        let valid_provider = ProviderRecord {
-            id: "deepseek".into(),
-            wire: Wire::OpenAi,
-            endpoint: "https://api.deepseek.com/chat/completions".into(),
-            key_envs: vec!["DEEPSEEK_API_KEY".into()],
-            key_prefix: Some("sk-".into()),
-            key_url: Some("https://platform.deepseek.com".into()),
-            models_query: None,
-            models: vec![valid_model.clone()],
-        };
-        assert!(valid_provider.verify_provider_invariants().is_ok());
-
-        let bad_ep_provider = ProviderRecord {
-            endpoint: "ftp://api.deepseek.com".into(),
-            ..valid_provider.clone()
-        };
-        assert!(bad_ep_provider.verify_provider_invariants().is_err());
-
-        let dup_model_provider = ProviderRecord {
-            models: vec![valid_model.clone(), valid_model],
-            ..valid_provider
-        };
-        assert!(dup_model_provider.verify_provider_invariants().is_err());
-
-        let resolved = Registry::builtin()
-            .resolve("deepseek-flash")
-            .expect("deepseek-flash resolves");
-        assert!(resolved.verify_resolved_invariants().is_ok());
-
-        let bad_resolved = ResolvedModel {
-            model_id: " ".into(),
-            ..resolved
-        };
-        assert!(bad_resolved.verify_resolved_invariants().is_err());
-
-        assert!(Registry::builtin().verify_registry_invariants().is_ok());
-        assert!(Registry::default().verify_registry_invariants().is_err());
     }
 }

@@ -60,25 +60,6 @@ impl UsageProfile {
         let cached = if caches { self.cached } else { 0 };
         crate::pricing::TokenUsage::new(self.input, cached, self.output)
     }
-
-    /// Verify structural invariants of a [`UsageProfile`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `input` or `output` is zero, or if
-    /// `cached > input`.
-    pub fn verify_profile_invariants(&self) -> Result<(), String> {
-        if self.input == 0 {
-            return Err("UsageProfile.input must be greater than zero".to_string());
-        }
-        if self.cached > self.input {
-            return Err("UsageProfile.cached cannot exceed UsageProfile.input".to_string());
-        }
-        if self.output == 0 {
-            return Err("UsageProfile.output must be greater than zero".to_string());
-        }
-        Ok(())
-    }
 }
 
 impl Default for UsageProfile {
@@ -137,35 +118,6 @@ impl ModelHistory {
     #[must_use]
     pub const fn unreliable(self) -> bool {
         self.calls >= RELIABILITY_EVIDENCE && self.successes().saturating_mul(2) < self.calls
-    }
-
-    /// Verify structural invariants of a [`ModelHistory`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `failures > calls`, `cache_hit > input`,
-    /// `cost` fails [`MicroUsd::verify_money_invariants`], `latency_ms > 0` when
-    /// `timed_calls == 0`, or non-zero accounting fields exist when `calls == 0`.
-    pub fn verify_history_invariants(&self) -> Result<(), String> {
-        if self.failures > self.calls {
-            return Err("ModelHistory.failures cannot exceed ModelHistory.calls".to_string());
-        }
-        if self.cache_hit > self.input {
-            return Err("ModelHistory.cache_hit cannot exceed ModelHistory.input".to_string());
-        }
-        self.cost.verify_money_invariants()?;
-        if self.timed_calls == 0 && self.latency_ms > 0 {
-            return Err(
-                "ModelHistory.latency_ms must be zero when timed_calls is zero".to_string(),
-            );
-        }
-        if self.calls == 0 && (self.input > 0 || !self.cost.is_zero() || self.timed_calls > 0) {
-            return Err(
-                "ModelHistory with zero calls must have zero cost, input, and timed_calls"
-                    .to_string(),
-            );
-        }
-        Ok(())
     }
 }
 
@@ -475,22 +427,6 @@ pub struct Candidate {
     pub expected_cost: MicroUsd,
 }
 
-impl Candidate {
-    /// Verify structural invariants of a [`Candidate`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `model` is blank or `expected_cost`
-    /// fails [`MicroUsd::verify_money_invariants`].
-    pub fn verify_candidate_invariants(&self) -> Result<(), String> {
-        if self.model.trim().is_empty() {
-            return Err("Candidate.model must not be empty".to_string());
-        }
-        self.expected_cost.verify_money_invariants()?;
-        Ok(())
-    }
-}
-
 /// Rank candidate models by expected cost per accepted task, cheapest first.
 ///
 /// A candidate the catalogue cannot price still ranks: it goes last, because
@@ -646,27 +582,6 @@ pub struct Policy {
     pub stop_on_repeat: bool,
 }
 
-impl Policy {
-    /// Verify structural invariants of a [`Policy`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `max_attempts` or `max_same_model` is
-    /// zero, or if `max_same_model > max_attempts`.
-    pub fn verify_policy_invariants(&self) -> Result<(), String> {
-        if self.max_attempts == 0 {
-            return Err("Policy.max_attempts must be greater than zero".to_string());
-        }
-        if self.max_same_model == 0 {
-            return Err("Policy.max_same_model must be greater than zero".to_string());
-        }
-        if self.max_same_model > self.max_attempts {
-            return Err("Policy.max_same_model cannot exceed Policy.max_attempts".to_string());
-        }
-        Ok(())
-    }
-}
-
 impl Default for Policy {
     fn default() -> Self {
         Self {
@@ -687,23 +602,6 @@ pub struct Attempt {
     pub number: u32,
 }
 
-impl Attempt {
-    /// Verify structural invariants of an [`Attempt`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `model` is blank or `number` is zero.
-    pub fn verify_attempt_invariants(&self) -> Result<(), String> {
-        if self.model.trim().is_empty() {
-            return Err("Attempt.model must not be empty".to_string());
-        }
-        if self.number == 0 {
-            return Err("Attempt.number must be at least 1".to_string());
-        }
-        Ok(())
-    }
-}
-
 /// Why the ladder stopped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StopReason {
@@ -716,25 +614,6 @@ pub enum StopReason {
     },
 }
 
-impl StopReason {
-    /// Verify structural invariants of a [`StopReason`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `Stuck` carries a blank `signature`.
-    pub fn verify_reason_invariants(&self) -> Result<(), String> {
-        match self {
-            Self::Exhausted => Ok(()),
-            Self::Stuck { signature } => {
-                if signature.trim().is_empty() {
-                    return Err("StopReason::Stuck.signature must not be empty".to_string());
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
 /// What the ladder wants next.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NextAttempt {
@@ -742,21 +621,6 @@ pub enum NextAttempt {
     Attempt(Attempt),
     /// Stop; nothing more will be tried.
     Stop(StopReason),
-}
-
-impl NextAttempt {
-    /// Verify structural invariants of a [`NextAttempt`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the inner [`Attempt`] or [`StopReason`] fails its
-    /// invariant check.
-    pub fn verify_next_attempt_invariants(&self) -> Result<(), String> {
-        match self {
-            Self::Attempt(attempt) => attempt.verify_attempt_invariants(),
-            Self::Stop(reason) => reason.verify_reason_invariants(),
-        }
-    }
 }
 
 /// The escalation ladder for one task.
@@ -788,43 +652,6 @@ impl Ladder {
             stuck: None,
             contexts: BTreeMap::new(),
         }
-    }
-
-    /// Verify structural invariants of a [`Ladder`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `policy` is invalid, `ranked` contains
-    /// blank model names, `stuck` is `Some` with a blank signature,
-    /// `signatures` contains blank keys/values, or `contexts` contains blank
-    /// model names or zero context windows.
-    pub fn verify_ladder_invariants(&self) -> Result<(), String> {
-        self.policy.verify_policy_invariants()?;
-        if self.ranked.iter().any(|m| m.trim().is_empty()) {
-            return Err("Ladder.ranked entries must not be empty".to_string());
-        }
-        if let Some(ref sig) = self.stuck {
-            if sig.trim().is_empty() {
-                return Err("Ladder.stuck must not be blank when present".to_string());
-            }
-        }
-        if self
-            .signatures
-            .iter()
-            .any(|(sig, model)| sig.trim().is_empty() || model.trim().is_empty())
-        {
-            return Err("Ladder.signatures keys and values must not be empty".to_string());
-        }
-        if self
-            .contexts
-            .iter()
-            .any(|(model, &ctx)| model.trim().is_empty() || ctx == 0)
-        {
-            return Err(
-                "Ladder.contexts model names must be non-empty and windows > 0".to_string(),
-            );
-        }
-        Ok(())
     }
 
     /// Tell the ladder each model's context window, in tokens, so a prompt
@@ -1756,134 +1583,5 @@ mod tests {
             signature(FailureKind::Semantic, "tests failed 2 red")
         );
         assert_eq!(signature(FailureKind::Timeout, "a"), "timeout");
-    }
-
-    #[test]
-    fn policy_verify_invariants_reject_corrupt_state() {
-        let profile = UsageProfile::agent();
-        assert!(profile.verify_profile_invariants().is_ok());
-
-        let zero_input = UsageProfile {
-            input: 0,
-            ..UsageProfile::agent()
-        };
-        assert!(zero_input.verify_profile_invariants().is_err());
-
-        let cached_over_input = UsageProfile {
-            cached: 300_000,
-            ..UsageProfile::agent()
-        };
-        assert!(cached_over_input.verify_profile_invariants().is_err());
-
-        let zero_output = UsageProfile {
-            output: 0,
-            ..UsageProfile::agent()
-        };
-        assert!(zero_output.verify_profile_invariants().is_err());
-
-        assert!(ModelHistory::default().verify_history_invariants().is_ok());
-        let valid_hist = ModelHistory {
-            calls: 4,
-            failures: 1,
-            cost: MicroUsd::from_micros(50_000),
-            input: 100_000,
-            cache_hit: 50_000,
-            latency_ms: 900,
-            timed_calls: 3,
-        };
-        assert!(valid_hist.verify_history_invariants().is_ok());
-
-        let failures_over_calls = ModelHistory {
-            failures: 5,
-            ..valid_hist
-        };
-        assert!(failures_over_calls.verify_history_invariants().is_err());
-
-        let cache_over_input = ModelHistory {
-            cache_hit: 200_000,
-            ..valid_hist
-        };
-        assert!(cache_over_input.verify_history_invariants().is_err());
-
-        let latency_without_timed = ModelHistory {
-            timed_calls: 0,
-            latency_ms: 10,
-            ..valid_hist
-        };
-        assert!(latency_without_timed.verify_history_invariants().is_err());
-
-        let zero_calls_with_cost = ModelHistory {
-            calls: 0,
-            cost: MicroUsd::from_micros(10),
-            ..ModelHistory::default()
-        };
-        assert!(zero_calls_with_cost.verify_history_invariants().is_err());
-
-        let valid_cand = Candidate {
-            model: "deepseek-flash".into(),
-            expected_cost: MicroUsd::from_micros(1_000),
-        };
-        assert!(valid_cand.verify_candidate_invariants().is_ok());
-
-        let blank_cand = Candidate {
-            model: "  ".into(),
-            expected_cost: MicroUsd::from_micros(1_000),
-        };
-        assert!(blank_cand.verify_candidate_invariants().is_err());
-
-        let unpriced_cand = Candidate {
-            model: "deepseek-flash".into(),
-            expected_cost: MicroUsd::from_micros(u64::MAX),
-        };
-        assert!(unpriced_cand.verify_candidate_invariants().is_err());
-
-        assert!(Policy::default().verify_policy_invariants().is_ok());
-        let zero_max_attempts = Policy {
-            max_attempts: 0,
-            ..Policy::default()
-        };
-        assert!(zero_max_attempts.verify_policy_invariants().is_err());
-
-        let same_over_max = Policy {
-            max_attempts: 2,
-            max_same_model: 3,
-            ..Policy::default()
-        };
-        assert!(same_over_max.verify_policy_invariants().is_err());
-
-        let valid_attempt = Attempt {
-            model: "deepseek-flash".into(),
-            number: 1,
-        };
-        assert!(valid_attempt.verify_attempt_invariants().is_ok());
-        assert!(NextAttempt::Attempt(valid_attempt.clone())
-            .verify_next_attempt_invariants()
-            .is_ok());
-
-        let zero_attempt = Attempt {
-            model: "deepseek-flash".into(),
-            number: 0,
-        };
-        assert!(zero_attempt.verify_attempt_invariants().is_err());
-
-        assert!(StopReason::Exhausted.verify_reason_invariants().is_ok());
-        let blank_stuck = StopReason::Stuck {
-            signature: " ".into(),
-        };
-        assert!(blank_stuck.verify_reason_invariants().is_err());
-        assert!(NextAttempt::Stop(blank_stuck)
-            .verify_next_attempt_invariants()
-            .is_err());
-
-        let valid_ladder = Ladder::new(vec!["deepseek-flash".into()], Policy::default())
-            .with_contexts(BTreeMap::from([("deepseek-flash".into(), 128_000)]));
-        assert!(valid_ladder.verify_ladder_invariants().is_ok());
-
-        let blank_ranked_ladder = Ladder::new(vec![" ".into()], Policy::default());
-        assert!(blank_ranked_ladder.verify_ladder_invariants().is_err());
-
-        let zero_ctx_ladder = Ladder::new(vec!["deepseek-flash".into()], Policy::default())
-            .with_contexts(BTreeMap::from([("deepseek-flash".into(), 0)]));
-        assert!(zero_ctx_ladder.verify_ladder_invariants().is_err());
     }
 }

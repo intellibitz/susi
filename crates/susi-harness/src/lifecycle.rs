@@ -108,57 +108,6 @@ impl LifecycleEvent {
         self.detail = Some(detail.into());
         self
     }
-
-    /// Verify structural invariants of a [`LifecycleEvent`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a human-readable error if `task` or `phase` is blank, `at_unix`
-    /// is zero, `cost` and `cost_unit` are inconsistently populated or invalid,
-    /// `outcome` or `detail` is blank when present, or a `"defect"` event has
-    /// no `outcome`.
-    pub fn verify_event_invariants(&self) -> Result<(), String> {
-        if self.task.trim().is_empty() {
-            return Err("LifecycleEvent.task must not be empty".to_string());
-        }
-        if self.phase.trim().is_empty() {
-            return Err("LifecycleEvent.phase must not be empty".to_string());
-        }
-        if self.at_unix == 0 {
-            return Err("LifecycleEvent.at_unix must be greater than zero".to_string());
-        }
-        match (&self.cost, &self.cost_unit) {
-            (Some(cost), Some(unit)) => {
-                if !cost.is_finite() || *cost < 0.0 {
-                    return Err("LifecycleEvent.cost must be finite and non-negative".to_string());
-                }
-                if unit.trim() != "usd" {
-                    return Err("LifecycleEvent.cost_unit must be 'usd'".to_string());
-                }
-            }
-            (Some(_), None) | (None, Some(_)) => {
-                return Err(
-                    "LifecycleEvent.cost and cost_unit must both be present or both absent"
-                        .to_string(),
-                );
-            }
-            (None, None) => {}
-        }
-        if let Some(ref outcome) = self.outcome {
-            if outcome.trim().is_empty() {
-                return Err("LifecycleEvent.outcome must not be blank when present".to_string());
-            }
-        }
-        if let Some(ref detail) = self.detail {
-            if detail.trim().is_empty() {
-                return Err("LifecycleEvent.detail must not be blank when present".to_string());
-            }
-        }
-        if self.phase == "defect" && self.outcome.is_none() {
-            return Err("LifecycleEvent in 'defect' phase must carry an outcome".to_string());
-        }
-        Ok(())
-    }
 }
 
 /// Seconds since the Unix epoch.
@@ -340,55 +289,5 @@ mod tests {
         std::fs::write(&path, format!("{line}\n{{corrupt\n")).unwrap();
         let err = read(&path).unwrap_err().to_string();
         assert!(err.contains("line 2:"), "unexpected error: {err}");
-    }
-
-    #[test]
-    fn lifecycle_event_verify_invariants_reject_corrupt_state() {
-        let valid_merged =
-            LifecycleEvent::merged("T-AGENT-1", 1_710_000_300, MicroUsd::from_micros(250_000));
-        assert!(valid_merged.verify_event_invariants().is_ok());
-
-        let valid_defect =
-            LifecycleEvent::defect("T-AGENT-1", 1_710_000_200, "not-accepted", "gate failed");
-        assert!(valid_defect.verify_event_invariants().is_ok());
-
-        let blank_task = LifecycleEvent::new("  ", "merged", 100);
-        assert!(blank_task.verify_event_invariants().is_err());
-
-        let blank_phase = LifecycleEvent::new("T-1", " ", 100);
-        assert!(blank_phase.verify_event_invariants().is_err());
-
-        let zero_time = LifecycleEvent::new("T-1", "proposed", 0);
-        assert!(zero_time.verify_event_invariants().is_err());
-
-        let cost_without_unit = LifecycleEvent {
-            cost: Some(0.10),
-            cost_unit: None,
-            ..LifecycleEvent::new("T-1", "merged", 100)
-        };
-        assert!(cost_without_unit.verify_event_invariants().is_err());
-
-        let neg_cost = LifecycleEvent {
-            cost: Some(-0.01),
-            cost_unit: Some("usd".to_string()),
-            ..LifecycleEvent::new("T-1", "merged", 100)
-        };
-        assert!(neg_cost.verify_event_invariants().is_err());
-
-        let bad_unit = LifecycleEvent {
-            cost: Some(0.10),
-            cost_unit: Some("eur".to_string()),
-            ..LifecycleEvent::new("T-1", "merged", 100)
-        };
-        assert!(bad_unit.verify_event_invariants().is_err());
-
-        let defect_missing_outcome = LifecycleEvent::new("T-1", "defect", 100);
-        assert!(defect_missing_outcome.verify_event_invariants().is_err());
-
-        let blank_outcome = LifecycleEvent::new("T-1", "defect", 100).with_outcome("   ");
-        assert!(blank_outcome.verify_event_invariants().is_err());
-
-        let blank_detail = LifecycleEvent::new("T-1", "proposed", 100).with_detail("  ");
-        assert!(blank_detail.verify_event_invariants().is_err());
     }
 }
