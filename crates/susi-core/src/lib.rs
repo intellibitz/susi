@@ -54,7 +54,6 @@ pub mod peer_admin;
 pub mod peer_probe;
 pub mod peer_roster;
 pub mod untrusted_content;
-pub mod vertical_workflow;
 pub mod wasm_grants;
 pub mod zc_egress_allowlist;
 pub use susi_adapters_llm::inference_wire;
@@ -162,9 +161,6 @@ mod vc_201_089_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_089.rs"]
 mod vc_201_089_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_090.rs"]
-mod vc_201_090_tests;
 
 #[cfg(test)]
 // Test-only assertions in inline unit tests.
