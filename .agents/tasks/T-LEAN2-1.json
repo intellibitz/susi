@@ -26,10 +26,18 @@
     "docs/harness-coordination.md"
   ],
   "scopes": [
+    ".agents/baseline/unsafe-default-x86_64-pc-windows-msvc.json",
     ".agents/tasks/t-lean2-1.json",
+    "cargo.toml",
+    "crates/susi-config/cargo.toml",
     "crates/susi-config/src/host_metrics.rs",
+    "crates/susi-config/src/host_probe.rs",
     "crates/susi-config/src/lib.rs",
     "crates/susi-config/src/process_probe.rs",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-daemon/src/os_status.rs",
+    "crates/susi-daemon/src/runtime_view.rs",
+    "crates/susi-gawd-a2a/src/mastery_tests/mod.rs",
     "crates/susi-gawd-agents/src/system_observe.rs",
     "crates/susi-gemi/src/benchmark.rs",
     "crates/susi-gemi/src/credential_scout.rs",
@@ -37,7 +45,12 @@
     "crates/susi-gmcp/src/lib.rs",
     "crates/susi-gmcp/src/protocol.rs",
     "crates/susi-gmcp/src/schema_check.rs",
-    "docs/harness-coordination.md"
+    "crates/susi-vendor-sysinfo",
+    "crates/susi-vendor-winapi/cargo.toml",
+    "crates/susi-vendor-winapi/src/host.rs",
+    "crates/susi-vendor-winapi/src/lib.rs",
+    "docs/harness-coordination.md",
+    "tests/orphan_sources.rs"
   ],
   "acceptance": "cargo test -p susi-gmcp --lib --offline --locked schema_check",
   "accept": {

@@ -3881,12 +3881,13 @@ dependencies = [
  "susi-vendor-ed25519-dalek",
  "susi-vendor-getrandom",
  "susi-vendor-hex",
+ "susi-vendor-libc",
  "susi-vendor-parking-lot",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-sysinfo",
  "susi-vendor-winapi",
+ "susi-vendor-windows-registry",
  "susi-vendor-x25519-dalek",
 ]
 
@@ -3953,7 +3954,6 @@ dependencies = [
  "susi-vendor-sha1",
  "susi-vendor-sha2",
  "susi-vendor-signal-hook",
- "susi-vendor-sysinfo",
  "susi-vendor-tokio",
  "susi-vendor-tokio-rustls",
  "susi-vendor-tracing",

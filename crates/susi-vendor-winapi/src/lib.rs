@@ -13,3 +13,5 @@ pub use winapi::*;
 pub mod detached;
 #[cfg(windows)]
 pub mod environment;
+#[cfg(windows)]
+pub mod host;

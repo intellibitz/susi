@@ -15,7 +15,6 @@ use crate::models::ModelBenchmarkResult;
 use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::time::Instant;
-use sysinfo::System;
 
 /// Small, fixed prompt set so repeated runs are comparable to each other.
 /// Deliberately short — this benchmarks latency/throughput characteristics,
@@ -28,6 +27,11 @@ pub const BENCHMARK_PROMPTS: &[&str] = &[
 ];
 
 pub struct BenchmarkRunner;
+
+/// This process's resident memory in bytes (0 when the OS will not say).
+fn own_rss_bytes() -> u64 {
+    crate::susi_config::process_probe::rss_kb(std::process::id()).unwrap_or(0) * 1024
+}
 
 impl BenchmarkRunner {
     /// Runs `prompt` through the real local inference engine and measures
@@ -43,11 +47,7 @@ impl BenchmarkRunner {
         ))
         .ok_or_else(|| EaiError::inference("No local reasoning model selected."))?;
 
-        let mut sys = System::new_all();
-        sys.refresh_all();
-        let pid = sysinfo::get_current_pid()
-            .map_err(|e| EaiError::inference(format!("Could not get PID: {}", e)))?;
-        let mem_before = sys.process(pid).map(|p| p.memory()).unwrap_or(0);
+        let mem_before = own_rss_bytes();
 
         let start = Instant::now();
         // Measure exactly the model named in the report. Reasoning orchestration
@@ -55,8 +55,7 @@ impl BenchmarkRunner {
         let output = LlamaCppEngine.run_inference_stream(prompt, &|_| {}, Some(&model_id))?;
         let elapsed = start.elapsed();
 
-        sys.refresh_all();
-        let mem_after = sys.process(pid).map(|p| p.memory()).unwrap_or(0);
+        let mem_after = own_rss_bytes();
         let peak_memory_mb = (mem_after as f32) / (1024.0 * 1024.0);
         let memory_used_mb = ((mem_after.saturating_sub(mem_before)) as f32) / (1024.0 * 1024.0);
 
@@ -114,11 +113,7 @@ impl BenchmarkRunner {
 
         let payload = crate::susi_core::inference_wire::openai_chat_body(&model, prompt, 1024);
 
-        let mut sys = System::new_all();
-        sys.refresh_all();
-        let pid = sysinfo::get_current_pid()
-            .map_err(|e| EaiError::inference(format!("Could not get PID: {}", e)))?;
-        let mem_before = sys.process(pid).map(|p| p.memory()).unwrap_or(0);
+        let mem_before = own_rss_bytes();
 
         let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
         let start = Instant::now();
@@ -138,8 +133,7 @@ impl BenchmarkRunner {
         let elapsed = start.elapsed();
         let (token_count, status) = Self::completion_count(&body)?;
 
-        sys.refresh_all();
-        let mem_after = sys.process(pid).map(|p| p.memory()).unwrap_or(0);
+        let mem_after = own_rss_bytes();
         let peak_memory_mb = (mem_after as f32) / (1024.0 * 1024.0);
         let memory_used_mb = ((mem_after.saturating_sub(mem_before)) as f32) / (1024.0 * 1024.0);
 
