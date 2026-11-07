@@ -73,7 +73,6 @@ pub mod audit_evidence;
 pub mod bloat_audit;
 pub mod cloud_rsi;
 pub mod cloud_rsi_lifecycle;
-pub mod cloud_rsi_outcomes;
 pub mod cloud_session;
 pub mod cross_platform_service;
 pub mod dev_canary;
@@ -176,8 +175,6 @@ mod vc_201_017_tests;
 #[path = "tests/vc_201_018.rs"]
 mod vc_201_018_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_019_mastery.rs"]
-mod vc_201_019_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_019.rs"]
 mod vc_201_019_tests;

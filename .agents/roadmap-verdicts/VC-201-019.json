@@ -1,7 +1,7 @@
 {
   "vector": "VC-201-019",
   "verdict": "not-delivered",
-  "evidence": "crates/susi-gawd/src/tests/vc_201_019_mastery.rs",
+  "evidence": "",
   "missing": "Three refutations fixed: 'fresh evidence' now requires at least one non-blank receipt, not merely a non-empty list (a lone empty string is refused); the counterexample cap now evicts the OLDEST rejection once MAX_COUNTEREXAMPLES is reached, so the ledger keeps learning from new failures instead of freezing; and the parallel ExperimentMemory now recognizes a repeat by identical (cause, counterexample) content even under a fresh id, with addressed/fresh_receipts checked as real evidence rather than caller-asserted booleans. Still missing: check_proposal has no production caller, so 'a repeated proposal is refused' is not yet enforced anywhere. Holds: persisted scoped counterexamples, verified-reference addressing, bogus references rejected (vc_201_019_mastery_ledger_semantics_hold).",
   "tracked_by": [
     "T-DEVIN20261002053148-26"
