@@ -11,12 +11,14 @@
   "deps": [],
   "scope": [
     "crates/susi-core/src/a2a_wire.rs",
+    "crates/susi-daemon",
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
   "native_worker": "socket-dsp4",
   "status": "completed",
   "scopes": [
     "crates/susi-core/src/a2a_wire.rs",
+    "crates/susi-daemon",
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
   "acceptance": "cargo test -p susi-core a2a_wire --offline --locked",
