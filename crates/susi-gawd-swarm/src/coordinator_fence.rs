@@ -12,12 +12,32 @@ pub struct LeadershipEpoch {
     pub coordinator: String,
 }
 
+impl LeadershipEpoch {
+    /// Verifies that the leadership epoch has a positive epoch number and non-empty coordinator ID.
+    #[must_use]
+    pub fn verify_epoch_invariants(&self) -> bool {
+        self.epoch > 0 && !self.coordinator.trim().is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MissionWrite {
     pub mission_id: String,
     pub epoch: u64,
     pub coordinator: String,
     pub payload: String,
+}
+
+impl MissionWrite {
+    /// Verifies that a mission write carries non-empty mission, coordinator, and payload strings
+    /// and a positive leadership epoch.
+    #[must_use]
+    pub fn verify_write_invariants(&self) -> bool {
+        !self.mission_id.trim().is_empty()
+            && self.epoch > 0
+            && !self.coordinator.trim().is_empty()
+            && !self.payload.trim().is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,5 +216,20 @@ mod inline_tests {
         let mw_back: MissionWrite =
             serde_json::from_str(&mw_json).expect("deserialize MissionWrite");
         assert_eq!(mw_back, mw);
+
+        assert!(ep.verify_epoch_invariants());
+        assert!(mw.verify_write_invariants());
+        assert!(!LeadershipEpoch {
+            epoch: 0,
+            coordinator: "coord".to_string(),
+        }
+        .verify_epoch_invariants());
+        assert!(!MissionWrite {
+            mission_id: "   ".to_string(),
+            epoch: 1,
+            coordinator: "coord".to_string(),
+            payload: "p".to_string(),
+        }
+        .verify_write_invariants());
     }
 }
