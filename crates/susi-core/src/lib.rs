@@ -71,7 +71,6 @@ pub mod net_guard;
 pub mod plane_bus;
 pub mod plane_bus_ipc;
 pub mod progress;
-pub mod prompt_secret_scan;
 pub mod provider;
 pub mod queue;
 pub mod receipt_archive;
@@ -98,12 +97,6 @@ mod telemetry_tests;
 pub mod truth;
 pub mod verification;
 
-#[cfg(test)]
-#[path = "tests/prompt_secret_scan.rs"]
-mod prompt_secret_scan_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_073_mastery.rs"]
-mod vc_201_073_mastery_tests;
 
 // Top-level exports for the fundamental susi-core types
 pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
