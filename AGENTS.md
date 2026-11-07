@@ -56,16 +56,18 @@ selected dependency graph and actual linked artifacts before production approval
 
 Susi core is the free, Apache-2.0, open-source socket. It is the standard-protocol
 AI OS for one host: MCP, A2A, OpenAI-compatible HTTP, Anthropic Messages, extension
-admission, and the Wasm host those plugs run in. It stays lean. Speed is a measured
-budget (Mandate 69), not a slogan.
+admission, and the Wasm host those plugs run in, built around four primary pillars
+on `susi-core` (`susi-gawd`, `susi-gemi`, `susi-gmcp`, and `susi-harness`). It stays
+lean. Speed is a measured budget (Mandate 69), not a slogan.
 
 Core does not ship a third-party product implementation. A third party writes the
 plug, and core admits it over the socket. Do not add an implementation of a named
 product (an agent framework, a model host, a cloud CLI, a browser, a catalog, or
 a search vendor) to this repository. Speaking a standard protocol is the socket.
 Embedding that vendor's product is not. The crates `susi-vendor-agents`,
-`susi-vendor-models`, `susi-vendor-cloud`, `susi-vendor-chrome`, `susi-vendor-web`
-and `susi-vendor-candle` are migration debt: their Rust source may only shrink.
+`susi-vendor-models` (≤ 61 files), `susi-vendor-cloud` (≤ 3 files),
+`susi-vendor-chrome`, `susi-vendor-web` and `susi-vendor-candle` are migration
+debt: their Rust source may only shrink.
 `third_party_product_implementations_only_shrink` holds the ceiling.
 
 Susi Commercial Apps is the production-ready, zero-config, UI-driven product a

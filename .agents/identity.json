@@ -687,7 +687,7 @@
         },
         {
           "id": 69,
-          "imperative": "Remove unused dependencies, dead paths, duplicate implementations, unnecessary default features, oversized mandatory services and speculative frameworks. Every shipped capability needs an owner, purpose and evidence. Track executable/distribution size, idle memory, startup, latency and cold/warm build costs with repeatable budgets; regressions require measured justification and must not be hidden by a narrower audit. Preserve necessary functionality when replacing dependencies. Zero bloat is a continuing acceptance discipline, not proof that every remaining byte is indispensable.",
+          "imperative": "Remove unused dependencies, dead paths, duplicate implementations, unnecessary default features, oversized mandatory services and speculative frameworks. Every shipped capability needs an owner, purpose and evidence. Track executable/distribution size, idle memory, startup, latency and cold/warm build costs with repeatable budgets; regressions require measured justification and must not be hidden by a narrower audit. Preserve necessary functionality when replacing dependencies. Zero bloat is a continuing acceptance discipline, not proof that every remaining byte is indispensable. Core concentrates on the four protocol-compliant RSI AI OS pillars on `susi-core` (`susi-gawd`, `susi-gemi`, `susi-gmcp`, `susi-harness`), ratcheting vendor debt down (`susi-vendor-cloud` ≤ 3 files, `susi-vendor-models` ≤ 61 files) and keeping organisation-scale fleet/governance modules in `susi-commercial-apps`.",
           "title": "Zero Bloat Through Measured Budgets"
         },
         {
