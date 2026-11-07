@@ -88,7 +88,7 @@
       "id": "VC-201-006",
       "mastery_target": "Compare baseline and candidate over repeated paired trials with configured confidence and minimum sample counts; noisy or undersampled results return inconclusive rather than improved.",
       "priority": "P1",
-      "progress": "DELIVERED: paired-trial regression decisions at a configured confidence with a minimum sample count; a noisy pair or an undersampled run returns inconclusive rather than improved. Verified by `crates/susi-gawd/src/tests/vc_201_006.rs`: clear_improvement_decides_improved, noisy_pair_is_inconclusive, undersampled_is_inconclusive. Evidence: T-CLAUDE-354.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-frontier-lab::paired_regression): paired-trial regression decisions at a configured confidence with a minimum sample count; a noisy pair or an undersampled run returns inconclusive rather than improved. Verified by `crates/susi-gawd/src/tests/vc_201_006.rs`: clear_improvement_decides_improved, noisy_pair_is_inconclusive, undersampled_is_inconclusive. Evidence: T-CLAUDE-354.",
       "type": "RSI_EVALUATION",
       "vector": "Add paired statistical regression decisions"
     },
