@@ -35,10 +35,6 @@ pub mod reflex_llm;
 pub mod routing;
 /// Core local/cloud inference runtime (`GemiEngine`, `NeuralBackend`, …).
 pub mod runtime;
-#[cfg(feature = "local-engine")]
-pub mod speculative;
-#[cfg(feature = "local-engine")]
-pub(crate) mod token_stream;
 
 /// Serializes every test in this crate that mutates the process-global
 /// `HOME`/`XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`SUSI_XDG` env vars, or that
