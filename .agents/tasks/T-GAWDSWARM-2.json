@@ -8,12 +8,12 @@
       "--lib",
       "--offline",
       "--locked",
-      "side_effect_journal"
+      "fair_queue"
     ]
   },
   "id": "T-GAWDSWARM-2",
   "size": "m",
-  "goal": "Add SideEffectIntent, SideEffectReceipt, DispatchDecision, Resources, and DagNode invariant verifiers in crates/susi-gawd-swarm.",
+  "goal": "Add QueueLimits, QueuedMission, FairQueue, ToolReceipt, ReviewConclusion, ReviewReceipt, Electorate, and MembershipTransition invariant verifiers in crates/susi-gawd-swarm.",
   "scope": [
     ".agents/tasks/T-GAWDSWARM-2.json",
     "crates/susi-gawd-swarm"
@@ -24,8 +24,8 @@
   ],
   "deps": [],
   "created_by": "GAWDSWARM",
-  "created_unix": 1794004500,
+  "created_unix": 1794005500,
   "status": "completed",
-  "title": "Add SideEffectIntent, SideEffectReceipt, DispatchDecision, Resources, and DagNode invariant verifiers in susi-gawd-swarm",
+  "title": "Add FairQueue, IndependentVerify, and JointConsensus invariant verifiers in susi-gawd-swarm",
   "native_worker": "gawd-swarm"
 }

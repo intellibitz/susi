@@ -21,6 +21,21 @@ impl Electorate {
     pub fn quorum_size(&self) -> usize {
         self.0.len() / 2 + 1
     }
+
+    /// Verifies structural invariants of an [`Electorate`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if the electorate is empty or contains blank/untrimmed member IDs.
+    pub fn verify_electorate_invariants(&self) -> Result<(), String> {
+        if self.0.is_empty() {
+            return Err("Electorate must contain at least one member".to_string());
+        }
+        if self.0.iter().any(|m| m.trim().is_empty() || m.trim() != m) {
+            return Err("Electorate member IDs must be non-empty and trimmed".to_string());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +75,25 @@ impl MembershipTransition {
             .filter(|m| self.new.0.contains(*m))
             .count();
         old_votes >= self.old.quorum_size() && new_votes >= self.new.quorum_size()
+    }
+
+    /// Verifies structural and endorsement-membership invariants of a [`MembershipTransition`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `old` or `new` fails [`Electorate::verify_electorate_invariants`]
+    /// or if any member in `endorsements` belongs to neither `old` nor `new`.
+    pub fn verify_transition_invariants(&self) -> Result<(), String> {
+        self.old.verify_electorate_invariants()?;
+        self.new.verify_electorate_invariants()?;
+        for endorser in &self.endorsements {
+            if !self.old.0.contains(endorser) && !self.new.0.contains(endorser) {
+                return Err(format!(
+                    "MembershipTransition endorser '{endorser}' is not a member of old or new electorate"
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -151,5 +185,13 @@ mod inline_tests {
         assert!(t1.can_commit());
         assert!(t2.can_commit());
         assert!(overlapping_disjoint_blocked(&t1, &t2));
+        assert!(t1.verify_transition_invariants().is_ok());
+
+        assert!(Electorate(BTreeSet::new())
+            .verify_electorate_invariants()
+            .is_err());
+        let mut bad_tr = t1;
+        bad_tr.endorsements.insert("outsider".to_string());
+        assert!(bad_tr.verify_transition_invariants().is_err());
     }
 }

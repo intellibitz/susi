@@ -24,12 +24,52 @@ impl Default for QueueLimits {
     }
 }
 
+impl QueueLimits {
+    /// Verifies structural invariants of [`QueueLimits`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `max_running`, `max_queued`, or `age_boost_secs` is `0`.
+    pub fn verify_limits_invariants(&self) -> Result<(), String> {
+        if self.max_running == 0 {
+            return Err("QueueLimits max_running must be > 0".to_string());
+        }
+        if self.max_queued == 0 {
+            return Err("QueueLimits max_queued must be > 0".to_string());
+        }
+        if self.age_boost_secs == 0 {
+            return Err("QueueLimits age_boost_secs must be > 0".to_string());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueuedMission {
     pub mission_id: String,
     pub workspace: String,
     pub enqueued_at: u64,
     pub weight: u32,
+}
+
+impl QueuedMission {
+    /// Verifies structural invariants of a [`QueuedMission`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `mission_id` or `workspace` is empty, or if `weight == 0`.
+    pub fn verify_mission_invariants(&self) -> Result<(), String> {
+        if self.mission_id.trim().is_empty() {
+            return Err("QueuedMission mission_id must not be empty".to_string());
+        }
+        if self.workspace.trim().is_empty() {
+            return Err("QueuedMission workspace must not be empty".to_string());
+        }
+        if self.weight == 0 {
+            return Err("QueuedMission weight must be > 0".to_string());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +163,50 @@ impl FairQueue {
         };
         let aged = now.saturating_sub(starved.enqueued_at) >= self.limits.age_boost_secs;
         aged && self.running.contains_key(sustained_id)
+    }
+
+    /// Verifies structural, capacity, and disjointness invariants of the [`FairQueue`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `limits` fails [`QueueLimits::verify_limits_invariants`],
+    /// `running.len() > limits.max_running`, `waiting.len() > limits.max_queued`, any mission fails
+    /// [`QueuedMission::verify_mission_invariants`], or a mission appears in both `running` and `waiting`.
+    pub fn verify_queue_invariants(&self) -> Result<(), String> {
+        self.limits.verify_limits_invariants()?;
+        if self.running.len() > self.limits.max_running {
+            return Err(format!(
+                "FairQueue running count ({}) exceeds max_running ({})",
+                self.running.len(),
+                self.limits.max_running
+            ));
+        }
+        if self.waiting.len() > self.limits.max_queued {
+            return Err(format!(
+                "FairQueue waiting count ({}) exceeds max_queued ({})",
+                self.waiting.len(),
+                self.limits.max_queued
+            ));
+        }
+        for (id, m) in &self.running {
+            if id != &m.mission_id {
+                return Err(format!(
+                    "FairQueue running key '{id}' != mission_id '{}'",
+                    m.mission_id
+                ));
+            }
+            m.verify_mission_invariants()?;
+        }
+        for m in &self.waiting {
+            m.verify_mission_invariants()?;
+            if self.running.contains_key(&m.mission_id) {
+                return Err(format!(
+                    "FairQueue mission '{}' cannot be in both running and waiting",
+                    m.mission_id
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -265,5 +349,25 @@ mod inline_tests {
         let decoded: QueuedMission =
             serde_json::from_str(&encoded).expect("deserialize QueuedMission");
         assert_eq!(decoded, mission);
+
+        assert!(QueueLimits::default().verify_limits_invariants().is_ok());
+        assert!(QueueLimits {
+            max_running: 0,
+            ..QueueLimits::default()
+        }
+        .verify_limits_invariants()
+        .is_err());
+
+        assert!(mission.verify_mission_invariants().is_ok());
+        assert!(QueuedMission {
+            weight: 0,
+            ..mission.clone()
+        }
+        .verify_mission_invariants()
+        .is_err());
+
+        let mut fq = FairQueue::default();
+        fq.enqueue(mission);
+        assert!(fq.verify_queue_invariants().is_ok());
     }
 }
