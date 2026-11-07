@@ -1166,7 +1166,7 @@
       "id": "VC-201-092",
       "mastery_target": "Measure availability, task success, queue delay, inference latency, and recovery duration from actual events; publish windows and denominators with explicit unknowns when samples are insufficient.",
       "priority": "P1",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-092.json, T-SOCKETDSP4-2): operating-layer SLOs (availability, task_success, queue_delay, inference_latency, recovery_duration) are measured directly from GawdA2AExecutor task events and published with explicit windows, denominators, and unknown markers.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-201-092.json): (verdict .agents/roadmap-verdicts/VC-201-092.json, T-SOCKETDSP4-2): operating-layer SLOs (availability, task_success, queue_delay, inference_latency, recovery_duration) are measured directly from GawdA2AExecutor task events and published with explicit windows, denominators, and unknown markers.",
       "type": "OPERATIONS",
       "vector": "Define and measure operating-layer service objectives"
     },
