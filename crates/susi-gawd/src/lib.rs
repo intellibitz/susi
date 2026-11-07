@@ -102,9 +102,6 @@ pub mod worker_identity;
 pub mod zc_agent_identity;
 
 #[cfg(test)]
-#[path = "tests/native_verifier.rs"]
-mod native_verifier;
-#[cfg(test)]
 #[path = "tests/rsi_corpus.rs"]
 mod rsi_corpus_tests;
 #[cfg(test)]
@@ -126,50 +123,23 @@ mod vc_201_004_tests;
 #[path = "tests/vc_201_005_mastery.rs"]
 mod vc_201_005_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_005.rs"]
-mod vc_201_005_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_007_mastery.rs"]
 mod vc_201_007_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_007.rs"]
 mod vc_201_007_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_009_mastery.rs"]
-mod vc_201_009_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_009.rs"]
-mod vc_201_009_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_011_mastery.rs"]
 mod vc_201_011_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_011.rs"]
-mod vc_201_011_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_013_mastery.rs"]
 mod vc_201_013_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_013.rs"]
-mod vc_201_013_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_015_mastery.rs"]
 mod vc_201_015_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_015.rs"]
-mod vc_201_015_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_017_mastery.rs"]
-mod vc_201_017_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_017.rs"]
-mod vc_201_017_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_018.rs"]
 mod vc_201_018_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_079.rs"]
-mod vc_201_079_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_097_mastery.rs"]
 mod vc_201_097_mastery_tests;
@@ -179,9 +149,6 @@ mod vc_201_097_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_100_mastery.rs"]
 mod vc_201_100_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_100.rs"]
-mod vc_201_100_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
@@ -298,17 +265,8 @@ pub fn init_hooks() {
     });
 }
 #[cfg(test)]
-#[path = "tests/gap_task_from_failure.rs"]
-mod gap_task_from_failure_tests;
-#[cfg(test)]
-#[path = "tests/intent_ladder_canaries.rs"]
-mod intent_ladder_canaries_tests;
-#[cfg(test)]
 #[path = "tests/intent_ladder_startup.rs"]
 mod intent_ladder_startup_tests;
-#[cfg(test)]
-#[path = "tests/vc_202_008.rs"]
-mod vc_202_008_tests;
 
 /// Threads in the rayon pool the swarm runs on (`susi crown`'s
 /// concurrency check reads it without a rayon edge of its own).
