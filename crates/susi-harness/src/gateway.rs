@@ -109,6 +109,57 @@ impl GatewayState {
             Arc::new(ResponseCache::new(cache_dir))
         }))
     }
+
+    /// Verify structural invariants of the gateway configuration state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string when the ledger path or provider is
+    /// blank, `upstream_chat_url` is neither `"direct"` nor an HTTP/HTTPS URL,
+    /// `timeout_secs` is zero, an override `api_key` is blank, or
+    /// `max_output_tokens` is `Some(0)`.
+    pub fn verify_state_invariants(&self) -> Result<(), String> {
+        if self.ledger_path.as_os_str().is_empty() {
+            return Err("gateway ledger_path must not be empty".to_string());
+        }
+        if self.provider.trim().is_empty() {
+            return Err("gateway provider must not be empty".to_string());
+        }
+        let upstream = self.upstream_chat_url.trim();
+        if upstream.is_empty()
+            || (upstream != "direct"
+                && !upstream.starts_with("http://")
+                && !upstream.starts_with("https://"))
+        {
+            return Err(format!(
+                "gateway upstream_chat_url '{}' must be 'direct' or start with http:// or https://",
+                self.upstream_chat_url
+            ));
+        }
+        if self.timeout_secs == 0 {
+            return Err("gateway timeout_secs must be greater than zero".to_string());
+        }
+        if let Some(ref key) = self.api_key {
+            if key.trim().is_empty() {
+                return Err("gateway api_key override must not be blank when present".to_string());
+            }
+        }
+        if self.max_output_tokens == Some(0) {
+            return Err(
+                "gateway max_output_tokens must be greater than zero when present".to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    /// Alias for [`Self::verify_state_invariants`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string if any gateway state invariant is violated.
+    pub fn verify_gateway_state_invariants(&self) -> Result<(), String> {
+        self.verify_state_invariants()
+    }
 }
 
 /// One dispatch the gateway is about to price.
@@ -123,6 +174,28 @@ struct Attempt {
     /// ledger's per-provider views (cooldown, spend) see the real provider
     /// even when one gateway routes to several.
     provider: String,
+}
+
+impl Attempt {
+    #[cfg(test)]
+    fn verify_attempt_invariants(&self) -> Result<(), String> {
+        if self.mission.trim().is_empty() {
+            return Err("attempt mission must not be empty".to_string());
+        }
+        if self.task.trim().is_empty() {
+            return Err("attempt task must not be empty".to_string());
+        }
+        if self.attempt == 0 {
+            return Err("attempt number must be >= 1".to_string());
+        }
+        if self.model.trim().is_empty() {
+            return Err("attempt model must not be empty".to_string());
+        }
+        if self.provider.trim().is_empty() {
+            return Err("attempt provider must not be empty".to_string());
+        }
+        Ok(())
+    }
 }
 
 /// Build the gateway router.
@@ -2833,5 +2906,88 @@ mod tests {
         assert_eq!(rows.len(), 1, "the billed call has its row");
         assert_eq!(rows[0].cost.micros(), 217_200);
         assert_eq!(rows[0].outcome, Outcome::Completed);
+    }
+
+    #[test]
+    fn gateway_state_and_attempt_verify_invariants_reject_corrupt_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let valid_state = GatewayState {
+            catalogue: catalogue(),
+            ledger_path: dir.path().join("ledger.jsonl"),
+            upstream_chat_url: "direct".to_string(),
+            provider: "deepseek".to_string(),
+            api_key: Some("sk-test-123".to_string()),
+            timeout_secs: 60,
+            max_output_tokens: Some(4_096),
+            cache: None,
+        };
+        assert!(valid_state.verify_state_invariants().is_ok());
+        assert!(valid_state.verify_gateway_state_invariants().is_ok());
+
+        let http_state = GatewayState {
+            upstream_chat_url: "http://127.0.0.1:8080/v1/chat/completions".to_string(),
+            api_key: None,
+            max_output_tokens: None,
+            ..valid_state.clone()
+        };
+        assert!(http_state.verify_state_invariants().is_ok());
+
+        let empty_ledger = GatewayState {
+            ledger_path: PathBuf::new(),
+            ..valid_state.clone()
+        };
+        assert!(empty_ledger.verify_state_invariants().is_err());
+
+        let empty_provider = GatewayState {
+            provider: "   ".to_string(),
+            ..valid_state.clone()
+        };
+        assert!(empty_provider.verify_state_invariants().is_err());
+
+        let bad_upstream = GatewayState {
+            upstream_chat_url: "ftp://example.com/v1".to_string(),
+            ..valid_state.clone()
+        };
+        assert!(bad_upstream.verify_state_invariants().is_err());
+
+        let zero_timeout = GatewayState {
+            timeout_secs: 0,
+            ..valid_state.clone()
+        };
+        assert!(zero_timeout.verify_state_invariants().is_err());
+
+        let blank_api_key = GatewayState {
+            api_key: Some("   ".to_string()),
+            ..valid_state.clone()
+        };
+        assert!(blank_api_key.verify_state_invariants().is_err());
+
+        let zero_max_tokens = GatewayState {
+            max_output_tokens: Some(0),
+            ..valid_state
+        };
+        assert!(zero_max_tokens.verify_state_invariants().is_err());
+
+        let valid_attempt = Attempt {
+            mission: "M-1".to_string(),
+            task: "T-1".to_string(),
+            attempt: 1,
+            model: "deepseek-flash".to_string(),
+            price: ModelPrice::default(),
+            provider: "deepseek".to_string(),
+        };
+        assert!(valid_attempt.verify_attempt_invariants().is_ok());
+
+        let zero_attempt = Attempt {
+            attempt: 0,
+            ..valid_attempt.clone()
+        };
+        assert!(zero_attempt.verify_attempt_invariants().is_err());
+
+        let blank_model = Attempt {
+            model: " ".to_string(),
+            ..valid_attempt
+        };
+        assert!(blank_model.verify_attempt_invariants().is_err());
     }
 }
