@@ -3467,10 +3467,10 @@ dependencies = [
  "susi-paths",
  "susi-sandbox-client",
  "susi-vendor-dashmap",
- "susi-vendor-mcp",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-tempfile",
+ "susi-vendor-url",
 ]
 
 [[package]]
