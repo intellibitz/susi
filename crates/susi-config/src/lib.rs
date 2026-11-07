@@ -53,7 +53,6 @@ pub mod versioned_store;
 pub mod windows_environment;
 #[cfg(windows)]
 pub mod windows_model_identity;
-pub mod zc_bare_susi;
 pub mod zc_debt_ratchet;
 pub mod zc_debt_report;
 pub mod zc_path;
