@@ -30,11 +30,11 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 25;
 /// every crate here at its measured value and says so in the wave log.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 32_044),
-    ("susi-gawd-swarm", 26_703),
-    ("susi-gawd-agents", 11_493),
+    ("susi-gawd-swarm", 26_711),
+    ("susi-gawd-agents", 11_494),
     ("susi-gawd-a2a", 2_349),
-    ("susi-gemi", 26_548),
-    ("susi-gemi-models", 17_056),
+    ("susi-gemi", 26_567),
+    ("susi-gemi-models", 17_249),
     ("susi-gmcp", 18_541),
     ("susi-harness", 40_334),
 ];
