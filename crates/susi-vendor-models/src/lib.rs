@@ -112,7 +112,6 @@ pub fn set_selected_model_override(model_name: &str) -> Result<String, String> {
     susi_config::atomic_write_bytes(&model_file, name.as_bytes()).map_err(|e| e.to_string())?;
     Ok(format!("Selected active model override set to: '{name}'"))
 }
-pub mod eco_engine_capability_map;
 pub mod eco_gpu_clouds;
 pub mod eco_live_probe;
 
