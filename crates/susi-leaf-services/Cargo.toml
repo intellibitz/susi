@@ -12,7 +12,6 @@ susi-paths = { workspace = true }
 susi-core = { workspace = true }
 susi-error = { workspace = true, optional = true }
 susi-config = { workspace = true, optional = true }
-susi-sandbox = { workspace = true, optional = true }
 susi-sandbox-client = { workspace = true, optional = true }
 susi-vendor-wasmtime = { workspace = true, optional = true }
 axum = { package = "susi-vendor-axum", path = "../susi-vendor-axum" }
@@ -29,7 +28,7 @@ default = []
 service-paths = []
 service-error = ["dep:susi-error"]
 service-config = ["dep:susi-config"]
-service-sandbox = ["dep:susi-sandbox", "dep:susi-sandbox-client"]
+service-sandbox = ["dep:susi-sandbox-client"]
 service-native = ["dep:susi-vendor-wasmtime"]
 all-services = ["service-paths", "service-error", "service-config", "service-sandbox", "service-native"]
 standalone-service-bins = []

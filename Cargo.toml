@@ -196,7 +196,7 @@ susi-daemon = { path = "crates/susi-daemon", default-features = false }
 susi-server = { path = "crates/susi-server" }
 susi-core = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
-susi-sandbox = { workspace = true }
+susi-sandbox = { package = "susi-sandbox-client", path = "crates/susi-sandbox-client" }
 susi-gemi = { workspace = true }
 susi-gmcp = { workspace = true }
 susi-harness = { workspace = true }
