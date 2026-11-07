@@ -58,9 +58,7 @@ pub mod side_effect_journal;
 pub mod side_effects;
 pub mod swarm_chaos;
 pub mod task_lease;
-pub mod wan_peers;
 pub mod worker_recovery;
-pub mod workspace_txn;
 pub mod writer_isolation;
 
 pub use susi_gawd_agents::{
@@ -179,9 +177,6 @@ mod vc_201_027_tests;
 #[path = "tests/vc_201_028.rs"]
 mod vc_201_028_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_029.rs"]
-mod vc_201_029_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_030.rs"]
 mod vc_201_030_tests;
 #[cfg(test)]
@@ -193,9 +188,6 @@ mod vc_201_033_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_037.rs"]
 mod vc_201_037_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_038.rs"]
-mod vc_201_038_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_040.rs"]
 mod vc_201_040_tests;
