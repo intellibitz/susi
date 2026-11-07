@@ -551,7 +551,7 @@ fn manage_in_view(request: Request<'_>, host_worker: bool) -> Result<String> {
     let register = |root: &Path| -> Result<()> {
         #[cfg(windows)]
         if susi_harness::channel_bindings::register(root)? {
-            susi_config::windows_environment::notify_environment_changed()?;
+            winapi::environment::notify_environment_changed()?;
             susi_harness::channel_bindings::notification_complete(root)?;
         }
         #[cfg(not(windows))]

@@ -235,6 +235,7 @@ serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 anyhow = { package = "susi-vendor-anyhow", path = "crates/susi-vendor-anyhow" }
 clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }
+winapi = { package = "susi-vendor-winapi", path = "crates/susi-vendor-winapi" }
 signal-hook = { package = "susi-vendor-signal-hook", path = "crates/susi-vendor-signal-hook" }
 tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing" }
 tracing-subscriber = { package = "susi-vendor-tracing-subscriber", path = "crates/susi-vendor-tracing-subscriber" }
