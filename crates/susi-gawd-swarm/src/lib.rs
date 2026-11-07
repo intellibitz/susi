@@ -36,7 +36,6 @@ pub mod chaos_deployment;
 pub mod cloud_failover;
 pub mod cloud_lockout;
 pub(crate) mod cloud_recovery;
-pub mod coordinator_fence;
 pub mod dag;
 pub mod deliberation;
 pub mod fair_queue;
@@ -201,9 +200,6 @@ mod vc_201_033_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_034.rs"]
 mod vc_201_034_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_035.rs"]
-mod vc_201_035_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_036.rs"]
 mod vc_201_036_tests;
