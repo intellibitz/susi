@@ -1196,7 +1196,7 @@
       "id": "VC-201-094",
       "mastery_target": "Load-test simultaneous missions, streaming calls, peer repair, and model churn with recorded hardware; report saturation points and verify overload rejection preserves health and cancellation responsiveness.",
       "priority": "P1",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-094.json, T-GAWDSWARM-2): ControlPlaneCapacity and measure_control_plane_saturation load-test simultaneous missions, streaming calls, peer repair, and model churn with RECORDED_HARDWARE_PROFILE, report saturation points via saturation(), and verify overload rejection preserves health and measured cancellation responsiveness. Verified by `crates/susi-gawd/src/tests/vc_201_094.rs`: vc_201_094_load_tests_simultaneous_dimensions_and_measures_cancellation_responsiveness.",
+      "progress": "PARTIAL (refuted on record, VC-201-094): (verdict .agents/roadmap-verdicts/VC-201-094.json, T-GAWDSWARM-2): ControlPlaneCapacity and measure_control_plane_saturation load-test simultaneous missions, streaming calls, peer repair, and model churn with RECORDED_HARDWARE_PROFILE, report saturation points via saturation(), and verify overload rejection preserves health and measured cancellation responsiveness. Verified by `crates/susi-gawd/src/tests/vc_201_094.rs`: vc_201_094_load_tests_simultaneous_dimensions_and_measures_cancellation_responsiveness.",
       "type": "OPERATIONS",
       "vector": "Benchmark and enforce control-plane capacity limits"
     },
