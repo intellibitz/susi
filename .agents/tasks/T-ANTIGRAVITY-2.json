@@ -1,14 +1,14 @@
 {
   "id": "T-ANTIGRAVITY-2",
-  "title": "Add cockpit and ROI invariant verifiers in susi-harness",
-  "goal": "Add WorkerRoi::verify_worker_roi_invariants, RoiReport::verify_roi_report_invariants, SovaRankedCandidate::verify_ranked_candidate_invariants, and SovaDecision::verify_decision_invariants in crates/susi-harness/src/roi.rs, and MissionView::verify_mission_view_invariants, WorkerView::verify_worker_view_invariants, and Snapshot::verify_snapshot_invariants in crates/susi-harness/src/cockpit.rs.",
+  "title": "Add Wave 10 mission control and operator invariant verifiers in susi-harness",
+  "goal": "Add GraphMessage::verify_message_invariants, GraphView::verify_graph_view_invariants, ReplayEvent::verify_replay_event_invariants, and Replay::verify_replay_invariants in crates/susi-harness/src/mission_control.rs, plus PlanQueueOptions::verify_plan_options_invariants, AuthorOptions::verify_author_options_invariants, and RunOptions::verify_run_options_invariants in crates/susi-harness/src/operator.rs.",
   "state": "in_progress",
   "status": "completed",
   "claimed_by": "antigravity",
   "native_worker": "antigravity",
   "created_by": "antigravity",
-  "created_unix": 1794025502,
-  "updated_unix": 1794036400,
+  "created_unix": 1794025503,
+  "updated_unix": 1794038000,
   "size": "M",
   "deps": [],
   "scope": [
@@ -19,7 +19,7 @@
     "crates/susi-harness",
     ".agents/tasks/T-ANTIGRAVITY-2.json"
   ],
-  "acceptance": "roi::tests::roi_report_worker_roi_and_sova_decision_verify_invariants_reject_corrupt_state",
+  "acceptance": "mission_control::tests::graph_view_and_replay_verify_invariants_reject_corrupt_state and operator::tests::operator_plan_author_and_run_options_verify_invariants_reject_corrupt_state",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,7 +27,7 @@
       "-p",
       "susi-harness",
       "--lib",
-      "roi_report_worker_roi_and_sova_decision_verify_invariants_reject_corrupt_state",
+      "verify_invariants_reject_corrupt_state",
       "--offline",
       "--locked"
     ]
