@@ -113,7 +113,6 @@ pub fn set_selected_model_override(model_name: &str) -> Result<String, String> {
     Ok(format!("Selected active model override set to: '{name}'"))
 }
 pub mod eco_gpu_clouds;
-pub mod eco_live_probe;
 
 #[cfg(test)]
 // Test-only assertions in inline unit tests.
