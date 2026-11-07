@@ -557,7 +557,6 @@ pub fn apply_manifest(kind: CloudKind, manifest: &str) -> Result<String, String>
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -81,7 +81,6 @@ mod estate_autonomy_tiers_tests;
 #[path = "tests/vc_202_010_mastery.rs"]
 mod vc_202_010_mastery_tests;
 
-
 pub use composition::{
     swarm_host_snapshot, wire_cli_substrate, wire_cli_substrate_priming, wire_engine_hooks,
 };

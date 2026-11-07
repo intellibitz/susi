@@ -1548,4 +1548,3 @@ pub fn validate_report(root: &Path) -> Result<serde_json::Value, String> {
         "artifacts_sha256": artifacts,
     }))
 }
-

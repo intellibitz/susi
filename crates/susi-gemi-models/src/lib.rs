@@ -46,6 +46,20 @@ pub mod zc_first_model;
 
 pub use lifecycle::*;
 
+/// Write the selected-model override every inference path reads
+/// (`selected_model_override.txt` under the config dir).
+pub fn set_selected_model_override(model_name: &str) -> Result<String, String> {
+    let name = model_name.trim();
+    if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+        return Err(format!(
+            "invalid model name {model_name:?}: expected a non-empty single-line id"
+        ));
+    }
+    let model_file = susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
+    susi_config::atomic_write_bytes(&model_file, name.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(format!("Selected active model override set to: '{name}'"))
+}
+
 #[cfg(test)]
 // Test-only assertions in inline unit tests.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

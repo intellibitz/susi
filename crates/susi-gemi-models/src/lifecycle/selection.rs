@@ -230,7 +230,7 @@ impl ModelManager {
         Some(model)
     }
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
-        susi_vendor_models::set_selected_model_override(model_name)
+        crate::set_selected_model_override(model_name)
     }
 
     pub fn identify_best_suited_local_model(
