@@ -847,7 +847,9 @@ impl SusiMasterAgent {
             mission_trace!("  - [Recruited Agent] Profile: {} | Provider: {} | Status: Recruited for semantic centroid projection overlap.", agent.name, agent.provider);
         }
 
-        mission_trace!("- [Swarm Execution] Dispatching agent fleet via rayon work-stealing parallel execution...");
+        mission_trace!(
+            "- [Swarm Execution] Dispatching agent fleet via thread-parallel execution..."
+        );
         for msg in &interactions {
             if msg.sender != "ConsensusMaster" {
                 mission_trace!(
@@ -985,7 +987,7 @@ impl SusiMasterAgent {
         version: &str,
     ) -> EaiResult<SusiMissionReport> {
         // Mission-scoped evidence ledger: every real tool dispatch inside this
-        // call — swarm agents on rayon workers, MCP calls, recovery attempts —
+        // call — swarm agents on worker threads, MCP calls, recovery attempts —
         // records a receipt. Answers certify only by citing those receipts.
         let session = crate::susi_core::capture::EvidenceSession::new(
             goal,
@@ -1738,18 +1740,15 @@ impl SusiMasterAgent {
 
         // Speculative Parallelism
         // Partitioned tasks are executed in parallel across the multi-threaded substrate.
-        use rayon::prelude::*;
-
-        let results: Vec<_> = goals
-            .par_iter()
-            .enumerate()
-            .map(|(i, sub_goal)| {
+        let results: Vec<_> =
+            crate::susi_core::parallel::map(goals.iter().enumerate().collect(), |(i, sub_goal)| {
                 let g = format!("[PARALLEL STEP {}/{}]: {}", i + 1, goals.len(), sub_goal);
                 let w = workspace.to_path_buf();
                 let v = version.to_string();
                 let ama = SusiMasterAgent::new();
                 ama.solve_internal(&g, &w, &v, depth + 1)
             })
+            .into_iter()
             .filter_map(Result::ok)
             .collect();
 

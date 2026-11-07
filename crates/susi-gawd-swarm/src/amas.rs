@@ -1218,7 +1218,7 @@ impl SusiSupervisor {
                 let g = goal.to_string();
                 let peer_cancel = cancellation.clone();
                 let peer_tx = peer_tx.clone();
-                rayon::spawn(move || {
+                std::thread::spawn(move || {
                     if let PeerDispatchOutcome::Completed(remote_res) =
                         Self::dispatch_peer_task_cancellable(&addr, "reason", &g, &peer_cancel)
                     {
@@ -1976,24 +1976,18 @@ impl SusiSupervisor {
 
     pub fn broadcast_lock_request(resource_id: &str) -> bool {
         let nodes = Self::list_cluster_nodes();
-        use rayon::prelude::*;
 
         let target_nodes: Vec<_> = nodes
             .into_iter()
             .filter(|n| !matches!(n.admission, PeerAdmission::Local))
             .collect();
 
-        let successes = target_nodes
-            .par_iter()
-            .map(|node| {
-                let res = Self::dispatch_peer_task(&node.address, "locks/acquire", resource_id);
-                if res.contains("SUCCESS") {
-                    1
-                } else {
-                    0
-                }
-            })
-            .sum::<usize>();
+        let successes = crate::susi_core::parallel::map_ref(&target_nodes, |node| {
+            let res = Self::dispatch_peer_task(&node.address, "locks/acquire", resource_id);
+            usize::from(res.contains("SUCCESS"))
+        })
+        .into_iter()
+        .sum::<usize>();
 
         successes == target_nodes.len()
     }

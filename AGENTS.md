@@ -80,6 +80,19 @@ never move commercial code into this repository or the reverse. Never admit a
 dependency whose license would bind software built on top of Susi.
 The Apache-2.0 license grants code rights, not rights to the Susi name or marks.
 
+## Lean-core program (CEO directive 2026-11-07)
+
+Susi core becomes minimal: GAWD, GEMI, GMCP and the harness (with its parallel
+multi-agent workflow) are the only components; everything else is a plug that
+lives in `susi-commercial-apps` and is admitted over the socket. The plan, the
+crate classification, the measured ladder toward zero third-party dependencies
+and the split of work between agents are in `docs/lean-core.md`. The ceilings
+in `tests/lean_core_ceilings.rs` only go down: every cut lowers them in the
+same change, and nothing raises one without a CEO decision recorded in the doc.
+Before migrating a module out of core, grep every cfg (`#[cfg(windows)]` code
+is invisible to a Linux build), then `cargo check --workspace --all-targets`
+and `cargo fmt --all --check` on the exact tree, and ship through the gate.
+
 ## Native local agent loop
 
 1. Inspect the actual repository, local integration head and existing changes.

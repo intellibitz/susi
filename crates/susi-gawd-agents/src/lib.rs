@@ -50,7 +50,7 @@ pub mod self_core;
 pub mod system_observe;
 
 #[cfg(test)]
-pub(crate) static SUSI_HOME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) use crate::susi_core::commit_log::ENV_LOCK as SUSI_HOME_TEST_LOCK;
 
 pub use agents::{
     AgentMetaRegistry, AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentFleet, GawdAgentInfo,

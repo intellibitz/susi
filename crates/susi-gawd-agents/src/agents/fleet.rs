@@ -5,7 +5,6 @@
 
 use crate::susi_error::EaiResult;
 
-use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -610,18 +609,25 @@ impl GawdAgentFleet {
 
         let agents_len = agents.len();
 
-        println!("- [Swarm Dispatch] Initializing Rayon work-stealing parallel execution for {} agents...", agents_len);
+        println!(
+            "- [Swarm Dispatch] Initializing thread-parallel execution for {} agents...",
+            agents_len
+        );
         let _ = std::io::stdout().flush();
 
-        let par_results: Vec<(String, String)> = agents.into_par_iter().map(|agent| {
+        let par_results: Vec<(String, String)> = crate::susi_core::parallel::map(agents, |agent| {
             let name = agent.name();
-            let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global().register_task(&name, &goal);
+            let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
+                .register_task(&name, &goal);
             let start = std::time::Instant::now();
 
             task_handle.check_pause();
             if task_handle.is_cancelled() {
                 task_handle.mark_failed("Agent execution cancelled/stalled");
-                return (name, "[STALLED] Agent execution cancelled by Swarm Watchdog.".to_string());
+                return (
+                    name,
+                    "[STALLED] Agent execution cancelled by Swarm Watchdog.".to_string(),
+                );
             }
 
             task_handle.report_progress();
@@ -659,7 +665,9 @@ impl GawdAgentFleet {
 
             let res = if task_handle.is_cancelled() {
                 "[STALLED] Agent execution cancelled before its result was accepted.".to_string()
-            } else { res };
+            } else {
+                res
+            };
 
             // The returned outcome supersedes optimistic intermediate observations.
             blackboard.insert(name.clone(), res.clone());
@@ -675,12 +683,17 @@ impl GawdAgentFleet {
                 if line_count > 1 {
                     println!("- [Swarm Flux Trace] {}: [Generated {} lines of payload/content] (Latency: {}µs)", name, line_count, duration_us);
                 } else {
-                    println!("- [Swarm Flux Trace] {}: {} (Latency: {}µs)", name, res.trim(), duration_us);
+                    println!(
+                        "- [Swarm Flux Trace] {}: {} (Latency: {}µs)",
+                        name,
+                        res.trim(),
+                        duration_us
+                    );
                 }
             }
             let _ = std::io::stdout().flush();
             (name, res)
-        }).collect();
+        });
 
         results.extend(par_results);
 

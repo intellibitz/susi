@@ -37,6 +37,7 @@ mod tests {
 
     #[tokio::test]
     async fn paths_and_ports_answer_json_objects() {
+        let _env = crate::ENV_LOCK.lock().await;
         for uri in ["/paths", "/ports"] {
             let response = call("GET", uri).await;
             assert_eq!(response.status(), StatusCode::OK, "{uri}");
@@ -53,6 +54,7 @@ mod tests {
 
     #[tokio::test]
     async fn contract_routes_are_read_only_and_closed_to_unknown_paths() {
+        let _env = crate::ENV_LOCK.lock().await;
         for uri in ["/paths", "/ports"] {
             for method in ["POST", "PUT", "DELETE"] {
                 assert_eq!(
@@ -67,6 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn paths_and_ports_match_susi_paths_contract_keys_and_values() {
+        let _env = crate::ENV_LOCK.lock().await;
         let paths_resp = json_body(call("GET", "/paths").await).await;
         let expected_paths = susi_paths::local_paths_json();
         let paths_obj = paths_resp.as_object().unwrap();
@@ -89,6 +92,7 @@ mod tests {
 
     #[tokio::test]
     async fn paths_and_ports_ignore_query_strings_and_reject_patch_mutations() {
+        let _env = crate::ENV_LOCK.lock().await;
         let paths_resp = call("GET", "/paths?format=compact").await;
         assert_eq!(paths_resp.status(), StatusCode::OK);
         assert_eq!(json_body(paths_resp).await, susi_paths::local_paths_json());
@@ -109,6 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn head_requests_on_paths_and_ports_return_ok_with_empty_body() {
+        let _env = crate::ENV_LOCK.lock().await;
         for uri in ["/paths", "/ports"] {
             let resp = call("HEAD", uri).await;
             assert_eq!(resp.status(), StatusCode::OK, "HEAD {uri}");

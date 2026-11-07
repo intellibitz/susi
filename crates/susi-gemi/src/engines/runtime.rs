@@ -1419,7 +1419,7 @@ mod tests {
 
     #[test]
     fn test_competitive_racing_logic() {
-        let (tx, rx) = flume::unbounded();
+        let (tx, rx) = std::sync::mpsc::channel();
         let tx1 = tx.clone();
         thread::spawn(move || {
             thread::sleep(std::time::Duration::from_millis(50));

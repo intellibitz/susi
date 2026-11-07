@@ -95,7 +95,7 @@ fn collect(workspace: &Path, docker_sandbox_exec: bool) -> serde_json::Value {
             "tier0_roi": susi_gemi::pulse::SusiPulse::roi_summary(workspace),
         },
         "concurrency": {
-            "swarm": "rayon work-stealing",
+            "swarm": "std scoped threads",
             "daemon_http": "tokio",
             "shared_state": "parking_lot / DashMap",
         },
@@ -176,7 +176,7 @@ mod inline_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let doc = collect(&dir, false);
         assert_eq!(doc["sandbox"]["docker_sandbox_exec"], false);
-        assert_eq!(doc["concurrency"]["swarm"], "rayon work-stealing");
+        assert_eq!(doc["concurrency"]["swarm"], "std scoped threads");
         assert_eq!(doc["concurrency"]["daemon_http"], "tokio");
         let _ = std::fs::remove_dir_all(&dir);
     }

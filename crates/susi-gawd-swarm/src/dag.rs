@@ -1,5 +1,5 @@
 // Dependency-ordered task graph: agents can spawn sub-tasks with
-// dependencies on parent tasks, executed in ready-batches via rayon.
+// dependencies on parent tasks, executed in ready-batches on worker threads.
 
 use crate::cancel_propagate::{
     run_cancellable, CancelBus, CancelToken, CancellableResult, Descendant, WorkerKind,
@@ -933,7 +933,6 @@ impl MissionDag {
         model_generator: DagModelGenerator,
         tool_executor: DagToolExecutor,
     ) -> EaiResult<Vec<EvidenceRecord>> {
-        use rayon::prelude::*;
         let mut all_evidence = Vec::new();
 
         let mut executed_count = self.nodes.iter().filter(|node| node.completed).count();
@@ -1095,11 +1094,14 @@ impl MissionDag {
                 batch_scopes.push(isolation.scope(&scope_owner)?);
             }
 
-            let mut batch_results: Vec<NodeRun> = batch_leases
-                .into_par_iter()
+            let batch_inputs: Vec<_> = batch_leases
+                .into_iter()
                 .zip(batch_scopes)
                 .zip(batch_signals)
-                .map(|(((idx, owner, fence), scope), signal)| {
+                .collect();
+            let mut batch_results: Vec<NodeRun> = crate::susi_core::parallel::map(
+                batch_inputs,
+                |(((idx, owner, fence), scope), signal)| {
                     let node = &self.nodes[idx];
                     let node_ws = scope.dir.clone();
                     let start = std::time::Instant::now();
@@ -1107,8 +1109,7 @@ impl MissionDag {
                     // only arrive via the task scope (propagate / external
                     // stop), the shared signal, or the token deadline —
                     // the dag itself is mutably borrowed for the whole run.
-                    let manager =
-                        crate::susi_core::task_manager::SwarmTaskManager::global();
+                    let manager = crate::susi_core::task_manager::SwarmTaskManager::global();
                     let scope_for_check = mission_scope.clone();
                     let cancellation_for_check = cancellation.clone();
                     let cancelled = move || {
@@ -1121,9 +1122,8 @@ impl MissionDag {
                     // (T-DEVIN-9): rejecting only at completion cannot undo
                     // writes the stale worker already made.
                     let node_id = Self::persist_id(idx);
-                    let stale = self.leases.check_fence(
-                        &node_id, &owner, fence, now_unix(),
-                    ) != CompleteVerdict::Accepted;
+                    let stale = self.leases.check_fence(&node_id, &owner, fence, now_unix())
+                        != CompleteVerdict::Accepted;
                     if cancelled() || stale {
                         return NodeRun {
                             idx,
@@ -1192,8 +1192,8 @@ impl MissionDag {
                         cancelled: cancelled() || cancellation.should_stop(),
                         stale_fence: stale,
                     }
-                })
-                .collect();
+                },
+            );
 
             // Execute mutating tool calls only after the model phase has
             // joined.  Each call now has a durable intent and an authority

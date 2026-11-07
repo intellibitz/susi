@@ -196,6 +196,7 @@ fn graph_assertions_cannot_confuse_facades_with_runtime_packages() {
 }
 
 #[test]
+#[ignore = "Rust model runtime removed from core by ungated iterations 341-347 (2026-11-07) with no destination on the commercial origin; restore list ANTIGRAVITY-NEXT-100.md item 4; re-enable when a plug or the restored engine is in (CEO decision 2026-11-08 02:00: land with ignores)"]
 fn all_supported_features_exclude_retired_accelerator_dependencies() {
     for target in [
         "x86_64-unknown-linux-gnu",
@@ -257,6 +258,7 @@ fn retired_feature_requests_fail_explicitly_before_building() {
 }
 
 #[test]
+#[ignore = "Rust model runtime removed from core by ungated iterations 341-347 (2026-11-07) with no destination on the commercial origin; restore list ANTIGRAVITY-NEXT-100.md item 4; re-enable when a plug or the restored engine is in (CEO decision 2026-11-08 02:00: land with ignores)"]
 fn plugins_bundle_restores_the_rust_model_runtime() {
     // The slim default leaves Candle out; `--features plugins` is the
     // documented way to get the built-in local model engine back.
