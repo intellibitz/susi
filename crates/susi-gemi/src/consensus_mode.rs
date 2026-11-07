@@ -10,6 +10,16 @@ pub struct ConsensusResult {
     pub value: String,
 }
 
+impl ConsensusResult {
+    /// Verify structural invariants on an unweighted majority consensus result.
+    pub fn verify_result_invariants(&self) -> Result<(), String> {
+        if self.agreed && self.value.trim().is_empty() {
+            return Err("ConsensusResult agreed=true requires a non-empty value".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Require a majority agreement across provider answers.
 #[must_use]
 pub fn consensus(answers: &[String]) -> ConsensusResult {
@@ -38,6 +48,25 @@ pub struct WeightedVote {
     pub reliability: f64,
 }
 
+impl WeightedVote {
+    /// Verify structural invariants on a provider weighted vote.
+    pub fn verify_vote_invariants(&self) -> Result<(), String> {
+        if self.provider.trim().is_empty() {
+            return Err("WeightedVote provider must not be empty".to_string());
+        }
+        if self.answer.trim().is_empty() {
+            return Err("WeightedVote answer must not be empty".to_string());
+        }
+        if !self.reliability.is_finite() || self.reliability <= 0.0 || self.reliability >= 1.0 {
+            return Err(
+                "WeightedVote reliability must be finite and strictly within (0.0, 1.0)"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
 /// Full Bayesian Dawid-Skene consensus diagnosis across multiple providers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BayesianConsensusReport {
@@ -54,6 +83,64 @@ pub struct BayesianConsensusReport {
     pub cluster_count: usize,
     /// Winning providers that voted for the consensus cluster.
     pub supporting_providers: Vec<String>,
+}
+
+impl BayesianConsensusReport {
+    /// Verify structural invariants on a Bayesian Dawid-Skene consensus report.
+    pub fn verify_report_invariants(&self) -> Result<(), String> {
+        if !self.posterior_probability.is_finite()
+            || !(0.0..=1.0).contains(&self.posterior_probability)
+        {
+            return Err(
+                "BayesianConsensusReport posterior_probability must be finite and in 0.0..=1.0"
+                    .to_string(),
+            );
+        }
+        if !self.shannon_entropy_bits.is_finite() || self.shannon_entropy_bits < 0.0 {
+            return Err(
+                "BayesianConsensusReport shannon_entropy_bits must be finite and non-negative"
+                    .to_string(),
+            );
+        }
+        if !self.weighted_support_fraction.is_finite()
+            || !(0.0..=1.0).contains(&self.weighted_support_fraction)
+        {
+            return Err(
+                "BayesianConsensusReport weighted_support_fraction must be finite and in 0.0..=1.0"
+                    .to_string(),
+            );
+        }
+        if self.agreed {
+            if self.value.trim().is_empty() {
+                return Err(
+                    "BayesianConsensusReport agreed=true requires a non-empty value".to_string(),
+                );
+            }
+            if self.cluster_count == 0 {
+                return Err(
+                    "BayesianConsensusReport agreed=true requires cluster_count >= 1".to_string(),
+                );
+            }
+            if self.supporting_providers.is_empty()
+                || self
+                    .supporting_providers
+                    .iter()
+                    .any(|p| p.trim().is_empty())
+            {
+                return Err(
+                    "BayesianConsensusReport agreed=true requires non-empty supporting_providers"
+                        .to_string(),
+                );
+            }
+            if self.weighted_support_fraction <= 0.5 {
+                return Err(
+                    "BayesianConsensusReport agreed=true requires weighted_support_fraction > 0.5"
+                        .to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Normalize an answer into its canonical semantic equivalence key (stripping
@@ -279,5 +366,40 @@ mod consensus_mode_tests {
         let fenced = "```rust\nfn main() {}\n```";
         assert_eq!(canonicalize_answer(fenced), "fn main() {}");
         assert_eq!(canonicalize_answer("  **Yes, agreed!**.  "), "yes, agreed!");
+    }
+
+    #[test]
+    fn verify_consensus_vote_and_bayesian_report_invariants() {
+        let majority = consensus(&["ok".into(), "ok".into(), "no".into()]);
+        assert!(majority.verify_result_invariants().is_ok());
+
+        let invalid_majority = ConsensusResult {
+            agreed: true,
+            value: "   ".to_string(),
+        };
+        assert!(invalid_majority.verify_result_invariants().is_err());
+
+        let vote = WeightedVote {
+            provider: "anthropic-opus".into(),
+            answer: "ok".into(),
+            reliability: 0.94,
+        };
+        assert!(vote.verify_vote_invariants().is_ok());
+
+        let out_of_range_vote = WeightedVote {
+            reliability: 1.0,
+            ..vote.clone()
+        };
+        assert!(out_of_range_vote.verify_vote_invariants().is_err());
+
+        let report = bayesian_consensus(&[vote.clone(), vote], 0.85);
+        assert!(report.verify_report_invariants().is_ok());
+
+        let inconsistent_report = BayesianConsensusReport {
+            agreed: true,
+            supporting_providers: Vec::new(),
+            ..report
+        };
+        assert!(inconsistent_report.verify_report_invariants().is_err());
     }
 }
