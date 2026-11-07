@@ -357,7 +357,54 @@ fn clone_claimed(c: &ClaimedWork) -> ClaimedWork {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parallel_roadmap_e2e_tests::Rendezvous;
+    /// Bounded rendezvous: proves N executions were in flight simultaneously.
+    /// Returns false instead of deadlocking if dispatch were serial. (Was
+    /// shared with the parallel_roadmap_e2e suite until that suite moved to
+    /// susi-commercial-apps on 2026-11-07.)
+    pub(crate) struct Rendezvous {
+        state: Mutex<usize>,
+        cv: std::sync::Condvar,
+        want: usize,
+    }
+    impl Rendezvous {
+        pub(crate) fn new(want: usize) -> Self {
+            Self {
+                state: Mutex::new(0),
+                cv: std::sync::Condvar::new(),
+                want,
+            }
+        }
+        /// Executions that reached the barrier.
+        pub(crate) fn arrivals(&self) -> usize {
+            *self.state.lock().unwrap_or_else(|e| e.into_inner())
+        }
+        pub(crate) fn arrive(&self, timeout: Duration) -> bool {
+            let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *g += 1;
+            if *g >= self.want {
+                self.cv.notify_all();
+                return true;
+            }
+            let deadline = Instant::now() + timeout;
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return false;
+                }
+                let (g2, res) = self
+                    .cv
+                    .wait_timeout(g, remaining)
+                    .unwrap_or_else(|e| e.into_inner());
+                g = g2;
+                if *g >= self.want {
+                    return true;
+                }
+                if res.timed_out() {
+                    return false;
+                }
+            }
+        }
+    }
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::{Arc, Mutex};
     use std::thread;
