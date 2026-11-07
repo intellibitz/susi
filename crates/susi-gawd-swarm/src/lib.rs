@@ -52,7 +52,6 @@ pub mod roadmap_agents;
 pub mod role_select;
 pub mod side_effect_journal;
 pub mod side_effects;
-pub mod swarm_chaos;
 pub mod task_lease;
 pub mod worker_recovery;
 pub mod writer_isolation;
@@ -123,8 +122,6 @@ mod side_effects_dispatch_wiring_tests;
 #[path = "tests/snapshot_rollback.rs"]
 mod snapshot_rollback_tests;
 #[cfg(test)]
-#[path = "tests/swarm_chaos.rs"]
-mod swarm_chaos_tests;
 #[cfg(test)]
 #[path = "tests/swarm_gap_durable_fencing.rs"]
 mod swarm_gap_durable_fencing_tests;
