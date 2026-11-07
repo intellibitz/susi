@@ -184,7 +184,7 @@
       "id": "VC-201-014",
       "mastery_target": "Reserve and debit tokens, wall time, subprocesses, and cloud spend across retries and delegated descendants; exhausting a budget durably stops new work and cancels eligible children.",
       "priority": "P0",
-      "progress": "DELIVERED: cumulative experiment budgets reserve and debit across retries, and exhaustion durably stops new work and cancels eligible children. Verified by `crates/susi-gawd/src/tests/vc_201_014.rs`: reserve_and_debit_across_retries, exhaustion_stops_new_work_and_cancels_children; companions in `crates/susi-gawd/src/cloud_rsi_lifecycle.rs` (spend_cap_refuses_overspend, cancel_and_reject_are_terminal). Evidence: T-CLAUDE-121.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-frontier-lab::experiment_budget): cumulative experiment budgets reserve and debit across retries, and exhaustion durably stops new work and cancels eligible children. Verified by `crates/susi-gawd/src/tests/vc_201_014.rs`: reserve_and_debit_across_retries, exhaustion_stops_new_work_and_cancels_children; companions in `crates/susi-gawd/src/cloud_rsi_lifecycle.rs` (spend_cap_refuses_overspend, cancel_and_reject_are_terminal). Evidence: T-CLAUDE-121.",
       "type": "RSI_EXECUTION",
       "vector": "Enforce cumulative RSI experiment budgets"
     },
