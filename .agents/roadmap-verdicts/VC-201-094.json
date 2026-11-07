@@ -2,16 +2,10 @@
   "vector": "VC-201-094",
   "verdict": "not-delivered",
   "evidence": "",
-  "missing": "Capacity limits exist only as pure functions with unit tests: admit and saturation in crates/susi-gawd/src/capacity_limits.rs have no external production call sites (saturation is only called by CapacityWindow::record inside capacity_limits.rs), and saturation() hardcodes healthy=true and cancel_responsive=true rather than measuring them.",
+  "missing": "Moved out of scope 2026-11-07 by CEO direction: capacity_limits (crates/susi-gawd/src/capacity_limits.rs) migrated to susi-commercial-apps (susi-fleet-command).",
   "tracked_by": [
     "T-DEEPSEEK-218"
   ],
   "recorded_by": "DEEPSEEK",
-  "recorded_unix": 1791103480,
-  "check": [
-    "scripts/check-reachability.sh",
-    "--function",
-    "--refuted",
-    "admit"
-  ]
+  "recorded_unix": 1791103480
 }
