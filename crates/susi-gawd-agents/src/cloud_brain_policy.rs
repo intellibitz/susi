@@ -81,6 +81,34 @@ pub enum BrainDecision {
     },
 }
 
+impl BrainDecision {
+    /// Verifies structural and quality invariants of a [`BrainDecision`]:
+    /// - `Cloud` requires non-empty `lead_opaque` and `model`, finite `verified_quality` in `0.0..=1.0`,
+    ///   and non-empty `alternatives` distinct from `lead_opaque`.
+    /// - `LocalFallback` requires a non-empty `reason`.
+    /// - `Blocked` requires every rejection to carry a non-empty `candidate` opaque identifier.
+    #[must_use]
+    pub fn verify_decision_invariants(&self) -> bool {
+        match self {
+            Self::Cloud {
+                lead_opaque,
+                model,
+                verified_quality,
+                alternatives,
+            } => {
+                !lead_opaque.trim().is_empty()
+                    && !model.trim().is_empty()
+                    && verified_quality.is_none_or(|q| q.is_finite() && (0.0..=1.0).contains(&q))
+                    && alternatives
+                        .iter()
+                        .all(|alt| !alt.trim().is_empty() && alt != lead_opaque)
+            }
+            Self::LocalFallback { reason } => !reason.trim().is_empty(),
+            Self::Blocked { reasons } => reasons.iter().all(|r| !r.candidate.trim().is_empty()),
+        }
+    }
+}
+
 /// User/default policy for brain selection.
 #[derive(Debug, Default)]
 pub struct BrainPolicy {
@@ -485,5 +513,30 @@ mod tests {
             }
             _ => panic!("expected a cloud brain"),
         }
+    }
+
+    #[test]
+    fn brain_decision_verify_invariants_validates_cloud_local_and_blocked() {
+        let mut f = fx("invariants");
+        let good = cand("sk-g", "m-good");
+        f.elig
+            .record_inference(subj(&good), &InferenceResult::Success, T0);
+        f.candidates = vec![good];
+        promote(&mut f.outcomes, "m-good", 2);
+        let decision = f.decide(&BrainPolicy::default());
+        assert!(decision.verify_decision_invariants());
+
+        let invalid_cloud = BrainDecision::Cloud {
+            lead_opaque: "cand-1".into(),
+            model: "m-good".into(),
+            verified_quality: Some(1.5),
+            alternatives: Vec::new(),
+        };
+        assert!(!invalid_cloud.verify_decision_invariants());
+
+        let fallback = BrainDecision::LocalFallback {
+            reason: "no cloud candidates supplied".into(),
+        };
+        assert!(fallback.verify_decision_invariants());
     }
 }

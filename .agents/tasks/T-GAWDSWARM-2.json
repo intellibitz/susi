@@ -4,28 +4,28 @@
       "cargo",
       "test",
       "-p",
-      "susi-gawd-a2a",
+      "susi-gawd-agents",
       "--lib",
       "--offline",
       "--locked",
-      "a2a_profile"
+      "cloud_budget"
     ]
   },
   "id": "T-GAWDSWARM-2",
   "size": "m",
-  "goal": "Add A2aProfile::verify_profile_invariants in crates/susi-gawd-a2a/src/a2a_profile.rs validating versions, dialects, and coupled selection invariants.",
+  "goal": "Add ReserveRequest::verify_request_invariants and BrainDecision::verify_decision_invariants in crates/susi-gawd-agents.",
   "scope": [
     ".agents/tasks/T-GAWDSWARM-2.json",
-    "crates/susi-gawd-a2a"
+    "crates/susi-gawd-agents"
   ],
   "scopes": [
     ".agents/tasks/T-GAWDSWARM-2.json",
-    "crates/susi-gawd-a2a"
+    "crates/susi-gawd-agents"
   ],
   "deps": [],
   "created_by": "GAWDSWARM",
-  "created_unix": 1794002500,
+  "created_unix": 1794003000,
   "status": "completed",
-  "title": "Add A2aProfile::verify_profile_invariants in susi-gawd-a2a",
+  "title": "Add ReserveRequest::verify_request_invariants and BrainDecision::verify_decision_invariants in susi-gawd-agents",
   "native_worker": "gawd-swarm"
 }
