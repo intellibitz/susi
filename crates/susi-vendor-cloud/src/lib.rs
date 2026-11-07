@@ -17,7 +17,6 @@
 //! `gcloud`, `az`) over `std::process::Command`. No AWS/GCP/Azure/K8s
 //! SDK and no HTTP client crate — those stay out of core/OS crates.
 
-pub mod preemptible;
 pub mod reconcile {
     //! Managed cloud inference deployment reconciliation (`VC-201-055`).
     //!
@@ -558,9 +557,6 @@ pub fn apply_manifest(kind: CloudKind, manifest: &str) -> Result<String, String>
     }
 }
 
-#[cfg(test)]
-#[path = "tests/vc_201_057.rs"]
-mod vc_201_057_tests;
 
 #[cfg(test)]
 mod tests {
