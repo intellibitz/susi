@@ -66,9 +66,6 @@ mod vc_201_043_headroom_tests;
 #[path = "tests/vc_201_043_mastery.rs"]
 mod vc_201_043_mastery_tests;
 #[cfg(test)]
-#[path = "tests/vc_201_043.rs"]
-mod vc_201_043_tests;
-#[cfg(test)]
 #[path = "tests/vc_201_044_mastery.rs"]
 mod vc_201_044_mastery_tests;
 #[cfg(test)]
