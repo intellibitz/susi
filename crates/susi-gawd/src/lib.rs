@@ -123,7 +123,6 @@ pub mod self_validation;
 pub mod telemetry;
 pub mod worker_identity;
 pub mod zc_agent_identity;
-pub mod zc_tasks_next;
 
 #[cfg(test)]
 #[path = "tests/formal_invariants.rs"]
