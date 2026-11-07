@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 //! Lean-core ceilings (`docs/lean-core.md`): the four pillars' dependency
 //! reach and size may only shrink. Every cut lowers a constant here in the
 //! same change; nothing raises one without a CEO decision recorded in the doc.
