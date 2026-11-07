@@ -1,8 +1,8 @@
 {
   "vector": "VC-201-053",
-  "verdict": "delivered",
-  "evidence": "ready_when_remaining_positive (crates/susi-gemi/src/tests/rate_limit_scheduler.rs)",
-  "missing": "",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Moved out of scope 2026-11-07 by CEO direction: rate_limit_scheduler migrated to susi-commercial-apps (susi-fleet-command); open-core runtime uses key_arbitration::KeyArbiter instead.",
   "tracked_by": [],
   "recorded_by": "INTELLIBITZ202610030140553714905",
   "recorded_unix": 1790983377

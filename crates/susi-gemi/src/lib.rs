@@ -62,7 +62,6 @@ pub mod orchestration;
 pub mod primary_election;
 pub mod provider_contract;
 pub mod pulse;
-pub mod rate_limit_scheduler;
 pub mod scout_probe;
 pub mod scout_schedule;
 pub mod seat_provider;
@@ -142,8 +141,6 @@ mod quota_window_accounting_tests;
 #[path = "tests/ranking_by_marginal_cost.rs"]
 mod ranking_by_marginal_cost_tests;
 #[cfg(test)]
-#[path = "tests/rate_limit_scheduler.rs"]
-mod rate_limit_scheduler_tests;
 #[cfg(test)]
 #[path = "tests/routing_ladder.rs"]
 mod routing_ladder_tests;
