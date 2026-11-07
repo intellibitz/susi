@@ -119,9 +119,7 @@ impl GemiEngine {
         let _ = adopter;
     }
 
-    pub fn shutdown_owned_runner() {
-        
-    }
+    pub fn shutdown_owned_runner() {}
 
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
         Self::reason_internal(prompt, workspace, true, &|_| {}, None, None, None, &|_| {})

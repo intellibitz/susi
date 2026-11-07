@@ -31,12 +31,13 @@ pub use susi_core;
 pub use susi_vendor_models::model_license::ModelReadWindow;
 
 pub use susi_vendor_models::{
-    cloud, cloud_eligibility, cloud_manage, eco_query,
-    frontier, hf_discovery, local_ecosystem, open_weight, openrouter, price_catalog, resource_inventory, runtime_lifecycle,
+    cloud, cloud_eligibility, cloud_manage, frontier, hf_discovery, local_ecosystem, open_weight,
+    openrouter, price_catalog, resource_inventory, runtime_lifecycle,
 };
 pub mod coding_models;
 mod device;
 pub(crate) mod download;
+pub mod eco_query;
 pub mod hardware;
 pub mod intent;
 mod lifecycle;

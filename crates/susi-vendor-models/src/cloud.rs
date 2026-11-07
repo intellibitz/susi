@@ -337,8 +337,26 @@ fn endpoints_with_catalog(
 /// The table itself lives in `model_deprecation` (which can also remap from
 /// live `/models` diffs when a listing is available).
 fn remap_retired_endpoint_model(
-    _endpoint: &mut crate::susi_sandbox::manager::InferenceEndpointItem,
+    endpoint: &mut crate::susi_sandbox::manager::InferenceEndpointItem,
 ) {
+    match (
+        endpoint.name.to_ascii_lowercase().as_str(),
+        endpoint.model.as_str(),
+    ) {
+        (
+            "groq",
+            "llama-3.3-70b-versatile" | "llama3-8b-8192" | "llama3-70b-8192" | "mixtral-8x7b-32768",
+        ) => {
+            endpoint.model = "openai/gpt-oss-20b".into();
+        }
+        (
+            "googlegemini" | "gemini",
+            "gemini-2.5-flash" | "gemini-2.0-flash" | "gemini-1.5-flash",
+        ) => {
+            endpoint.model = "gemini-3.6-flash".into();
+        }
+        _ => {}
+    }
 }
 
 fn env_nonempty(name: &str) -> Option<String> {
