@@ -3723,13 +3723,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-vendor-tokio-stream"
-version = "0.1.0"
-dependencies = [
- "tokio-stream",
-]
-
-[[package]]
 name = "susi-vendor-tower"
 version = "0.1.0"
 dependencies = [

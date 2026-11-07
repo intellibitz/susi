@@ -177,7 +177,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-tempfile",
     "susi-vendor-tokio",
     "susi-vendor-tokio-rustls",
-    "susi-vendor-tokio-stream",
     "susi-vendor-tower",
     "susi-vendor-tower-service",
     "susi-vendor-tracing",
