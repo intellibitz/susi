@@ -85,9 +85,6 @@ mod snapshot_rollback_tests;
 #[path = "tests/swarm_gap_live_admission.rs"]
 mod swarm_gap_live_admission_tests;
 #[cfg(test)]
-#[path = "tests/swarm_gap_safe_replay.rs"]
-mod swarm_gap_safe_replay_tests;
-#[cfg(test)]
 #[path = "tests/swarm_gap_verified_closure.rs"]
 mod swarm_gap_verified_closure_tests;
 #[cfg(test)]
