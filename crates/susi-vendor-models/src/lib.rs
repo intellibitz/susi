@@ -26,15 +26,10 @@ pub use susi_config::{cloud_eligibility, cloud_quota};
 pub mod hf_discovery;
 pub mod local_ecosystem;
 pub mod model_license;
-pub mod price_catalog;
-pub mod resource_inventory;
 pub mod resumable_downloads;
 pub mod runtime_lifecycle;
 pub mod transactional_download;
 
-#[cfg(test)]
-#[path = "tests/vc_201_041_mastery.rs"]
-mod vc_201_041_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_042.rs"]
 mod vc_201_042_tests;
@@ -89,11 +84,8 @@ mod inline_tests {
     }
 
     #[test]
-    fn price_catalog_and_model_read_window_are_accessible_from_vendor_models_root() {
+    fn model_read_window_is_accessible_from_vendor_models_root() {
         let _win = model_license::ModelReadWindow::enter();
-        let cat = price_catalog::PriceCatalog::empty(1);
-        assert_eq!(cat.version, 1);
-        assert!(cat.entries.is_empty());
     }
 
     #[test]

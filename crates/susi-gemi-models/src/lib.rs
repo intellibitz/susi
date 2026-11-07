@@ -31,9 +31,7 @@ pub use susi_config::{accel_reserve, cloud_eligibility, cloud_quota};
 pub use susi_core;
 pub use susi_vendor_models::model_license::ModelReadWindow;
 
-pub use susi_vendor_models::{
-    hf_discovery, local_ecosystem, price_catalog, resource_inventory, runtime_lifecycle,
-};
+pub use susi_vendor_models::{hf_discovery, local_ecosystem, runtime_lifecycle};
 pub mod cloud;
 pub mod cloud_credentials;
 pub mod cloud_manage;
@@ -48,7 +46,13 @@ mod lifecycle;
 pub mod model_cache;
 pub mod open_weight;
 pub mod openrouter;
+pub mod price_catalog;
+pub mod resource_inventory;
 pub mod zc_first_model;
+
+#[cfg(test)]
+#[path = "tests/vc_201_041_mastery.rs"]
+mod vc_201_041_mastery_tests;
 
 pub use lifecycle::*;
 
