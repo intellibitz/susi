@@ -63,7 +63,6 @@ pub mod windows_model_identity;
 pub mod zc_bare_susi;
 pub mod zc_debt_ratchet;
 pub mod zc_debt_report;
-pub mod zc_local_progress;
 pub mod zc_path;
 pub mod zc_qualification;
 pub mod zc_susi_fix;
