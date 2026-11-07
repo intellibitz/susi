@@ -18,7 +18,6 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
 tower-service = { package = "susi-vendor-tower-service", path = "../susi-vendor-tower-service" }
-jsonschema = { package = "susi-vendor-jsonschema", path = "../susi-vendor-jsonschema" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
