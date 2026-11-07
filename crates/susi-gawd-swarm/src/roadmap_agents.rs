@@ -357,28 +357,26 @@ fn clone_claimed(c: &ClaimedWork) -> ClaimedWork {
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// Bounded rendezvous: proves N executions were in flight simultaneously.
-    /// Returns false instead of deadlocking if dispatch were serial. (Was
-    /// shared with the parallel_roadmap_e2e suite until that suite moved to
-    /// susi-commercial-apps on 2026-11-07.)
-    pub(crate) struct Rendezvous {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::{Arc, Condvar, Mutex};
+
+    struct Rendezvous {
         state: Mutex<usize>,
-        cv: std::sync::Condvar,
+        cv: Condvar,
         want: usize,
     }
     impl Rendezvous {
-        pub(crate) fn new(want: usize) -> Self {
+        fn new(want: usize) -> Self {
             Self {
                 state: Mutex::new(0),
-                cv: std::sync::Condvar::new(),
+                cv: Condvar::new(),
                 want,
             }
         }
-        /// Executions that reached the barrier.
-        pub(crate) fn arrivals(&self) -> usize {
+        fn arrivals(&self) -> usize {
             *self.state.lock().unwrap_or_else(|e| e.into_inner())
         }
-        pub(crate) fn arrive(&self, timeout: Duration) -> bool {
+        fn arrive(&self, timeout: Duration) -> bool {
             let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *g += 1;
             if *g >= self.want {
@@ -405,8 +403,6 @@ mod tests {
             }
         }
     }
-    use std::collections::{BTreeMap, BTreeSet};
-    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
     use susi_gawd_agents::cloud_budget::{BudgetLedger, SpendPolicy};
