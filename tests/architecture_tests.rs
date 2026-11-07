@@ -122,7 +122,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-vendor-fastembed", 4),
     ("susi-vendor-chrome", 2),
     ("susi-vendor-syn", 0),
-    ("susi-vendor-cloud", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
