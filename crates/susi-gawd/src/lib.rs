@@ -85,7 +85,6 @@ pub mod experiment_memory;
 pub mod genome_distiller;
 pub mod intent_ladder;
 pub mod kernel_loader;
-pub mod orchestrator_tier;
 pub mod patch_cycle;
 pub mod patch_fence;
 pub mod reason_trainer;
