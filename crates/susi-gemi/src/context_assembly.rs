@@ -547,8 +547,10 @@ mod inline_tests {
         bad_below.calls_below_cache_threshold = 5;
         assert!(bad_below.verify_report_invariants().is_err());
 
-        let mut bad_zero_calls = CacheReport::default();
-        bad_zero_calls.mean_cacheable_fraction = 0.5;
+        let bad_zero_calls = CacheReport {
+            mean_cacheable_fraction: 0.5,
+            ..CacheReport::default()
+        };
         assert!(bad_zero_calls.verify_report_invariants().is_err());
 
         let mut bad_defect_count = valid_report;
