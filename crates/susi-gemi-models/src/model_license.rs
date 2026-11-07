@@ -46,7 +46,7 @@ impl VerifiedArtifact {
         if self.protected() {
             return Ok(self.file);
         }
-        let mut snapshot = tempfile::tempfile()?;
+        let mut snapshot = private_snapshot_file()?;
         if digest_stream(&mut self.file, &mut snapshot)? != self.sha256 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -100,7 +100,7 @@ fn private_snapshot_file() -> io::Result<File> {
         opts.mode(0o600);
     }
     let file = opts.open(&path)?;
-    let _ = fs::remove_file(&path);
+    let _ = std::fs::remove_file(&path);
     Ok(file)
 }
 
@@ -119,10 +119,10 @@ fn git_blob_sha1_hex(bytes: &[u8]) -> String {
     let mut h2: u32 = 0x98BA_DCFE;
     let mut h3: u32 = 0x1032_5476;
     let mut h4: u32 = 0xC3D2_E1F0;
-    for chunk in msg.chunks_exact(64) {
+    for chunk in msg.as_chunks::<64>().0 {
         let mut w = [0u32; 80];
-        for (i, word) in chunk.chunks_exact(4).enumerate() {
-            w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        for (i, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            w[i] = u32::from_be_bytes(*word);
         }
         for i in 16..80 {
             w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);

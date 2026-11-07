@@ -5,7 +5,6 @@
 //!
 //! Third-party names, ports and health paths live here (vendor code); the
 //! scan is generic over [`Probe`] so it is tested without touching the host.
-use rayon::prelude::*;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};

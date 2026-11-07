@@ -22,7 +22,6 @@ members = [
     "crates/susi-vendor-syn",
     "crates/susi-vendor-cloud",
     "crates/susi-vendor-agents",
-    "crates/susi-vendor-models",
     "crates/susi-vendor-web",
     "crates/susi-native-client",
     "crates/susi-config",
@@ -162,7 +161,6 @@ susi-vendor-chrome = { path = "crates/susi-vendor-chrome" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
 susi-vendor-cloud = { path = "crates/susi-vendor-cloud" }
 susi-vendor-agents = { path = "crates/susi-vendor-agents" }
-susi-vendor-models = { path = "crates/susi-vendor-models" }
 susi-vendor-web = { path = "crates/susi-vendor-web" }
 susi-native-client = { path = "crates/susi-native-client" }
 susi-sandbox = { path = "crates/susi-sandbox" }
@@ -210,7 +208,6 @@ ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "crates/susi-ven
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 susi-gawd-agents = { workspace = true }
 susi-gawd-swarm = { workspace = true }
-susi-vendor-models = { workspace = true }
 
 [dependencies]
 susi-daemon = { path = "crates/susi-daemon", default-features = false }
