@@ -180,140 +180,9 @@ pub struct AdaptiveTaskOutcome {
     pub reported_cost_usd: Option<f64>,
 }
 
-/// One node in an embedded workflow wave plan.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WorkflowNode {
-    /// Unique task key within the wave plan.
-    pub key: String,
-    /// Task keys that must complete before this node starts.
-    #[serde(default)]
-    pub deps: Vec<String>,
-    /// Repository-relative file or directory scopes reserved by this node.
-    pub scopes: Vec<String>,
-}
-
-impl workflow::WorkflowTask for WorkflowNode {
-    fn key(&self) -> &str {
-        &self.key
-    }
-
-    fn deps(&self) -> &[String] {
-        &self.deps
-    }
-
-    fn scopes(&self) -> &[String] {
-        &self.scopes
-    }
-}
-
-/// Wave schedule produced by [`EmbeddedWorkflowOrchestrator`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WorkflowWavePlan {
-    /// Identifier of this wave plan.
-    pub wave_id: String,
-    /// Ordered waves; each wave lists task keys that can run concurrently without scope or dependency conflicts.
-    pub waves: Vec<Vec<String>>,
-    /// Task keys blocked by external active claims.
-    pub blocked: Vec<String>,
-}
-
-/// Error returned when planning an embedded workflow wave fails.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WorkflowEmbedError {
-    /// Reason the workflow plan was rejected.
-    pub message: String,
-}
-
-impl std::fmt::Display for WorkflowEmbedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for WorkflowEmbedError {}
-
-/// In-process orchestrator for dependency- and scope-disjoint wave planning.
-#[derive(Debug, Clone)]
-pub struct EmbeddedWorkflowOrchestrator {
-    /// Maximum concurrent tasks per wave.
-    pub max_parallel: usize,
-    /// Already-completed task keys.
-    pub completed: BTreeSet<String>,
-    /// Scopes currently claimed by external agents.
-    pub active_claimed_scopes: Vec<String>,
-}
-
-impl Default for EmbeddedWorkflowOrchestrator {
-    fn default() -> Self {
-        Self {
-            max_parallel: 4,
-            completed: BTreeSet::new(),
-            active_claimed_scopes: Vec::new(),
-        }
-    }
-}
-
-impl EmbeddedWorkflowOrchestrator {
-    /// Create an orchestrator with `max_parallel` concurrency.
-    #[must_use]
-    pub fn new(max_parallel: usize) -> Self {
-        Self {
-            max_parallel: max_parallel.max(1),
-            ..Self::default()
-        }
-    }
-
-    /// Partition `nodes` into dependency-ready, pairwise scope-disjoint waves.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkflowEmbedError`] if any scope is invalid or if dependencies contain an unknown key or cycle.
-    pub fn plan_wave(
-        &self,
-        wave_id: &str,
-        nodes: &[WorkflowNode],
-    ) -> Result<WorkflowWavePlan, WorkflowEmbedError> {
-        if wave_id.trim().is_empty() {
-            return Err(WorkflowEmbedError {
-                message: "wave_id must not be empty".to_string(),
-            });
-        }
-        for node in nodes {
-            if node.scopes.is_empty() {
-                return Err(WorkflowEmbedError {
-                    message: format!("task {} reserves no scopes", node.key),
-                });
-            }
-            for scope in &node.scopes {
-                workflow::normalize_scope(scope).map_err(|error| WorkflowEmbedError {
-                    message: format!("task {} scope: {error}", node.key),
-                })?;
-            }
-        }
-        let schedule = workflow::WorkflowSchedule::build(
-            nodes,
-            &self.completed,
-            &self.active_claimed_scopes,
-            self.max_parallel.max(1),
-        )
-        .map_err(|error| WorkflowEmbedError {
-            message: error.to_string(),
-        })?;
-        Ok(WorkflowWavePlan {
-            wave_id: wave_id.to_string(),
-            waves: schedule
-                .waves
-                .into_iter()
-                .map(|w| w.tasks.into_iter().map(|t| t.key.clone()).collect())
-                .collect(),
-            blocked: schedule
-                .blocked
-                .into_iter()
-                .map(|t| t.key.clone())
-                .collect(),
-        })
-    }
-}
+pub use crate::workflow::{
+    EmbeddedWorkflowOrchestrator, WorkflowEmbedError, WorkflowNode, WorkflowWavePlan,
+};
 
 /// Complete report of discovered CLI subscription tools, Susi AI OS Socket endpoints,
 /// active adaptive execution policy, and embedded workflow readiness.
@@ -327,6 +196,79 @@ pub struct AdaptiveSupervisorReport {
     pub policy: AdaptiveExecutionPolicy,
     /// True when the embedded workflow engine is ready in-process.
     pub embedded_workflow_ready: bool,
+}
+
+impl AdaptiveSupervisorReport {
+    /// Verify the structural invariants of the supervisor report: all 7 CLI backends listed
+    /// in canonical order with non-empty candidates, valid Susi OS Socket endpoints and ports,
+    /// valid adaptive strategy, and embedded workflow readiness.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive violation string when any invariant is broken.
+    pub fn verify_report_invariants(&self) -> Result<(), String> {
+        if self.cli_fleet.len() != CliToolKind::ALL.len() {
+            return Err(format!(
+                "cli_fleet must contain {} entries, got {}",
+                CliToolKind::ALL.len(),
+                self.cli_fleet.len()
+            ));
+        }
+        for (expected, entry) in CliToolKind::ALL.iter().zip(self.cli_fleet.iter()) {
+            if entry.kind != expected.as_str() {
+                return Err(format!(
+                    "cli_fleet entry kind mismatch: expected `{}`, got `{}`",
+                    expected.as_str(),
+                    entry.kind
+                ));
+            }
+            if entry.candidates.is_empty() {
+                return Err(format!(
+                    "cli_fleet entry `{}` has no candidates",
+                    entry.kind
+                ));
+            }
+            if entry.installed != entry.executable_path.is_some() {
+                return Err(format!(
+                    "cli_fleet entry `{}` installed flag disagrees with executable_path",
+                    entry.kind
+                ));
+            }
+        }
+        if self.socket_endpoints.gmcp_port == 0
+            || self.socket_endpoints.gemi_port <= self.socket_endpoints.gmcp_port
+            || self.socket_endpoints.gawd_port <= self.socket_endpoints.gemi_port
+        {
+            return Err(
+                "socket_endpoints ports are not in ascending GMCP < GEMI < GAWD order".to_string(),
+            );
+        }
+        if !self
+            .socket_endpoints
+            .gmcp_http_url
+            .starts_with("http://127.0.0.1:")
+            || !self
+                .socket_endpoints
+                .gemi_openai_url
+                .starts_with("http://127.0.0.1:")
+            || !self
+                .socket_endpoints
+                .gawd_a2a_url
+                .starts_with("http://127.0.0.1:")
+        {
+            return Err("socket_endpoints URLs must bind loopback 127.0.0.1".to_string());
+        }
+        if adaptive::AdaptiveStrategy::parse(&self.policy.strategy).is_none() {
+            return Err(format!(
+                "invalid policy strategy `{}`",
+                self.policy.strategy
+            ));
+        }
+        if !self.embedded_workflow_ready {
+            return Err("embedded_workflow_ready must be true".to_string());
+        }
+        Ok(())
+    }
 }
 
 /// Discover the status of all 7 supported monthly-subscription CLIs in `dirs`.

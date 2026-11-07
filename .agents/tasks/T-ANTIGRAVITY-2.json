@@ -1,28 +1,25 @@
 {
   "id": "T-ANTIGRAVITY-2",
-  "title": "Wire adaptive CLI+BYOK runner and embedded workflow into susi-harness supervisor and CLI",
-  "goal": "Integrate AdaptiveRunner, SusiSocketEndpoints, and EmbeddedWorkflowOrchestrator into Supervisor and susi-harness CLI subcommands (adaptive/status/socket) with unit tests.",
+  "title": "Add WorkflowWavePlan::verify_wave_plan_invariants and adaptive report invariant verifiers in susi-harness",
+  "goal": "Add WorkflowWavePlan::verify_wave_plan_invariants in workflow.rs, AdaptiveExecutionReceipt::verify_receipt_invariants / AdaptiveMissionReport::verify_report_invariants in adaptive.rs, and AdaptiveSupervisorReport::verify_report_invariants in supervisor.rs, re-exported in lib.rs and wired into susi-harness CLI.",
   "state": "in_progress",
   "status": "completed",
   "claimed_by": "antigravity",
   "native_worker": "antigravity",
   "created_by": "antigravity",
   "created_unix": 1794025500,
-  "updated_unix": 1794025500,
+  "updated_unix": 1794028200,
   "size": "M",
   "deps": [],
   "scope": [
-    "crates/susi-harness/src/supervisor.rs",
-    "crates/susi-harness/src/bin/susi-harness.rs",
-    "crates/susi-harness/src/lib.rs"
+    "crates/susi-harness",
+    ".agents/tasks/T-ANTIGRAVITY-2.json"
   ],
   "scopes": [
-    ".agents/tasks/t-antigravity-2.json",
-    ".agents/tasks/t-harnessdiamond-1.json",
-    "crates/susi-harness/src/bin/susi-harness.rs",
-    "crates/susi-harness/src/lib.rs",
-    "crates/susi-harness/src/supervisor.rs"
+    "crates/susi-harness",
+    ".agents/tasks/T-ANTIGRAVITY-2.json"
   ],
+  "acceptance": "WorkflowWavePlan::verify_wave_plan_invariants validates non-empty waves, disjoint scopes within waves, topological wave ordering, and total task count without duplicates; AdaptiveExecutionReceipt::verify_receipt_invariants and AdaptiveSupervisorReport::verify_report_invariants validate backend selection, failover accounting, and latency bounds.",
   "accept": {
     "cmd": [
       "cargo",
