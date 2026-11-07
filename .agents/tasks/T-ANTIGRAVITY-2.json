@@ -1,14 +1,14 @@
 {
   "id": "T-ANTIGRAVITY-2",
-  "title": "Add McpTool and HttpSocketTransport invariant verifiers in susi-harness",
-  "goal": "Add McpTool::verify_tool_invariants and HttpSocketTransport::verify_transport_invariants in crates/susi-harness/src/mcp.rs with comprehensive unit tests rejecting corrupt state.",
+  "title": "Add PAYG BYOK gateway and model router invariant verifiers in susi-harness",
+  "goal": "Add GatewayState::verify_state_invariants in crates/susi-harness/src/gateway.rs and UpstreamRoute::verify_route_invariants in crates/susi-harness/src/router.rs with comprehensive unit tests.",
   "state": "in_progress",
   "status": "completed",
   "claimed_by": "antigravity",
   "native_worker": "antigravity",
   "created_by": "antigravity",
   "created_unix": 1794025500,
-  "updated_unix": 1794029100,
+  "updated_unix": 1794030700,
   "size": "M",
   "deps": [],
   "scope": [
@@ -19,7 +19,7 @@
     "crates/susi-harness",
     ".agents/tasks/T-ANTIGRAVITY-2.json"
   ],
-  "acceptance": "McpTool::verify_tool_invariants validates non-empty tool name and JSON object schema; HttpSocketTransport::verify_transport_invariants validates non-empty host, non-zero port, slash-prefixed path, non-zero timeout, and supported protocol version.",
+  "acceptance": "GatewayState::verify_state_invariants validates ledger_path, provider, upstream_chat_url, timeout_secs, api_key, and max_output_tokens; UpstreamRoute::verify_route_invariants validates URL scheme, model_id, JSON content-type, and Anthropic vs OpenAI authentication headers.",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,7 +27,7 @@
       "-p",
       "susi-harness",
       "--lib",
-      "mcp",
+      "router",
       "--offline",
       "--locked"
     ]
