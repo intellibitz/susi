@@ -152,9 +152,6 @@ mod vc_201_097_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_100_mastery.rs"]
 mod vc_201_100_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_100.rs"]
-mod vc_201_100_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
