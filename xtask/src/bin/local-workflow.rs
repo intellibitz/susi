@@ -3984,6 +3984,13 @@ fn check(root: &Path) -> Result<()> {
         .unwrap_or_else(|| original_home.join(".rustup"));
     let target = top.join("target");
     seed_worktree_target(&top, &top, false);
+    // The same refusal a ship makes: a check that would run out of disk
+    // fails after its compile time with an error that reads like a compiler
+    // bug, so a doomed one is refused first, after the idle caches are
+    // reclaimed.
+    timed("gate disk check", || {
+        require_gate_disk(&top, &target, workspace_selected)
+    })?;
     let home = target.join("susi-check-home");
     fs::create_dir_all(home.join("AppData/Local"))?;
     // Only this worktree's own target is locked: checks in other worktrees
