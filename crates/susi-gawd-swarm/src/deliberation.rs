@@ -23,31 +23,6 @@ pub struct CandidatePlan {
     pub rationale: String,
 }
 
-impl CandidatePlan {
-    /// Verifies that the candidate plan has non-empty steps without blank entries, a finite
-    /// normalized score in `[0.0, 1.0]`, and a non-blank rationale.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `steps` is empty or contains a blank step,
-    /// if `score` is non-finite or outside `[0.0, 1.0]`, or if `rationale` is blank.
-    pub fn verify_plan_invariants(&self) -> Result<(), String> {
-        if self.steps.is_empty() {
-            return Err("CandidatePlan steps must not be empty".to_string());
-        }
-        if self.steps.iter().any(|s| s.trim().is_empty()) {
-            return Err("CandidatePlan steps must not contain blank entries".to_string());
-        }
-        if !self.score.is_finite() || !(0.0..=1.0).contains(&self.score) {
-            return Err("CandidatePlan score must be finite and in [0.0, 1.0]".to_string());
-        }
-        if self.rationale.trim().is_empty() {
-            return Err("CandidatePlan rationale must not be blank".to_string());
-        }
-        Ok(())
-    }
-}
-
 /// The outcome of plan search, ready for execution order.
 #[derive(Debug, Clone)]
 pub struct Deliberation {
@@ -62,47 +37,6 @@ pub struct Deliberation {
     /// risk/scope so High/Critical intents demand closer agreement.
     /// Kept on the record so a missed consensus stays auditable.
     pub consensus_threshold: f32,
-}
-
-impl Deliberation {
-    /// Verifies that deliberation candidates are non-empty, valid, sorted best-first, and have
-    /// consistent consensus threshold and similarity values.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if `candidates` is empty, if any candidate fails
-    /// verification, if candidates are not sorted in descending score order, or if
-    /// `consensus_threshold` or `consensus` is out of bounds.
-    pub fn verify_deliberation_invariants(&self) -> Result<(), String> {
-        if self.candidates.is_empty() {
-            return Err("Deliberation candidates must not be empty".to_string());
-        }
-        for candidate in &self.candidates {
-            candidate.verify_plan_invariants()?;
-        }
-        for pair in self.candidates.windows(2) {
-            if pair[0].score < pair[1].score {
-                return Err("Deliberation candidates must be sorted best-first".to_string());
-            }
-        }
-        if !self.consensus_threshold.is_finite()
-            || self.consensus_threshold <= 0.0
-            || self.consensus_threshold > 1.0
-        {
-            return Err(
-                "Deliberation consensus_threshold must be finite and in (0.0, 1.0]".to_string(),
-            );
-        }
-        if let Some(sim) = self.consensus {
-            if !sim.is_finite() || sim < self.consensus_threshold || sim > 1.0 {
-                return Err(
-                    "Deliberation consensus similarity must be finite and in [consensus_threshold, 1.0]"
-                        .to_string(),
-                );
-            }
-        }
-        Ok(())
-    }
 }
 
 /// Two candidates agree when their step-token Jaccard clears this bar.
@@ -348,58 +282,6 @@ pub struct HistorySignals {
     /// Whole decompositions that failed — a candidate matching one
     /// wholesale replays a shape that already died.
     pub failed_plans: Vec<Vec<String>>,
-}
-
-impl HistorySignals {
-    /// Verifies that history signals contain non-blank tool names, positive failure counts,
-    /// disjoint `failed` and `proven` tool sets, non-blank steps, and non-empty plans.
-    ///
-    /// # Errors
-    ///
-    /// Returns a descriptive error string if any tool name or step text is blank, if a failure
-    /// count is zero, if `failed` and `proven` overlap, or if any plan in `proven_plans` or
-    /// `failed_plans` is empty or contains blank steps.
-    pub fn verify_signals_invariants(&self) -> Result<(), String> {
-        for (tool, &count) in &self.failed {
-            if tool.trim().is_empty() {
-                return Err("HistorySignals failed tool name must not be blank".to_string());
-            }
-            if count == 0 {
-                return Err("HistorySignals failed tool count must be > 0".to_string());
-            }
-        }
-        for tool in &self.proven {
-            if tool.trim().is_empty() {
-                return Err("HistorySignals proven tool name must not be blank".to_string());
-            }
-            if self.failed.contains_key(tool) {
-                return Err("HistorySignals failed and proven tools must be disjoint".to_string());
-            }
-        }
-        if self.failed_steps.iter().any(|s| s.trim().is_empty()) {
-            return Err("HistorySignals failed_steps must not contain blank entries".to_string());
-        }
-        if self.proven_steps.iter().any(|s| s.trim().is_empty()) {
-            return Err("HistorySignals proven_steps must not contain blank entries".to_string());
-        }
-        for plan in &self.proven_plans {
-            if plan.is_empty() || plan.iter().any(|s| s.trim().is_empty()) {
-                return Err(
-                    "HistorySignals proven_plans must be non-empty and contain no blank steps"
-                        .to_string(),
-                );
-            }
-        }
-        for plan in &self.failed_plans {
-            if plan.is_empty() || plan.iter().any(|s| s.trim().is_empty()) {
-                return Err(
-                    "HistorySignals failed_plans must be non-empty and contain no blank steps"
-                        .to_string(),
-                );
-            }
-        }
-        Ok(())
-    }
 }
 
 pub fn deliberate(
@@ -995,83 +877,5 @@ mod tests {
         let b = candidate_budgets(5);
         assert!(b.len() >= 2 && b.contains(&5));
         assert_eq!(candidate_budgets(1), vec![1, 3]);
-    }
-
-    #[test]
-    fn deliberation_invariants_verify_valid_and_reject_corrupt_states() {
-        let valid_plan = CandidatePlan {
-            steps: vec!["read config".into(), "verify schema".into()],
-            score: 0.75,
-            rationale: "coverage=1.00".into(),
-        };
-        assert!(valid_plan.verify_plan_invariants().is_ok());
-
-        let mut empty_steps_plan = valid_plan.clone();
-        empty_steps_plan.steps.clear();
-        assert!(empty_steps_plan.verify_plan_invariants().is_err());
-
-        let mut blank_step_plan = valid_plan.clone();
-        blank_step_plan.steps.push("   ".into());
-        assert!(blank_step_plan.verify_plan_invariants().is_err());
-
-        let mut bad_score_plan = valid_plan.clone();
-        bad_score_plan.score = 1.5;
-        assert!(bad_score_plan.verify_plan_invariants().is_err());
-
-        let mut blank_rationale_plan = valid_plan.clone();
-        blank_rationale_plan.rationale = "  ".into();
-        assert!(blank_rationale_plan.verify_plan_invariants().is_err());
-
-        let m = manifold_for("read Cargo.toml");
-        let valid_delib = deliberate(
-            "read Cargo.toml",
-            &m,
-            &[4, 2],
-            &HistorySignals::default(),
-            |_| vec!["read Cargo.toml".into()],
-        );
-        assert!(valid_delib.verify_deliberation_invariants().is_ok());
-
-        let mut unsorted_delib = valid_delib.clone();
-        unsorted_delib.candidates = vec![
-            CandidatePlan {
-                steps: vec!["a".into()],
-                score: 0.2,
-                rationale: "low".into(),
-            },
-            CandidatePlan {
-                steps: vec!["b".into()],
-                score: 0.8,
-                rationale: "high".into(),
-            },
-        ];
-        assert!(unsorted_delib.verify_deliberation_invariants().is_err());
-
-        let mut bad_consensus_delib = valid_delib;
-        bad_consensus_delib.consensus = Some(0.1);
-        assert!(bad_consensus_delib
-            .verify_deliberation_invariants()
-            .is_err());
-
-        let mut signals = HistorySignals::default();
-        signals.failed.insert("bad_tool".into(), 2);
-        signals.proven.insert("good_tool".into());
-        signals.failed_steps.push("broken step".into());
-        signals.proven_steps.push("verified step".into());
-        signals.proven_plans.push(vec!["step 1".into()]);
-        signals.failed_plans.push(vec!["bad step 1".into()]);
-        assert!(signals.verify_signals_invariants().is_ok());
-
-        let mut overlap_signals = signals.clone();
-        overlap_signals.proven.insert("bad_tool".into());
-        assert!(overlap_signals.verify_signals_invariants().is_err());
-
-        let mut zero_count_signals = signals.clone();
-        zero_count_signals.failed.insert("zero_tool".into(), 0);
-        assert!(zero_count_signals.verify_signals_invariants().is_err());
-
-        let mut empty_plan_signals = signals;
-        empty_plan_signals.proven_plans.push(Vec::new());
-        assert!(empty_plan_signals.verify_signals_invariants().is_err());
     }
 }
