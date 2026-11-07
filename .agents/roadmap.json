@@ -1379,7 +1379,7 @@
       "id": "VC-202-008",
       "mastery_target": "susi writes new roadmap vectors and queue tasks - scopes, acceptance, dependencies and rationale included - from its own analysis of failures and gaps, and those artifacts pass the same schema and queue gates as human-authored ones, under a reviewed rate limit.",
       "priority": "P1",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-008.json, T-DEEPSEEK-233, T-GAWDSWARM-2): self-authored backlog path batches vectors+tasks through schema/queue gates with rationale, batch pre-flight, AUTHORED_OPEN_MAX bound, and `susi tasks authored`; `author_unqueued` drafts verification work from coverage gaps; `author_from_failures` drafts deduplicated repair tasks from durable mission traces, `.susi/audit.jsonl` policy denials, and `.agents/roadmap-verdicts/*.json` verdict drift.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-202-008.json): (verdict .agents/roadmap-verdicts/VC-202-008.json, T-DEEPSEEK-233, T-GAWDSWARM-2): self-authored backlog path batches vectors+tasks through schema/queue gates with rationale, batch pre-flight, AUTHORED_OPEN_MAX bound, and `susi tasks authored`; `author_unqueued` drafts verification work from coverage gaps; `author_from_failures` drafts deduplicated repair tasks from durable mission traces, `.susi/audit.jsonl` policy denials, and `.agents/roadmap-verdicts/*.json` verdict drift.",
       "type": "RSI_EXECUTION",
       "vector": "The system authors its own backlog"
     },
