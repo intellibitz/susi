@@ -49,13 +49,8 @@ pub mod security;
 pub mod self_core;
 pub mod system_observe;
 
-/// Every test that rewrites `SUSI_HOME` in this crate serializes on the one
-/// process-wide environment lock shared with susi-core; a second, crate-local
-/// lock let `agent_meta_registry` and `external_peers` tests interleave and
-/// read each other's temp homes (gate failure 2026-11-07 22:5x).
 #[cfg(test)]
-pub(crate) static SUSI_HOME_TEST_LOCK: &std::sync::Mutex<()> =
-    &crate::susi_core::commit_log::ENV_LOCK;
+pub(crate) use crate::susi_core::commit_log::ENV_LOCK as SUSI_HOME_TEST_LOCK;
 
 pub use agents::{
     AgentMetaRegistry, AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentFleet, GawdAgentInfo,

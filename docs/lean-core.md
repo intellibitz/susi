@@ -17,7 +17,7 @@ This page is the shared plan for every agent on the program. Numbers come from
 | 0 | third-party crates compiled | 331 | 307 |
 | 0 | workspace crates compiled | 59 | 52 |
 | 0 | vendor facades named directly by the pillar crates | 26 | 25 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 181,798 |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 181,916 |
 | clean clone | shallow clone, `cargo check -p susi-gmcp` / `-p susi` | 60 s / 78 s online; offline impossible (crates.io) | same |
 
 Rungs, in order. Each is done when its number is on this table and the ceiling
@@ -99,3 +99,7 @@ made, `CONTRIBUTING.md` stands as written.
   vendor-web deleted from core, contracts re-homed in gawd-agents) merged in; workspace crates
   54 -> 52, pillar lines 181,798; re-pinned. Lesson: an exact line pin loses every race against
   an ungated push into a pillar; the ratchet still holds, the landing just re-pins.
+- 2026-11-07 wave 1, third landing: iterations 331-340 (ungated; vendor-cloud, vendor-chrome,
+  fastembed, tantivy, universal-cell deleted from core; susi-gmcp +118 lines of decoupling)
+  merged in and re-pinned. Also fixed in this wave: gawd-agents tests rewrote `SUSI_HOME` under
+  two different locks and raced in the gate; one shared lock now.
