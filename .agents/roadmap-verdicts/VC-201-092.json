@@ -4,7 +4,6 @@
   "title": "Define and measure operating-layer service objectives",
   "mastery_target": "Measure availability, task success, queue delay, inference latency, and recovery duration from actual events; publish windows and denominators with explicit unknowns when samples are insufficient.",
   "recorded_by": "T-DEEPSEEK-63",
-  "test_evidence": "crates/susi-gawd-a2a/src/mastery_tests/vc_201_092_mastery.rs",
   "test_names": [
     "vc_201_092_mastery_availability_measurement_missing",
     "vc_201_092_mastery_task_success_measurement_missing",
@@ -13,7 +12,9 @@
     "vc_201_092_mastery_recovery_duration_measurement_missing"
   ],
   "missing": "Instrumentation and aggregation pipeline to measure availability, task success, queue delay, inference latency, and recovery duration from actual task events and roll them into time-windowed SloSample.",
-  "tracked_by": ["T-DEEPSEEK-63"],
+  "tracked_by": [
+    "T-DEEPSEEK-63"
+  ],
   "delivered_portions": [
     "SloSample structure exists with all five metric fields",
     "publish_slos() function correctly formats measurements with denominator and unknown markers",

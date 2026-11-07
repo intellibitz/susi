@@ -1,7 +1,7 @@
 {
   "vector": "VC-201-017",
   "verdict": "not-delivered",
-  "evidence": "crates/susi-gawd/src/tests/vc_201_017_mastery.rs",
+  "evidence": "",
   "missing": "Two refutations fixed: evaluate_canary now stops the trial on a non-finite candidate/baseline metric or a non-finite/negative regression limit, instead of reading NaN comparisons as 'no regression'; dev_instance_ports() no longer takes a caller-supplied base \u2014 it always returns the pinned 9190-9194 band, so it can neither be pointed at the release's ports nor overflow near u16::MAX. Still missing: evaluate_canary compares pre-measured floats with no workload, endpoint, or instance to execute, and dev_canary has no caller outside tests. Holds: honest finite inputs cross the threshold correctly (vc_201_017_mastery_threshold_holds_for_finite_inputs).",
   "tracked_by": [
     "T-DEVIN20261002053148-24"
