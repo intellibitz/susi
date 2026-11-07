@@ -501,6 +501,21 @@ pub struct CancelToken {
 }
 
 impl CancelToken {
+    /// Verifies that the cancel token has a non-blank `root_id` and a positive `deadline_unix`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `root_id` is blank or `deadline_unix == 0`.
+    pub fn verify_token_invariants(&self) -> Result<(), String> {
+        if self.root_id.trim().is_empty() {
+            return Err("CancelToken root_id must not be blank".to_string());
+        }
+        if self.deadline_unix == 0 {
+            return Err("CancelToken deadline_unix must be > 0".to_string());
+        }
+        Ok(())
+    }
+
     #[must_use]
     pub fn fresh(root_id: &str, deadline_unix: u64) -> Self {
         Self {
@@ -540,6 +555,38 @@ pub struct Descendant {
     pub signal: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
+impl Descendant {
+    /// Verifies that the descendant has a non-blank `id` and consistent cancellation metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `id` is blank, if `cancel_scope` is blank when present,
+    /// or if an irreversible descendant (`!cancellable`) carries a `cancel_scope` or `signal`.
+    pub fn verify_descendant_invariants(&self) -> Result<(), String> {
+        if self.id.trim().is_empty() {
+            return Err("Descendant id must not be blank".to_string());
+        }
+        match self.kind {
+            WorkerKind::Local
+            | WorkerKind::ExternalAgent
+            | WorkerKind::PeerDispatch
+            | WorkerKind::ModelCall => {}
+        }
+        if let Some(scope) = &self.cancel_scope {
+            if scope.trim().is_empty() {
+                return Err("Descendant cancel_scope must not be blank".to_string());
+            }
+        }
+        if !self.cancellable && (self.cancel_scope.is_some() || self.signal.is_some()) {
+            return Err(
+                "Descendant with cancellable == false must not have cancel_scope or signal"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct CancelBus {
     pub token: Option<CancelToken>,
@@ -553,6 +600,85 @@ pub struct CancelBus {
 }
 
 impl CancelBus {
+    /// Verifies invariants of the cancellation bus, its token, registered descendants, and status sets.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if the token or any descendant is invalid, if a map key
+    /// mismatches `descendant.id`, if status sets reference unknown or mismatched descendants, or
+    /// if `terminated`, `termination_pending`, and `irreversible_running` overlap.
+    pub fn verify_bus_invariants(&self) -> Result<(), String> {
+        if let Some(token) = &self.token {
+            token.verify_token_invariants()?;
+        }
+        for (key, desc) in &self.descendants {
+            if key.trim().is_empty() {
+                return Err("CancelBus descendants key must not be blank".to_string());
+            }
+            if key != &desc.id {
+                return Err("CancelBus descendants key must match Descendant id".to_string());
+            }
+            desc.verify_descendant_invariants()?;
+        }
+        for id in &self.terminated {
+            let Some(desc) = self.descendants.get(id) else {
+                return Err("CancelBus terminated id must exist in descendants".to_string());
+            };
+            if !desc.cancellable {
+                return Err(
+                    "CancelBus terminated id must refer to a cancellable descendant".to_string(),
+                );
+            }
+            if self.termination_pending.contains(id) || self.irreversible_running.contains(id) {
+                return Err(
+                    "CancelBus terminated id must be disjoint from termination_pending and irreversible_running"
+                        .to_string(),
+                );
+            }
+        }
+        for id in &self.termination_pending {
+            let Some(desc) = self.descendants.get(id) else {
+                return Err(
+                    "CancelBus termination_pending id must exist in descendants".to_string()
+                );
+            };
+            if !desc.cancellable {
+                return Err(
+                    "CancelBus termination_pending id must refer to a cancellable descendant"
+                        .to_string(),
+                );
+            }
+            if self.irreversible_running.contains(id) {
+                return Err(
+                    "CancelBus termination_pending id must be disjoint from irreversible_running"
+                        .to_string(),
+                );
+            }
+        }
+        for id in &self.irreversible_running {
+            let Some(desc) = self.descendants.get(id) else {
+                return Err(
+                    "CancelBus irreversible_running id must exist in descendants".to_string(),
+                );
+            };
+            if desc.cancellable {
+                return Err(
+                    "CancelBus irreversible_running id must refer to a non-cancellable descendant"
+                        .to_string(),
+                );
+            }
+        }
+        for (remote, reason) in self.runtime.unresolved_remotes() {
+            if remote.trim().is_empty() || reason.trim().is_empty() {
+                return Err(
+                    "CancelBus runtime unresolved_remotes must not contain blank keys or reasons"
+                        .to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+
     pub fn register(&mut self, d: Descendant) {
         if d.cancellable {
             if let Some(scope) = &d.cancel_scope {
@@ -730,5 +856,60 @@ mod inline_tests {
         assert!(err
             .to_string()
             .contains("cancellable command cannot be empty"));
+    }
+
+    #[test]
+    fn cancel_propagate_invariants_verify_valid_and_reject_corrupt_states() {
+        let valid_token = CancelToken::fresh("root-1", 1_000);
+        assert!(valid_token.verify_token_invariants().is_ok());
+        assert!(CancelToken::fresh("  ", 1_000)
+            .verify_token_invariants()
+            .is_err());
+        assert!(CancelToken::fresh("root-1", 0)
+            .verify_token_invariants()
+            .is_err());
+
+        let valid_desc = Descendant {
+            id: "w-1".into(),
+            kind: WorkerKind::Local,
+            cancellable: true,
+            cancel_scope: Some("scope-1".into()),
+            signal: None,
+        };
+        assert!(valid_desc.verify_descendant_invariants().is_ok());
+
+        let mut bad_desc_id = valid_desc.clone();
+        bad_desc_id.id = " ".into();
+        assert!(bad_desc_id.verify_descendant_invariants().is_err());
+
+        let mut bad_desc_scope = valid_desc.clone();
+        bad_desc_scope.cancel_scope = Some("   ".into());
+        assert!(bad_desc_scope.verify_descendant_invariants().is_err());
+
+        let mut bad_irrev_desc = valid_desc.clone();
+        bad_irrev_desc.cancellable = false;
+        assert!(bad_irrev_desc.verify_descendant_invariants().is_err());
+
+        let mut bus = CancelBus::default();
+        bus.set_token(valid_token);
+        bus.register(valid_desc);
+        bus.register(Descendant {
+            id: "w-remote".into(),
+            kind: WorkerKind::PeerDispatch,
+            cancellable: false,
+            cancel_scope: None,
+            signal: None,
+        });
+        let _ = bus.propagate();
+        assert!(bus.verify_bus_invariants().is_ok());
+
+        // Overlap between terminated and termination_pending is invalid
+        bus.termination_pending.insert("w-1".into());
+        assert!(bus.verify_bus_invariants().is_err());
+        bus.termination_pending.remove("w-1");
+
+        // Unknown id in terminated is invalid
+        bus.terminated.insert("ghost".into());
+        assert!(bus.verify_bus_invariants().is_err());
     }
 }

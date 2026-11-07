@@ -27,6 +27,20 @@ pub struct CatchUpCursor {
     pub complete: bool,
 }
 
+impl CatchUpCursor {
+    /// Verifies that the catch-up cursor state is internally consistent.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `applied > 0` while `offset == 0`.
+    pub fn verify_cursor_invariants(&self) -> Result<(), String> {
+        if self.offset == 0 && self.applied > 0 {
+            return Err("CatchUpCursor cannot have applied > 0 when offset == 0".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Per-peer cursors, one file per store — mergeable like the rest of
 /// `.agents` state (one peer's progress never clobbers another's).
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -35,6 +49,21 @@ pub struct CatchUpBook {
 }
 
 impl CatchUpBook {
+    /// Verifies that all peer keys are non-blank and all cursors satisfy their invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if any peer key is blank or any cursor is invalid.
+    pub fn verify_book_invariants(&self) -> Result<(), String> {
+        for (peer, cursor) in &self.peers {
+            if peer.trim().is_empty() {
+                return Err("CatchUpBook peer key must not be blank".to_string());
+            }
+            cursor.verify_cursor_invariants()?;
+        }
+        Ok(())
+    }
+
     /// Cursor to resume `peer` from: a completed previous run restarts
     /// at 0; an interrupted one continues from its saved offset.
     #[must_use]
@@ -105,6 +134,35 @@ pub struct CatchUpBounds {
     pub max_scan_per_sweep: usize,
 }
 
+impl CatchUpBounds {
+    /// Verifies that catch-up sweep bounds are positive and mutually consistent.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if any bound is zero or if `max_scan_per_sweep`
+    /// is smaller than `batch_size` or `max_apply_per_sweep`.
+    pub fn verify_bounds_invariants(&self) -> Result<(), String> {
+        if self.batch_size == 0 {
+            return Err("CatchUpBounds batch_size must be > 0".to_string());
+        }
+        if self.max_apply_per_sweep == 0 {
+            return Err("CatchUpBounds max_apply_per_sweep must be > 0".to_string());
+        }
+        if self.max_scan_per_sweep == 0 {
+            return Err("CatchUpBounds max_scan_per_sweep must be > 0".to_string());
+        }
+        if self.max_scan_per_sweep < self.batch_size {
+            return Err("CatchUpBounds max_scan_per_sweep must be >= batch_size".to_string());
+        }
+        if self.max_scan_per_sweep < self.max_apply_per_sweep {
+            return Err(
+                "CatchUpBounds max_scan_per_sweep must be >= max_apply_per_sweep".to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
 impl Default for CatchUpBounds {
     fn default() -> Self {
         Self {
@@ -126,6 +184,29 @@ pub struct SweepOutcome {
     /// True when the sweep stopped on a bound rather than the tip;
     /// the peer needs another sweep to converge.
     pub needs_more: bool,
+}
+
+impl SweepOutcome {
+    /// Verifies that the sweep outcome counters and convergence flags are consistent.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string if `applied > scanned`, if `converged == needs_more`,
+    /// or if `scanned == 0` without converging.
+    pub fn verify_outcome_invariants(&self) -> Result<(), String> {
+        if self.applied > self.scanned {
+            return Err("SweepOutcome applied must be <= scanned".to_string());
+        }
+        if self.converged == self.needs_more {
+            return Err(
+                "SweepOutcome converged and needs_more must be mutually exclusive".to_string(),
+            );
+        }
+        if self.scanned == 0 && !self.converged {
+            return Err("SweepOutcome with scanned == 0 must be converged".to_string());
+        }
+        Ok(())
+    }
 }
 
 /// One bounded anti-entropy sweep for a lagging peer.
@@ -338,5 +419,89 @@ mod inline_tests {
                 needs_more: false,
             }
         );
+    }
+
+    #[test]
+    fn anti_entropy_invariants_verify_valid_and_reject_corrupt_states() {
+        let valid_cursor = CatchUpCursor {
+            offset: 64,
+            applied: 32,
+            complete: false,
+        };
+        assert!(valid_cursor.verify_cursor_invariants().is_ok());
+
+        let corrupt_cursor = CatchUpCursor {
+            offset: 0,
+            applied: 10,
+            complete: false,
+        };
+        assert!(corrupt_cursor.verify_cursor_invariants().is_err());
+
+        let mut book = CatchUpBook::default();
+        book.mark_batch("peer-1", 10, 5, false);
+        assert!(book.verify_book_invariants().is_ok());
+
+        let mut bad_peer_book = book.clone();
+        bad_peer_book.peers.insert("  ".into(), valid_cursor);
+        assert!(bad_peer_book.verify_book_invariants().is_err());
+
+        let mut bad_cursor_book = book;
+        bad_cursor_book
+            .peers
+            .insert("peer-2".into(), corrupt_cursor);
+        assert!(bad_cursor_book.verify_book_invariants().is_err());
+
+        let bounds = CatchUpBounds::default();
+        assert!(bounds.verify_bounds_invariants().is_ok());
+        assert!(CatchUpBounds {
+            batch_size: 0,
+            ..bounds
+        }
+        .verify_bounds_invariants()
+        .is_err());
+        assert!(CatchUpBounds {
+            max_apply_per_sweep: 0,
+            ..bounds
+        }
+        .verify_bounds_invariants()
+        .is_err());
+        assert!(CatchUpBounds {
+            max_scan_per_sweep: 128,
+            ..bounds
+        }
+        .verify_bounds_invariants()
+        .is_err());
+
+        let valid_outcome = SweepOutcome {
+            scanned: 10,
+            applied: 4,
+            converged: true,
+            needs_more: false,
+        };
+        assert!(valid_outcome.verify_outcome_invariants().is_ok());
+        assert!(SweepOutcome {
+            scanned: 2,
+            applied: 5,
+            converged: true,
+            needs_more: false,
+        }
+        .verify_outcome_invariants()
+        .is_err());
+        assert!(SweepOutcome {
+            scanned: 10,
+            applied: 4,
+            converged: true,
+            needs_more: true,
+        }
+        .verify_outcome_invariants()
+        .is_err());
+        assert!(SweepOutcome {
+            scanned: 0,
+            applied: 0,
+            converged: false,
+            needs_more: true,
+        }
+        .verify_outcome_invariants()
+        .is_err());
     }
 }

@@ -8,24 +8,27 @@
       "--lib",
       "--offline",
       "--locked",
-      "locality_placement"
+      "anti_entropy"
+    ],
+    "criteria": [
+      "anti_entropy, cancel_propagate, and deliberation structs expose fail-closed verify_*_invariants with unit tests"
     ]
   },
   "id": "T-GAWDSWARM-2",
   "size": "m",
-  "goal": "Add Residency, PlacementTask, PeerInfo, Placement, PlacementRejection, and capacity_admission round/struct invariant verifiers in crates/susi-gawd-swarm.",
+  "goal": "Add CatchUpCursor, CatchUpBook, CatchUpBounds, SweepOutcome, CancelToken, Descendant, CancelBus, CandidatePlan, Deliberation, and HistorySignals invariant verifiers in crates/susi-gawd-swarm.",
   "scope": [
     ".agents/tasks/T-GAWDSWARM-2.json",
     "crates/susi-gawd-swarm"
   ],
   "scopes": [
-    ".agents/tasks/T-GAWDSWARM-2.json",
+    ".agents/tasks/t-gawdswarm-2.json",
     "crates/susi-gawd-swarm"
   ],
   "deps": [],
   "created_by": "GAWDSWARM",
   "created_unix": 1794005500,
-  "status": "completed",
-  "title": "Add LocalityPlacement and CapacityAdmission invariant verifiers in susi-gawd-swarm",
+  "status": "implemented_pending_integration",
+  "title": "Add AntiEntropy, CancelPropagate, and Deliberation invariant verifiers in susi-gawd-swarm",
   "native_worker": "gawd-swarm"
 }
