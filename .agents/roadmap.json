@@ -484,7 +484,7 @@
       "id": "VC-201-039",
       "mastery_target": "Score eligible peers using dataset location, verified capabilities, available resources, and residency constraints; a local-only dataset cannot be moved or routed off its permitted hosts.",
       "priority": "P1",
-      "progress": "DELIVERED: federated placement scores peers by data locality, verified capability, resource and residency gates; an unverified capability is rejected rather than scored, and a local-only dataset never moves off its permitted hosts. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_039.rs`: locality_score_prefers_data_on_host, local_only_dataset_never_moves_off_permitted_hosts, region_residency_and_resource_gates, unverified_capability_is_rejected_not_scored. Evidence: T-CLAUDE-373.",
+      "progress": "MOVED TO COMMERCIAL (2026-11-07, susi-fleet-command::locality_placement): federated placement scores peers by data locality, verified capability, resource and residency gates; an unverified capability is rejected rather than scored, and a local-only dataset never moves off its permitted hosts. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_039.rs`: locality_score_prefers_data_on_host, local_only_dataset_never_moves_off_permitted_hosts, region_residency_and_resource_gates, unverified_capability_is_rejected_not_scored. Evidence: T-CLAUDE-373.",
       "type": "FEDERATION",
       "vector": "Place federated tasks by data locality"
     },
