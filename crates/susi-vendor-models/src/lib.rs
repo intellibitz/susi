@@ -28,8 +28,6 @@ pub mod cloud_eligibility;
 pub mod cloud_manage;
 pub mod cloud_quota;
 pub mod eco_query;
-pub mod eco_schema;
-pub mod eco_taxonomy;
 pub mod frontier;
 pub mod hf_discovery;
 pub mod local_ecosystem;
