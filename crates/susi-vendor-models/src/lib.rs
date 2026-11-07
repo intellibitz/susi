@@ -30,7 +30,6 @@ pub mod cloud_quota;
 pub mod cloud_reconciler;
 pub mod default_models;
 pub mod eco_consistency;
-pub mod eco_coverage;
 pub mod eco_matrix;
 pub mod eco_profile;
 pub mod eco_provenance;
