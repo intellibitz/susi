@@ -23,6 +23,28 @@ impl WorkspaceBrain {
             .cloned()
             .unwrap_or_default()
     }
+
+    /// Verify structural invariants on per-workspace evidence mappings.
+    pub fn verify_workspace_brain_invariants(&self) -> Result<(), String> {
+        for (workspace, evidence_ids) in &self.by_workspace {
+            if workspace.trim().is_empty() {
+                return Err("WorkspaceBrain workspace key must not be empty".to_string());
+            }
+            if evidence_ids.is_empty() {
+                return Err(format!(
+                    "WorkspaceBrain evidence list for '{workspace}' must not be empty"
+                ));
+            }
+            for id in evidence_ids {
+                if id.trim().is_empty() {
+                    return Err(format!(
+                        "WorkspaceBrain evidence id in '{workspace}' must not be empty"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -80,5 +102,27 @@ mod brain_per_workspace_tests {
         let b = WorkspaceBrain::default();
         assert!(b.by_workspace.is_empty());
         assert!(b.for_workspace("/unknown").is_empty());
+    }
+
+    #[test]
+    fn verify_brain_wave13_invariants_workspace_brain() {
+        let mut valid = WorkspaceBrain::default();
+        valid.record("/workspace/a", "EV-1");
+        assert!(valid.verify_workspace_brain_invariants().is_ok());
+
+        let blank_ws = WorkspaceBrain {
+            by_workspace: BTreeMap::from([("   ".to_string(), vec!["EV-1".to_string()])]),
+        };
+        assert!(blank_ws.verify_workspace_brain_invariants().is_err());
+
+        let empty_list = WorkspaceBrain {
+            by_workspace: BTreeMap::from([("/workspace/a".to_string(), vec![])]),
+        };
+        assert!(empty_list.verify_workspace_brain_invariants().is_err());
+
+        let blank_id = WorkspaceBrain {
+            by_workspace: BTreeMap::from([("/workspace/a".to_string(), vec!["  ".to_string()])]),
+        };
+        assert!(blank_id.verify_workspace_brain_invariants().is_err());
     }
 }
