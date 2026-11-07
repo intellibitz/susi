@@ -78,6 +78,15 @@ susi core is the free open-source socket. It speaks the standard host protocols 
 
 susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud inference behind one router, and agents that require evidence before declaring a mission complete. Native Windows uses MSVC and the Rust installer. Platform qualification is recorded in [Step 1 acceptance](docs/step1-acceptance.md).
 
+### Four Core Pillars on `susi-core`
+
+| Pillar | Crate(s) | Role in the Open-Standards RSI AI OS Router |
+|---|---|---|
+| **GAWD** | `susi-gawd`, `susi-gawd-swarm`, `susi-gawd-agents`, `susi-gawd-a2a` | Evidence-gated multi-agent swarm consensus, A2A (`:9094`) protocol execution, truth verification, and Tier-0 Wasm reflex synthesis |
+| **GEMI** | `susi-gemi`, `susi-gemi-models` | Unified local (Ollama, llama.cpp, vLLM, GGUF/Candle) and cloud (OpenAI, Anthropic, Gemini, OpenRouter) inference router (`:9091`) |
+| **GMCP** | `susi-gmcp` | Standards-compliant MCP 2025-11-25 HTTP/SSE (`:9090` / `:9093`) and stdio server exposing governed host tools and resources |
+| **Harness** | `susi-harness` | Unique parallel multi-agent self-build workflow: isolated worktree reservations, serialized combined-tree verification, and metered cost accounting |
+
 > Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including external coding agents and agent frameworks from an installed extension pack or `~/.susi/execution-agents/` adapter files via `susi agents` / `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers from an installed extension pack via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmtime) and optional shell (Docker), distills routine intelligence into **reflexes**, and reports a missing **MCP** tool as a typed capability gap (core never installs or launches one on its own). **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start over what is already installed (engines / Candle fallback); it launches no third-party engine, CLI or MCP server (`tests/core_boot_starts_nothing.rs`). Core is a pure CLI plus standards socket: it ships no UI and bundles no plugin content; the desktop, any visual view and curated plugin packs live in Susi Commercial Apps. Install + optional API keys still apply.
 
 ## One operating layer, two AI ecosystems
