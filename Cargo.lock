@@ -3419,15 +3419,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-sandbox"
-version = "0.1.0"
-dependencies = [
- "susi-config",
- "susi-error",
- "susi-sandbox-client",
-]
-
-[[package]]
 name = "susi-sandbox-client"
 version = "0.1.0"
 dependencies = [

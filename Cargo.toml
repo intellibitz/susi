@@ -20,7 +20,6 @@ members = [
     "crates/susi-native-client",
     "crates/susi-config",
     "crates/susi-leaf-services",
-    "crates/susi-sandbox",
     "crates/susi-sandbox-client",
     "crates/susi-http-transport",
     "crates/susi-conformance",
@@ -147,7 +146,6 @@ susi-vendor-mcp = { path = "crates/susi-vendor-mcp" }
 susi-vendor-mcp-server = { path = "crates/susi-vendor-mcp-server" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
 susi-native-client = { path = "crates/susi-native-client" }
-susi-sandbox = { path = "crates/susi-sandbox" }
 susi-sandbox-client = { path = "crates/susi-sandbox-client" }
 susi-http-transport = { path = "crates/susi-http-transport" }
 susi-wire-client = { path = "crates/susi-wire-client" }
@@ -196,7 +194,7 @@ susi-daemon = { path = "crates/susi-daemon", default-features = false }
 susi-server = { path = "crates/susi-server" }
 susi-core = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
-susi-sandbox = { package = "susi-sandbox-client", path = "crates/susi-sandbox-client" }
+susi-sandbox-client = { workspace = true }
 susi-gemi = { workspace = true }
 susi-gmcp = { workspace = true }
 susi-harness = { workspace = true }

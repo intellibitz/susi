@@ -57,8 +57,9 @@ fn audit_chain_verifies() {
         .set("XDG_DATA_HOME", home.join("xdg-data"));
 
     let log = workspace.join(".susi/audit.log");
-    susi_sandbox::audit_chain::append_signed_entry(&log, "Info", "FIRST", "one", 1).unwrap();
-    susi_sandbox::audit_chain::append_signed_entry(&log, "Info", "SECOND", "two", 1).unwrap();
+    susi_sandbox_client::audit_chain::append_signed_entry(&log, "Info", "FIRST", "one", 1).unwrap();
+    susi_sandbox_client::audit_chain::append_signed_entry(&log, "Info", "SECOND", "two", 1)
+        .unwrap();
 
     let (code, stdout, stderr) = run(&home, &workspace, &["audit", "verify"]);
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
@@ -104,10 +105,13 @@ fn unit_audit_chain_verify_empty_log_returns_zero_and_missing_errors() {
     let mut env = susi_paths::test_env::EnvGuard::isolated();
     env.set("SUSI_HOME", dir.join("instance"));
     let missing = dir.join("nonexistent-audit.log");
-    assert!(susi_sandbox::audit_chain::verify_chain(&missing).is_err());
+    assert!(susi_sandbox_client::audit_chain::verify_chain(&missing).is_err());
     let empty = dir.join("empty-audit.log");
     std::fs::write(&empty, "").unwrap();
-    assert_eq!(susi_sandbox::audit_chain::verify_chain(&empty).unwrap(), 0);
+    assert_eq!(
+        susi_sandbox_client::audit_chain::verify_chain(&empty).unwrap(),
+        0
+    );
     drop(env);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -120,13 +124,18 @@ fn unit_audit_chain_append_links_genesis_and_subsequent_hashes() {
     env.set("SUSI_HOME", dir.join("instance"));
     let log = dir.join("audit.log");
     let h1 =
-        susi_sandbox::audit_chain::append_signed_entry(&log, "Info", "BOOT", "init", 10).unwrap();
+        susi_sandbox_client::audit_chain::append_signed_entry(&log, "Info", "BOOT", "init", 10)
+            .unwrap();
     let h2 =
-        susi_sandbox::audit_chain::append_signed_entry(&log, "Info", "STEP", "next", 10).unwrap();
+        susi_sandbox_client::audit_chain::append_signed_entry(&log, "Info", "STEP", "next", 10)
+            .unwrap();
     assert_eq!(h1.len(), 64);
     assert_eq!(h2.len(), 64);
     assert_ne!(h1, h2);
-    assert_eq!(susi_sandbox::audit_chain::verify_chain(&log).unwrap(), 2);
+    assert_eq!(
+        susi_sandbox_client::audit_chain::verify_chain(&log).unwrap(),
+        2
+    );
     drop(env);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -138,8 +147,8 @@ fn unit_audit_chain_verify_detects_tampered_prev_hash() {
     let mut env = susi_paths::test_env::EnvGuard::isolated();
     env.set("SUSI_HOME", dir.join("instance"));
     let log = dir.join("audit.log");
-    susi_sandbox::audit_chain::append_signed_entry(&log, "Info", "A", "1", 1).unwrap();
-    susi_sandbox::audit_chain::append_signed_entry(&log, "Info", "B", "2", 1).unwrap();
+    susi_sandbox_client::audit_chain::append_signed_entry(&log, "Info", "A", "1", 1).unwrap();
+    susi_sandbox_client::audit_chain::append_signed_entry(&log, "Info", "B", "2", 1).unwrap();
 
     let mut lines: Vec<String> = std::fs::read_to_string(&log)
         .unwrap()
@@ -151,7 +160,7 @@ fn unit_audit_chain_verify_detects_tampered_prev_hash() {
     lines[1] = serde_json::to_string(&second).unwrap();
     std::fs::write(&log, format!("{}\n", lines.join("\n"))).unwrap();
 
-    assert!(susi_sandbox::audit_chain::verify_chain(&log).is_err());
+    assert!(susi_sandbox_client::audit_chain::verify_chain(&log).is_err());
     drop(env);
     let _ = std::fs::remove_dir_all(dir);
 }

@@ -54,7 +54,7 @@ fn append_action(log: &Path, actor: &str, mission: &str, kind: &str, cost_micros
         "secret": "must-not-be-returned",
     })
     .to_string();
-    susi_sandbox::audit_chain::append_signed_entry(log, "Info", "AUDIT_ACTION", &details, 7)
+    susi_sandbox_client::audit_chain::append_signed_entry(log, "Info", "AUDIT_ACTION", &details, 7)
         .unwrap();
 }
 
@@ -151,8 +151,8 @@ fn unit_audit_query_missing_log_returns_empty_vec() {
     let mut env = susi_paths::test_env::EnvGuard::isolated();
     env.set("SUSI_HOME", dir.join("instance"));
     let missing = dir.join("missing.log");
-    let query = susi_sandbox::audit_chain::AuditQuery::default();
-    let records = susi_sandbox::audit_chain::query_chain(&missing, &query).unwrap();
+    let query = susi_sandbox_client::audit_chain::AuditQuery::default();
+    let records = susi_sandbox_client::audit_chain::query_chain(&missing, &query).unwrap();
     assert!(records.is_empty());
     drop(env);
     let _ = std::fs::remove_dir_all(dir);
@@ -168,11 +168,11 @@ fn unit_audit_query_filters_by_actor_kind_and_redacts_secrets() {
     append_action(&log, "alice", "m-1", "tool_execution", 11);
     append_action(&log, "bob", "m-2", "model_call", 29);
 
-    let q_alice = susi_sandbox::audit_chain::AuditQuery {
+    let q_alice = susi_sandbox_client::audit_chain::AuditQuery {
         actor: Some("alice".into()),
         ..Default::default()
     };
-    let recs = susi_sandbox::audit_chain::query_chain(&log, &q_alice).unwrap();
+    let recs = susi_sandbox_client::audit_chain::query_chain(&log, &q_alice).unwrap();
     assert_eq!(recs.len(), 1);
     assert_eq!(recs[0].actor.as_deref(), Some("alice"));
     assert_eq!(recs[0].cost_micros, Some(11));
@@ -192,11 +192,11 @@ fn unit_audit_query_until_zero_excludes_current_epoch_entries() {
     let log = dir.join("audit.log");
     append_action(&log, "carol", "m-3", "model_call", 5);
 
-    let q_until_zero = susi_sandbox::audit_chain::AuditQuery {
+    let q_until_zero = susi_sandbox_client::audit_chain::AuditQuery {
         until: Some(0),
         ..Default::default()
     };
-    let recs = susi_sandbox::audit_chain::query_chain(&log, &q_until_zero).unwrap();
+    let recs = susi_sandbox_client::audit_chain::query_chain(&log, &q_until_zero).unwrap();
     assert!(recs.is_empty());
 
     drop(env);
@@ -205,7 +205,7 @@ fn unit_audit_query_until_zero_excludes_current_epoch_entries() {
 
 #[test]
 fn unit_audit_query_default_has_unbounded_filters() {
-    let q = susi_sandbox::audit_chain::AuditQuery::default();
+    let q = susi_sandbox_client::audit_chain::AuditQuery::default();
     assert!(q.actor.is_none());
     assert!(q.mission.is_none());
     assert!(q.kind.is_none());

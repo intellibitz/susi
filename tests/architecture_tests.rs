@@ -121,7 +121,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
     ("susi-unsafe-ratchet", 1),
-    ("susi-sandbox", 5),
     ("susi-leaf-services", 6),
     ("susi-tools", 5),
     ("susi-gemi-models", 6),
@@ -536,24 +535,6 @@ fn layer_matrix_forbidden_edges() {
         ),
         ("susi-daemon", &["susi-sandbox"]),
         (
-            "susi-sandbox",
-            &[
-                "susi-tools",
-                "susi-agents",
-                "susi-gemi",
-                "susi-gemi-models",
-                "susi-gmcp",
-                "susi-gawd",
-                "susi-gawd-agents",
-                "susi-gawd-swarm",
-                "susi-gawd-a2a",
-                "susi-daemon",
-                "susi-server",
-                "susi-core",
-                "susi-vendor-wasmtime",
-            ],
-        ),
-        (
             "susi-config",
             &[
                 "susi-core",
@@ -896,14 +877,14 @@ fn extension_pack_manifest_schema_on_an_in_test_fixture() {
         r#"[{"id":"acme","aliases":["acme"],"api_key_env":"ACME_API_KEY"}]"#,
     )
     .unwrap();
-    let (admitted, digests) =
-        susi_sandbox::extensions::validate_pack_dir(&dir).expect("fixture pack is admissible");
+    let (admitted, digests) = susi_sandbox_client::extensions::validate_pack_dir(&dir)
+        .expect("fixture pack is admissible");
     assert_eq!(admitted.id, "acme-pack");
     assert_eq!(admitted.api_version, "1");
     assert!(digests.contains_key("manifest.json"));
     assert!(digests.contains_key("cloud-vendors.json"));
     std::fs::write(dir.join("manifest.json"), manifest("2")).unwrap();
-    let err = susi_sandbox::extensions::validate_pack_dir(&dir)
+    let err = susi_sandbox_client::extensions::validate_pack_dir(&dir)
         .expect_err("an incompatible apiVersion major is refused");
     assert!(err.contains("incompatible"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);

@@ -12,7 +12,7 @@ pub fn execute(args: PatchApplyArgs, workspace: &Path) -> Result<()> {
     if request.files.is_empty() {
         bail!("patch request contains no files");
     }
-    let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+    let cfg = susi_sandbox_client::manager::SusiConfig::load_global_arc().unwrap_or_default();
     let mut req = request;
     if args.auto_apply {
         req.auto_apply = true;
