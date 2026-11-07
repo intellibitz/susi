@@ -18,10 +18,31 @@ pub(crate) fn store_limits() -> StoreLimits {
         .build()
 }
 
+/// The four-byte magic every binary WebAssembly module starts with (`\0asm`).
+pub(crate) const WASM_MAGIC: [u8; 4] = [0x00, 0x61, 0x73, 0x6d];
+
 pub(crate) fn check_module_size(bytes: &[u8]) -> EaiResult<()> {
     if bytes.len() > MAX_MODULE_BYTES {
         return Err(EaiError::sandbox(
             "WASM module exceeds the 64 MiB input limit",
+        ));
+    }
+    Ok(())
+}
+
+/// The socket accepts binary modules only.
+///
+/// Until 2026-11-08 the host compiled the WebAssembly text format (`wat`) as
+/// well, which put a text parser (`wat` + `wast`) in every shipped build for
+/// an input no producer emits: reflex and cell producers compile `.wasm`
+/// binaries, and the crate's own fixtures are compiled at test time
+/// (`docs/lean-core.md`, "Compile budget"). Refusing here — before the memory
+/// cap rewrite and before validation — names the contract instead of failing
+/// deep inside the interpreter with a parser error.
+pub(crate) fn check_binary_module(bytes: &[u8]) -> EaiResult<()> {
+    if !bytes.starts_with(&WASM_MAGIC) {
+        return Err(EaiError::sandbox(
+            "not a binary WebAssembly module: the host accepts compiled `.wasm` input only",
         ));
     }
     Ok(())
@@ -60,13 +81,13 @@ mod tests {
                 "invalid adversarial fixture {name}"
             );
             assert!(
-                WasmCell::from_bytes(cell.as_bytes()).is_err(),
+                WasmCell::from_bytes(&binary).is_err(),
                 "cell accepted {name}"
             );
             let wasi = format!("(module {declarations} (func (export \"_start\")))");
-            let path =
-                std::env::temp_dir().join(format!("susi-limits-{name}-{}.wat", std::process::id()));
-            std::fs::write(&path, wasi).unwrap();
+            let path = std::env::temp_dir()
+                .join(format!("susi-limits-{name}-{}.wasm", std::process::id()));
+            std::fs::write(&path, wat::parse_str(&wasi).unwrap()).unwrap();
             let result = WasmHost::execute_reflex(&path, "");
             std::fs::remove_file(path).unwrap();
             assert!(result.is_err(), "WASI accepted {name}");
@@ -86,20 +107,26 @@ mod tests {
 
     #[test]
     fn table_growth_is_bounded_on_both_entrypoints() {
-        let cell = br#"(module (table 1 funcref)
+        let cell = wat::parse_str(
+            r#"(module (table 1 funcref)
             (func (export "_start") (result i32)
-                (table.grow (ref.null func) (i32.const 1000000))))"#;
-        let mut instance = WasmCell::from_bytes(cell).unwrap();
+                (table.grow (ref.null func) (i32.const 1000000))))"#,
+        )
+        .unwrap();
+        let mut instance = WasmCell::from_bytes(&cell).unwrap();
         assert_eq!(
             instance.execute("_start").unwrap(),
             "WASM function '_start' returned -1"
         );
-        let wasi = br#"(module (table 1 funcref)
+        let wasi = wat::parse_str(
+            r#"(module (table 1 funcref)
             (func (export "_start")
                 (if (i32.ne (table.grow (ref.null func) (i32.const 1000000)) (i32.const -1))
-                    (then unreachable))))"#;
+                    (then unreachable))))"#,
+        )
+        .unwrap();
         let path =
-            std::env::temp_dir().join(format!("susi-limits-growth-{}.wat", std::process::id()));
+            std::env::temp_dir().join(format!("susi-limits-growth-{}.wasm", std::process::id()));
         std::fs::write(&path, wasi).unwrap();
         let result = WasmHost::execute_reflex(&path, "");
         std::fs::remove_file(path).unwrap();

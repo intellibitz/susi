@@ -11,12 +11,18 @@ susi-error = { workspace = true }
 wasmi = { version = "=1.0.9", default-features = false, features = ["std", "simd", "extra-checks"] }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 # In-process cell runtime (`cell.rs`): the declared-max memory-cap rewrite of
-# the module's memory section, and WAT text accepted alongside binary
-# (`wat::parse_bytes` passes already-binary modules through).
+# the module's memory section.
 wasm-encoder = "0.259"
 wasmparser = "0.259"
-wat = "1.259"
 tracing = { workspace = true }
+
+# The WebAssembly text format is a test-time convenience, never a host input:
+# the crate accepts binary `.wasm` only (docs/lean-core.md, compile budget),
+# so this dependency is dev-scoped and takes `wat` + `wast` out of every
+# shipped build. Tests compile their readable fixtures here and hand the
+# product the same bytes rustc's wasm32 targets emit.
+[dev-dependencies]
+wat = "1.259"
 
 [lints]
 workspace = true
