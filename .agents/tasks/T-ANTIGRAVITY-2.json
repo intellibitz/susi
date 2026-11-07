@@ -1,14 +1,14 @@
 {
   "id": "T-ANTIGRAVITY-2",
-  "title": "Add MissionSpec, ControlAck, and ControlRecord invariant verifiers in susi-harness",
-  "goal": "Add MissionSpec::verify_spec_invariants and ControlAck::verify_ack_invariants in crates/susi-harness/src/api.rs and ControlRecord::verify_record_invariants in crates/susi-harness/src/control.rs with unit tests.",
+  "title": "Add cockpit and ROI invariant verifiers in susi-harness",
+  "goal": "Add WorkerRoi::verify_worker_roi_invariants, RoiReport::verify_roi_report_invariants, SovaRankedCandidate::verify_ranked_candidate_invariants, and SovaDecision::verify_decision_invariants in crates/susi-harness/src/roi.rs, and MissionView::verify_mission_view_invariants, WorkerView::verify_worker_view_invariants, and Snapshot::verify_snapshot_invariants in crates/susi-harness/src/cockpit.rs.",
   "state": "in_progress",
   "status": "completed",
   "claimed_by": "antigravity",
   "native_worker": "antigravity",
   "created_by": "antigravity",
-  "created_unix": 1794025501,
-  "updated_unix": 1794034600,
+  "created_unix": 1794025502,
+  "updated_unix": 1794036400,
   "size": "M",
   "deps": [],
   "scope": [
@@ -19,7 +19,7 @@
     "crates/susi-harness",
     ".agents/tasks/T-ANTIGRAVITY-2.json"
   ],
-  "acceptance": "MissionSpec::verify_spec_invariants, ControlAck::verify_ack_invariants, and ControlRecord::verify_record_invariants validate structural and semantic invariants of operator control commands and acknowledgements.",
+  "acceptance": "roi::tests::roi_report_worker_roi_and_sova_decision_verify_invariants_reject_corrupt_state",
   "accept": {
     "cmd": [
       "cargo",
@@ -27,7 +27,7 @@
       "-p",
       "susi-harness",
       "--lib",
-      "control_record_verify_record_invariants",
+      "roi_report_worker_roi_and_sova_decision_verify_invariants_reject_corrupt_state",
       "--offline",
       "--locked"
     ]
