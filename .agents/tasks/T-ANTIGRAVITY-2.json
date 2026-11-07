@@ -1,10 +1,10 @@
 {
   "id": "T-ANTIGRAVITY-2",
   "native_worker": "antigravity",
-  "title": "Add Wave 12 cache, catalogue, and pricing invariant verifiers in susi-harness",
+  "title": "Wave 13 susi-harness author, executor, fleet, and ingress invariant verifiers",
   "created_by": "ANTIGRAVITY",
   "created_unix": 1794038400,
-  "status": "implemented_pending_integration",
+  "status": "in_progress",
   "dependencies": [],
   "scopes": [
     ".agents/tasks/t-antigravity-2.json",
@@ -20,11 +20,6 @@
       "--offline",
       "--locked",
       "verify_invariants_reject_corrupt_state"
-    ],
-    "criteria": [
-      "CacheBounds::verify_bounds_invariants and ResponseCache::verify_cache_invariants validate cache capacity and accounting invariants",
-      "PriceCatalogue::verify_catalogue_invariants validates schema, model keys, and model prices",
-      "TokenUsage::verify_usage_invariants and ModelPrice::verify_price_invariants validate token accounting and rate invariants"
     ]
   }
 }

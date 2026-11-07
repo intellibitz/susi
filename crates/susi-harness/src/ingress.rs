@@ -124,6 +124,35 @@ impl Account {
     pub fn open() -> Self {
         Self::new("", "open")
     }
+
+    /// Verify structural invariants of an [`Account`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable error if `name` is blank or cannot be encoded
+    /// as a visible ASCII mission header, if a non-`open` (or
+    /// `booked_under_token`) account has a blank `token`, or if
+    /// `requests_per_minute` is `Some(0)`.
+    pub fn verify_account_invariants(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("Account.name must not be empty".to_string());
+        }
+        if mission_header(&self.name).is_none() {
+            return Err("Account.name must be valid visible ASCII for mission header".to_string());
+        }
+        if (self.name != "open" || self.booked_under_token) && self.token.trim().is_empty() {
+            return Err("Account.token must not be empty for non-open accounts".to_string());
+        }
+        if let Some(rpm) = self.requests_per_minute {
+            if rpm == 0 {
+                return Err(
+                    "Account.requests_per_minute must be greater than zero when present"
+                        .to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Why a caller was refused.
@@ -257,6 +286,24 @@ impl Reservation {
     pub const fn amount(&self) -> MicroUsd {
         self.amount
     }
+
+    /// Verify structural invariants of a [`Reservation`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable error if `name` is blank or cannot be encoded
+    /// as a visible ASCII mission header.
+    pub fn verify_reservation_invariants(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("Reservation.name must not be empty".to_string());
+        }
+        if mission_header(&self.name).is_none() {
+            return Err(
+                "Reservation.name must be valid visible ASCII for mission header".to_string(),
+            );
+        }
+        Ok(())
+    }
 }
 
 impl Ingress {
@@ -279,6 +326,51 @@ impl Ingress {
     #[must_use]
     pub fn is_open(&self) -> bool {
         self.accounts.is_empty()
+    }
+
+    /// Verify structural invariants of an [`Ingress`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable error if any account fails
+    /// [`Account::verify_account_invariants`], if any configured account has a
+    /// blank or duplicate token, or if any slot in `slots` has a blank account
+    /// key or a zero-count rate window.
+    pub fn verify_ingress_invariants(&self) -> Result<(), String> {
+        for (idx, account) in self.accounts.iter().enumerate() {
+            account.verify_account_invariants()?;
+            if account.token.trim().is_empty() {
+                return Err("Ingress.accounts entries must have non-empty tokens".to_string());
+            }
+            if self
+                .accounts
+                .iter()
+                .skip(idx + 1)
+                .any(|other| other.token == account.token)
+            {
+                return Err(format!(
+                    "Ingress.accounts contains duplicate token for account '{}'",
+                    account.name
+                ));
+            }
+        }
+        let guard = match self.slots.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        for (name, slot) in guard.iter() {
+            if name.trim().is_empty() {
+                return Err("Ingress.slots keys must not be empty".to_string());
+            }
+            if let Some(window) = slot.window {
+                if window.count == 0 {
+                    return Err(format!(
+                        "Ingress.slots['{name}'].window.count must be greater than zero"
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Parse an accounts document:
@@ -2018,5 +2110,86 @@ mod tests {
         headers.insert("x-api-key", HeaderValue::from_static("sk-2"));
         assert_eq!(token_from(&headers), Some("sk-2"));
         assert_eq!(token_from(&HeaderMap::new()), None);
+    }
+
+    #[test]
+    fn ingress_account_and_reservation_verify_invariants_reject_corrupt_state() {
+        let open_acc = Account::open();
+        assert!(open_acc.verify_account_invariants().is_ok());
+
+        let valid_acc = Account::new("sk-alice", "alice")
+            .with_budget(MicroUsd::from_micros(5_000_000))
+            .with_rate(60);
+        assert!(valid_acc.verify_account_invariants().is_ok());
+
+        let blank_name = Account::new("sk-1", "   ");
+        assert!(blank_name.verify_account_invariants().is_err());
+
+        let bad_header_name = Account::new("sk-1", "alice\nheader");
+        assert!(bad_header_name.verify_account_invariants().is_err());
+
+        let non_open_blank_token = Account::new("  ", "alice");
+        assert!(non_open_blank_token.verify_account_invariants().is_err());
+
+        let zero_rate = Account::new("sk-1", "alice").with_rate(0);
+        assert!(zero_rate.verify_account_invariants().is_err());
+
+        let valid_res = Reservation {
+            name: "alice".to_string(),
+            amount: MicroUsd::from_micros(100),
+        };
+        assert!(valid_res.verify_reservation_invariants().is_ok());
+
+        let blank_res = Reservation {
+            name: " ".to_string(),
+            amount: MicroUsd::ZERO,
+        };
+        assert!(blank_res.verify_reservation_invariants().is_err());
+
+        let bad_header_res = Reservation {
+            name: "alice\r\n".to_string(),
+            amount: MicroUsd::ZERO,
+        };
+        assert!(bad_header_res.verify_reservation_invariants().is_err());
+
+        let open_ingress = Ingress::new(Vec::new());
+        assert!(open_ingress.verify_ingress_invariants().is_ok());
+
+        let valid_ingress = Ingress::new(vec![
+            Account::new("sk-1", "alice"),
+            Account::new("sk-2", "bob"),
+        ]);
+        assert!(valid_ingress.verify_ingress_invariants().is_ok());
+
+        let dup_token_ingress = Ingress::new(vec![
+            Account::new("sk-dup", "alice"),
+            Account::new("sk-dup", "bob"),
+        ]);
+        assert!(dup_token_ingress.verify_ingress_invariants().is_err());
+
+        let open_in_accounts = Ingress::new(vec![Account::open()]);
+        assert!(open_in_accounts.verify_ingress_invariants().is_err());
+
+        let bad_slot_ingress = Ingress::new(vec![Account::new("sk-1", "alice")]);
+        bad_slot_ingress.slots.lock().unwrap().insert(
+            "alice".to_string(),
+            Slot {
+                window: Some(Window {
+                    minute: 1,
+                    count: 0,
+                }),
+                committed: MicroUsd::ZERO,
+                reserved: MicroUsd::ZERO,
+            },
+        );
+        assert!(bad_slot_ingress.verify_ingress_invariants().is_err());
+
+        let blank_slot_key_ingress = Ingress::new(vec![Account::new("sk-1", "alice")]);
+        blank_slot_key_ingress
+            .slots
+            .lock()
+            .unwrap()
+            .insert("  ".to_string(), Slot::default());
+        assert!(blank_slot_key_ingress.verify_ingress_invariants().is_err());
     }
 }
