@@ -280,7 +280,7 @@ impl SemanticIndex {
         }
 
         let texts: Vec<String> = pending.iter().map(|(_, t)| t.clone()).collect();
-        let vectors = susi_vendor_fastembed::embed(texts)?;
+        let vectors = crate::embed_provider::embed(texts)?;
 
         let vec_path = workspace.join(".susi/vectors.jsonl");
         let mut f = fs::OpenOptions::new()
@@ -307,7 +307,7 @@ impl SemanticIndex {
         Self::refresh(workspace)?;
         Self::ensure_embeddings(workspace)?;
 
-        let qv = susi_vendor_fastembed::embed_one(query)?;
+        let qv = crate::embed_provider::embed_one(query)?;
 
         let vec_path = workspace.join(".susi/vectors.jsonl");
         let mut scored: Vec<(String, f32)> = Vec::new();
