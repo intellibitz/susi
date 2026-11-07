@@ -1,16 +1,8 @@
 //! Durable management of external task executors over Susi's standard protocol
 //! sockets (`Command`, `A2a`, `Acp`). Provider output is evidence of execution,
 //! never proof that the requested code change is correct.
-mod a2a;
-mod acp;
 mod catalog;
-mod cloud;
-mod git_identity;
-mod process;
 
-pub use acp::{
-    drive as acp_drive, Outcome as AcpOutcome, Permission as AcpPermission, Task as AcpTask,
-};
 pub use catalog::{
     catalog, catalog_with_host_dir, definition, resolve_managed, Adapter, AgentDefinition,
     CatalogKind,
@@ -263,12 +255,18 @@ impl AgentManager {
         }
         run.status = RunStatus::Running;
         self.save(&run)?;
-        let result = if run.adapter.is_cloud() {
-            cloud::execute(self, &mut run)
+        let result: Result<()> = if run.adapter.is_cloud() {
+            Err(susi_error::EaiError::internal(
+                "A2A external agent plug is in susi-commercial-apps",
+            ))
         } else if matches!(run.adapter, Adapter::Acp { .. }) {
-            acp::execute(self, &mut run)
+            Err(susi_error::EaiError::internal(
+                "ACP external agent plug is in susi-commercial-apps",
+            ))
         } else {
-            process::execute(self, &mut run)
+            Err(susi_error::EaiError::internal(
+                "external process agent plug is in susi-commercial-apps",
+            ))
         };
         if let Err(e) = result {
             // A cloud create may have succeeded despite a dropped response: never retry blindly.
@@ -434,8 +432,7 @@ impl AgentManager {
         if let Ok(_lease) = self.acquire(id) {
             let mut run = self.read(id)?;
             if run.adapter.is_cloud() && run.remote_id.is_some() {
-                cloud::cancel(&run)?;
-                run.status = RunStatus::Cancelled;
+                bail!("A2A external agent plug is in susi-commercial-apps");
             } else if run.status == RunStatus::Queued {
                 run.status = RunStatus::Cancelled;
             } else if run.status == RunStatus::Running {
@@ -450,14 +447,11 @@ impl AgentManager {
 
     pub fn refresh(&self, id: &str) -> Result<RunRecord> {
         let _lease = self.acquire(id)?;
-        let mut run = self.read(id)?;
+        let run = self.read(id)?;
         if !run.adapter.is_cloud() {
             bail!("refresh is only for cloud tasks; local status comes from the worker");
         }
-        cloud::refresh(self, &mut run)?;
-        run.error = None;
-        self.save(&run)?;
-        Ok(run)
+        bail!("A2A external agent plug is in susi-commercial-apps")
     }
 
     /// Follow up on an existing cloud session without creating a new billable task.
@@ -466,17 +460,13 @@ impl AgentManager {
             bail!("message must not be empty");
         }
         let _lease = self.acquire(id)?;
-        let mut run = self.read(id)?;
+        let run = self.read(id)?;
         if !run.adapter.is_cloud() {
             bail!(
                 "local sessions use vendor resume flags through configure; send is for cloud tasks"
             );
         }
-        cloud::send(&run, message)?;
-        run.status = RunStatus::Unknown;
-        run.error = Some("follow-up submitted; use refresh to observe provider status".into());
-        self.save(&run)?;
-        Ok(run)
+        bail!("A2A external agent plug is in susi-commercial-apps")
     }
 
     pub fn logs(&self, id: &str, stderr: bool, max_bytes: u64) -> Result<String> {
@@ -559,10 +549,15 @@ fn now() -> u64 {
         .as_secs()
 }
 fn unique_id() -> Result<String> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes)
-        .map_err(|e| susi_error::EaiError::internal(format!("task ID entropy: {e}")))?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(1);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    Ok(format!("{nanos:016x}{pid:08x}{seq:08x}"))
 }
 /// Redact credentials on display; raw vendor logs stay in the private run directory.
 pub use crate::susi_config::redact_credentials as redact;
@@ -574,9 +569,6 @@ fn tracing_failure(id: &str, error: &str) {
         &format!("{id}: {}", redact(error)),
     );
 }
-
-#[cfg(test)]
-mod tests;
 
 #[cfg(test)]
 mod unit_tests {

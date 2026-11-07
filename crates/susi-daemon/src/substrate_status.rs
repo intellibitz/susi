@@ -13,7 +13,7 @@ fn load_json(path: &Path) -> Option<serde_json::Value> {
 }
 
 fn docker_available() -> bool {
-    susi_agents::external::docker_present()
+    susi_gawd::external::docker_present()
 }
 
 fn count_wasm_reflexes() -> usize {

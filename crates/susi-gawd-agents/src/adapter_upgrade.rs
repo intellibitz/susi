@@ -1,8 +1,8 @@
 //! Production adapter upgrade pipeline with contract verification and rollback (VC-201-089).
 
+use crate::external::{Adapter, AgentManager};
 use susi_core::adapter_upgrade::{AdapterRevision, AdapterUpgrade, ContractResults, SwitchVerdict};
 use susi_error::EaiResult;
-use susi_vendor_agents::external::{Adapter, AgentManager};
 
 /// Validate, stage, contract-check, and switch an adapter configuration
 /// beside the active one, ensuring rollback on contract or version failure.
@@ -55,16 +55,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // A synthetic catalog and a temp config dir: core bundles no vendor
         // catalog, and the test must not write the host's adapter overrides.
-        let codex: susi_vendor_agents::external::AgentDefinition =
-            serde_json::from_value(serde_json::json!({
-                "id": "codex", "name": "Codex", "peer_name": "CodexAgent", "rank": 1,
-                "documentation": "https://example.invalid",
-                "adapter": {"kind": "command", "program": "codex", "args": ["{prompt}"]},
-            }))
-            .unwrap();
+        let codex: crate::external::AgentDefinition = serde_json::from_value(serde_json::json!({
+            "id": "codex", "name": "Codex", "peer_name": "CodexAgent", "rank": 1,
+            "documentation": "https://example.invalid",
+            "adapter": {"kind": "command", "program": "codex", "args": ["{prompt}"]},
+        }))
+        .unwrap();
         let manager = AgentManager::with_config(
             &dir,
-            susi_vendor_agents::external::CatalogKind::Execution,
+            crate::external::CatalogKind::Execution,
             dir.join("cfg"),
         )
         .unwrap()
@@ -102,16 +101,15 @@ mod tests {
                 .unwrap_or(0)
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let def: susi_vendor_agents::external::AgentDefinition =
-            serde_json::from_value(serde_json::json!({
-                "id": id_present, "name": "Present", "peer_name": "PresentAgent", "rank": 1,
-                "documentation": "https://example.invalid",
-                "adapter": {"kind": "command", "program": "present", "args": ["{prompt}"]},
-            }))
-            .unwrap();
+        let def: crate::external::AgentDefinition = serde_json::from_value(serde_json::json!({
+            "id": id_present, "name": "Present", "peer_name": "PresentAgent", "rank": 1,
+            "documentation": "https://example.invalid",
+            "adapter": {"kind": "command", "program": "present", "args": ["{prompt}"]},
+        }))
+        .unwrap();
         let manager = AgentManager::with_config(
             &dir,
-            susi_vendor_agents::external::CatalogKind::Execution,
+            crate::external::CatalogKind::Execution,
             dir.join("cfg"),
         )
         .unwrap()

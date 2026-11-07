@@ -15,9 +15,9 @@ This page is the shared plan for every agent on the program. Numbers come from
 | Rung | Measure (four pillars, normal+build edges) | 2026-11-07 start | now |
 |------|--------------------------------------------|------------------|-----|
 | 0 | third-party crates compiled | 331 | 307 |
-| 0 | workspace crates compiled | 59 | 54 |
+| 0 | workspace crates compiled | 59 | 52 |
 | 0 | vendor facades named directly by the pillar crates | 26 | 25 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 179,544 |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 181,798 |
 | clean clone | shallow clone, `cargo check -p susi-gmcp` / `-p susi` | 60 s / 78 s online; offline impossible (crates.io) | same |
 
 Rungs, in order. Each is done when its number is on this table and the ceiling
@@ -95,3 +95,7 @@ made, `CONTRIBUTING.md` stands as written.
   `susi-vendor-models` deleted from core, its contracts moved into susi-gemi-models, +7,986
   lines, allowed by the rule above). Measured on the merged tree: third-party 307, workspace
   crates 54, direct facade edges 25, pillar lines 179,544; every ceiling re-pinned there.
+- 2026-11-07 wave 1, second landing: iterations 321-330 (ungated; vendor-agents, susi-agents and
+  vendor-web deleted from core, contracts re-homed in gawd-agents) merged in; workspace crates
+  54 -> 52, pillar lines 181,798; re-pinned. Lesson: an exact line pin loses every race against
+  an ungated push into a pillar; the ratchet still holds, the landing just re-pins.

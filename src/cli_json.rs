@@ -6,7 +6,7 @@ use anyhow::Result;
 pub fn print_json(value: &impl serde::Serialize) -> Result<()> {
     println!(
         "{}",
-        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
+        susi_config::redact_credentials(&serde_json::to_string_pretty(value)?)
     );
     Ok(())
 }
@@ -42,7 +42,7 @@ mod inline_tests {
             "Authorization": format!("Bearer {raw_token}"),
         });
         let pretty = serde_json::to_string_pretty(&payload).unwrap();
-        let redacted = susi_agents::external::redact(&pretty);
+        let redacted = susi_config::redact_credentials(&pretty);
         assert!(!redacted.contains(&raw_token));
         assert!(redacted.contains("\"provider\": \"openai\""));
         assert!(print_json(&payload).is_ok());
@@ -56,7 +56,7 @@ mod inline_tests {
             "ports": [18080, 18081]
         });
         let pretty = serde_json::to_string_pretty(&payload).unwrap();
-        let redacted = susi_agents::external::redact(&pretty);
+        let redacted = susi_config::redact_credentials(&pretty);
         let parsed: serde_json::Value = serde_json::from_str(&redacted).unwrap();
         assert_eq!(parsed["service"], "susi-gmcp");
         assert_eq!(parsed["healthy"], true);

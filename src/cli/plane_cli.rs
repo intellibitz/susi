@@ -46,7 +46,7 @@ pub(crate) fn plane_exit(result: anyhow::Result<()>) -> std::process::ExitCode {
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+            eprintln!("{}", susi_config::redact_credentials(&e.to_string()));
             std::process::ExitCode::FAILURE
         }
     }

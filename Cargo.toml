@@ -21,8 +21,6 @@ members = [
     "crates/susi-vendor-chrome",
     "crates/susi-vendor-syn",
     "crates/susi-vendor-cloud",
-    "crates/susi-vendor-agents",
-    "crates/susi-vendor-web",
     "crates/susi-native-client",
     "crates/susi-config",
     "crates/susi-leaf-services",
@@ -33,7 +31,6 @@ members = [
     "crates/susi-wire-client",
     "crates/susi-vendor-candle",
     "crates/susi-adapters-llm",
-    "crates/susi-agents",
     "crates/susi-tools",
     "crates/susi-gemi-models",
     "crates/susi-gemi",
@@ -160,8 +157,6 @@ susi-vendor-fastembed = { path = "crates/susi-vendor-fastembed" }
 susi-vendor-chrome = { path = "crates/susi-vendor-chrome" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
 susi-vendor-cloud = { path = "crates/susi-vendor-cloud" }
-susi-vendor-agents = { path = "crates/susi-vendor-agents" }
-susi-vendor-web = { path = "crates/susi-vendor-web" }
 susi-native-client = { path = "crates/susi-native-client" }
 susi-sandbox = { path = "crates/susi-sandbox" }
 susi-sandbox-client = { path = "crates/susi-sandbox-client" }
@@ -178,7 +173,6 @@ susi-gawd-swarm = { path = "crates/susi-gawd-swarm" }
 susi-gawd-a2a = { path = "crates/susi-gawd-a2a" }
 susi-gawd = { path = "crates/susi-gawd" }
 susi-unsafe-ratchet = { path = "crates/susi-unsafe-ratchet" }
-susi-agents = { path = "crates/susi-agents" }
 susi-tools = { path = "crates/susi-tools" }
 susi-server = { path = "crates/susi-server" }
 susi-paths = { path = "crates/susi-paths" }
@@ -219,7 +213,6 @@ susi-gemi = { workspace = true }
 susi-gmcp = { workspace = true }
 susi-harness = { workspace = true }
 susi-gawd = { workspace = true }
-susi-agents = { workspace = true }
 susi-tools = { workspace = true }
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
