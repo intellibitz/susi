@@ -142,7 +142,29 @@ egress stripped by default).
 
 1. Build a small Rust WASI binary targeting `wasm32-wasip1` that reads JSON
    arguments from `stdin` (or argv) and prints a deterministic JSON result to
-   `stdout`.
+   `stdout`:
+
+```rust
+use std::io::{self, Read, Write};
+
+fn main() -> io::Result<()> {
+    let mut input = String::new();
+    io::stdin().read_to_string(&mut input)?;
+    let trimmed = input.trim();
+    let bytes = trimmed.len();
+    let response = format!(
+        "{{\"status\":\"ok\",\"reflex\":\"word_count\",\"bytes\":{bytes}}}\n"
+    );
+    io::stdout().write_all(response.as_bytes())
+}
+```
+
+```bash
+cargo build --target wasm32-wasip1 --release
+install -m 0644 target/wasm32-wasip1/release/word_count.wasm ~/.susi/reflexes/word_count.wasm.tmp
+mv ~/.susi/reflexes/word_count.wasm.tmp ~/.susi/reflexes/word_count.wasm
+```
+
 2. Copy the compiled `<slug>.wasm` into your `reflexes/` directory via atomic
    rename (stage to `<slug>.wasm.tmp` then `mv` to `<slug>.wasm`).
 3. Call it over MCP on port `9090` (`tools/call` with `"name": "reflex_<slug>"`).
