@@ -625,7 +625,7 @@
       "id": "VC-201-050",
       "mastery_target": "Import a checksummed bundle of supported binaries, models, and extension metadata into an isolated host; a network-disabled drill boots, serves a local mission, and diagnoses missing artifacts without cloud fallback.",
       "priority": "P1",
-      "progress": "DELIVERED: cloud egress is blocked while loopback stays available, `crates/susi-config/src/offline_bundle.rs` imports a SHA-256 checksummed bundle of binaries, models, and extension metadata atomically into an isolated host, and `run_offline_bootstrap_drill` boots, serves a local mission, and diagnoses missing artifacts without cloud fallback. Verified by `tests/airgap_mode.rs`: vc_201_050_imports_checksummed_offline_bundle_and_serves_local_mission_without_network, vc_201_050_rejects_tampered_bundle_artifact_checksum_before_install, vc_201_050_diagnoses_missing_artifacts_without_cloud_fallback.",
+      "progress": "PARTIAL (refuted on record in .agents/roadmap-verdicts/VC-201-050.json): cloud egress is blocked while loopback stays available, `crates/susi-config/src/offline_bundle.rs` imports a SHA-256 checksummed bundle of binaries, models, and extension metadata atomically into an isolated host, and `run_offline_bootstrap_drill` boots, serves a local mission, and diagnoses missing artifacts without cloud fallback. Verified by `tests/airgap_mode.rs`: vc_201_050_imports_checksummed_offline_bundle_and_serves_local_mission_without_network, vc_201_050_rejects_tampered_bundle_artifact_checksum_before_install, vc_201_050_diagnoses_missing_artifacts_without_cloud_fallback.",
       "type": "LOCAL_HOSTING",
       "vector": "Support verified offline bootstrap and recovery"
     },
