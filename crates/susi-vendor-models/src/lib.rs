@@ -29,7 +29,6 @@ pub mod cloud_manage;
 pub mod cloud_quota;
 pub mod cloud_reconciler;
 pub mod default_models;
-pub mod eco_conflicts;
 pub mod eco_consistency;
 pub mod eco_coverage;
 pub mod eco_matrix;
