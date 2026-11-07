@@ -171,6 +171,7 @@ mod tests {
 #[cfg(test)]
 pub(crate) static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+#[cfg(test)]
 mod router_tests {
     use super::ENV_LOCK;
     use axum::body::Body;
