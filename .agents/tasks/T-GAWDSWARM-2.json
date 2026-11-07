@@ -8,12 +8,12 @@
       "--lib",
       "--offline",
       "--locked",
-      "coordinator_fence"
+      "side_effect_journal"
     ]
   },
   "id": "T-GAWDSWARM-2",
   "size": "m",
-  "goal": "Add LeadershipEpoch, MissionWrite, TaskLease, and MutationPermit invariant verifiers in crates/susi-gawd-swarm.",
+  "goal": "Add SideEffectIntent, SideEffectReceipt, DispatchDecision, Resources, and DagNode invariant verifiers in crates/susi-gawd-swarm.",
   "scope": [
     ".agents/tasks/T-GAWDSWARM-2.json",
     "crates/susi-gawd-swarm"
@@ -24,8 +24,8 @@
   ],
   "deps": [],
   "created_by": "GAWDSWARM",
-  "created_unix": 1794004000,
+  "created_unix": 1794004500,
   "status": "completed",
-  "title": "Add LeadershipEpoch, MissionWrite, TaskLease, and MutationPermit invariant verifiers in susi-gawd-swarm",
+  "title": "Add SideEffectIntent, SideEffectReceipt, DispatchDecision, Resources, and DagNode invariant verifiers in susi-gawd-swarm",
   "native_worker": "gawd-swarm"
 }
