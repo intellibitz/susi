@@ -2,7 +2,6 @@
   "id": "T-SOCKETDSP4-1",
   "title": "Harden D-SP-4 plane bus propagation, VC-201-048 thermal routing, and VC-202-013 live cost attribution",
   "status": "completed",
-  "native_worker": "socket-dsp4",
   "scopes": [
     ".agents/tasks/t-socketdsp4-1.json",
     "crates/susi-core",
