@@ -3,7 +3,7 @@ use super::catalog_plane_cli::{launch, run_worker, LaunchOpts};
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use std::path::Path;
-use susi_agents::external::{catalog, AgentManager, CatalogKind};
+use susi_gawd::external::{catalog, AgentManager, CatalogKind};
 pub use susi_cli_defs::framework::FrameworkCommands;
 use susi_daemon::adapter_ops::{self, AdapterKind};
 

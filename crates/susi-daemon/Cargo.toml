@@ -19,7 +19,6 @@ susi-gawd = { workspace = true }
 susi-gmcp = { workspace = true }
 susi-server = { workspace = true }
 susi-tools = { workspace = true }
-susi-agents = { workspace = true }
 susi-harness = { workspace = true }
 dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 susi-http-transport = { workspace = true }

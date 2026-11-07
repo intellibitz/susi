@@ -490,12 +490,12 @@ pub fn prime_selected_catalogs(substrate: &Path, catalogs: Catalogs) -> serde_js
     }
     if catalogs.execution_agents {
         agents_ready = phase(PRIME_PHASE_EXECUTION_AGENTS, || {
-            prime_agent_kind(substrate, susi_agents::external::CatalogKind::Execution)
+            prime_agent_kind(substrate, susi_gawd::external::CatalogKind::Execution)
         });
     }
     if catalogs.frameworks {
         frameworks_ready = phase(PRIME_PHASE_FRAMEWORKS, || {
-            prime_agent_kind(substrate, susi_agents::external::CatalogKind::Framework)
+            prime_agent_kind(substrate, susi_gawd::external::CatalogKind::Framework)
         });
     }
 
@@ -571,8 +571,8 @@ fn prime_coding_models() -> Option<String> {
 
 /// Scan one agent catalog: persist its `ready.json` and register a
 /// capability for each ready entry. Returns how many entries were ready.
-fn prime_agent_kind(substrate: &Path, kind: susi_agents::external::CatalogKind) -> usize {
-    match susi_agents::external::AgentManager::for_kind(substrate, kind) {
+fn prime_agent_kind(substrate: &Path, kind: susi_gawd::external::CatalogKind) -> usize {
+    match susi_gawd::external::AgentManager::for_kind(substrate, kind) {
         Ok(mgr) => match mgr.auto_prime_ready() {
             Ok(ready) => {
                 if !ready.is_empty() && std::env::var("SUSI_VERBOSE").is_ok() {
