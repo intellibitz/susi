@@ -9,31 +9,6 @@ pub struct BrainBundle {
     pub entries: Vec<Value>,
 }
 
-impl BrainBundle {
-    /// Verify structural invariants on an exported brain evidence bundle.
-    pub fn verify_bundle_invariants(&self) -> Result<(), String> {
-        if self.version != 1 {
-            return Err(format!("unsupported brain bundle version {}", self.version));
-        }
-        for (idx, entry) in self.entries.iter().enumerate() {
-            let Some(obj) = entry.as_object() else {
-                return Err(format!("BrainBundle entry[{idx}] must be a JSON object"));
-            };
-            if obj.is_empty() {
-                return Err(format!("BrainBundle entry[{idx}] must not be empty"));
-            }
-            if let Some(id_val) = obj.get("id") {
-                if !id_val.as_str().is_some_and(|s| !s.trim().is_empty()) {
-                    return Err(format!(
-                        "BrainBundle entry[{idx}] id must be a non-empty string"
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
 /// Serialize evidence entries into a portable bundle.
 #[must_use]
 pub fn export_brain(entries: Vec<Value>) -> BrainBundle {
@@ -114,35 +89,5 @@ mod brain_export_tests {
             err.contains("unsupported brain bundle version 2"),
             "err={err}"
         );
-    }
-
-    #[test]
-    fn verify_brain_wave13_invariants_brain_export() {
-        let valid = export_brain(vec![json!({"id": "EV-1", "ok": true})]);
-        assert!(valid.verify_bundle_invariants().is_ok());
-
-        let wrong_version = BrainBundle {
-            version: 2,
-            entries: vec![],
-        };
-        assert!(wrong_version.verify_bundle_invariants().is_err());
-
-        let non_object = BrainBundle {
-            version: 1,
-            entries: vec![json!("not-an-object")],
-        };
-        assert!(non_object.verify_bundle_invariants().is_err());
-
-        let empty_object = BrainBundle {
-            version: 1,
-            entries: vec![json!({})],
-        };
-        assert!(empty_object.verify_bundle_invariants().is_err());
-
-        let blank_id = BrainBundle {
-            version: 1,
-            entries: vec![json!({"id": "   "})],
-        };
-        assert!(blank_id.verify_bundle_invariants().is_err());
     }
 }
