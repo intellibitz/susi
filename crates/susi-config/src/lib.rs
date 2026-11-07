@@ -41,7 +41,6 @@ pub mod host_metrics;
 mod json_util;
 pub mod key_rotation;
 pub mod key_scope;
-pub mod keyring_storage;
 pub mod offline_bundle;
 pub mod process_probe;
 pub mod rekey_schedule;
@@ -328,9 +327,6 @@ mod vc_201_076_mastery_tests;
 #[cfg(test)]
 #[path = "tests/key_scope.rs"]
 mod key_scope_tests;
-#[cfg(test)]
-#[path = "tests/keyring_storage.rs"]
-mod keyring_storage_tests;
 #[cfg(test)]
 #[path = "tests/rekey_schedule.rs"]
 mod rekey_schedule_tests;
