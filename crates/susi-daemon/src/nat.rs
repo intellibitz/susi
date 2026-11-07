@@ -453,10 +453,10 @@ fn turn_long_term_key(user: &str, realm: &str, pass: &str) -> [u8; 16] {
     let mut c0: u32 = 0x98ba_dcfe;
     let mut d0: u32 = 0x1032_5476;
 
-    for chunk in msg.chunks_exact(64) {
+    for chunk in msg.as_chunks::<64>().0 {
         let mut m = [0u32; 16];
-        for (dst, src) in m.iter_mut().zip(chunk.chunks_exact(4)) {
-            *dst = u32::from_le_bytes([src[0], src[1], src[2], src[3]]);
+        for (dst, src) in m.iter_mut().zip(chunk.as_chunks::<4>().0) {
+            *dst = u32::from_le_bytes(*src);
         }
         let (mut a, mut b, mut c, mut d) = (a0, b0, c0, d0);
         for (i, (&k_i, &s_i)) in K.iter().zip(S.iter()).enumerate() {

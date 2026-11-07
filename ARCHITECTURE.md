@@ -113,7 +113,8 @@ whose events post to the error service with a local-file fallback; the global
 `SusiConfig` read/write prefers the config service and falls back to the
 local files; `susi-sandbox-client` owns the sandbox IPC client and the
 audit-chain / auto-install / daemon-state / manager helpers the service and
-every client share, so bollard stays linked only by `susi-sandbox`;
+every client share, while Docker/bollard container orchestration lives in
+`susi-commercial-apps`;
 `susi-core` and `susi-abi` are each one compiled copy, re-exported by their
 consumers), and a ratchet
 (`cross_crate_source_mounts_only_decrease`) keeps the remaining cross-crate
@@ -143,7 +144,7 @@ the old `#[path]` mount a hard failure.
 
 **`susi-abi` is a Cargo dependency, not a mount.** Planes and cell binaries
 declare `susi-abi = { workspace = true }` and re-export it
-(`pub use susi_abi;`); the five cell binaries enable the `cell-server`
+(`pub use susi_abi;`); the cell binaries enable the `cell-server`
 feature for the shared TCP loop. `susi_abi_is_never_source_mounted_into_a_consumer`
 makes a regression of the old `#[path]` / `embedded.rs` mounts a hard failure.
 
@@ -168,13 +169,6 @@ and never name `ureq::Agent`. Vendor SDKs and provider wire shapes stay out.
 remount a hard failure. `core_os_crates_must_not_declare_http_clients`
 forbids `reqwest`/`ureq` on paths/error/config/gawd host/swarm/agents/a2a.
 
-**`susi-vendor-candle` is a Cargo dependency, not a mount.** Candle,
-CUDA, Metal and the Qwen2 GGUF split live in one rank-2 crate so
-`susi-gemi` and `susi-gemi-models` share one feature graph and one
-process-wide device cache;
-`susi_vendor_candle_is_never_source_mounted_into_a_consumer` makes a
-remount a hard failure.
-
 **`susi-adapters-llm` is a Cargo dependency, not a mount.** OpenAI /
 Anthropic / Gemini / Triton request bodies and extractors are
 SUSI-authored adapter code (not a vendored SDK) and live in their own
@@ -184,8 +178,7 @@ rank-2 crate; `susi-core` re-exports `inference_wire` so existing
 remount a hard failure.
 
 One copy per *process*, not per crate: the daemon and each cell binary
-(`susi-gawd`, `susi-gemi`, `susi-gmcp`,
-`susi-universal-cell`) run in their own address spaces, so
+(`susi-gawd`, `susi-gemi`, `susi-gmcp`) run in their own address spaces, so
 `PlaneBus::global()` / `CapabilityRegistry::global()` statics are still
 per-process. `plane_bus` is therefore backed by
 **`plane_bus_ipc::IpcPlaneBus`**: a filesystem rendezvous under
