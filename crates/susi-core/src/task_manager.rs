@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 // Tracks running task status and idle-timeout watchdog behavior.
 // Mandate 12: Hardware Authority - operations run as slow as legitimate hardware
 //   work requires; no blind wall-clock cap on total task duration.
@@ -6,10 +7,10 @@
 //   "unresponsive," not "slow," and is proactively terminated.
 // Mandate 26: Glass Box Transparency & Omni-Trace Task Control.
 
-use dashmap::{DashMap, DashSet};
 use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -85,7 +86,7 @@ pub struct TaskRecord {
     pub status: Arc<AtomicU8>,
     pub last_progress_secs: Arc<AtomicU64>,
     pub progress_count: Arc<AtomicU64>,
-    pub result: Arc<parking_lot::RwLock<Option<String>>>,
+    pub result: Arc<std::sync::RwLock<Option<String>>>,
 }
 
 impl Serialize for TaskRecord {
@@ -112,7 +113,10 @@ impl Serialize for TaskRecord {
             "progress_count",
             &self.progress_count.load(Ordering::Acquire),
         )?;
-        state.serialize_field("result", &*self.result.read())?;
+        state.serialize_field(
+            "result",
+            &*self.result.read().unwrap_or_else(|e| e.into_inner()),
+        )?;
         state.end()
     }
 }
@@ -127,7 +131,7 @@ pub struct IntentTelemetryProfile {
 
 /// Empirical Telemetry History Store ("SUSI Never Trusts Words")
 pub struct TelemetryHistoryStore {
-    profiles: DashMap<String, IntentTelemetryProfile>,
+    profiles: RwLock<HashMap<String, IntentTelemetryProfile>>,
 }
 
 impl TelemetryHistoryStore {
@@ -135,7 +139,7 @@ impl TelemetryHistoryStore {
         static STORE: OnceLock<TelemetryHistoryStore> = OnceLock::new();
         STORE.get_or_init(|| {
             let store = TelemetryHistoryStore {
-                profiles: DashMap::new(),
+                profiles: RwLock::new(HashMap::new()),
             };
             store.load_history();
             store
@@ -165,7 +169,10 @@ impl TelemetryHistoryStore {
         ) {
             Ok(map) => {
                 for (k, v) in map {
-                    self.profiles.insert(k, v);
+                    self.profiles
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(k, v);
                 }
             }
             Err(e) => {
@@ -183,8 +190,13 @@ impl TelemetryHistoryStore {
     pub fn save_history(&self) {
         let file = Self::get_history_file();
         let mut map = std::collections::HashMap::new();
-        for r in self.profiles.iter() {
-            map.insert(r.key().clone(), r.value().clone());
+        for r in self
+            .profiles
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+        {
+            map.insert(r.0.clone(), r.1.clone());
         }
         let result = serde_json::to_vec_pretty(&map)
             .map_err(std::io::Error::other)
@@ -218,27 +230,42 @@ impl TelemetryHistoryStore {
         // the least-observed entries carry the least calibration value.
         const MAX_TELEMETRY_PROFILES: usize = 500;
         {
-            if !self.profiles.contains_key(category)
-                && self.profiles.len() >= MAX_TELEMETRY_PROFILES
+            if !self
+                .profiles
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(category)
+                && self
+                    .profiles
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .len()
+                    >= MAX_TELEMETRY_PROFILES
             {
                 if let Some(victim) = self
                     .profiles
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
                     .iter()
-                    .min_by_key(|r| r.value().sample_count)
-                    .map(|r| r.key().clone())
+                    .min_by_key(|r| r.1.sample_count)
+                    .map(|(k, _)| k.clone())
                 {
-                    self.profiles.remove(&victim);
+                    self.profiles
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&victim);
                 }
             }
-            let mut profile = self
-                .profiles
-                .entry(category.to_string())
-                .or_insert_with(|| IntentTelemetryProfile {
-                    intent_category: category.to_string(),
-                    sample_count: 0,
-                    avg_latency_ms: elapsed_ms,
-                    p99_idle_interval_ms: max_observed_idle_ms.max(200),
-                });
+            let mut binding = self.profiles.write().unwrap_or_else(|e| e.into_inner());
+            let mut profile =
+                binding
+                    .entry(category.to_string())
+                    .or_insert_with(|| IntentTelemetryProfile {
+                        intent_category: category.to_string(),
+                        sample_count: 0,
+                        avg_latency_ms: elapsed_ms,
+                        p99_idle_interval_ms: max_observed_idle_ms.max(200),
+                    });
 
             profile.sample_count += 1;
             let count = profile.sample_count;
@@ -265,7 +292,8 @@ impl TelemetryHistoryStore {
     /// a single unusually fast historical sample can't produce an unreasonably
     /// tight threshold.
     pub fn get_idle_threshold_ms(&self, category: &str) -> u64 {
-        let Some(profile) = self.profiles.get(category) else {
+        let binding = self.profiles.read().unwrap_or_else(|e| e.into_inner());
+        let Some(profile) = binding.get(category) else {
             return u64::MAX;
         };
         if profile.sample_count < 3 {
@@ -285,7 +313,7 @@ pub struct TaskHandle {
     pub last_progress_secs: Arc<AtomicU64>,
     pub progress_count: Arc<AtomicU64>,
     pub status: Arc<AtomicU8>,
-    pub result: Arc<parking_lot::RwLock<Option<String>>>,
+    pub result: Arc<std::sync::RwLock<Option<String>>>,
     pub name: String,
     start_time: Instant,
     /// Milliseconds since `start_time` of the latest progress report.
@@ -310,7 +338,7 @@ impl TaskHandle {
     }
 
     pub fn report_progress(&self) {
-        let _guard = self.result.write();
+        let _guard = self.result.write().unwrap_or_else(|e| e.into_inner());
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -350,7 +378,7 @@ impl TaskHandle {
     }
 
     fn finish(&self, status: TaskStatus, text: &str) -> bool {
-        let mut result = self.result.write();
+        let mut result = self.result.write().unwrap_or_else(|e| e.into_inner());
         if !matches!(
             TaskStatus::from(self.status.load(Ordering::Acquire)),
             TaskStatus::Running | TaskStatus::Paused
@@ -377,14 +405,14 @@ impl Drop for TaskHandle {
 }
 
 pub struct SwarmTaskManager {
-    pub tasks: DashMap<String, TaskRecord>,
-    pub cancel_map: DashMap<String, Arc<AtomicBool>>,
-    pub pause_map: DashMap<String, Arc<AtomicBool>>,
+    pub tasks: RwLock<HashMap<String, TaskRecord>>,
+    pub cancel_map: RwLock<HashMap<String, Arc<AtomicBool>>>,
+    pub pause_map: RwLock<HashMap<String, Arc<AtomicBool>>>,
     /// Scopes cancelled while (or before) their tasks ran. Cancellation is
     /// durable for the scope's lifetime: tasks registered after
     /// `cancel_scope` start already cancelled instead of running new work
     /// under a dead mission (T-DEVIN-8).
-    pub cancelled_scopes: DashSet<String>,
+    pub cancelled_scopes: RwLock<HashSet<String>>,
 }
 
 impl SwarmTaskManager {
@@ -392,10 +420,10 @@ impl SwarmTaskManager {
         static MANAGER: OnceLock<SwarmTaskManager> = OnceLock::new();
         MANAGER.get_or_init(|| {
             let manager = SwarmTaskManager {
-                tasks: DashMap::new(),
-                cancel_map: DashMap::new(),
-                pause_map: DashMap::new(),
-                cancelled_scopes: DashSet::new(),
+                tasks: RwLock::new(HashMap::new()),
+                cancel_map: RwLock::new(HashMap::new()),
+                pause_map: RwLock::new(HashMap::new()),
+                cancelled_scopes: RwLock::new(HashSet::new()),
             };
             manager.start_watchdog();
             manager
@@ -428,7 +456,12 @@ impl SwarmTaskManager {
             .unwrap_or(0);
         let idle_threshold = TelemetryHistoryStore::global().get_idle_threshold_ms(name);
 
-        let scope_cancelled = scope.is_some_and(|s| self.cancelled_scopes.contains(s));
+        let scope_cancelled = scope.is_some_and(|s| {
+            self.cancelled_scopes
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(s)
+        });
         let estop_cancelled = {
             let task_scope = scope.unwrap_or("fleet");
             crate::emergency_stop::EmergencyStopBus::is_globally_stopped(task_scope)
@@ -442,7 +475,7 @@ impl SwarmTaskManager {
         let status = Arc::new(AtomicU8::new(initial_status));
         let last_progress_secs = Arc::new(AtomicU64::new(now_secs));
         let progress_count = Arc::new(AtomicU64::new(0));
-        let result = Arc::new(parking_lot::RwLock::new(None));
+        let result = Arc::new(std::sync::RwLock::new(None));
         let cancel_flag = Arc::new(AtomicBool::new(initial_cancelled));
         let pause_flag = Arc::new(AtomicBool::new(false));
 
@@ -460,10 +493,17 @@ impl SwarmTaskManager {
         };
 
         self.prune_finished();
-        self.tasks.insert(task_id.clone(), record);
+        self.tasks
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(task_id.clone(), record);
         self.cancel_map
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(task_id.clone(), Arc::clone(&cancel_flag));
         self.pause_map
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(task_id.clone(), Arc::clone(&pause_flag));
 
         Arc::new(TaskHandle {
@@ -486,18 +526,26 @@ impl SwarmTaskManager {
     /// poll interval), and the scope stays cancelled so later registrations
     /// abort immediately. Returns how many live tasks were cancelled.
     pub fn cancel_scope(&self, scope: &str) -> usize {
-        self.cancelled_scopes.insert(scope.to_string());
+        self.cancelled_scopes
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(scope.to_string());
         let mut cancelled = 0usize;
-        for rec in self.tasks.iter() {
-            let scoped_live = rec.scope.as_deref() == Some(scope)
+        for rec in self.tasks.read().unwrap_or_else(|e| e.into_inner()).iter() {
+            let scoped_live = rec.1.scope.as_deref() == Some(scope)
                 && matches!(
-                    TaskStatus::from(rec.status.load(Ordering::Acquire)),
+                    TaskStatus::from(rec.1.status.load(Ordering::Acquire)),
                     TaskStatus::Running | TaskStatus::Paused
                 );
             if !scoped_live {
                 continue;
             }
-            if let Some(flag) = self.cancel_map.get(&rec.task_id) {
+            if let Some(flag) = self
+                .cancel_map
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&rec.1.task_id)
+            {
                 flag.store(true, Ordering::Release);
                 cancelled += 1;
             }
@@ -508,7 +556,10 @@ impl SwarmTaskManager {
     /// True once `cancel_scope` has run for this scope (sticky).
     #[must_use]
     pub fn is_scope_cancelled(&self, scope: &str) -> bool {
-        self.cancelled_scopes.contains(scope)
+        self.cancelled_scopes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(scope)
     }
 
     /// Upper bound on task records. Finished records were never removed, so
@@ -519,26 +570,38 @@ impl SwarmTaskManager {
     /// Drop the oldest finished records once the table is over its bound.
     /// Live (Running/Paused) tasks are never evicted.
     fn prune_finished(&self) {
-        if self.tasks.len() < Self::MAX_TASK_RECORDS {
+        if self.tasks.read().unwrap_or_else(|e| e.into_inner()).len() < Self::MAX_TASK_RECORDS {
             return;
         }
         let mut finished: Vec<(u64, String)> = self
             .tasks
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .filter(|r| {
                 !matches!(
-                    TaskStatus::from(r.status.load(Ordering::Acquire)),
+                    TaskStatus::from(r.1.status.load(Ordering::Acquire)),
                     TaskStatus::Running | TaskStatus::Paused
                 )
             })
-            .map(|r| (r.start_time_secs, r.key().clone()))
+            .map(|r| (r.1.start_time_secs, r.0.clone()))
             .collect();
         finished.sort_unstable();
-        let excess = (self.tasks.len() + 1).saturating_sub(Self::MAX_TASK_RECORDS);
+        let excess = (self.tasks.read().unwrap_or_else(|e| e.into_inner()).len() + 1)
+            .saturating_sub(Self::MAX_TASK_RECORDS);
         for (_, task_id) in finished.into_iter().take(excess) {
-            self.tasks.remove(&task_id);
-            self.cancel_map.remove(&task_id);
-            self.pause_map.remove(&task_id);
+            self.tasks
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&task_id);
+            self.cancel_map
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&task_id);
+            self.pause_map
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&task_id);
         }
     }
 
@@ -557,15 +620,15 @@ impl SwarmTaskManager {
 
                 // Zero-Lock Iteration Phase
                 let mut expired: Vec<(String, u64, u64)> = Vec::new();
-                for r in mgr.tasks.iter() {
-                    let record = r.value();
+                for r in mgr.tasks.read().unwrap_or_else(|e| e.into_inner()).iter() {
+                    let record = r.1;
                     if record.status.load(Ordering::Acquire) == TaskStatus::Running as u8
                         && record.expected_idle_ms != u64::MAX
                     {
                         let last_prog = record.last_progress_secs.load(Ordering::Acquire);
                         let idle_ms = now_secs.saturating_sub(last_prog).saturating_mul(1000);
                         if idle_ms > record.expected_idle_ms {
-                            expired.push((r.key().clone(), idle_ms, record.expected_idle_ms));
+                            expired.push((r.0.clone(), idle_ms, record.expected_idle_ms));
                         }
                     }
                 }
@@ -574,10 +637,11 @@ impl SwarmTaskManager {
                 // operations that have produced zero observed progress for longer
                 // than their empirically-calibrated lease.
                 for (task_id, idle_ms, threshold_ms) in expired {
-                    let Some(r) = mgr.tasks.get(&task_id) else {
+                    let binding = mgr.tasks.read().unwrap_or_else(|e| e.into_inner());
+                    let Some(r) = binding.get(&task_id) else {
                         continue;
                     };
-                    let mut result = r.result.write();
+                    let mut result = r.result.write().unwrap_or_else(|e| e.into_inner());
                     if r.status.load(Ordering::Acquire) != TaskStatus::Running as u8
                         || now_secs
                             .saturating_sub(r.last_progress_secs.load(Ordering::Acquire))
@@ -591,7 +655,12 @@ impl SwarmTaskManager {
                             "[LEASE_EXPIRED] No progress for {}ms (calibrated threshold: {}ms) — proactively terminated.",
                             idle_ms, threshold_ms
                         ));
-                    if let Some(c) = mgr.cancel_map.get(&task_id) {
+                    if let Some(c) = mgr
+                        .cancel_map
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get(&task_id)
+                    {
                         c.store(true, Ordering::Release);
                     }
                     tracing::warn!(
@@ -607,18 +676,29 @@ impl SwarmTaskManager {
     }
 
     pub fn list_tasks(&self) -> Vec<TaskRecord> {
-        self.tasks.iter().map(|r| r.value().clone()).collect()
+        self.tasks
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(_, v)| v.clone())
+            .collect()
     }
 
     pub fn pause_task(&self, task_id: &str) -> bool {
-        let Some(record) = self.tasks.get(task_id) else {
+        let binding = self.tasks.read().unwrap_or_else(|e| e.into_inner());
+        let Some(record) = binding.get(task_id) else {
             return false;
         };
-        let _guard = record.result.write();
+        let _guard = record.result.write().unwrap_or_else(|e| e.into_inner());
         if record.status.load(Ordering::Acquire) != TaskStatus::Running as u8 {
             return false;
         }
-        if let Some(flag) = self.pause_map.get(task_id) {
+        if let Some(flag) = self
+            .pause_map
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(task_id)
+        {
             flag.store(true, Ordering::Release);
         }
         record
@@ -628,10 +708,11 @@ impl SwarmTaskManager {
     }
 
     pub fn resume_task(&self, task_id: &str) -> bool {
-        let Some(record) = self.tasks.get(task_id) else {
+        let binding = self.tasks.read().unwrap_or_else(|e| e.into_inner());
+        let Some(record) = binding.get(task_id) else {
             return false;
         };
-        let _guard = record.result.write();
+        let _guard = record.result.write().unwrap_or_else(|e| e.into_inner());
         if record.status.load(Ordering::Acquire) != TaskStatus::Paused as u8 {
             return false;
         }
@@ -643,7 +724,12 @@ impl SwarmTaskManager {
                 .as_secs(),
             Ordering::Release,
         );
-        if let Some(flag) = self.pause_map.get(task_id) {
+        if let Some(flag) = self
+            .pause_map
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(task_id)
+        {
             flag.store(false, Ordering::Release);
         }
         record
@@ -653,17 +739,23 @@ impl SwarmTaskManager {
     }
 
     pub fn kill_task(&self, task_id: &str) -> bool {
-        let Some(record) = self.tasks.get(task_id) else {
+        let binding = self.tasks.read().unwrap_or_else(|e| e.into_inner());
+        let Some(record) = binding.get(task_id) else {
             return false;
         };
-        let mut result = record.result.write();
+        let mut result = record.result.write().unwrap_or_else(|e| e.into_inner());
         if !matches!(
             TaskStatus::from(record.status.load(Ordering::Acquire)),
             TaskStatus::Running | TaskStatus::Paused
         ) {
             return false;
         }
-        if let Some(flag) = self.cancel_map.get(task_id) {
+        if let Some(flag) = self
+            .cancel_map
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(task_id)
+        {
             flag.store(true, Ordering::Release);
         }
         *result = Some("Killed by pulse".to_owned());
@@ -689,10 +781,10 @@ mod tests {
     #[test]
     fn terminal_tasks_cannot_be_resumed_or_overwritten() {
         let manager = SwarmTaskManager {
-            tasks: DashMap::new(),
-            cancel_map: DashMap::new(),
-            pause_map: DashMap::new(),
-            cancelled_scopes: DashSet::new(),
+            tasks: RwLock::new(HashMap::new()),
+            cancel_map: RwLock::new(HashMap::new()),
+            pause_map: RwLock::new(HashMap::new()),
+            cancelled_scopes: RwLock::new(HashSet::new()),
         };
         for status in [
             TaskStatus::Completed,
@@ -707,17 +799,24 @@ mod tests {
             assert!(!manager.kill_task(&handle.task_id));
             assert!(!handle.finish(TaskStatus::Completed, "replacement"));
             assert_eq!(handle.status.load(Ordering::Acquire), status as u8);
-            assert_eq!(handle.result.read().as_deref(), Some("original"));
+            assert_eq!(
+                handle
+                    .result
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_deref(),
+                Some("original")
+            );
         }
     }
 
     #[test]
     fn resume_refreshes_idle_lease_and_kill_preserves_cancellation() {
         let manager = SwarmTaskManager {
-            tasks: DashMap::new(),
-            cancel_map: DashMap::new(),
-            pause_map: DashMap::new(),
-            cancelled_scopes: DashSet::new(),
+            tasks: RwLock::new(HashMap::new()),
+            cancel_map: RwLock::new(HashMap::new()),
+            pause_map: RwLock::new(HashMap::new()),
+            cancelled_scopes: RwLock::new(HashSet::new()),
         };
         let handle = manager.register_task("lifecycle_test", "test");
         assert!(manager.pause_task(&handle.task_id));
@@ -732,7 +831,14 @@ mod tests {
             handle.status.load(Ordering::Acquire),
             TaskStatus::Killed as u8
         );
-        assert_eq!(handle.result.read().as_deref(), Some("Killed by pulse"));
+        assert_eq!(
+            handle
+                .result
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_deref(),
+            Some("Killed by pulse")
+        );
     }
 
     #[test]
@@ -745,7 +851,7 @@ mod tests {
                 last_progress_secs: Arc::new(AtomicU64::new(0)),
                 progress_count: Arc::new(AtomicU64::new(0)),
                 status: Arc::new(AtomicU8::new(TaskStatus::Paused as u8)),
-                result: Arc::new(parking_lot::RwLock::new(None)),
+                result: Arc::new(std::sync::RwLock::new(None)),
                 name: "test".into(),
                 start_time: Instant::now(),
                 last_progress_ms: AtomicU64::new(0),
@@ -777,10 +883,10 @@ mod tests {
     #[test]
     fn finished_records_are_bounded_and_live_tasks_survive() {
         let manager = SwarmTaskManager {
-            tasks: DashMap::new(),
-            cancel_map: DashMap::new(),
-            pause_map: DashMap::new(),
-            cancelled_scopes: DashSet::new(),
+            tasks: RwLock::new(HashMap::new()),
+            cancel_map: RwLock::new(HashMap::new()),
+            pause_map: RwLock::new(HashMap::new()),
+            cancelled_scopes: RwLock::new(HashSet::new()),
         };
         let live = manager.register_task("lifecycle_test", "live");
         for _ in 0..SwarmTaskManager::MAX_TASK_RECORDS * 2 {
@@ -788,19 +894,25 @@ mod tests {
                 .register_task("lifecycle_test", "done")
                 .mark_failed("done");
         }
-        assert!(manager.tasks.len() <= SwarmTaskManager::MAX_TASK_RECORDS);
-        assert_eq!(manager.cancel_map.len(), manager.tasks.len());
-        assert_eq!(manager.pause_map.len(), manager.tasks.len());
-        assert!(manager.tasks.contains_key(&live.task_id));
+        assert!(manager.tasks.read().unwrap().len() <= SwarmTaskManager::MAX_TASK_RECORDS);
+        assert_eq!(
+            manager.cancel_map.read().unwrap().len(),
+            manager.tasks.read().unwrap().len()
+        );
+        assert_eq!(
+            manager.pause_map.read().unwrap().len(),
+            manager.tasks.read().unwrap().len()
+        );
+        assert!(manager.tasks.read().unwrap().contains_key(&live.task_id));
     }
 
     #[test]
     fn idle_gap_is_measured_between_progress_reports() {
         let manager = SwarmTaskManager {
-            tasks: DashMap::new(),
-            cancel_map: DashMap::new(),
-            pause_map: DashMap::new(),
-            cancelled_scopes: DashSet::new(),
+            tasks: RwLock::new(HashMap::new()),
+            cancel_map: RwLock::new(HashMap::new()),
+            pause_map: RwLock::new(HashMap::new()),
+            cancelled_scopes: RwLock::new(HashSet::new()),
         };
         let handle = manager.register_task("lifecycle_test", "test");
         handle.report_progress();
@@ -816,10 +928,10 @@ mod tests {
     #[test]
     fn dropped_live_handle_is_recorded_as_abandoned() {
         let manager = SwarmTaskManager {
-            tasks: DashMap::new(),
-            cancel_map: DashMap::new(),
-            pause_map: DashMap::new(),
-            cancelled_scopes: DashSet::new(),
+            tasks: RwLock::new(HashMap::new()),
+            cancel_map: RwLock::new(HashMap::new()),
+            pause_map: RwLock::new(HashMap::new()),
+            cancelled_scopes: RwLock::new(HashSet::new()),
         };
         let handle = manager.register_task("lifecycle_test", "test");
         let id = handle.task_id.clone();
@@ -828,7 +940,8 @@ mod tests {
             // Scoped: a DashMap read guard kept alive (shadowing does not
             // drop it) deadlocks the next register_task whenever the new id
             // hashes to the same shard — an intermittent gate hang.
-            let record = manager.tasks.get(&id).unwrap();
+            let binding = manager.tasks.read().unwrap();
+            let record = binding.get(&id).unwrap();
             assert_eq!(
                 record.status.load(Ordering::Acquire),
                 TaskStatus::Failed as u8
@@ -836,6 +949,7 @@ mod tests {
             assert!(record
                 .result
                 .read()
+                .unwrap_or_else(|e| e.into_inner())
                 .as_deref()
                 .unwrap()
                 .contains("ABANDONED"));
@@ -845,8 +959,16 @@ mod tests {
         let id = handle.task_id.clone();
         handle.mark_failed("real error");
         drop(handle);
-        let record = manager.tasks.get(&id).unwrap();
-        assert_eq!(record.result.read().as_deref(), Some("real error"));
+        let binding = manager.tasks.read().unwrap();
+        let record = binding.get(&id).unwrap();
+        assert_eq!(
+            record
+                .result
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_deref(),
+            Some("real error")
+        );
     }
 
     #[test]

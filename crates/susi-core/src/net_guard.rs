@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 // SUSI Network Guard: API Authentication & Rate Limiting for world-facing
 // HTTP surfaces (GMCP HTTP, GEMI REST). Mandate 12: Hardware Authority (DoS
 // prevention) & Mandate 40: world-facing surface authentication.
@@ -6,11 +7,11 @@
 // request (including localhost) must present `Authorization: Bearer <token>`.
 // Before seeding, non-loopback peers are denied (fail closed on the wire).
 
-use dashmap::DashMap;
 use sha2::Digest;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 pub struct NetGuard;
@@ -377,7 +378,7 @@ impl NonceFile {
 /// window — good enough to blunt basic abuse/DoS without pulling in an
 /// external crate (Mandate 3: 100% Bloat Rejection).
 pub struct RateLimiter {
-    buckets: DashMap<IpAddr, (Instant, u32)>,
+    buckets: RwLock<HashMap<IpAddr, (Instant, u32)>>,
     // Bounds memory under an attacker spraying requests from many distinct
     // source IPs specifically to grow this map — same "cap size, evict an
     // entry when over capacity" pattern as HighDensityContextStore.
@@ -392,7 +393,7 @@ impl RateLimiter {
     pub fn global() -> &'static RateLimiter {
         static INSTANCE: OnceLock<RateLimiter> = OnceLock::new();
         INSTANCE.get_or_init(|| RateLimiter {
-            buckets: DashMap::new(),
+            buckets: RwLock::new(HashMap::new()),
             capacity: Self::DEFAULT_CAPACITY,
             evictions: AtomicU64::new(0),
         })
@@ -401,7 +402,7 @@ impl RateLimiter {
     #[cfg(test)]
     fn with_capacity(capacity: usize) -> RateLimiter {
         RateLimiter {
-            buckets: DashMap::new(),
+            buckets: RwLock::new(HashMap::new()),
             capacity,
             evictions: AtomicU64::new(0),
         }
@@ -448,7 +449,13 @@ impl RateLimiter {
 
         let now = Instant::now();
 
-        if self.buckets.len() >= self.capacity && !self.buckets.contains_key(&ip) {
+        if self.buckets.read().unwrap_or_else(|e| e.into_inner()).len() >= self.capacity
+            && !self
+                .buckets
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&ip)
+        {
             // Self-deadlock hazard: `self.buckets.iter()` is an unnamed
             // temporary, and DashMap's `Iter` holds its current shard's read
             // lock for the `Iter`'s own lifetime (not just the yielded
@@ -460,14 +467,24 @@ impl RateLimiter {
             // holding. Binding to a `let` first forces the `Iter` (and its
             // lock) to drop at the end of this statement, before `remove()`
             // ever runs.
-            let stale_key = self.buckets.iter().next().map(|r| *r.key());
+            let stale_key = self
+                .buckets
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .next()
+                .map(|(k, _)| *k);
             if let Some(stale_key) = stale_key {
-                self.buckets.remove(&stale_key);
+                self.buckets
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&stale_key);
                 self.evictions.fetch_add(1, Ordering::Relaxed);
             }
         }
 
-        let mut entry = self.buckets.entry(ip).or_insert((now, 0));
+        let mut binding = self.buckets.write().unwrap_or_else(|e| e.into_inner());
+        let mut entry = binding.entry(ip).or_insert((now, 0));
         if now.duration_since(entry.0) >= Self::WINDOW {
             *entry = (now, 1);
             return true;
@@ -488,10 +505,16 @@ mod tests {
     fn exhausted_counter_never_wraps_and_expired_window_resets() {
         let limiter = RateLimiter::with_capacity(10);
         let ip = IpAddr::from([127, 0, 0, 1]);
-        limiter.buckets.insert(ip, (Instant::now(), u32::MAX));
+        limiter
+            .buckets
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(ip, (Instant::now(), u32::MAX));
         assert!(!limiter.check(ip, u32::MAX));
         limiter
             .buckets
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(ip, (Instant::now() - RateLimiter::WINDOW, u32::MAX));
         assert!(limiter.check(ip, 1));
         assert!(!limiter.check(ip, 1));
@@ -658,7 +681,7 @@ mod tests {
             }
         }
         // Exempt calls spend no budget.
-        assert!(limiter.buckets.is_empty());
+        assert!(limiter.buckets.read().unwrap().is_empty());
 
         // Everyone else stays metered: the token from a remote address, a
         // wrong or missing bearer from loopback.
@@ -801,6 +824,6 @@ mod tests {
         // Map is now at capacity; a third distinct IP must evict rather than
         // grow the map unbounded, and must still be allowed through.
         assert!(limiter.check(ip_c, 100));
-        assert!(limiter.buckets.len() <= 2);
+        assert!(limiter.buckets.read().unwrap().len() <= 2);
     }
 }

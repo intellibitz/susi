@@ -1,11 +1,12 @@
 //! Background model download controller (pause / resume / stop).
 
 use crate::susi_core::task_manager::{SwarmTaskManager, TaskHandle};
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use super::model_manager::ModelManager;
 
@@ -49,7 +50,7 @@ pub struct ActiveDownloadTask {
 }
 
 pub struct ModelDownloadController {
-    active_downloads: DashMap<String, ActiveDownloadTask>,
+    active_downloads: RwLock<HashMap<String, ActiveDownloadTask>>,
 }
 
 impl Default for ModelDownloadController {
@@ -62,7 +63,7 @@ impl ModelDownloadController {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            active_downloads: DashMap::new(),
+            active_downloads: RwLock::new(HashMap::new()),
         }
     }
 
@@ -75,11 +76,15 @@ impl ModelDownloadController {
     pub fn start_download(&self, url: &str) -> Result<String, String> {
         let target = url.trim().to_string();
         let file_name = crate::download::artifact_name(&target)?;
-        let entry = match self.active_downloads.entry(target.clone()) {
-            dashmap::mapref::entry::Entry::Occupied(_) => {
+        let mut guard = self
+            .active_downloads
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        let entry = match guard.entry(target.clone()) {
+            std::collections::hash_map::Entry::Occupied(_) => {
                 return Ok(format!("Download already active for: {}", target))
             }
-            dashmap::mapref::entry::Entry::Vacant(entry) => entry,
+            std::collections::hash_map::Entry::Vacant(entry) => entry,
         };
         let task_handle = SwarmTaskManager::global().register_task("model_download", &target);
 
@@ -134,6 +139,8 @@ impl ModelDownloadController {
             drop(permit);
             ModelDownloadController::global()
                 .active_downloads
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
                 .remove(&target_clone);
             if let Err(e) = res {
                 eprintln!(
@@ -171,13 +178,18 @@ impl ModelDownloadController {
 
     pub fn list_active(&self) -> Vec<ModelDownloadProgress> {
         let mut list = Vec::new();
-        for r in self.active_downloads.iter() {
-            if let Some(prog) = self.get_progress(r.key()) {
+        for r in self
+            .active_downloads
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+        {
+            if let Some(prog) = self.get_progress(r.0) {
                 list.push(prog);
             } else {
                 list.push(ModelDownloadProgress {
-                    model_name: r.value().model_name.clone(),
-                    target_url: r.value().target_url.clone(),
+                    model_name: r.1.model_name.clone(),
+                    target_url: r.1.target_url.clone(),
                     bytes_downloaded: 0,
                     expected_bytes: 0,
                     percentage: 0.0,
@@ -189,11 +201,18 @@ impl ModelDownloadController {
     }
 
     pub fn is_downloading(&self, target: &str) -> bool {
-        self.active_downloads.contains_key(target)
+        self.active_downloads
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(target)
     }
 
     pub fn has_active_downloads(&self) -> bool {
-        !self.active_downloads.is_empty()
+        !self
+            .active_downloads
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
     }
 }
 
@@ -338,14 +357,18 @@ mod tests {
             "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/synthetic-unit-test.gguf"
                 .to_string();
         let handle = SwarmTaskManager::global().register_task("model_download_test", &target_url);
-        controller.active_downloads.insert(
-            target_url.clone(),
-            ActiveDownloadTask {
-                target_url: target_url.clone(),
-                model_name: "synthetic-unit-test.gguf".to_string(),
-                task_handle: handle,
-            },
-        );
+        controller
+            .active_downloads
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                target_url.clone(),
+                ActiveDownloadTask {
+                    target_url: target_url.clone(),
+                    model_name: "synthetic-unit-test.gguf".to_string(),
+                    task_handle: handle,
+                },
+            );
 
         assert!(controller.has_active_downloads());
         assert!(controller.is_downloading(&target_url));
@@ -382,14 +405,18 @@ mod tests {
         let _ = fs::remove_file(&progress_path);
 
         let handle = SwarmTaskManager::global().register_task("model_download_live", &target_url);
-        controller.active_downloads.insert(
-            target_url.clone(),
-            ActiveDownloadTask {
-                target_url: target_url.clone(),
-                model_name: model_name.clone(),
-                task_handle: Arc::clone(&handle),
-            },
-        );
+        controller
+            .active_downloads
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                target_url.clone(),
+                ActiveDownloadTask {
+                    target_url: target_url.clone(),
+                    model_name: model_name.clone(),
+                    task_handle: Arc::clone(&handle),
+                },
+            );
 
         // 1. Without a progress file on disk, list_active returns the 0-byte RUNNING placeholder.
         let placeholder = controller.list_active();
@@ -410,7 +437,11 @@ mod tests {
             .cancel_flag
             .store(true, std::sync::atomic::Ordering::Release);
         assert!(handle.is_cancelled());
-        controller.active_downloads.remove(&target_url);
+        controller
+            .active_downloads
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&target_url);
         assert!(!controller.is_downloading(&target_url));
         assert!(!controller.has_active_downloads());
         assert!(controller.list_active().is_empty());

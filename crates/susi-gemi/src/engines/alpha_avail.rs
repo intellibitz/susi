@@ -43,8 +43,8 @@ pub(crate) fn action_available(action: &str) -> bool {
         std::time::Instant,
         std::sync::Arc<std::collections::HashSet<String>>,
     )>;
-    static SNAPSHOT: std::sync::LazyLock<parking_lot::RwLock<Snapshot>> =
-        std::sync::LazyLock::new(|| parking_lot::RwLock::new(None));
+    static SNAPSHOT: std::sync::LazyLock<std::sync::RwLock<Snapshot>> =
+        std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
     let name = action
         .strip_prefix("ACTION: ")
         .unwrap_or(action)
@@ -54,6 +54,7 @@ pub(crate) fn action_available(action: &str) -> bool {
     }
     let fresh = SNAPSHOT
         .read()
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .filter(|(at, _)| at.elapsed() < AVAILABILITY_TTL)
         .map(|(_, set)| set.clone());
@@ -64,7 +65,8 @@ pub(crate) fn action_available(action: &str) -> bool {
                 .map(|n| n.to_lowercase())
                 .collect(),
         );
-        *SNAPSHOT.write() = Some((std::time::Instant::now(), set.clone()));
+        *SNAPSHOT.write().unwrap_or_else(|e| e.into_inner()) =
+            Some((std::time::Instant::now(), set.clone()));
         set
     });
     set.contains(&name)

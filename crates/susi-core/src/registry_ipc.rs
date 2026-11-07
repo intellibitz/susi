@@ -24,10 +24,11 @@ use crate::susi_core::plane_bus_ipc::{enc, IpcPlaneBus};
 use crate::susi_core::provider::{BoxFuture, Provider};
 use crate::susi_core::registry::{AgentCapability, Tool};
 use crate::susi_error::{EaiError, EaiResult};
-use dashmap::DashMap;
 use serde_json::{json, Value};
 use std::any::Any;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
 
 fn tool_topic(name: &str) -> String {
@@ -289,9 +290,9 @@ impl Provider for RemoteProvider {
 #[derive(Clone)]
 pub struct IpcCapabilityRegistry {
     bus: Arc<IpcPlaneBus>,
-    tools: DashMap<String, Arc<dyn Tool>>,
-    providers: DashMap<String, Arc<dyn Provider>>,
-    agents: DashMap<String, AgentCapability>,
+    tools: Arc<RwLock<HashMap<String, Arc<dyn Tool>>>>,
+    providers: Arc<RwLock<HashMap<String, Arc<dyn Provider>>>>,
+    agents: Arc<RwLock<HashMap<String, AgentCapability>>>,
     provider_rt: Arc<OnceLock<Option<tokio::runtime::Runtime>>>,
 }
 
@@ -302,9 +303,9 @@ impl IpcCapabilityRegistry {
     pub fn new(bus: Arc<IpcPlaneBus>) -> Self {
         Self {
             bus,
-            tools: DashMap::new(),
-            providers: DashMap::new(),
-            agents: DashMap::new(),
+            tools: Arc::new(RwLock::new(HashMap::new())),
+            providers: Arc::new(RwLock::new(HashMap::new())),
+            agents: Arc::new(RwLock::new(HashMap::new())),
             provider_rt: Arc::new(OnceLock::new()),
         }
     }
@@ -361,7 +362,10 @@ impl IpcCapabilityRegistry {
         let tool: Arc<dyn Tool> = Arc::new(EnforcedTool {
             inner: Arc::new(tool),
         });
-        self.tools.insert(name.clone(), Arc::clone(&tool));
+        self.tools
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(name.clone(), Arc::clone(&tool));
         self.bus
             .register(&tool_topic(&name), Arc::new(ToolDispatch { tool }));
         write_cap(
@@ -378,8 +382,13 @@ impl IpcCapabilityRegistry {
     /// Local copy first; otherwise a remote proxy when another copy serves
     /// the capability (metadata file or wired topic).
     pub fn get_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        if let Some(t) = self.tools.get(name) {
-            return Some(Arc::clone(t.value()));
+        if let Some(t) = self
+            .tools
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+        {
+            return Some(Arc::clone(t));
         }
         let meta = self.find_cap("tool", name);
         if meta.is_none() && !self.bus.is_wired(&tool_topic(name)) {
@@ -399,7 +408,12 @@ impl IpcCapabilityRegistry {
     }
 
     pub fn unregister_tool(&self, name: &str) -> bool {
-        let removed = self.tools.remove(name).is_some();
+        let removed = self
+            .tools
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(name)
+            .is_some();
         self.bus.unregister(&tool_topic(name));
         self.remove_own_cap("tool", name);
         removed
@@ -407,7 +421,13 @@ impl IpcCapabilityRegistry {
 
     /// All visible tool names — locally registered plus remote capabilities.
     pub fn list_tools(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.tools.iter().map(|e| e.key().clone()).collect();
+        let mut names: Vec<String> = self
+            .tools
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(k, _)| k.clone())
+            .collect();
         for dir in self.cap_dirs("tool") {
             for meta in scan_caps(&dir) {
                 if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
@@ -424,7 +444,10 @@ impl IpcCapabilityRegistry {
 
     pub fn register_provider(&self, provider: Arc<dyn Provider>) {
         let name = provider.name().to_string();
-        self.providers.insert(name.clone(), Arc::clone(&provider));
+        self.providers
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(name.clone(), Arc::clone(&provider));
         self.bus.register(
             &provider_topic(&name),
             Arc::new(ProviderDispatch {
@@ -440,8 +463,13 @@ impl IpcCapabilityRegistry {
     }
 
     pub fn get_provider(&self, name: &str) -> Option<Arc<dyn Provider>> {
-        if let Some(p) = self.providers.get(name) {
-            return Some(Arc::clone(p.value()));
+        if let Some(p) = self
+            .providers
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+        {
+            return Some(Arc::clone(p));
         }
         if self.find_cap("provider", name).is_none() && !self.bus.is_wired(&provider_topic(name)) {
             return None;
@@ -453,14 +481,25 @@ impl IpcCapabilityRegistry {
     }
 
     pub fn unregister_provider(&self, name: &str) -> bool {
-        let removed = self.providers.remove(name).is_some();
+        let removed = self
+            .providers
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(name)
+            .is_some();
         self.bus.unregister(&provider_topic(name));
         self.remove_own_cap("provider", name);
         removed
     }
 
     pub fn list_providers(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.providers.iter().map(|e| e.key().clone()).collect();
+        let mut names: Vec<String> = self
+            .providers
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(k, _)| k.clone())
+            .collect();
         for dir in self.cap_dirs("provider") {
             for meta in scan_caps(&dir) {
                 if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
@@ -477,7 +516,10 @@ impl IpcCapabilityRegistry {
 
     pub fn register_agent_capability(&self, cap: AgentCapability) {
         let name = cap.name.clone();
-        self.agents.insert(name.clone(), cap.clone());
+        self.agents
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(name.clone(), cap.clone());
         write_cap(
             &self.caps_dir("agent"),
             &name,
@@ -490,8 +532,13 @@ impl IpcCapabilityRegistry {
     }
 
     pub fn get_agent_capability(&self, name: &str) -> Option<AgentCapability> {
-        if let Some(c) = self.agents.get(name) {
-            return Some(c.value().clone());
+        if let Some(c) = self
+            .agents
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+        {
+            return Some(c.clone());
         }
         let meta = self.find_cap("agent", name)?;
         Some(AgentCapability {
@@ -509,7 +556,13 @@ impl IpcCapabilityRegistry {
     }
 
     pub fn list_agents(&self) -> Vec<AgentCapability> {
-        let mut out: Vec<AgentCapability> = self.agents.iter().map(|e| e.value().clone()).collect();
+        let mut out: Vec<AgentCapability> = self
+            .agents
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(_, v)| v.clone())
+            .collect();
         for dir in self.cap_dirs("agent") {
             for meta in scan_caps(&dir) {
                 let name = meta.get("name").and_then(|v| v.as_str()).unwrap_or("");

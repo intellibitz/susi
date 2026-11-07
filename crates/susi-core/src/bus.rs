@@ -1,11 +1,12 @@
+use std::collections::HashMap;
 // SUSI Asynchronous Swarm Event Bus
 // Real-time inter-agent messaging and telemetry streaming via flume.
 // Each typed subscription receives its own copy of subsequent events.
 
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
 use std::sync::Arc;
+use std::sync::RwLock;
 
 /// v1 payload enum — the complete set of swarm event kinds for schema
 /// version 1. Wire form is the versioned [`SwarmEvent`] envelope; deserialize
@@ -90,22 +91,22 @@ pub fn global_bus() -> &'static TypedEventBus {
 }
 
 pub type LegacySwarmEventBus = (
-    flume::Sender<SwarmEventType>,
-    flume::Receiver<SwarmEventType>,
+    std::sync::mpsc::Sender<SwarmEventType>,
+    std::sync::mpsc::Receiver<SwarmEventType>,
 );
 
 pub fn create_swarm_bus() -> LegacySwarmEventBus {
-    flume::unbounded()
+    std::sync::mpsc::channel()
 }
 
-type Subscribers<E> = parking_lot::Mutex<Vec<flume::Sender<E>>>;
+type Subscribers<E> = std::sync::Mutex<Vec<std::sync::mpsc::Sender<E>>>;
 
 /// Broadcasts events to independent subscribers of each event type.
 /// Events published before subscription are not retained. Cloning a returned
 /// receiver shares that subscription's queue rather than creating a new one.
 #[derive(Default, Clone)]
 pub struct TypedEventBus {
-    channels: Arc<DashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+    channels: Arc<RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
 
 impl TypedEventBus {
@@ -117,8 +118,10 @@ impl TypedEventBus {
     pub fn publish<E: Send + Sync + Clone + 'static>(&self, event: E) {
         let subscribers = self
             .channels
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&TypeId::of::<E>())
-            .map(|entry| Arc::clone(entry.value()));
+            .map(|entry| entry.clone());
         if let Some(subscribers) = subscribers {
             // Mandate 42: safe - the map is keyed by TypeId::of::<E>(), and
             // subscribe() (below) only ever inserts an Arc<Subscribers<E>>
@@ -129,19 +132,21 @@ impl TypedEventBus {
                 .expect("event type must match its subscriber list");
             subscribers
                 .lock()
+                .unwrap_or_else(|e| e.into_inner())
                 .retain(|sender| sender.send(event.clone()).is_ok());
         }
     }
 
     // Mandate 42: justified at the downcast below (TypeId-keyed invariant).
     #[allow(clippy::expect_used)]
-    pub fn subscribe<E: Send + Sync + Clone + 'static>(&self) -> flume::Receiver<E> {
+    pub fn subscribe<E: Send + Sync + Clone + 'static>(&self) -> std::sync::mpsc::Receiver<E> {
         let subscribers = {
-            let entry = self
-                .channels
+            self.channels
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
                 .entry(TypeId::of::<E>())
-                .or_insert_with(|| Arc::new(Subscribers::<E>::new(Vec::new())));
-            Arc::clone(entry.value())
+                .or_insert_with(|| Arc::new(Subscribers::<E>::new(Vec::new())))
+                .clone()
         };
         // Mandate 42: safe - same invariant as publish() above: this entry
         // was either just inserted as Arc<Subscribers<E>> by the
@@ -150,9 +155,9 @@ impl TypedEventBus {
         let subscribers = subscribers
             .downcast::<Subscribers<E>>()
             .expect("event type must match its subscriber list");
-        let (sender, receiver) = flume::unbounded();
-        let mut subscribers = subscribers.lock();
-        subscribers.retain(|sender| !sender.is_disconnected());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let mut subscribers = subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        subscribers.retain(|sender| true);
         subscribers.push(sender);
         receiver
     }

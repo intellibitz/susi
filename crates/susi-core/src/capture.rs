@@ -11,13 +11,13 @@
 
 use crate::susi_core::context_graph::ContextGraph;
 use crate::susi_error::{EaiError, EaiResult};
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -42,9 +42,9 @@ tokio::task_local! {
 /// receipts had nowhere to land and it could no longer cite its own calls.
 type ActiveSessions = HashMap<PathBuf, Vec<Arc<EvidenceSession>>>;
 
-fn active_sessions() -> &'static parking_lot::RwLock<ActiveSessions> {
-    static ACTIVE: OnceLock<parking_lot::RwLock<ActiveSessions>> = OnceLock::new();
-    ACTIVE.get_or_init(|| parking_lot::RwLock::new(HashMap::new()))
+fn active_sessions() -> &'static std::sync::RwLock<ActiveSessions> {
+    static ACTIVE: OnceLock<std::sync::RwLock<ActiveSessions>> = OnceLock::new();
+    ACTIVE.get_or_init(|| std::sync::RwLock::new(HashMap::new()))
 }
 
 /// Publish (or clear) the rendezvous file naming `session` as the owner
@@ -163,7 +163,7 @@ pub struct EvidenceSession {
     /// duration without a second clock call at emission time.
     created_at_secs: u64,
     next: AtomicU64,
-    receipts: DashMap<String, ToolReceipt>,
+    receipts: RwLock<HashMap<String, ToolReceipt>>,
     redact: fn(&str) -> String,
     /// Rendezvous dir published on `activate` — peer processes record into
     /// `inbox/` and this process drains them on read.
@@ -193,7 +193,7 @@ pub struct EvidenceActivation {
 }
 impl Drop for EvidenceActivation {
     fn drop(&mut self) {
-        let mut active = active_sessions().write();
+        let mut active = active_sessions().write().unwrap_or_else(|e| e.into_inner());
         let Some(stack) = active.get_mut(&self.workspace) else {
             return;
         };
@@ -252,7 +252,7 @@ impl EvidenceSession {
             workspace,
             created_at_secs: now.as_secs(),
             next: AtomicU64::new(0),
-            receipts: DashMap::new(),
+            receipts: RwLock::new(HashMap::new()),
             redact,
             session_dir: OnceLock::new(),
             remote_inbox: None,
@@ -288,6 +288,7 @@ impl EvidenceSession {
     pub fn activate(session: &Arc<Self>) -> EvidenceActivation {
         active_sessions()
             .write()
+            .unwrap_or_else(|e| e.into_inner())
             .entry(session.workspace.clone())
             .or_default()
             .push(Arc::clone(session));
@@ -344,7 +345,7 @@ impl EvidenceSession {
                 workspace: canonical.to_path_buf(),
                 created_at_secs,
                 next: AtomicU64::new(0),
-                receipts: DashMap::new(),
+                receipts: RwLock::new(HashMap::new()),
                 redact: Self::default_redact,
                 session_dir: OnceLock::new(),
                 remote_inbox: Some(dir.join("inbox")),
@@ -367,6 +368,7 @@ impl EvidenceSession {
         }
         let session = active_sessions()
             .read()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&canonical)
             .and_then(|stack| stack.last().cloned());
         if let Some(s) = &session {
@@ -398,19 +400,22 @@ impl EvidenceSession {
             let Ok(wire) = serde_json::from_str::<InboxReceipt>(&text) else {
                 continue;
             };
-            self.receipts.insert(
-                wire.id.clone(),
-                ToolReceipt {
-                    id: wire.id,
-                    tool: wire.tool,
-                    arguments: wire.arguments,
-                    observed_at: wire.observed_at,
-                    output: wire.output,
-                    output_hash: wire.output_hash,
-                    successful: wire.successful,
-                    captured_at: Instant::now(),
-                },
-            );
+            self.receipts
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(
+                    wire.id.clone(),
+                    ToolReceipt {
+                        id: wire.id,
+                        tool: wire.tool,
+                        arguments: wire.arguments,
+                        observed_at: wire.observed_at,
+                        output: wire.output,
+                        output_hash: wire.output_hash,
+                        successful: wire.successful,
+                        captured_at: Instant::now(),
+                    },
+                );
             let _ = std::fs::remove_file(e.path());
         }
     }
@@ -500,7 +505,10 @@ impl EvidenceSession {
             }
             return;
         }
-        self.receipts.insert(id.clone(), receipt);
+        self.receipts
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.clone(), receipt);
         // Universal Context Graph: every successful tool execution is a node
         // linked to its mission, workspace, and tool. Arguments are digested,
         // outputs stay in the live evidence ledger.
@@ -511,8 +519,10 @@ impl EvidenceSession {
         self.drain_inbox();
         let mut receipts: Vec<_> = self
             .receipts
-            .iter()
-            .map(|entry| entry.value().clone())
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
             .collect();
         receipts.sort_by(|a, b| a.id.cmp(&b.id));
         receipts
@@ -521,11 +531,15 @@ impl EvidenceSession {
     /// True when at least one successful, unexpired receipt may be cited.
     pub fn has_citable_receipts(&self) -> bool {
         self.drain_inbox();
-        self.receipts.iter().any(|entry| {
-            entry.is_citable_for_mission()
-                && entry.successful
-                && entry.captured_at.elapsed() <= MAX_AGE
-        })
+        self.receipts
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|entry| {
+                entry.1.is_citable_for_mission()
+                    && entry.1.successful
+                    && entry.1.captured_at.elapsed() <= MAX_AGE
+            })
     }
 
     pub fn has_citable_receipts_for(workspace: &Path) -> bool {
@@ -536,14 +550,23 @@ impl EvidenceSession {
     /// only while the session Arc is held — never reconstitutes from disk.
     pub fn receipt(&self, id: &str) -> Option<ToolReceipt> {
         self.drain_inbox();
-        self.receipts.get(id).map(|entry| entry.value().clone())
+        self.receipts
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .map(|entry| entry.clone())
     }
 
     /// Compact audit trail for the mission report: provenance and hashes only,
     /// never response bodies. `None` when nothing was captured.
     pub fn audit_summary(&self) -> Option<String> {
         self.drain_inbox();
-        if self.receipts.is_empty() {
+        if self
+            .receipts
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
+        {
             return None;
         }
         let summary: Vec<serde_json::Value> = self
@@ -581,7 +604,13 @@ impl EvidenceSession {
     /// mission with no recorded calls has nothing an answer may cite.
     pub fn evidence_prompt_for(workspace: &Path) -> String {
         Self::for_workspace(workspace)
-            .filter(|session| !session.receipts.is_empty())
+            .filter(|session| {
+                !session
+                    .receipts
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_empty()
+            })
             .map(|session| session.prompt())
             .unwrap_or_default()
     }
@@ -671,9 +700,15 @@ impl EvidenceSession {
             if !seen.insert((&citation.receipt_id, &citation.json_pointer)) {
                 return Err(EaiError::governance("TRUTH_VIOLATION: duplicate citation"));
             }
-            let receipt = self.receipts.get(&citation.receipt_id).ok_or_else(|| {
-                EaiError::governance("TRUTH_UNVERIFIED: citation not captured in this mission")
-            })?;
+            let receipt = self
+                .receipts
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&citation.receipt_id)
+                .map(|r| r.clone())
+                .ok_or_else(|| {
+                    EaiError::governance("TRUTH_UNVERIFIED: citation not captured in this mission")
+                })?;
             if !receipt.is_citable_for_mission() {
                 return Err(EaiError::governance(
                     "TRUTH_UNVERIFIED: ambient diagnostic receipts cannot prove mission completion",

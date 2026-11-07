@@ -62,7 +62,7 @@ fn mission_dag_persist_wiring() {
         .execute_dag(std::path::Path::new("."), &board, &tx)
         .expect("fully completed dag is a no-op");
     assert!(evidence.is_empty());
-    assert!(rx.is_empty());
+    assert!(rx.try_recv().is_err());
     assert!(board.is_empty());
 
     // Round-trip through dispatch's load_or_new + from_persisted path.

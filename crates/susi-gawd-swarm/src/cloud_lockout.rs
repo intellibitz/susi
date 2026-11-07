@@ -636,11 +636,11 @@ fn default_path() -> PathBuf {
 
 /// Process-global tracker for dispatch paths — loaded once, mutated via
 /// `update_global`, persisted best-effort.
-static GLOBAL: std::sync::OnceLock<parking_lot::Mutex<LockoutTracker>> = std::sync::OnceLock::new();
+static GLOBAL: std::sync::OnceLock<std::sync::Mutex<LockoutTracker>> = std::sync::OnceLock::new();
 
-fn global() -> &'static parking_lot::Mutex<LockoutTracker> {
+fn global() -> &'static std::sync::Mutex<LockoutTracker> {
     GLOBAL.get_or_init(|| {
-        parking_lot::Mutex::new(LockoutTracker::load(
+        std::sync::Mutex::new(LockoutTracker::load(
             &default_path(),
             LockoutPolicy::default(),
             now_unix,
@@ -651,7 +651,7 @@ fn global() -> &'static parking_lot::Mutex<LockoutTracker> {
 /// Mutate the shared tracker and persist it. Never fails loudly: lockout
 /// bookkeeping must not turn a dispatch into an error.
 pub fn update_global(f: impl FnOnce(&mut LockoutTracker)) {
-    let mut t = global().lock();
+    let mut t = global().lock().unwrap_or_else(|e| e.into_inner());
     f(&mut t);
     let _ = t.save(&default_path());
 }
@@ -660,7 +660,10 @@ pub fn update_global(f: impl FnOnce(&mut LockoutTracker)) {
 /// `record` after. Scoped by `provider:cred8:model` so one credential's
 /// throttle never cools an unrelated model or account.
 pub fn permit_global(scope: &str, verdict: EligibilityKind) -> Permit {
-    global().lock().permit(scope, verdict)
+    global()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .permit(scope, verdict)
 }
 /// See [`update_global`] — convenience wrapper for the dispatch path.
 pub fn record_global(scope: &str, result: &InferenceResult) {

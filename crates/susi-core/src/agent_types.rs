@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 // Pure agent data types and the GawdAgent trait - no dependency on any
 // concrete agent implementation or on gemi/gmcp/daemon, so gemi and gmcp can
 // depend on these (and on the AgentMetaRegistry in registry.rs) without
@@ -5,7 +6,7 @@
 // implementations that call into gemi/gmcp/daemon still live.
 
 use crate::susi_error::EaiResult;
-use dashmap::DashMap;
+use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -42,7 +43,7 @@ pub struct AgentProfile {
 /// arbitrary entry when full rather than tracking real LRU order.
 #[derive(Debug)]
 pub struct HighDensityContextStore {
-    inner: DashMap<String, String>,
+    inner: RwLock<HashMap<String, String>>,
     capacity_limit: usize,
 }
 
@@ -55,13 +56,19 @@ impl Default for HighDensityContextStore {
 impl HighDensityContextStore {
     pub fn new(capacity: usize) -> Self {
         Self {
-            inner: DashMap::new(),
+            inner: RwLock::new(HashMap::new()),
             capacity_limit: capacity,
         }
     }
 
     pub fn insert(&self, key: String, value: String) {
-        if self.inner.len() >= self.capacity_limit && !self.inner.contains_key(&key) {
+        if self.inner.read().unwrap_or_else(|e| e.into_inner()).len() >= self.capacity_limit
+            && !self
+                .inner
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&key)
+        {
             // Mandate: Strict LRU or oldest key removal
             // For DashMap we just remove a random key if we are over capacity.
             //
@@ -76,35 +83,57 @@ impl HighDensityContextStore {
             // holding. Binding to a `let` first forces the `Iter` (and its
             // lock) to drop at the end of this statement, before `remove()`
             // ever runs.
-            let key_to_remove = self.inner.iter().next().map(|r| r.key().clone());
+            let key_to_remove = self
+                .inner
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .next()
+                .map(|(k, _)| k.clone());
             if let Some(key_to_remove) = key_to_remove {
-                self.inner.remove(&key_to_remove);
+                self.inner
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&key_to_remove);
             }
         }
-        self.inner.insert(key, value);
+        self.inner
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, value);
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
-        self.inner.get(key).map(|r| r.value().clone())
+        self.inner
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(key)
+            .cloned()
     }
 
     pub fn contains_key(&self, key: &str) -> bool {
-        self.inner.contains_key(key)
+        self.inner
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(key)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.inner
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.inner.read().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// Ordered snapshot for glass-box inspectability (mission traces / CLI).
     pub fn snapshot(&self) -> std::collections::BTreeMap<String, String> {
         let mut map = std::collections::BTreeMap::new();
-        for r in self.inner.iter() {
-            map.insert(r.key().clone(), r.value().clone());
+        for r in self.inner.read().unwrap_or_else(|e| e.into_inner()).iter() {
+            map.insert(r.0.clone(), r.1.clone());
         }
         map
     }
@@ -112,19 +141,36 @@ impl HighDensityContextStore {
     /// Restore blackboard entries from a prior snapshot (transaction abort).
     /// Keys present in the live store but absent from `snap` are removed.
     pub fn restore_snapshot(&self, snap: &std::collections::BTreeMap<String, String>) {
-        let live_keys: Vec<String> = self.inner.iter().map(|r| r.key().clone()).collect();
+        let live_keys: Vec<String> = self
+            .inner
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(k, _)| k.clone())
+            .collect();
         for k in live_keys {
             if !snap.contains_key(&k) {
-                self.inner.remove(&k);
+                self.inner
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&k);
             }
         }
         for (k, v) in snap {
-            self.inner.insert(k.clone(), v.clone());
+            self.inner
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(k.clone(), v.clone());
         }
     }
 
-    pub fn iter(&self) -> dashmap::iter::Iter<'_, String, String> {
-        self.inner.iter()
+    pub fn iter(&self) -> Vec<(String, String)> {
+        self.inner
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 
     pub fn to_json(&self) -> String {
@@ -293,7 +339,7 @@ mod tests {
         store.insert("agent-a".into(), "out-a".into());
         store.insert("agent-b".into(), "out-b".into());
         assert_eq!(store.len(), 2);
-        let count = store.iter().count();
+        let count = store.iter().len();
         assert_eq!(count, 2);
     }
 }

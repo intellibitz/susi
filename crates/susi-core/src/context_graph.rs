@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 // Universal Context Graph: a process-wide, evidence-backed graph of entities,
 // observations, and relations so SUSI agents do not operate in isolated silos.
 //
@@ -6,12 +7,12 @@
 // when none is set, the graph stays in-memory only.
 
 use crate::susi_error::{EaiError, EaiResult};
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Stable identifier for a node in the context graph.
@@ -163,21 +164,21 @@ pub struct ContextGraphStats {
 /// appends every mutation to a durable JSONL log. Queries return snapshots so
 /// callers are isolated from concurrent writes.
 pub struct ContextGraph {
-    nodes: DashMap<NodeId, Node>,
-    edges: DashMap<String, Edge>,
-    adjacency: DashMap<NodeId, DashMap<NodeId, String>>,
-    reverse: DashMap<NodeId, DashMap<NodeId, String>>,
-    storage_path: parking_lot::Mutex<Option<PathBuf>>,
+    nodes: RwLock<HashMap<NodeId, Node>>,
+    edges: RwLock<HashMap<String, Edge>>,
+    adjacency: RwLock<HashMap<NodeId, RwLock<HashMap<NodeId, String>>>>,
+    reverse: RwLock<HashMap<NodeId, RwLock<HashMap<NodeId, String>>>>,
+    storage_path: std::sync::Mutex<Option<PathBuf>>,
     /// Bytes of the log already folded into the in-memory indexes —
     /// incremental replay resumes here instead of re-parsing the whole
     /// file on every call. A file smaller than the offset was rewritten
     /// by `persist()`/`compact()` and is folded wholesale again.
-    replay_offset: parking_lot::Mutex<u64>,
+    replay_offset: std::sync::Mutex<u64>,
     /// Identity of the file `replay_offset` points into. `persist()`
     /// replaces the log by rename, so a sibling's cursor into the old file
     /// is meaningless once the identity changes, even if the new file has
     /// already grown past it.
-    replay_file_id: parking_lot::Mutex<Option<(u64, u64)>>,
+    replay_file_id: std::sync::Mutex<Option<(u64, u64)>>,
 }
 
 /// `(device, inode)` of an open log file; `None` where the platform does
@@ -203,20 +204,20 @@ impl ContextGraph {
     /// Create an in-memory-only context graph.
     pub fn new() -> Self {
         Self {
-            nodes: DashMap::new(),
-            edges: DashMap::new(),
-            adjacency: DashMap::new(),
-            reverse: DashMap::new(),
-            storage_path: parking_lot::Mutex::new(None),
-            replay_offset: parking_lot::Mutex::new(0),
-            replay_file_id: parking_lot::Mutex::new(None),
+            nodes: RwLock::new(HashMap::new()),
+            edges: RwLock::new(HashMap::new()),
+            adjacency: RwLock::new(HashMap::new()),
+            reverse: RwLock::new(HashMap::new()),
+            storage_path: std::sync::Mutex::new(None),
+            replay_offset: std::sync::Mutex::new(0),
+            replay_file_id: std::sync::Mutex::new(None),
         }
     }
 
     /// Create a context graph that persists to `path`.
     pub fn with_storage(path: PathBuf) -> Self {
         let graph = Self::new();
-        *graph.storage_path.lock() = Some(path);
+        *graph.storage_path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
         graph
     }
 
@@ -232,7 +233,7 @@ impl ContextGraph {
     pub fn init_global_storage(path: PathBuf) {
         let graph = Self::global();
         {
-            let mut guard = graph.storage_path.lock();
+            let mut guard = graph.storage_path.lock().unwrap_or_else(|e| e.into_inner());
             if guard.is_some() {
                 return;
             }
@@ -254,7 +255,11 @@ impl ContextGraph {
     }
 
     fn append_event(&self, event: &ContextGraphEvent) -> EaiResult<()> {
-        let path = self.storage_path.lock().clone();
+        let path = self
+            .storage_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let Some(path) = path else {
             return Ok(());
         };
@@ -292,12 +297,20 @@ impl ContextGraph {
 
     fn index_edge(&self, edge: &Edge) {
         self.adjacency
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .entry(edge.source.clone())
             .or_default()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(edge.target.clone(), edge.id.clone());
         self.reverse
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .entry(edge.target.clone())
             .or_default()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(edge.source.clone(), edge.id.clone());
     }
 
@@ -322,18 +335,20 @@ impl ContextGraph {
     /// per insert re-collected and re-sorted all 32k nodes on every
     /// recorded tool call once the graph was full.
     fn enforce_capacity(&self) {
-        if self.nodes.len() <= MAX_GRAPH_NODES {
+        if self.nodes.read().unwrap_or_else(|e| e.into_inner()).len() <= MAX_GRAPH_NODES {
             return;
         }
         let mut by_age: Vec<(u64, NodeId, bool)> = self
             .nodes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .map(|r| {
                 (
-                    r.value().created_at,
-                    r.key().clone(),
+                    r.1.created_at,
+                    r.0.clone(),
                     matches!(
-                        r.value().kind,
+                        r.1.kind,
                         NodeType::ExternalContext
                             | NodeType::Telemetry
                             | NodeType::Observation
@@ -346,7 +361,8 @@ impl ContextGraph {
         // Oldest first; ephemeral nodes are taken before structural ones
         // by the two filtered passes below.
         by_age.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1 .0.cmp(&b.1 .0)));
-        let excess = self.nodes.len() - GRAPH_NODES_LOW_WATER;
+        let excess =
+            self.nodes.read().unwrap_or_else(|e| e.into_inner()).len() - GRAPH_NODES_LOW_WATER;
         let mut evict: Vec<NodeId> = by_age
             .iter()
             .filter(|(_, _, ephemeral)| *ephemeral)
@@ -364,21 +380,50 @@ impl ContextGraph {
             evict.extend(fill);
         }
         for id in &evict {
-            self.nodes.remove(id);
-            if let Some((_, out)) = self.adjacency.remove(id) {
-                for (target, eid) in out {
-                    if let Some(rev) = self.reverse.get(&target) {
-                        rev.remove(id);
+            self.nodes
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id);
+            if let Some(out) = self
+                .adjacency
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id)
+            {
+                for (target, eid) in out.read().unwrap_or_else(|e| e.into_inner()).iter() {
+                    if let Some(rev) = self
+                        .reverse
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get(&target)
+                    {
+                        rev.write().unwrap_or_else(|e| e.into_inner()).remove(&id);
                     }
-                    self.edges.remove(&eid);
+                    self.edges
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(eid);
                 }
             }
-            if let Some((_, inc)) = self.reverse.remove(id) {
-                for (source, eid) in inc {
-                    if let Some(fwd) = self.adjacency.get(&source) {
-                        fwd.remove(id);
+            if let Some(inc) = self
+                .reverse
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id)
+            {
+                for (source, eid) in inc.read().unwrap_or_else(|e| e.into_inner()).iter() {
+                    if let Some(fwd) = self
+                        .adjacency
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get(&source)
+                    {
+                        fwd.write().unwrap_or_else(|e| e.into_inner()).remove(&id);
                     }
-                    self.edges.remove(&eid);
+                    self.edges
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(eid);
                 }
             }
         }
@@ -396,8 +441,16 @@ impl ContextGraph {
     /// Record a node and return its id. Duplicate nodes (same id) are ignored.
     pub fn record_node(&self, node: Node) -> NodeId {
         let id = node.id.clone();
-        if !self.nodes.contains_key(&id) {
-            self.nodes.insert(id.clone(), node.clone());
+        if !self
+            .nodes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&id)
+        {
+            self.nodes
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(id.clone(), node.clone());
             self.enforce_capacity();
             let _ = self.append_event(&ContextGraphEvent::NodeAdded(node));
         }
@@ -406,8 +459,16 @@ impl ContextGraph {
 
     /// Record a directed edge and return its id. Duplicate edges are ignored.
     pub fn record_edge(&self, edge: Edge) -> String {
-        if !self.edges.contains_key(&edge.id) {
-            self.edges.insert(edge.id.clone(), edge.clone());
+        if !self
+            .edges
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&edge.id)
+        {
+            self.edges
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(edge.id.clone(), edge.clone());
             self.index_edge(&edge);
             let _ = self.append_event(&ContextGraphEvent::EdgeAdded(edge.clone()));
         }
@@ -766,23 +827,37 @@ impl ContextGraph {
 
     /// Lookup a node by id.
     pub fn node(&self, id: &NodeId) -> Option<Node> {
-        self.nodes.get(id).map(|v| v.value().clone())
+        self.nodes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
     }
 
     /// Lookup an edge by id.
     pub fn edge(&self, id: &str) -> Option<Edge> {
-        self.edges.get(id).map(|v| v.value().clone())
+        self.edges
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
     }
 
     /// Recent events by descending timestamp, capped at `n`.
     pub fn recent_events(&self, n: usize) -> Vec<ContextGraphEvent> {
-        let mut events: Vec<ContextGraphEvent> =
-            Vec::with_capacity(self.nodes.len().saturating_add(self.edges.len()).min(1024));
-        for node in self.nodes.iter() {
-            events.push(ContextGraphEvent::NodeAdded(node.value().clone()));
+        let mut events: Vec<ContextGraphEvent> = Vec::with_capacity(
+            self.nodes
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .len()
+                .saturating_add(self.edges.read().unwrap_or_else(|e| e.into_inner()).len())
+                .min(1024),
+        );
+        for node in self.nodes.read().unwrap_or_else(|e| e.into_inner()).iter() {
+            events.push(ContextGraphEvent::NodeAdded(node.1.clone()));
         }
-        for edge in self.edges.iter() {
-            events.push(ContextGraphEvent::EdgeAdded(edge.value().clone()));
+        for edge in self.edges.read().unwrap_or_else(|e| e.into_inner()).iter() {
+            events.push(ContextGraphEvent::EdgeAdded(edge.1.clone()));
         }
         events.sort_by(|a, b| {
             let ta = match a {
@@ -810,17 +885,27 @@ impl ContextGraph {
             if d >= depth {
                 continue;
             }
-            if let Some(neighbors) = self.adjacency.get(&current) {
-                for target in neighbors.value().iter() {
-                    let target = target.key().clone();
+            if let Some(neighbors) = self
+                .adjacency
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&current)
+            {
+                for target in neighbors.read().unwrap_or_else(|e| e.into_inner()).iter() {
+                    let target = target.0.clone();
                     if visited.insert(target.clone()) {
                         queue.push_back((target, d + 1));
                     }
                 }
             }
-            if let Some(neighbors) = self.reverse.get(&current) {
-                for source in neighbors.value().iter() {
-                    let source = source.key().clone();
+            if let Some(neighbors) = self
+                .reverse
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&current)
+            {
+                for source in neighbors.read().unwrap_or_else(|e| e.into_inner()).iter() {
+                    let source = source.0.clone();
                     if visited.insert(source.clone()) {
                         queue.push_back((source, d + 1));
                     }
@@ -831,17 +916,22 @@ impl ContextGraph {
         let nodes: Vec<Node> = visited.iter().filter_map(|id| self.node(id)).collect();
         let edge_ids: HashSet<String> = visited
             .iter()
-            .filter_map(|id| self.adjacency.get(id))
+            .filter_map(|id| {
+                self.adjacency
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(id)
+                    .map(|m| m.read().unwrap_or_else(|e| e.into_inner()).clone())
+            })
             .flat_map(|m| {
-                m.value()
-                    .iter()
-                    .map(|entry| entry.value().clone())
+                m.into_iter()
+                    .map(|entry| entry.1.clone())
                     .collect::<Vec<_>>()
             })
             .collect();
         let edges: Vec<Edge> = edge_ids
             .into_iter()
-            .filter_map(|id| self.edge(&id))
+            .filter_map(|id| self.edge(id.as_str()))
             .filter(|e| visited.contains(&e.source) && visited.contains(&e.target))
             .collect();
         Subgraph { nodes, edges }
@@ -910,20 +1000,20 @@ impl ContextGraph {
     /// Aggregate statistics for the loaded graph.
     pub fn stats(&self) -> ContextGraphStats {
         let mut nodes_by_kind: HashMap<String, usize> = HashMap::new();
-        for node in self.nodes.iter() {
+        for node in self.nodes.read().unwrap_or_else(|e| e.into_inner()).iter() {
             *nodes_by_kind
-                .entry(format!("{:?}", node.value().kind))
+                .entry(format!("{:?}", node.1.kind))
                 .or_insert(0) += 1;
         }
         let mut edges_by_kind: HashMap<String, usize> = HashMap::new();
-        for edge in self.edges.iter() {
+        for edge in self.edges.read().unwrap_or_else(|e| e.into_inner()).iter() {
             *edges_by_kind
-                .entry(format!("{:?}", edge.value().kind))
+                .entry(format!("{:?}", edge.1.kind))
                 .or_insert(0) += 1;
         }
         ContextGraphStats {
-            node_count: self.nodes.len(),
-            edge_count: self.edges.len(),
+            node_count: self.nodes.read().unwrap_or_else(|e| e.into_inner()).len(),
+            edge_count: self.edges.read().unwrap_or_else(|e| e.into_inner()).len(),
             nodes_by_kind,
             edges_by_kind,
         }
@@ -941,7 +1031,11 @@ impl ContextGraph {
     /// newline is a sibling process mid-append: skipped this pass,
     /// folded next time.
     pub fn replay(&self) -> EaiResult<()> {
-        let path = self.storage_path.lock().clone();
+        let path = self
+            .storage_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let Some(path) = path else {
             return Ok(());
         };
@@ -949,14 +1043,17 @@ impl ContextGraph {
             return Ok(());
         }
         use std::io::{BufRead, Seek};
-        let mut offset = self.replay_offset.lock();
+        let mut offset = self.replay_offset.lock().unwrap_or_else(|e| e.into_inner());
         let mut file =
             std::fs::File::open(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
         let meta = file
             .metadata()
             .map_err(|e| EaiError::filesystem(e.to_string()))?;
         let identity = file_identity(&meta);
-        let mut known_identity = self.replay_file_id.lock();
+        let mut known_identity = self
+            .replay_file_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let replaced = identity.is_some() && *known_identity != identity;
         let start = if replaced || meta.len() < *offset {
             0
@@ -997,13 +1094,21 @@ impl ContextGraph {
             };
             match event {
                 ContextGraphEvent::NodeAdded(node) => {
-                    self.nodes.entry(node.id.clone()).or_insert(node);
+                    self.nodes
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .entry(node.id.clone())
+                        .or_insert(node);
                 }
                 ContextGraphEvent::EdgeAdded(edge) => {
-                    self.edges.entry(edge.id.clone()).or_insert_with(|| {
-                        self.index_edge(&edge);
-                        edge
-                    });
+                    self.edges
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .entry(edge.id.clone())
+                        .or_insert_with(|| {
+                            self.index_edge(&edge);
+                            edge
+                        });
                 }
             }
         }
@@ -1017,7 +1122,11 @@ impl ContextGraph {
     /// Because every mutation is appended immediately, this normally does
     /// nothing; it is useful to compact/rewrite the log after bulk replay.
     pub fn persist(&self) -> EaiResult<()> {
-        let path = self.storage_path.lock().clone();
+        let path = self
+            .storage_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let Some(path) = path else {
             return Ok(());
         };
@@ -1038,11 +1147,11 @@ impl ContextGraph {
         // lines this process never saw.
         self.replay()?;
         let mut lines = Vec::new();
-        for node in self.nodes.iter() {
-            lines.push(ContextGraphEvent::NodeAdded(node.value().clone()));
+        for node in self.nodes.read().unwrap_or_else(|e| e.into_inner()).iter() {
+            lines.push(ContextGraphEvent::NodeAdded(node.1.clone()));
         }
-        for edge in self.edges.iter() {
-            lines.push(ContextGraphEvent::EdgeAdded(edge.value().clone()));
+        for edge in self.edges.read().unwrap_or_else(|e| e.into_inner()).iter() {
+            lines.push(ContextGraphEvent::EdgeAdded(edge.1.clone()));
         }
         let mut buf = Vec::new();
         for event in lines {
@@ -1058,8 +1167,11 @@ impl ContextGraph {
         // lines this process just wrote. The lock is still held, so no
         // sibling append can land before the identity is captured.
         let meta = std::fs::metadata(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        *self.replay_offset.lock() = meta.len();
-        *self.replay_file_id.lock() = file_identity(&meta);
+        *self.replay_offset.lock().unwrap_or_else(|e| e.into_inner()) = meta.len();
+        *self
+            .replay_file_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = file_identity(&meta);
         // A compacted live graph can itself exceed the nominal threshold.
         // Remember its size across processes so every new CLI or append does
         // not rewrite that same snapshot again. A missing or corrupt hint
@@ -1072,7 +1184,11 @@ impl ContextGraph {
     /// Compact the append-only log by rewriting it to contain only the
     /// deduplicated current state. Returns `(old_lines, new_lines)`.
     pub fn compact(&self) -> EaiResult<(usize, usize)> {
-        let path = self.storage_path.lock().clone();
+        let path = self
+            .storage_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let Some(path) = path else {
             return Ok((0, 0));
         };
@@ -1084,13 +1200,18 @@ impl ContextGraph {
             0
         };
         self.persist()?;
-        let new_lines = self.nodes.len() + self.edges.len();
+        let new_lines = self.nodes.read().unwrap_or_else(|e| e.into_inner()).len()
+            + self.edges.read().unwrap_or_else(|e| e.into_inner()).len();
         Ok((old_lines, new_lines))
     }
 
     /// Best-effort auto-compaction when the log exceeds `max_bytes`.
     pub fn compact_if_large(&self, max_bytes: u64) -> EaiResult<()> {
-        let path = self.storage_path.lock().clone();
+        let path = self
+            .storage_path
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let Some(path) = path else {
             return Ok(());
         };
@@ -1172,8 +1293,10 @@ mod tests {
         );
         let dump = serde_json::to_string(
             &g.nodes
+                .read()
+                .unwrap()
                 .iter()
-                .map(|n| n.value().clone())
+                .map(|n| n.1.clone())
                 .collect::<Vec<_>>(),
         )
         .unwrap();
@@ -1439,10 +1562,10 @@ mod tests {
             "eviction must prefer ephemeral nodes over structural anchors"
         );
         assert!(
-            g.edges.get("e-eph0").is_none(),
+            g.edges.read().unwrap().get("e-eph0").is_none(),
             "edge to an evicted node must be removed, not left dangling"
         );
-        assert_eq!(g.nodes.len(), GRAPH_NODES_LOW_WATER);
+        assert_eq!(g.nodes.read().unwrap().len(), GRAPH_NODES_LOW_WATER);
         // Headroom: the next inserts below the cap do not evict again.
         g.record_node(Node {
             id: NodeId("eph-32001".into()),
@@ -1451,7 +1574,7 @@ mod tests {
             created_at: 33_001,
             properties: HashMap::new(),
         });
-        assert_eq!(g.nodes.len(), GRAPH_NODES_LOW_WATER + 1);
+        assert_eq!(g.nodes.read().unwrap().len(), GRAPH_NODES_LOW_WATER + 1);
     }
 
     #[test]
@@ -1480,7 +1603,7 @@ mod tests {
         std::fs::write(&path, node("a", "a")).unwrap();
         let g = ContextGraph::with_storage(path.clone());
         g.replay().unwrap();
-        let cursor = *g.replay_offset.lock();
+        let cursor = *g.replay_offset.lock().unwrap_or_else(|e| e.into_inner());
 
         // A sibling compacts by rename into a file that is already longer
         // than this process's cursor. Resuming at the old offset would
@@ -1518,7 +1641,10 @@ mod tests {
         // First replay consumes everything — the cursor sits at EOF.
         g.replay().unwrap();
         let eof = std::fs::metadata(&path).unwrap().len();
-        assert_eq!(*g.replay_offset.lock(), eof);
+        assert_eq!(
+            *g.replay_offset.lock().unwrap_or_else(|e| e.into_inner()),
+            eof
+        );
 
         // A "sibling process" appends a node line directly — the next
         // replay must fold ONLY the tail, and the cursor advances.
@@ -1547,7 +1673,7 @@ mod tests {
 
         // A torn tail (sibling mid-append, no newline yet) must not
         // error and must not be consumed — the cursor stays put.
-        let cursor = *g.replay_offset.lock();
+        let cursor = *g.replay_offset.lock().unwrap_or_else(|e| e.into_inner());
         std::fs::OpenOptions::new()
             .append(true)
             .open(&path)
@@ -1555,7 +1681,10 @@ mod tests {
             .write_all(b"{\"node_added\":")
             .unwrap();
         g.replay().unwrap();
-        assert_eq!(*g.replay_offset.lock(), cursor);
+        assert_eq!(
+            *g.replay_offset.lock().unwrap_or_else(|e| e.into_inner()),
+            cursor
+        );
 
         // Completing the torn line lets the next replay fold it.
         let node = ContextGraphEvent::NodeAdded(Node {

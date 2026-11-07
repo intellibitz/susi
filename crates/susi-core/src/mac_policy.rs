@@ -5,12 +5,13 @@
 //! every tool dispatch must pass [`MacPolicy::authorize_tool`].
 
 use crate::susi_error::{EaiError, EaiResult};
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{OnceLock, RwLock};
+use std::sync::OnceLock;
+use std::sync::RwLock;
 
 const HMAC_BLOCK: usize = 64;
 
@@ -148,7 +149,7 @@ fn grant_key(subject: &str, action: &str, resource: &str) -> String {
 /// Process-wide MAC enforcer.
 pub struct MacPolicy {
     key: [u8; 32],
-    grants: DashMap<String, CapabilityToken>,
+    grants: RwLock<HashMap<String, CapabilityToken>>,
     mode: RwLock<PrivacyMode>,
     mandatory_sandbox: AtomicBool,
     /// When true, every elevated check requires a verified token (always on).
@@ -312,7 +313,7 @@ impl MacPolicy {
     pub fn new(key: [u8; 32], mode: PrivacyMode, mandatory_sandbox: bool) -> Self {
         let p = Self {
             key,
-            grants: DashMap::new(),
+            grants: RwLock::new(HashMap::new()),
             mode: RwLock::new(mode),
             mandatory_sandbox: AtomicBool::new(mandatory_sandbox),
             enforce: AtomicBool::new(true),
@@ -447,10 +448,13 @@ impl MacPolicy {
     fn publish(&self, tokens: &[CapabilityToken]) -> std::io::Result<()> {
         let Some((dir, _lock)) = self.locked_store()? else {
             for token in tokens {
-                self.grants.insert(
-                    grant_key(&token.subject, &token.action, &token.resource),
-                    token.clone(),
-                );
+                self.grants
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(
+                        grant_key(&token.subject, &token.action, &token.resource),
+                        token.clone(),
+                    );
             }
             return Ok(());
         };
@@ -514,6 +518,8 @@ impl MacPolicy {
             }
         }
         self.grants
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&grant_key(subject, action, resource))
             .map(|t| t.clone())
             .filter(matches)
@@ -522,9 +528,11 @@ impl MacPolicy {
     fn bindings_for(&self, subject: &str) -> std::collections::BTreeSet<(String, String)> {
         let mut bindings: std::collections::BTreeSet<_> = self
             .grants
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .filter(|item| item.value().subject == subject)
-            .map(|item| (item.value().action.clone(), item.value().resource.clone()))
+            .filter(|item| item.1.subject == subject)
+            .map(|item| (item.1.action.clone(), item.1.resource.clone()))
             .collect();
         if let Some(dir) = self.grants_dir() {
             if let Ok(entries) = std::fs::read_dir(dir) {
@@ -694,16 +702,23 @@ impl MacPolicy {
     fn revoke_record(&self, subject: &str, action: &str, resource: &str) -> std::io::Result<bool> {
         let key = grant_key(subject, action, resource);
         let Some((dir, _lock)) = self.locked_store()? else {
-            return Ok(self.grants.remove(&key).is_some());
+            return Ok(self
+                .grants
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&key)
+                .is_some());
         };
         let current = self.migrate_record(&dir, subject, action, resource)?;
         let present = match std::fs::read(&current) {
             Ok(bytes) => serde_json::from_slice::<Option<CapabilityToken>>(&bytes)
                 .map_err(std::io::Error::other)?
                 .is_some(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                self.grants.contains_key(&key)
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => self
+                .grants
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&key),
             Err(error) => return Err(error),
         };
         if present {
@@ -715,7 +730,10 @@ impl MacPolicy {
                 std::fs::remove_file(&current)?;
             }
         }
-        self.grants.remove(&key);
+        self.grants
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key);
         Ok(present)
     }
 

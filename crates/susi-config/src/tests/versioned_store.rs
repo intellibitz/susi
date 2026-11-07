@@ -176,7 +176,11 @@ fn failed_reload_invalidates_previous_cached_value() {
     assert!(store
         .reload_with_healing(&path, || Ok(1), |_| false, true)
         .is_err());
-    assert!(store.cache.read().is_none());
+    assert!(store
+        .cache
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_none());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "malformed");
 }
 
@@ -232,7 +236,16 @@ fn failed_modify_does_not_report_success_or_cache_unsaved_value() {
             }
         )
         .is_err());
-    assert_eq!(*store.cache.read().as_ref().unwrap().value, 1);
+    assert_eq!(
+        *store
+            .cache
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .unwrap()
+            .value,
+        1
+    );
 }
 
 #[test]
@@ -244,7 +257,11 @@ fn failed_initial_save_leaves_cache_empty() {
     assert!(store
         .load_with_healing(&blocker.join("config.json"), || Ok(1), |_| false, true)
         .is_err());
-    assert!(store.cache.read().is_none());
+    assert!(store
+        .cache
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_none());
 }
 
 #[test]

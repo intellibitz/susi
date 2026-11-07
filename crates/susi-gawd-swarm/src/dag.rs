@@ -800,7 +800,7 @@ impl MissionDag {
         &mut self,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-        event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
+        event_sender: &std::sync::mpsc::Sender<crate::susi_core::bus::SwarmEventType>,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         self.execute_dag_inner(
             workspace,
@@ -817,7 +817,7 @@ impl MissionDag {
         &mut self,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-        event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
+        event_sender: &std::sync::mpsc::Sender<crate::susi_core::bus::SwarmEventType>,
         persist: &mut MissionPersistCtx<'_>,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         self.execute_dag_persisted_with_backends(
@@ -835,7 +835,7 @@ impl MissionDag {
         &mut self,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-        event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
+        event_sender: &std::sync::mpsc::Sender<crate::susi_core::bus::SwarmEventType>,
         persist: &mut MissionPersistCtx<'_>,
         model_generator: DagModelGenerator,
         tool_executor: DagToolExecutor,
@@ -928,7 +928,7 @@ impl MissionDag {
         &mut self,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-        event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
+        event_sender: &std::sync::mpsc::Sender<crate::susi_core::bus::SwarmEventType>,
         mut persist_slot: Option<&mut MissionPersistCtx<'_>>,
         model_generator: DagModelGenerator,
         tool_executor: DagToolExecutor,
@@ -1795,7 +1795,7 @@ mod tests {
             assert!(dag.execute_dag(Path::new("."), &board, &tx).is_err());
             assert!(!dag.nodes[0].completed);
             assert!(board.is_empty());
-            assert!(rx.is_empty());
+            assert!(rx.try_recv().is_err());
         }
     }
 
@@ -1809,7 +1809,7 @@ mod tests {
             .execute_dag(Path::new("."), &board, &tx)
             .unwrap()
             .is_empty());
-        assert!(rx.is_empty());
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

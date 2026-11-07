@@ -15,10 +15,11 @@
 //! recently that another write within the same timestamp tick could leave
 //! its identity unchanged.
 
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::RwLock;
 use std::time::{Duration, SystemTime};
 
 /// Bumped whenever a verdict's meaning changes.
@@ -77,7 +78,7 @@ fn binary() -> &'static str {
     })
 }
 
-type Memory = DashMap<(String, PathBuf), Remembered>;
+type Memory = RwLock<HashMap<(String, PathBuf), Remembered>>;
 
 /// A file's identity: its size and modification time.
 pub(crate) type FileIdentity = (u64, SystemTime);
@@ -134,14 +135,17 @@ impl Verdicts {
     /// so the file on disk is neither read nor written.
     fn load_as(disk: Option<PathBuf>, binary: &str) -> Self {
         let disk = disk.filter(|_| !binary.is_empty());
-        let memory = Memory::new();
+        let memory = Memory::new(std::collections::HashMap::new());
         let file = disk
             .as_deref()
             .and_then(|path| std::fs::read(path).ok())
             .and_then(|bytes| serde_json::from_slice::<VerdictFile>(&bytes).ok())
             .filter(|file| file.format == FORMAT && file.binary == binary);
         for entry in file.map(|f| f.entries).unwrap_or_default() {
-            memory.insert((entry.probe.clone(), entry.path.clone()), entry);
+            memory
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert((entry.probe.clone(), entry.path.clone()), entry);
         }
         Self {
             memory,
@@ -154,7 +158,13 @@ impl Verdicts {
         let Some(disk) = &self.disk else {
             return;
         };
-        let mut entries: Vec<Remembered> = self.memory.iter().map(|e| e.value().clone()).collect();
+        let mut entries: Vec<Remembered> = self
+            .memory
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect();
         entries.sort_by(|a, b| (&a.probe, &a.path).cmp(&(&b.probe, &b.path)));
         let file = VerdictFile {
             format: FORMAT,
@@ -183,7 +193,12 @@ impl Verdicts {
         let key = (probe.to_string(), path.to_path_buf());
         let mtime_ns = mtime_ns(modified);
         let node = node_of(path);
-        if let Some(entry) = self.memory.get(&key) {
+        if let Some(entry) = self
+            .memory
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+        {
             if entry.len == len && entry.mtime_ns == mtime_ns && entry.node == node {
                 return entry.verdict;
             }
@@ -199,20 +214,26 @@ impl Verdicts {
         if !settled || identity_of(path) != Some(identity) || node_of(path) != node {
             return verdict;
         }
-        if self.memory.len() >= MAX_ENTRIES {
-            self.memory.clear();
+        if self.memory.read().unwrap_or_else(|e| e.into_inner()).len() >= MAX_ENTRIES {
+            self.memory
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
         }
-        self.memory.insert(
-            key,
-            Remembered {
-                probe: probe.to_string(),
-                path: path.to_path_buf(),
-                len,
-                mtime_ns,
-                node,
-                verdict,
-            },
-        );
+        self.memory
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                key,
+                Remembered {
+                    probe: probe.to_string(),
+                    path: path.to_path_buf(),
+                    len,
+                    mtime_ns,
+                    node,
+                    verdict,
+                },
+            );
         self.save();
         verdict
     }
@@ -429,21 +450,40 @@ mod tests {
         let dir = scratch("damaged");
         let disk = dir.join("verdicts.json");
         std::fs::write(&disk, "{not json").unwrap();
-        assert!(Verdicts::load(Some(disk.clone())).memory.is_empty());
+        assert!(Verdicts::load(Some(disk.clone()))
+            .memory
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty());
         std::fs::write(&disk, r#"{"format":999,"entries":[]}"#).unwrap();
-        assert!(Verdicts::load(Some(disk.clone())).memory.is_empty());
+        assert!(Verdicts::load(Some(disk.clone()))
+            .memory
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty());
 
         // Verdicts another build reached are its own: its parsers may differ.
         let model = dir.join("m.gguf");
         std::fs::write(&model, b"v1").unwrap();
         let ours = Verdicts::load(Some(disk.clone()));
         assert!(ours.remembered(("gguf", &model), identity(&model), later(), || Some(true)));
-        assert_eq!(Verdicts::load(Some(disk.clone())).memory.len(), 1);
+        assert_eq!(
+            Verdicts::load(Some(disk.clone()))
+                .memory
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            1
+        );
         let text = std::fs::read_to_string(&disk).unwrap();
         let theirs = text.replace(&binary().replace('\\', "\\\\"), "another build");
         assert_ne!(text, theirs);
         std::fs::write(&disk, theirs).unwrap();
-        assert!(Verdicts::load(Some(disk.clone())).memory.is_empty());
+        assert!(Verdicts::load(Some(disk.clone()))
+            .memory
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -469,7 +509,11 @@ mod tests {
         assert!(tagged.remembered(key, identity(&model), later(), || Some(true)));
         let text = std::fs::read_to_string(&disk).unwrap();
         std::fs::write(&disk, text.replace("some build", "")).unwrap();
-        assert!(Verdicts::load_as(Some(disk.clone()), "").memory.is_empty());
+        assert!(Verdicts::load_as(Some(disk.clone()), "")
+            .memory
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -5,9 +5,9 @@
 use crate::models::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::susi_error::{EaiError, EaiResult};
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::RwLock;
 use std::sync::{Arc, OnceLock};
 
 use susi_vendor_candle::candle_core;
