@@ -1,8 +1,11 @@
 {
   "id": "T-GAWDSWARM-2",
   "native_worker": "gawd-swarm",
-  "title": "Wave 14 susi-gawd-swarm cloud e2e, cloud recovery, dag, and fault matrix invariant verifiers",
+  "title": "Wave 14 susi-gawd-swarm cloud_e2e, cloud_recovery, dag, and fault_matrix invariant verifiers",
+  "created_by": "GAWDSWARM",
+  "created_unix": 1794005500,
   "status": "in_progress",
+  "dependencies": [],
   "scopes": [
     ".agents/tasks/t-gawdswarm-2.json",
     "crates/susi-gawd-swarm"
