@@ -64,8 +64,8 @@ Core does not ship a third-party product implementation. A third party writes th
 plug, and core admits it over the socket. Do not add an implementation of a named
 product (an agent framework, a model host, a cloud CLI, a browser, a catalog, or
 a search vendor) to this repository. Speaking a standard protocol is the socket.
-Embedding that vendor's product is not. The crates `susi-vendor-agents`,
-`susi-vendor-models` (≤ 52 files), `susi-vendor-cloud` (≤ 3 files),
+Embedding that vendor's product is not. The crates `susi-vendor-agents` (≤ 9 files),
+`susi-vendor-models` (≤ 44 files), `susi-vendor-cloud` (≤ 3 files),
 `susi-vendor-chrome`, `susi-vendor-web` and `susi-vendor-candle` are migration
 debt: their Rust source may only shrink.
 `third_party_product_implementations_only_shrink` holds the ceiling.
