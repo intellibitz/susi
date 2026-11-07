@@ -319,8 +319,6 @@ mod vc_201_076_mastery_tests;
 #[path = "tests/key_scope.rs"]
 mod key_scope_tests;
 #[cfg(test)]
-#[cfg(test)]
-#[cfg(test)]
 #[path = "tests/setup_workflow.rs"]
 mod setup_workflow_tests;
 #[cfg(test)]
@@ -345,13 +343,8 @@ mod vc_201_066_mastery_tests;
 #[path = "tests/vc_201_066.rs"]
 mod vc_201_066_tests;
 #[cfg(test)]
-#[cfg(test)]
-#[cfg(test)]
-#[cfg(test)]
-#[cfg(test)]
 #[path = "tests/vc_201_069_mastery.rs"]
 mod vc_201_069_mastery_tests;
-#[cfg(test)]
 #[cfg(test)]
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;

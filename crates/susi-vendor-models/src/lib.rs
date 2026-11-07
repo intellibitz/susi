@@ -80,8 +80,6 @@ mod vc_201_044_mastery_tests;
 #[path = "tests/vc_201_044.rs"]
 mod vc_201_044_tests;
 #[cfg(test)]
-#[cfg(test)]
-#[cfg(test)]
 #[path = "tests/vc_201_050.rs"]
 mod vc_201_050_tests;
 
