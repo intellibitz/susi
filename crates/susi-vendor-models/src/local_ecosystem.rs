@@ -361,15 +361,13 @@ pub fn accelerators(p: &dyn Probe) -> Vec<Accelerator> {
     }
     if p.is_macos_arm() {
         add("metal", "Apple silicon".into());
+        add("ane", "Apple Neural Engine".into());
     }
     if let Some(path) = p.which("vulkaninfo") {
         add("vulkan", path.display().to_string());
     }
     if let Some(path) = p.which("sycl-ls").or_else(|| p.which("xpu-smi")) {
         add("oneapi", path.display().to_string());
-    }
-    for n in crate::npu_detection::npus(p) {
-        add(n.backend, n.evidence);
     }
     out
 }

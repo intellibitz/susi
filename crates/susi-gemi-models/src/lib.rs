@@ -31,13 +31,13 @@ pub use susi_core;
 pub use susi_vendor_models::model_license::ModelReadWindow;
 
 pub use susi_vendor_models::{
-    cloud, cloud_eligibility, cloud_manage, eco_consistency, eco_profile, eco_query, eco_relations,
-    eco_schema, eco_store, eco_taxonomy, frontier, hf_discovery, llamacpp_launcher,
-    local_ecosystem, open_weight, openrouter, price_catalog, resource_inventory, runtime_lifecycle,
+    cloud, cloud_eligibility, cloud_manage, frontier, hf_discovery, local_ecosystem, open_weight,
+    openrouter, price_catalog, resource_inventory, runtime_lifecycle,
 };
 pub mod coding_models;
 mod device;
 pub(crate) mod download;
+pub mod eco_query;
 pub mod hardware;
 pub mod intent;
 mod lifecycle;
@@ -45,6 +45,20 @@ pub mod model_cache;
 pub mod zc_first_model;
 
 pub use lifecycle::*;
+
+/// Write the selected-model override every inference path reads
+/// (`selected_model_override.txt` under the config dir).
+pub fn set_selected_model_override(model_name: &str) -> Result<String, String> {
+    let name = model_name.trim();
+    if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+        return Err(format!(
+            "invalid model name {model_name:?}: expected a non-empty single-line id"
+        ));
+    }
+    let model_file = susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
+    susi_config::atomic_write_bytes(&model_file, name.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(format!("Selected active model override set to: '{name}'"))
+}
 
 #[cfg(test)]
 // Test-only assertions in inline unit tests.

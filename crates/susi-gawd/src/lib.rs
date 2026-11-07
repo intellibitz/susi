@@ -102,6 +102,9 @@ pub mod worker_identity;
 pub mod zc_agent_identity;
 
 #[cfg(test)]
+#[path = "tests/native_verifier.rs"]
+mod native_verifier;
+#[cfg(test)]
 #[path = "tests/rsi_corpus.rs"]
 mod rsi_corpus_tests;
 // Test-only support for cloud_rsi's tests (a compiled native verifier
