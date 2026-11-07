@@ -219,7 +219,6 @@ susi-error = { workspace = true }
 susi-config = { workspace = true }
 susi-cli-defs = { workspace = true }
 susi-wire-client = { workspace = true }
-susi-vendor-cloud = { workspace = true }
 susi-leaf-services = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }

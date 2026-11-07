@@ -4006,7 +4006,6 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 name = "susi"
 version = "0.21.52"
 dependencies = [
- "susi-agents",
  "susi-build-os-ucrt",
  "susi-cli-defs",
  "susi-config",
@@ -4061,19 +4060,6 @@ name = "susi-adapters-llm"
 version = "0.1.0"
 dependencies = [
  "susi-http-transport",
- "susi-vendor-serde-json",
-]
-
-[[package]]
-name = "susi-agents"
-version = "0.1.0"
-dependencies = [
- "susi-config",
- "susi-core",
- "susi-error",
- "susi-paths",
- "susi-sandbox-client",
- "susi-vendor-agents",
  "susi-vendor-serde-json",
 ]
 
@@ -4151,7 +4137,6 @@ name = "susi-daemon"
 version = "0.21.52"
 dependencies = [
  "susi-abi",
- "susi-agents",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -4257,7 +4242,6 @@ dependencies = [
  "susi-vendor-serde-json",
  "susi-vendor-shlex",
  "susi-vendor-sysinfo",
- "susi-vendor-web",
 ]
 
 [[package]]
@@ -4270,7 +4254,6 @@ dependencies = [
  "susi-gawd-agents",
  "susi-paths",
  "susi-sandbox-client",
- "susi-vendor-agents",
  "susi-vendor-dashmap",
  "susi-vendor-flume",
  "susi-vendor-parking-lot",
@@ -4518,22 +4501,6 @@ dependencies = [
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
  "susi-vendor-syn",
-]
-
-[[package]]
-name = "susi-vendor-agents"
-version = "0.1.0"
-dependencies = [
- "susi-config",
- "susi-core",
- "susi-error",
- "susi-http-transport",
- "susi-paths",
- "susi-sandbox-client",
- "susi-vendor-getrandom",
- "susi-vendor-libc",
- "susi-vendor-serde",
- "susi-vendor-serde-json",
 ]
 
 [[package]]
@@ -4944,15 +4911,6 @@ dependencies = [
  "wasmi",
  "wasmparser 0.259.0",
  "wat",
-]
-
-[[package]]
-name = "susi-vendor-web"
-version = "0.1.0"
-dependencies = [
- "susi-core",
- "susi-error",
- "susi-vendor-serde-json",
 ]
 
 [[package]]
