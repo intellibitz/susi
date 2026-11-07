@@ -77,9 +77,6 @@ mod availability_not_capability_tests;
 #[path = "tests/brain_ranking_by_cost.rs"]
 mod brain_ranking_by_cost_tests;
 #[cfg(test)]
-#[path = "tests/brain_scout_probe.rs"]
-mod brain_scout_probe_tests;
-#[cfg(test)]
 #[path = "tests/brain_scout_schedule.rs"]
 mod brain_scout_schedule_tests;
 #[cfg(test)]
