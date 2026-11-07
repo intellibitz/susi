@@ -117,6 +117,25 @@ impl Budget {
     pub fn at_risk(&self, spent: Spend) -> bool {
         spent.total.micros().saturating_mul(5) >= self.limit.micros().saturating_mul(4)
     }
+
+    /// Verify structural invariants of a mission budget.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string when `limit` is zero or when
+    /// `output_reserve` is zero or exceeds `1_048_576` tokens.
+    pub fn verify_budget_invariants(&self) -> Result<(), String> {
+        if self.limit.is_zero() {
+            return Err("Budget limit must be greater than zero".to_string());
+        }
+        if self.output_reserve == 0 || self.output_reserve > 1_048_576 {
+            return Err(format!(
+                "Budget output_reserve ({}) must be in 1..=1_048_576",
+                self.output_reserve
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// The pessimistic cost of one turn: the prompt at the miss rate and the whole
@@ -135,6 +154,24 @@ pub struct Spend {
     pub calls: u64,
     /// Total spend in micro-USD.
     pub total: MicroUsd,
+}
+
+impl Spend {
+    /// Verify structural invariants of an accumulated mission spend record.
+    ///
+    /// # Errors
+    ///
+    /// Returns a descriptive error string when `calls == 0` while `total` is
+    /// non-zero.
+    pub fn verify_spend_invariants(&self) -> Result<(), String> {
+        if self.calls == 0 && !self.total.is_zero() {
+            return Err(format!(
+                "Spend with calls == 0 cannot have non-zero total ({})",
+                self.total
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Why an attempt was refused.
@@ -500,5 +537,40 @@ mod tests {
         drop(r2);
         assert_eq!(guard.reserved(), MicroUsd::ZERO);
         assert_eq!(guard.committed(), MicroUsd::from_micros(25));
+    }
+
+    #[test]
+    fn budget_and_spend_verify_invariants_reject_corrupt_state() {
+        let valid_budget = Budget::new(MicroUsd::from_micros(1_000_000));
+        assert!(valid_budget.verify_budget_invariants().is_ok());
+
+        let zero_limit = Budget::new(MicroUsd::ZERO);
+        assert!(zero_limit.verify_budget_invariants().is_err());
+
+        let zero_reserve = Budget {
+            limit: MicroUsd::from_micros(1_000_000),
+            output_reserve: 0,
+        };
+        assert!(zero_reserve.verify_budget_invariants().is_err());
+
+        let huge_reserve = Budget {
+            limit: MicroUsd::from_micros(1_000_000),
+            output_reserve: 2_000_000,
+        };
+        assert!(huge_reserve.verify_budget_invariants().is_err());
+
+        assert!(Spend::default().verify_spend_invariants().is_ok());
+        assert!(Spend {
+            calls: 2,
+            total: MicroUsd::from_micros(500),
+        }
+        .verify_spend_invariants()
+        .is_ok());
+        assert!(Spend {
+            calls: 0,
+            total: MicroUsd::from_micros(1),
+        }
+        .verify_spend_invariants()
+        .is_err());
     }
 }
