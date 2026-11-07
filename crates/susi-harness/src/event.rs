@@ -114,29 +114,6 @@ impl Event {
         self.cost = Some(cost);
         self
     }
-
-    /// Verify structural invariants of an audit [`Event`].
-    ///
-    /// Rejects sequence number `0`, timestamp `0`, blank summaries, blank
-    /// mission/task identifiers, or a task-scoped event that omits its parent
-    /// mission.
-    #[must_use]
-    pub fn verify_event_invariants(&self) -> bool {
-        if self.seq == 0 || self.at_unix_ms == 0 || self.summary.trim().is_empty() {
-            return false;
-        }
-        if let Some(ref mission) = self.mission {
-            if mission.trim().is_empty() {
-                return false;
-            }
-        }
-        if let Some(ref task) = self.task {
-            if task.trim().is_empty() || self.mission.is_none() {
-                return false;
-            }
-        }
-        true
-    }
 }
 
 /// Append one event as a JSON line.
@@ -246,34 +223,5 @@ mod tests {
         std::fs::write(&path, format!("{valid}\n{{not-json}}\n")).unwrap();
         let err = read_events(&path).unwrap_err().to_string();
         assert!(err.contains("line 2:"), "unexpected error: {err}");
-    }
-
-    #[test]
-    fn event_verify_invariants_validates_and_rejects_malformed_events() {
-        let valid = Event::new(
-            1,
-            1_700_000_000_000,
-            EventKind::TaskDispatched,
-            "dispatched",
-        )
-        .with_mission("VC-1")
-        .with_task("T-1");
-        assert!(valid.verify_event_invariants());
-
-        let zero_seq = Event::new(0, 1_700_000_000_000, EventKind::MissionStarted, "started");
-        assert!(!zero_seq.verify_event_invariants());
-
-        let zero_time = Event::new(1, 0, EventKind::MissionStarted, "started");
-        assert!(!zero_time.verify_event_invariants());
-
-        let blank_summary = Event::new(1, 100, EventKind::MissionStarted, "   ");
-        assert!(!blank_summary.verify_event_invariants());
-
-        let blank_mission =
-            Event::new(1, 100, EventKind::MissionStarted, "started").with_mission("  ");
-        assert!(!blank_mission.verify_event_invariants());
-
-        let orphan_task = Event::new(1, 100, EventKind::TaskDispatched, "task").with_task("T-1");
-        assert!(!orphan_task.verify_event_invariants());
     }
 }
