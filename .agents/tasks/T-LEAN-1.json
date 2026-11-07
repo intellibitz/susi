@@ -13,6 +13,7 @@
   "deps": [],
   "scope": [
     ".agents/gmcp/evidence",
+    ".agents/gmcp/requirements-ledger.json",
     ".agents/tasks/t-lean-1.json",
     "agents.md",
     "cargo.lock",
@@ -49,6 +50,7 @@
   ],
   "scopes": [
     ".agents/gmcp/evidence",
+    ".agents/gmcp/requirements-ledger.json",
     ".agents/tasks/t-lean-1.json",
     "agents.md",
     "cargo.lock",
