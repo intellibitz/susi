@@ -1,34 +1,33 @@
 {
   "id": "T-SOCKETDSP4-2",
-  "title": "Add A2A v1.0 verify_message_send_request wire validator in susi-core",
-  "goal": "Implement verify_message_send_request in crates/susi-core/src/a2a_wire.rs validating JSON-RPC 2.0 envelope, message/send method, id, ROLE_USER role, non-empty messageId, and non-empty text parts with unit tests.",
+  "title": "Add structural invariant verifiers to susi-gemi provider contract, seat provider, and usage accounting",
+  "goal": "Implement verify_claim_invariants, verify_fixture_invariants, verify_seat_invariants, verify_usage_invariants, verify_outcome_invariants, verify_price_invariants, and verify_summary_invariants in crates/susi-gemi with unit tests.",
   "state": "in_progress",
   "claimed_by": "socket-dsp4",
   "created_by": "socket-dsp4",
   "created_unix": 1794010800,
-  "updated_unix": 1794013600,
+  "updated_unix": 1794017000,
   "size": "M",
   "deps": [],
   "scope": [
-    "crates/susi-core/src/a2a_wire.rs",
-    "crates/susi-daemon",
+    "crates/susi-gemi",
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
   "native_worker": "socket-dsp4",
   "status": "completed",
   "scopes": [
-    "crates/susi-core/src/a2a_wire.rs",
-    "crates/susi-daemon",
+    "crates/susi-gemi",
     ".agents/tasks/T-SOCKETDSP4-2.json"
   ],
-  "acceptance": "cargo test -p susi-core a2a_wire --offline --locked",
+  "acceptance": "cargo test -p susi-gemi --lib provider_contract --offline --locked",
   "accept": {
     "cmd": [
       "cargo",
       "test",
       "-p",
-      "susi-core",
-      "a2a_wire",
+      "susi-gemi",
+      "--lib",
+      "provider_contract",
       "--offline",
       "--locked"
     ]

@@ -64,6 +64,20 @@ impl SeatProvider {
     pub fn quota_headroom(&self) -> Option<(u64, u64)> {
         self.arbiter.quota_headroom(&self.name)
     }
+
+    /// Verify structural and quota invariants of this configured seat provider.
+    #[must_use]
+    pub fn verify_seat_invariants(&self) -> bool {
+        !self.spec.agent.trim().is_empty()
+            && self.name == seat_name(&self.spec.agent)
+            && self.name.starts_with("seat-")
+            && self.spec.window_secs > 0
+            && self.spec.max_concurrent > 0
+            && self.spec.rate_per_min > 0
+            && self
+                .quota_headroom()
+                .is_some_and(|(rem, cap)| rem <= cap && cap == self.spec.calls_per_window)
+    }
 }
 
 fn deny(kind: &str, detail: &str) -> crate::susi_core::susi_error::EaiError {
@@ -224,5 +238,27 @@ mod inline_tests {
             .build()
             .unwrap();
         assert!(!rt.block_on(seat.is_healthy()).unwrap());
+    }
+
+    #[test]
+    fn seat_provider_verify_seat_invariants_validates_spec_and_rejects_invalid_bounds() {
+        let valid = SeatProvider::new(sample_spec());
+        assert!(valid.verify_seat_invariants());
+
+        let mut bad_agent = sample_spec();
+        bad_agent.agent = "   ".to_string();
+        assert!(!SeatProvider::new(bad_agent).verify_seat_invariants());
+
+        let mut bad_window = sample_spec();
+        bad_window.window_secs = 0;
+        assert!(!SeatProvider::new(bad_window).verify_seat_invariants());
+
+        let mut bad_conc = sample_spec();
+        bad_conc.max_concurrent = 0;
+        assert!(!SeatProvider::new(bad_conc).verify_seat_invariants());
+
+        let mut bad_rate = sample_spec();
+        bad_rate.rate_per_min = 0;
+        assert!(!SeatProvider::new(bad_rate).verify_seat_invariants());
     }
 }

@@ -23,6 +23,14 @@ impl TokenUsage {
     pub fn total(self) -> u64 {
         self.prompt_tokens + self.completion_tokens
     }
+
+    /// Verify that prompt + completion token counts do not overflow `u64`.
+    #[must_use]
+    pub fn verify_usage_invariants(self) -> bool {
+        self.prompt_tokens
+            .checked_add(self.completion_tokens)
+            .is_some()
+    }
 }
 
 /// One routed generation's measured outcome.
@@ -53,6 +61,17 @@ pub struct UsageOutcome {
     pub usd: f64,
 }
 
+impl UsageOutcome {
+    /// Verify structural invariants of a recorded usage outcome.
+    #[must_use]
+    pub fn verify_outcome_invariants(&self) -> bool {
+        !self.provider.trim().is_empty()
+            && self.usage.verify_usage_invariants()
+            && self.usd.is_finite()
+            && self.usd >= 0.0
+    }
+}
+
 /// USD price per million tokens for one provider.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct TokenPrice {
@@ -65,6 +84,15 @@ impl TokenPrice {
     pub fn cost(self, u: TokenUsage) -> f64 {
         (u.prompt_tokens as f64) * self.input_per_million / 1e6
             + (u.completion_tokens as f64) * self.output_per_million / 1e6
+    }
+
+    /// Verify that token prices are finite and non-negative.
+    #[must_use]
+    pub fn verify_price_invariants(self) -> bool {
+        self.input_per_million.is_finite()
+            && self.input_per_million >= 0.0
+            && self.output_per_million.is_finite()
+            && self.output_per_million >= 0.0
     }
 }
 
@@ -79,6 +107,25 @@ pub struct UsageSummary {
     pub tokens_per_success: f64,
     /// Mean USD per successful call — `None` when no price is known.
     pub usd_per_success: Option<f64>,
+}
+
+impl UsageSummary {
+    /// Verify structural invariants of an aggregated usage summary.
+    #[must_use]
+    pub fn verify_summary_invariants(&self) -> bool {
+        if self.successes > self.calls
+            || !self.tokens_per_success.is_finite()
+            || self.tokens_per_success < 0.0
+        {
+            return false;
+        }
+        if self.successes == 0 {
+            self.tokens_per_success == 0.0 && self.usd_per_success.is_none()
+        } else {
+            self.usd_per_success
+                .is_none_or(|u| u.is_finite() && u >= 0.0)
+        }
+    }
 }
 
 /// Append-only evidence ledger; persisted as JSON next to the brain's
@@ -312,5 +359,41 @@ mod tests {
         let s = l.summary("nobody", "code", None);
         assert_eq!(s.calls, 0);
         assert_eq!(s.tokens_per_success, 0.0);
+        assert!(s.verify_summary_invariants());
+    }
+
+    #[test]
+    fn usage_accounting_verify_invariants_validate_outcomes_prices_and_summaries() {
+        let valid_outcome = rec("openai", "code", 100, 50, true);
+        assert!(valid_outcome.verify_outcome_invariants());
+
+        let mut bad_outcome = valid_outcome.clone();
+        bad_outcome.usd = -0.01;
+        assert!(!bad_outcome.verify_outcome_invariants());
+
+        let mut overflow_outcome = valid_outcome;
+        overflow_outcome.usage = TokenUsage {
+            prompt_tokens: u64::MAX,
+            completion_tokens: 1,
+        };
+        assert!(!overflow_outcome.verify_outcome_invariants());
+
+        let valid_price = TokenPrice {
+            input_per_million: 2.0,
+            output_per_million: 8.0,
+        };
+        assert!(valid_price.verify_price_invariants());
+        assert!(!TokenPrice {
+            input_per_million: -1.0,
+            output_per_million: 1.0
+        }
+        .verify_price_invariants());
+
+        let bad_summary = UsageSummary {
+            calls: 1,
+            successes: 2,
+            ..Default::default()
+        };
+        assert!(!bad_summary.verify_summary_invariants());
     }
 }
