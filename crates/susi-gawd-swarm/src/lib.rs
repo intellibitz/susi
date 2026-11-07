@@ -37,7 +37,7 @@ pub mod chaos_deployment;
 pub mod cloud_e2e;
 pub mod cloud_failover;
 pub mod cloud_lockout;
-pub(crate) mod cloud_recovery;
+pub mod cloud_recovery;
 pub mod coordinator_fence;
 pub mod dag;
 pub mod deliberation;
