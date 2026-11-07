@@ -2,7 +2,6 @@
 //! sockets (`Command`, `A2a`, `Acp`). Provider output is evidence of execution,
 //! never proof that the requested code change is correct.
 mod catalog;
-mod process;
 
 pub use catalog::{
     catalog, catalog_with_host_dir, definition, resolve_managed, Adapter, AgentDefinition,
@@ -265,7 +264,9 @@ impl AgentManager {
                 "ACP external agent plug is in susi-commercial-apps",
             ))
         } else {
-            process::execute(self, &mut run)
+            Err(susi_error::EaiError::internal(
+                "external process agent plug is in susi-commercial-apps",
+            ))
         };
         if let Err(e) = result {
             // A cloud create may have succeeded despite a dropped response: never retry blindly.
@@ -563,9 +564,6 @@ fn tracing_failure(id: &str, error: &str) {
         &format!("{id}: {}", redact(error)),
     );
 }
-
-#[cfg(test)]
-mod tests;
 
 #[cfg(test)]
 mod unit_tests {
