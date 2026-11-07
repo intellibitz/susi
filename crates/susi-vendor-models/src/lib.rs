@@ -26,12 +26,6 @@ pub use susi_config::{cloud_eligibility, cloud_quota};
 pub mod hf_discovery;
 pub mod local_ecosystem;
 pub mod model_license;
-pub mod resumable_downloads;
-pub mod transactional_download;
-
-#[cfg(test)]
-#[path = "tests/vc_201_044_mastery.rs"]
-mod vc_201_044_mastery_tests;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries

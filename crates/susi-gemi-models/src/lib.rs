@@ -48,7 +48,9 @@ pub mod open_weight;
 pub mod openrouter;
 pub mod price_catalog;
 pub mod resource_inventory;
+pub mod resumable_downloads;
 pub mod runtime_lifecycle;
+pub mod transactional_download;
 pub mod zc_first_model;
 
 #[cfg(test)]
@@ -57,6 +59,9 @@ mod vc_201_041_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_042.rs"]
 mod vc_201_042_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_044_mastery.rs"]
+mod vc_201_044_mastery_tests;
 
 pub use lifecycle::*;
 

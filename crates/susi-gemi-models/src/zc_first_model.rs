@@ -2,10 +2,10 @@
 //! the audited small CPU starter. The fetch runs only for the user's explicit
 //! `STARTER_INSTALL_COMMAND`; core never downloads a model by itself (CEO
 //! decision 2026-11-04, "No, ask first").
+use crate::resumable_downloads::{DownloadPlan, RangeRequest, RangeResponse};
+use crate::susi_error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use susi_vendor_models::resumable_downloads::{DownloadPlan, RangeRequest, RangeResponse};
-use susi_vendor_models::susi_error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StarterModel {
@@ -167,7 +167,7 @@ pub fn fetch(
     staged.url = receipt.artifact_url.clone();
     staged.sha256 = Some(receipt.sha256.clone());
     staged.dest = PathBuf::from(format!("{}.first-run.part", plan.dest.display()));
-    let report = susi_vendor_models::resumable_downloads::download(&staged, &|request| {
+    let report = crate::resumable_downloads::download(&staged, &|request| {
         let response = transport(request)?;
         on_progress(request.from.saturating_add(response.body.len() as u64));
         Ok(response)

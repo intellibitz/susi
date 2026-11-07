@@ -20,8 +20,5 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 
-[dev-dependencies]
-proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }
-
 [lints]
 workspace = true
