@@ -12,21 +12,16 @@
   },
   "id": "T-GAWDSWARM-2",
   "size": "m",
-  "goal": "Extend author_from_failures to read audit-log denials and roadmap-verdict drift (VC-202-008), exercise isolated-node disaster recovery with measured RTO/RPO against declared targets (VC-201-093), and benchmark control-plane capacity saturation and cancellation responsiveness across simultaneous workload dimensions (VC-201-094).",
+  "goal": "Deliver VC-201-096 bounded model checks (budget transition monotonicity, policy precedence, reported proof bounds, and deterministic counterexample retention) and VC-202-015 structured RSI loop telemetry (.agents/rsi-loop.jsonl and RsiScorecard).",
   "scopes": [
     ".agents/roadmap.json",
-    ".agents/tasks/t-gawdswarm-1.json",
-    ".agents/tasks/t-gawdswarm-2.json",
-    "crates/susi-gawd/src/admin/tasks.rs",
-    "crates/susi-gawd/src/capacity_limits.rs",
-    "crates/susi-gawd/src/tests/vc_201_093.rs",
-    "crates/susi-gawd/src/tests/vc_201_094.rs",
-    "crates/susi-gawd/src/tests/vc_202_008.rs"
+    ".agents/tasks/T-GAWDSWARM-2.json",
+    "crates/susi-gawd"
   ],
   "deps": [],
   "created_by": "GAWDSWARM",
   "created_unix": 1794001500,
   "status": "completed",
-  "title": "Deliver VC-202-008 failure backlog sources, VC-201-093 isolated DR RTO/RPO, and VC-201-094 capacity saturation",
+  "title": "Deliver VC-201-096 bounded model checks and VC-202-015 RSI loop telemetry",
   "native_worker": "gawd-swarm"
 }

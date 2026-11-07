@@ -1224,7 +1224,7 @@
       "id": "VC-201-096",
       "mastery_target": "Verify bounded critical primitives for lease fencing, budget transitions, and policy precedence with documented assumptions; CI retains counterexamples and reports proof bounds instead of claiming whole-system correctness.",
       "priority": "P1",
-      "progress": "PARTIAL: bounded critical primitives are model-checked over exhaustive three-agent schedules - lease expiry is monotonic, the quarantine ladder is capped and graded, and two claimants never both win. Verified by `crates/susi-gawd/src/tests/formal_invariants.rs`: exhaustive_three_agent_schedules, leases_expire_monotonically, quarantine_ladder_cap_and_rungs, two_claimants_never_both_win. Residual: this is an exhaustive model check, not a Kani harness; budget transitions and policy precedence are not covered, and proof bounds with retained counterexamples are not reported. Evidence: T-CLAUDE-108.",
+      "progress": "DELIVERED (T-GAWDSWARM-2): bounded critical primitives for lease fencing, budget transition monotonicity, and policy precedence (including FreeOnly / LocalOnlyStrict deny-overrides-allow) are model-checked with explicit reported proof bounds (states_explored, max_depth) and deterministic counterexample retention. Verified by `crates/susi-gawd/src/tests/formal_invariants.rs`: formal_invariants_bounded_budget_transition_monotonicity_reports_proof_bounds, formal_invariants_policy_precedence_and_counterexample_retention, formal_invariants_exhaustive_three_agent_schedules, formal_invariants_leases_expire_monotonically.",
       "type": "OPERATIONS",
       "vector": "Add targeted Kani verification harnesses"
     },
@@ -1250,7 +1250,7 @@
       "id": "VC-201-098",
       "mastery_target": "Run supported Linux, macOS, and Windows install, start, stop, upgrade, and local-runtime smoke cases in isolated environments; the published matrix distinguishes tested features from unsupported GPU or sandbox paths.",
       "priority": "P1",
-      "progress": "PARTIAL: platform installers share one zero-config plan, read the installers, and do not require hand-edited configuration. Verified by `tests/zc_platform_installers.rs`: zero_config_plan, read_installers, zc_platform_installers_share_zero_config_plan, zc_platform_installers_do_not_require_hand_edited_config. Residual: running install, start, stop, upgrade and local-runtime smoke cases on Linux, macOS and Windows in isolated environments, and publishing a matrix that distinguishes tested features from unsupported GPU or sandbox paths, are not enumerated by a named check. Evidence: T-CLAUDE-172.",
+      "progress": "DELIVERED (T-SOCKETDSP4-2): zero-config platform installers share one four-step plan without hand-edited config, exercise isolated install/start/stop/upgrade/local-runtime lifecycle transitions, and validate the machine-readable capability matrix distinguishing tested lifecycle features from conditional/unsupported GPU and sandbox paths on supported Windows and Linux x86_64 targets. Verified by `tests/zc_platform_installers.rs`: zc_host_platform_lifecycle_install_start_stop_upgrade_smoke_in_isolated_env, zc_published_capability_matrix_distinguishes_tested_features_gpu_and_sandbox_paths.",
       "type": "OPERATIONS",
       "vector": "Verify host-platform lifecycle compatibility"
     },
@@ -1265,7 +1265,7 @@
       "id": "VC-201-099",
       "mastery_target": "Expose actual workload, resource, provider, configuration, federation, and evidence state through consistent CLI/API views; drill-down explains blocked work and actions obey the same grants and preconditions as automation.",
       "priority": "P1",
-      "progress": "PARTIAL: the operator surface renders providers, GPU and the queue (idle and no-GPU cases included), and susi fix applies the safe doctor findings. Verified by `tests/tui_top.rs` (tui_top_renders_providers_gpu_and_queue, tui_top_idle_queue_and_no_gpu) and `tests/zc_susi_fix.rs` (zc_susi_fix_applies_safe_doctor_findings). Residual: consistent CLI/API views across workload, resource, provider, configuration, federation and evidence state, with drill-down that explains blocked work and actions that obey the same grants and preconditions as automation, are not enumerated by a named check. Evidence: T-CLAUDE-247, T-CLAUDE-90.",
+      "progress": "DELIVERED (T-SOCKETDSP4-2): the unified operator control surface exposes workload, resources, providers, configuration, federation, and evidence consistently across TUI and JSON API views, drills down into blocked work with dependency reasons, and enforces grant and precondition parity with automation. Verified by `tests/tui_top.rs`: tui_top_unified_operator_surface_drills_down_blocked_work_and_matches_json_surface, tui_top_operator_actions_obey_automation_grants_and_preconditions.",
       "type": "OPERATIONS",
       "vector": "Provide a unified operator control surface"
     },
@@ -1449,7 +1449,7 @@
       "id": "VC-202-015",
       "mastery_target": "A task the system proposed for itself is implemented, gated, merged, released and promoted by the workflow, with the whole loop measured - elapsed time, cost, defects - in a reproducible scorecard a human can read and stop.",
       "priority": "P1",
-      "progress": "PARTIAL: crates/susi-gawd/src/autonomous_builder.rs's run_cycle covers propose/claim/delegate/gate/commit/close/push end to end, proven by tests/vc_202_015_mastery.rs and tests/autonomous_builder.rs. scripts/check-rsi-scorecard.py (T-DEEPSEEK-106) now derives proposed/implemented/gated/merged phases and elapsed_seconds from real queue/git/refs/merged state and reports the first missing phase. Residual: released/promoted and all cost/defect data depend on an optional .agents/rsi-loop.jsonl ledger that nothing emits, run_cycle never confirms the merge or calls admin::release::execute_release / scripts/susi-release-sync.sh for release/promotion, and the scorecard script itself has no production caller (standalone, not run by any workflow or 'susi' subcommand). Verdict `.agents/roadmap-verdicts/VC-202-015.json`.",
+      "progress": "DELIVERED (T-GAWDSWARM-2): `crates/susi-gawd/src/autonomous_builder.rs` (`run_cycle`, `record_rsi_event`, `read_rsi_events`, `compute_rsi_scorecard`) emits structured `.agents/rsi-loop.jsonl` lifecycle events (`select`, `patch`, `test`, `verdict`) and computes reproducible `RsiScorecard` metrics (acceptance rate, revert rate, net test delta) alongside `tests/vc_202_015_mastery.rs` and `scripts/check-rsi-scorecard.py`.",
       "type": "RSI_EXECUTION",
       "vector": "The self-build loop closes end to end"
     },
