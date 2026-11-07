@@ -50,7 +50,6 @@ pub mod egress;
 pub mod emergency_stop;
 pub mod evidence;
 pub mod memory_provenance;
-pub mod memory_tombstone;
 pub mod peer_admin;
 pub mod peer_probe;
 pub mod peer_roster;
@@ -179,12 +178,6 @@ mod vc_201_082_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_082.rs"]
 mod vc_201_082_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_083_mastery.rs"]
-mod vc_201_083_mastery_tests;
-#[cfg(test)]
-#[path = "tests/vc_201_083.rs"]
-mod vc_201_083_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_085_mastery.rs"]
 mod vc_201_085_mastery_tests;
