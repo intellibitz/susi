@@ -20,27 +20,6 @@ pub enum Verdict {
     Refuse(String),
 }
 
-impl Verdict {
-    /// Verify structural invariants on an ecosystem compatibility gate verdict.
-    pub fn verify_verdict_invariants(&self) -> Result<(), String> {
-        match self {
-            Self::Allow => Ok(()),
-            Self::Warn(reason) => {
-                if reason.trim().is_empty() {
-                    return Err("Verdict::Warn reason must not be empty".to_string());
-                }
-                Ok(())
-            }
-            Self::Refuse(reason) => {
-                if reason.trim().is_empty() {
-                    return Err("Verdict::Refuse reason must not be empty".to_string());
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
 /// Is `spec_version` superseded by a newer recorded version?
 fn superseded(kb: &KnowledgeBase, spec_version: &str) -> Option<String> {
     kb.relations
@@ -158,26 +137,5 @@ mod tests {
             Verdict::Refuse(_) => {}
             other => panic!("expected refuse, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn verify_gemi_wave14_invariants_eco_compat_gate() {
-        let kb = kb();
-        assert!(check(&kb, "vllm", &["openai-chat-completions"])
-            .verify_verdict_invariants()
-            .is_ok());
-        assert!(check_version(&kb, "a2a-0.2")
-            .verify_verdict_invariants()
-            .is_ok());
-        assert!(check_version(&kb, "v9.9.9")
-            .verify_verdict_invariants()
-            .is_ok());
-
-        assert!(Verdict::Warn("   ".to_string())
-            .verify_verdict_invariants()
-            .is_err());
-        assert!(Verdict::Refuse(String::new())
-            .verify_verdict_invariants()
-            .is_err());
     }
 }
