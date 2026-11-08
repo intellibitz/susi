@@ -1,7 +1,7 @@
 use crate::engines::runtime::GemiEngine;
 use std::any::Any;
 
-use crate::susi_core::provider::{BoxFuture, Provider};
+use crate::susi_core::provider::{run_blocking, BoxFuture, Provider};
 
 pub struct CandleProvider;
 
@@ -14,11 +14,9 @@ impl Provider for CandleProvider {
         // Healthy only when a local model is actually selectable (weights on
         // disk that fit this host); without one every generate would fail.
         Box::pin(async {
-            tokio::task::spawn_blocking(|| {
-                crate::models::ModelManager::get_selected_model(None).is_some()
-            })
-            .await
-            .map_err(|e| crate::susi_core::susi_error::EaiError::process(e.to_string()))
+            run_blocking(|| crate::models::ModelManager::get_selected_model(None).is_some())
+                .await
+                .map_err(crate::susi_core::susi_error::EaiError::process)
         })
     }
 
@@ -34,12 +32,11 @@ impl Provider for CandleProvider {
             // hardcoded ".".
             let workspace =
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            // Wrapping blocking Candle inference in a spawn_blocking is usually a good idea
-            let res = tokio::task::spawn_blocking(move || {
-                GemiEngine::generate_reasoning_deep(&prompt, &workspace)
-            })
-            .await
-            .map_err(|e| crate::susi_core::susi_error::EaiError::process(e.to_string()))?;
+            // Blocking inference runs on a thread of its own, so the future
+            // completes under any executor (or none: `provider::block_on`).
+            let res = run_blocking(move || GemiEngine::generate_reasoning_deep(&prompt, &workspace))
+                .await
+                .map_err(crate::susi_core::susi_error::EaiError::process)?;
             Ok(res)
         })
     }
@@ -100,6 +97,12 @@ mod inline_tests {
             .expect("tokio runtime");
         let res = rt.block_on(p.is_healthy());
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn is_healthy_completes_without_an_async_runtime() {
+        let p = CandleProvider;
+        assert!(crate::susi_core::provider::block_on(p.is_healthy()).is_ok());
     }
 
     #[test]

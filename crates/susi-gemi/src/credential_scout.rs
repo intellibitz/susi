@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::susi_core::inference_wire::InferenceProtocol;
+use susi_adapters_llm::inference_wire::InferenceProtocol;
 use susi_gemi_models::cloud_eligibility::{credential_fingerprint, EligibilityKind};
 
 fn now_unix() -> u64 {

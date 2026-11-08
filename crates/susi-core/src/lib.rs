@@ -65,6 +65,7 @@ pub mod mission_trace;
 pub mod model_health;
 pub mod net_guard;
 pub mod parallel;
+pub mod plain_http;
 pub mod plane_bus;
 pub mod plane_bus_ipc;
 pub mod progress;

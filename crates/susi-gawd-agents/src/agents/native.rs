@@ -1087,7 +1087,7 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
         } else {
             self.model.clone()
         };
-        use crate::susi_core::inference_wire as wire;
+        use susi_adapters_llm::inference_wire as wire;
         let (payload, extract): (_, wire::Extractor) = match self.protocol_type.as_str() {
             "chat" => (
                 wire::openai_chat_body(&model, goal, 1024),

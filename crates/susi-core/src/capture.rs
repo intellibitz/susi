@@ -29,9 +29,6 @@ const MAX_AGE: Duration = Duration::from_secs(300);
 thread_local! {
     static CURRENT: RefCell<Option<Arc<EvidenceSession>>> = const { RefCell::new(None) };
 }
-tokio::task_local! {
-    static ASYNC_CURRENT: Option<Arc<EvidenceSession>>;
-}
 
 /// Live sessions per canonical workspace, most recent activation last. Swarm
 /// agents on rayon workers never inherit thread-locals, so activation
@@ -267,9 +264,7 @@ impl EvidenceSession {
     }
 
     pub fn current() -> Option<Arc<Self>> {
-        ASYNC_CURRENT
-            .try_with(Clone::clone)
-            .unwrap_or_else(|_| CURRENT.with(|current| current.borrow().clone()))
+        CURRENT.with(|current| current.borrow().clone())
     }
 
     pub fn enter(session: Option<Arc<Self>>) -> EvidenceScope {
