@@ -137,7 +137,6 @@ pub fn status_rows() -> Result<Vec<Value>, String> {
         .collect();
     let bearer = susi_config::cluster_key::peer_bearer();
     let results = std::sync::Mutex::new(Vec::new());
-    let local_ref = &local;
     std::thread::scope(|s| {
         for (nid, addr, live, pubkey, bind_sig) in &targets {
             // A loopback entry is this node itself; its row is added below.
@@ -160,21 +159,18 @@ pub fn status_rows() -> Result<Vec<Value>, String> {
                         .and_then(|v| v.as_str())
                         .and_then(|t| serde_json::from_str::<Value>(t).ok())
                         .unwrap_or_else(|| json!({"node": nid, "error": "unparseable status"})),
-                    Err(_e) if *live && !pubkey.is_empty() && !bind_sig.is_empty() => {
-                        // Zero-config home-LAN peers behind OS inbound firewall
-                        // (e.g. Windows Defender Firewall blocking inbound TCP
-                        // on a non-elevated peer while UDP discovery and
-                        // outbound peer pulls are live and Ed25519-attested):
-                        // synthesize the attested member row from the live
-                        // cluster state rather than reporting false offline.
+                    Err(e) if *live && !pubkey.is_empty() && !bind_sig.is_empty() => {
+                        // A key-bound member that discovery still sees (for
+                        // example one whose OS firewall refuses inbound TCP)
+                        // is live, but its own term, leader, ledger size and
+                        // key epoch are unknown here. Report exactly that:
+                        // copying this node's values into its row would
+                        // claim agreement nobody measured and hide the
+                        // divergence this view exists to show.
                         json!({
                             "node": nid,
-                            "term": local_ref["term"],
-                            "leader": local_ref["leader"],
-                            "records": local_ref["records"],
-                            "key_epoch": local_ref["key_epoch"],
-                            "roster": local_ref["roster"],
-                            "bound": local_ref["bound"],
+                            "error": e,
+                            "live_via_discovery": true,
                             "pubkey": pubkey.get(..12).unwrap_or(pubkey),
                             "self": false,
                         })
@@ -323,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn status_rows_synthesizes_live_attested_peer_when_inbound_tcp_is_firewalled() {
+    fn status_rows_reports_a_firewalled_live_member_without_inventing_its_state() {
         let _lock = commit_log::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -365,15 +361,21 @@ mod tests {
             .iter()
             .find(|r| r["node"] == "susi-node-peer-live")
             .unwrap();
-        assert!(live_row.get("error").is_none(), "{live_row:?}");
+        // Live by discovery, but its status was not fetched: the row says so
+        // and carries none of this node's term, leader, records or epoch.
+        assert!(live_row.get("error").is_some(), "{live_row:?}");
+        assert_eq!(live_row["live_via_discovery"], true);
         assert_eq!(live_row["self"], false);
-        assert_eq!(live_row["bound"], 2);
+        for field in ["term", "leader", "records", "key_epoch", "roster", "bound"] {
+            assert!(live_row.get(field).is_none(), "{field} invented: {live_row:?}");
+        }
 
         let stale_row = rows
             .iter()
             .find(|r| r["node"] == "susi-node-peer-stale")
             .unwrap();
         assert!(stale_row.get("error").is_some(), "{stale_row:?}");
+        assert!(stale_row.get("live_via_discovery").is_none(), "{stale_row:?}");
 
         drop(env);
         let _ = std::fs::remove_dir_all(&home);
