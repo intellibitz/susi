@@ -26,6 +26,7 @@
     ]
   },
   "scope": [
+    ".agents/gmcp/evidence",
     ".agents/tasks/t-peerchan-1.json",
     "config/config.default.json",
     "crates/susi-config/src/lib.rs",
@@ -47,14 +48,17 @@
     "crates/susi-gmcp/src/tools/core.rs",
     "crates/susi-http-transport/src/dual_transport.rs",
     "docs/architecture.md",
+    "docs/lean-core.md",
     "docs/peer-channel.md",
     "docs/threat-model.md",
     "tests/host_only_privacy.rs",
+    "tests/lean_core_ceilings.rs",
     "tests/peer_channel_hub.rs",
     "tests/peer_credential_attestation.rs",
     "tests/peer_request_signing.rs"
   ],
   "scopes": [
+    ".agents/gmcp/evidence",
     ".agents/tasks/t-peerchan-1.json",
     "config/config.default.json",
     "crates/susi-config/src/lib.rs",
@@ -76,12 +80,14 @@
     "crates/susi-gmcp/src/tools/core.rs",
     "crates/susi-http-transport/src/dual_transport.rs",
     "docs/architecture.md",
+    "docs/lean-core.md",
     "docs/peer-channel.md",
     "docs/threat-model.md",
     "tests/host_only_privacy.rs",
+    "tests/lean_core_ceilings.rs",
     "tests/peer_channel_hub.rs",
     "tests/peer_credential_attestation.rs",
     "tests/peer_request_signing.rs"
   ],
-  "updated_unix": 1794159324
+  "updated_unix": 1794177908
 }
