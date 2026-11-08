@@ -2907,17 +2907,6 @@ fn finish_scoped_merge(
     Ok(())
 }
 
-const SHIP_CONTEXTS: [&str; 4] = [
-    "susi-local/format",
-    "susi-local/licenses",
-    "susi-local/clippy",
-    "susi-local/tests",
-];
-
-fn status_description(text: &str) -> String {
-    text.chars().take(140).collect()
-}
-
 fn require_ship_ref(git_ref: &str) -> Result<()> {
     if git_ref != "refs/heads/main" {
         return Err("ship pushes only verified fast-forwards to refs/heads/main".into());
@@ -2925,29 +2914,15 @@ fn require_ship_ref(git_ref: &str) -> Result<()> {
     Ok(())
 }
 
+/// The git remote a ship fetches `main` from and fast-forwards. Plain git
+/// only: GitHub is storage (CEO mandate 2026-11-09), so a landing posts
+/// nothing to the host; its receipt commit is the record.
 trait Remote {
     fn fetch_main(&mut self, root: &Path) -> Result<String>;
     fn push_ref(&mut self, root: &Path, sha: &str, git_ref: &str) -> Result<()>;
-    fn post_status(
-        &mut self,
-        root: &Path,
-        sha: &str,
-        context: &str,
-        description: &str,
-    ) -> Result<()>;
 }
 
-struct GhRemote;
-
-fn gh_command(root: &Path) -> Command {
-    let mut command = Command::new("gh");
-    command
-        .current_dir(root)
-        .env_remove("GH_FORCE_TTY")
-        .env("NO_COLOR", "1")
-        .env("CLICOLOR", "0");
-    command
-}
+struct GitRemote;
 
 fn strip_ansi(text: &str) -> String {
     let mut out = String::new();
@@ -2967,72 +2942,6 @@ fn strip_ansi(text: &str) -> String {
         out.push(character);
     }
     out
-}
-
-fn gh_output(root: &Path, args: &[String]) -> Result<String> {
-    let out = gh_command(root).args(args).output()?;
-    if !out.status.success() {
-        return Err(format!(
-            "gh {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        )
-        .into());
-    }
-    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
-        .trim()
-        .to_owned())
-}
-
-/// `owner/name` of the repository, read from the `origin` remote's URL.
-///
-/// `gh repo view --json nameWithOwner` answered this before, but that is a
-/// GraphQL query, which a cloud session's GitHub proxy refuses (REST only), so
-/// every status of a ship from such a host went unposted. The remote URL is
-/// local and already names the repository the push went to.
-fn repo_slug(root: &Path) -> Result<String> {
-    slug_from_remote_url(&git(root, &["remote", "get-url", "origin"])?)
-}
-
-/// The `owner/name` a github.com remote URL names, in any of Git's spellings:
-/// `https://github.com/o/n[.git]` (with or without credentials before the
-/// host), `ssh://git@github.com/o/n[.git]` and `git@github.com:o/n[.git]`.
-fn slug_from_remote_url(url: &str) -> Result<String> {
-    let url = url.trim();
-    let path = if let Some(path) = url.strip_prefix("git@github.com:") {
-        path
-    } else {
-        let (scheme, rest) = url
-            .split_once("://")
-            .ok_or("origin is not a github.com remote")?;
-        if !matches!(scheme, "https" | "ssh") {
-            return Err("origin is not a github.com remote".into());
-        }
-        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-        let host = authority.rsplit('@').next().unwrap_or(authority);
-        if !host.eq_ignore_ascii_case("github.com") {
-            return Err("origin is not a github.com remote".into());
-        }
-        path
-    };
-    let path = path.trim_matches('/');
-    let slug = path.strip_suffix(".git").unwrap_or(path);
-    let mut parts = slug.split('/');
-    match (parts.next(), parts.next(), parts.next()) {
-        (Some(owner), Some(name), None)
-            if !owner.is_empty()
-                && !name.is_empty()
-                && owner
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-                && name.bytes().all(|byte| {
-                    byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' || byte == b'.'
-                }) =>
-        {
-            Ok(slug.to_owned())
-        }
-        _ => Err("unexpected repository name".into()),
-    }
 }
 
 fn sync_local_main(root: &Path, sha: &str) {
@@ -3078,7 +2987,7 @@ fn sync_local_main(root: &Path, sha: &str) {
     }
 }
 
-impl Remote for GhRemote {
+impl Remote for GitRemote {
     fn fetch_main(&mut self, root: &Path) -> Result<String> {
         git(root, &["fetch", "--quiet", "origin", "main"])?;
         let oid = git(root, &["rev-parse", "origin/main"])?;
@@ -3105,37 +3014,6 @@ impl Remote for GhRemote {
             ],
         )?;
         sync_local_main(root, sha);
-        Ok(())
-    }
-
-    fn post_status(
-        &mut self,
-        root: &Path,
-        sha: &str,
-        context: &str,
-        description: &str,
-    ) -> Result<()> {
-        if !valid_oid(sha) {
-            return Err("status requires a commit oid".into());
-        }
-        if !SHIP_CONTEXTS.contains(&context) {
-            return Err("status context is not a local ship gate".into());
-        }
-        let slug = repo_slug(root)?;
-        let description = status_description(description);
-        gh_output(
-            root,
-            &[
-                "api".into(),
-                format!("repos/{slug}/statuses/{sha}"),
-                "-f".into(),
-                "state=success".into(),
-                "-f".into(),
-                format!("context={context}"),
-                "-f".into(),
-                format!("description={description}"),
-            ],
-        )?;
         Ok(())
     }
 }
@@ -3923,22 +3801,10 @@ fn publish_head(
                 gate_receipt::ref_for(head)
             )
         })?;
+    // Every gate passed on the head being published (checked again here, before
+    // the push, where the status posts used to read the same evidence after it).
+    require_ship_evidence(evidence)?;
     remote.push_ref(root, &published, "refs/heads/main")?;
-    for context in SHIP_CONTEXTS {
-        let subcommand = match context {
-            "susi-local/format" => "fmt",
-            "susi-local/licenses" => "deny",
-            "susi-local/clippy" => "clippy",
-            "susi-local/tests" => "test",
-            _ => return Err("unknown ship context".into()),
-        };
-        let line = gate_evidence(evidence, subcommand)?;
-        // The push is the publication. A commit status is a courtesy record on
-        // GitHub; failing to post one (no `gh`, offline API) must not undo it.
-        if let Err(error) = remote.post_status(root, &published, context, line) {
-            eprintln!("warning: {context} status not posted on {published}: {error}");
-        }
-    }
     Ok(ShipReport {
         head: published,
         merge: head.to_owned(),
@@ -4105,131 +3971,6 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     }
     require_ship_evidence(&evidence)?;
     Ok(evidence)
-}
-
-fn ruleset_body(kind: RepoKind) -> serde_json::Value {
-    let bypass = match kind {
-        RepoKind::Susi => serde_json::json!([]),
-        RepoKind::Commercial => serde_json::json!([{
-            "actor_id": 5,
-            "actor_type": "RepositoryRole",
-            "bypass_mode": "always"
-        }]),
-    };
-    let name = match kind {
-        RepoKind::Susi => "susi-main-workflow",
-        RepoKind::Commercial => "commercial-main-pr-only",
-    };
-    serde_json::json!({
-        "name": name,
-        "target": "branch",
-        "enforcement": "active",
-        "conditions": { "ref_name": { "include": ["refs/heads/main"], "exclude": [] } },
-        "bypass_actors": bypass,
-        "rules": [
-            { "type": "deletion" },
-            { "type": "non_fast_forward" }
-        ]
-    })
-}
-
-fn merge_path_workflows(kind: RepoKind) -> &'static [&'static str] {
-    match kind {
-        RepoKind::Susi => &[
-            "Test",
-            "Auto PR + Merge",
-            "Queue",
-            "Main Failure Attribution",
-            "Zero-Config Matrix",
-            "Cloud target seed",
-            "Nightly Coverage Audit",
-            "Cleanup Workflow Runs",
-        ],
-        RepoKind::Commercial => &["Commercial Suite CI & Quality Gate", "Core Boundary Guard"],
-    }
-}
-
-fn apply_ruleset(root: &Path, apply: bool) -> Result<()> {
-    let body = ruleset_body(repo_kind(root)?);
-    if !apply {
-        println!("{}", serde_json::to_string_pretty(&body)?);
-        return Ok(());
-    }
-    let slug = repo_slug(root)?;
-    let name = body["name"].as_str().ok_or("ruleset is missing a name")?;
-    let listed = gh_output(root, &["api".into(), format!("repos/{slug}/rulesets")])?;
-    let parsed = strip_ansi(listed.trim())
-        .trim()
-        .trim_start_matches('\u{feff}')
-        .to_owned();
-    let parsed = parsed.as_str();
-    let listed: serde_json::Value = serde_json::from_str(parsed)
-        .map_err(|error| format!("ruleset list was not json ({error}): {parsed:.180}"))?;
-    let id = listed.as_array().and_then(|items| {
-        items.iter().find_map(|item| {
-            (item["name"] == name)
-                .then(|| item["id"].as_u64())
-                .flatten()
-        })
-    });
-    let payload = serde_json::to_vec(&body)?;
-    let endpoint = match id {
-        Some(id) => format!("repos/{slug}/rulesets/{id}"),
-        None => format!("repos/{slug}/rulesets"),
-    };
-    let method = if id.is_some() { "PUT" } else { "POST" };
-    gh_input(
-        root,
-        &[
-            "api".into(),
-            "--method".into(),
-            method.into(),
-            endpoint,
-            "--input".into(),
-            "-".into(),
-        ],
-        &payload,
-    )?;
-    println!("ruleset {name} {method}");
-    Ok(())
-}
-
-fn disable_merge_path(root: &Path, dry_run: bool) -> Result<()> {
-    for name in merge_path_workflows(repo_kind(root)?) {
-        if dry_run {
-            println!("{name}");
-            continue;
-        }
-        gh_output(root, &["workflow".into(), "disable".into(), (*name).into()])?;
-        println!("disabled {name}");
-    }
-    Ok(())
-}
-
-fn gh_input(root: &Path, args: &[String], input: &[u8]) -> Result<String> {
-    let mut child = gh_command(root)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    child
-        .stdin
-        .take()
-        .ok_or("missing gh stdin")?
-        .write_all(input)?;
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        return Err(format!(
-            "gh {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        )
-        .into());
-    }
-    Ok(strip_ansi(&String::from_utf8(out.stdout)?)
-        .trim()
-        .to_owned())
 }
 
 /// The agent's own fast check: format, then clippy and tests for only the
@@ -4743,11 +4484,11 @@ fn run(args: &[String]) -> Result<()> {
             }
         }
         Some("ship") if args.get(1).map(String::as_str) == Some("--retry") && args.len() == 2 => {
-            print_ship(&ship_retry(&root, &mut GhRemote)?);
+            print_ship(&ship_retry(&root, &mut GitRemote)?);
         }
         Some("ship") if args.len() >= 2 => {
             let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
-            let mut remote = GhRemote;
+            let mut remote = GitRemote;
             let result = match repo_kind(&root)? {
                 RepoKind::Susi => ship(&root, &names, &mut remote, verify_candidate),
                 RepoKind::Commercial => ship(&root, &names, &mut remote, commercial_gate),
@@ -4755,27 +4496,7 @@ fn run(args: &[String]) -> Result<()> {
             finish_phases(&root, "ship", if result.is_ok() { "shipped" } else { "failed" });
             print_ship(&result?);
         }
-        Some("ruleset") if args.get(1).map(String::as_str) == Some("apply") && args.len() <= 3 => {
-            let apply = args.len() == 3 && args[2] == "--apply";
-            if args.len() == 3 && !apply {
-                return Err("usage: local-workflow ruleset apply [--apply]".into());
-            }
-            apply_ruleset(&root, apply)?;
-        }
-        Some("workflows")
-            if args.len() == 3 && args[1] == "disable" && args[2] == "--merge-path" =>
-        {
-            disable_merge_path(&root, false)?;
-        }
-        Some("workflows")
-            if args.len() == 4
-                && args[1] == "disable"
-                && args[2] == "--merge-path"
-                && args[3] == "--dry-run" =>
-        {
-            disable_merge_path(&root, true)?;
-        }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | status [--json] | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>] | ruleset apply | workflows disable --merge-path".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | status [--json] | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>]".into()),
     }
     Ok(())
 }
@@ -6066,49 +5787,6 @@ mod tests {
     }
 
     #[test]
-    fn repo_slug_comes_from_the_origin_url_in_every_git_spelling() {
-        for url in [
-            "https://github.com/intellibitz/susi",
-            "https://github.com/intellibitz/susi.git",
-            "https://github.com/intellibitz/susi/",
-            "https://x-access-token:secret@github.com/intellibitz/susi.git",
-            "https://GitHub.com/intellibitz/susi",
-            "ssh://git@github.com/intellibitz/susi.git",
-            "git@github.com:intellibitz/susi.git",
-            "git@github.com:intellibitz/susi",
-            "  https://github.com/intellibitz/susi\n",
-        ] {
-            assert_eq!(
-                slug_from_remote_url(url).unwrap(),
-                "intellibitz/susi",
-                "{url}"
-            );
-        }
-        assert_eq!(
-            slug_from_remote_url("git@github.com:intellibitz/susi-commercial-apps.git").unwrap(),
-            "intellibitz/susi-commercial-apps"
-        );
-    }
-
-    #[test]
-    fn repo_slug_refuses_other_hosts_and_shapes() {
-        for url in [
-            "",
-            "https://gitlab.com/intellibitz/susi",
-            "https://github.com.evil.test/intellibitz/susi",
-            "https://github.com/intellibitz",
-            "https://github.com/intellibitz/susi/extra",
-            "https://github.com/intelli bitz/susi",
-            "git@github.com:intellibitz/su si",
-            "file:///srv/git/susi",
-            "/srv/git/susi",
-            "git://github.com/intellibitz/susi",
-        ] {
-            assert!(slug_from_remote_url(url).is_err(), "{url:?}");
-        }
-    }
-
-    #[test]
     fn disk_full_signatures_are_recognized_in_gate_logs() {
         for log in [
             "error: failed to write: No space left on device (os error 28)",
@@ -6237,30 +5915,10 @@ mod tests {
         assert!(reclaim_gate_caches(&workflow, &candidate).is_empty());
     }
 
-    #[test]
-    fn ship_contexts_are_the_four_local_gates() {
-        assert_eq!(
-            SHIP_CONTEXTS,
-            [
-                "susi-local/format",
-                "susi-local/licenses",
-                "susi-local/clippy",
-                "susi-local/tests",
-            ]
-        );
-    }
-
-    #[test]
-    fn status_description_truncates_to_github_limit() {
-        let long = "x".repeat(200);
-        assert_eq!(status_description(&long).chars().count(), 140);
-    }
-
     struct FakeRemote {
         mains: Vec<String>,
         fetches: usize,
         pushes: Vec<(String, String)>,
-        statuses: Vec<(String, String, String)>,
         fail_push: bool,
     }
 
@@ -6270,7 +5928,6 @@ mod tests {
                 mains: vec![main],
                 fetches: 0,
                 pushes: Vec::new(),
-                statuses: Vec::new(),
                 fail_push: false,
             }
         }
@@ -6293,17 +5950,6 @@ mod tests {
                 return Err("push refused".into());
             }
             self.pushes.push((sha.to_owned(), git_ref.to_owned()));
-            Ok(())
-        }
-        fn post_status(
-            &mut self,
-            _root: &Path,
-            sha: &str,
-            context: &str,
-            description: &str,
-        ) -> Result<()> {
-            self.statuses
-                .push((sha.to_owned(), context.to_owned(), description.to_owned()));
             Ok(())
         }
     }
@@ -6627,7 +6273,6 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("gate failed"), "{error}");
         assert!(remote.pushes.is_empty());
-        assert!(remote.statuses.is_empty());
     }
 
     #[test]
@@ -6646,7 +6291,7 @@ mod tests {
     }
 
     #[test]
-    fn ship_posts_success_only_for_passed_gates() {
+    fn ship_publishes_the_receipt_commit_and_nothing_else() {
         let (_scratch, repo, base) = ship_fixture("one");
         let mut remote = FakeRemote::single(base);
         let mut verified = String::new();
@@ -6655,8 +6300,8 @@ mod tests {
             Ok(local_gate_evidence())
         })
         .unwrap();
-        // The verified merge is published under its receipt commit; the
-        // statuses go on the commit origin/main now points at.
+        // The verified merge is published under its receipt commit, and the
+        // push of that commit is the only thing the remote receives.
         assert_eq!(report.merge, verified);
         assert_ne!(report.head, verified);
         assert_eq!(
@@ -6667,20 +6312,6 @@ mod tests {
             remote.pushes,
             vec![(report.head.clone(), "refs/heads/main".to_owned())]
         );
-        assert_eq!(remote.statuses.len(), 4);
-        for (sha, context, _description) in &remote.statuses {
-            assert_eq!(sha, &report.head);
-            assert!(SHIP_CONTEXTS.contains(&context.as_str()), "{context}");
-        }
-        let mut posted: Vec<_> = remote
-            .statuses
-            .iter()
-            .map(|(_, context, _)| context.as_str())
-            .collect();
-        posted.sort();
-        let mut expected: Vec<_> = SHIP_CONTEXTS.to_vec();
-        expected.sort();
-        assert_eq!(posted, expected);
     }
 
     /// Every landing publishes a receipt-only commit carrying
@@ -7004,9 +6635,6 @@ mod tests {
             }
             sha.clone_into(&mut main);
             self.pushes.lock().unwrap().push(sha.to_owned());
-            Ok(())
-        }
-        fn post_status(&mut self, _: &Path, _: &str, _: &str, _: &str) -> Result<()> {
             Ok(())
         }
     }
@@ -7591,76 +7219,15 @@ mod tests {
     }
 
     #[test]
-    fn susi_ruleset_has_no_bypass_and_only_fast_forward_protection() {
-        let body = ruleset_body(RepoKind::Susi);
-        assert_eq!(body["bypass_actors"], serde_json::json!([]));
-        let types: Vec<_> = body["rules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|rule| rule["type"].as_str().unwrap())
-            .collect();
-        assert_eq!(types, ["deletion", "non_fast_forward"]);
-    }
-
-    #[test]
-    fn commercial_ruleset_keeps_admin_bypass() {
-        let body = ruleset_body(RepoKind::Commercial);
-        assert_eq!(body["bypass_actors"][0]["actor_id"], 5);
-        let types: Vec<_> = body["rules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|rule| rule["type"].as_str().unwrap())
-            .collect();
-        assert_eq!(types, ["deletion", "non_fast_forward"]);
-    }
-
-    #[test]
-    fn susi_merge_path_workflows_are_the_gate_and_relay() {
-        assert_eq!(
-            merge_path_workflows(RepoKind::Susi),
-            [
-                "Test",
-                "Auto PR + Merge",
-                "Queue",
-                "Main Failure Attribution",
-                "Zero-Config Matrix",
-                "Cloud target seed",
-                "Nightly Coverage Audit",
-                "Cleanup Workflow Runs",
-            ]
-        );
-    }
-
-    #[test]
-    fn commercial_merge_path_workflows_are_the_per_change_gate() {
-        let names = merge_path_workflows(RepoKind::Commercial);
-        assert!(names.contains(&"Commercial Suite CI & Quality Gate"));
-        assert!(names.iter().all(|name| !name.contains("Release")));
-    }
-
-    #[test]
-    fn disable_does_not_include_tag_release() {
-        for kind in [RepoKind::Susi, RepoKind::Commercial] {
-            let names = merge_path_workflows(kind);
-            assert!(!names.contains(&"Release Binaries"));
-            assert!(!names.contains(&"Dev Release (main)"));
-        }
-    }
-
-    #[test]
     fn usage_lists_ship_commands() {
         let error = run(&["nope".into()]).unwrap_err();
         let text = error.to_string();
-        for needle in [
-            "ship <name>",
-            "ship --retry",
-            "status [--json]",
-            "ruleset apply",
-            "workflows disable --merge-path",
-        ] {
+        for needle in ["ship <name>", "ship --retry", "status [--json]"] {
             assert!(text.contains(needle), "{text}");
+        }
+        // GitHub is storage only: no command administers the host.
+        for retired in ["ruleset", "workflows"] {
+            assert!(!text.contains(retired), "{text}");
         }
         assert!(run(&["status".into(), "--yaml".into()]).is_err());
     }

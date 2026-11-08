@@ -20,11 +20,6 @@ if [ -x scripts/cloud-session.sh ]; then
 fi
 
 if [ "$cloud" = 1 ]; then
-    # The ONNX Runtime ort-sys downloads at build time comes from a CDN the cloud
-    # proxy refuses; the same release on GitHub is reachable. Idempotent.
-    if [ "${SUSI_CLOUD_ONNXRUNTIME:-1}" != 0 ] && [ -x scripts/cloud-onnxruntime.sh ]; then
-        scripts/cloud-onnxruntime.sh 2>&1 | sed 's/^/  /'
-    fi
     # The harness clones with limited depth; the hooks and the compliance
     # script walk the whole history (`fatal: bad revision '^…^'` otherwise).
     if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
@@ -65,35 +60,22 @@ fi
 # needs the binary, so start the build now, in the background, while the agent
 # reads the rules — it is what the agent's first command would do anyway, and
 # cargo's own build-directory lock makes a second build wait for it (the clone
-# has a target of its own; nothing else builds into it). First, the target is
-# seeded from the snapshot of origin/main a main workflow publishes
-# (scripts/cloud-target-seed.sh: the registry and git crates, built the way this
-# container builds them), so that build compiles the workspace's crates only;
-# SUSI_CLOUD_SEED=0 skips the seeding. The download holds no cargo lock, so a
-# cargo run by hand meanwhile would build cold beside it: the subshell holds
-# the clone's build lock through both, and `scripts/cloud-target-seed.sh --wait`
-# waits on it. SUSI_CLOUD_PREBUILD=0 opts out of all of it. The log is in the
-# clone's git directory.
+# has a target of its own; nothing else builds into it). The build is cold: the
+# snapshot a hosted workflow once published as release assets left with the
+# git host's release API (CEO mandate 2026-11-09: GitHub is storage only).
+# SUSI_CLOUD_PREBUILD=0 opts out. The log is in the clone's git directory.
 prebuild() {
-    local common lock log seeding=
+    local common lock log
     common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
     lock="$common/susi-cloud-build.lock"
     log="$common/susi-cloud-build.log"
-    if [ "${SUSI_CLOUD_SEED:-1}" != 0 ] && [ -x scripts/cloud-target-seed.sh ]; then
-        seeding=1
-    fi
     (
         exec 9>"$lock"
         flock -n 9 || exit 0
-        [ -z "$seeding" ] || scripts/cloud-target-seed.sh
         exec cargo build -q
     ) >"$log" 2>&1 </dev/null &
     disown 2>/dev/null || true
-    if [ -n "$seeding" ]; then
-        echo "seeding target/ from the published snapshot, then building susi, in the background (log: $log); wait for both with: scripts/cloud-target-seed.sh --wait"
-    else
-        echo "building susi in the background (log: $log); wait for it with: cargo build -q"
-    fi
+    echo "building susi in the background (log: $log); wait for it with: cargo build -q"
 }
 
 if command -v susi-commercial >/dev/null 2>&1 && susi-commercial workflow --help >/dev/null 2>&1; then

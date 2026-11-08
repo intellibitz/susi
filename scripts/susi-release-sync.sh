@@ -5,23 +5,24 @@
 # toolchain: it builds future susi, so dev builds never touch it (`cargo xb`
 # builds without installing). This script is the one path that updates it:
 #
-#   1. resolve the newest vX.Y.Z tag on the release remote
-#   2. take the tag's published binary for this host when the build would
-#      carry no accelerator (the CI leg built exactly that), else build the
-#      tag natively for this host's GPU in a private checkout
-#      (~/.susi/release-src) with a private target dir — never the dev tree
-#   3. verify the binary reports the tag's version
-#   4. wait until no susi client is mid-mission, then swap it in atomically,
+#   1. resolve the newest vX.Y.Z tag on the release remote (git ls-remote)
+#   2. read the tag's release record releases/<tag>.json from the remote's
+#      default branch and check that the tag points at the commit it records
+#      (docs/releases.md)
+#   3. build the tag natively for this host in a private checkout
+#      (~/.susi/release-src) with a private target dir — never the dev tree —
+#      using the profile, features and environment the record names and the
+#      compiler the tag pins in rust-toolchain.toml
+#   4. verify the binary reports the tag's version (the gate), and report
+#      whether its sha256 matches the release's reference build (information
+#      only: an independent build may differ in bytes)
+#   5. wait until no susi client is mid-mission, then swap it in atomically,
 #      keeping the previous binary as susi.prev
-#   5. restart the daemon on the new binary; roll back if it fails health
+#   6. restart the daemon on the new binary; roll back if it fails health
 #
-# A GPU host builds locally rather than downloading the CI asset because the CI
-# CUDA binary targets compute capability 7.5 (no GPU on the runner), which drops
-# candle's sm_80+ kernels (bf16); a native build targets this GPU exactly. A
-# host without an accelerator gets the same binary either way, and the download
-# is the cheaper path by an order of magnitude (2026-10-31, Windows, 28 cores:
-# native CPU build of v0.21.28 12+ min; the 88 MB asset about one).
-# SUSI_RELEASE_BUILD=1 insists on the build.
+# Nothing but git objects is fetched, and nothing is asked of a git host
+# beyond git itself (CEO mandate 2026-11-09: GitHub is storage only; CEO
+# decision 00:22: release binaries are built from git tags).
 #
 # Usage:
 #   susi-release-sync.sh                 sync to the newest release if newer
@@ -32,10 +33,14 @@
 #   susi-release-sync.sh --uninstall-timer remove the timer
 #
 # Environment:
-#   SUSI_RELEASE_REMOTE    git URL of the release repo (default: GitHub intellibitz/susi)
+#   SUSI_RELEASE_REMOTE    git URL of the release repo (default: the origin of the
+#                          private release checkout, which install.sh or an
+#                          earlier sync cloned; there is no built-in host)
 #   SUSI_RELEASE_SRC       private release checkout (default: ~/.susi/release-src)
 #   SUSI_RELEASE_TARGET    private cargo target dir (default: ~/.susi/build-cache/release-sync)
-#   SUSI_RELEASE_FEATURES  cargo features override (default: metal on macOS / none elsewhere; CUDA/MKL retired)
+#   SUSI_RELEASE_FEATURES  cargo features override (default: the release record's
+#                          features; CUDA/MKL retired). An override is not the
+#                          reference build.
 #   SUSI_RELEASE_IDLE_WAIT seconds to wait for an idle susi before swapping (default: 1800)
 #
 # Exit codes: 0 up to date or installed; 1 failure; 75 deferred (susi busy —
@@ -64,8 +69,13 @@ windows_release() {
 }
 MARKER="${BIN_DIR}/susi.build.json"
 SELF_INSTALLED="${BIN_DIR}/susi-release-sync"
-REMOTE="${SUSI_RELEASE_REMOTE:-https://github.com/intellibitz/susi.git}"
 SRC="${SUSI_RELEASE_SRC:-${SUSI_HOME}/release-src}"
+# The release remote is configuration: SUSI_RELEASE_REMOTE, else the origin
+# the private release checkout was cloned from. No git host is built in.
+REMOTE="${SUSI_RELEASE_REMOTE:-}"
+if [ -z "$REMOTE" ] && [ -d "$SRC/.git" ]; then
+    REMOTE="$(git -C "$SRC" remote get-url origin 2>/dev/null || true)"
+fi
 TARGET="${SUSI_RELEASE_TARGET:-${SUSI_HOME}/build-cache/release-sync}"
 IDLE_WAIT="${SUSI_RELEASE_IDLE_WAIT:-1800}"
 UNIT_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
@@ -80,6 +90,9 @@ export PATH
 
 log() { printf '[release-sync] %s\n' "$*" >&2; }
 die() { log "error: $*"; exit 1; }
+need_remote() {
+    [ -n "$REMOTE" ] || die "no release remote: set SUSI_RELEASE_REMOTE to the git URL of the Susi core repository (or install with install.sh, which records it in ${SRC})"
+}
 
 # ---- versions -------------------------------------------------------------
 
@@ -107,6 +120,8 @@ version_lt() {
 
 # ---- build ----------------------------------------------------------------
 
+# The cargo features to build: SUSI_RELEASE_FEATURES when set (not the
+# reference build), else the release record's features ($1).
 detect_features() {
     local feature requested="${SUSI_BUILD_FEATURES:-} ${SUSI_RELEASE_FEATURES:-}"
     for feature in ${requested//,/ }; do
@@ -118,7 +133,7 @@ detect_features() {
         printf '%s' "$SUSI_RELEASE_FEATURES"
         return
     fi
-    case "$(uname -s)" in Darwin) printf 'metal' ;; *) ;; esac
+    printf '%s' "${1:-}"
 }
 
 checkout_tag() {
@@ -133,29 +148,62 @@ checkout_tag() {
     git -C "$SRC" clean --quiet -ffdx
 }
 
-build_tag() {
-    local tag="$1" features="$2"
-    local args=(build --release --locked -p susi --bin susi)
-    [ -n "$features" ] && args+=(--features "$features")
+# ---- release record ----------------------------------------------------------
 
-    log "building ${tag} (features: ${features:-none}) in ${SRC}"
-    (cd "$SRC" && CARGO_TARGET_DIR="$TARGET" nice -n 10 cargo "${args[@]}")
+RECORD=""
+# The default-branch commit the record was read from; the upgrade script and
+# its Windows helper are installed from there too (refresh_self).
+RECORD_REF=""
+
+# Fetch the release record of $1 from the remote's default branch into
+# $RECORD and check that the tag points at the commit it records.
+read_record() {
+    local tag="$1" commit
+    RECORD="${TARGET}/records/${tag}.json"
+    mkdir -p "${TARGET}/records"
+    git -C "$SRC" fetch --quiet origin HEAD
+    RECORD_REF="$(git -C "$SRC" rev-parse FETCH_HEAD)"
+    git -C "$SRC" show "FETCH_HEAD:releases/${tag}.json" >"${RECORD}.new" 2>/dev/null ||
+        die "${tag} has no release record releases/${tag}.json on ${REMOTE}; it is not a release (docs/releases.md)"
+    mv -f "${RECORD}.new" "$RECORD"
+    commit="$(git -C "$SRC" rev-parse "refs/tags/${tag}^{commit}")"
+    check_record "$tag" "$commit"
 }
 
-# ---- download ---------------------------------------------------------------
-
-# `owner/repo` of the release remote, for `gh release download`.
-release_repo_slug() {
-    printf '%s' "$REMOTE" | sed -E 's#^(https?://github\.com/|git@github\.com:)##; s#\.git$##'
+# record_field <name>: a one-line string field of $RECORD (layout pinned by
+# tests/release_records.rs).
+record_field() {
+    sed -n "s/^[[:space:]]*\"$1\": \"\([^\"]*\)\",\{0,1\}[[:space:]]*\$/\1/p" "$RECORD" | head -n 1
 }
 
-# The published asset for this host when the build would carry no accelerator;
-# empty when the host has no published leg, or when SUSI_RELEASE_BUILD=1.
-# The public core release publishes x86_64 Windows and x86_64 Linux only (CEO
-# decision 2026-11-03); every other host builds from source, and certified
-# ARM/macOS binaries come from the Susi commercial suite, not this release.
-release_asset_name() {
-    [ -z "${SUSI_RELEASE_BUILD:-}" ] || return 0
+# The record names this tag and the commit it points at, and its build
+# settings are plain words cargo can take.
+check_record() {
+    local tag="$1" commit="$2" item
+    [ "$(record_field tag)" = "$tag" ] || die "releases/${tag}.json names tag '$(record_field tag)'"
+    [ "$(record_field commit)" = "$commit" ] ||
+        die "${tag} points at ${commit}, but releases/${tag}.json records '$(record_field commit)'; refusing to build"
+    [[ "$(record_field profile)" =~ ^[A-Za-z0-9_.-]+$ ]] || die "releases/${tag}.json has no usable build profile"
+    [[ "$(record_field features)" =~ ^[A-Za-z0-9_./,-]*$ ]] || die "releases/${tag}.json has unusable features"
+    for item in $(record_env); do
+        [[ "$item" =~ ^[A-Z_][A-Z0-9_]*=[A-Za-z0-9_./,-]*$ ]] || die "releases/${tag}.json has an unusable build.env entry: ${item}"
+    done
+}
+
+# The record's build environment, one NAME=value per word.
+record_env() {
+    sed -n 's/^[[:space:]]*"env": \[\(.*\)\],\{0,1\}[[:space:]]*$/\1/p' "$RECORD" | head -n 1 | tr -d ' "' | tr ',' ' '
+}
+
+# record_sha <asset file>: the reference build's sha256, empty when the record
+# has no reference build for it.
+record_sha() {
+    grep -F "\"file\": \"$1\"" "$RECORD" | sed -n 's/.*"sha256": "\([0-9a-f]\{64\}\)".*/\1/p' | head -n 1 || true
+}
+
+# This host's asset name in release records (core releases x86_64 Windows and
+# x86_64 Linux only, CEO decision 2026-11-03).
+host_asset() {
     case "$(uname -s)/$(uname -m)" in
         MINGW*/x86_64 | MSYS*/x86_64 | CYGWIN*/x86_64) printf 'susi-windows-x86_64.exe' ;;
         Linux/x86_64) printf 'susi-linux-x86_64' ;;
@@ -163,32 +211,46 @@ release_asset_name() {
     esac
 }
 
-# Fetch the tag's published binary and its checksum into $TARGET/download and
-# print the binary's path. Prints nothing when anything is missing or does not
-# match, and the caller builds instead: the download is a shortcut, never a
-# different outcome.
-download_release_asset() {
-    local tag="$1" asset="$2" dir="${TARGET}/download/${tag}"
-    command -v gh >/dev/null 2>&1 || return 0
-    rm -rf "$dir" && mkdir -p "$dir" || return 0
-    if ! gh release download "$tag" --repo "$(release_repo_slug)" --dir "$dir" \
-        --pattern "$asset" --pattern "${asset}.sha256" >/dev/null 2>&1; then
-        log "no published ${asset} for ${tag}; building instead"
-        return 0
+# Report how the build compares with the release's reference build. Never a
+# gate: reproducibility is not claimed (docs/releases.md). stdin keeps a
+# Windows path's backslashes out of sha256sum's output.
+report_reference() {
+    local built="$1" asset want have
+    asset="$(host_asset)"
+    have="$(sha256sum <"$built" | awk '{print tolower($1)}')"
+    want="$([ -z "$asset" ] || record_sha "$asset")"
+    if [ -z "$want" ]; then
+        log "checksum ${have} (the release records no reference build for ${asset:-this host})"
+    elif [ "$want" = "$have" ]; then
+        log "checksum ${have} matches the reference build"
+    else
+        log "checksum ${have} differs from the reference build ${want}, as expected for an independent build"
     fi
-    if [ ! -s "$dir/$asset" ] || [ ! -s "$dir/${asset}.sha256" ]; then
-        log "incomplete download of ${asset}; building instead"
-        return 0
+}
+
+build_tag() {
+    local tag="$1" features="$2" profile
+    profile="$(record_field profile)"
+    local args=(build --locked --profile "$profile" -p susi --bin susi)
+    [ -n "$features" ] && args+=(--features "$features")
+    local env_args=()
+    read -r -a env_args <<<"$(record_env)"
+    local channel
+    channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' "$SRC/rust-toolchain.toml" 2>/dev/null | head -n 1)"
+    if [ -n "$channel" ] && ! grep -q "^${channel}[-[:space:]]" <<<"$(rustup toolchain list 2>/dev/null || true)"; then
+        die "${tag} pins Rust ${channel} (rust-toolchain.toml), which rustup does not have; install it with: rustup toolchain install ${channel} --profile minimal"
     fi
-    local want have
-    want="$(awk '{print tolower($1)}' "$dir/${asset}.sha256")"
-    have="$(sha256sum < "$dir/$asset" | awk '{print tolower($1)}')"
-    if [ -z "$want" ] || [ "$want" != "$have" ]; then
-        log "checksum mismatch for ${asset}; building instead"
-        return 0
-    fi
-    chmod 0755 "$dir/$asset"
-    printf '%s' "$dir/$asset"
+
+    log "building ${tag} (profile ${profile}, features: ${features:-none}${env_args[*]:+, ${env_args[*]}}) in ${SRC}"
+    (cd "$SRC" && env RUSTUP_AUTO_INSTALL=0 CARGO_TARGET_DIR="$TARGET" "${env_args[@]}" nice -n 10 cargo "${args[@]}")
+}
+
+# Where build_tag leaves the binary.
+built_path() {
+    local profile out
+    profile="$(record_field profile)"
+    case "$profile" in dev | test) out=debug ;; bench) out=release ;; *) out="$profile" ;; esac
+    if [ "$WINDOWS" = 1 ]; then printf '%s/%s/susi.exe' "$TARGET" "$out"; else printf '%s/%s/susi' "$TARGET" "$out"; fi
 }
 
 # ---- liveness ---------------------------------------------------------------
@@ -307,14 +369,22 @@ rollback() {
 }
 
 refresh_self() {
-    # Keep the timer's copy of this script at the installed release's version.
-    local src="${SRC}/scripts/susi-release-sync.sh"
-    if [ -f "$SELF_INSTALLED" ] && [ -f "$src" ]; then
-        install -m 0755 "$src" "${SELF_INSTALLED}.new"
+    # Keep the timer's copy of this script current. It comes from the default
+    # branch the release record was read from, not from the tag: the record
+    # and the way a release is installed live on the default branch, and an
+    # older tag's copy of this script may predate them.
+    [ -f "$SELF_INSTALLED" ] && [ -n "$RECORD_REF" ] || return 0
+    if git -C "$SRC" show "${RECORD_REF}:scripts/susi-release-sync.sh" >"${SELF_INSTALLED}.new" 2>/dev/null; then
+        chmod 0755 "${SELF_INSTALLED}.new"
         mv -f "${SELF_INSTALLED}.new" "$SELF_INSTALLED"
-        if [ "$WINDOWS" = 1 ]; then
-            install -m 0644 "${SRC}/scripts/susi-release-sync-windows.ps1" "${BIN_DIR}/susi-release-sync-windows.ps1"
-        fi
+    else
+        rm -f "${SELF_INSTALLED}.new"
+    fi
+    if [ "$WINDOWS" = 1 ] &&
+        git -C "$SRC" show "${RECORD_REF}:scripts/susi-release-sync-windows.ps1" >"${BIN_DIR}/susi-release-sync-windows.ps1.new" 2>/dev/null; then
+        mv -f "${BIN_DIR}/susi-release-sync-windows.ps1.new" "${BIN_DIR}/susi-release-sync-windows.ps1"
+    else
+        rm -f "${BIN_DIR}/susi-release-sync-windows.ps1.new"
     fi
 }
 
@@ -333,25 +403,20 @@ sync_release() {
         return 0
     fi
 
-    local features commit
-    features="$(detect_features)" || return 1
+    local features commit built
     checkout_tag "$tag"
+    read_record "$tag"
+    features="$(detect_features "$(record_field features)")" || return 1
     commit="$(git -C "$SRC" rev-parse HEAD)"
-    local asset built=""
-    if [ -z "$features" ] && asset="$(release_asset_name)" && [ -n "$asset" ]; then
-        built="$(download_release_asset "$tag" "$asset")"
-        [ -z "$built" ] || log "using the published ${asset} for ${tag}"
-    fi
-    if [ -z "$built" ]; then
-        build_tag "$tag" "$features"
-        built="${TARGET}/release/susi"
-        [ "$WINDOWS" != 1 ] || built="${built}.exe"
-    fi
+    build_tag "$tag" "$features"
+    built="$(built_path)"
+    [ -f "$built" ] || die "the build left no ${built}"
 
     local got
     # SUSI_HOME pins the release root so this probe never provisions ~/.susi-dev.
     got="$(SUSI_HOME="$SUSI_HOME" "$built" --version 2>/dev/null | awk '{print $2}')"
     [ "$got" = "$want" ] || die "built binary reports version '${got}', expected '${want}'"
+    report_reference "$built"
 
     wait_for_idle
     log "installing susi ${want} (was: ${have:-none}${channel:+, ${channel}})"
@@ -442,12 +507,14 @@ main() {
         rollback) wait_for_idle; rollback ;;
         check)
             local latest
+            need_remote
             latest="$(latest_tag)" || die "cannot reach ${REMOTE}"
             printf 'installed: %s (%s)\nlatest:    %s\n' \
                 "$(installed_version || true)" "$(installed_channel || true)" "${latest:-none}"
             ;;
         sync)
             local explicit=1
+            need_remote
             if [ -z "$tag" ]; then
                 explicit=0
                 tag="$(latest_tag)" || die "cannot reach ${REMOTE}"

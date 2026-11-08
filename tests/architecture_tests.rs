@@ -1469,28 +1469,6 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
     }
 }
 
-/// The ruleset may require only the statuses local ship posts. A required
-/// check that nothing reports blocks every merge.
-#[test]
-fn github_ruleset_contexts_match_ship_contexts() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let script = std::fs::read_to_string(root.join("scripts/github-enforce.sh")).unwrap();
-    let required: Vec<&str> = script
-        .lines()
-        .filter_map(|l| l.split("\"context\": \"").nth(1))
-        .filter_map(|r| r.split('"').next())
-        .collect();
-    assert_eq!(
-        required,
-        [
-            "susi-local/format",
-            "susi-local/licenses",
-            "susi-local/clippy",
-            "susi-local/tests",
-        ]
-    );
-}
-
 /// The brain-lanes markdown board was retired: lane ownership is one JSON file
 /// per agent (no shared table to conflict on), its step logs live in the
 /// evidence ledger, and nothing may point at the deleted file.
@@ -1810,65 +1788,71 @@ fn the_lockfile_carries_fixed_zip_and_the_approved_candle_sources() {
         .is_file());
 }
 
-/// The release installer takes the tag's published binary for a host whose
-/// build would carry no accelerator (the CI leg built exactly that binary) and
-/// builds natively only for a GPU host or when the download cannot be trusted:
-/// on the CEO's Windows box the native CPU build of v0.21.28 took 12 minutes
-/// where the 88 MB asset downloads in one. The download is a shortcut to the
-/// same outcome, so every failure of it falls back to the build.
+/// The release installer builds the newest tag from source on this host (CEO
+/// decision 2026-11-09 00:22: release binaries are built from git tags; no
+/// artifact store) and asks nothing of a git host beyond git itself. The tag
+/// comes from `git ls-remote --tags`; its record `releases/<tag>.json` comes
+/// from the remote's default branch and must name the commit the tag points
+/// at; the build uses the record's profile, features and environment under
+/// the tag's toolchain pin; the version is the gate, and the reference
+/// checksum is reported, never enforced. The idle wait, the atomic swap, the
+/// rollback and the Windows ownership guard stay as they were.
 #[test]
-fn release_sync_downloads_the_published_binary_and_falls_back_to_a_build() {
+fn release_sync_builds_the_release_tag_with_its_recorded_settings() {
     let script =
         std::fs::read_to_string(workspace_root().join("scripts/susi-release-sync.sh")).unwrap();
     for needle in [
-        "release_asset_name()",
-        "download_release_asset()",
-        "gh release download \"$tag\"",
-        "--pattern \"${asset}.sha256\"",
-        "sha256sum < \"$dir/$asset\"",
-        "SUSI_RELEASE_BUILD",
-        "susi-windows-x86_64.exe",
-        "susi-linux-x86_64",
+        "git ls-remote --tags --refs \"$REMOTE\"",
+        "show \"FETCH_HEAD:releases/${tag}.json\"",
+        "refusing to build",
+        "rust-toolchain.toml",
+        "RUSTUP_AUTO_INSTALL=0",
+        "--profile \"$profile\"",
+        "report_reference \"$built\"",
+        "wait_for_idle",
+        "swap_in \"$built\"",
+        "rollback || true",
+        "susi-release-sync-windows.ps1",
     ] {
         assert!(
             script.contains(needle),
             "susi-release-sync.sh lacks {needle:?}"
         );
     }
-    // The public core release publishes x86_64 Windows and x86_64 Linux only
-    // (CEO decision 2026-11-03): no other host may expect a published asset.
     for retired in [
+        "gh ",
+        "github.com",
+        "download",
+        "SUSI_RELEASE_BUILD",
         "susi-macos-aarch64",
         "susi-linux-aarch64",
         "susi-windows-aarch64",
     ] {
         assert!(
             !script.contains(retired),
-            "susi-release-sync.sh still downloads {retired:?}"
+            "susi-release-sync.sh still contains {retired:?}"
         );
     }
     let flow = script
-        .split("features=\"$(detect_features)\"")
+        .split("sync_release() {")
         .nth(1)
-        .expect("sync_release detects the features first");
-    let download = flow
-        .find("download_release_asset \"$tag\"")
-        .expect("then tries the download");
-    let build = flow
-        .find("build_tag \"$tag\" \"$features\"")
-        .expect("and still knows how to build");
-    assert!(
-        download < build,
-        "the download comes before the build it replaces"
-    );
-    assert!(
-        flow.contains("if [ -z \"$features\" ]"),
-        "only a build with no accelerator is replaced by the published asset"
-    );
-    assert!(
-        flow.contains("if [ -z \"$built\" ]"),
-        "a failed download falls back to the build"
-    );
+        .expect("sync_release exists");
+    let order = [
+        "checkout_tag \"$tag\"",
+        "read_record \"$tag\"",
+        "build_tag \"$tag\" \"$features\"",
+        "expected '${want}'",
+        "report_reference \"$built\"",
+        "wait_for_idle",
+        "swap_in \"$built\"",
+    ];
+    let mut at = 0;
+    for step in order {
+        let found = flow[at..]
+            .find(step)
+            .unwrap_or_else(|| panic!("sync_release runs {step:?} after the steps before it"));
+        at += found + step.len();
+    }
 }
 
 /// Susi is licensed under Apache-2.0 and admits only Apache-2.0, MIT, and

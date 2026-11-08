@@ -104,19 +104,16 @@ sync() {
     # this boundary, so the loop heals it here. Non-fatal either way.
     # A working agent crosses this boundary but not `finish`, so top the lease up.
     # Inside `finish`, `renew_or_readopt` already renewed on entry and `release`
-    # frees the claim at the end, while `check-owed-runs.sh` is for the boundary
-    # before the next claim — skipping both inside `finish`'s two `sync` calls
-    # saves 8-10 redundant remote round-trips per finish.
+    # frees the claim at the end, so `finish`'s two `sync` calls skip it.
+    # (A hosted-CI "owed run" check used to run here too; it read the git
+    # host's Actions API and left with that API, CEO mandate 2026-11-09.)
     if [ "${SUSI_SYNC_IN_FINISH:-0}" != 1 ]; then
         maintain_primary &
         local pid_primary=$!
         SUSI_REMOTE_CLAIM_FETCHED=1 renew_owned_claims &
         local pid_renew=$!
-        SUSI_OWED_REFS_FETCHED=1 "$root/scripts/check-owed-runs.sh" &
-        local pid_owed=$!
         wait "$pid_primary" 2>/dev/null || true
         wait "$pid_renew" 2>/dev/null || true
-        wait "$pid_owed" 2>/dev/null || true
     fi
     # The board is for people watching the swarm, not for the agent's next
     # step: it refreshes its cache in the background instead of holding the
@@ -645,24 +642,6 @@ acceptance_covered() {
 }
 
 
-# The state of the pull request for this branch, when `gh` can answer. A closed
-# PR will never merge, so waiting out the budget on one is pointless.
-pr_state() {
-    command -v gh >/dev/null 2>&1 || return 0
-    gh pr view "$branch" --json state -q .state 2>/dev/null || true
-}
-
-# The conclusion of the branch-push run for this exact sha, when `gh` can answer:
-# "completed/failure", "in_progress/pending", or empty when it cannot be read
-# (no gh, no jq, no run yet) — unknown never stops the wait.
-run_state() {
-    command -v gh >/dev/null 2>&1 || return 0
-    command -v jq >/dev/null 2>&1 || return 0
-    gh run list --branch "$branch" --workflow Test --limit 20 \
-        --json headSha,status,conclusion 2>/dev/null |
-        jq -r --arg sha "$sha" '[.[] | select(.headSha == $sha)][0] | .status + "/" + (.conclusion // "pending")' 2>/dev/null || true
-}
-
 case "$action" in
 sync) sync ;;
 finish)
@@ -752,21 +731,16 @@ finish)
 ✅ pushed $sha and published the close receipt — the merge is the machinery's now (no wait).
    The close receipt on the remote keeps the debt until $sha is on
    origin/main (\`susi-commercial workflow check\` shows it under "merge published"), and
-   a red run for it is reported at your next \`susi-commercial workflow sync\`.
    Claim the next task now; up to SUSI_MERGES_IN_FLIGHT (default 4) may be in flight.
-   (\`susi-commercial workflow finish <id> --wait\` polls the run in-line instead.)
+   (\`susi-commercial workflow finish <id> --wait\` waits for the merge in-line instead.)
 MSG
         exit 0
     fi
-    echo "Waiting for $sha's run or merge (Ctrl-C leaves work intact)."
-    # The wait's only value after push is catching a failure fast, while the
-    # claim is still held and a fix is cheap. Once the run is green the merge
-    # itself is machinery — auto-merge, or the reconciler resyncing a
-    # green-but-behind head — and nothing the agent can do speeds it up, so it
-    # hands off there rather than parking until the merge commit lands. The
-    # budget handoff remains for a run that never reports (no gh, stuck queue).
-    # A branch that cannot merge — closed PR, failed run — exits below keeping
-    # the claim.
+    echo "Waiting for $sha to reach origin/main (Ctrl-C leaves work intact)."
+    # Plain git only (CEO mandate 2026-11-09: GitHub is storage only): the wait
+    # watches origin/main for the pushed head, resyncs a head that would
+    # conflict, and hands the merge to the machinery at the budget. It reads no
+    # pull request and no hosted run.
     budget=${SUSI_FINISH_WAIT_MAX:-1800}
     poll=${SUSI_FINISH_POLL:-10}
     started=$(date +%s)
@@ -777,50 +751,6 @@ MSG
             renew_or_readopt
             renew_at=$(( $(date +%s) + 900 ))
         fi
-        # Check the pushed head's state before integrating anything: a green
-        # run for this exact sha means the merge machinery can finish it —
-        # the reconciler resyncs green-but-behind heads itself — so repushing
-        # now would only force a redundant new run.
-        case "$(pr_state)" in
-        CLOSED)
-            echo "❌ the pull request for $branch is closed; it will not merge." >&2
-            echo "   The task is closed and its receipt keeps the claim (and this agent) held." >&2
-            echo "   Fix it and reopen, or give it up deliberately and on the record:" >&2
-            echo "   susi-commercial tasks release $task --abandon <reason>" >&2
-            exit 1
-            ;;
-        esac
-        state=$(run_state)
-        case "$state" in
-        completed/failure | completed/timed_out | completed/startup_failure)
-            cat >&2 <<MSG
-❌ the branch-push run for $sha did not pass ($state).
-   The task is closed and the claim is retained, so nothing is lost and no other
-   agent will start it. Fix the failure, commit the repair, and run finish again
-   (if the acceptance was already published, revert the close and fix under the
-   same claim — citing a closed task is refused). To give the task up instead:
-   susi-commercial tasks release $task --abandon <reason>
-MSG
-            exit 1
-            ;;
-        completed/success)
-            # Green and still open: the merge machinery finishes this —
-            # auto-merge on a current head, the reconciler on a behind
-            # one. The agent's wait was only ever failure detection, and
-            # that is answered now, so the claim is released here instead
-            # of at the merge (or the budget). The close receipt keeps
-            # the debt visible in \`susi-commercial workflow check\` until it lands.
-            if "$susi_bin" tasks release "$task" --force; then
-                cat >&2 <<MSG
-✅ the run for $sha is green — handing the merge to the machinery.
-   The close receipt on the remote keeps the debt until $sha is on
-   origin/main (\`susi-commercial workflow check\` shows it under "merge published").
-   Claim the next task now; up to SUSI_MERGES_IN_FLIGHT (default 4) may be in flight.
-MSG
-                exit 0
-            fi
-            ;;
-        esac
         # Another agent may merge first. A head that is merely behind main
         # needs nothing from this agent: the merge machinery gates the merge
         # tree itself (the former PR auto-merge bot's inline gate). Re-pushing on every
@@ -855,8 +785,8 @@ MSG
             cat >&2 <<MSG
 ❌ $sha is still not on origin/main after ${elapsed}s (budget ${budget}s), and
    releasing the claim failed — the claim is retained, so no other agent starts
-   the task. Check the branch-push run and whether its pull request was closed,
-   then run finish again (SUSI_FINISH_WAIT_MAX raises the budget).
+   the task. Check why the head has not landed, then run finish again
+   (SUSI_FINISH_WAIT_MAX raises the budget).
 MSG
             exit 1
         fi
