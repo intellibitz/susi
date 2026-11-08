@@ -1482,6 +1482,15 @@ pub fn open(
         }
     }
     for hub in hubs() {
+        // A short-lived link to this hub that an earlier call of this
+        // process opened is reused before a new one is dialed.
+        if let Some(held_hub) = registry().snapshot().into_iter().find(|l| {
+            l.dialed && l.relay_trusted && l.peer.pubkey.eq_ignore_ascii_case(&hub.pubkey)
+        }) {
+            if let Some(s) = attempt(&held_hub, &format!("via hub {}", hub.node_id), &mut errors) {
+                return Ok(s);
+            }
+        }
         for addr in &hub.addresses {
             match dial(
                 addr,

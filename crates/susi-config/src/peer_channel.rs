@@ -418,6 +418,10 @@ impl LocalIdentity {
 pub struct PeerIdentity {
     pub node_id: String,
     pub pubkey: String,
+    /// The peer's own binding attestation (`susi-bind-v1`, hex), verified
+    /// in the handshake; what a `member_add` record carries as
+    /// `subject_sig`.
+    pub bind_sig: String,
 }
 
 /// What the side that dials requires of the identity it reaches.
@@ -493,6 +497,7 @@ fn verify_identity(
     Ok(PeerIdentity {
         node_id: node_id.to_string(),
         pubkey,
+        bind_sig: hex::encode(sig),
     })
 }
 

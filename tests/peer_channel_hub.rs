@@ -358,6 +358,57 @@ fn mcp_initialize(mut stream: link::ChannelStream) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Run a `susi` client command as `node` to completion within `limit`.
+fn run_cli(node: &Node, args: &[&str], limit: Duration) -> (bool, String, String) {
+    let mut cmd = susi(node);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    let deadline = Instant::now() + limit;
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            let out = child.wait_with_output().unwrap();
+            return (
+                status.success(),
+                String::from_utf8_lossy(&out.stdout).into_owned(),
+                String::from_utf8_lossy(&out.stderr).into_owned(),
+            );
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let out = child.wait_with_output().unwrap();
+            panic!(
+                "susi {args:?} as {} did not finish within {limit:?}; stderr:\n{}",
+                node.name,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// `susi peers status --json` as `node`: the status row each member's
+/// daemon answered through the real peer client, keyed by node id.
+fn peers_status(node: &Node) -> std::collections::HashMap<String, serde_json::Value> {
+    let (ok, stdout, stderr) = run_cli(
+        node,
+        &["peers", "status", "--json"],
+        Duration::from_secs(120),
+    );
+    assert!(
+        ok,
+        "susi peers status as {} failed: {stdout}{stderr}",
+        node.name
+    );
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("peers status as {} is not JSON ({e}): {stdout}", node.name));
+    rows.into_iter()
+        .filter_map(|r| Some((r.get("node")?.as_str()?.to_string(), r)))
+        .collect()
+}
+
 fn allow_all(_: &SocketAddr) -> Result<(), String> {
     Ok(())
 }
@@ -543,6 +594,24 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         reply.to_ascii_lowercase().contains("mcp-session-id"),
         "{reply}"
     );
+    // The product path: `susi peers status` asks every member's daemon for
+    // its cluster status through the real peer client, which reaches other
+    // machines only inside the channel (a member's CLI via its hub; the
+    // hub's CLI via its own daemon and the members' uplinks).
+    for (caller, others) in [(&a, [&hub, &b]), (&hub, [&a, &b])] {
+        let rows = peers_status(caller);
+        for other in others {
+            let row = rows.get(&other.node_id).unwrap_or_else(|| {
+                panic!("{} lists no row for {}: {rows:?}", caller.name, other.name)
+            });
+            assert!(
+                row.get("error").is_none(),
+                "{} could not reach {} over the channel: {row}",
+                caller.name,
+                other.name
+            );
+        }
+    }
     assert!(
         a_d.log().contains("[CHANNEL] uplink to hub")
             && b_d.log().contains("[CHANNEL] uplink to hub"),
@@ -652,6 +721,42 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         drop(env);
     }
 
+    // Admission by identity: the unbound cluster-key holder runs `susi
+    // peers add` against the hub's public endpoint (the forwarder). The
+    // channel handshake proves the hub's key; the endpoint proof runs in the
+    // channel; the hub is bound in the new member's roster and kept as its
+    // uplink, though the hub never sees the member's own address.
+    {
+        std::fs::remove_file(stranger.config.join(link::HUBS_FILE)).unwrap();
+        let (ok, stdout, stderr) = run_cli(
+            &stranger,
+            &["peers", "add", &forward.to_string()],
+            Duration::from_secs(120),
+        );
+        assert!(ok, "peers add over the channel failed: {stdout}{stderr}");
+        assert!(
+            stdout.contains("verified + admitted over the sealed peer channel"),
+            "{stdout}{stderr}"
+        );
+        let roster: Vec<serde_json::Value> =
+            serde_json::from_slice(&std::fs::read(stranger.config.join("peers.json")).unwrap())
+                .unwrap();
+        assert!(
+            roster
+                .iter()
+                .any(|r| r["node_id"] == hub.node_id.as_str() && r["pubkey"] == hub.pubkey.as_str()),
+            "the hub is bound by key in the new member's roster: {roster:?}"
+        );
+        let hubs: Vec<serde_json::Value> =
+            serde_json::from_slice(&std::fs::read(stranger.config.join(link::HUBS_FILE)).unwrap())
+                .unwrap();
+        assert!(
+            hubs.iter().any(|h| h["pubkey"] == hub.pubkey.as_str()),
+            "the hub is kept as the new member's uplink: {hubs:?}"
+        );
+        eprintln!("peers add over the channel:\n{stdout}{stderr}");
+    }
+
     // Someone claiming member A's node id under another key is refused.
     {
         let impostor = make_node(&root, "e", oa, 0x66, CLUSTER_KEY);
@@ -684,6 +789,141 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         );
     }
 
+    drop(hub_d);
+    drop(a_d);
+    drop(b_d);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Rows of `node`'s roster, keyed by node id.
+fn roster_of(node: &Node) -> std::collections::HashMap<String, serde_json::Value> {
+    std::fs::read(node.config.join("peers.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_slice::<Vec<serde_json::Value>>(&raw).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|r| Some((r.get("node_id")?.as_str()?.to_string(), r)))
+        .collect()
+}
+
+/// Whether `node`'s roster binds `other` by its key.
+fn binds(node: &Node, other: &Node) -> bool {
+    roster_of(node)
+        .get(&other.node_id)
+        .is_some_and(|r| r["pubkey"] == other.pubkey.as_str())
+}
+
+/// `susi peers add <endpoint>` as `node`, repeated until the hub reports
+/// that it admitted this node (its leader election runs on a cadence).
+fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
+    let deadline = Instant::now() + limit;
+    loop {
+        let (ok, stdout, stderr) =
+            run_cli(node, &["peers", "add", endpoint], Duration::from_secs(120));
+        assert!(ok, "peers add as {} failed: {stdout}{stderr}", node.name);
+        if stdout.contains("admitted this node") {
+            return format!("{stdout}{stderr}");
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{} was never admitted by the hub within {limit:?}: {stdout}{stderr}",
+            node.name
+        );
+        std::thread::sleep(Duration::from_secs(3));
+    }
+}
+
+/// The CEO topology from nothing: a fresh hub with one forwarded channel
+/// port, two fresh members behind it with no listener. Each member runs
+/// `susi peers add <hub public endpoint>` once; the hub binds each member
+/// by key (the second admission needs the first member's endorsement,
+/// fetched by the hub over that member's outbound uplink), the members
+/// learn each other from the hub's ledger, and a member-to-member status
+/// call then travels member -> hub -> member.
+#[test]
+fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "susi-pc-join-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let [oh, oa, ob] = free_offsets();
+    let hub = make_node(&root, "jhub", oh, 0x71, CLUSTER_KEY);
+    let a = make_node(&root, "ja", oa, 0x72, CLUSTER_KEY);
+    let b = make_node(&root, "jb", ob, 0x73, CLUSTER_KEY);
+    let channel = SocketAddr::from(([127, 0, 0, 1], free_port()));
+    let (forward, capture) = recording_forwarder(channel);
+    write_json(
+        &hub.config.join("config.json"),
+        &serde_json::json!({"bind_address": "127.0.0.1", "peer_channel_listen": channel.to_string()}),
+    );
+    for m in [&a, &b] {
+        write_json(
+            &m.config.join("config.json"),
+            &serde_json::json!({"bind_address": "127.0.0.1"}),
+        );
+    }
+    let mut hub_d = start_daemon(&hub, &[]);
+    let mut a_d = start_daemon(&a, &[]);
+    let mut b_d = start_daemon(&b, &[]);
+    wait_published(&hub, &mut hub_d);
+    wait_published(&a, &mut a_d);
+    wait_published(&b, &mut b_d);
+
+    let endpoint = forward.to_string();
+    let limit = Duration::from_secs(150);
+    let joined_a = join(&a, &endpoint, limit);
+    let deadline = Instant::now() + limit;
+    while !binds(&hub, &a) {
+        assert!(
+            Instant::now() < deadline,
+            "the hub never bound A's key: {:?}\n{joined_a}\nhub log:\n{}",
+            roster_of(&hub),
+            hub_d.log()
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    assert!(binds(&a, &hub), "A binds the hub: {:?}", roster_of(&a));
+    let joined_b = join(&b, &endpoint, limit);
+    let deadline = Instant::now() + limit;
+    while !(binds(&hub, &b) && binds(&a, &b) && binds(&b, &a)) {
+        assert!(
+            Instant::now() < deadline,
+            "membership did not converge: hub {:?}\nA {:?}\nB {:?}\n{joined_b}\nhub log:\n{}",
+            roster_of(&hub),
+            roster_of(&a),
+            roster_of(&b),
+            hub_d.log()
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    // Member to member through the hub, on the product path.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let rows = peers_status(&a);
+        if rows
+            .get(&b.node_id)
+            .is_some_and(|r| r.get("error").is_none())
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "A never reached B through the hub: {rows:?}"
+        );
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    let ids = [hub.node_id.as_str(), a.node_id.as_str(), b.node_id.as_str()];
+    let c = capture.lock().unwrap();
+    assert_opaque("join traffic toward the hub", &c.to_hub, &ids);
+    assert_opaque("join traffic from the hub", &c.from_hub, &ids);
+    drop(c);
     drop(hub_d);
     drop(a_d);
     drop(b_d);
