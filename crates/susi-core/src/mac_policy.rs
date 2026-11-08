@@ -29,16 +29,33 @@ pub enum PrivacyMode {
     /// forced through sandbox unless a capability token explicitly allows
     /// otherwise.
     LocalOnly,
+    /// The strictest posture: this machine alone. Everything `LocalOnly`
+    /// blocks, plus every non-loopback target: private, link-local,
+    /// unique-local and `.local` hosts are refused like the internet, no
+    /// grant reopens egress or cloud inference, UDP discovery and gossip
+    /// neither send to nor answer another host, peer calls to another
+    /// address are refused before a connection opens, and the host
+    /// listeners drop off-host clients whatever `bind_address` says.
+    HostOnly,
     /// Permissive: default grants include network.egress (still audited).
     Open,
 }
 
 impl PrivacyMode {
     pub fn parse(s: &str) -> Self {
+        Self::parse_requested(s).unwrap_or(Self::Balanced)
+    }
+
+    /// Parse a mode an operator asked for (canonical names and aliases,
+    /// any case); `None` for anything else, so a typo in a request never
+    /// silently relaxes a stricter mode into `balanced`.
+    pub fn parse_requested(s: &str) -> Option<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "local_only" | "local-only" | "edge" | "strict" => Self::LocalOnly,
-            "open" | "permissive" => Self::Open,
-            _ => Self::Balanced,
+            "balanced" => Some(Self::Balanced),
+            "local_only" | "local-only" | "edge" | "strict" => Some(Self::LocalOnly),
+            "host_only" | "host-only" | "host" => Some(Self::HostOnly),
+            "open" | "permissive" => Some(Self::Open),
+            _ => None,
         }
     }
 
@@ -49,6 +66,7 @@ impl PrivacyMode {
         match s.trim() {
             "balanced" => Some(Self::Balanced),
             "local_only" => Some(Self::LocalOnly),
+            "host_only" => Some(Self::HostOnly),
             "open" => Some(Self::Open),
             _ => None,
         }
@@ -58,14 +76,15 @@ impl PrivacyMode {
         match self {
             Self::Balanced => "balanced",
             Self::LocalOnly => "local_only",
+            Self::HostOnly => "host_only",
             Self::Open => "open",
         }
     }
 
     /// Where host-initiated traffic may go under this mode, in the words
-    /// every status and mode-change report shows the operator. The local
-    /// network is always in reach (`url_stays_local`); no mode confines
-    /// traffic to this machine alone.
+    /// every status and mode-change report shows the operator. Every mode
+    /// but `host_only` keeps the local network in reach (`url_stays_local`);
+    /// `host_only` confines traffic to loopback (`url_stays_on_host`).
     pub fn network_scope(self) -> &'static str {
         match self {
             Self::Balanced => {
@@ -74,7 +93,38 @@ impl PrivacyMode {
             Self::LocalOnly => {
                 "this machine and its local network only (loopback, private, link-local and .local hosts); internet egress and cloud inference blocked"
             }
+            Self::HostOnly => {
+                "this machine only (loopback); local network, discovery, gossip, internet egress and cloud inference blocked"
+            }
             Self::Open => "this machine and its local network, plus the internet (egress audited)",
+        }
+    }
+
+    /// Whether this mode withholds the default egress, cloud and host-exec
+    /// grants and forces host exec through the sandbox (`local_only` and
+    /// the stricter `host_only`).
+    pub fn restricts_egress(self) -> bool {
+        match self {
+            Self::LocalOnly | Self::HostOnly => true,
+            Self::Balanced | Self::Open => false,
+        }
+    }
+
+    /// Whether this mode confines every connection to this machine.
+    pub fn confines_to_host(self) -> bool {
+        match self {
+            Self::HostOnly => true,
+            Self::Balanced | Self::LocalOnly | Self::Open => false,
+        }
+    }
+
+    /// Whether `url` lies inside the reach this mode never blocks: loopback
+    /// under `host_only`, this machine and its local network otherwise.
+    pub fn keeps_local(self, url: &str) -> bool {
+        if self.confines_to_host() {
+            url_stays_on_host(url)
+        } else {
+            url_stays_local(url)
         }
     }
 }
@@ -243,15 +293,8 @@ fn read_sticky_mode(dir: &Path) -> Option<PrivacyMode> {
 /// internet host. Parsed with std only (every crate mounts this module).
 /// This is the boundary `local_only` enforces: LAN-wide, not host-only.
 pub fn url_stays_local(url: &str) -> bool {
-    let Some((_, rest)) = url.split_once("://") else {
+    let Some(host) = url_host(url) else {
         return false;
-    };
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    let host_port = authority.rsplit('@').next().unwrap_or_default();
-    let host = if let Some(bracketed) = host_port.strip_prefix('[') {
-        bracketed.split(']').next().unwrap_or_default()
-    } else {
-        host_port.split(':').next().unwrap_or_default()
     };
     match host.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
@@ -271,13 +314,68 @@ pub fn url_stays_local(url: &str) -> bool {
     }
 }
 
+/// The host of `scheme://[user@]host[:port][/...]`, brackets stripped from
+/// an IPv6 literal; `None` without a scheme.
+fn url_host(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority.rsplit('@').next().unwrap_or_default();
+    Some(if let Some(bracketed) = host_port.strip_prefix('[') {
+        bracketed.split(']').next().unwrap_or_default()
+    } else {
+        host_port.split(':').next().unwrap_or_default()
+    })
+}
+
+/// Whether `url` names this machine alone: a loopback address
+/// (`127.0.0.0/8`, `::1`, or an IPv4-mapped loopback) or the name
+/// `localhost`. Private, link-local, unique-local and `*.local` hosts are
+/// other machines on the network, and `*.localhost` subdomains are left
+/// out because a resolver is not bound to keep them on loopback. This is
+/// the boundary `host_only` enforces.
+pub fn url_stays_on_host(url: &str) -> bool {
+    url_host(url).is_some_and(host_is_this_machine)
+}
+
+/// Whether `host` (a bare host, no port) is a loopback address or
+/// `localhost` (see [`url_stays_on_host`]).
+pub fn host_is_this_machine(host: &str) -> bool {
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.to_canonical().is_loopback(),
+        Err(_) => host.trim_end_matches('.').eq_ignore_ascii_case("localhost"),
+    }
+}
+
 /// Whether host-initiated network traffic to `url` is allowed right now:
 /// always for host/LAN targets; otherwise only when the posture does not
-/// block network egress by default or an egress grant is held. For code
+/// block network egress by default or an egress grant is held. Under
+/// `host_only` only loopback targets, whatever is granted. For code
 /// paths that reach the network without going through `authorize_tool`
 /// (background downloads, provider calls).
 pub fn egress_permitted(url: &str) -> bool {
     MacPolicy::global().egress_permitted(url)
+}
+
+/// Why host-initiated traffic to `url` is refused right now, or `None`
+/// when it may go (see [`MacPolicy::egress_refusal`]).
+pub fn egress_refusal(url: &str) -> Option<String> {
+    MacPolicy::global().egress_refusal(url)
+}
+
+/// Whether the shared posture is `host_only` at this moment. Read per
+/// operation (the sticky mode file is authoritative across processes), so
+/// a mode switch made by any process applies to the next datagram,
+/// connection or send without a restart.
+pub fn host_only_in_force() -> bool {
+    MacPolicy::global().mode().confines_to_host()
+}
+
+/// Whether a host listener must drop a client connecting from `peer`:
+/// `host_only` serves this machine alone, so every non-loopback peer is
+/// refused, whatever `bind_address` exposes. Loopback peers never read
+/// the mode.
+pub fn refuses_remote_client(peer: std::net::IpAddr) -> bool {
+    !peer.to_canonical().is_loopback() && host_only_in_force()
 }
 
 /// Whether a grant on `granted` covers a request for `requested`.
@@ -374,9 +472,20 @@ impl MacPolicy {
             Err(error) => {
                 // No shared key: grants this copy signs cannot be verified
                 // by the rest of the substrate, so fail closed rather than
-                // run a permissive policy on a private key.
-                tracing::error!(%error, dir = %dir.display(), "substrate MAC key unavailable; enforcing local_only");
-                let mut local = Self::new(process_local_key(), PrivacyMode::LocalOnly, true);
+                // run a permissive policy on a private key. A host asking
+                // for host_only keeps it: falling back to local_only would
+                // reopen the local network.
+                let asked = read_sticky_mode(&dir).unwrap_or_else(|| {
+                    let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
+                    PrivacyMode::parse(&cfg.privacy().mode)
+                });
+                let fallback = if asked.confines_to_host() {
+                    PrivacyMode::HostOnly
+                } else {
+                    PrivacyMode::LocalOnly
+                };
+                tracing::error!(%error, dir = %dir.display(), mode = fallback.as_str(), "substrate MAC key unavailable; enforcing a restricted mode");
+                let mut local = Self::new(process_local_key(), fallback, true);
                 local.persistence_error =
                     Some(format!("shared MAC signing key is unavailable: {error}"));
                 return local;
@@ -386,8 +495,7 @@ impl MacPolicy {
         let privacy = cfg.privacy();
         // Mode: sticky file beats config default.
         let mode = read_sticky_mode(&dir).unwrap_or_else(|| PrivacyMode::parse(&privacy.mode));
-        let mandatory =
-            privacy.mandatory_sandbox_for_exec || matches!(mode, PrivacyMode::LocalOnly);
+        let mandatory = privacy.mandatory_sandbox_for_exec || mode.restricts_egress();
         Self::new(key, mode, mandatory).with_state_dir(dir)
     }
 
@@ -614,7 +722,7 @@ impl MacPolicy {
         }
         // Drop elevated grants so the new posture is authoritative.
         self.mandatory_sandbox
-            .store(matches!(mode, PrivacyMode::LocalOnly), Ordering::Relaxed);
+            .store(mode.restricts_egress(), Ordering::Relaxed);
         self.seed_defaults().map_err(std::io::Error::other)?;
         Ok(())
     }
@@ -627,17 +735,51 @@ impl MacPolicy {
 
     /// Whether host-initiated network traffic to `url` is allowed under this
     /// policy instance. Local targets are always permitted; non-local targets
-    /// require an open posture or an explicit egress grant.
+    /// require an open posture or an explicit egress grant. Under
+    /// `host_only` only loopback targets are permitted and no grant widens it.
     pub fn egress_permitted(&self, url: &str) -> bool {
-        if url_stays_local(url) {
-            return true;
+        self.egress_refusal(url).is_none()
+    }
+
+    /// Why host-initiated traffic to `url` is refused under this policy, or
+    /// `None` when it may go. The one reach decision every egress gate
+    /// shares: one mode read, so the verdict and its reason agree.
+    pub fn egress_refusal(&self, url: &str) -> Option<String> {
+        let mode = self.mode();
+        if mode.keeps_local(url) {
+            return None;
         }
-        !self.blocks_network_by_default() || self.is_permitted("susi", actions::NETWORK_EGRESS, "*")
+        if mode.confines_to_host() {
+            return Some(format!(
+                "[PRIVACY] host_only: refusing to reach {url}: host-only privacy mode confines traffic to this machine (loopback); other hosts, the local network included, are out of reach"
+            ));
+        }
+        if !self.blocks_network_by_default()
+            || self.is_permitted("susi", actions::NETWORK_EGRESS, "*")
+        {
+            return None;
+        }
+        Some(format!(
+            "[PRIVACY] network egress to {url} blocked by the {} privacy posture",
+            mode.as_str()
+        ))
+    }
+
+    /// Why an inference payload may not go to the provider at `api_base`, or
+    /// `None` when it may: off the mode's local reach (the LAN included
+    /// under `host_only`) while cloud inference is blocked.
+    pub fn inference_refusal(&self, api_base: &str) -> Option<String> {
+        let mode = self.mode();
+        (!mode.keeps_local(api_base) && self.blocks_cloud_inference()).then(|| {
+            format!(
+                "[PRIVACY] {}: refusing to send inference payload to {api_base}",
+                mode.as_str()
+            )
+        })
     }
 
     pub fn mandatory_sandbox(&self) -> bool {
-        self.mandatory_sandbox.load(Ordering::Relaxed)
-            || matches!(self.mode(), PrivacyMode::LocalOnly)
+        self.mandatory_sandbox.load(Ordering::Relaxed) || self.mode().restricts_egress()
     }
 
     pub fn set_mandatory_sandbox(&self, on: bool) {
@@ -645,14 +787,17 @@ impl MacPolicy {
     }
 
     /// True when cloud inference / remote providers must not receive payloads.
+    /// Under `host_only` always: no grant reopens it (see `is_permitted`).
     pub fn blocks_cloud_inference(&self) -> bool {
-        matches!(self.mode(), PrivacyMode::LocalOnly)
-            && !self.is_permitted("susi", actions::CLOUD_INFERENCE, "*")
+        self.mode().restricts_egress() && !self.is_permitted("susi", actions::CLOUD_INFERENCE, "*")
     }
 
     /// True when network egress tools must not run without a grant.
     pub fn blocks_network_by_default(&self) -> bool {
-        !matches!(self.mode(), PrivacyMode::Open)
+        match self.mode() {
+            PrivacyMode::Balanced | PrivacyMode::LocalOnly | PrivacyMode::HostOnly => true,
+            PrivacyMode::Open => false,
+        }
     }
 
     fn sign(&self, token: &CapabilityToken) -> String {
@@ -766,10 +911,18 @@ impl MacPolicy {
     }
 
     /// Explicit operator consent for network egress (and optionally cloud).
+    /// Refused under `host_only`: that mode admits no egress at all, so a
+    /// consent token would report a permission the gates never honour.
     pub fn consent_egress(&self, subject: &str, ttl_secs: u64) -> EaiResult<Vec<CapabilityToken>> {
+        let mode = self.mode();
+        if mode.confines_to_host() {
+            return Err(EaiError::governance(
+                "host-only privacy mode admits no network egress or cloud inference; switch with `susi privacy mode local_only` (or balanced/open) first",
+            ));
+        }
         let mut tokens =
             vec![self.issue_token(subject, actions::NETWORK_EGRESS, "*", Some(ttl_secs))?];
-        if matches!(self.mode(), PrivacyMode::LocalOnly) {
+        if mode.restricts_egress() {
             tokens.push(self.issue_token(
                 subject,
                 actions::CLOUD_INFERENCE,
@@ -785,6 +938,13 @@ impl MacPolicy {
     pub fn is_permitted(&self, subject: &str, action: &str, resource: &str) -> bool {
         if !self.enforce.load(Ordering::Relaxed) {
             return true;
+        }
+        // `host_only` honours no egress beyond loopback and no cloud
+        // inference, whatever is granted: the root every grant check passes.
+        let off_host = action == actions::CLOUD_INFERENCE
+            || (action == actions::NETWORK_EGRESS && !url_stays_on_host(resource));
+        if off_host && self.mode().confines_to_host() {
+            return false;
         }
         let now = now_secs();
         let live = |scope: &str| {
@@ -806,7 +966,7 @@ impl MacPolicy {
             (actions::SANDBOX_EXEC, "*"),
             (actions::TRANSMIT, "app://*"),
         ];
-        if !matches!(self.mode(), PrivacyMode::LocalOnly) {
+        if !self.mode().restricts_egress() {
             bindings.extend([
                 (actions::PROCESS_EXEC, "*"),
                 (actions::NETWORK_EGRESS, "*"),
@@ -997,6 +1157,11 @@ impl MacPolicy {
             }
         }
         for (action, resource) in reqs {
+            if action == actions::NETWORK_EGRESS && self.mode().confines_to_host() {
+                return Err(EaiError::governance(format!(
+                    "MAC DENY: `{tool}` needs {action}, which host-only privacy mode never grants (this machine only); switch with `susi privacy mode local_only` first"
+                )));
+            }
             if action == actions::NETWORK_EGRESS && self.blocks_network_by_default() {
                 if !self.is_permitted(subject, action, resource) {
                     return Err(EaiError::governance(format!(
@@ -1140,7 +1305,7 @@ mod tests {
     use super::*;
 
     fn policy(mode: PrivacyMode) -> MacPolicy {
-        MacPolicy::new([7u8; 32], mode, matches!(mode, PrivacyMode::LocalOnly))
+        MacPolicy::new([7u8; 32], mode, mode.restricts_egress())
     }
 
     #[test]
@@ -1272,6 +1437,162 @@ mod tests {
         }
         assert!(PrivacyMode::LocalOnly.network_scope().contains("only"));
         assert!(url_stays_local("http://192.168.1.20:9093/mcp"));
+        let host = policy(PrivacyMode::HostOnly).status_json();
+        assert_eq!(
+            host["network_scope"],
+            "this machine only (loopback); local network, discovery, gossip, internet egress and cloud inference blocked"
+        );
+        assert_eq!(host["mode"], "host_only");
+    }
+
+    #[test]
+    fn host_only_parses_persists_and_round_trips() {
+        for spelled in ["host_only", "host-only", "host", "  HOST_ONLY  "] {
+            assert_eq!(
+                PrivacyMode::parse(spelled),
+                PrivacyMode::HostOnly,
+                "{spelled}"
+            );
+            assert_eq!(
+                PrivacyMode::parse_requested(spelled),
+                Some(PrivacyMode::HostOnly)
+            );
+        }
+        assert_eq!(PrivacyMode::HostOnly.as_str(), "host_only");
+        assert_eq!(
+            PrivacyMode::parse_persisted("host_only"),
+            Some(PrivacyMode::HostOnly)
+        );
+        // The sticky file is machine-written: only the canonical spelling.
+        assert_eq!(PrivacyMode::parse_persisted("host-only"), None);
+        for mode in [
+            PrivacyMode::Balanced,
+            PrivacyMode::LocalOnly,
+            PrivacyMode::HostOnly,
+            PrivacyMode::Open,
+        ] {
+            assert_eq!(PrivacyMode::parse_persisted(mode.as_str()), Some(mode));
+            assert_eq!(PrivacyMode::parse_requested(mode.as_str()), Some(mode));
+        }
+        // A typo never relaxes a request into `balanced`.
+        assert_eq!(PrivacyMode::parse_requested("host_onyl"), None);
+        assert_eq!(PrivacyMode::default(), PrivacyMode::Balanced);
+
+        let root = std::env::temp_dir().join(format!("mac-host-only-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let p = policy(PrivacyMode::Balanced).with_state_dir(root.clone());
+        p.set_mode(PrivacyMode::HostOnly).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("privacy_mode")).unwrap(),
+            "host_only"
+        );
+        let sibling = policy(PrivacyMode::Balanced).with_state_dir(root.clone());
+        assert_eq!(sibling.mode(), PrivacyMode::HostOnly);
+        assert!(sibling.mandatory_sandbox());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn host_only_reach_is_loopback_alone() {
+        for url in [
+            "http://127.0.0.1:9093/mcp",
+            "http://127.8.9.10/",
+            "http://[::1]:9091/v1",
+            "http://[::ffff:127.0.0.1]:80/",
+            "http://localhost:11434",
+            "https://LOCALHOST./x",
+            "http://user@localhost:1/",
+        ] {
+            assert!(url_stays_on_host(url), "{url}");
+            assert!(PrivacyMode::HostOnly.keeps_local(url), "{url}");
+        }
+        for url in [
+            "http://10.0.0.5:9093/mcp",
+            "http://172.16.0.1/",
+            "http://192.168.1.20:9093/mcp",
+            "http://169.254.10.1/",
+            "http://[fe80::1]:9093/",
+            "http://[fc00::7]/",
+            "http://[fd12:3456::1]/",
+            "http://[::ffff:192.168.1.4]/",
+            "http://printer.local/",
+            "http://box.localhost/",
+            "https://example.com/",
+            "http://8.8.8.8/",
+            "stun://stun.l.google.com:19302",
+            "localhost:9093",
+            "",
+        ] {
+            assert!(!url_stays_on_host(url), "{url}");
+            assert!(!PrivacyMode::HostOnly.keeps_local(url), "{url}");
+        }
+        // local_only keeps its LAN-wide reach.
+        assert!(PrivacyMode::LocalOnly.keeps_local("http://192.168.1.20:9093/mcp"));
+        assert!(PrivacyMode::LocalOnly.keeps_local("http://printer.local/"));
+        assert!(!PrivacyMode::LocalOnly.keeps_local("https://example.com/"));
+    }
+
+    #[test]
+    fn host_only_refuses_every_off_host_target_whatever_is_granted() {
+        let p = policy(PrivacyMode::HostOnly);
+        assert!(p.egress_permitted("http://127.0.0.1:9093/mcp"));
+        assert!(p.egress_permitted("http://localhost:11434/v1"));
+        for url in [
+            "http://192.168.1.20:9093/mcp",
+            "http://[fe80::1]:9093/",
+            "http://printer.local/",
+            "https://example.com/",
+        ] {
+            let reason = p.egress_refusal(url).expect("refused");
+            assert!(reason.contains("host_only"), "{reason}");
+            assert!(reason.contains("host-only privacy mode"), "{reason}");
+        }
+        // An explicit grant does not reopen egress or cloud inference.
+        p.grant("susi", actions::NETWORK_EGRESS, "*", None).unwrap();
+        p.grant("susi", actions::CLOUD_INFERENCE, "*", None)
+            .unwrap();
+        assert!(!p.egress_permitted("https://example.com/"));
+        assert!(!p.egress_permitted("http://10.0.0.5:9093/mcp"));
+        assert!(!p.is_permitted("susi", actions::NETWORK_EGRESS, "*"));
+        assert!(!p.is_permitted("susi", actions::NETWORK_EGRESS, "http://10.0.0.5/"));
+        assert!(p.blocks_cloud_inference());
+        assert!(p.blocks_network_by_default());
+        assert!(p.mandatory_sandbox());
+        let reason = p
+            .inference_refusal("http://192.168.1.9:11434/v1")
+            .expect("a LAN provider is off-host");
+        assert!(reason.contains("host_only"), "{reason}");
+        assert!(p.inference_refusal("http://127.0.0.1:11434/v1").is_none());
+        // Consent is refused, not silently ignored.
+        let err = p.consent_egress("susi", 60).unwrap_err().to_string();
+        assert!(err.contains("host-only"), "{err}");
+        // Tools that reach the network are denied, naming the mode.
+        let err = p
+            .authorize_tool(
+                "browser_automate",
+                &serde_json::json!({}),
+                Path::new("."),
+                None,
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("host-only privacy mode"), "{err}");
+        // Local reads stay allowed; exec goes through the sandbox.
+        assert!(p
+            .authorize_tool("read_file", &serde_json::json!({}), Path::new("."), None)
+            .is_ok());
+        assert!(p
+            .authorize_tool("exec_command", &serde_json::json!({}), Path::new("."), None)
+            .is_ok());
+        assert!(!p.is_permitted("susi", actions::PROCESS_EXEC, "*"));
+
+        // The same grants under local_only do open the internet: unchanged.
+        let lan = policy(PrivacyMode::LocalOnly);
+        assert!(lan.egress_permitted("http://192.168.1.20:9093/mcp"));
+        assert!(!lan.egress_permitted("https://example.com/"));
+        lan.consent_egress("susi", 60).unwrap();
+        assert!(lan.egress_permitted("https://example.com/"));
+        assert!(!lan.blocks_cloud_inference());
     }
 
     #[test]

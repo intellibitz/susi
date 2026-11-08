@@ -1733,10 +1733,10 @@ Usage: susi privacy [COMMAND]
 
 Commands:
   status   Show privacy mode and active capability grants
-  mode     Set privacy mode: balanced | local_only (this machine and its local network) | open
+  mode     Set privacy mode: balanced | local_only (this machine and its local network) | host_only (this machine only) | open
   grant    Grant a cryptographic capability token
   revoke   Revoke a capability grant
-  consent  Explicit consent for network egress (and cloud inference under local_only)
+  consent  Explicit consent for network egress (and cloud inference under local_only; refused under host_only)
   help     Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1751,7 +1751,7 @@ Options:
   -h, --help  Print help
 
 === susi privacy mode ===
-Set privacy mode: balanced | local_only (this machine and its local network) | open
+Set privacy mode: balanced | local_only (this machine and its local network) | host_only (this machine only) | open
 
 Usage: susi privacy mode <MODE>
 
@@ -1785,7 +1785,7 @@ Options:
   -h, --help                 Print help
 
 === susi privacy consent ===
-Explicit consent for network egress (and cloud inference under local_only)
+Explicit consent for network egress (and cloud inference under local_only; refused under host_only)
 
 Usage: susi privacy consent [OPTIONS]
 

@@ -65,6 +65,12 @@ pub fn handshake(
         .map_err(|e| format!("cannot resolve {host}:{port}: {e}"))?
         .next()
         .ok_or_else(|| format!("{host}:{port} resolves to no address"))?;
+    // host_only: no discovery ping goes to another host.
+    if !dest.ip().to_canonical().is_loopback() && crate::mac_policy::host_only_in_force() {
+        return Err(format!(
+            "[PRIVACY] host_only: no discovery ping to {dest}: host-only privacy mode confines traffic to this machine (loopback)"
+        ));
+    }
     // One bound ping (`SUSI_PING_SIG3`): its MAC names the source address
     // this route uses, so a copy captured on the wire admits nobody else.
     // A zero bloom is honest: the prober registers no tools. Daemons that

@@ -561,12 +561,12 @@ pub struct InferenceRoutingConfig {
 }
 
 /// Edge privacy controls: local-only inference and egress consent.
-/// `mode`: `balanced` | `local_only` | `open`
+/// `mode`: `balanced` | `local_only` | `host_only` (this machine alone) | `open`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PrivacyConfig {
     pub mode: String,
-    /// When true (or mode is local_only), host `exec_command` requires
+    /// When true (or mode is local_only or host_only), host `exec_command` requires
     /// `process.exec` grant; prefer Docker `sandbox_exec`.
     pub mandatory_sandbox_for_exec: bool,
     /// When true (default), `network.egress` needs an explicit capability grant

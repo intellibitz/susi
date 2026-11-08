@@ -28,13 +28,25 @@ pub fn persist_privacy_mode(mode: PrivacyMode) -> std::io::Result<()> {
 }
 
 /// `susi privacy mode <mode>` / MCP `privacy_mode`: persist the mode for
-/// subsequent boots and, under `local_only`, pin inference routing to local
-/// (through the router, so it lands where the router reads it). Returns the
-/// mode now in force and what it implies.
+/// subsequent boots and, under `local_only` or `host_only`, pin inference
+/// routing to local (through the router, so it lands where the router reads
+/// it). An unknown mode is refused: a typo must never relax a stricter mode
+/// into `balanced`. Returns the mode now in force and what it implies.
+///
+/// The daemon's discovery responder, scout, gossip, peer client and host
+/// listeners read the sticky mode per datagram, send and connection, so the
+/// switch applies to a running daemon without a restart.
 pub fn set_privacy_mode(mode: &str) -> std::io::Result<serde_json::Value> {
-    let m = PrivacyMode::parse(mode);
+    let m = PrivacyMode::parse_requested(mode).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "unknown privacy mode `{mode}` (expected balanced, local_only, host_only or open)"
+            ),
+        )
+    })?;
     persist_privacy_mode(m)?;
-    if matches!(m, PrivacyMode::LocalOnly) {
+    if m.restricts_egress() {
         susi_gemi::engines::routing::InferenceRouter::set_local_only();
     }
     let policy = MacPolicy::global();
@@ -92,6 +104,27 @@ mod inline_tests {
         ] {
             assert_eq!(PrivacyMode::parse_persisted(mode.as_str()), Some(mode));
         }
+    }
+
+    #[test]
+    fn host_only_parses_and_round_trips_through_the_sticky_spelling() {
+        assert_eq!(PrivacyMode::parse("host_only"), PrivacyMode::HostOnly);
+        assert_eq!(PrivacyMode::parse("Host-Only"), PrivacyMode::HostOnly);
+        assert_eq!(PrivacyMode::parse("host"), PrivacyMode::HostOnly);
+        assert_eq!(
+            PrivacyMode::parse_persisted(PrivacyMode::HostOnly.as_str()),
+            Some(PrivacyMode::HostOnly)
+        );
+        assert!(PrivacyMode::HostOnly.restricts_egress());
+        assert!(PrivacyMode::HostOnly.confines_to_host());
+        assert!(!PrivacyMode::LocalOnly.confines_to_host());
+    }
+
+    #[test]
+    fn an_unknown_requested_mode_is_refused_before_anything_is_written() {
+        let err = set_privacy_mode("host_onyl").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("host_only"), "{err}");
     }
 
     #[test]

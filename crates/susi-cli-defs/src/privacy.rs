@@ -12,7 +12,7 @@ use clap::Subcommand;
 pub enum PrivacyCommands {
     /// Show privacy mode and active capability grants.
     Status,
-    /// Set privacy mode: balanced | local_only (this machine and its local network) | open
+    /// Set privacy mode: balanced | local_only (this machine and its local network) | host_only (this machine only) | open
     #[allow(missing_docs)]
     Mode { mode: String },
     /// Grant a cryptographic capability token.
@@ -37,7 +37,7 @@ pub enum PrivacyCommands {
         #[arg(short, long, default_value = "*")]
         resource: String,
     },
-    /// Explicit consent for network egress (and cloud inference under local_only).
+    /// Explicit consent for network egress (and cloud inference under local_only; refused under host_only).
     #[allow(missing_docs)]
     Consent {
         #[arg(long)]

@@ -177,9 +177,13 @@ impl GmcpServer {
                         let service = service.clone();
                         let peer_ip = peer.ip();
                         let tls = tls.clone();
-                        let remote = !peer_ip.is_loopback();
+                        let remote = !peer_ip.to_canonical().is_loopback();
                         tokio::spawn(async move {
                             let _permit = permit;
+                            // host_only serves this machine alone, whatever the bind.
+                            if crate::susi_core::mac_policy::refuses_remote_client(peer_ip) {
+                                return;
+                            }
                             let Some(io) = negotiate_transport(
                                 stream,
                                 remote,
