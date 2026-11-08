@@ -422,7 +422,7 @@ pub fn session_call_with_timeout(
 
 /// Appended to every failed call to another host, so an operator reading
 /// the error learns why a cluster spanning hosts does not answer.
-const CROSS_HOST_NOTE: &str = "cross-host peer calls travel plaintext http://     authenticated only by this node's member signature: the peer must have this     node's key bound in its roster and must set allow_remote_plaintext, because     the peer client does not yet speak TLS";
+const CROSS_HOST_NOTE: &str = "cross-host peer calls travel plaintext http:// authenticated only by this node's member signature: the peer must have this node's key bound in its roster and must set allow_remote_plaintext, because the peer client does not yet speak TLS";
 
 /// True when `addr` (`host:port`, `[v6]:port` or a bare host) names this
 /// machine: a loopback address or `localhost`.
@@ -464,12 +464,12 @@ pub fn credential_for_target<'a>(
     }
     if crate::susi_config::cluster_key::bound_pubkey_for_addr(addr).is_none() {
         return Err(format!(
-            "refusing to send a credential to {addr}: the peer is not attested              (no committed member_add or attested handshake binds a node key to              this address in peers.json)"
+            "refusing to send a credential to {addr}: the peer is not attested (no committed member_add or attested handshake binds a node key to this address in peers.json)"
         ));
     }
     if crate::susi_config::cluster_key::node_pubkey_hex().is_none() {
         return Err(format!(
-            "refusing to send a credential to {addr} over plaintext http://:              this node has no node.key to authenticate by member signature, and              the peer client does not yet speak TLS"
+            "refusing to send a credential to {addr} over plaintext http://: this node has no node.key to authenticate by member signature, and the peer client does not yet speak TLS"
         ));
     }
     Ok(None)

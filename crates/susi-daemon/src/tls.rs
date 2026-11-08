@@ -142,7 +142,7 @@ pub fn remote_tls_required(cfg: &crate::susi_sandbox::manager::SusiConfig) -> bo
     if cfg.get::<serde_json::Value>("https_only").is_some() {
         RETIRED_KEY_NOTED.get_or_init(|| {
             eprintln!(
-                "[TLS] config key `https_only` is retired and ignored: remote plaintext                  is refused unless `allow_remote_plaintext` is true"
+                "[TLS] config key `https_only` is retired and ignored: remote plaintext is refused unless `allow_remote_plaintext` is true"
             );
         });
     }

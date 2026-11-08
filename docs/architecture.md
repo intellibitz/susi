@@ -25,7 +25,7 @@ susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud i
 | **Fragmented local & cloud APIs** | Point any OpenAI/Anthropic SDK, MCP client, or A2A peer at `127.0.0.1:9090–9094`. Route across local engines (`Ollama`, `vLLM`, `llama.cpp`, `GGUF`) and cloud APIs through one inspectable policy (`susi os route`). |
 | **Opaque model routing & wasted spend** | Evidence-ranked **Brain** (`susi brain`) learns which provider succeeds per workload class (`reflex`, `chat`, `code`, `reasoning`), quarantines out-of-credit keys, and enforces `SUSI_BUDGET=low\|balanced\|max`. |
 | **Hallucinated agent claims** | **Evidence-gated completion**: missions record live tool receipts (`EvidenceSession` / `ToolReceipt`), verify citations against the workspace, and seal actions into an append-only HMAC-SHA256 audit chain. |
-| **Data egress & untrusted tools** | `local_only` privacy policy blocks off-host model and tool egress; deterministic Tier-0 **Wasm reflexes** execute inside a fuel-metered `Wasmi` sandbox. |
+| **Data egress & untrusted tools** | `local_only` privacy policy keeps model and tool traffic on this machine and its local network (internet egress blocked; the LAN stays reachable); deterministic Tier-0 **Wasm reflexes** execute inside a fuel-metered `Wasmi` sandbox. |
 
 ```mermaid
 flowchart LR
@@ -95,8 +95,9 @@ The record is in [`docs/lean-core.md`](lean-core.md) and
 - **Local AI OS layer** — discovers and manages local runtimes, GGUF/Ollama
   models, GPU/CPU placement, loaded-model lifecycle, MCP tools, sandboxed
   Wasm reflexes, workspace memory, and host-resident agents. `local_only`
-  policy blocks every known off-host tool path, not only URLs with obvious
-  network-shaped names.
+  policy keeps traffic on this machine and its local network: it blocks every
+  known internet-bound tool path, not only URLs with obvious network-shaped
+  names, and leaves loopback, private, link-local and `.local` hosts open.
 - **Cloud AI OS layer** — admits OpenAI-compatible, Anthropic, Gemini,
   OpenRouter, MCP, A2A, and managed CLI peers through the same capability,
   budget, evidence, audit, and placement contracts. Credentials remain
@@ -574,8 +575,11 @@ a certificate is configured). The contract:
 - **Sniffing, not separate ports** — `https://host:9091` and
   `http://host:9091` coexist, so TLS-terminating reverse proxies and
   mixed-version peers keep working.
-- **`https_only`** refuses *remote* plaintext; loopback is always exempt so
-  internal `http://127.0.0.1` callers never break.
+- **Remote plaintext is refused by default**; loopback is always exempt so
+  internal `http://127.0.0.1` callers never break. Only
+  `allow_remote_plaintext: true` opens it (the retired `https_only` key is
+  ignored). Core's peer client never sends a bearer off-host: remote members
+  authenticate by member signature, and only members whose keys are bound.
 - **Auto self-signed**: a non-loopback `bind_address` with no configured cert
   generates `~/.susi/tls/cert.pem` on start — remote clients use `curl -k`
   or pin the cert. For browser-trusted HTTPS, supply a real cert via
@@ -589,7 +593,7 @@ a certificate is configured). The contract:
   "bind_address": "0.0.0.0",         // listen beyond loopback (default 127.0.0.1)
   "tls_cert_path": "/path/cert.pem", // optional: real cert (e.g. Let's Encrypt)
   "tls_key_path": "/path/key.pem",
-  "https_only": false                // true: refuse remote plaintext even with no cert
+  "allow_remote_plaintext": false    // true: also accept plaintext from remote peers
 }
 ```
 

@@ -344,7 +344,7 @@ impl SusiDaemon {
         let signed = if KEY_UNUSABLE.get().is_some() {
             None
         } else {
-            crate::susi_config::cluster_key::signed_ping("CORE", 0, "0000000000000000")
+            crate::susi_config::cluster_key::signed_ping_v3("CORE", 0, "0000000000000000", target)
         };
         let Some((ping, nonce)) = signed else {
             KEY_UNUSABLE.get_or_init(|| {
@@ -408,11 +408,15 @@ impl SusiDaemon {
         let remote_note = if crate::tls::is_loopback(&bind) {
             String::new()
         } else {
-            let https_only = cfg.get::<bool>("https_only").unwrap_or(false);
+            let tls_only = crate::tls::remote_tls_required(&cfg);
             format!(
-                "\nRemote surface: http+https on {bind}:* (TLS auto-provisioned;\
-                 https_only={https_only} {} remote plaintext)",
-                if https_only { "refuses" } else { "permits" }
+                "\nRemote surface: http+https on {bind}:* (TLS auto-provisioned; {} remote \
+                 plaintext)",
+                if tls_only {
+                    "refuses"
+                } else {
+                    "allow_remote_plaintext permits"
+                }
             )
         };
         format!(
@@ -1536,7 +1540,7 @@ impl SusiDaemon {
         // auto-generated self-signed cert whenever the bind is reachable
         // off-host. Each listener sniffs the first byte per connection, so
         // plain HTTP (internal loopback callers) keeps working on the same
-        // port. `https_only` drops non-TLS bytes from remote peers.
+        // port. Remote plaintext is dropped unless allow_remote_plaintext.
         let tls_acceptor = crate::tls::endpoint_acceptor(bind_address, global_dir);
         let require_tls_remote = crate::tls::https_only()
             || (!crate::tls::is_loopback(bind_address) && tls_acceptor.is_none());
@@ -2029,63 +2033,61 @@ impl SusiDaemon {
         // silently truncate and fail signature verification.
         let mut buf = [0u8; 4096];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {
-            // Only the signed dialects (`SUSI_PING_SIG`, `SUSI_PING_SIG2`)
-            // are answered; anything else is dropped before the key loads.
+            // Only the bound dialect (`SUSI_PING_SIG3`) is answered: its MAC
+            // covers the sender's source address, a timestamp and a nonce
+            // (`verify_bound_ping`). Anything that is not a signed ping is
+            // dropped before the key loads.
             if !buf[..amt].starts_with(b"SUSI_PING_SIG") {
                 continue;
             }
             let msg = String::from_utf8_lossy(&buf[..amt]);
-            // Cluster-key handshake (VC-200-001): answer a signed ping with a
-            // signed pong echoing the requester's nonce. Only peers that hold
-            // ~/.susi/cluster.key can complete this — an unauthenticated LAN
-            // host gets no answer at all (the legacy unsigned dialect is gone).
-            if let Some((pinger_id, caps_csv, checksum, bloom_hex, nonce, wants_v2)) =
-                crate::susi_config::cluster_key::verify_signed_ping(&msg)
+            // Cluster-key handshake (VC-200-001): answer a verified ping with
+            // a signed pong echoing its nonce. A copy captured on the wire and
+            // replayed from another address, after the window, or twice gets
+            // silence; so does the retired unbound `SUSI_PING_SIG` /
+            // `SUSI_PING_SIG2`, which binds nothing about its sender.
+            let ping = match crate::susi_config::cluster_key::verify_bound_ping(&msg, src) {
+                Ok(ping) => ping,
+                Err(crate::susi_config::cluster_key::PingRejection::Unbound) => {
+                    static NOTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                    NOTED.get_or_init(|| {
+                        eprintln!(
+                            "[A2A Cluster UDP] dropped a retired unbound discovery ping from \
+                             {src}: only SUSI_PING_SIG3 is answered; upgrade that node"
+                        );
+                    });
+                    continue;
+                }
+                Err(_) => continue,
+            };
             {
-                // Mutual admission: a correctly signed ping proves the
-                // sender holds cluster.key — the same proof a signed pong
-                // gives the pinger about us. Admitting the sender here
-                // makes membership symmetric in one exchange: the pinger
-                // admits us from our pong, we admit them from their ping.
-                // Self-edge guard — persisting ourselves as Explicit lets
-                // mission dispatch recurse into our own endpoint. Loopback
-                // is never a peer (one daemon binds the discovery port per
-                // host); our own scout's broadcast also reaches this
-                // socket via the LAN interface, so refuse any local
+                // Mutual admission: a verified bound ping proves the daemon
+                // at its source address holds cluster.key, the same proof a
+                // signed pong gives the pinger about us. Self-edge guard:
+                // persisting ourselves as Explicit lets mission dispatch
+                // recurse into our own endpoint, so loopback, any local
                 // interface address (the bind probe can only succeed
-                // locally) and any ping attesting OUR node_id. The signed
-                // pong below still goes out — a CLI probing its own
-                // address needs the refusal signal, not silence.
+                // locally) and a ping attesting OUR node_id are never
+                // admitted. The signed pong below still goes out: a CLI
+                // probing its own address needs the refusal signal.
                 let is_self = src.ip().is_loopback()
                     || std::net::TcpListener::bind((src.ip(), 0)).is_ok()
-                    || (!pinger_id.is_empty()
-                        && pinger_id == crate::susi_config::cluster_key::wire_node_id());
+                    || ping.node_id == crate::susi_config::cluster_key::wire_node_id();
                 if !is_self {
-                    // Peers advertise their effective HTTP alias port in
-                    // `caps_csv` (`gmcp_http=`); offset-shifted nodes are
-                    // reachable on their real port, canonical otherwise.
-                    let peer_http = caps_csv
-                        .split(',')
-                        .find_map(|c| c.strip_prefix("gmcp_http="))
-                        .and_then(|p| p.parse::<u16>().ok())
-                        .unwrap_or(susi_paths::ports::GMCP_HTTP);
-                    let pinger_addr = format!("{}:{}", src.ip(), peer_http);
-                    // The verified signature proves the daemon at src holds
-                    // cluster.key — Explicit standing for the ADDRESS is
-                    // earned. The advertised node_id is self-asserted,
-                    // though: persisting it would let any member re-home
-                    // another member's identity to its own address with a
-                    // single forged ping. We record a synthetic id; the
-                    // scout's reverse handshake upgrades to the attested
-                    // id once this address's own responder confirms it,
-                    // and committed member_add records bind real ids
-                    // through the ledger path.
-                    // A banned member gets no handshake at all: no
-                    // admission on our side, and no signed pong for them
-                    // to verify us with. Without this the ban only stops
-                    // our roster — the banned node could still treat us
-                    // as a verified peer and harvest our roster gossip.
-                    if susi_gawd::swarm::peer_registry::is_banned(&pinger_id, &pinger_addr) {
+                    // The advertised service address is MAC-bound and its IP
+                    // is the datagram's source: the peer's real HTTP alias
+                    // port, offset-shifted or canonical.
+                    let pinger_addr = ping.service.to_string();
+                    // The advertised node_id is self-asserted: persisting it
+                    // would let any member re-home another member's identity
+                    // with one ping. A synthetic id is recorded with no key,
+                    // so the row earns no credential (the peer client sends
+                    // credentials only to key-attested members); the
+                    // scout's reverse handshake and committed member_add
+                    // records bind real ids and keys.
+                    // A banned member gets no handshake at all: no admission
+                    // on our side, and no signed pong to verify us with.
+                    if susi_gawd::swarm::peer_registry::is_banned(&ping.node_id, &pinger_addr) {
                         continue;
                     }
                     let node = susi_gawd::swarm::amas::ClusterPeerNode {
@@ -2093,17 +2095,18 @@ impl SusiDaemon {
                         address: pinger_addr,
                         node_type: "PEER".into(),
                         is_active: true,
-                        capabilities: caps_csv
+                        capabilities: ping
+                            .caps_csv
                             .split(',')
                             .filter(|c| !c.is_empty())
                             .map(str::to_string)
                             .collect(),
-                        registry_checksum: checksum,
+                        registry_checksum: ping.checksum,
                         latency_ms: 0,
                         uptime_secs: 0,
                         trust_score: 0.8,
                         capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::from_hex(
-                            &bloom_hex,
+                            &ping.bloom_hex,
                         ),
                         admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
                         last_seen_secs: std::time::SystemTime::now()
@@ -2124,35 +2127,25 @@ impl SusiDaemon {
                         .into_iter()
                         .map(|p| (p.node_id, p.address))
                         .collect();
-                // Identity-era pings get attested pongs — v3 (subject-
-                // signed binding) plus v2+v1 fallbacks so every requester
-                // generation finds a format it can verify.
-                let pongs: Vec<Option<String>> = if wants_v2 {
-                    vec![
-                        crate::susi_config::cluster_key::signed_pong_v3(
-                            &crate::susi_config::cluster_key::wire_node_id(),
-                            0,
-                            &bloom,
-                            &nonce,
-                            &roster,
-                        ),
-                        crate::susi_config::cluster_key::signed_pong_v2(
-                            &crate::susi_config::cluster_key::wire_node_id(),
-                            0,
-                            &bloom,
-                            &nonce,
-                            &roster,
-                        ),
-                    ]
-                } else {
-                    vec![crate::susi_config::cluster_key::signed_pong(
+                // Bound pings are identity-era: answer with v3 (subject-signed
+                // binding) plus the v2 fallback.
+                let nonce = ping.nonce;
+                let pongs: Vec<Option<String>> = vec![
+                    crate::susi_config::cluster_key::signed_pong_v3(
                         &crate::susi_config::cluster_key::wire_node_id(),
                         0,
                         &bloom,
                         &nonce,
                         &roster,
-                    )]
-                };
+                    ),
+                    crate::susi_config::cluster_key::signed_pong_v2(
+                        &crate::susi_config::cluster_key::wire_node_id(),
+                        0,
+                        &bloom,
+                        &nonce,
+                        &roster,
+                    ),
+                ];
                 for pong in pongs.into_iter().flatten() {
                     let _ = socket.send_to(pong.as_bytes(), src);
                 }

@@ -11,7 +11,11 @@
 //!   the missing attestation before a connection is made;
 //! - an attested remote member receives no bearer over plaintext `http://`,
 //!   only the member signature, and the failure names the cross-host rule;
-//! - a loopback target still receives the bearer it was handed.
+//! - a loopback target still receives the bearer it was handed;
+//! - a bound discovery ping (`SUSI_PING_SIG3`) sent over a real UDP socket
+//!   verifies from its own source, while the same datagram replayed from
+//!   another source, replayed a second time, or minted outside the window is
+//!   rejected, and the retired unbound ping is refused outright.
 //!
 //! Every accept and read is bounded, so a regression fails, never hangs.
 
@@ -208,5 +212,91 @@ fn a_loopback_target_still_receives_its_bearer() {
     assert!(
         head.contains("authorization: bearer host-token"),
         "loopback keeps its bearer: {head}"
+    );
+}
+
+/// One datagram from `from` to a fresh receiver on `to_ip`; returns the text
+/// and the source address the receiver saw.
+fn udp_deliver(
+    from: &std::net::UdpSocket,
+    to_ip: IpAddr,
+    payload: &str,
+) -> (String, std::net::SocketAddr) {
+    let receiver = std::net::UdpSocket::bind((to_ip, 0)).expect("bind receiver");
+    receiver
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("bounded recv");
+    from.send_to(payload.as_bytes(), receiver.local_addr().unwrap())
+        .expect("send datagram");
+    let mut buf = [0u8; 4096];
+    let (n, src) = receiver.recv_from(&mut buf).expect("datagram arrives");
+    (String::from_utf8_lossy(&buf[..n]).into_owned(), src)
+}
+
+#[test]
+fn a_bound_ping_admits_from_its_source_and_never_from_a_replay() {
+    use cluster_key::PingRejection;
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _home = isolated_cluster_home("pca-ping");
+    let lan = lan_ip();
+    let sender = std::net::UdpSocket::bind((lan, 0)).expect("bind sender");
+    let dest = std::net::SocketAddr::new(lan, 9);
+    let (frame, nonce) = cluster_key::signed_ping_v3("CORE", 0, "00", dest).expect("bound ping");
+
+    // A fresh bound ping admits, naming its sender's address.
+    let (wire, src) = udp_deliver(&sender, lan, &frame);
+    let ping = cluster_key::verify_bound_ping(&wire, src).expect("fresh ping admits");
+    assert_eq!(ping.nonce, nonce);
+    assert_eq!(ping.service.ip(), lan);
+
+    // Replayed from another source address (loopback here): rejected.
+    let other = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind replayer");
+    let (wire, src) = udp_deliver(&other, IpAddr::from([127, 0, 0, 1]), &frame);
+    assert_eq!(
+        cluster_key::verify_bound_ping(&wire, src),
+        Err(PingRejection::SourceMismatch)
+    );
+
+    // Replayed from the right source: the nonce is spent.
+    let (wire, src) = udp_deliver(&sender, lan, &frame);
+    assert_eq!(
+        cluster_key::verify_bound_ping(&wire, src),
+        Err(PingRejection::Replayed)
+    );
+
+    // Minted outside the window: stale even with a fresh nonce.
+    let key = cluster_key::cluster_key().expect("cluster key");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let stale = cluster_key::bound_ping_frame(
+        &key,
+        &cluster_key::wire_node_id(),
+        "CORE",
+        0,
+        "00",
+        ping.service,
+        now - cluster_key::PING_WINDOW_SECS - 5,
+        &cluster_key::random_nonce_hex(),
+    )
+    .unwrap();
+    let (wire, src) = udp_deliver(&sender, lan, &stale);
+    assert_eq!(
+        cluster_key::verify_bound_ping(&wire, src),
+        Err(PingRejection::Stale)
+    );
+
+    // The retired unbound dialect is refused even with a valid MAC.
+    let unbound = format!(
+        "SUSI_PING_SIG2:node:CORE:0:00:n0nce:{}",
+        cluster_key::hmac_sha256_hex(&key, b"susi-peer-v1:ping2:node:CORE:0:00:n0nce")
+    );
+    let (wire, src) = udp_deliver(&sender, lan, &unbound);
+    assert_eq!(
+        cluster_key::verify_bound_ping(&wire, src),
+        Err(PingRejection::Unbound)
     );
 }

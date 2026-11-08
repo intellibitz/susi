@@ -769,14 +769,16 @@ pub fn udp_probe_all(
 }
 
 /// Unauthenticated datagrams the discovery port must never answer: the
-/// retired LAN, bare and plaintext-token peer dialects, and signed pings
-/// (`SUSI_PING_SIG` and `SUSI_PING_SIG2`) with a forged MAC.
-pub const UNAUTHENTICATED_PINGS: [&str; 5] = [
+/// retired LAN, bare and plaintext-token peer dialects, the retired unbound
+/// signed pings (`SUSI_PING_SIG`, `SUSI_PING_SIG2`) and a bound ping
+/// (`SUSI_PING_SIG3`) with a forged MAC.
+pub const UNAUTHENTICATED_PINGS: [&str; 6] = [
     "SUSI_LAN_PING",
     "SUSI_PING",
     "SUSI_PING:forged-token",
     "SUSI_PING_SIG:susi-conformance:CORE:0:0000000000000000:00:forged",
     "SUSI_PING_SIG2:susi-conformance:CORE:0:0000000000000000:00:127.0.0.1:forged",
+    "SUSI_PING_SIG3:susi-conformance:CORE:0:00:3132372e302e302e313a39303933:0:00:forged",
 ];
 
 /// UDP 9092 is bound and answers only cluster-key signed pings. The suite
@@ -831,8 +833,10 @@ fn udp_discovery(target: &Target) -> Check {
 }
 
 /// Opt-in positive UDP discovery check: when a cluster-key signed
-/// `SUSI_PING_SIG*` datagram is supplied, UDP 9092 must answer with a
-/// `SUSI_PONG_SIG*` frame.
+/// `SUSI_PING_SIG3` datagram is supplied, UDP 9092 must answer with a
+/// `SUSI_PONG_SIG*` frame. A bound ping verifies only from the source
+/// address it names, within 60 seconds of its timestamp and once per nonce,
+/// so the datagram must be freshly minted on the host running the suite.
 fn udp_discovery_signed(target: &Target, optional: &Optional) -> Check {
     let port = target.port(ports::UDP_DISCOVERY);
     let id = format!("udp.discovery-signed@{port}");
@@ -1371,7 +1375,10 @@ mod tests {
     #[test]
     fn udp_discovery_signed_passes_on_valid_pong_and_fails_on_silence_or_bad_reply() {
         use std::net::UdpSocket;
-        assert_eq!(UNAUTHENTICATED_PINGS.len(), 5);
+        assert_eq!(UNAUTHENTICATED_PINGS.len(), 6);
+        assert!(UNAUTHENTICATED_PINGS
+            .iter()
+            .any(|p| p.starts_with("SUSI_PING_SIG3:") && p.ends_with(":forged")));
         assert!(UNAUTHENTICATED_PINGS.contains(&"SUSI_PING:forged-token"));
         assert!(UNAUTHENTICATED_PINGS.contains(
             &"SUSI_PING_SIG2:susi-conformance:CORE:0:0000000000000000:00:127.0.0.1:forged"
@@ -2191,11 +2198,12 @@ mod tests {
             ],
         );
 
-        // 5. UDP_DISCOVERY (9092 + offset): 5 unauthenticated datagrams (silent) + 1 signed datagram (pong)
+        // 5. UDP_DISCOVERY (9092 + offset): every unauthenticated datagram
+        // (silent) + 1 signed datagram (pong)
         let h_udp = std::thread::spawn(move || {
             let _ = udp_s.set_read_timeout(Some(Duration::from_secs(3)));
             let mut buf = [0u8; 256];
-            for _ in 0..6 {
+            for _ in 0..=UNAUTHENTICATED_PINGS.len() {
                 if let Ok((n, src)) = udp_s.recv_from(&mut buf) {
                     let msg = String::from_utf8_lossy(&buf[..n]);
                     if msg.starts_with("SUSI_PING_SIG2:susi-conformance:CORE:9090:1:") {

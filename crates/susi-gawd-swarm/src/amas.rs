@@ -528,13 +528,6 @@ impl SusiSupervisor {
                             }
                         });
 
-                        let ping_msg = format!(
-                            "SUSI_PING:{}:{}:{}",
-                            local_caps,
-                            registry_checksum,
-                            local_bloom.to_hex()
-                        );
-
                         if let Ok((amt, src)) = socket.recv_from(&mut buf) {
                             let msg = String::from_utf8_lossy(&buf[..amt]);
                             // Signed pong: peer proved it holds cluster.key and
@@ -867,58 +860,56 @@ impl SusiSupervisor {
                         };
                         let broadcast_due = discovery_pending
                             || last_broadcast.elapsed().as_secs() >= STEADY_BROADCAST_SECS;
+                        // Cluster-key handshake (VC-200-001): only nodes that
+                        // can HMAC-sign a pong echoing our nonce become
+                        // Explicit. Broadcast cannot cross subnets, so the
+                        // ping also goes to every candidate's discovery port.
+                        // Each ping is bound to the source address its route
+                        // uses (one frame per source), so a captured copy
+                        // never verifies from another host.
+                        let mut dests = targets;
                         if broadcast_due {
                             last_broadcast = std::time::Instant::now();
-                            let _ = socket
-                                .send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", port));
+                            dests.push(format!("255.255.255.255:{port}"));
                         }
-                        // Cluster-key handshake (VC-200-001): only nodes that
-                        // can HMAC-sign a pong echoing this nonce may become
-                        // Explicit roster members. The signed ping also goes
-                        // directly to every Discovered peer's discovery port —
-                        // LAN broadcast cannot cross subnets, and a
-                        // gossip-learned member only earns Explicit by
-                        // answering a handshake aimed at it.
-                        // v2 ping first — its pong attests the responder's
-                        // Ed25519 pubkey for member-key binding; the v1 ping
-                        // follows for pre-PKI peers. Both nonces are pending
-                        // so either pong verifies.
-                        if broadcast_due || !targets.is_empty() {
-                            let pings = signed_lan_discovery_frames(
-                                &local_caps,
-                                registry_checksum,
-                                &local_bloom.to_hex(),
-                            );
-                            if !pings.is_empty() {
-                                let sent_at = std::time::Instant::now();
-                                for (_, nonce) in &pings {
-                                    pending_nonces.push_back(nonce.clone());
-                                    nonce_sent_at.insert(nonce.clone(), sent_at);
-                                }
-                                while pending_nonces.len() > 8 {
-                                    if let Some(old) = pending_nonces.pop_front() {
-                                        nonce_sent_at.remove(&old);
-                                        accepted_pongs.retain(|(nonce, _)| nonce != &old);
-                                    }
-                                }
-                                if broadcast_due {
-                                    for (signed, _) in &pings {
-                                        let _ = socket.send_to(
-                                            signed.as_bytes(),
-                                            format!("255.255.255.255:{}", port),
-                                        );
-                                    }
-                                }
-                                // A Discovered candidate's handshake is its
-                                // only path to Explicit — directed pings keep
-                                // the fast cadence regardless of broadcast
-                                // backoff (stale candidates are filtered by
-                                // is_active and decayed out at the TTL).
-                                for target in targets {
-                                    for (signed, _) in &pings {
-                                        let _ = socket.send_to(signed.as_bytes(), &target);
-                                    }
-                                }
+                        let mut frames: std::collections::HashMap<std::net::IpAddr, String> =
+                            std::collections::HashMap::new();
+                        let sent_at = std::time::Instant::now();
+                        for dest in dests {
+                            let Some(dest) = std::net::ToSocketAddrs::to_socket_addrs(&dest)
+                                .ok()
+                                .and_then(|mut a| a.next())
+                            else {
+                                continue;
+                            };
+                            let Some(src) = crate::susi_config::cluster_key::route_source_ip(dest)
+                            else {
+                                continue;
+                            };
+                            if let std::collections::hash_map::Entry::Vacant(slot) =
+                                frames.entry(src)
+                            {
+                                let bloom = local_bloom.to_hex();
+                                let Some((frame, nonce)) = signed_lan_discovery_frame(
+                                    &local_caps,
+                                    registry_checksum,
+                                    &bloom,
+                                    dest,
+                                ) else {
+                                    continue;
+                                };
+                                pending_nonces.push_back(nonce.clone());
+                                nonce_sent_at.insert(nonce, sent_at);
+                                slot.insert(frame);
+                            }
+                            if let Some(frame) = frames.get(&src) {
+                                let _ = socket.send_to(frame.as_bytes(), dest);
+                            }
+                        }
+                        while pending_nonces.len() > 8 {
+                            if let Some(old) = pending_nonces.pop_front() {
+                                nonce_sent_at.remove(&old);
+                                accepted_pongs.retain(|(nonce, _)| nonce != &old);
                             }
                         }
                         std::thread::sleep(Duration::from_millis(100));
@@ -1996,19 +1987,17 @@ impl SusiSupervisor {
     }
 }
 
-/// Build the HMAC-signed LAN discovery frames (`SUSI_PING_SIG2` + `SUSI_PING_SIG`)
-/// for UDP `9092` (`B7`).
-///
-/// Authenticates via HMAC over `cluster.key` without ever broadcasting
-/// `host_token` (`api_token`) or retired unauthenticated `SUSI_LAN_PING` on the
-/// LAN broadcast address. Sanitizes `caps_csv` to `cluster_key`'s wire-safe
-/// alphabet (`[A-Za-z0-9,._-]`) so `gmcp_http=<port>` tokens never cause
-/// `signed_ping_v2` / `signed_ping` to return `None`.
-pub fn signed_lan_discovery_frames(
+/// Build the bound, HMAC-signed LAN discovery ping (`SUSI_PING_SIG3`) for
+/// UDP `9092` toward `dest` (`B7`): the MAC covers our source address on the
+/// route to `dest`, a timestamp and a nonce, never `host_token`. `caps_csv`
+/// is sanitized to `cluster_key`'s wire-safe alphabet (`[A-Za-z0-9,._-]`) so
+/// `gmcp_http=<port>` tokens never make `signed_ping_v3` return `None`.
+pub fn signed_lan_discovery_frame(
     caps_csv: &str,
     checksum: u64,
     bloom_hex: &str,
-) -> Vec<(String, String)> {
+    dest: std::net::SocketAddr,
+) -> Option<(String, String)> {
     let sanitized_caps: String = caps_csv
         .chars()
         .map(|c| {
@@ -2025,13 +2014,7 @@ pub fn signed_lan_discovery_frames(
         sanitized_caps.as_str()
     };
     let wire_bloom = if bloom_hex.is_empty() { "0" } else { bloom_hex };
-    [
-        crate::susi_config::cluster_key::signed_ping_v2(wire_caps, checksum, wire_bloom),
-        crate::susi_config::cluster_key::signed_ping(wire_caps, checksum, wire_bloom),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
+    crate::susi_config::cluster_key::signed_ping_v3(wire_caps, checksum, wire_bloom, dest)
 }
 
 #[cfg(test)]
@@ -2537,16 +2520,22 @@ mod tests {
     }
 
     #[test]
-    fn signed_lan_discovery_frames_use_cluster_key_hmac_and_never_expose_host_token() {
-        let frames = super::signed_lan_discovery_frames("CORE,gmcp_http=9093", 42, "0");
-        assert_eq!(frames.len(), 2, "must produce v2 and v1 signed pings");
-        assert!(frames[0].0.starts_with("SUSI_PING_SIG2:"));
-        assert!(frames[1].0.starts_with("SUSI_PING_SIG:"));
-        for (frame, nonce) in &frames {
-            assert!(!frame.contains("SUSI_LAN_PING"));
-            let verified = crate::susi_config::cluster_key::verify_signed_ping(frame)
-                .expect("signed discovery frame must verify under cluster.key");
-            assert_eq!(&verified.4, nonce);
-        }
+    fn signed_lan_discovery_frame_is_bound_to_its_route_and_never_exposes_host_token() {
+        let dest: std::net::SocketAddr = "127.0.0.1:9".parse().unwrap();
+        let (frame, nonce) =
+            super::signed_lan_discovery_frame("CORE,gmcp_http=9093", 42, "0", dest)
+                .expect("cluster.key must produce a bound discovery ping");
+        assert!(frame.starts_with("SUSI_PING_SIG3:"), "{frame}");
+        assert!(!frame.contains("SUSI_LAN_PING"));
+        let src: std::net::SocketAddr = "127.0.0.1:40000".parse().unwrap();
+        let verified = crate::susi_config::cluster_key::verify_bound_ping(&frame, src)
+            .expect("bound discovery frame must verify from its route source");
+        assert_eq!(verified.nonce, nonce);
+        assert_eq!(
+            (verified.caps_csv.as_str(), verified.checksum),
+            ("CORE,gmcp_http_9093", 42)
+        );
+        let elsewhere: std::net::SocketAddr = "10.9.9.9:40000".parse().unwrap();
+        assert!(crate::susi_config::cluster_key::verify_bound_ping(&frame, elsewhere).is_err());
     }
 }
