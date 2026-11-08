@@ -30,6 +30,39 @@ use susi_http_transport::http_conn;
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 type HttpService = StreamableHttpService<GmcpService, LocalSessionManager>;
 
+/// The identity a sealed peer-channel session proved, attached to every
+/// request that arrives over it.
+pub type ChannelPeer = crate::susi_config::peer_channel_link::ChannelPeer;
+
+/// One terminated peer-channel session handed to this surface: the
+/// in-process end of a socket pair the daemon's channel host pumps the
+/// session's plaintext through, and the identity the session proved. The
+/// socket is never accepted from a listener, so nothing outside this
+/// process can attach an identity to a connection.
+pub struct ChannelConnection {
+    pub stream: std::net::TcpStream,
+    pub peer: ChannelPeer,
+}
+
+type IngressSender = tokio::sync::mpsc::UnboundedSender<ChannelConnection>;
+
+fn ingress_slot() -> &'static std::sync::Mutex<Option<IngressSender>> {
+    static SLOT: std::sync::OnceLock<std::sync::Mutex<Option<IngressSender>>> =
+        std::sync::OnceLock::new();
+    SLOT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// Serve a peer-channel connection on the running Streamable HTTP surface.
+/// `Err` hands the connection back when no surface is running in this
+/// process.
+pub fn serve_channel_connection(conn: ChannelConnection) -> Result<(), ChannelConnection> {
+    let slot = ingress_slot().lock().unwrap_or_else(|e| e.into_inner());
+    match slot.as_ref() {
+        Some(tx) => tx.send(conn).map_err(|e| e.0),
+        None => Err(conn),
+    }
+}
+
 fn response(status: StatusCode, text: &'static str) -> Response<BoxBody> {
     let mut response = Response::new(Full::new(Bytes::from_static(text.as_bytes())).boxed());
     *response.status_mut() = status;
@@ -140,6 +173,23 @@ impl GmcpServer {
             let service = http_service(application);
             eprintln!("[GMCP] Streamable HTTP available at /mcp (alias /messages)");
 
+            // Peer-channel sessions: the first surface of this process to
+            // start (or the first after a previous one exited) serves them.
+            let (ingress_tx, mut ingress_rx) = tokio::sync::mpsc::unbounded_channel();
+            {
+                let mut slot = ingress_slot().lock().unwrap_or_else(|e| e.into_inner());
+                if slot.as_ref().is_none_or(|tx| tx.is_closed()) {
+                    *slot = Some(ingress_tx);
+                }
+            }
+            let channel_service = service.clone();
+            tokio::spawn(async move {
+                while let Some(conn) = ingress_rx.recv().await {
+                    let service = channel_service.clone();
+                    tokio::spawn(serve_channel(conn, service));
+                }
+            });
+
             // One accept loop per bound socket (loopback + external when the
             // bind address is a specific non-loopback IP).
             let mut accept_loops = Vec::new();
@@ -196,7 +246,7 @@ impl GmcpServer {
                                 return;
                             };
                             let svc = service_fn(move |req| {
-                                handle_request(req, service.clone(), peer_ip)
+                                handle_request(req, service.clone(), peer_ip, None)
                             });
                             if let Err(e) = http_conn::connection_builder()
                                 .serve_connection(TokioIo::new(io), svc)
@@ -212,6 +262,29 @@ impl GmcpServer {
                 let _ = accept_loop.await;
             }
         });
+    }
+}
+
+/// Serve one peer-channel connection: HTTP/1.1 over the in-process socket,
+/// every request authorized by the session's proven identity.
+async fn serve_channel(conn: ChannelConnection, service: HttpService) {
+    let ChannelConnection { stream, peer } = conn;
+    if stream.set_nonblocking(true).is_err() {
+        return;
+    }
+    let Ok(stream) = tokio::net::TcpStream::from_std(stream) else {
+        return;
+    };
+    let source = peer.link_source.ip();
+    let peer = Arc::new(peer);
+    let svc = service_fn(move |req| {
+        handle_request(req, service.clone(), source, Some(Arc::clone(&peer)))
+    });
+    if let Err(e) = http_conn::connection_builder()
+        .serve_connection(TokioIo::new(stream), svc)
+        .await
+    {
+        eprintln!("[GMCP] peer channel connection failed: {e}");
     }
 }
 
@@ -303,6 +376,7 @@ async fn handle_request(
     req: Request<Incoming>,
     mut service: HttpService,
     peer: std::net::IpAddr,
+    channel: Option<Arc<ChannelPeer>>,
 ) -> Result<Response<BoxBody>, Infallible> {
     let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
     // Origin before auth: a seeded api_auth_token must not turn a browser
@@ -398,6 +472,15 @@ async fn handle_request(
     } else {
         body_bytes.to_vec()
     };
+    // A peer-channel session terminates in this process: its requests are
+    // local to the MCP transport, whose Host allowlist (a browser
+    // DNS-rebinding defense; no browser reaches this path) then sees the
+    // loopback name rather than the caller's routing name for this node.
+    if channel.is_some() {
+        parts
+            .headers
+            .insert(hyper::header::HOST, HeaderValue::from_static("127.0.0.1"));
+    }
     let req = Request::from_parts(
         parts,
         http_body_util::Full::new(hyper::body::Bytes::from(effective.clone())),
@@ -407,16 +490,23 @@ async fn handle_request(
     } else if req.method() == Method::GET && req.uri().path() == "/health" {
         // Liveness is public on every contract port (README, "Host contract").
         response(StatusCode::OK, "ok")
-    } else if !crate::susi_core::net_guard::NetGuard::is_authorized(
-        req.headers()
-            .get(hyper::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok()),
-        peer,
-        &signed,
-        req.method().as_str(),
-        req.uri().path(),
-        Some(&effective),
-    ) {
+    } else if !match channel.as_deref() {
+        // A sealed peer-channel session: the identity its handshake proved
+        // is the credential (no bearer travels between machines).
+        Some(channel_peer) => {
+            crate::susi_core::net_guard::NetGuard::channel_authorized(channel_peer, &signed)
+        }
+        None => crate::susi_core::net_guard::NetGuard::is_authorized(
+            req.headers()
+                .get(hyper::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok()),
+            peer,
+            &signed,
+            req.method().as_str(),
+            req.uri().path(),
+            Some(&effective),
+        ),
+    } {
         response(StatusCode::UNAUTHORIZED, "Unauthorized")
     } else if !crate::susi_core::net_guard::RateLimiter::global().check_unless_local_host(
         req.headers()

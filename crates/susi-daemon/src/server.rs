@@ -408,15 +408,10 @@ impl SusiDaemon {
         let remote_note = if crate::tls::is_loopback(&bind) {
             String::new()
         } else {
-            let tls_only = crate::tls::remote_tls_required(&cfg);
+            let _ = crate::tls::remote_tls_required(&cfg);
             format!(
-                "\nRemote surface: http+https on {bind}:* (TLS auto-provisioned; {} remote \
-                 plaintext)",
-                if tls_only {
-                    "refuses"
-                } else {
-                    "allow_remote_plaintext permits"
-                }
+                "
+Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext                  refused; Susi machines use the sealed peer channel)"
             )
         };
         format!(
@@ -1540,7 +1535,7 @@ impl SusiDaemon {
         // auto-generated self-signed cert whenever the bind is reachable
         // off-host. Each listener sniffs the first byte per connection, so
         // plain HTTP (internal loopback callers) keeps working on the same
-        // port. Remote plaintext is dropped unless allow_remote_plaintext.
+        // port. Remote plaintext is always dropped.
         let tls_acceptor = crate::tls::endpoint_acceptor(bind_address, global_dir);
         let require_tls_remote = crate::tls::https_only()
             || (!crate::tls::is_loopback(bind_address) && tls_acceptor.is_none());
@@ -1720,6 +1715,12 @@ impl SusiDaemon {
                     Some(ctx.body),
                 )
             });
+        // The sealed peer channel: the one surface meant for other machines
+        // (its own port, `peer_channel_listen`), the uplinks to the hubs in
+        // `peer_channel_hubs.json`, and the hand-off of sessions that
+        // terminate here to the GMCP surface.
+        crate::peer_channel_host::start(cfg);
+
         let tls_a2a = tls_acceptor;
         let require_tls_a2a = require_tls_remote;
         crate::service_supervision::Supervisor::global().spawn("a2a-http", 5, None, move || {
@@ -2039,6 +2040,13 @@ impl SusiDaemon {
             // (`host_contract_udp_ready`); its pong never leaves the host.
             if !src.ip().to_canonical().is_loopback() && susi_core::mac_policy::host_only_in_force()
             {
+                continue;
+            }
+            // Discovery is zero-config for the local network only: a
+            // datagram from a public address is dropped unread, whatever the
+            // bind. Members on other networks join over the sealed peer
+            // channel (`docs/peer-channel.md`), never over UDP.
+            if !crate::peer_channel_host::is_lan_source(src.ip()) {
                 continue;
             }
             // Only the bound dialect (`SUSI_PING_SIG3`) is answered: its MAC
