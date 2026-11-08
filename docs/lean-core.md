@@ -86,14 +86,14 @@ threads). Baseline measured 2026-11-07 22:53 at origin/main `fc3f5a861`,
 **under load** (a test gate was running on the same machine; a clean re-run
 follows once the gate is idle):
 
-| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | 06:15 idle, landed `66d3ca6d8` | budget |
-|---------|----------|----------|----------|----------|--------|
-| wall clock | 196 s | 165 s | 104.5 s | 107.7 s (88.9 s in a second idle run) | 60 s |
-| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | 990.5 s (427 units) | under 1,200 s |
-| of which workspace crates | 393 s | 359 s | 184 s | 219 s | under 150 s |
-| of which third-party | 1,916 s | 1,513 s | 899 s | 772 s | under 1,000 s, then towards 0 |
-| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | 15 units, 125 s: windows-sys 27, tokio 13, h2/hyper/reqwest 17, rmcp 25, gmcp 15, daemon 11, bin 12 | under 55 s |
-| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | 40 s | under 15 s |
+| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | 06:15 idle, landed `66d3ca6d8` | 09:01 idle, landed `240ee4dfb` (iteration 362) | budget |
+| --------- | ---------- | ---------- | ---------- | ---------- | ---------- | -------- |
+| wall clock | 196 s | 165 s | 104.5 s | 107.7 s (88.9 s in a second idle run) | 81.7 s | 60 s |
+| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | 990.5 s (427 units) | 822.7 s (417 units) | under 1,200 s |
+| of which workspace crates | 393 s | 359 s | 184 s | 219 s | 148.4 s | under 150 s |
+| of which third-party | 1,916 s | 1,513 s | 899 s | 772 s | 674.2 s | under 1,000 s, then towards 0 |
+| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | 15 units, 125 s: windows-sys 27, tokio 13, h2/hyper/reqwest 17, rmcp 25, gmcp 15, daemon 11, bin 12 | 17 units, 95.1 s: windows-sys 19 s -> tokio 15.5 -> h2/hyper/hyper-util 8.8 -> susi-core 10.6 -> gawd-agents 4.4 -> gawd-swarm 7.6 -> gawd 8.1 -> daemon 6.0 -> bin 7.5 | under 55 s |
+| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | 40 s | 29.9 s | under 15 s |
 
 The idle number is the baseline the budget counts from. Between the two
 measurements Antigravity's iterations 341-350 removed candle, bollard and the
@@ -251,3 +251,13 @@ table once the clean baseline is recorded.
 - 2026-11-08 iteration 362 (Antigravity, adopted through the gate): the MCP SDK facade
   (`susi-vendor-mcp`, rmcp) replaced by a plane-bus plus std JSON-RPC client in susi-tools; the
   jsonschema facade crate deleted. Third-party 259, workspace 50, facade edges 23.
+- 2026-11-08 09:01 landed `240ee4dfb` (iteration 362 adopted) measured idle, nothing else on the
+  machine: 81.7 s wall, 822.7 rustc CPU-seconds, 417 units (from 88.9 s / 941 s / 427 at `66d3ca6d8`),
+  serial tail 29.9 s. The MCP client facade is gone from the path, but `rmcp` is still compiled
+  (13.8 CPU-s) through `susi-vendor-mcp-server`, the GMCP server side's SDK facade. The critical
+  path is now windows-sys 19 s -> tokio 15.5 -> h2/hyper/hyper-util 8.8 -> the pillar chain
+  (core 10.6, gawd-agents 4.4, gawd-swarm 7.6, gawd 8.1, daemon 6.0, bin 7.5). Heaviest by CPU:
+  syn 34, wasmparser 26, windows-sys 19, serde_core 16, tokio 15.5, rmcp 14, sha2 14, zerocopy 13.
+  Next levers in order: the MCP server facade (rung 2 std socket or destination-first), the
+  tokio/hyper stack (rung 2), windows-sys (the daemon's Win32 surface through `susi-vendor-winapi`
+  only), and syn (rung 3, derive-free serde).
