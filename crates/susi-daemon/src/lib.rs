@@ -78,6 +78,9 @@ mod estate_loop_unattended_tests;
 mod estate_autonomy_tiers_tests;
 
 #[cfg(test)]
+#[path = "tests/vc_201_065_mastery.rs"]
+mod vc_201_065_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_202_010_mastery.rs"]
 mod vc_202_010_mastery_tests;
 

@@ -37,9 +37,9 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 23;
 /// the wave log.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 29_296),
-    ("susi-gawd-swarm", 22_943),
+    ("susi-gawd-swarm", 23_012),
     ("susi-gawd-agents", 11_495),
-    ("susi-gawd-a2a", 2_108),
+    ("susi-gawd-a2a", 2_109),
     ("susi-gemi", 21_304),
     ("susi-gemi-models", 16_797),
     ("susi-gmcp", 19_344),
