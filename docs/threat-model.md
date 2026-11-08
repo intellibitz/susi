@@ -144,11 +144,17 @@ reached the socket, and the bearer is the operator's. In particular:
 | ephemeral | plane bus (`IpcPlaneBus`) | `127.0.0.1:0` per process | `X-Susi-Bus-Key` equal to `bus/secret` on every `/handle` and `/stream` request; 256 concurrent connections, 64 MiB body cap | none |
 
 All five contract ports and the leaf ports shift together under
-`port_offset` / `SUSI_PORT_OFFSET`; the daemon never picks a different
-layout on its own. When a canonical port is taken it logs the alternate the
-contract would pick and keeps retrying the canonical one
-(`zc_port_autoselect` is advisory only, `bind_tcp_canonical` never falls
-back to an ephemeral port).
+`port_offset` / `SUSI_PORT_OFFSET`; the layout never changes shape and never
+falls back to an ephemeral port. A pinned offset is bound exactly or the
+start refuses. With nothing pinned, a foreign holder of one of the six block
+ports (contract plus gossip) moves the whole block to the first free offset
+of 100 up to 2000 (`crates/susi-daemon/src/port_fallback.rs`); the daemon
+logs the holder and publishes the offset with its pid in `ports.json`.
+Clients trust that file only while its pid holds the instance's substrate
+lock, so a stale file left by a crashed daemon cannot redirect them, and
+only a process of the same user can write the config directory it lives in.
+The bearer token still guards every contract port, wherever the block
+lands.
 
 TLS on the contract ports (`crates/susi-daemon/src/tls.rs`,
 `susi_http_transport::dual_transport`):
