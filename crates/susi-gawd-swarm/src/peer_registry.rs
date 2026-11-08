@@ -82,7 +82,7 @@ pub fn persist_verified_peer_to(node: &ClusterPeerNode, path: &std::path::Path) 
             return;
         }
     };
-    let Ok(fresh) = serde_json::to_value(node) else {
+    let Ok(mut fresh) = serde_json::to_value(node) else {
         return;
     };
     let field = |row: &serde_json::Value, key: &str| {
@@ -99,6 +99,11 @@ pub fn persist_verified_peer_to(node: &ClusterPeerNode, path: &std::path::Path) 
         .iter_mut()
         .find(|row| field(row, "address").as_deref() == Some(node.address.as_str()))
     {
+        if node.pubkey.is_empty() && field(existing, "pubkey").is_some_and(|pk| !pk.is_empty()) {
+            for k in ["node_id", "pubkey", "key_bound_at", "bind_sig"] {
+                fresh[k] = existing[k].clone();
+            }
+        }
         *existing = fresh;
     } else {
         rows.push(fresh);
@@ -115,14 +120,8 @@ mod tests {
     use crate::amas::CapabilityBloom;
 
     fn temp_registry() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "susi_peers_{}_{}.json",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ))
+        let ns = std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos();
+        std::env::temp_dir().join(format!("susi_peers_{}_{ns}.json", std::process::id()))
     }
 
     fn node(addr: &str, admission: PeerAdmission) -> ClusterPeerNode {
@@ -191,14 +190,7 @@ mod tests {
     #[test]
     fn damaged_ban_list_fails_closed() {
         use crate::susi_config::cluster_key::{ban_row_matches, member_banned_at};
-        let dir = std::env::temp_dir().join(format!(
-            "susi_bans_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir = temp_registry();
         std::fs::create_dir_all(&dir).unwrap();
         let check = |id: &str, addr: &str| member_banned_at(&dir, |r| ban_row_matches(r, id, addr));
         // No ban list: nobody is banned.
@@ -241,10 +233,13 @@ mod tests {
         persist_verified_peer_to(&synthetic, &reg);
         let mut verified = node("192.168.1.20:9093", PeerAdmission::Explicit);
         verified.node_id = "susi-node-verified".to_string();
+        verified.pubkey = "aa".repeat(32);
+        verified.bind_sig = "bb".repeat(64);
         persist_verified_peer_to(&verified, &reg);
+        persist_verified_peer_to(&synthetic, &reg);
         let loaded = load_persisted_peers_from(&reg);
-        assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].node_id, "susi-node-verified");
+        assert_eq!(loaded[0].pubkey.len(), 64);
 
         let _ = std::fs::remove_file(&reg);
     }
