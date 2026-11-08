@@ -103,6 +103,7 @@ fn status_impl(json: bool, out: &mut String) -> Option<Value> {
             "daemon": daemon.as_ref().map(|d| serde_json::json!({
                 "pid": d.pid, "substrate_home": d.substrate_home,
             })),
+            "port_block": port_block_json(),
             "storage": disk_free(&susi_paths::SusiDirs::substrate_home())
                 .map(|(avail, total)| serde_json::json!({
                     "available_bytes": avail, "total_bytes": total,
@@ -282,6 +283,7 @@ fn status_impl(json: bool, out: &mut String) -> Option<Value> {
             fields.join(" · "),
             udp_port()
         );
+        let _ = writeln!(out, "ports:       {}", port_block_line());
     }
     if let Some((avail, total)) = disk_free(&susi_paths::SusiDirs::substrate_home()) {
         let _ = writeln!(
@@ -514,6 +516,51 @@ impl PeerView {
     }
 }
 
+/// The block this instance's host contract sits at: its offset, and whether
+/// the live daemon fell back to it from the configured block.
+fn port_block() -> (u16, Option<susi_paths::ports::LivePorts>) {
+    let offset = susi_config::SusiConfig::load_global()
+        .map(|c| c.port_offset())
+        .unwrap_or_else(|_| susi_paths::ports::env_port_offset());
+    let fallback = susi_paths::ports::live_daemon_ports()
+        .filter(|live| live.offset == offset && live.is_fallback());
+    (offset, fallback)
+}
+
+fn port_block_json() -> Value {
+    let (offset, fallback) = port_block();
+    serde_json::json!({
+        "offset": offset,
+        "fallback": fallback.is_some(),
+        "fallback_from": fallback.map_or(offset, |l| l.fallback_from),
+        "daemon_pid": fallback.map(|l| l.pid),
+    })
+}
+
+/// `susi os status` line for the port block.
+fn port_block_line() -> String {
+    let (offset, fallback) = port_block();
+    describe_port_block(offset, fallback)
+}
+
+fn describe_port_block(offset: u16, fallback: Option<susi_paths::ports::LivePorts>) -> String {
+    let block = format!(
+        "{}-{}, gossip {}",
+        susi_paths::ports::GMCP.saturating_add(offset),
+        susi_paths::ports::A2A_HTTP.saturating_add(offset),
+        susi_paths::ports::GOSSIP.saturating_add(offset)
+    );
+    match fallback {
+        Some(live) => format!(
+            "offset {offset} ({block}) — automatic fallback from offset {}: a port of that \
+             block was held by another process; pin a block with SUSI_PORT_OFFSET",
+            live.fallback_from
+        ),
+        None if offset == 0 => format!("offset 0 ({block}, canonical)"),
+        None => format!("offset {offset} ({block}, pinned)"),
+    }
+}
+
 /// Effective UDP discovery port (canonical base + `port_offset`).
 fn udp_port() -> u16 {
     susi_config::SusiConfig::load_global()
@@ -693,5 +740,32 @@ mod tests {
             last_seen_secs: now.saturating_sub(PEER_STALE_SECS + 5),
         };
         assert!(!stale_peer.fresh());
+    }
+
+    #[test]
+    fn port_block_line_says_canonical_pinned_or_fallback() {
+        assert_eq!(
+            describe_port_block(0, None),
+            "offset 0 (9090-9094, gossip 9095, canonical)"
+        );
+        assert_eq!(
+            describe_port_block(300, None),
+            "offset 300 (9390-9394, gossip 9395, pinned)"
+        );
+        let line = describe_port_block(
+            100,
+            Some(susi_paths::ports::LivePorts {
+                offset: 100,
+                fallback_from: 0,
+                pid: 9,
+            }),
+        );
+        assert!(
+            line.starts_with(
+                "offset 100 (9190-9194, gossip 9195) — automatic fallback from offset 0"
+            ),
+            "{line}"
+        );
+        assert!(line.contains("SUSI_PORT_OFFSET"), "{line}");
     }
 }

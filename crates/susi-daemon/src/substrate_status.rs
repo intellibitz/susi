@@ -78,6 +78,14 @@ fn collect(workspace: &Path, docker_sandbox_exec: bool) -> serde_json::Value {
                 "a2a_http": cfg.a2a_http_port(),
                 "offset": cfg.port_offset(),
             },
+            // The live daemon's published block (ports.json): its offset,
+            // and the configured one it fell back from when they differ.
+            "published": susi_paths::ports::live_daemon_ports().map(|live| serde_json::json!({
+                "offset": live.offset,
+                "fallback": live.is_fallback(),
+                "fallback_from": live.fallback_from,
+                "pid": live.pid,
+            })),
             "ready": tcp_ready && udp_ready,
             "tcp_ready": tcp_ready,
             "udp_ready": udp_ready,

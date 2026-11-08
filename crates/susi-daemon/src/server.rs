@@ -41,8 +41,6 @@ use susi_server::GemiServer;
 
 pub struct SusiDaemon;
 
-/// Bound on each boot-time "is this canonical port already taken?" probe.
-const PORT_ADVISORY_TIMEOUT: Duration = Duration::from_millis(100);
 /// The supervised one-shot that registers the providers the host contract
 /// answers with, right after the bind.
 const CONTRACT_PROVIDERS: &str = "contract-providers";
@@ -273,10 +271,15 @@ fn read_lock_record(lock_file_path: &Path) -> Option<String> {
         .or_else(|| fs::read_to_string(lock_record_path(lock_file_path)).ok())
 }
 
-/// Remove both the lock and its readable mirror.
+/// Remove both the lock and its readable mirror, and the `ports.json` its
+/// daemon published unless a live daemon wrote it: a stopped or crashed
+/// daemon must not keep claiming a port block.
 fn remove_lock_files(lock_file_path: &Path) {
     let _ = fs::remove_file(lock_file_path);
     let _ = fs::remove_file(lock_record_path(lock_file_path));
+    if let Some(dir) = lock_file_path.parent() {
+        susi_paths::zc_ports_file::PortsFile::remove_unless_live(dir);
+    }
 }
 
 impl SusiDaemon {
@@ -425,15 +428,23 @@ impl SusiDaemon {
             cfg.gmcp_http_port(),
             cfg.a2a_http_port(),
             remote_note,
-            if cfg.port_offset() == 0 {
-                String::new()
-            } else {
-                format!(
-                    "\nport_offset={} (canonical base 9090–9094)",
-                    cfg.port_offset()
-                )
-            }
+            Self::offset_note(cfg.port_offset(), susi_paths::ports::live_daemon_ports())
         )
+    }
+
+    /// The endpoint report's offset line: nothing for the canonical block,
+    /// the offset otherwise, and, when the live daemon fell back, that it
+    /// did and how to pin a block instead.
+    fn offset_note(offset: u16, live: Option<susi_paths::ports::LivePorts>) -> String {
+        match live.filter(|l| l.offset == offset && l.is_fallback()) {
+            Some(l) => format!(
+                "\nport_offset={offset} (automatic fallback: the configured block at offset {} \
+                 was held by another process; pin a block with SUSI_PORT_OFFSET)",
+                l.fallback_from
+            ),
+            None if offset == 0 => String::new(),
+            None => format!("\nport_offset={offset} (canonical base 9090–9094)"),
+        }
     }
 
     /// Locate the single host daemon, if running.
@@ -1075,6 +1086,9 @@ impl SusiDaemon {
             eprintln!("[SusiDaemon] Failed to write PID to lock file: {}", e);
             return;
         }
+        // The lock is ours, so any ports.json here is a dead daemon's: it
+        // must not feed this boot's offset resolution.
+        let _ = fs::remove_file(global_dir.join(susi_paths::zc_ports_file::FILE_NAME));
 
         // Lifecycle record: warn when the running binary is newer than
         // the one the previous start recorded — a long-running daemon on
@@ -1103,11 +1117,6 @@ impl SusiDaemon {
             let _ = std::fs::write(&lifecycle_path, text);
         }
 
-        let ctx = DaemonContext::new(lock);
-        if let Err(e) = ctx.setup_signal_handlers() {
-            eprintln!("[SusiDaemon] Signal handler setup failed: {}", e);
-        }
-
         // Mandate 42: config.json is user-editable and can be hand-corrupted
         // into invalid JSON; with `panic = "abort"` (Cargo.toml release
         // profile) a panic here would abort the whole daemon process, not
@@ -1121,6 +1130,60 @@ impl SusiDaemon {
                 return;
             }
         };
+        let bind_address = cfg
+            .get::<String>("bind_address")
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+
+        // The host port block (CEO decision 2026-11-08). A pinned offset is
+        // bound exactly. With none pinned, a foreign holder of one of the
+        // six ports (after the stale-susi reclaim) moves the whole block to
+        // the first free offset k*100. The choice is pinned into this
+        // process's environment before any worker thread or child exists,
+        // so every reader and every leaf service agrees on it, and it is
+        // published in ports.json once the contract is bound.
+        let pinned_offset = cfg.explicit_port_offset();
+        let fallback_from = pinned_offset.unwrap_or(0);
+        let offset = match crate::port_fallback::plan(
+            pinned_offset,
+            crate::port_fallback::bind_probe(&bind_address),
+            |port| Self::attempt_port_reclaim(port, &global_dir),
+        ) {
+            crate::port_fallback::Plan::Pinned(offset) => offset,
+            crate::port_fallback::Plan::Serve { offset, held } => {
+                if !held.is_empty() {
+                    let line = format!(
+                        "[SusiDaemon] {}; serving the host contract at offset {offset}: \
+                         ports {}. Pin a block with SUSI_PORT_OFFSET to choose it.",
+                        Self::describe_held_ports(&held),
+                        crate::port_fallback::describe_block(offset)
+                    );
+                    eprintln!("{line}");
+                    warn!("{line}");
+                }
+                offset
+            }
+            crate::port_fallback::Plan::Exhausted { held } => {
+                // Both channels: a spawned daemon's stderr is detached, so
+                // the audit log is where `susi start` sends the operator.
+                let line = format!(
+                    "[SusiDaemon] Fatal: {} and no block of 100 ports at offsets {}-{} is \
+                     free. Free the port, or pin a free block with SUSI_PORT_OFFSET=<offset> \
+                     and restart susi.",
+                    Self::describe_held_ports(&held),
+                    susi_paths::ports::FALLBACK_STEP,
+                    susi_paths::ports::FALLBACK_STEP * susi_paths::ports::FALLBACK_BLOCKS
+                );
+                eprintln!("{line}");
+                tracing::error!("{line}");
+                return;
+            }
+        };
+        susi_paths::ports::pin_process_offset(offset);
+
+        let ctx = DaemonContext::new(lock);
+        if let Err(e) = ctx.setup_signal_handlers() {
+            eprintln!("[SusiDaemon] Signal handler setup failed: {}", e);
+        }
         // Mandate: config may have been polluted by older "port randomization"
         // self-healing — always restore the public port contract before bind.
         Self::force_canonical_ports(&mut cfg);
@@ -1147,55 +1210,17 @@ impl SusiDaemon {
             crate::privacy::wire_mac_policy(&workspace)
         });
 
-        // Port advisory: when a canonical port is held by a foreign
-        // listener, surface the alternate the contract would pick so the
-        // conflict shows up in the log instead of a bare bind failure.
-        let canonical = [
-            ("gmcp", cfg.gmcp_port()),
-            ("gemi", cfg.gemi_port()),
-            ("udp-discovery", cfg.udp_discovery_port()),
-            ("gmcp-http", cfg.gmcp_http_port()),
-            ("a2a-http", cfg.a2a_http_port()),
-        ];
-        let occupied = phase("daemon: port advisory", || {
-            Self::occupied_ports(canonical.iter().map(|(_, port)| *port))
-        });
-        if !occupied.is_empty() {
-            let services: Vec<(String, u16)> = canonical
-                .iter()
-                .map(|(name, port)| (name.to_string(), *port))
-                .collect();
-            let picks = crate::zc_port_autoselect::autoselect_ports(&services, &occupied);
-            for pick in &picks {
-                warn!(
-                    "[SusiDaemon] canonical port busy: {} would autoselect {} -> {}",
-                    pick.service,
-                    canonical
-                        .iter()
-                        .find(|(n, _)| n == &pick.service.as_str())
-                        .map(|(_, p)| *p)
-                        .unwrap_or_default(),
-                    pick.port
-                );
-            }
-        }
-
         // Boot key health + zero-config scorecard — what still needs
         // attention is reported, not silently skipped.
         phase("daemon: key health + zc score", || {
             Self::report_key_health_and_score(&global_dir)
         });
 
-        let bind_address = crate::susi_sandbox::manager::SusiConfig::load_global()
-            .unwrap_or_default()
-            .get("bind_address")
-            .unwrap_or_else(|| "127.0.0.1".to_string());
-
         // The host contract, as early as the boot allows: `susi start`
         // waits on exactly these sockets, and every worker below is
         // substrate work the contract must never wait on.
         phase("daemon: host contract bind + serve", || {
-            Self::serve_host_contract(&cfg, &global_dir, &workspace, &bind_address)
+            Self::serve_host_contract(&cfg, &global_dir, &workspace, &bind_address, fallback_from)
         });
         info!(
             "[SusiDaemon] host contract up {:.1}s after daemon start",
@@ -1229,7 +1254,7 @@ impl SusiDaemon {
             crate::supervisor::start(Arc::clone(&ctx.shutdown_signal))
         });
         if ctx.is_shutdown_requested() {
-            Self::shutdown_children();
+            Self::shutdown_children(&global_dir);
             return;
         }
 
@@ -1386,11 +1411,13 @@ impl SusiDaemon {
             );
         }
 
-        Self::shutdown_children();
+        Self::shutdown_children(&global_dir);
     }
 
-    fn shutdown_children() {
+    fn shutdown_children(global_dir: &Path) {
         eprintln!("[SusiDaemon] Graceful shutdown initiated");
+        // A stopped daemon publishes no port block.
+        susi_paths::zc_ports_file::PortsFile::remove_if_written_by(global_dir, std::process::id());
         // Swarm Cells are the daemon's children; never orphan them.
         let stopped = crate::auto_discovery::stop_all_cells();
         if stopped > 0 {
@@ -1403,22 +1430,38 @@ impl SusiDaemon {
         let _ = crate::service_supervision::Supervisor::global().join("leaf-service-monitor");
     }
 
-    /// Canonical ports that already accept a loopback connection. Bounded
-    /// per probe: on Windows a connect to a free (closed) loopback port is
-    /// only refused after ~2 s of SYN retries, so an unbounded connect cost
-    /// the boot ~10 s for five ports that were simply free. A listener on
-    /// loopback accepts within microseconds, well inside the bound.
-    fn occupied_ports(ports: impl IntoIterator<Item = u16>) -> std::collections::BTreeSet<u16> {
-        ports
-            .into_iter()
-            .filter(|port| {
-                TcpStream::connect_timeout(
-                    &std::net::SocketAddr::from(([127, 0, 0, 1], *port)),
-                    PORT_ADVISORY_TIMEOUT,
+    /// `canonical port 9090 (GMCP/MCP HTTP, tcp) held by pid 4242
+    /// (prometheus.exe)` for each held port, joined. The holder is named
+    /// when the OS can say who it is.
+    fn describe_held_ports(held: &[(u16, crate::port_fallback::Proto)]) -> String {
+        held.iter()
+            .map(|(port, proto)| {
+                let holders: Vec<String> = Self::port_owner_candidates(*port)
+                    .into_iter()
+                    .map(|pid| {
+                        let image =
+                            crate::susi_config::process_probe::exe_path(pid).and_then(|exe| {
+                                exe.file_name().map(|n| n.to_string_lossy().into_owned())
+                            });
+                        match image {
+                            Some(image) => format!("pid {pid} ({image})"),
+                            None => format!("pid {pid}"),
+                        }
+                    })
+                    .collect();
+                format!(
+                    "canonical port {port} ({}, {}) held by {}",
+                    crate::port_fallback::label(*port),
+                    proto.label(),
+                    if holders.is_empty() {
+                        "another process".to_string()
+                    } else {
+                        holders.join(", ")
+                    }
                 )
-                .is_ok()
             })
-            .collect()
+            .collect::<Vec<_>>()
+            .join("; ")
     }
 
     /// Boot key health + zero-config scorecard — what still needs
@@ -1478,14 +1521,16 @@ impl SusiDaemon {
         }
     }
 
-    /// Bind the host contract — 9090–9094 (plus any `port_offset`) — and
-    /// start its supervised server workers. Canonical public ports only:
-    /// never an ephemeral fallback.
+    /// Bind the host contract — 9090–9094 plus the uniform offset decided at
+    /// boot — publish it in `ports.json`, and start its supervised server
+    /// workers. Never an ephemeral or per-port alternative.
+    /// `fallback_from` is the offset the daemon was configured for.
     fn serve_host_contract(
         cfg: &SusiConfig,
         global_dir: &Path,
         workspace: &Path,
         bind_address: &str,
+        fallback_from: u16,
     ) {
         // TLS for the public endpoints: configured cert/key, or an
         // auto-generated self-signed cert whenever the bind is reachable
@@ -1511,6 +1556,23 @@ impl SusiDaemon {
         let a2a_http = Self::bind_tcp_canonical(a2a_port, "A2A HTTP", global_dir, bind_address);
         let udp_socket =
             Self::bind_udp_canonical(udp_port, "A2A UDP discovery", global_dir, bind_address);
+
+        // Bound: tell every client where. `susi start`, the CLI and the
+        // desktop resolve the offset from this file while this daemon holds
+        // its lock; it goes away on a clean stop.
+        let published = susi_paths::zc_ports_file::PortsFile::for_daemon(
+            global_dir.to_path_buf(),
+            cfg.port_offset(),
+            fallback_from,
+            std::process::id(),
+            tls_acceptor.is_some(),
+        );
+        if let Err(error) = published.write_to_home() {
+            warn!(
+                "[SusiDaemon] could not publish {}: {error}",
+                published.path.display()
+            );
+        }
 
         let (scheme, transport) = if tls_acceptor.is_some() {
             // Both are live on every socket — first-byte sniff picks per
@@ -1692,8 +1754,9 @@ impl SusiDaemon {
         }
     }
 
-    /// Bind a TCP port that external clients hard-code. Reclaims stale susi
-    /// holders; never randomizes — exit if a foreign process owns the port.
+    /// Bind a TCP port of the block decided at boot. Reclaims stale susi
+    /// holders; never randomizes — exit if a foreign process owns the port
+    /// (a pinned offset, or a port taken between the boot probe and here).
     ///
     /// Returns every socket to serve: a specific non-loopback `bind_address`
     /// would strand internal callers dialing 127.0.0.1, so loopback is always
@@ -1704,13 +1767,7 @@ impl SusiDaemon {
         global_dir: &Path,
         bind_address: &str,
     ) -> Vec<std::net::TcpListener> {
-        let wildcard = matches!(bind_address, "0.0.0.0" | "::");
-        let mut addrs = Vec::new();
-        if !wildcard && !crate::tls::is_loopback(bind_address) {
-            addrs.push(format!("127.0.0.1:{port}"));
-        }
-        addrs.push(format!("{bind_address}:{port}"));
-        addrs
+        crate::port_fallback::tcp_bind_addrs(bind_address, port)
             .iter()
             .map(|addr| Self::bind_tcp_with_retry(port, name, global_dir, addr))
             .collect()
@@ -1740,8 +1797,8 @@ impl SusiDaemon {
         }
         eprintln!(
             "[SusiDaemon] Fatal: canonical port {} ({}) is unavailable.\n\
-             External clients trust {} — free the port (or stop the foreign process) and restart susi.\n\
-             Port randomization is disabled by contract.",
+             External clients trust {} — free the port (or stop the foreign process) and restart susi,\n\
+             or pin a free block with SUSI_PORT_OFFSET. Port randomization is disabled by contract.",
             port, name, addr
         );
         std::process::exit(1);
@@ -1772,7 +1829,8 @@ impl SusiDaemon {
         }
         eprintln!(
             "[SusiDaemon] Fatal: canonical UDP port {} ({}) is unavailable.\n\
-             External clients trust {}:{} — free the port and restart susi.",
+             External clients trust {}:{} — free the port and restart susi, or pin a free \
+             block with SUSI_PORT_OFFSET.",
             port, name, bind_address, port
         );
         std::process::exit(1);
@@ -2155,6 +2213,8 @@ impl SusiDaemon {
         let Some(content) = read_lock_record(&global_lock) else {
             return false;
         };
+        // The block the daemon serves, read while it still publishes it.
+        let contract_ports = Self::host_contract_tcp_ports();
         let pid = content
             .lines()
             .next()
@@ -2166,7 +2226,7 @@ impl SusiDaemon {
             .filter(|pid| Self::process_alive(*pid))
             .into_iter()
             .collect();
-        let _ = Self::stop_and_wait(&pids);
+        let _ = Self::stop_and_wait(&pids, contract_ports);
         // Keep the lock while its process survives: it still names the daemon
         // holding the ports, and deleting it would hide a live instance.
         if pid.is_none_or(|pid| !Self::process_alive(pid)) {
@@ -2225,6 +2285,10 @@ impl SusiDaemon {
 
         let own_pid = std::process::id();
         let mut pids: Vec<u32> = Vec::new();
+        // The block this instance serves, read once while its daemon still
+        // publishes it: once the daemon is gone the resolver falls back to
+        // the canonical block, which a foreign process may legitimately hold.
+        let contract_ports = Self::host_contract_tcp_ports();
 
         // 2. Lock-file path — the common case.
         let global_lock = Self::get_lock_file(global_dir);
@@ -2258,14 +2322,14 @@ impl SusiDaemon {
         // 4. Whoever still listens on a contract port and is a SUSI process:
         // the lock is gone (or names a dead pid) while a leaf/daemon child
         // keeps 919x bound. A foreign process on the port is never killed.
-        for pid in Self::susi_port_holders(&Self::host_contract_tcp_ports()) {
+        for pid in Self::susi_port_holders(&contract_ports) {
             if pid != own_pid && !pids.contains(&pid) {
                 pids.push(pid);
             }
         }
 
         let signalled = pids.len();
-        let released = Self::stop_and_wait(&pids);
+        let released = Self::stop_and_wait(&pids, contract_ports);
 
         // The lock names a daemon only while that daemon lives; remove it
         // once (and only once) the recorded pid is gone.
@@ -2279,16 +2343,17 @@ impl SusiDaemon {
         }
     }
 
-    /// Bounded stop loop for the current instance's processes and ports.
-    fn stop_and_wait(pids: &[u32]) -> bool {
+    /// Bounded stop loop for the current instance's processes and the
+    /// contract ports they served (`ports`, fixed before the first signal).
+    fn stop_and_wait(pids: &[u32], ports: [u16; 4]) -> bool {
         Self::await_stop(
             pids,
             Self::STOP_DEADLINE,
             Self::STOP_ESCALATE_AFTER,
             Self::process_alive,
             Self::signal_tree,
-            || !Self::host_contract_tcp_ready(),
-            || Self::susi_port_holders(&Self::host_contract_tcp_ports()),
+            || !Self::tcp_ports_listening(&ports),
+            || Self::susi_port_holders(&ports),
         )
     }
 
@@ -2582,26 +2647,24 @@ mod tests {
         assert!(after(pipeline, bootstrap, "prime_catalogs(&substrate)") > end);
     }
 
-    /// The pre-bind port advisory is bounded: a free canonical port (on
-    /// Windows refused only after ~2 s of SYN retries) must not stall the
-    /// boot, and a listening one is still reported.
     #[test]
-    fn port_advisory_is_bounded_and_sees_listeners() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let busy = listener.local_addr().unwrap().port();
-        let free = std::net::TcpListener::bind("127.0.0.1:0")
-            .and_then(|l| l.local_addr())
-            .map(|a| a.port())
-            .unwrap();
-        let started = Instant::now();
-        let occupied = SusiDaemon::occupied_ports([busy, free]);
-        assert!(occupied.contains(&busy));
-        assert!(!occupied.contains(&free));
+    fn endpoint_report_names_a_fallback_and_how_to_pin() {
+        assert_eq!(SusiDaemon::offset_note(0, None), "");
+        assert!(SusiDaemon::offset_note(300, None).contains("port_offset=300 (canonical base"));
+        let fallback = susi_paths::ports::LivePorts {
+            offset: 100,
+            fallback_from: 0,
+            pid: 7,
+        };
+        let note = SusiDaemon::offset_note(100, Some(fallback));
         assert!(
-            started.elapsed() < Duration::from_secs(1),
-            "advisory took {:?}",
-            started.elapsed()
+            note.contains("port_offset=100 (automatic fallback"),
+            "{note}"
         );
+        assert!(note.contains("SUSI_PORT_OFFSET"), "{note}");
+        // A pinned env offset that differs from the published block is not
+        // reported as the daemon's fallback.
+        assert!(!SusiDaemon::offset_note(500, Some(fallback)).contains("fallback"));
     }
 
     #[test]
