@@ -63,22 +63,29 @@ fn block_free(offset: u16) -> bool {
     })
 }
 
-/// Three free blocks at offsets of 500 and up.
-fn free_offsets() -> [u16; 3] {
-    let mut found = Vec::new();
-    let mut offset = 500u16;
-    while found.len() < 3 && offset <= 1900 {
-        if block_free(offset) {
-            found.push(offset);
-        }
-        offset += 100;
-    }
+/// Free contract blocks at offsets of 500 and up (to 1900), `n` of them,
+/// skipping `taken`. The scan starts at a per-process point so concurrent
+/// test processes rarely probe the same block first.
+fn free_blocks(n: usize, taken: &[u16]) -> Vec<u16> {
+    let slots: Vec<u16> = (5..=19u16).map(|k| k * 100).collect();
+    let start = (std::process::id() as usize) % slots.len();
+    let found: Vec<u16> = (0..slots.len())
+        .map(|i| slots[(start + i) % slots.len()])
+        .filter(|o| !taken.contains(o) && block_free(*o))
+        .take(n)
+        .collect();
     assert_eq!(
         found.len(),
-        3,
-        "no three free port blocks between offsets 500 and 1900"
+        n,
+        "no {n} free port blocks between offsets 500 and 1900"
     );
-    [found[0], found[1], found[2]]
+    found
+}
+
+/// Three free blocks at offsets of 500 and up.
+fn free_offsets() -> [u16; 3] {
+    let b = free_blocks(3, &[]);
+    [b[0], b[1], b[2]]
 }
 
 /// This host's routed non-loopback IPv4 address (UDP `connect` sends
@@ -250,16 +257,23 @@ fn start_daemon(node: &Node, extra_env: &[(&str, &Path)]) -> Daemon {
 }
 
 /// Wait until `daemon` has published its ports (its listeners follow).
-fn wait_published(node: &Node, daemon: &mut Daemon) {
+/// `Err` when it refused to start because another process took one of its
+/// ports between the probe and the bind (the contract never moves a pinned
+/// block); any other early exit fails the test.
+fn wait_published(node: &Node, daemon: &mut Daemon) -> Result<(), ()> {
     let pid = daemon.child.id();
     let ports_file = node.instance.join("ports.json");
     let deadline = Instant::now() + Duration::from_secs(180);
     loop {
         if let Some(status) = daemon.child.try_wait().unwrap() {
+            let log = daemon.log();
+            if log.contains("is unavailable") {
+                return Err(());
+            }
             panic!(
-                "{} exited early ({status}); log:\n{}",
-                node.name,
-                daemon.log()
+                "{} exited early ({status}); log:
+{log}",
+                node.name
             );
         }
         let published = std::fs::read_to_string(&ports_file)
@@ -267,16 +281,43 @@ fn wait_published(node: &Node, daemon: &mut Daemon) {
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
             .is_some_and(|v| v["pid"].as_u64() == Some(u64::from(pid)));
         if published {
-            return;
+            return Ok(());
         }
         assert!(
             Instant::now() < deadline,
-            "{}: no ports.json from pid {pid} within 180 s; log:\n{}",
+            "{}: no ports.json from pid {pid} within 180 s; log:
+{}",
             node.name,
             daemon.log()
         );
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+/// Start every node's daemon at once and wait for each; a node whose block
+/// another process took in the meantime moves to the next free block and
+/// starts again (at most three times).
+fn boot(nodes: &mut [&mut Node], extra_env: &[(&str, &Path)]) -> Vec<Daemon> {
+    let mut daemons: Vec<Daemon> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| start_daemon(n, if i == 0 { extra_env } else { &[] }))
+        .collect();
+    for (i, node) in nodes.iter_mut().enumerate() {
+        let mut tries = 0;
+        while wait_published(node, &mut daemons[i]).is_err() {
+            tries += 1;
+            assert!(
+                tries <= 3,
+                "{}: no free port block after 3 tries",
+                node.name
+            );
+            let taken: Vec<u16> = std::iter::once(node.offset).collect();
+            node.offset = free_blocks(1, &taken)[0];
+            daemons[i] = start_daemon(node, if i == 0 { extra_env } else { &[] });
+        }
+    }
+    daemons
 }
 
 /// Bytes a recording forwarder saw, per direction, over every connection.
@@ -528,9 +569,9 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
             .unwrap_or(0)
     ));
     let [oh, oa, ob] = free_offsets();
-    let hub = make_node(&root, "hub", oh, 0x11, CLUSTER_KEY);
-    let a = make_node(&root, "a", oa, 0x22, CLUSTER_KEY);
-    let b = make_node(&root, "b", ob, 0x33, CLUSTER_KEY);
+    let mut hub = make_node(&root, "hub", oh, 0x11, CLUSTER_KEY);
+    let mut a = make_node(&root, "a", oa, 0x22, CLUSTER_KEY);
+    let mut b = make_node(&root, "b", ob, 0x33, CLUSTER_KEY);
     // Identities that are not members: an unbound cluster-key holder, and a
     // host with a different cluster key.
     let stranger = make_node(&root, "c", oa, 0x44, CLUSTER_KEY);
@@ -589,12 +630,15 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     );
 
     let relay_trace = root.join("hub-relay-trace.bin");
-    let mut hub_d = start_daemon(&hub, &[("SUSI_CHANNEL_RELAY_TRACE", relay_trace.as_path())]);
-    let mut a_d = start_daemon(&a, &[]);
-    let mut b_d = start_daemon(&b, &[]);
-    wait_published(&hub, &mut hub_d);
-    wait_published(&a, &mut a_d);
-    wait_published(&b, &mut b_d);
+    let mut daemons = boot(
+        &mut [&mut hub, &mut a, &mut b],
+        &[("SUSI_CHANNEL_RELAY_TRACE", relay_trace.as_path())],
+    )
+    .into_iter();
+    let (Some(hub_d), Some(a_d), Some(b_d)) = (daemons.next(), daemons.next(), daemons.next())
+    else {
+        panic!("three daemons booted");
+    };
 
     // Member to hub, member to member (relayed), hub to member (over the
     // member's outbound uplink): each answered by the destination's GMCP
@@ -884,9 +928,9 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             .unwrap_or(0)
     ));
     let [oh, oa, ob] = free_offsets();
-    let hub = make_node(&root, "jhub", oh, 0x71, CLUSTER_KEY);
-    let a = make_node(&root, "ja", oa, 0x72, CLUSTER_KEY);
-    let b = make_node(&root, "jb", ob, 0x73, CLUSTER_KEY);
+    let mut hub = make_node(&root, "jhub", oh, 0x71, CLUSTER_KEY);
+    let mut a = make_node(&root, "ja", oa, 0x72, CLUSTER_KEY);
+    let mut b = make_node(&root, "jb", ob, 0x73, CLUSTER_KEY);
     let channel = SocketAddr::from(([127, 0, 0, 1], free_port()));
     // The hub's "public address": the forwarder on this host's routed
     // address, so no roster ever lists the hub under a loopback address
@@ -902,12 +946,11 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             &serde_json::json!({"bind_address": "127.0.0.1"}),
         );
     }
-    let mut hub_d = start_daemon(&hub, &[]);
-    let mut a_d = start_daemon(&a, &[]);
-    let mut b_d = start_daemon(&b, &[]);
-    wait_published(&hub, &mut hub_d);
-    wait_published(&a, &mut a_d);
-    wait_published(&b, &mut b_d);
+    let mut daemons = boot(&mut [&mut hub, &mut a, &mut b], &[]).into_iter();
+    let (Some(hub_d), Some(a_d), Some(b_d)) = (daemons.next(), daemons.next(), daemons.next())
+    else {
+        panic!("three daemons booted");
+    };
 
     let endpoint = forward.to_string();
     let limit = Duration::from_secs(150);
