@@ -3400,17 +3400,24 @@ fn remove_candidate(root: &Path, candidate: &Path) {
 }
 
 /// Recreate the slot's `candidate` worktree at `base` and merge every source
-/// into it, in order.
+/// into it, in order. Both check files out as committed
+/// (`gate_receipt::CHECKOUT_AS_COMMITTED`), so the gate tests the bytes its
+/// receipt names whatever the host's `core.autocrlf` says.
 fn merge_onto(root: &Path, candidate: &Path, base: &str, inputs: &[SourceInput]) -> Result<()> {
     if !valid_oid(base) {
         return Err("ship base is not a commit oid".into());
     }
     clear_candidate(root, candidate)?;
+    let [c1, autocrlf, c2, eol] = gate_receipt::CHECKOUT_AS_COMMITTED;
     git(
         root,
         &[
             "-c",
             "core.hooksPath=",
+            c1,
+            autocrlf,
+            c2,
+            eol,
             "worktree",
             "add",
             "--detach",
@@ -3424,6 +3431,10 @@ fn merge_onto(root: &Path, candidate: &Path, base: &str, inputs: &[SourceInput])
             &[
                 "-c",
                 "core.hooksPath=",
+                c1,
+                autocrlf,
+                c2,
+                eol,
                 "-c",
                 "user.name=Susi Local Integration",
                 "-c",
@@ -6654,6 +6665,26 @@ mod tests {
     /// `.agents/receipts/<verified head>.json`, recorded at
     /// `refs/susi/receipts/<verified head>`; without that record nothing is
     /// published (`ship --retry` included).
+    /// The gate verifies the bytes its receipt names: a host whose Git
+    /// converts line endings on checkout (`core.autocrlf=true`, the Git for
+    /// Windows default) still gets the committed LF in its candidate.
+    #[test]
+    fn the_gate_candidate_holds_the_committed_bytes_under_autocrlf() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        worker(&repo, "one", "spec.mdx", "one\ntwo\n");
+        git(&repo, &["config", "core.autocrlf", "true"]).unwrap();
+        let mut remote = FakeRemote::single(base);
+        let mut seen = Vec::new();
+        ship(&repo, &["one"], &mut remote, |candidate, _attempt| {
+            seen = fs::read(candidate.join("spec.mdx"))?;
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        assert_eq!(seen, b"one\ntwo\n");
+    }
+
     #[test]
     fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
         let (_scratch, repo, base) = ship_fixture("one");
