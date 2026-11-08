@@ -305,6 +305,10 @@ mod inline_tests {
 
     #[test]
     fn record_outcomes_returns_probe_count_and_partial_verified_fraction_is_exact() {
+        // `record_outcome` persists to whatever `SUSI_BRAIN_EVIDENCE_FILE`
+        // a concurrent test has set; without the lock it overwrote the
+        // brain backup test's corrupted file and `.bak` mid-recovery.
+        let _env = crate::engines::env_test_lock();
         let report = probe_with("half-provider", &|prompt| {
             if prompt.contains("OK") {
                 Ok("OK".to_string())

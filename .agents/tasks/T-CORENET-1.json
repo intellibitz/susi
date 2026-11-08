@@ -33,6 +33,7 @@
     "crates/susi-gemi/src/engines/candle_provider.rs",
     "crates/susi-gemi/src/engines/http_provider.rs",
     "crates/susi-gemi/src/provider_contract.rs",
+    "crates/susi-gemi/src/scout_probe.rs",
     "crates/susi-gemi/src/tests/vc_202_001_mastery.rs",
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
@@ -60,6 +61,7 @@
     "crates/susi-gemi/src/engines/candle_provider.rs",
     "crates/susi-gemi/src/engines/http_provider.rs",
     "crates/susi-gemi/src/provider_contract.rs",
+    "crates/susi-gemi/src/scout_probe.rs",
     "crates/susi-gemi/src/tests/vc_202_001_mastery.rs",
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
