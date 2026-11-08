@@ -280,6 +280,12 @@ mod tests {
 
     #[test]
     fn is_self_matches_wire_node_id_even_on_remote_ip() {
+        // `wire_node_id` is read twice (here and inside `is_self`) from the
+        // substrate the process environment names; sibling tests swap HOME
+        // under this lock, so hold it or the two reads can name two homes.
+        let _env = crate::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let local_id = susi_config::cluster_key::wire_node_id();
         let remote_ip: std::net::IpAddr = "198.51.100.42".parse().unwrap();
         assert!(is_self(remote_ip, &local_id));

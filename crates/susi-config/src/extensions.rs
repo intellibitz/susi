@@ -1548,3 +1548,7 @@ pub fn validate_report(root: &Path) -> Result<serde_json::Value, String> {
         "artifacts_sha256": artifacts,
     }))
 }
+
+#[cfg(test)]
+#[path = "tests/extensions_state_lock.rs"]
+mod extensions_state_lock_tests;

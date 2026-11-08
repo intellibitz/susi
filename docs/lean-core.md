@@ -272,3 +272,9 @@ table once the clean baseline is recorded.
   count, and every pin is re-based at the measured shipped value (gawd 29,296, gawd-swarm
   22,943, gawd-agents 11,495, gawd-a2a 2,108, gemi 21,304, gemi-models 16,797, gmcp 19,344,
   harness 40,790); gmcp and gemi-models carry the plug ports and the bounded ladder test.
+- 2026-11-08 13:05 (T-CORETESTS-1): 35 test suites whose only subject is core came back from the
+  commercial copies (23 GAWD swarm suites, the member-identity ledger, the gated dev workflow,
+  the installers, the A2A executor and the extensions state lock; the CEO chose the return over
+  a copy of the swarm in the paid suite). They live in `src/tests/` and `src/mastery_tests/`
+  as before and are excluded from the shipped-line measure; only their `#[cfg(test)] #[path]`
+  declarations count: susi-gawd-swarm 22,943 -> 23,012, susi-gawd-a2a 2,108 -> 2,109.
