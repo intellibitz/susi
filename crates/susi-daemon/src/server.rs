@@ -1163,7 +1163,9 @@ impl SusiDaemon {
                 offset
             }
             crate::port_fallback::Plan::Exhausted { held } => {
-                eprintln!(
+                // Both channels: a spawned daemon's stderr is detached, so
+                // the audit log is where `susi start` sends the operator.
+                let line = format!(
                     "[SusiDaemon] Fatal: {} and no block of 100 ports at offsets {}-{} is \
                      free. Free the port, or pin a free block with SUSI_PORT_OFFSET=<offset> \
                      and restart susi.",
@@ -1171,6 +1173,8 @@ impl SusiDaemon {
                     susi_paths::ports::FALLBACK_STEP,
                     susi_paths::ports::FALLBACK_STEP * susi_paths::ports::FALLBACK_BLOCKS
                 );
+                eprintln!("{line}");
+                tracing::error!("{line}");
                 return;
             }
         };
