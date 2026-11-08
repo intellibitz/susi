@@ -1,0 +1,1225 @@
+{
+  "digest": "8e57ad89358dcb263e351e54e0080b4fc11e5edccc856e975512f86723cd0312",
+  "gates": [
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "binaries": [],
+      "elapsed_ms": 5662,
+      "exit_code": 0,
+      "id": "format",
+      "isolated_target_dir": false,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "deny",
+        "--offline",
+        "--locked",
+        "check",
+        "licenses"
+      ],
+      "binaries": [],
+      "elapsed_ms": 1405,
+      "exit_code": 0,
+      "id": "licenses",
+      "isolated_target_dir": false,
+      "log_sha256": "71dadc8c8978da797b94dc581b666330c737551839c8fc820d7647130930c4b7",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "susi",
+        "-p",
+        "xtask",
+        "--all-targets",
+        "--offline",
+        "--locked",
+        "--target",
+        "x86_64-pc-windows-msvc",
+        "--features",
+        "xtask/release-tooling",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "binaries": [],
+      "elapsed_ms": 30486,
+      "exit_code": 0,
+      "id": "clippy",
+      "isolated_target_dir": true,
+      "log_sha256": "b6610cc4ec3860891d8f575e34cf018bc3594fb75702c2b621485dbe448e2562",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "susi",
+        "-p",
+        "xtask",
+        "--offline",
+        "--locked",
+        "--target",
+        "x86_64-pc-windows-msvc",
+        "--features",
+        "xtask/release-tooling"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 12
+          },
+          "name": "park_primary",
+          "source": "tests\\park_primary.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 87
+          },
+          "name": "gmcp_requirements",
+          "source": "tests\\gmcp_requirements.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "release_only_branch",
+          "source": "tests\\release_only_branch.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "tasks_cli",
+          "source": "tests\\tasks_cli.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 16
+          },
+          "name": "workflow_check",
+          "source": "tests\\workflow_check.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "worker_identity",
+          "source": "tests\\worker_identity.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "agent_bootstrap",
+          "source": "tests\\agent_bootstrap.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "worktree_hygiene",
+          "source": "tests\\worktree_hygiene.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "zc_workflow_fix",
+          "source": "tests\\zc_workflow_fix.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 2,
+            "passed": 84
+          },
+          "name": "local_release",
+          "source": "unittests src\\bin\\local-release.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 1,
+            "passed": 21
+          },
+          "name": "worktree_target_dir",
+          "source": "tests\\worktree_target_dir.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "zc_hooks_on_clone",
+          "source": "tests\\zc_hooks_on_clone.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "capability_bus",
+          "source": "tests\\capability_bus.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "installed_upgrade",
+          "source": "unittests src\\bin\\installed-upgrade.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "release_e2e_checks",
+          "source": "tests\\release_e2e_checks.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "extensions_state_race",
+          "source": "tests\\extensions_state_race.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 56
+          },
+          "name": "xtask",
+          "source": "unittests src\\main.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "branch_test_handoff",
+          "source": "tests\\branch_test_handoff.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "windows_runtime_lifecycle",
+          "source": "tests\\windows_runtime_lifecycle.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 13
+          },
+          "name": "installed_windows_entry",
+          "source": "tests\\installed_windows_entry.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_079_cli_verify",
+          "source": "tests\\vc_201_079_cli_verify.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "mac_grant_persistence",
+          "source": "tests\\mac_grant_persistence.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "vc_201_051_checks_run_from_a_command",
+          "source": "tests\\vc_201_051_checks_run_from_a_command.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 13
+          },
+          "name": "lazy_catalog_priming",
+          "source": "tests\\lazy_catalog_priming.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "os_ucrt_boundary",
+          "source": "tests\\os_ucrt_boundary.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 27
+          },
+          "name": "local_channel",
+          "source": "unittests src\\bin\\local-channel.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "gmcp_roadmap",
+          "source": "tests\\gmcp_roadmap.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "top_cli_tests",
+          "source": "tests\\top_cli_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "hermetic_cleanup",
+          "source": "tests\\hermetic_cleanup.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "crown_verify_tests",
+          "source": "tests\\crown_verify_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "local_channels",
+          "source": "tests\\local_channels.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "mcp_call_cli_tests",
+          "source": "tests\\mcp_call_cli_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 3,
+            "passed": 115
+          },
+          "name": "susi",
+          "source": "unittests src\\main.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 2,
+            "passed": 5
+          },
+          "name": "zc_matrix",
+          "source": "tests\\zc_matrix.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "thin_client_invariant",
+          "source": "tests\\thin_client_invariant.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "compiler_binding",
+          "source": "tests\\compiler_binding.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "orphan_sources",
+          "source": "tests\\orphan_sources.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "first_goal_opening",
+          "source": "tests\\first_goal_opening.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "member_signing",
+          "source": "tests\\member_signing.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "lean_core_ceilings",
+          "source": "tests\\lean_core_ceilings.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 7
+          },
+          "name": "vc_201_077_mastery",
+          "source": "tests\\vc_201_077_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 42
+          },
+          "name": "architecture_tests",
+          "source": "tests\\architecture_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "pe_link_repro",
+          "source": "tests\\pe_link_repro.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "integration_tests",
+          "source": "tests\\integration_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 7
+          },
+          "name": "tui_top",
+          "source": "tests\\tui_top.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "endorsements",
+          "source": "tests\\endorsements.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "zc_time_to_answer",
+          "source": "tests\\zc_time_to_answer.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "cluster_rekey",
+          "source": "tests\\cluster_rekey.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 10
+          },
+          "name": "susi_dev",
+          "source": "unittests src\\bin\\susi-dev.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "moonshot_alias",
+          "source": "tests\\moonshot_alias.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 10
+          },
+          "name": "native_bootstrap",
+          "source": "tests\\native_bootstrap.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "core_boot_starts_nothing",
+          "source": "tests\\core_boot_starts_nothing.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "core_never_downloads_models_unasked",
+          "source": "tests\\core_never_downloads_models_unasked.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "duplication_tests",
+          "source": "tests\\duplication_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_076_mastery",
+          "source": "tests\\vc_201_076_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "peer_request_signing",
+          "source": "tests\\peer_request_signing.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "core_docs_promise_no_ui_or_plugins",
+          "source": "tests\\core_docs_promise_no_ui_or_plugins.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "unified_surface_status",
+          "source": "tests\\unified_surface_status.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "audit_query_surface",
+          "source": "tests\\audit_query_surface.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "status_json_digest",
+          "source": "tests\\status_json_digest.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "child_home_isolation",
+          "source": "tests\\child_home_isolation.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "task_records",
+          "source": "tests\\task_records.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "run_cli_tests",
+          "source": "tests\\run_cli_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "zc_setup_workflow",
+          "source": "tests\\zc_setup_workflow.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "audit_action_choke_point",
+          "source": "tests\\audit_action_choke_point.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "audit_action_completeness",
+          "source": "tests\\audit_action_completeness.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "zc_fresh_home",
+          "source": "tests\\zc_fresh_home.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 7
+          },
+          "name": "zc_platform_installers",
+          "source": "tests\\zc_platform_installers.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "cross_platform_service",
+          "source": "tests\\cross_platform_service.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "release_workflow",
+          "source": "tests\\release_workflow.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "susi",
+          "source": "unittests src\\lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "intent_guard_cli",
+          "source": "tests\\intent_guard_cli.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "hook_enforcement",
+          "source": "tests\\hook_enforcement.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "checked_in_mcp_config",
+          "source": "tests\\checked_in_mcp_config.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_013_mastery",
+          "source": "tests\\vc_201_013_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "release_tag_provenance",
+          "source": "tests\\release_tag_provenance.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "audit_chain_verifies",
+          "source": "tests\\audit_chain_verifies.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "installer_contract",
+          "source": "tests\\installer_contract.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "socket_boundary",
+          "source": "tests\\socket_boundary.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "workflow_publication",
+          "source": "tests\\workflow_publication.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "github_enforce",
+          "source": "tests\\github_enforce.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_100_mastery",
+          "source": "tests\\vc_201_100_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "authenticated_discovery_b7",
+          "source": "tests\\authenticated_discovery_b7.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "inference_telemetry",
+          "source": "tests\\inference_telemetry.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "fuzz_smoke",
+          "source": "tests\\fuzz_smoke.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "service_install",
+          "source": "tests\\service_install.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "protocol_fuzz",
+          "source": "tests\\protocol_fuzz.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "socket_parity",
+          "source": "tests\\socket_parity.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 11
+          },
+          "name": "startup_gate",
+          "source": "unittests src\\bin\\startup-gate.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "cloud_session",
+          "source": "tests\\cloud_session.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "checkpoint_compliance",
+          "source": "unittests src\\bin\\checkpoint-compliance.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "hermetic_scope",
+          "source": "tests\\hermetic_scope.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "ci_workflow_perf",
+          "source": "tests\\ci_workflow_perf.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_052_reserved_before_dispatch_and_reconciled_after",
+          "source": "tests\\vc_201_052_reserved_before_dispatch_and_reconciled_after.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "workflow_compliance",
+          "source": "tests\\workflow_compliance.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "sync_hooks",
+          "source": "tests\\sync_hooks.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "zc_service_units",
+          "source": "tests\\zc_service_units.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_098_mastery",
+          "source": "tests\\vc_201_098_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "ci_release_only",
+          "source": "unittests src\\bin\\ci-release-only.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "parallel_workflow",
+          "source": "tests\\parallel_workflow.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 139
+          },
+          "name": "local_workflow",
+          "source": "unittests src\\bin\\local-workflow.rs"
+        }
+      ],
+      "elapsed_ms": 554421,
+      "exit_code": 0,
+      "id": "workspace-tests",
+      "isolated_target_dir": true,
+      "log_sha256": "60497458607e3475b2ea726f85bf28a36749489cf036612426907b43e215c975",
+      "tests": {
+        "failed": 0,
+        "ignored": 8,
+        "passed": 1020
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "xtask",
+        "--offline",
+        "--locked",
+        "--target",
+        "x86_64-pc-windows-msvc"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "checkpoint_compliance",
+          "source": "unittests src\\bin\\checkpoint-compliance.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "ci_release_only",
+          "source": "unittests src\\bin\\ci-release-only.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "installed_upgrade",
+          "source": "unittests src\\bin\\installed-upgrade.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 27
+          },
+          "name": "local_channel",
+          "source": "unittests src\\bin\\local-channel.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 139
+          },
+          "name": "local_workflow",
+          "source": "unittests src\\bin\\local-workflow.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 11
+          },
+          "name": "startup_gate",
+          "source": "unittests src\\bin\\startup-gate.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 10
+          },
+          "name": "susi_dev",
+          "source": "unittests src\\bin\\susi-dev.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 56
+          },
+          "name": "xtask",
+          "source": "unittests src\\main.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "branch_test_handoff",
+          "source": "tests\\branch_test_handoff.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "ci_workflow_perf",
+          "source": "tests\\ci_workflow_perf.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "compiler_binding",
+          "source": "tests\\compiler_binding.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "hermetic_cleanup",
+          "source": "tests\\hermetic_cleanup.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 10
+          },
+          "name": "native_bootstrap",
+          "source": "tests\\native_bootstrap.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "os_ucrt_boundary",
+          "source": "tests\\os_ucrt_boundary.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "pe_link_repro",
+          "source": "tests\\pe_link_repro.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "release_only_branch",
+          "source": "tests\\release_only_branch.rs"
+        }
+      ],
+      "elapsed_ms": 384395,
+      "exit_code": 0,
+      "id": "task:T-RECEIPTS2-1",
+      "isolated_target_dir": true,
+      "log_sha256": "16eaf202975d1467b12f13d9e340f5708e2aab4384299b6c828af11b5c273cf5",
+      "tests": {
+        "failed": 0,
+        "ignored": 0,
+        "passed": 287
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--doc",
+        "-p",
+        "susi",
+        "--offline",
+        "--locked",
+        "--target",
+        "x86_64-pc-windows-msvc"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi",
+          "source": "doc-tests"
+        }
+      ],
+      "elapsed_ms": 1010,
+      "exit_code": 0,
+      "id": "doc-tests",
+      "isolated_target_dir": true,
+      "log_sha256": "af8d183411847af00fc5c2b7a797ee7d84134016f1efad9384f670f1137b10a7",
+      "tests": {
+        "failed": 0,
+        "ignored": 0,
+        "passed": 0
+      }
+    }
+  ],
+  "integration": {
+    "commit": "544507b56d4655e2ae5c8414ca4403d746ee78ae",
+    "origin_main": "0edc66c48741d1e7740008ba75c645f77d3b6680",
+    "tree": "51d366e01d1f664d1bb81ef77a275f7e4e9dacf3"
+  },
+  "recorded_unix": 1794135487,
+  "schema": "susi-gate-receipt-v1",
+  "selection": "packages:susi,xtask",
+  "sources": [
+    {
+      "agent": "receipts2",
+      "claim_base": "fe3521e36f44b54a333b6110df75e64bd7ea80a5",
+      "commit": "ee0fe64c03b65e3e1d8f61efbd1ae7224e722041",
+      "task": "T-RECEIPTS2-1"
+    }
+  ],
+  "toolchain": {
+    "cargo_lock_sha256": "05ba0c9d0a803f628c2b82584ee5e2730a0403a74cd1973b6045866adcf72574",
+    "host": "x86_64-pc-windows-msvc",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-pc-windows-msvc\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+    "rustc_sha256": "5477f9bad65b15c4c5b31fc050fc72feba651ea1b330bc75cf356a4d6b0fbc80"
+  }
+}
