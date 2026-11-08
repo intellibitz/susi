@@ -1,0 +1,34 @@
+{
+  "id": "T-THREAT-1",
+  "title": "Threat model for the open core socket; governance claims scoped to their mechanisms",
+  "goal": "docs/threat-model.md states, from the inspected code, what the open core socket protects and against whom: the assets and key files, the trust boundaries (loopback, LAN, internet; same-user processes; operator versus an agent holding the keys), every listening port with what authenticates it (9090-9094 bearer or roster-bound member signature, 9092 cluster-key signed discovery, 9095 cluster-key sealed gossip bound on every interface, 18080-18084 loopback leaf services), what the bus secret and bearer token protect against and what they do not (a same-host, same-user process reads both), what the HMAC audit chain and commit ledger prove and against whom, what the Wasm (wasmi) cell bounds and that the Docker sandbox_exec path has no implementation in core, that the governance vetoes are pattern-based defense in depth against known-dangerous shapes and not a boundary against an adversarial tool, and the recommended operator posture. Every sentence passes tests/core_docs_promise_no_ui_or_plugins.rs. README.md and ARCHITECTURE.md are a sibling claim; their overstated sentences and scoped replacements are reported for a later landing.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "threat",
+  "native_worker": "threat",
+  "created_by": "THREAT",
+  "created_unix": 1794125432,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-threat-1.json",
+    "docs/threat-model.md"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--offline",
+      "--locked"
+    ],
+    "criteria": [
+      "docs/threat-model.md exists and every sentence passes the core docs promise guard",
+      "every claim in the document names the mechanism that backs it (file and function) and states the boundary it does not cross",
+      "the governance vetoes are described as pattern-based defense in depth, not as a security boundary"
+    ]
+  }
+}
