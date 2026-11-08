@@ -331,9 +331,13 @@ fn redact_emails(payload: &str, redactions: &mut u64) -> String {
             i += 1;
         }
         let token = &payload[start..i];
-        if let Some((_, domain)) = email_parts(token) {
+        // Sentence punctuation is not part of an address: in
+        // `write to jane@example.com.` the address ends before the full stop.
+        let (address, trailing) = token.split_at(token.trim_end_matches(['.', '-']).len());
+        if let Some((_, domain)) = email_parts(address) {
             if valid_domain(domain) {
                 out.push_str("[REDACTED_EMAIL]");
+                out.push_str(trailing);
                 *redactions += 1;
                 continue;
             }
@@ -376,7 +380,8 @@ mv ~/.susi/reflexes/pii_redact.wasm.tmp ~/.susi/reflexes/pii_redact.wasm
 ```
 
 Test it with a tiny harness that pipes sample payloads over `stdin`/`stdout`
-and asserts on the redacted output. `wasmtime run` inherits stdin/stdout, so
+and asserts on the redacted output. Susi itself runs reflexes on Wasmi; for a
+local test any WASI preview 1 runner works. `wasmtime run` inherits stdin/stdout, so
 the first mode exercises the real `wasm32-wasip1` artifact; `RUNNER=cargo`
 checks the same fixtures against a native host build (the reflex is std-only,
 so it compiles unchanged for both targets):
@@ -422,6 +427,9 @@ check "email redacted" \
 check "secret values redacted" \
   '{"authorization":"Bearer sk-live-abc123","ok":true}' \
   '"output":"{\"authorization\":\"[REDACTED]\",\"ok\":true}"'
+check "email before a full stop redacted" \
+  '{"note":"write to jane@example.com."}' \
+  '"output":"{\"note\":\"write to [REDACTED_EMAIL].\"}"'
 check "clean payload untouched" \
   '{"city":"Bhopal","n":42}' \
   '"output":"{\"city\":\"Bhopal\",\"n\":42}"'
@@ -435,12 +443,19 @@ Expected output:
 ```text
 PASS email redacted
 PASS secret values redacted
+PASS email before a full stop redacted
 PASS clean payload untouched
-3 passed, 0 failed
+4 passed, 0 failed
 ```
 
-Call it over MCP on port `9090` like any other reflex (`tools/call` with
+Call it over MCP on port `9090` (plus the daemon's port offset, published in
+`~/.susi/ports.json`) like any other reflex (`tools/call` with
 `"name": "reflex_pii_redact"`); the JSON line is deterministic, so the
-`redactions` count and the redacted `output` string are safe to assert on.
+`redactions` count and the redacted `output` string are safe to assert on. Pass the payload's
+fields as the tool's arguments object, for example
+`{"note":"write to jane@example.com.","password":"hunter2"}`: the host hands that
+object to the reflex as `argv[1]`, and both values come back redacted. A JSON
+document wrapped inside a string value (`{"input":"{...}"}`) is not parsed a
+second time, so secret keys inside it are not redacted.
 
 See also `ARCHITECTURE.md` → Admission protocols and [docs/integrating-with-susi.md](integrating-with-susi.md).
