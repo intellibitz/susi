@@ -12,7 +12,8 @@
   "deps": [],
   "scopes": [
     ".agents/tasks/t-threat-1.json",
-    "docs/threat-model.md"
+    "docs/threat-model.md",
+    "src/cli/tasks_cli.rs"
   ],
   "accept": {
     "cmd": [
@@ -28,7 +29,9 @@
     "criteria": [
       "docs/threat-model.md exists and every sentence passes the core docs promise guard",
       "every claim in the document names the mechanism that backs it (file and function) and states the boundary it does not cross",
-      "the governance vetoes are described as pattern-based defense in depth, not as a security boundary"
+      "the governance vetoes are described as pattern-based defense in depth, not as a security boundary",
+      "settle_queue in src/cli/tasks_cli.rs resolves the release pid and status paths once instead of spawning git rev-parse twice per poll, so a_deferred_release_returns_before_the_worker_finishes no longer sits out seconds of process spawns under gate lane load (the second ship's only failure)"
     ]
-  }
+  },
+  "updated_unix": 1794128756
 }

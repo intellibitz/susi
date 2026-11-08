@@ -247,11 +247,53 @@ fn write_status(root: &Path, code: i32) -> Result<()> {
 }
 
 fn read_number(root: &Path, name: &str) -> Result<Option<u32>> {
-    let path = git_file(root, name)?;
-    match std::fs::read_to_string(&path) {
+    read_number_at(&git_file(root, name)?)
+}
+
+/// `read_number` for a path already resolved through `git_file`, so a
+/// polling loop pays one `git rev-parse` per file, not one per poll.
+fn read_number_at(path: &Path) -> Result<Option<u32>> {
+    match std::fs::read_to_string(path) {
         Ok(text) => Ok(text.trim().parse().ok()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => bail!("{}: {err}", path.display()),
+    }
+}
+
+/// The three release hand-off files, resolved through `git rev-parse` once
+/// per operation. Every `git_file` call spawns a process; a settle that
+/// resolved them on every poll and again when clearing spawned about ten
+/// per turn, which on a loaded host (two gates, several test lanes) cost
+/// seconds of bookkeeping between a worker's status write and its pickup.
+/// The git dir cannot move mid-operation, so one resolution is exact.
+struct ReleaseFiles {
+    pid: PathBuf,
+    status: PathBuf,
+    log: PathBuf,
+}
+
+impl ReleaseFiles {
+    fn resolve(root: &Path) -> Result<Self> {
+        Ok(Self {
+            pid: git_file(root, RELEASE_PID)?,
+            status: git_file(root, RELEASE_STATUS)?,
+            log: git_file(root, RELEASE_LOG)?,
+        })
+    }
+
+    fn read_log(&self) -> String {
+        std::fs::read_to_string(&self.log).unwrap_or_default()
+    }
+
+    fn clear(&self) -> Result<()> {
+        for path in [&self.pid, &self.status, &self.log] {
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => bail!("{}: {err}", path.display()),
+            }
+        }
+        Ok(())
     }
 }
 
@@ -260,18 +302,6 @@ fn read_log(root: &Path) -> String {
         .ok()
         .and_then(|path| std::fs::read_to_string(path).ok())
         .unwrap_or_default()
-}
-
-fn clear_release_files(root: &Path) -> Result<()> {
-    for name in [RELEASE_PID, RELEASE_STATUS, RELEASE_LOG] {
-        let path = git_file(root, name)?;
-        match std::fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => bail!("{}: {err}", path.display()),
-        }
-    }
-    Ok(())
 }
 
 /// Linux `/proc` knows. Anywhere else the status file is the signal and the
@@ -324,25 +354,37 @@ pub(crate) fn release_still_with_github(root: &Path) -> Option<String> {
 /// Wait for a release finish handed to a detached worker. Nothing pending is
 /// immediate, so a claim with no release in flight pays one stat.
 fn settle_queue(root: &Path) -> Result<()> {
-    if read_number(root, RELEASE_PID)?.is_none() && read_number(root, RELEASE_STATUS)?.is_none() {
+    // Resolve the hand-off files once: `git_file` spawns `git rev-parse`,
+    // and a poll that spawned it on every turn (and four more times on the
+    // way out) took seconds on a loaded host (the gate runs several test
+    // lanes), so a status written 400 ms in was collected only after the
+    // spawns finished. The git dir cannot move mid-settle.
+    let files = ReleaseFiles::resolve(root)?;
+    if read_number_at(&files.pid)?.is_none() && read_number_at(&files.status)?.is_none() {
         return Ok(());
     }
     let deadline = Instant::now() + release_budget();
     let mut noted = false;
     loop {
-        if let Some(code) = read_number(root, RELEASE_STATUS)? {
-            let log = read_log(root);
-            clear_release_files(root)?;
+        if let Some(code) = read_number_at(&files.status)? {
+            let log = files.read_log();
+            files.clear()?;
             if code == 0 {
                 return Ok(());
             }
-            bail!("the release GitHub was applying failed (exit {code}):\n{log}");
+            bail!(
+                "the release GitHub was applying failed (exit {code}):
+{log}"
+            );
         }
-        if let Some(pid) = read_number(root, RELEASE_PID)? {
+        if let Some(pid) = read_number_at(&files.pid)? {
             if !pid_alive(pid) {
-                let log = read_log(root);
-                clear_release_files(root)?;
-                bail!("the release worker exited before it finished:\n{log}");
+                let log = files.read_log();
+                files.clear()?;
+                bail!(
+                    "the release worker exited before it finished:
+{log}"
+                );
             }
         }
         if Instant::now() >= deadline {
@@ -923,8 +965,8 @@ mod tests {
 #[cfg(test)]
 mod queue_handoff {
     use super::{
-        clear_release_files, git_file, release_still_with_github, settle_queue, write_pid,
-        write_status, RELEASE_LOG,
+        git_file, release_still_with_github, settle_queue, write_pid, write_status, ReleaseFiles,
+        RELEASE_LOG,
     };
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
@@ -940,7 +982,7 @@ mod queue_handoff {
                 let _ = worker.kill();
                 let _ = worker.wait();
             }
-            let _ = clear_release_files(&self.root);
+            let _ = ReleaseFiles::resolve(&self.root).and_then(|files| files.clear());
             let _ = std::fs::remove_dir_all(&self.root);
         }
     }
