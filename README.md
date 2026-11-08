@@ -29,7 +29,10 @@ exact scope is in [What RSI means here](docs/architecture.md#what-rsi-means-here
 
 Core is a pure CLI plus standards socket: it ships no UI and bundles no plugin
 content; the desktop, every visual view and curated plugin packs live in Susi
-Commercial Apps, which reaches core over the same public protocols.
+Commercial Apps, which reaches core over the same public protocols. susi core
+is the free open-source socket. It speaks the standard host protocols and
+admits plugs. It does not ship a third-party product implementation; the third
+party writes that plug.
 
 ## Two-minute start
 
@@ -107,10 +110,11 @@ compile budget is 60 s and the last idle measurement is 81.7 s
 
 Admitted, not delivered in core: the in-process GGUF model runtime left core
 with no destination yet (two `tests/zc_matrix.rs` tests ignored by CEO
-decision); a default build serves local in-process inference, embeddings and
-browser capture only through a plug wired on the plane bus (the commercial
-`susi-plug-host`), otherwise it routes to the HTTP engines you run or to cloud
-and reports a typed capability gap. Governance vetoes catch known-dangerous
+decision); a default build serves local in-process inference only through a
+plug wired on the plane bus (the commercial `susi-plug-host`) and otherwise
+routes the request to the HTTP engines you run or to cloud providers;
+embeddings and browser page capture are likewise plug ports and, with no plug
+wired, report a typed capability gap. Governance vetoes catch known-dangerous
 shapes by pattern; they are not a sandbox boundary. Core releases only for
 x86_64 Windows and x86_64 Linux; other targets stay portable in source and are
 not released by core. Every gap with its record:
@@ -119,10 +123,16 @@ not released by core. Every gap with its record:
 ## Install
 
 Agents obtain an identified native artifact and invoke its Rust installer with
-`susi install`; it verifies the staged executable and installs without
-replacing a different existing executable. Susi never downloads a model by
-itself: cloud models work right away, and `susi os manage model install
-starter` fetches the licensed local starter model (about 429 MB) when you ask.
+`susi install`. It discovers the user profile, verifies the staged executable,
+and installs without replacing a different existing executable. No shell script,
+GitHub connection or user-written configuration is required for placement.
+Susi never downloads a model by itself: cloud models work right away, and
+`susi os manage model install starter` downloads the licensed local starter
+model (about 429 MB) when you ask. A local goal without it says so and names
+that command.
+Native installation does not by itself qualify a candidate for production;
+qualification, promotion and rollback have separate evidence gates.
+
 Legacy `install.sh` and `install.ps1` remain compatibility artifacts. They are
 not the mandated development or installation path and their historical download,
 autostart and build behavior must not be treated as current acceptance evidence.

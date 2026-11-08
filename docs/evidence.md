@@ -219,5 +219,5 @@ project's own statements; a gap leaves this list only when its record says so.
 - Known gap: the governance vetoes (safety, security, privacy) catch
   known-dangerous shapes by pattern; they are not a sandbox boundary. The
   sandbox boundary is the Wasmi host for Wasm modules and Docker for
-  `sandbox_exec` where present. A threat model is a separate document, not yet
-  written.
+  `sandbox_exec` where present. The threat model is a separate document in
+  progress under its own claim (`threat`, `docs/threat-model.md`).

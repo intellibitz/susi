@@ -16,6 +16,8 @@ on your machine, not a replacement host OS and not a chatbot wrapper. "RSI"
 is defined under "What RSI means here" below; it is a scoped claim, not a
 statement that the baseline rewrites its own source unattended.
 
+susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud inference behind one router, and agents that require evidence before declaring a mission complete. Native Windows uses MSVC and the Rust installer. Platform qualification is recorded in [Step 1 acceptance](step1-acceptance.md).
+
 ## Why developers build on `susi`
 
 | Problem in today's AI stack | How `susi` solves it on one local socket |
