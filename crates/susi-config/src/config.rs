@@ -92,13 +92,22 @@ impl SusiConfig {
     }
 
     /// Shared snapshot of the config (cache-hit is `Arc::clone`, not a deep copy).
+    /// A missing file is seeded with the healed defaults: the caller named the
+    /// directory, so it owns it.
     pub fn load_arc(global_dir: &Path) -> EaiResult<std::sync::Arc<Self>> {
+        Self::load_arc_seeding(global_dir, true)
+    }
+
+    fn load_arc_seeding(global_dir: &Path, seed_missing: bool) -> EaiResult<std::sync::Arc<Self>> {
         let path = Self::get_config_path(global_dir);
-        Self::store().load_arc_with_healing(
+        Self::store().load_arc_with_healing_policy(
             &path,
             || Ok(Self::default()),
             Self::heal_in_place,
-            true,
+            super::versioned_store::ReadPolicy {
+                strict_parse: true,
+                seed_missing,
+            },
         )
     }
 
@@ -115,11 +124,14 @@ impl SusiConfig {
         )
     }
 
+    /// The global config, resolved through the process environment. A read
+    /// never seeds `config.json`: the directory comes from `HOME`/`SUSI_HOME`,
+    /// which every thread of the process shares, so a reader that wrote
+    /// defaults there could overwrite a file another thread (a test with a
+    /// swapped home, a CLI invocation mid-save) owns. `susi start` and the
+    /// setup workflow save the file explicitly.
     pub fn load_global() -> EaiResult<Self> {
-        if let Some(cfg) = super::service::get_global() {
-            return Ok(cfg);
-        }
-        Self::load(&susi_paths::SusiDirs::config_dir())
+        Ok((*Self::load_global_arc()?).clone())
     }
 
     /// Process-global config snapshot shared across hot request paths.
@@ -127,7 +139,7 @@ impl SusiConfig {
         if let Some(cfg) = super::service::get_global() {
             return Ok(std::sync::Arc::new(cfg));
         }
-        Self::load_arc(&susi_paths::SusiDirs::config_dir())
+        Self::load_arc_seeding(&susi_paths::SusiDirs::config_dir(), false)
     }
 
     /// Writes via a same-directory temp file + rename rather than a direct

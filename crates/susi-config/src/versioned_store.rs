@@ -28,6 +28,38 @@ fn file_stamp(path: &Path) -> (SystemTime, u64) {
 ///
 /// The cache holds `Arc<T>` so hot paths can share a snapshot without cloning
 /// the full registry on every `load_*` hit.
+/// How a load treats what it finds (or does not find) on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadPolicy {
+    /// A malformed or unreadable file is an error (true) or falls back to
+    /// `on_missing` (false).
+    pub strict_parse: bool,
+    /// A missing file is written with the healed `on_missing` value (true),
+    /// or that value is returned in memory and nothing is written (false).
+    pub seed_missing: bool,
+}
+
+impl ReadPolicy {
+    /// Seed a missing file: the caller named the directory and owns it.
+    #[must_use]
+    pub const fn seeding(strict_parse: bool) -> Self {
+        Self {
+            strict_parse,
+            seed_missing: true,
+        }
+    }
+
+    /// Never write a missing file: for paths resolved through the process
+    /// environment, which every thread of the process shares.
+    #[must_use]
+    pub const fn in_memory(strict_parse: bool) -> Self {
+        Self {
+            strict_parse,
+            seed_missing: false,
+        }
+    }
+}
+
 pub struct VersionedJsonStore<T> {
     pub(crate) cache: RwLock<Option<CacheEntry<T>>>,
 }
@@ -66,6 +98,32 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         F: FnOnce() -> crate::susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
+        self.load_arc_with_healing_policy(
+            path,
+            on_missing,
+            heal_fn,
+            ReadPolicy::seeding(strict_parse),
+        )
+    }
+
+    /// [`Self::load_arc_with_healing`] with an explicit [`ReadPolicy`]: with
+    /// `seed_missing` false the `on_missing` value is returned (and healed) in
+    /// memory and nothing is written. A read that resolves its path through
+    /// the process environment must use that: in one process several threads
+    /// share that environment, and a reader that seeds a file into a directory
+    /// another thread owns overwrites what that thread just saved (the
+    /// `susi-gemi-models` ladder test lost its config this way).
+    pub fn load_arc_with_healing_policy<F, H>(
+        &self,
+        path: &Path,
+        on_missing: F,
+        heal_fn: H,
+        policy: ReadPolicy,
+    ) -> crate::susi_error::EaiResult<Arc<T>>
+    where
+        F: FnOnce() -> crate::susi_error::EaiResult<T>,
+        H: FnOnce(&mut T) -> bool,
+    {
         let (current_modified, current_len) = file_stamp(path);
 
         {
@@ -95,7 +153,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
             }
         }
 
-        let val = Arc::new(self.read_from_disk(path, on_missing, heal_fn, strict_parse)?);
+        let val = Arc::new(self.read_from_disk(path, on_missing, heal_fn, policy)?);
 
         let (final_modified, final_len) = file_stamp(path);
 
@@ -138,7 +196,12 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         let mut guard = self.cache.write().unwrap_or_else(|e| e.into_inner());
         // A failed reload must not leave a previously valid value cached.
         *guard = None;
-        let value = Arc::new(self.read_from_disk(path, on_missing, heal_fn, strict_parse)?);
+        let value = Arc::new(self.read_from_disk(
+            path,
+            on_missing,
+            heal_fn,
+            ReadPolicy::seeding(strict_parse),
+        )?);
         let (modified, len) = file_stamp(path);
         *guard = Some(CacheEntry {
             modified,
@@ -177,10 +240,10 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
             {
                 (*cached.value).clone()
             } else {
-                self.read_from_disk(path, on_missing, heal_fn, strict_parse)?
+                self.read_from_disk(path, on_missing, heal_fn, ReadPolicy::seeding(strict_parse))?
             }
         } else {
-            self.read_from_disk(path, on_missing, heal_fn, strict_parse)?
+            self.read_from_disk(path, on_missing, heal_fn, ReadPolicy::seeding(strict_parse))?
         };
 
         mut_fn(&mut val);
@@ -207,7 +270,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         path: &Path,
         on_missing: F,
         heal_fn: H,
-        strict_parse: bool,
+        policy: ReadPolicy,
     ) -> crate::susi_error::EaiResult<T>
     where
         F: FnOnce() -> crate::susi_error::EaiResult<T>,
@@ -219,7 +282,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
                 Ok(content) => match serde_json::from_str::<T>(&content) {
                     Ok(val) => loaded_opt = Some(val),
                     Err(e) => {
-                        if strict_parse {
+                        if policy.strict_parse {
                             return Err(crate::susi_error::EaiError::config(format!(
                                 "Malformed configuration {}: {}",
                                 path.display(),
@@ -229,7 +292,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
                     }
                 },
                 Err(e) => {
-                    if strict_parse {
+                    if policy.strict_parse {
                         return Err(crate::susi_error::EaiError::config(format!(
                             "Failed to read {}: {}",
                             path.display(),
@@ -240,15 +303,17 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
             }
         }
 
-        let (mut val, mut needs_save) = match loaded_opt {
-            Some(v) => (v, false),
+        let (mut val, mut needs_save, missing) = match loaded_opt {
+            Some(v) => (v, false, false),
             None => {
                 let default_val = on_missing()?;
-                (default_val, true)
+                (default_val, policy.seed_missing, true)
             }
         };
 
-        if heal_fn(&mut val) {
+        // Healing a file that exists writes the backfilled result back; a
+        // missing file is written only when the caller asked to seed it.
+        if heal_fn(&mut val) && (!missing || policy.seed_missing) {
             needs_save = true;
         }
 
@@ -446,6 +511,52 @@ mod tests {
         assert!(err.to_string().contains("on_missing failure"));
         assert!(!missing_path.exists());
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_non_seeding_load_returns_the_healed_default_without_writing_the_missing_file() {
+        let dir = unique_temp_dir("no-seed");
+        let path = dir.join("store.json");
+        let store: VersionedJsonStore<BTreeMap<String, String>> = VersionedJsonStore::default();
+        let value = store
+            .load_arc_with_healing_policy(
+                &path,
+                || {
+                    let mut m = BTreeMap::new();
+                    m.insert("seed".to_string(), "1".to_string());
+                    Ok(m)
+                },
+                |m| {
+                    m.insert("healed".to_string(), "yes".to_string());
+                    true
+                },
+                ReadPolicy::in_memory(true),
+            )
+            .expect("non-seeding load");
+        assert_eq!(value.get("seed").map(String::as_str), Some("1"));
+        assert_eq!(value.get("healed").map(String::as_str), Some("yes"));
+        assert!(
+            !path.exists(),
+            "a non-seeding read must not create the file"
+        );
+        // Once the file exists, healing drift still writes back.
+        std::fs::write(&path, r#"{"seed":"2"}"#).expect("write store.json");
+        let healed = store
+            .load_arc_with_healing_policy(
+                &path,
+                || unreachable!("file exists"),
+                |m| {
+                    m.insert("healed".to_string(), "yes".to_string());
+                    true
+                },
+                ReadPolicy::in_memory(true),
+            )
+            .expect("healing load");
+        assert_eq!(healed.get("seed").map(String::as_str), Some("2"));
+        assert!(std::fs::read_to_string(&path)
+            .expect("read back")
+            .contains("healed"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
