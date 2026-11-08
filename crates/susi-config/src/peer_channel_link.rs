@@ -704,7 +704,9 @@ impl Registry {
     /// link, one of this node's own uplinks.
     fn relay_target(&self, dst: &str, from: &Arc<Link>, origin: PeerClass) -> Option<Arc<Link>> {
         let links = self.snapshot();
-        let direct = links.iter().find(|l| {
+        // Newest first: a member that reconnected is reached on its new
+        // link even before the old one's keepalive declares it dead.
+        let direct = links.iter().rev().find(|l| {
             l.id != from.id
                 && l.persistent
                 && l.peer.node_id == dst
@@ -934,6 +936,18 @@ pub fn accept(mut socket: TcpStream, advertise: &[String]) -> Result<Arc<Link>, 
             persistent: flags & FLAG_PERSISTENT != 0,
         },
     )?;
+    // A member that reconnects replaces its previous uplink here.
+    if link.persistent {
+        for old in registry().snapshot() {
+            if old.id != link.id
+                && old.persistent
+                && !old.dialed
+                && old.peer.pubkey.eq_ignore_ascii_case(&link.peer.pubkey)
+            {
+                old.close("replaced by a newer link from the same node");
+            }
+        }
+    }
     if !advertise.is_empty() {
         if let Some(body) = signed_hint(advertise) {
             let _ = link.send(HINT, 0, &body);
@@ -1502,6 +1516,7 @@ pub fn open(
     let held = registry().snapshot();
     if let Some(link) = held
         .iter()
+        .rev()
         .find(|l| l.peer.pubkey.eq_ignore_ascii_case(&target.pubkey))
     {
         if let Some(s) = attempt(link, "held link", &mut errors) {
