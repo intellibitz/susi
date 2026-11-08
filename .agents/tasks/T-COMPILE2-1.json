@@ -1,0 +1,55 @@
+{
+  "id": "T-COMPILE2-1",
+  "title": "Compile budget: the swarm-cell server without tokio",
+  "goal": "Take tokio out of susi-abi so the host build's susi-core never waits for the async runtime: the shared swarm-cell TCP server becomes standard library only (std::net listener, one thread per connection, synchronous handlers, a handler panic answered as an Error status where panics unwind), the cell-server feature and the optional tokio edge leave susi-abi, and the gawd, gemi and gmcp cell binaries run their blocking work on the connection thread without an async main. susi-gawd-agents' susi-http-transport and susi-adapters-llm edges were measured off the critical path (gawd-agents waits on susi-core's metadata, and susi-gawd waits on the A2A chain) and stay as they are; the idle alternated measurement is recorded after landing.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "compile2",
+  "native_worker": "compile2",
+  "created_by": "compile2",
+  "created_unix": 1794156571,
+  "size": "M",
+  "deps": [],
+  "scope": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-compile2-1.json",
+    "architecture.md",
+    "cargo.lock",
+    "crates/susi-abi",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gawd/src/main.rs",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gemi/src/main.rs",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-gmcp/src/main.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-compile2-1.json",
+    "architecture.md",
+    "cargo.lock",
+    "crates/susi-abi",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gawd/src/main.rs",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gemi/src/main.rs",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-gmcp/src/main.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "acceptance": "cargo test -p susi-abi --lib cell_server --offline --locked passes: a bad token is denied without trust decay, an empty expected token denies every syscall, NotFound/Timeout/Error statuses decay trust, malformed and non-request frames are ignored while a corrupt stream drops the connection, a panicking handler is answered with an Error on a connection that stays up, and a heartbeat on one connection is answered while another connection's syscall is still running; every read and wait is bounded.",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-abi",
+      "--lib",
+      "cell_server",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "updated_unix": 1794161812
+}
