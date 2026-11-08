@@ -165,7 +165,7 @@ if (-not $BuildProfile -or $BuildProfile -notmatch $Safe -or $Features -notmatch
 }
 $CargoArgs = @('build', '--locked', '--profile', $BuildProfile, '-p', 'susi', '--bin', 'susi')
 if ($Features) { $CargoArgs += @('--features', $Features) }
-$TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $GlobalDir 'build-cache\release' }
+$TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $GlobalDir 'build-cache\release-sync' }
 New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
 $Saved = @{}
 $BuildEnv = @{ CARGO_TARGET_DIR = $TargetDir; RUSTUP_AUTO_INSTALL = '0' }

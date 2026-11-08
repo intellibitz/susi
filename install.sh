@@ -212,7 +212,7 @@ if command -v sccache >/dev/null 2>&1 && [ -z "${RUSTC_WRAPPER:-}" ]; then
     export RUSTC_WRAPPER=sccache
     echo "  Using sccache for faster recompiles."
 fi
-BUILD_TARGET_DIR="${CARGO_TARGET_DIR:-$GLOBAL_SUSI_DIR/build-cache/release}"
+BUILD_TARGET_DIR="${CARGO_TARGET_DIR:-$GLOBAL_SUSI_DIR/build-cache/release-sync}"
 mkdir -p "$BUILD_TARGET_DIR"
 
 # Heartbeat so a long silent stretch (one large crate can take minutes)
