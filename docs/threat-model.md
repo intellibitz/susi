@@ -528,8 +528,9 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set; under
    content. A cluster-key holder not bound in a roster can call that node
    with peer-bearer standing (residual 2). Members reachable only through a
    hub are not counted live by the swarm, whose liveness is UDP pongs
-   (`PEER_STALE_SECS` 30): the hub's ledger pushes and quorum skip them
-   after 30 s until a channel-link liveness source exists.
+   (`PEER_STALE_SECS` 30): after 30 s they carry no quorum weight and are
+   not asked to endorse roster changes, until a channel-link liveness
+   source exists (membership itself still converges over the channel).
 4. Gossip 9095 and discovery 9092 follow `bind_address` and drop public
    sources; a wide `bind_address` still exposes both to the local network,
    where any `cluster.key` holder can seal gossip and answer pings.

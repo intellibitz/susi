@@ -282,8 +282,11 @@ path sees.
   (`peer_channel_hubs.json`). A node that is not yet in any cluster joins the
   responder's cluster: it asks the responder's leader (`member_propose`, with
   its own key and attestation) to admit it, and does not start a ledger of its
-  own. A node that is already in a cluster commits the admission through its
-  own leader as before.
+  own; once admitted, it pulls the responder's ledger, which binds every
+  member admitted before it. A repeated `peers add` of a member already
+  bound under the same key only refreshes its address hint. A node that is
+  already in a cluster commits the admission through its own leader as
+  before.
 - A member reachable only through a hub is listed in the other rosters under
   the routing name `<node_id>.invalid:<port>`, which never resolves: it is
   reached by its key, over the link it keeps open.
@@ -348,13 +351,13 @@ All members upgrade together. Mixed clusters fail closed:
   reaches other machines only inside the channel.
 - The swarm counts a member live only when it answers a UDP discovery ping
   (`PEER_STALE_SECS`, 30 s). A member reachable only through the hub never
-  does, so the hub's swarm marks it inactive 30 s after it was last seen:
-  calls to it still work over its uplink, and the hub's `member_propose`
-  pushes each committed admission to every bound member in `peers.json`
-  (not only the live ones), so a member already in the cluster learns each
-  newcomer's key. A newcomer learns the members admitted before it only
-  through ledger anti-entropy, which the swarm runs only toward members it
-  counts live; until it does, the newcomer serves calls from older members
-  with the standing of an unbound cluster-key holder. A liveness source
-  from live channel links belongs in the swarm (its owner after the
-  product-module move).
+  does, so the hub's swarm marks it inactive 30 s after it was last seen.
+  Calls to it still work over its uplink, and membership still converges:
+  the hub's `member_propose` pushes each committed admission to every bound
+  member in `peers.json` (not only the live ones), so members already in
+  the cluster learn each newcomer's key, and a newcomer pulls the hub's
+  ledger (`commits sync`) right after it is admitted, so it learns every
+  member admitted before it. What the swarm's liveness still decides is
+  quorum weight and leadership: an inactive member is not asked to endorse
+  roster changes and cannot lead. A liveness source from live channel links
+  belongs in the swarm (its owner after the product-module move).

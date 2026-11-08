@@ -939,10 +939,26 @@ fn add_over_channel(
             &peer.bind_sig,
         );
     }
-    if self_admitted_by_other() {
+    let admitted = if self_admitted_by_other() {
         say!(out, "this node's own admission is already in its ledger");
+        true
     } else {
-        request_admission(out, peer, endpoint);
+        request_admission(out, peer, endpoint)
+    };
+    // A member admitted to an existing cluster takes that cluster's ledger
+    // at once (the members admitted before it, their keys), rather than
+    // waiting for anti-entropy the swarm runs only toward members it counts
+    // live — a member behind NAT never is, to UDP.
+    if admitted {
+        let report = crate::commit_log_report::sync_report();
+        let pulled = report
+            .pointer("/totals/pulled")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        say!(
+            out,
+            "ledger sync: {pulled} record(s) pulled from the cluster"
+        );
     }
     Ok(())
 }
@@ -992,7 +1008,11 @@ fn own_routing_address() -> String {
 /// with this node's own key and binding attestation). The peer seals the
 /// change only as its cluster's leader, so this can be refused; the result
 /// is reported either way and nothing local depends on it.
-fn request_admission(out: Out<'_>, peer: &susi_config::peer_channel::PeerIdentity, endpoint: &str) {
+fn request_admission(
+    out: Out<'_>,
+    peer: &susi_config::peer_channel::PeerIdentity,
+    endpoint: &str,
+) -> bool {
     let self_id = susi_config::cluster_key::wire_node_id();
     let (Some(pubkey), Some(sig)) = (
         susi_config::cluster_key::node_pubkey_hex(),
@@ -1003,7 +1023,7 @@ fn request_admission(out: Out<'_>, peer: &susi_config::peer_channel::PeerIdentit
             "note: no node.key here — cannot ask {} to admit this node",
             peer.node_id
         );
-        return;
+        return false;
     };
     let self_addr = own_routing_address();
     let target = susi_config::peer_channel_link::Target {
@@ -1027,6 +1047,7 @@ fn request_admission(out: Out<'_>, peer: &susi_config::peer_channel::PeerIdentit
                 "{} admitted this node ({self_id}@{self_addr})",
                 peer.node_id
             );
+            true
         }
         Ok(result) => {
             let detail = result
@@ -1036,10 +1057,10 @@ fn request_admission(out: Out<'_>, peer: &susi_config::peer_channel::PeerIdentit
                 .to_string();
             note!(
                 out,
-                "note: {} has not admitted this node yet — {detail}; run `susi peers add` for this node on {} (its leader), or retry once it has elected one",
-                peer.node_id,
+                "note: {} has not admitted this node yet — {detail}; run this `susi peers add` again once its cluster has elected a leader",
                 peer.node_id
             );
+            false
         }
         Err(e) => {
             note!(
@@ -1047,6 +1068,7 @@ fn request_admission(out: Out<'_>, peer: &susi_config::peer_channel::PeerIdentit
                 "note: could not ask {} to admit this node — {e}",
                 peer.node_id
             );
+            false
         }
     }
 }

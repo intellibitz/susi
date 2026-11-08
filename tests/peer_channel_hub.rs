@@ -867,8 +867,9 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
 /// member binds the hub and keeps an uplink to it, and a member's `susi
 /// peers status` then reaches the hub on the product path. Repeating `peers
 /// add` is idempotent: a joining member never starts a ledger of its own.
-/// The member admitted first learns the second from the hub's ledger push
-/// and calls it through the hub.
+/// The member admitted first learns the second from the hub's ledger push,
+/// the second takes the hub's ledger when admitted, and each calls the
+/// other through the hub.
 #[test]
 fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
     let _g = commit_log::ENV_LOCK
@@ -937,15 +938,15 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
     // The hub pushes each committed admission to every bound member over
     // its uplink, so the member already in the cluster learns the new
     // member's key from the hub's ledger, and a member-to-member call then
-    // travels member -> hub -> member on the product path. (The newer
-    // member learns the older ones only through ledger sync, which the
-    // swarm drives; see `docs/peer-channel.md`, "Limits".)
+    // travels member -> hub -> member on the product path. The newer member
+    // learns the older ones by taking the hub's ledger when it is admitted.
     let deadline = Instant::now() + limit;
-    while !binds(&a, &b) {
+    while !(binds(&a, &b) && binds(&b, &a)) {
         assert!(
             Instant::now() < deadline,
-            "A never learned B's key from the hub's ledger: {:?}",
-            roster_of(&a)
+            "the members never learned each other's keys from the hub's ledger: A {:?}\nB {:?}",
+            roster_of(&a),
+            roster_of(&b)
         );
         std::thread::sleep(Duration::from_millis(500));
     }
@@ -961,6 +962,23 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
         assert!(
             Instant::now() < deadline,
             "A never reached B through the hub: {rows:?}"
+        );
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    // ...and the other way: the newer member took the hub's ledger when it
+    // was admitted, so it calls the older one through the hub too.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let rows = peers_status(&b);
+        if rows
+            .get(&a.node_id)
+            .is_some_and(|r| r.get("error").is_none())
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "B never reached A through the hub: {rows:?}"
         );
         std::thread::sleep(Duration::from_secs(1));
     }
