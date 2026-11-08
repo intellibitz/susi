@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use crate::credential_scout::{
     classify_probe, probe_request, scout_targets, CheapCall, CredentialTarget, Liveness,
 };
-use crate::susi_core::inference_wire::InferenceProtocol;
+use susi_adapters_llm::inference_wire::InferenceProtocol;
 
 /// One observed request: URL plus owned header pairs.
 type RecordedRequest = (String, Vec<(String, String)>);

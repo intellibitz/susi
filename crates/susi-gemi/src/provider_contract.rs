@@ -311,7 +311,7 @@ pub fn probe_credentialed_with(
     // Errors: a deliberately missing model must surface as an error
     // envelope, never a silent 200. Triton has no per-model path to miss.
     match target.protocol {
-        crate::susi_core::inference_wire::InferenceProtocol::Triton => claims.push(claim(
+        susi_adapters_llm::inference_wire::InferenceProtocol::Triton => claims.push(claim(
             provider,
             model,
             version,
@@ -319,10 +319,10 @@ pub fn probe_credentialed_with(
             ProbeStatus::Unsupported,
             "raw-URL endpoint has no model path to miss",
         )),
-        crate::susi_core::inference_wire::InferenceProtocol::OpenAiChat
-        | crate::susi_core::inference_wire::InferenceProtocol::OpenAiCompletions
-        | crate::susi_core::inference_wire::InferenceProtocol::Anthropic
-        | crate::susi_core::inference_wire::InferenceProtocol::Gemini => {
+        susi_adapters_llm::inference_wire::InferenceProtocol::OpenAiChat
+        | susi_adapters_llm::inference_wire::InferenceProtocol::OpenAiCompletions
+        | susi_adapters_llm::inference_wire::InferenceProtocol::Anthropic
+        | susi_adapters_llm::inference_wire::InferenceProtocol::Gemini => {
             let miss_url = format!(
                 "{}/models/__susi_contract_probe_missing__",
                 target.api_base.trim_end_matches('/')
@@ -424,7 +424,7 @@ pub fn probe_credentialed_opt_in(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::susi_core::inference_wire::InferenceProtocol;
+    use susi_adapters_llm::inference_wire::InferenceProtocol;
 
     type Reply = Result<(u16, String), String>;
     type ReplyCase = (String, Reply);

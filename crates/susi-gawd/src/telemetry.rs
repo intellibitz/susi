@@ -58,9 +58,9 @@ impl TokenUsage {
     }
 }
 
-impl From<&TokenUsage> for susi_core::inference_wire::TokenUsage {
+impl From<&TokenUsage> for susi_adapters_llm::inference_wire::TokenUsage {
     fn from(t: &TokenUsage) -> Self {
-        susi_core::inference_wire::TokenUsage::with_cache(
+        susi_adapters_llm::inference_wire::TokenUsage::with_cache(
             t.prompt_tokens,
             t.completion_tokens,
             t.cached_tokens,
@@ -68,7 +68,7 @@ impl From<&TokenUsage> for susi_core::inference_wire::TokenUsage {
     }
 }
 
-impl From<TokenUsage> for susi_core::inference_wire::TokenUsage {
+impl From<TokenUsage> for susi_adapters_llm::inference_wire::TokenUsage {
     fn from(t: TokenUsage) -> Self {
         (&t).into()
     }
@@ -288,7 +288,7 @@ mod tests {
         let cached = TokenUsage::with_cache(200, 50, 80);
         assert_eq!(cached.cached_tokens, 80);
         assert_eq!(cached.total_tokens, 250);
-        let wire: susi_core::inference_wire::TokenUsage = cached.into();
+        let wire: susi_adapters_llm::inference_wire::TokenUsage = cached.into();
         assert_eq!(wire.prompt_tokens, 200);
         assert_eq!(wire.cached_tokens, 80);
 

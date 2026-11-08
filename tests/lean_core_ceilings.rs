@@ -41,7 +41,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd-swarm", 23_002),
     ("susi-gawd-agents", 11_495),
     ("susi-gawd-a2a", 2_113),
-    ("susi-gemi", 21_302),
+    ("susi-gemi", 21_300),
     ("susi-gemi-models", 16_797),
     ("susi-gmcp", 19_350),
     ("susi-harness", 40_790),

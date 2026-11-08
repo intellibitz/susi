@@ -129,7 +129,7 @@ fn post(
     session: Option<&Session>,
     body: &Value,
     timeout_secs: u64,
-) -> Result<(susi_http_transport::HttpCall, Option<String>), String> {
+) -> Result<(crate::susi_core::plain_http::Response, Option<String>), String> {
     // The one transport for remote MCP/GMCP calls, including the daemon's
     // zero-config scouting, which never passes authorize_tool: arguments
     // (and tool listings) leave the host only when the posture allows it.
@@ -191,9 +191,8 @@ fn post(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let call =
-        susi_http_transport::http_call_with_body("POST", url, &refs, Some(&wire), timeout_secs, 0)
-            .map_err(|e| format!("POST {url}: {e}"))?;
+    let call = crate::susi_core::plain_http::call("POST", url, &refs, Some(&wire), timeout_secs)
+        .map_err(|e| format!("POST {url}: {e}"))?;
     Ok((call, sealed_to))
 }
 
@@ -214,13 +213,12 @@ fn delete_session(url: &str, bearer: Option<&str>, session: &Session) {
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let _ = susi_http_transport::http_call_with_body(
+    let _ = crate::susi_core::plain_http::call(
         "DELETE",
         url,
         &refs,
         None,
         handshake_timeout_secs(session.request_timeout_secs),
-        0,
     );
 }
 
@@ -325,7 +323,10 @@ fn response_result(text: &str, id: u64) -> Result<Value, String> {
 /// Read a bounded response body, opening it when the request went out
 /// sealed — an unsealed reply to a sealed request means the channel was
 /// downgraded on-path and is refused.
-fn read_body(resp: susi_http_transport::HttpCall, sealed: Option<&str>) -> Result<String, String> {
+fn read_body(
+    resp: crate::susi_core::plain_http::Response,
+    sealed: Option<&str>,
+) -> Result<String, String> {
     let enc = resp.header("x-susi-enc").map(str::to_string);
     let nonce = resp.header("x-susi-enc-nonce").map(str::to_string);
     let body = resp

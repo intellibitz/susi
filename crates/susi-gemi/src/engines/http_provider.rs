@@ -1,9 +1,9 @@
 use std::any::Any;
 
-use crate::susi_core::inference_wire as wire;
-use crate::susi_core::provider::{BoxFuture, Provider};
+use crate::susi_core::provider::{run_blocking, BoxFuture, Provider};
+use susi_adapters_llm::inference_wire as wire;
 
-pub use crate::susi_core::inference_wire::InferenceProtocol;
+pub use susi_adapters_llm::inference_wire::InferenceProtocol;
 
 pub struct HttpProvider {
     pub name: String,
@@ -208,11 +208,11 @@ impl Provider for HttpProvider {
         Box::pin(async move {
             // A health probe that can't reach the endpoint is `false`, not a
             // logged error — absent local engines (Ollama, etc.) are expected.
-            Ok(tokio::task::spawn_blocking(move || {
-                healthy_blocking(&api_base, &api_key, protocol, &model)
-            })
-            .await
-            .unwrap_or(false))
+            Ok(
+                run_blocking(move || healthy_blocking(&api_base, &api_key, protocol, &model))
+                    .await
+                    .unwrap_or(false),
+            )
         })
     }
 
@@ -240,7 +240,7 @@ impl Provider for HttpProvider {
             let outcome_base = api_base.clone();
             let outcome_model = model.clone();
             let outcome_key = api_key.clone();
-            let result = tokio::task::spawn_blocking(move || {
+            let result = run_blocking(move || {
                 generate_blocking(&api_base, &model, &api_key, protocol, &prompt)
             })
             .await
@@ -299,7 +299,7 @@ impl Provider for HttpProvider {
                     "Embeddings only supported on OpenAI-compatible providers",
                 ));
             }
-            tokio::task::spawn_blocking(move || {
+            run_blocking(move || {
                 let url = format!("{}/embeddings", api_base);
                 let body = serde_json::json!({
                     "model": model,
@@ -327,7 +327,7 @@ impl Provider for HttpProvider {
                 Ok(embedding)
             })
             .await
-            .map_err(|e| crate::susi_core::susi_error::EaiError::process(e.to_string()))?
+            .map_err(crate::susi_core::susi_error::EaiError::process)?
         })
     }
 
@@ -448,7 +448,7 @@ async fn ensure_local_engine(
             "on-demand engine start attempted for {socket}"
         )));
     }
-    tokio::task::spawn_blocking(move || {
+    run_blocking(move || {
         if std::net::TcpStream::connect_timeout(&socket, std::time::Duration::from_millis(150))
             .is_ok()
         {

@@ -21,15 +21,15 @@ use crate::susi_core::capture::EvidenceSession;
 use crate::susi_core::mac_policy::MacPolicy;
 use crate::susi_core::plane_bus::PlaneHandler;
 use crate::susi_core::plane_bus_ipc::{enc, IpcPlaneBus};
-use crate::susi_core::provider::{BoxFuture, Provider};
+use crate::susi_core::provider::{block_on, BoxFuture, Provider};
 use crate::susi_core::registry::{AgentCapability, Tool};
 use crate::susi_error::{EaiError, EaiResult};
 use serde_json::{json, Value};
 use std::any::Any;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::RwLock;
-use std::sync::{Arc, OnceLock};
 
 fn tool_topic(name: &str) -> String {
     format!("capability.tool.{name}")
@@ -161,26 +161,11 @@ impl Tool for RemoteTool {
     }
 }
 
-/// Owner-side provider dispatch. Provider methods are async; the owner copy
-/// blocks them on a lazily-built current-thread tokio runtime held by the
-/// registry.
+/// Owner-side provider dispatch. Provider methods return runtime-agnostic
+/// futures; the owner copy drives each one to completion on the bus handler
+/// thread ([`crate::susi_core::provider::block_on`]).
 struct ProviderDispatch {
     provider: Arc<dyn Provider>,
-    rt: Arc<OnceLock<Option<tokio::runtime::Runtime>>>,
-}
-
-impl ProviderDispatch {
-    fn block_on<F: std::future::Future>(&self, fut: F) -> Result<F::Output, String> {
-        match self.rt.get_or_init(|| {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .ok()
-        }) {
-            Some(rt) => Ok(rt.block_on(fut)),
-            None => Err("provider dispatch runtime unavailable".into()),
-        }
-    }
 }
 
 impl PlaneHandler for ProviderDispatch {
@@ -193,7 +178,7 @@ impl PlaneHandler for ProviderDispatch {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                self.block_on(self.provider.generate(&prompt))?
+                block_on(self.provider.generate(&prompt))
                     .map(|out| json!({ "output": out }))
                     .map_err(|e| e.to_string())
             }
@@ -203,12 +188,11 @@ impl PlaneHandler for ProviderDispatch {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                self.block_on(self.provider.embed(&text))?
+                block_on(self.provider.embed(&text))
                     .map(|v| json!({ "embedding": v }))
                     .map_err(|e| e.to_string())
             }
-            "health" => self
-                .block_on(self.provider.is_healthy())?
+            "health" => block_on(self.provider.is_healthy())
                 .map(|h| json!({ "healthy": h }))
                 .map_err(|e| e.to_string()),
             other => Err(format!("unknown provider op `{other}`")),
@@ -295,7 +279,6 @@ pub struct IpcCapabilityRegistry {
     #[allow(clippy::type_complexity)]
     providers: Arc<RwLock<HashMap<String, Arc<dyn Provider>>>>,
     agents: Arc<RwLock<HashMap<String, AgentCapability>>>,
-    provider_rt: Arc<OnceLock<Option<tokio::runtime::Runtime>>>,
 }
 
 impl IpcCapabilityRegistry {
@@ -308,7 +291,6 @@ impl IpcCapabilityRegistry {
             tools: Arc::new(RwLock::new(HashMap::new())),
             providers: Arc::new(RwLock::new(HashMap::new())),
             agents: Arc::new(RwLock::new(HashMap::new())),
-            provider_rt: Arc::new(OnceLock::new()),
         }
     }
 
@@ -452,10 +434,7 @@ impl IpcCapabilityRegistry {
             .insert(name.clone(), Arc::clone(&provider));
         self.bus.register(
             &provider_topic(&name),
-            Arc::new(ProviderDispatch {
-                provider,
-                rt: Arc::clone(&self.provider_rt),
-            }),
+            Arc::new(ProviderDispatch { provider }),
         );
         write_cap(
             &self.caps_dir("provider"),
@@ -708,15 +687,11 @@ mod tests {
         let (a, b) = pair();
         a.register_provider(Arc::new(EchoProvider));
         let prov = b.get_provider("echo_prov").expect("remote provider");
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("rt");
-        let out = rt.block_on(prov.generate("hello")).expect("generate");
+        let out = block_on(prov.generate("hello")).expect("generate");
         assert_eq!(out, "gen:hello");
-        let emb = rt.block_on(prov.embed("abcd")).expect("embed");
+        let emb = block_on(prov.embed("abcd")).expect("embed");
         assert_eq!(emb, vec![4.0, 1.0]);
-        assert!(rt.block_on(prov.is_healthy()).expect("health"));
+        assert!(block_on(prov.is_healthy()).expect("health"));
         assert!(b.list_providers().contains(&"echo_prov".to_string()));
     }
 
