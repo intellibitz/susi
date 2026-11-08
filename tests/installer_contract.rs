@@ -106,7 +106,10 @@ PATH="$(printf '%s' "$PATH" | tr ':' '\n' | while read -r d; do { [ -x "$d/TOOL"
 export PATH="${PATH%:}""#;
 
 fn fake_tools() -> String {
-    FAKE_TOOLS.replace("__RECORD__", include_str!("../releases/v0.21.52.json").trim_end())
+    FAKE_TOOLS.replace(
+        "__RECORD__",
+        include_str!("../releases/v0.21.52.json").trim_end(),
+    )
 }
 
 #[test]
@@ -161,9 +164,18 @@ echo INSTALLER_CONTRACT_PASSED
 #[test]
 fn installer_unix_refuses_what_it_cannot_build_or_verify() {
     let cases = [
-        ("export FIXTURE_VERSION=0.21.51".to_owned(), "reports version '0.21.51', expected '0.21.52'"),
-        ("export TAG_COMMIT=2222222222222222222222222222222222222222".to_owned(), "Refusing to build"),
-        ("export RUSTUP_HAS=1.98.0".to_owned(), "rustup toolchain install 1.99.0"),
+        (
+            "export FIXTURE_VERSION=0.21.51".to_owned(),
+            "reports version '0.21.51', expected '0.21.52'",
+        ),
+        (
+            "export TAG_COMMIT=2222222222222222222222222222222222222222".to_owned(),
+            "Refusing to build",
+        ),
+        (
+            "export RUSTUP_HAS=1.98.0".to_owned(),
+            "rustup toolchain install 1.99.0",
+        ),
         (WITHOUT.replace("TOOL", "rustup"), "rustup was not found"),
         (WITHOUT.replace("TOOL", "cargo"), "cargo was not found"),
         ("unset SUSI_SOURCE_REPO".to_owned(), "Set SUSI_SOURCE_REPO"),

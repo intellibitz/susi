@@ -145,7 +145,10 @@ fn zc_platform_installers_build_the_release_tag_and_gate_on_its_version() {
             "rustup target add",
             "mold",
         ] {
-            assert!(!lower.contains(retired), "{name} still contains {retired:?}");
+            assert!(
+                !lower.contains(retired),
+                "{name} still contains {retired:?}"
+            );
         }
     }
     assert!(

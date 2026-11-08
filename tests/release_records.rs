@@ -25,7 +25,14 @@ const SCHEMA: &str = "susi-release-record/v1";
 const TARGETS: [&str; 2] = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"];
 
 /// Scalar fields a script reads with `sed`; each must sit alone on its line.
-const LINE_FIELDS: [&str; 6] = ["version", "tag", "commit", "toolchain", "profile", "features"];
+const LINE_FIELDS: [&str; 6] = [
+    "version",
+    "tag",
+    "commit",
+    "toolchain",
+    "profile",
+    "features",
+];
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -68,7 +75,11 @@ fn semver(text: &str) -> Option<(u64, u64, u64)> {
             .parse::<u64>()
             .ok()
     };
-    let version = (parse(parts.next())?, parse(parts.next())?, parse(parts.next())?);
+    let version = (
+        parse(parts.next())?,
+        parse(parts.next())?,
+        parse(parts.next())?,
+    );
     parts.next().is_none().then_some(version)
 }
 
@@ -94,11 +105,20 @@ fn every_release_record_is_complete_and_names_its_tag() {
     let current = semver(&workspace_version()).unwrap();
     for (path, _, record) in records() {
         let file = path.as_path();
-        assert_eq!(str_at(&record, &["schema"], file), SCHEMA, "{}", file.display());
+        assert_eq!(
+            str_at(&record, &["schema"], file),
+            SCHEMA,
+            "{}",
+            file.display()
+        );
         assert_eq!(str_at(&record, &["product"], file), "susi");
         let version = str_at(&record, &["version"], file);
         let tag = str_at(&record, &["tag"], file);
-        assert!(semver(version).is_some(), "{}: version {version}", file.display());
+        assert!(
+            semver(version).is_some(),
+            "{}: version {version}",
+            file.display()
+        );
         assert_eq!(tag, format!("v{version}"), "{}", file.display());
         assert_eq!(
             path.file_name().unwrap().to_str().unwrap(),
@@ -112,25 +132,45 @@ fn every_release_record_is_complete_and_names_its_tag() {
         );
         let commit = str_at(&record, &["commit"], file);
         assert!(
-            commit.len() == 40 && commit.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+            commit.len() == 40
+                && commit
+                    .bytes()
+                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
             "{}: commit must be a full lower-case object id",
             file.display()
         );
 
         let toolchain = str_at(&record, &["build", "toolchain"], file);
-        assert!(semver(toolchain).is_some(), "{}: toolchain {toolchain}", file.display());
+        assert!(
+            semver(toolchain).is_some(),
+            "{}: toolchain {toolchain}",
+            file.display()
+        );
         assert!(TARGETS.contains(&str_at(&record, &["build", "host"], file)));
         let profile = str_at(&record, &["build", "profile"], file);
-        assert!(!profile.is_empty() && cargo_word(profile), "{}: profile", file.display());
+        assert!(
+            !profile.is_empty() && cargo_word(profile),
+            "{}: profile",
+            file.display()
+        );
         let features = str_at(&record, &["build", "features"], file);
-        assert!(cargo_word(features), "{}: features {features}", file.display());
+        assert!(
+            cargo_word(features),
+            "{}: features {features}",
+            file.display()
+        );
         assert!(!str_at(&record, &["build", "command"], file).is_empty());
-        for entry in record["build"]["env"].as_array().expect("build.env is an array") {
+        for entry in record["build"]["env"]
+            .as_array()
+            .expect("build.env is an array")
+        {
             let entry = entry.as_str().expect("build.env holds NAME=value strings");
             let (name, value) = entry.split_once('=').expect("NAME=value");
             assert!(
                 !name.is_empty()
-                    && name.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                    && name
+                        .bytes()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
                     && cargo_word(value),
                 "{}: env entry {entry}",
                 file.display()
@@ -153,7 +193,11 @@ fn every_release_record_is_complete_and_names_its_tag() {
             let target = str_at(asset, &["target"], file);
             let bin = str_at(asset, &["bin"], file);
             assert!(!str_at(asset, &["package"], file).is_empty());
-            assert!(TARGETS.contains(&target), "{}: {name} target", file.display());
+            assert!(
+                TARGETS.contains(&target),
+                "{}: {name} target",
+                file.display()
+            );
             let expected = match target {
                 "x86_64-pc-windows-msvc" => format!("{bin}-windows-x86_64.exe"),
                 _ => format!("{bin}-linux-x86_64"),
@@ -165,7 +209,11 @@ fn every_release_record_is_complete_and_names_its_tag() {
                 "{}: {name} sha256",
                 file.display()
             );
-            assert!(!seen.contains(&name), "{}: {name} listed twice", file.display());
+            assert!(
+                !seen.contains(&name),
+                "{}: {name} listed twice",
+                file.display()
+            );
             seen.push(name);
         }
         for target in TARGETS {
@@ -202,7 +250,10 @@ fn release_records_keep_the_line_layout_the_scripts_read() {
             );
             let line = hits[0].trim().trim_end_matches(',');
             assert!(
-                line.ends_with('"') && line[prefix.len()..line.len() - 1].bytes().all(|b| b != b'"' && b != b'\\'),
+                line.ends_with('"')
+                    && line[prefix.len()..line.len() - 1]
+                        .bytes()
+                        .all(|b| b != b'"' && b != b'\\'),
                 "{}: \"{field}\" holds a plain string value on its line",
                 path.display()
             );
@@ -221,12 +272,19 @@ fn release_records_keep_the_line_layout_the_scripts_read() {
                 .find(|l| l.contains(&needle))
                 .unwrap_or_else(|| panic!("{}: {name} line", path.display()));
             assert!(
-                line.contains(&format!("\"sha256\": \"{}\"", asset["sha256"].as_str().unwrap())),
+                line.contains(&format!(
+                    "\"sha256\": \"{}\"",
+                    asset["sha256"].as_str().unwrap()
+                )),
                 "{}: asset {name} is a one-line object carrying its sha256",
                 path.display()
             );
         }
-        assert!(text.ends_with('\n') && !text.contains('\r'), "{}: LF line endings", path.display());
+        assert!(
+            text.ends_with('\n') && !text.contains('\r'),
+            "{}: LF line endings",
+            path.display()
+        );
     }
 }
 
@@ -237,7 +295,12 @@ fn release_records_name_the_commit_their_tag_points_at() {
     for (path, _, record) in records() {
         let tag = record["tag"].as_str().unwrap();
         let out = Command::new("git")
-            .args(["rev-parse", "--verify", "--quiet", &format!("refs/tags/{tag}^{{commit}}")])
+            .args([
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("refs/tags/{tag}^{{commit}}"),
+            ])
             .current_dir(root())
             .output()
             .expect("git runs");
@@ -265,6 +328,9 @@ fn the_release_format_is_documented() {
         "SUSI_SOURCE_REPO",
         "rust-toolchain.toml",
     ] {
-        assert!(doc.contains(needle), "docs/releases.md must explain {needle:?}");
+        assert!(
+            doc.contains(needle),
+            "docs/releases.md must explain {needle:?}"
+        );
     }
 }
