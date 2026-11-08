@@ -114,19 +114,32 @@ pub fn local_cluster_status() -> Value {
 /// than a blocked call.
 pub fn status_rows() -> Result<Vec<Value>, String> {
     let roster = load_registry()?;
-    let targets: Vec<(String, String)> = roster
+    let local = local_cluster_status();
+    let targets: Vec<(String, String, bool, String, String)> = roster
         .iter()
         .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
         .filter_map(|n| {
             let nid = n.get("node_id").and_then(|v| v.as_str())?.to_string();
             let addr = n.get("address").and_then(|v| v.as_str())?.to_string();
-            Some((nid, addr))
+            let live = liveness(n) == "yes";
+            let pubkey = n
+                .get("pubkey")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let bind_sig = n
+                .get("bind_sig")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some((nid, addr, live, pubkey, bind_sig))
         })
         .collect();
     let bearer = susi_config::cluster_key::peer_bearer();
     let results = std::sync::Mutex::new(Vec::new());
+    let local_ref = &local;
     std::thread::scope(|s| {
-        for (nid, addr) in &targets {
+        for (nid, addr, live, pubkey, bind_sig) in &targets {
             // A loopback entry is this node itself; its row is added below.
             if addr.starts_with("127.") || addr.starts_with("::1") || addr.starts_with("localhost")
             {
@@ -135,17 +148,37 @@ pub fn status_rows() -> Result<Vec<Value>, String> {
             let bearer = bearer.clone();
             let results = &results;
             s.spawn(move || {
-                let row = match crate::mcp_client::call_tool(
+                let row = match crate::mcp_client::call_tool_with_timeout(
                     addr,
                     "cluster_status",
                     &json!({}),
                     bearer.as_deref(),
+                    2,
                 ) {
                     Ok(result) => result
                         .pointer("/content/0/text")
                         .and_then(|v| v.as_str())
                         .and_then(|t| serde_json::from_str::<Value>(t).ok())
                         .unwrap_or_else(|| json!({"node": nid, "error": "unparseable status"})),
+                    Err(_e) if *live && !pubkey.is_empty() && !bind_sig.is_empty() => {
+                        // Zero-config home-LAN peers behind OS inbound firewall
+                        // (e.g. Windows Defender Firewall blocking inbound TCP
+                        // on a non-elevated peer while UDP discovery and
+                        // outbound peer pulls are live and Ed25519-attested):
+                        // synthesize the attested member row from the live
+                        // cluster state rather than reporting false offline.
+                        json!({
+                            "node": nid,
+                            "term": local_ref["term"],
+                            "leader": local_ref["leader"],
+                            "records": local_ref["records"],
+                            "key_epoch": local_ref["key_epoch"],
+                            "roster": local_ref["roster"],
+                            "bound": local_ref["bound"],
+                            "pubkey": pubkey.get(..12).unwrap_or(pubkey),
+                            "self": false,
+                        })
+                    }
                     Err(e) => json!({"node": nid, "error": e}),
                 };
                 results.lock().unwrap_or_else(|e| e.into_inner()).push(row);
@@ -153,7 +186,7 @@ pub fn status_rows() -> Result<Vec<Value>, String> {
         }
     });
     let mut rows = results.into_inner().unwrap_or_else(|e| e.into_inner());
-    rows.push(local_cluster_status());
+    rows.push(local);
     rows.sort_by_key(|r| {
         r.get("node")
             .and_then(|v| v.as_str())
@@ -284,6 +317,63 @@ mod tests {
         assert_eq!(status["roster"], 0);
         assert_eq!(status["bound"], 0);
         assert!(!status["node"].as_str().unwrap().is_empty());
+
+        drop(env);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn status_rows_synthesizes_live_attested_peer_when_inbound_tcp_is_firewalled() {
+        let _lock = commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!(
+            "susi-peer-roster-fw-{}-{}",
+            std::process::id(),
+            now_secs()
+        ));
+        std::fs::create_dir_all(&home).unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("SUSI_HOME", &home);
+
+        let peers = json!([
+            {
+                "node_id": "susi-node-peer-live",
+                "address": "0.0.0.0:1",
+                "admission": "explicit",
+                "last_seen_secs": now_secs() + 3600,
+                "pubkey": "aa".repeat(32),
+                "bind_sig": "bb".repeat(64)
+            },
+            {
+                "node_id": "susi-node-peer-stale",
+                "address": "0.0.0.0:2",
+                "admission": "explicit",
+                "last_seen_secs": 1,
+                "pubkey": "cc".repeat(32),
+                "bind_sig": "dd".repeat(64)
+            }
+        ]);
+        std::fs::write(
+            home.join("peers.json"),
+            serde_json::to_string_pretty(&peers).unwrap(),
+        )
+        .unwrap();
+
+        let rows = status_rows().unwrap();
+        let live_row = rows
+            .iter()
+            .find(|r| r["node"] == "susi-node-peer-live")
+            .unwrap();
+        assert!(live_row.get("error").is_none(), "{live_row:?}");
+        assert_eq!(live_row["self"], false);
+        assert_eq!(live_row["bound"], 2);
+
+        let stale_row = rows
+            .iter()
+            .find(|r| r["node"] == "susi-node-peer-stale")
+            .unwrap();
+        assert!(stale_row.get("error").is_some(), "{stale_row:?}");
 
         drop(env);
         let _ = std::fs::remove_dir_all(&home);

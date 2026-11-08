@@ -1,0 +1,37 @@
+{
+  "id": "T-HOMECLUSTER-1",
+  "title": "Zero-config home-LAN peer key preservation and attested status fallback",
+  "goal": "Ensure zero-config home-LAN cluster peers remain attested across UDP discovery refreshes and report live attested status rows when a peer's OS firewall blocks inbound TCP while UDP discovery and Ed25519 subject binding are active.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "homecluster",
+  "native_worker": "homecluster",
+  "created_by": "homecluster",
+  "created_unix": 1794151400,
+  "updated_unix": 1794151400,
+  "size": "S",
+  "deps": [],
+  "scope": [
+    ".agents/tasks/t-homecluster-1.json",
+    "crates/susi-core/src/peer_roster.rs",
+    "crates/susi-gawd-swarm/src/peer_registry.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-homecluster-1.json",
+    "crates/susi-core/src/peer_roster.rs",
+    "crates/susi-gawd-swarm/src/peer_registry.rs"
+  ],
+  "acceptance": "cargo test --lib -p susi-core peer_roster --offline --locked",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--lib",
+      "-p",
+      "susi-core",
+      "peer_roster",
+      "--offline",
+      "--locked"
+    ]
+  }
+}
