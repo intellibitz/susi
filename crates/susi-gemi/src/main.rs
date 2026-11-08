@@ -11,8 +11,7 @@ use susi_gemi::susi_abi::syscall::{
 
 use susi_gemi::susi_abi;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bind_addr = cell_bind_addr(cell_ports::GEMI);
     println!("susi-gemi micro-daemon starting on {bind_addr}");
 
@@ -42,12 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         expected_token,
         "susi-gemi Swarm Cell",
         handle_infer,
-    )
-    .await?;
+    )?;
     Ok(())
 }
 
-async fn handle_infer(req: SyscallRequest) -> SyscallResponse {
+fn handle_infer(req: SyscallRequest) -> SyscallResponse {
     let prompt = req
         .payload
         .get("prompt")
@@ -68,13 +66,14 @@ async fn handle_infer(req: SyscallRequest) -> SyscallResponse {
             message: Some("missing prompt in payload (`prompt`)".into()),
         };
     }
-    // Inference is CPU/GPU-bound and blocking: keep it off the async
-    // executor, and run it in the caller's workspace.
+    // Inference is CPU/GPU-bound and blocking: it runs on this connection's
+    // own thread (the cell server answers a panic as an `Error`), in the
+    // caller's workspace.
     let ws = std::path::PathBuf::from(req.workspace.as_deref().unwrap_or("."));
-    match tokio::task::spawn_blocking(move || GemiEngine::generate_reasoning(&prompt, &ws)).await {
+    match GemiEngine::generate_reasoning(&prompt, &ws) {
         // Engines flatten failures into text; classify with the engine's own
         // marker check instead of reporting failure prose as a success.
-        Ok(text) if GemiEngine::looks_like_error_text(&text) => SyscallResponse {
+        text if GemiEngine::looks_like_error_text(&text) => SyscallResponse {
             id: req.id,
             status: SyscallStatus::Error,
             data: serde_json::json!({ "text": text }),
@@ -82,21 +81,13 @@ async fn handle_infer(req: SyscallRequest) -> SyscallResponse {
             latency_us: latency(started),
             message: Some("inference failed".into()),
         },
-        Ok(text) => SyscallResponse {
+        text => SyscallResponse {
             id: req.id,
             status: SyscallStatus::Success,
             data: serde_json::json!({ "text": text }),
             receipt: None,
             latency_us: latency(started),
             message: None,
-        },
-        Err(e) => SyscallResponse {
-            id: req.id,
-            status: SyscallStatus::Error,
-            data: serde_json::Value::Null,
-            receipt: None,
-            latency_us: latency(started),
-            message: Some(format!("inference task failed: {e}")),
         },
     }
 }
@@ -120,9 +111,9 @@ mod inline_tests {
         }
     }
 
-    #[tokio::test]
-    async fn handle_infer_rejects_missing_prompt_field_with_error_status() {
-        let resp = handle_infer(infer_request("inf-1", serde_json::json!({}))).await;
+    #[test]
+    fn handle_infer_rejects_missing_prompt_field_with_error_status() {
+        let resp = handle_infer(infer_request("inf-1", serde_json::json!({})));
         assert_eq!(resp.id, "inf-1");
         assert_eq!(resp.status, SyscallStatus::Error);
         assert!(resp
@@ -132,21 +123,20 @@ mod inline_tests {
             .contains("missing prompt"));
     }
 
-    #[tokio::test]
-    async fn handle_infer_rejects_whitespace_only_prompt_with_error_status() {
+    #[test]
+    fn handle_infer_rejects_whitespace_only_prompt_with_error_status() {
         let resp = handle_infer(infer_request(
             "inf-2",
             serde_json::json!({ "prompt": "   \t\n " }),
-        ))
-        .await;
+        ));
         assert_eq!(resp.id, "inf-2");
         assert_eq!(resp.status, SyscallStatus::Error);
         assert_eq!(resp.data, serde_json::Value::Null);
     }
 
-    #[tokio::test]
-    async fn handle_infer_rejects_non_string_prompt_payload_with_error_status() {
-        let resp = handle_infer(infer_request("inf-3", serde_json::json!({ "prompt": 123 }))).await;
+    #[test]
+    fn handle_infer_rejects_non_string_prompt_payload_with_error_status() {
+        let resp = handle_infer(infer_request("inf-3", serde_json::json!({ "prompt": 123 })));
         assert_eq!(resp.id, "inf-3");
         assert_eq!(resp.status, SyscallStatus::Error);
     }
