@@ -1,17 +1,13 @@
-// SUSI Native Administrative Substrate
-// 100% Rust implementation for Full Compliance Enforcement, Version Synchronization & Release Orchestration
-
-pub mod guard;
-pub mod park;
-mod queue_push;
-mod release;
-pub mod seed;
-pub mod tasks;
-mod version;
-pub mod workflow;
-
-pub use release::{E2eCheck, E2E_CHECKS};
-pub use version::VersionBump;
+//! The compliance audit and the natural-intent evidence ledger: the two
+//! pieces of the former `admin` module the open socket serves (`susi audit`,
+//! GMCP's audit tool, `susi <goal>` / `susi mission` evidence, the
+//! `gawd.admin.*` plane topics).
+//!
+//! The rest of `admin` (the task queue, the worktree workflow, the hook
+//! guard, primary parking, target seeding, version sync and the release
+//! gate) is the developer-workflow product. It moved to Susi Commercial
+//! Apps (`susi-commercial tasks | workflow | admin`, commercial commit
+//! `5c4793332`, receipt `3b09dbb72`) in the lean-core program.
 
 use crate::susi_error::{EaiError, EaiResult};
 use std::env;
@@ -181,8 +177,10 @@ impl SusiAdmin {
             }
         }
 
-        // 5. Version Consistency
-        match Self::enforce_version_consistency(workspace) {
+        // 5. Version Consistency. Read-only: an audit judges the tree and
+        // writes nothing (the sync that repairs drift is
+        // `susi-commercial admin sync`).
+        match version_alignment(workspace) {
             Ok(v) => report.push_str(&format!(
                 "- [PASS] Version Consistency: All manifests synchronized to v{}.\n",
                 v
@@ -347,6 +345,59 @@ fn contains_phrase(text: &str, phrase: &str) -> bool {
         })
 }
 
+/// The `[package]` version of `workspace/Cargo.toml`.
+fn cargo_version(workspace: &Path) -> EaiResult<String> {
+    let content = fs::read_to_string(workspace.join("Cargo.toml"))?;
+    let mut in_package = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[package]" {
+            in_package = true;
+        } else if trimmed.starts_with('[') {
+            in_package = false;
+        } else if in_package && trimmed.starts_with("version = \"") {
+            if let Some(v) = trimmed.split('"').nth(1) {
+                return Ok(v.to_string());
+            }
+        }
+    }
+    Err(EaiError::config("Could not find version in Cargo.toml"))
+}
+
+/// Whether the README badge and the governance ledgers name the Cargo.toml
+/// version; the version when they do. Writes nothing.
+fn version_alignment(workspace: &Path) -> EaiResult<String> {
+    let version = cargo_version(workspace)?;
+    let readme = workspace.join("README.md");
+    if readme.exists() {
+        let content = fs::read_to_string(&readme)?;
+        if content.contains("https://img.shields.io/badge/version-v")
+            && !content.contains(&format!("version-v{version}-blue.svg"))
+        {
+            return Err(EaiError::config(format!(
+                "README.md version badge is out of sync with Cargo.toml (v{version}). \
+                 Run `susi-commercial admin sync`."
+            )));
+        }
+    }
+    for file_name in ["identity.json", "roadmap.json", "evidence.json"] {
+        let path = workspace.join(".agents").join(file_name);
+        if !path.exists() {
+            continue;
+        }
+        let doc: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path)?)
+            .map_err(|e| EaiError::config(format!("{file_name}: invalid JSON: {e}")))?;
+        let file_version = doc.get("version").and_then(|v| v.as_str()).unwrap_or("");
+        if file_version != version {
+            return Err(EaiError::config(format!(
+                "{file_name}: version is out of sync with Cargo.toml (v{version}). \
+                 Run `susi-commercial admin sync`."
+            )));
+        }
+    }
+    Ok(version)
+}
+
 #[cfg(test)]
 mod intent_classify_tests {
     use super::{contains_phrase, SusiAdmin};
@@ -358,7 +409,7 @@ mod intent_classify_tests {
             let status = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "admin::intent_classify_tests::first_goal_evidence_labels_do_not_infer",
+                    "compliance::intent_classify_tests::first_goal_evidence_labels_do_not_infer",
                     "--nocapture",
                 ])
                 .env(CHILD, "1")

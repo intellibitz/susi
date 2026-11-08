@@ -47,7 +47,7 @@ settings this page names; re-measure before changing them.
 | Step | Measured | Where the time is |
 | --- | --- | --- |
 | `scripts/susi-worktree.sh` | 24 s | checkout of 3 800 files |
-| `susi workflow check` | 13 s | remote reads (`gh`, `git ls-remote`) |
+| `susi-commercial workflow check` | 13 s | remote reads (`gh`, `git ls-remote`) |
 | local gate, root package change: clippy | 2 m 19 s | 93 crates recompiled, 11 of them registry crates (see *feature sets*) |
 | local gate, root package change: test build | 4 m 08 s | the 100-odd root test binaries |
 | local gate, root package change: tests | 15 m 16 s on 8 threads | 598 tests, 7 188 s of test time against 1 177 s for the same tests on a 4-vCPU Linux runner |
@@ -519,8 +519,8 @@ compiler cache, no primary watcher), before the changes below:
 | `git fetch origin` (156 local refs, 2 700 remote) | 0.4–0.6 s | the remote round trip itself is cheap here: the 5–11 s syncs in the sections above were the Windows host's |
 | `git ls-remote origin <one ref>` | 0.4 s | the lease check |
 | `scripts/fetch-workflow-refs.sh` (the push guard's fetch) | 0.4–0.7 s | |
-| `susi workflow check` | 1.1 s | |
-| `susi tasks list` | 0.5 s | |
+| `susi-commercial workflow check` | 1.1 s | |
+| `susi-commercial tasks list` | 0.5 s | |
 | `cargo fmt --all --check`, uncached | 4.7 s | under a cold build's load; the format proof (above) skips it |
 | `cargo metadata --no-deps` | 0.13 s | the gate's scope resolution |
 | one relayed queue write (`.github/workflows/queue.yml` run) | 9–21 s run, plus ~3 s until it starts and up to 3 s of client polling | from the Actions API: 15 runs of the previous session, created → updated |
@@ -623,7 +623,7 @@ So the snapshot is published. `.github/workflows/target-seed.yml` builds
 configuration `scripts/cloud-onnxruntime.sh` writes, whose rpath is in every
 unit's rustflags; the clone at `/home/user/susi`), `cargo build --workspace
 --all-targets` and `cargo clippy --workspace --all-targets` — the build and
-the check-mode units the gate reads — then `susi workflow seed-target
+the check-mode units the gate reads — then `susi-commercial workflow seed-target
 --export` copies the target and strips it exactly as the refresh strips the
 primary's (registry and git units only, no `incremental/`, a `.susi-seed`
 mark), and the result goes up as assets of the rolling `target-seed`
@@ -645,7 +645,7 @@ target measured 4.9 GB uncompressed, so expect about 1.5–2 GB to download.
 
 **Measured, in this session's container** (a fresh clone beside this
 checkout; 4 vCPU; the numbers are what the hook pays before a session's first
-`susi workflow check`, then what the gate's dependents clippy pays):
+`susi-commercial workflow check`, then what the gate's dependents clippy pays):
 
 | step | cold | seeded (first snapshot) | note |
 | --- | --- | --- | --- |
@@ -781,7 +781,7 @@ wait in front of binaries that were already built.
 
 `scripts/seed-target.sh`, `scripts/park-primary.sh`, `scripts/prune-worktrees.sh`
 and `scripts/susi-worktree.sh` are stubs now: each finds a susi that carries
-its verb and execs it (`susi workflow seed-target`, `park-primary`, `prune`,
+its verb and execs it (`susi-commercial workflow seed-target`, `park-primary`, `prune`,
 `start`), and the work is Rust that runs `git`, `cargo` and the copy tool
 directly. The reason is robustness and portability, not speed: an installed
 `susi.exe` now does all of it without Git for Windows' MSYS userland on PATH,
@@ -793,10 +793,10 @@ dev binary, no primary watcher and no remote reads to wait on):
 
 | Step | Measured | Note |
 | --- | --- | --- |
-| `susi workflow check` | 0.4–0.9 s (three runs) | the primary sync runs in process now instead of through `park-primary.sh` |
+| `susi-commercial workflow check` | 0.4–0.9 s (three runs) | the primary sync runs in process now instead of through `park-primary.sh` |
 | a stub's susi probe (`<verb> --help`) | 13 ms here; 0.23 s release / 0.45 s debug measured on the Windows host for the hook stubs | one extra susi start per script call, where a script is still the caller |
 
-The 13 s for `susi workflow check` in the table at the top was measured on
+The 13 s for `susi-commercial workflow check` in the table at the top was measured on
 the Windows host with its remote reads (`gh`, `git ls-remote`), which dominate
 it; the port touched none of those, so that number stands until it is
 re-measured there.
@@ -814,7 +814,7 @@ serial latency outside compilation:
   `gc.auto` and `maintenance.auto` in a single `git config --get-regexp` call
   (1 subprocess instead of 4) and sets `gc.auto=0` and `maintenance.auto=false`
   when absent; `start_worktree` and `parallel-workflow.sh` enforce the same.
-- **Single-fetch `sync` and `finish` prefetch.** Normal `susi workflow sync`
+- **Single-fetch `sync` and `finish` prefetch.** Normal `susi-commercial workflow sync`
   previously ran up to three separate `git fetch` round-trips (branch tips,
   `renew_owned_claims` and `check-owed-runs.sh`). `sync_fetch_origin` now
   fetches `+refs/heads/*:refs/remotes/origin/*`, `+refs/claims/*:refs/claims/*`,

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Did a branch this agent handed to the merge machinery fail its run?
 #
-# `susi workflow finish` no longer waits for the branch-push run: it pushes,
+# `susi-commercial workflow finish` no longer waits for the branch-push run: it pushes,
 # publishes the close receipt (refs/closed/<id>) and returns, and the merge
 # machinery owns the rest. What the wait used to catch — a red run while the
 # claim still made repair cheap — is caught here instead, at the next sync
@@ -64,9 +64,9 @@ while IFS= read -r id; do
                 cat >&2 <<MSG
 ❌ the branch run for $id ($branch at ${tip:0:12}) did not pass: ${state#* }
    The task is accepted but will not merge until this is fixed. Commit the
-   repair on that branch and run \`susi workflow finish $id\` again (if the
+   repair on that branch and run \`susi-commercial workflow finish $id\` again (if the
    acceptance was already published, revert the close and fix under the same
-   claim); or give it up on the record: susi tasks release $id --abandon <reason>
+   claim); or give it up on the record: susi-commercial tasks release $id --abandon <reason>
 MSG
                 ;;
             esac

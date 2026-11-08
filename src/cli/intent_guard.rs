@@ -93,6 +93,20 @@ const RETIRED_APPLICATION_COMMANDS: &[(&str, &str)] = &[
     ("haystack", "`susi frameworks run haystack`"),
     ("eval", "`susi benchmark` measures a real completion"),
     ("mcp-scout", "`susi mcp` manages admitted servers"),
+    // The dev workflow's verbs, which moved to Susi Commercial Apps with
+    // the task queue and the release gate: a bare `susi release` or
+    // `susi claim T-A-1` is a mistyped command, never a mission.
+    ("release", "`susi-commercial admin release`"),
+    ("claim", "`susi-commercial tasks claim`"),
+    ("renew", "`susi-commercial tasks renew`"),
+    ("authored", "`susi-commercial tasks authored`"),
+    ("verify-merged", "`susi-commercial tasks verify-merged`"),
+    ("finish", "`susi-commercial workflow finish`"),
+    ("guard", "`susi-commercial workflow guard`"),
+    ("park-primary", "`susi-commercial workflow park-primary`"),
+    ("seed-target", "`susi-commercial workflow seed-target`"),
+    ("own-identity", "`susi-commercial workflow own-identity`"),
+    ("fetch-refs", "`susi-commercial workflow fetch-refs`"),
     (
         "shell",
         "the interactive conversation lives in the Susi desktop app; the core CLI takes one-shot goals: `susi \"<what you want done>\"`",
@@ -146,8 +160,13 @@ mod tests {
     fn nested_command_words_are_refused_with_a_path_hint() {
         let hint = refuse(&root(), &args("release")).unwrap();
         assert!(
-            hint.contains(&"`susi admin release`".to_string()),
+            hint.contains(&"`susi-commercial admin release`".to_string()),
             "{hint:?}"
+        );
+        let claim = refuse(&root(), &args("claim T-A-1")).unwrap();
+        assert!(
+            claim.contains(&"`susi-commercial tasks claim`".to_string()),
+            "{claim:?}"
         );
         let scan = refuse(&root(), &args("ecosystem scan"));
         assert!(

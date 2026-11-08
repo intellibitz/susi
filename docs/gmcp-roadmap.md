@@ -306,12 +306,12 @@ unreproducible, locally modified, or unsigned evidence is not green.
 Use the normal Susi workflow; do not batch-close roadmap work:
 
 ```bash
-susi workflow check
-susi tasks roadmap --uncovered
-susi tasks list
-susi tasks claim <task-id> --scope <exact-path>
+susi-commercial workflow check
+susi-commercial tasks roadmap --uncovered
+susi-commercial tasks list
+susi-commercial tasks claim <task-id> --scope <exact-path>
 # implement one requirement and run its acceptance command
-susi tasks close <task-id>
+susi-commercial tasks close <task-id>
 ```
 
 Validate roadmap structure at any time:

@@ -339,8 +339,14 @@ const EXEMPT: &[(&str, &str)] = &[
     ("uninstall", "install"),
     ("local", "local tooling"),
     ("clean", "local tooling"),
-    ("workflow", "workflow (developer tooling)"),
-    ("tasks", "tasks: exempted with workflow per PSP-22"),
+    (
+        "workflow",
+        "refusal only: the worktree workflow moved to Susi Commercial Apps (`susi-commercial workflow`)",
+    ),
+    (
+        "tasks",
+        "local tooling: `eval-corpus` records RSI evidence in the checkout; the task queue moved to Susi Commercial Apps (`susi-commercial tasks`)",
+    ),
     (
         "keys set",
         "plan B4 group 3: setting keys stays local to the CLI and desktop",
@@ -349,9 +355,8 @@ const EXEMPT: &[(&str, &str)] = &[
         "keys remove",
         "plan B4 group 3: setting keys stays local to the CLI and desktop",
     ),
-    ("admin release", "admin release tooling"),
-    ("admin lint", "admin release tooling"),
-    ("admin audit-deps", "admin release tooling"),
+    ("admin lint", "local tooling: runs cargo clippy in the checkout"),
+    ("admin audit-deps", "local tooling: runs cargo audit in the checkout"),
     (
         "admin audit-evidence verify",
         "takes signing secrets (key-id=secret) as arguments; verification stays local so secrets never cross the socket",
@@ -388,14 +393,6 @@ const EXEMPT: &[(&str, &str)] = &[
     (
         "frameworks worker",
         "process entry point: the detached worker `frameworks run` spawns; over the socket tasks run on daemon threads (frameworks_run, frameworks_retry)",
-    ),
-    (
-        "admin sync",
-        "admin release tooling: rewrites the version strings across a Susi source checkout",
-    ),
-    (
-        "admin verify",
-        "admin release tooling: checks the version strings across a Susi source checkout",
     ),
 ];
 

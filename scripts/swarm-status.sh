@@ -46,7 +46,7 @@ format_in_flight() {
 
 in_flight() {
     command -v jq >/dev/null 2>&1 || return 0
-    susi tasks list 2>/dev/null | format_in_flight
+    susi-commercial tasks list 2>/dev/null | format_in_flight
 }
 
 # The in-flight line is judged on its own, so its acceptance tests the script

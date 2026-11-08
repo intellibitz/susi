@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Make the susi workflow binding on GitHub itself (Mandates 49-51, 53, 54).
+# Make the susi-commercial workflow binding on GitHub itself (Mandates 49-51, 53, 54).
 #
 # Client-side hooks are skipped by `git commit --no-verify`, and every agent
 # pushes with the admin's own SSH key, so the real enforcement is a repository

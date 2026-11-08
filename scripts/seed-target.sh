@@ -9,7 +9,7 @@
 #                                              rebuild and republish the snapshot
 #                                              (the primary watcher runs this)
 #
-# The work is susi's: `susi workflow seed-target` (crates/susi-gawd/src/admin/seed.rs)
+# The work is susi's: `susi-commercial workflow seed-target` (Susi Commercial Apps' susi-dev-workflow)
 # does everything this script did in bash, with git, cargo and the copy tool run
 # directly, so an installed susi.exe seeds a worktree without Git's MSYS userland
 # on PATH. This file stays so that the hooks, the docs and branches cut before the
@@ -59,7 +59,8 @@ if [ -n "$top" ]; then
     done
 fi
 # shellcheck disable=SC2086
-for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
+for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi-commercial 2>/dev/null)" \
+    "$(command -v susi 2>/dev/null)" \
     "${own:+$own/release/susi}" "${own:+$own/release/susi.exe}" \
     "${own:+$own/debug/susi}" "${own:+$own/debug/susi.exe}" \
     "${primary_target:+$primary_target/release/susi}" "${primary_target:+$primary_target/release/susi.exe}" \

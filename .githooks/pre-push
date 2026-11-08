@@ -10,7 +10,7 @@
 # ever pushed one automatically, so GitHub's actual Releases page stayed
 # frozen at whatever was last tagged by hand while Cargo.toml kept racing
 # ahead internally. Cutting a real, tagged release is now a deliberate,
-# atomic action - `susi admin release --cut <patch|minor|major>` - which
+# atomic action - `susi-commercial admin release --cut <patch|minor|major>` - which
 # bumps every engine Cargo.toml, syncs docs, commits, tags, and pushes the
 # tag together in one step, so the tag can never again drift from the
 # version. Routine pushes just need to build and pass the checks below.
@@ -54,7 +54,7 @@ if [ -n "$PUSHED_RUST_FILES" ]; then
         echo "✅ Clippy already passed in local gate for this exact diff — skipping pre-push rerun."
     else
         # The crates the push touches and their dependents - the same set, and the
-        # same command line, as `susi workflow finish`'s gate, which has just linted
+        # same command line, as `susi-commercial workflow finish`'s gate, which has just linted
         # it: this run is then a cache hit. `--workspace` here compiled every other
         # crate's test targets as well, a cold build the gate never needed. A
         # workspace-wide input (lockfile, toolchain, root build.rs) is `ALL` and keeps
@@ -116,7 +116,7 @@ LOCAL_VERSION=$(grep '^version =' Cargo.toml | head -n 1 | cut -d '"' -f 2)
 README_VERSION=$(grep 'badge/version-v' README.md | sed -n 's/.*version-v\([0-9.]*\)-.*/\1/p')
 if [[ "$LOCAL_VERSION" != "$README_VERSION" ]]; then
     echo "⚠️  README.md version ($README_VERSION) does not match Cargo.toml ($LOCAL_VERSION)."
-    echo "    Run 'cargo run -- admin sync', commit the result, and push again."
+    echo "    Run 'susi-commercial admin sync', commit the result, and push again."
 fi
 
 echo "✅ SUSI Compliance Check Passed."

@@ -11,8 +11,8 @@
 # the LAST line so a caller can `eval "$(scripts/susi-worktree.sh | tail -1)"`.
 # In a cloud session's clone it installs the hooks and prints `cd` back into it.
 #
-# The work is susi's: `susi workflow start` (crates/susi-gawd/src/admin/
-# workflow.rs) does everything this script did in bash, with git run directly
+# The work is susi's: `susi-commercial workflow start` (Susi Commercial Apps'
+# susi-dev-workflow) does everything this script did in bash, with git run directly
 # and the agent tool read from this process's ancestors without `ps -o`, so an
 # installed susi.exe makes a worktree without Git's MSYS userland (flock, awk,
 # sed, tr, cygpath) on PATH. This file stays so that the docs and branches cut
@@ -34,7 +34,8 @@ here=
 if [ -n "$mine" ] && [ ! -L "$mine/target" ]; then
     here="$mine/target"
 fi
-for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
+for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi-commercial 2>/dev/null)" \
+    "$(command -v susi 2>/dev/null)" \
     "${own:+$own/release/susi}" "${own:+$own/release/susi.exe}" \
     "${own:+$own/debug/susi}" "${own:+$own/debug/susi.exe}" \
     "${here:+$here/release/susi}" "${here:+$here/release/susi.exe}" \
