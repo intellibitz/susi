@@ -6,6 +6,14 @@ identity — GEMI / GAWD / GMCP, host-contract ports, `CapabilityRegistry`,
 extension packs, evidence-gated swarm — **without** renaming the workspace into
 a foreign `apps/core/modules/adapters` tree.
 
+The narrative architecture (the socket, its pillars, the plane bus and its
+loopback rendezvous, the plug bridge to the commercial suite, the lean-core
+direction and the command reference) is [`docs/architecture.md`](docs/architecture.md);
+verified claims and admitted gaps are [`docs/evidence.md`](docs/evidence.md).
+This file remains the enforceable contract. The one Wasm runtime in the
+workspace is Wasmi, inside the compatibility-named `susi-vendor-wasmtime`
+crate; no Wasmtime is linked.
+
 Constitutional source of truth for product claims remains
 [`.agents/identity.json`](.agents/identity.json). When this file and identity
 disagree on host ports or pillar names, **source wins** and both are updated in
@@ -25,11 +33,11 @@ susi-core (Evidence, Truth, Provider, Tool, CapabilityRegistry, plane_bus)
         ↓
 susi-error · susi-paths
         ↑
-infrastructure adapters: sandbox · native (Wasmtime) · Docker / HTTP / MCP clients
+infrastructure adapters: sandbox · native (Wasmi) · Docker / HTTP / MCP clients
 ```
 
 **Rule:** domain and contract code must not import frameworks, databases,
-networking clients, UI, OS daemon APIs, Candle, Wasmtime, Bollard, or `rmcp`.
+networking clients, UI, OS daemon APIs, Candle, Wasmi, Bollard, or `rmcp`.
 
 Concrete implementations are assembled only at composition roots.
 
@@ -70,7 +78,7 @@ never consume an unterminated source tail.
 | `susi-error` | Stable error model + metrics sink (served on `:18081` by `susi-leaf-services`) | `EaiError`, `EaiResult`, `rewrap`, `ResultExt` (`context`/`with_context`, kind-preserving), `eai_err!`/`eai_bail!`, metrics sink, offset-aware service-backed event reporter (`service_port`), `append_posted_event`/`recent_error_entries` | `susi-paths`, std, serde, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
 | `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-adapters-llm` (re-export `inference_wire`); `susi-http-transport` (MCP session client); std, serde, concurrency libs | feature planes; HTTP client crates | providers/tools via registry | process registry | receipt archive paths |
 | `susi-vendor-wasmtime` | The one wasm crate: WASI reflex host for the `susi-native` leaf service (`:18084`, HTTP shell in `susi-leaf-services`) + the metered, memory-capped in-process cell runtime and plugin-module validation the daemon uses. Inputs are compiled binary `.wasm` only — the WebAssembly text format is a dev-dependency of this crate's own tests, never a host input | `wasm::WasmHost`, `cell::{WasmCell, spawn_wasm_cell, validate_module}` | `susi-error`; wasmi, wasmparser, wasm-encoder (normal), `wat` (dev only) | feature planes (they use `susi-native-client`) | Wasm modules | instance | yes |
-| `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmtime, feature planes | no | no | loopback HTTP |
+| `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | `susi-vendor-wasmtime`, feature planes | no | no | loopback HTTP |
 | `susi-config` | `SusiConfig` + extension packs + versioned JSON store (served on `:18082` by `susi-leaf-services`) | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP clients, everything above paths/error | no | config files | yes |
 | `susi-leaf-services` | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox-client`, `susi-vendor-wasmtime`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
@@ -377,7 +385,7 @@ cells the user placed under `~/.susi/cells` (and any added later).
 |---------|------|----------------------|
 | **Extension pack** | Vendor opinions + capability declarations, installed by the user or Susi Commercial Apps | `~/.susi/extensions/<id>/manifest.json` |
 | **MCP / peer admit** | External tools and agents, admitted explicitly (`susi mcp-add`, `susi mcp enable`) | `mcp_config.json`, installed pack catalogs, `CapabilityRegistry` |
-| **Wasm reflex** | Sandboxed synthesized skill | Wasmtime under data dir |
+| **Wasm reflex** | Sandboxed synthesized skill | Wasmi (`susi-vendor-wasmtime`, a compatibility name; no Wasmtime is linked) under data dir |
 
 Pack manifests support (additive, Mandate 35 flatten for unknowns):
 
@@ -449,7 +457,7 @@ under `fuzz/` (stable smoke in `tests/fuzz_smoke.rs`).
 
 Close to the modularization goal when:
 
-- [x] Domain (`susi-core`) has no networking / Candle / Wasmtime / Docker deps.
+- [x] Domain (`susi-core`) has no networking / Candle / Wasmi / Docker deps.
 - [x] External systems reached through ports (`Provider`, `Tool`, hooks).
 - [x] Concrete wiring only at CLI/daemon composition roots.
 - [x] Features admit via registries / config / packs — not central `if type ==`.
