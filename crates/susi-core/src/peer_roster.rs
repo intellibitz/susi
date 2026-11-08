@@ -367,7 +367,10 @@ mod tests {
         assert_eq!(live_row["live_via_discovery"], true);
         assert_eq!(live_row["self"], false);
         for field in ["term", "leader", "records", "key_epoch", "roster", "bound"] {
-            assert!(live_row.get(field).is_none(), "{field} invented: {live_row:?}");
+            assert!(
+                live_row.get(field).is_none(),
+                "{field} invented: {live_row:?}"
+            );
         }
 
         let stale_row = rows
@@ -375,7 +378,10 @@ mod tests {
             .find(|r| r["node"] == "susi-node-peer-stale")
             .unwrap();
         assert!(stale_row.get("error").is_some(), "{stale_row:?}");
-        assert!(stale_row.get("live_via_discovery").is_none(), "{stale_row:?}");
+        assert!(
+            stale_row.get("live_via_discovery").is_none(),
+            "{stale_row:?}"
+        );
 
         drop(env);
         let _ = std::fs::remove_dir_all(&home);
