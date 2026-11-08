@@ -30,11 +30,15 @@ if (@(Get-SusiNativeArchitectures | Where-Object { $_ -match '^arm64$' }).Count 
     throw 'Unsupported platform for the free Susi core release: ARM64 Windows.'
 }
 
-# SUSI Micro-Substrate Installer for Windows
-# Tier 0 Onboarding Protocol: Zero-Config Deployment
+# SUSI installer for Windows x86_64: builds the newest release tag from source.
+#
+# A release is a git tag plus its committed record releases/<tag>.json
+# (docs/releases.md). This script resolves the tag with `git ls-remote --tags`
+# against SUSI_SOURCE_REPO (or the origin of the checkout it runs from), checks
+# it out, builds it with the recorded settings and the toolchain pinned in
+# rust-toolchain.toml, and installs it only when it reports the tag's version.
+# It downloads no binary and installs no system software.
 
-$SusiRepo = "https://github.com/intellibitz/susi"
-$ReleaseUrl = "$SusiRepo/releases/latest/download"
 $HomeDir = [Environment]::GetFolderPath("UserProfile")
 $IsolatedInstall = -not [string]::IsNullOrWhiteSpace($env:SUSI_HOME)
 if ($IsolatedInstall -and -not [IO.Path]::IsPathRooted($env:SUSI_HOME)) {
@@ -43,12 +47,55 @@ if ($IsolatedInstall -and -not [IO.Path]::IsPathRooted($env:SUSI_HOME)) {
 $GlobalDir = if ($IsolatedInstall) { [IO.Path]::GetFullPath($env:SUSI_HOME) } else { Join-Path $HomeDir ".susi" }
 $GlobalBinDir = Join-Path $GlobalDir "bin"
 
+# Requirements, checked before anything is written. A missing tool stops the
+# install with what to install; nothing is installed on the user's behalf.
+foreach ($Tool in 'git', 'cargo', 'rustup') {
+    if (-not (Get-Command $Tool -ErrorAction SilentlyContinue)) {
+        if ($Tool -eq 'git') {
+            throw 'git is required to fetch the Susi release tag. Install Git for Windows and re-run.'
+        }
+        throw "$Tool was not found. Susi installs by building its release tag from source, which needs a Rust toolchain managed by rustup (https://rustup.rs). Install rustup, then re-run; the release pins its compiler in rust-toolchain.toml."
+    }
+}
+
+# Native-command output with stderr discarded: under 'Stop', Windows PowerShell
+# 5.1 turns redirected stderr lines into terminating errors.
+function Get-Quiet {
+    $Previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $Out = & $args[0] @($args | Select-Object -Skip 1) 2>$null
+        [pscustomobject]@{ Code = $LASTEXITCODE; Out = @($Out) }
+    } finally {
+        $ErrorActionPreference = $Previous
+    }
+}
+
+# The source repository: SUSI_SOURCE_REPO, else the origin of the checkout this
+# script runs from. No host name is built in, and the caller's working
+# directory never chooses the source.
+$SourceRepo = $env:SUSI_SOURCE_REPO
+if ([string]::IsNullOrWhiteSpace($SourceRepo) -and $PSScriptRoot) {
+    $Manifest = Join-Path $PSScriptRoot 'Cargo.toml'
+    if ((Test-Path -LiteralPath $Manifest) -and (Select-String -LiteralPath $Manifest -Pattern '^name *= *"susi"' -Quiet)) {
+        $SourceRepo = ((Get-Quiet git -C $PSScriptRoot remote get-url origin).Out -join '').Trim()
+    }
+}
+if ([string]::IsNullOrWhiteSpace($SourceRepo)) {
+    throw 'No source repository. Set SUSI_SOURCE_REPO to the git URL of the Susi core repository, or run install.ps1 from a clone of it.'
+}
+
+function Invoke-Git {
+    & git @args
+    if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed (exit $LASTEXITCODE)." }
+}
+
 # Ensure substrate structure exists
 if (-not (Test-Path $GlobalBinDir)) {
     New-Item -ItemType Directory -Force -Path $GlobalBinDir | Out-Null
 }
 
-Write-Host "[susi] Installing your local and cloud AI operating layer..." -ForegroundColor Cyan
+Write-Host "[susi] Installing your local and cloud AI operating layer (source: $SourceRepo)..." -ForegroundColor Cyan
 
 $LauncherExePath = Join-Path $GlobalBinDir "susi.exe"
 $EngineExePath = $LauncherExePath
@@ -62,98 +109,120 @@ function Stop-InstalledSusi {
     }
 }
 
-$Installed = $false
+# 1. Resolve the release: the newest vX.Y.Z tag, or SUSI_RELEASE_TAG.
+$Tag = $env:SUSI_RELEASE_TAG
+if ([string]::IsNullOrWhiteSpace($Tag)) {
+    $Tags = @(& git ls-remote --tags --refs $SourceRepo 'v*' | ForEach-Object { ($_ -split "`t")[1] -replace '^refs/tags/', '' } |
+        Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })
+    $Tag = $Tags | Sort-Object { [version]($_.Substring(1)) } | Select-Object -Last 1
+}
+if ($Tag -notmatch '^v\d+\.\d+\.\d+$') {
+    throw "No release tag vX.Y.Z found on $SourceRepo (got '$Tag')."
+}
+$Version = $Tag.Substring(1)
 
-# 1. Try Binary Download First (Lightning Fast)
-if ($null -eq $env:LOCAL_SOURCE) {
-    Write-Host "🔐 Fetching latest susi engine..." -ForegroundColor Yellow
+# 2. Check the tag out into the private release checkout the upgrade script
+# (scripts/susi-release-sync.sh) also uses, and read its record from the
+# repository's default branch.
+$Src = Join-Path $GlobalDir 'release-src'
+if (-not (Test-Path -LiteralPath (Join-Path $Src '.git'))) {
+    Write-Host "  Cloning $SourceRepo into $Src..." -ForegroundColor Gray
+    Invoke-Git clone --quiet --no-checkout $SourceRepo $Src
+}
+Invoke-Git -C $Src remote set-url origin $SourceRepo
+Invoke-Git -C $Src fetch --quiet --force origin "refs/tags/${Tag}:refs/tags/${Tag}"
+Invoke-Git -C $Src fetch --quiet origin HEAD
+$Shown = Get-Quiet git -C $Src show "FETCH_HEAD:releases/$Tag.json"
+$RecordText = $Shown.Out -join "`n"
+if ($Shown.Code -ne 0 -or [string]::IsNullOrWhiteSpace($RecordText)) {
+    throw "$Tag has no release record releases/$Tag.json on $SourceRepo; it is not a release (docs/releases.md)."
+}
+$Record = $RecordText | ConvertFrom-Json
+$Commit = (& git -C $Src rev-parse "refs/tags/$Tag^{commit}").Trim()
+if ($Record.commit -ne $Commit -or $Record.tag -ne $Tag) {
+    throw "$Tag points at $Commit, but releases/$Tag.json records '$($Record.commit)'. Refusing to build."
+}
+Invoke-Git -C $Src -c advice.detachedHead=false checkout --quiet --force --detach "refs/tags/$Tag"
+Invoke-Git -C $Src clean --quiet -ffdx
 
-    # The release publishes `susi-windows-x86_64.exe` (+ .sha256), the same
-    # `<product>-<platform>-<arch>` naming install.sh resolves on Unix.
-    # Open-core defaults to `windows-x86_64` while keeping `windows-aarch64`
-    # asset selection gated by `SUSI_ALLOW_WINDOWS_ARM64=1` (D-OS-7).
-    $RawArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLower()
-    $Arch = switch ($RawArch) {
-        "x64"   { "x86_64" }
-        "arm64" { "aarch64" }
-        default { $RawArch }
-    }
-    $EngineBinary = if ($Arch -eq "aarch64" -and $env:SUSI_ALLOW_WINDOWS_ARM64 -eq "1") { "susi-windows-aarch64.exe" } else { "susi-windows-x86_64.exe" }
-    $EngineTmpPath = Join-Path $GlobalBinDir "susi-engine-new.exe"
-    $ChecksumTmpPath = "$EngineTmpPath.sha256"
-
-
-    try {
-        Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary" -OutFile $EngineTmpPath -UseBasicParsing -TimeoutSec 120
-        Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary.sha256" -OutFile $ChecksumTmpPath -UseBasicParsing -TimeoutSec 30
-
-        # Never run a downloaded binary without verifying it against the
-        # published checksum first - a missing/mismatched checksum falls
-        # back to a source build rather than executing an unverified binary.
-        $ExpectedSha = (Get-Content $ChecksumTmpPath -Raw).Trim().Split(" ")[0].ToLower()
-        $ActualSha = (Get-FileHash $EngineTmpPath -Algorithm SHA256).Hash.ToLower()
-        Remove-Item $ChecksumTmpPath -Force -ErrorAction SilentlyContinue
-
-        if ($ExpectedSha -and ($ActualSha -eq $ExpectedSha)) {
-            Stop-InstalledSusi
-            Move-Item $EngineTmpPath $EngineExePath -Force
-            # One canonical executable; no redundant full-size launcher copy.
-            $Installed = $true
-            Write-Host "  ✅ Downloaded & verified the engine binary from GitHub." -ForegroundColor Green
-        } else {
-            Remove-Item $EngineTmpPath -Force -ErrorAction SilentlyContinue
-            Write-Host "  ⚠️ Checksum verification failed for $EngineBinary. Discarding download and falling back to source build." -ForegroundColor Yellow
-        }
-    } catch {
-        Remove-Item $EngineTmpPath -Force -ErrorAction SilentlyContinue
-        Remove-Item $ChecksumTmpPath -Force -ErrorAction SilentlyContinue
-        Write-Host "  ⚠️ Binary download failed. Falling back to source build." -ForegroundColor Yellow
-    }
+# 3. The pinned compiler. rustup must already have it.
+$Channel = ''
+$ToolchainFile = Join-Path $Src 'rust-toolchain.toml'
+if (Test-Path -LiteralPath $ToolchainFile) {
+    $Match = Select-String -LiteralPath $ToolchainFile -Pattern '^channel *= *"([^"]+)"' | Select-Object -First 1
+    if ($Match) { $Channel = $Match.Matches[0].Groups[1].Value }
+}
+if ($Channel -and -not ((Get-Quiet rustup toolchain list).Out | Where-Object { $_ -match "^$([regex]::Escape($Channel))[-\s]" })) {
+    throw "$Tag pins Rust $Channel (rust-toolchain.toml), which rustup does not have. Install it, then re-run: rustup toolchain install $Channel --profile minimal"
 }
 
-# 2. Fallback to Source Build
-if (-not $Installed -and (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
-    Write-Host "[susi Native] Compiling standalone Rust AI engine..." -ForegroundColor Yellow
-
-
-    # Match install.sh: thin-LTO release profile + only the installable binary.
-    # sccache when present; --locked when Cargo.lock ships with the tree.
-    if ((Get-Command "sccache" -ErrorAction SilentlyContinue) -and -not $env:RUSTC_WRAPPER) {
-        $env:RUSTC_WRAPPER = "sccache"
-        Write-Host "  Using sccache for faster recompiles." -ForegroundColor Gray
-    }
-
-    Write-Host "  Building engine..." -ForegroundColor Gray
-    $locked = @()
-    if (Test-Path "Cargo.lock") { $locked = @("--locked") }
-    & cargo build --release -p susi --bin susi @locked
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "cargo build failed with exit code $LASTEXITCODE"
-        exit $LASTEXITCODE
-    }
-
-    $EngineSrc = "target\release\susi.exe"
-    if (-not (Test-Path $EngineSrc)) {
-        # Legacy artifact name from older trees
-        $EngineSrc = "target\release\susi-engine.exe"
-    }
-
-    if (Test-Path $EngineSrc) {
-        Stop-InstalledSusi
-        Copy-Item $EngineSrc $EngineExePath -Force
-        $Installed = $true
-        Write-Host "  ✅ Compiled & installed the engine binary." -ForegroundColor Green
-    }
+# 4. Build with the recorded profile, features and environment.
+$Safe = '^[A-Za-z0-9_./,-]*$'
+$BuildProfile = [string]$Record.build.profile
+$Features = [string]$Record.build.features
+if (-not $BuildProfile -or $BuildProfile -notmatch $Safe -or $Features -notmatch $Safe) {
+    throw "releases/$Tag.json has no usable build profile or features."
+}
+$CargoArgs = @('build', '--locked', '--profile', $BuildProfile, '-p', 'susi', '--bin', 'susi')
+if ($Features) { $CargoArgs += @('--features', $Features) }
+$TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $GlobalDir 'build-cache\release' }
+New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+$Saved = @{}
+$BuildEnv = @{ CARGO_TARGET_DIR = $TargetDir; RUSTUP_AUTO_INSTALL = '0' }
+foreach ($Entry in @($Record.build.env)) {
+    if ($Entry -notmatch '^([A-Z_][A-Z0-9_]*)=([A-Za-z0-9_./,-]*)$') { throw "releases/$Tag.json has an unusable build.env entry: $Entry" }
+    $BuildEnv[$Matches[1]] = $Matches[2]
+}
+if ((Get-Command "sccache" -ErrorAction SilentlyContinue) -and -not $env:RUSTC_WRAPPER) {
+    $BuildEnv['RUSTC_WRAPPER'] = 'sccache'
+    Write-Host "  Using sccache for faster recompiles." -ForegroundColor Gray
+}
+Write-Host "[susi] Building susi $Tag ($Commit) with Rust $Channel`: cargo $($CargoArgs -join ' ') (a cold build takes several minutes)..." -ForegroundColor Yellow
+foreach ($Name in $BuildEnv.Keys) {
+    $Saved[$Name] = [Environment]::GetEnvironmentVariable($Name, 'Process')
+    [Environment]::SetEnvironmentVariable($Name, $BuildEnv[$Name], 'Process')
+}
+Push-Location $Src
+try {
+    & cargo @CargoArgs
+    $BuildExit = $LASTEXITCODE
+} finally {
+    Pop-Location
+    foreach ($Name in $Saved.Keys) { [Environment]::SetEnvironmentVariable($Name, $Saved[$Name], 'Process') }
+}
+if ($BuildExit -ne 0) {
+    throw "cargo build failed with exit code $BuildExit. Nothing was installed."
+}
+$OutDir = switch ($BuildProfile) { 'dev' { 'debug' } 'test' { 'debug' } 'bench' { 'release' } default { $BuildProfile } }
+$EngineSrc = Join-Path $TargetDir "$OutDir\susi.exe"
+if (-not (Test-Path -LiteralPath $EngineSrc)) {
+    throw "The build produced no $EngineSrc. Nothing was installed."
 }
 
-if (-not $Installed) {
-    if (Get-Command "cargo" -ErrorAction SilentlyContinue) {
-        Write-Error "Installation failed while building from source. Check the cargo build output above for details."
-    } else {
-        Write-Error "Installation failed. No verified pre-built binary is available from $SusiRepo, and 'cargo' (Rust) is not installed to build from source. Install Rust from https://rustup.rs and re-run this installer."
-    }
-    exit 1
+# 5. The gate: the built binary must report the tag's version.
+$SavedHome = $env:SUSI_HOME
+$env:SUSI_HOME = $GlobalDir
+try { $Reported = (((Get-Quiet $EngineSrc --version).Out -join ' ') -split '\s+')[1] } finally { $env:SUSI_HOME = $SavedHome }
+if ($Reported -ne $Version) {
+    throw "The built binary reports version '$Reported', expected '$Version'. Nothing was installed."
 }
+# Informational: compare with the reference build's checksum. Most independent
+# builds differ in bytes (reproducibility is not claimed), so a difference is
+# reported, never enforced.
+$Asset = 'susi-windows-x86_64.exe'
+$Want = ($Record.assets | Where-Object { $_.file -eq $Asset } | Select-Object -First 1).sha256
+$Have = (Get-FileHash -LiteralPath $EngineSrc -Algorithm SHA256).Hash.ToLower()
+if (-not $Want) {
+    Write-Host "  checksum: $Have (the release records no reference build for $Asset)" -ForegroundColor Gray
+} elseif ($Want -eq $Have) {
+    Write-Host "  checksum: $Have matches the reference build" -ForegroundColor Gray
+} else {
+    Write-Host "  checksum: $Have differs from the reference build $Want, as expected for an independent build (docs/releases.md)" -ForegroundColor Gray
+}
+
+Stop-InstalledSusi
+Copy-Item -LiteralPath $EngineSrc -Destination $EngineExePath -Force
+Write-Host "  Installed susi $Version." -ForegroundColor Green
 
 # Older installations kept a second full copy. The verified replacement is
 # already installed and the old instance stopped, so retire only that copy.

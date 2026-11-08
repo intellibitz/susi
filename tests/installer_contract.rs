@@ -1,4 +1,5 @@
-//! Execute the Unix installer with a checksum-verified fixture download.
+//! Execute the Unix installer against fake git, cargo and rustup: it builds
+//! the release tag with its recorded settings and downloads nothing.
 //! No provider, network, installed Susi, or user profile is touched.
 // Optional POSIX/hosted compatibility fixtures execute shell scripts.
 // Native Windows delivery is covered by the Rust coordinator, bootstrap,
@@ -55,67 +56,140 @@ fn run_bash(script: &str) -> std::process::Output {
     child.wait_with_output().unwrap()
 }
 
+/// Fake `git`, `cargo`, `rustup`, `curl` and `wget` executables in
+/// `$scratch/bin`, ahead of everything else on PATH. `git` serves one tag,
+/// `v0.21.52`, whose record is the committed `releases/v0.21.52.json`; `cargo`
+/// writes a fixture binary that reports `$FIXTURE_VERSION`. Every call is
+/// logged to `$CALLS`; `curl` and `wget` fail, so any download shows up.
+const FAKE_TOOLS: &str = r#"mkdir -p "$scratch/bin" "$scratch/fixture"
+export CALLS="$scratch/calls" RECORD_FIXTURE="$scratch/fixture/record.json"
+export FIXTURE_VERSION="${FIXTURE_VERSION:-0.21.52}" TAG_COMMIT="${TAG_COMMIT:-92f7ee498ac9103ee2e4bd2a86f0a646a20443ad}"
+cat >"$RECORD_FIXTURE" <<'RECORD_EOF'
+__RECORD__
+RECORD_EOF
+cat >"$scratch/bin/git" <<'GIT_EOF'
+#!/usr/bin/env bash
+printf 'git %s\n' "$*" >>"$CALLS"
+if [ "$1" = -C ]; then dir="$2"; shift 2; fi
+if [ "$1" = -c ]; then shift 2; fi
+case "$1" in
+    ls-remote) printf '%s\trefs/tags/v0.21.51\n%s\trefs/tags/v0.21.52\n' 1111111111111111111111111111111111111111 "$TAG_COMMIT" ;;
+    clone) mkdir -p "${!#}/.git" ;;
+    show) cat "$RECORD_FIXTURE" ;;
+    rev-parse) echo "$TAG_COMMIT" ;;
+    checkout) printf '[toolchain]\nchannel = "1.99.0"\n' >"$dir/rust-toolchain.toml" ;;
+    remote | fetch | clean) ;;
+    *) exit 64 ;;
+esac
+GIT_EOF
+cat >"$scratch/bin/cargo" <<'CARGO_EOF'
+#!/usr/bin/env bash
+printf 'cargo %s LTO=%s CGU=%s AUTO=%s\n' "$*" "$CARGO_PROFILE_DIST_LTO" "$CARGO_PROFILE_DIST_CODEGEN_UNITS" "$RUSTUP_AUTO_INSTALL" >>"$CALLS"
+mkdir -p "$CARGO_TARGET_DIR/dist"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"$CALLS"\ncase "$1" in --version) echo "susi %s";; *) exit 71;; esac\n' "$FIXTURE_VERSION" >"$CARGO_TARGET_DIR/dist/susi"
+chmod +x "$CARGO_TARGET_DIR/dist/susi"
+CARGO_EOF
+cat >"$scratch/bin/rustup" <<'RUSTUP_EOF'
+#!/usr/bin/env bash
+printf 'rustup %s\n' "$*" >>"$CALLS"
+[ "$1 $2" = "toolchain list" ] && printf '%s-x86_64-unknown-linux-gnu\n' "${RUSTUP_HAS:-1.99.0}"
+RUSTUP_EOF
+for tool in curl wget; do printf '#!/usr/bin/env bash\necho %s >>"$CALLS"\nexit 1\n' "$tool" >"$scratch/bin/$tool"; done
+chmod +x "$scratch/bin/"*
+export PATH="$scratch/bin:$PATH"
+"#;
+
+/// Removes fake TOOL and every PATH entry that holds a real one, so the
+/// installer sees the tool as missing.
+const WITHOUT: &str = r#"rm "$scratch/bin/TOOL"
+PATH="$(printf '%s' "$PATH" | tr ':' '\n' | while read -r d; do { [ -x "$d/TOOL" ] || [ -x "$d/TOOL.exe" ]; } && continue; printf '%s:' "$d"; done)"
+export PATH="${PATH%:}""#;
+
+fn fake_tools() -> String {
+    FAKE_TOOLS.replace("__RECORD__", include_str!("../releases/v0.21.52.json").trim_end())
+}
+
 #[test]
-fn installer_unix_step1_isolates_verified_install_and_never_launches_headless() {
+fn installer_unix_builds_the_release_tag_with_its_recorded_settings_and_never_downloads() {
     // Exercise both explicit noninteractive mode and a pipe with no terminal.
-    for (noninteractive, gpu_status) in [("1", 0), ("", 0), ("1", 1), ("", 1)] {
+    for noninteractive in ["1", ""] {
         let script = format!(
             r#"set -e
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
-export HOME="$scratch/home" SUSI_HOME="$scratch/isolated home"
-export CALLS="$scratch/calls" FIXTURE="$scratch/fixture" URLS="$scratch/urls"
+export HOME="$scratch/home" SUSI_HOME="$scratch/isolated home" SUSI_SOURCE_REPO="$scratch/origin.git"
 export SUSI_ALWAYS_ON=1 NONINTERACTIVE='{noninteractive}'
 mkdir -p "$HOME"
-cat >"$FIXTURE" <<'FIXTURE_EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$CALLS"
-case "$1" in --version) echo 'susi fixture';; *) exit 71;; esac
-FIXTURE_EOF
+{tools}
 uname() {{ if [ "$1" = '-s' ]; then echo Linux; else echo x86_64; fi; }}
-nvidia-smi() {{ return {gpu_status}; }}
 pkill() {{ return 0; }}
-curl() {{
-    local url='' dest=''
-    while [ "$#" -gt 0 ]; do
-        case "$1" in https:*) url="$1";; -o) shift; dest="$1";; esac
-        shift
-    done
-    printf '%s\n' "$url" >>"$URLS"
-    case "$url" in
-        *.sha256)
-            if command -v sha256sum >/dev/null 2>&1; then
-                sha256sum "$FIXTURE" >"$dest"
-            else
-                shasum -a 256 "$FIXTURE" >"$dest"
-            fi;;
-        *) cp "$FIXTURE" "$dest";;
-    esac
-}}
 (
 {INSTALLER}
 )
 test -x "$SUSI_HOME/bin/susi"
-test "$(cat "$CALLS")" = '--version'
 test ! -e "$HOME/.susi"
 test ! -e "$HOME/.profile"
 test ! -e "$HOME/.config"
-test "$(wc -l <"$URLS")" -eq 2
-test "$(grep -c '/susi-linux-x86_64$' "$URLS")" -eq 1
-test "$(grep -c '/susi-linux-x86_64.sha256$' "$URLS")" -eq 1
-! grep -Eq 'cuda|mkl|tar.gz' "$URLS"
+! grep -Eq '^(curl|wget)$' "$CALLS"
+grep -q "^git ls-remote --tags --refs $SUSI_SOURCE_REPO v\*$" "$CALLS"
+grep -q 'fetch --quiet --force origin refs/tags/v0.21.52:refs/tags/v0.21.52$' "$CALLS"
+grep -q 'show FETCH_HEAD:releases/v0.21.52.json$' "$CALLS"
+grep -q 'checkout --quiet --force --detach refs/tags/v0.21.52$' "$CALLS"
+grep -qx 'cargo build --locked --profile dist -p susi --bin susi --features susi/local-engine LTO=false CGU=16 AUTO=0' "$CALLS"
+test "$(grep -cx -- '--version' "$CALLS")" -eq 1
+test ! -e "$SUSI_HOME/release-v0.21.52.json"
 echo INSTALLER_CONTRACT_PASSED
-"#
+"#,
+            tools = fake_tools()
         );
         let output = run_bash(&script);
+        let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             output.status.success(),
-            "stdout={} stderr={}",
-            String::from_utf8_lossy(&output.stdout),
+            "stdout={stdout} stderr={}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert!(String::from_utf8_lossy(&output.stdout).contains("INSTALLER_CONTRACT_PASSED"));
-        assert!(String::from_utf8_lossy(&output.stdout).contains("Open Susi and give it a goal:"));
+        assert!(stdout.contains("INSTALLER_CONTRACT_PASSED"));
+        assert!(stdout.contains("the release records no reference build for susi-linux-x86_64"));
+        assert!(stdout.contains("Open Susi and give it a goal:"));
+    }
+}
+
+/// The version check is the gate, and the tag must point at the record's
+/// commit; a missing tool, toolchain or source repository stops the install
+/// with an accurate message, and nothing is installed in any of these cases.
+#[test]
+fn installer_unix_refuses_what_it_cannot_build_or_verify() {
+    let cases = [
+        ("export FIXTURE_VERSION=0.21.51".to_owned(), "reports version '0.21.51', expected '0.21.52'"),
+        ("export TAG_COMMIT=2222222222222222222222222222222222222222".to_owned(), "Refusing to build"),
+        ("export RUSTUP_HAS=1.98.0".to_owned(), "rustup toolchain install 1.99.0"),
+        (WITHOUT.replace("TOOL", "rustup"), "rustup was not found"),
+        (WITHOUT.replace("TOOL", "cargo"), "cargo was not found"),
+        ("unset SUSI_SOURCE_REPO".to_owned(), "Set SUSI_SOURCE_REPO"),
+    ];
+    for (setup, needle) in cases {
+        let script = format!(
+            r#"scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+export HOME="$scratch/home" SUSI_HOME="$scratch/install" SUSI_SOURCE_REPO="$scratch/origin.git" NONINTERACTIVE=1
+mkdir -p "$HOME"
+{tools}
+{setup}
+uname() {{ if [ "$1" = '-s' ]; then echo Linux; else echo x86_64; fi; }}
+pkill() {{ return 0; }}
+(
+{INSTALLER}
+)
+status=$?
+test "$status" -ne 0 && test ! -e "$SUSI_HOME/bin/susi" && ! grep -Eq '^(curl|wget)$' "$CALLS"
+"#,
+            tools = fake_tools()
+        );
+        let output = run_bash(&script);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{setup}: {stderr}");
+        assert!(stderr.contains(needle), "{setup}: {stderr}");
     }
 }
 
