@@ -59,11 +59,6 @@ pub fn clear_local_engine_plug() {
     *REGISTERED_PLUG.write() = None;
 }
 
-/// The active local engine: an explicitly registered plug, else the built-in
-/// substrate when compiled in (`--features local-engine`), else the built-in
-/// substrate as a forwarder when a process on this substrate's bus rendezvous
-/// serves [`TOPIC_LOCAL_INFER_STREAM`] (the commercial `susi-plug-host`), so a
-/// default protocol-socket build runs local inference through the plug bridge.
 pub fn local_engine_plug() -> Option<Arc<dyn LocalEnginePlug>> {
     if let Some(plug) = REGISTERED_PLUG.read().clone() {
         return Some(plug);
@@ -74,6 +69,7 @@ pub fn local_engine_plug() -> Option<Arc<dyn LocalEnginePlug>> {
     }
     #[cfg(not(feature = "local-engine"))]
     {
+        // A wired plug (the commercial susi-plug-host) serves a default build.
         PlaneBus::global()
             .is_wired(TOPIC_LOCAL_INFER_STREAM)
             .then(BuiltinLocalEnginePlug::shared)
