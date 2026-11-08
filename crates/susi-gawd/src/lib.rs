@@ -16,16 +16,16 @@
 
 //! GAWD — Swarm Master Authority.
 //!
-//! # Four-crate layout
+//! # Crate layout
 //!
 //! | Tier | Crate | Responsibility |
 //! |------|-------|----------------|
 //! | **Agents** | [`susi_gawd_agents`] | Fleet, peers, detectors, identity tables |
 //! | **Swarm** | [`susi_gawd_swarm`] | AMA / AMAS / DAG / cloud recovery |
-//! | **A2A** | [`susi_gawd_a2a`] | `ra2a` wire protocol |
 //! | **Host** | this crate (`0.5.0`) | Compliance audit, evolution, facade re-exports |
 //!
-//! DAG: agents ← swarm, agents ← a2a, all three ← gawd. No cycles.
+//! DAG: agents ← swarm, both ← gawd. No cycles. The A2A tier (`susi-gawd-a2a`)
+//! is served by `susi-daemon` directly, so this crate never waits on its HTTP stack.
 //! Flat paths (`agents`, `ama`, `amas`, …) remain as compatibility re-exports.
 
 pub use susi_abi;
@@ -34,10 +34,6 @@ use crate::admin_hooks::AdminHooks;
 use crate::host_hooks::HostHooks;
 use std::path::Path;
 use std::sync::Once;
-
-pub mod a2a {
-    pub use crate::{capabilities, executor, server, task_store};
-}
 
 pub mod swarm {
     pub use crate::{amas, dag, host_hooks, peer_registry};
@@ -66,7 +62,6 @@ pub use susi_gawd_agents::{
     safety, scheduler, security, self_core, system_observe,
 };
 
-pub use susi_gawd_a2a::{capabilities, executor, server, task_store};
 pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
 pub mod audit_evidence;

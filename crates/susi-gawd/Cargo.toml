@@ -11,7 +11,6 @@ susi-core = { workspace = true }
 susi-adapters-llm = { workspace = true }
 susi-gawd-agents = { workspace = true }
 susi-gawd-swarm = { workspace = true }
-susi-gawd-a2a = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }

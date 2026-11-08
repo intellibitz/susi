@@ -16,6 +16,9 @@ serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-
 susi-core = { workspace = true }
 susi-gemi = { workspace = true }
 susi-gawd = { workspace = true }
+# The A2A port (9094 + offset) is served from here: susi-gawd does not
+# depend on the A2A tier, so it compiles in parallel with the HTTP stack.
+susi-gawd-a2a = { workspace = true }
 susi-gmcp = { workspace = true }
 susi-server = { workspace = true }
 susi-tools = { workspace = true }
