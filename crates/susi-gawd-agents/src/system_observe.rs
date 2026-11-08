@@ -220,24 +220,25 @@ fn native_disk_usage(workspace: &Path) -> crate::susi_error::EaiResult<String> {
         &serde_json::Value::Null,
         workspace,
         || {
-            let disks = sysinfo::Disks::new_with_refreshed_list();
-            if disks.list().is_empty() {
+            let filesystems = crate::susi_config::host_metrics::filesystems();
+            if filesystems.is_empty() {
                 return Err(crate::susi_error::EaiError::process(
                     "native disk query returned no filesystems",
                 ));
             }
-            let mut report =
-                String::from("Filesystem Size(bytes) Used(bytes) Available(bytes) Mounted\n");
-            for disk in disks.list() {
-                let total = disk.total_space();
-                let available = disk.available_space();
+            let mut report = String::from(
+                "Filesystem Size(bytes) Used(bytes) Available(bytes) Mounted
+",
+            );
+            for fs in filesystems {
                 report.push_str(&format!(
-                    "{} {} {} {} {}\n",
-                    disk.file_system().to_string_lossy(),
-                    total,
-                    total.saturating_sub(available),
-                    available,
-                    disk.mount_point().display()
+                    "{} {} {} {} {}
+",
+                    fs.file_system,
+                    fs.total_bytes,
+                    fs.total_bytes.saturating_sub(fs.available_bytes),
+                    fs.available_bytes,
+                    fs.mount_point.display()
                 ));
             }
             Ok(report)

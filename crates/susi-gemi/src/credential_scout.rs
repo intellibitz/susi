@@ -413,7 +413,7 @@ fn within_interval(at: u64, now: u64) -> bool {
 
 /// This host's name, as the OS reports it.
 fn host_name() -> String {
-    sysinfo::System::host_name().unwrap_or_default()
+    crate::susi_config::host_metrics::host_name()
 }
 
 /// What decides what a scout of `target` probes: vendor, endpoint, protocol

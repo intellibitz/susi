@@ -1,0 +1,40 @@
+{
+  "id": "T-DEEPSEEK-1",
+  "title": "Lean-core compile budget: the WebAssembly text format leaves the socket",
+  "goal": "docs/lean-core.md, section 'Compile budget', names wast/wat (21.4 rustc CPU-seconds in the 03:28 build-time record on b814235c4) as the next available cut after the MCP SDK facade and the tokio/hyper stack, which are rung 2. The host now accepts compiled binary `.wasm` only: susi-vendor-wasmtime refuses any input that is not a binary module by name (WASM_MAGIC check in resources::check_binary_module, called from cell::instantiate and wasm::execute_reflex), and `wat` moves to [dev-dependencies] so it and its `wast` parser leave the shipped build closure while the crate's own tests still compile readable WAT fixtures. The daemon's crown sandbox probes carry the compiled bytes of their fixtures (written protocols preserved in doc comments), and a new regression test runs them through the live sandbox check.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "deepseek",
+  "native_worker": "deepseek",
+  "created_by": "deepseek",
+  "created_unix": 1794089523,
+  "updated_unix": 1794089523,
+  "size": "S",
+  "deps": [],
+  "scope": [
+    ".agents/build-time.jsonl",
+    ".agents/tasks/t-deepseek-1.json",
+    "architecture.md",
+    "crates/susi-daemon/src/crown.rs",
+    "crates/susi-vendor-wasmtime"
+  ],
+  "scopes": [
+    ".agents/build-time.jsonl",
+    ".agents/tasks/t-deepseek-1.json",
+    "architecture.md",
+    "crates/susi-daemon/src/crown.rs",
+    "crates/susi-vendor-wasmtime"
+  ],
+  "acceptance": "cargo test -p susi-vendor-wasmtime --lib --offline --locked (37 passed, 1 ignored: the wasm32-wasip1 qualification) and cargo test -p susi-daemon --lib --offline --locked (331 tests including crown::inline_tests::sandbox_check_runs_the_embedded_binary_probes), then cargo xtask build-time for the measured cold build",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-wasmtime",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

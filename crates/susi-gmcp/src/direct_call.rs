@@ -119,13 +119,7 @@ pub fn validate_tool_args(server: &str, tool: &str, args: &Value) -> EaiResult<(
     }
 
     let schema = get_tool_schema(server, tool);
-    let validator = jsonschema::draft202012::options()
-        .with_pattern_options(
-            jsonschema::PatternOptions::fancy_regex()
-                .backtrack_limit(20_000)
-                .size_limit(1_000_000),
-        )
-        .build(&schema)
+    let validator = crate::schema_check::Validator::compile(&schema)
         .map_err(|e| EaiError::protocol(format!("Invalid input schema: {e}")))?;
 
     if !validator.is_valid(args) {

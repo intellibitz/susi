@@ -11,14 +11,14 @@ impl WasmHost {
         Self::execute_reflex(wasm_path, arg)
     }
 
-    /// Run a fuel-metered, memory-capped Rust/WASI reflex. Stdout is capped
-    /// at 16 MiB and no directories, sockets, environment or stdin are inherited.
+    /// Run a fuel-metered, memory-capped Rust/WASI reflex from a binary
+    /// `.wasm` module. Stdout is capped at 16 MiB and no directories, sockets,
+    /// environment or stdin are inherited.
     pub fn execute_reflex(wasm_path: &Path, arg: &str) -> EaiResult<String> {
         let engine = crate::cell::metered_engine()?;
         let bytes = crate::resources::read_module(wasm_path)?;
-        let wasm = wat::parse_bytes(&bytes)
-            .map_err(|error| EaiError::process(format!("parsing Wasm: {error}")))?;
-        let wasm = crate::cell::cap_memory(&wasm)?;
+        crate::resources::check_binary_module(&bytes)?;
+        let wasm = crate::cell::cap_memory(&bytes)?;
         let module = Module::new(&engine, &wasm)
             .map_err(|error| EaiError::process(format!("validating Wasm: {error}")))?;
         let context = crate::wasi::Context::new(arg).map_err(EaiError::process)?;
@@ -53,6 +53,12 @@ impl WasmHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Compile a readable test fixture to the bytes the host accepts. Test
+    /// only: the host boundary takes compiled modules.
+    fn module(wat: &str) -> Vec<u8> {
+        wat::parse_str(wat).expect("test fixture compiles")
+    }
 
     #[test]
     #[ignore = "explicit qualification requires the wasm32-wasip1 Rust target"]
@@ -100,14 +106,14 @@ mod tests {
     #[test]
     fn unsupported_wasi_never_reports_success_and_exit_zero_is_success() {
         let path =
-            std::env::temp_dir().join(format!("susi-wasi-unsupported-{}.wat", std::process::id()));
-        std::fs::write(&path, r#"(module
+            std::env::temp_dir().join(format!("susi-wasi-unsupported-{}.wasm", std::process::id()));
+        std::fs::write(&path, module(r#"(module
             (import "wasi_snapshot_preview1" "unsupported_operation" (func $poll (param i32 i32 i32 i32) (result i32)))
             (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
             (memory (export "memory") 1)
             (func (export "_start")
                 (if (i32.ne (call $poll (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0)) (i32.const 52)) (then unreachable))
-                (call $exit (i32.const 0))))"#).unwrap();
+                (call $exit (i32.const 0))))"#)).unwrap();
         assert_eq!(
             WasmHost::execute_reflex(&path, "").unwrap(),
             "Wasm execution success (No Output)"
@@ -117,12 +123,13 @@ mod tests {
 
     #[test]
     fn malformed_guest_pointer_traps_no_host_and_returns_fault() {
-        let path = std::env::temp_dir().join(format!("susi-wasi-fault-{}.wat", std::process::id()));
-        std::fs::write(&path, r#"(module
+        let path =
+            std::env::temp_dir().join(format!("susi-wasi-fault-{}.wasm", std::process::id()));
+        std::fs::write(&path, module(r#"(module
             (import "wasi_snapshot_preview1" "args_sizes_get" (func $args (param i32 i32) (result i32)))
             (memory (export "memory") 1)
             (func (export "_start")
-                (if (i32.ne (call $args (i32.const -1) (i32.const 4)) (i32.const 21)) (then unreachable))))"#).unwrap();
+                (if (i32.ne (call $args (i32.const -1) (i32.const 4)) (i32.const 21)) (then unreachable))))"#)).unwrap();
         assert!(WasmHost::execute_reflex(&path, "").is_ok());
         std::fs::remove_file(path).unwrap();
     }
@@ -130,8 +137,8 @@ mod tests {
     #[test]
     fn output_and_host_waits_are_bounded() {
         let path =
-            std::env::temp_dir().join(format!("susi-wasi-bounds-{}.wat", std::process::id()));
-        std::fs::write(&path, r#"(module
+            std::env::temp_dir().join(format!("susi-wasi-bounds-{}.wasm", std::process::id()));
+        std::fs::write(&path, module(r#"(module
             (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
             (import "wasi_snapshot_preview1" "poll_oneoff" (func $poll (param i32 i32 i32 i32) (result i32)))
             (memory (export "memory") 257)
@@ -143,7 +150,7 @@ mod tests {
                 (i32.store (i32.const 4) (i32.const 0))
                 (i32.store (i32.const 16) (i32.const 1))
                 (i64.store (i32.const 24) (i64.const 60000000000))
-                (if (i32.ne (call $poll (i32.const 0) (i32.const 128) (i32.const 1) (i32.const 256)) (i32.const 76)) (then unreachable))))"#).unwrap();
+                (if (i32.ne (call $poll (i32.const 0) (i32.const 128) (i32.const 1) (i32.const 256)) (i32.const 76)) (then unreachable))))"#)).unwrap();
         assert_eq!(
             WasmHost::execute_reflex(&path, "").unwrap(),
             "Wasm execution success (No Output)"
@@ -154,12 +161,14 @@ mod tests {
     #[test]
     fn malformed_wasi_signature_is_rejected_before_execution() {
         let path =
-            std::env::temp_dir().join(format!("susi-wasi-signature-{}.wat", std::process::id()));
+            std::env::temp_dir().join(format!("susi-wasi-signature-{}.wasm", std::process::id()));
         std::fs::write(
             &path,
-            r#"(module
+            module(
+                r#"(module
             (import "wasi_snapshot_preview1" "fd_write" (func (param i64) (result i32)))
             (func (export "_start")))"#,
+            ),
         )
         .unwrap();
         assert!(WasmHost::execute_reflex(&path, "")
@@ -170,10 +179,10 @@ mod tests {
     }
 
     /// Hand-written WAT (not compiled via rustc's wasm32-wasip1 target, which
-    /// isn't installed in this environment) so this exercises the real
-    /// compile -> instantiate -> stdout-capture path unconditionally, unlike
-    /// reflex_synth's end-to-end test which honestly skips without that
-    /// toolchain.
+    /// isn't installed in this environment), compiled to binary by [`module`]
+    /// so this exercises the real compile -> instantiate -> stdout-capture
+    /// path unconditionally, unlike reflex_synth's end-to-end test which
+    /// honestly skips without that toolchain.
     const HELLO_WAT: &str = r#"
         (module
             (import "wasi_unstable" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
@@ -221,8 +230,8 @@ mod tests {
 
     #[test]
     fn a_reflex_argument_is_argv_one_not_the_program_name() {
-        let path = std::env::temp_dir().join(format!("susi_wasm_argv_{}.wat", std::process::id()));
-        std::fs::write(&path, ARGV_WAT).unwrap();
+        let path = std::env::temp_dir().join(format!("susi_wasm_argv_{}.wasm", std::process::id()));
+        std::fs::write(&path, module(ARGV_WAT)).unwrap();
         let result = WasmHost::execute_reflex(&path, "the-argument");
         let _ = std::fs::remove_file(&path);
         assert_eq!(
@@ -261,8 +270,8 @@ mod tests {
     #[test]
     fn untrusted_wasm_cannot_open_host_files() {
         let path =
-            std::env::temp_dir().join(format!("susi_wasm_fs_probe_{}.wat", std::process::id()));
-        std::fs::write(&path, HOST_FS_PROBE_WAT).unwrap();
+            std::env::temp_dir().join(format!("susi_wasm_fs_probe_{}.wasm", std::process::id()));
+        std::fs::write(&path, module(HOST_FS_PROBE_WAT)).unwrap();
 
         let result = WasmHost::execute_untrusted_wasm(&path, "unused");
         let _ = std::fs::remove_file(&path);
@@ -280,8 +289,8 @@ mod tests {
 
     #[test]
     fn execute_reflex_traps_on_fuel_exhaustion() {
-        let path = std::env::temp_dir().join(format!("susi_wasm_fuel_{}.wat", std::process::id()));
-        std::fs::write(&path, INFINITE_LOOP_WAT).unwrap();
+        let path = std::env::temp_dir().join(format!("susi_wasm_fuel_{}.wasm", std::process::id()));
+        std::fs::write(&path, module(INFINITE_LOOP_WAT)).unwrap();
 
         let result = WasmHost::execute_reflex(&path, "unused");
         let _ = std::fs::remove_file(&path);
@@ -291,8 +300,8 @@ mod tests {
 
     #[test]
     fn test_execute_reflex_runs_and_captures_stdout() {
-        let path = std::env::temp_dir().join(format!("susi_wasm_test_{}.wat", std::process::id()));
-        std::fs::write(&path, HELLO_WAT).unwrap();
+        let path = std::env::temp_dir().join(format!("susi_wasm_test_{}.wasm", std::process::id()));
+        std::fs::write(&path, module(HELLO_WAT)).unwrap();
 
         let result = WasmHost::execute_reflex(&path, "unused");
         let _ = std::fs::remove_file(&path);

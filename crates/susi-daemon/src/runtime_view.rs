@@ -291,37 +291,21 @@ pub fn view(
             procs.push(proc_);
         }
     } else {
-        let mut sys = sysinfo::System::new_with_specifics(
-            sysinfo::RefreshKind::nothing().with_processes(
-                sysinfo::ProcessRefreshKind::nothing()
-                    .with_cmd(sysinfo::UpdateKind::Always)
-                    .with_exe(sysinfo::UpdateKind::Always),
-            ),
-        );
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-        for (pid, proc_) in sys.processes() {
-            let pid_u32 = pid.as_u32();
-            if let Some(ppid) = proc_.parent().map(sysinfo::Pid::as_u32) {
-                parents.insert(pid_u32, ppid);
+        for row in susi_config::process_probe::processes(true) {
+            if let Some(ppid) = row.parent_pid {
+                parents.insert(row.pid, ppid);
             }
-            let mut argv: Vec<String> = proc_
-                .cmd()
-                .iter()
-                .map(|s| s.to_string_lossy().into_owned())
-                .collect();
-            let exe = proc_.exe().map(|p| p.to_string_lossy().into_owned());
+            let mut argv = row.cmd;
+            let exe = row.exe.map(|p| p.to_string_lossy().into_owned());
             if argv.is_empty() {
                 if let Some(ref e) = exe {
                     argv.push(e.clone());
-                } else {
-                    let name = proc_.name().to_string_lossy().into_owned();
-                    if !name.is_empty() {
-                        argv.push(name);
-                    }
+                } else if !row.name.is_empty() {
+                    argv.push(row.name);
                 }
             }
             procs.push(Proc {
-                pid: pid_u32,
+                pid: row.pid,
                 argv,
                 exe,
             });

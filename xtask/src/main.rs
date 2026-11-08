@@ -10,6 +10,7 @@
     )
 )]
 
+mod build_time;
 mod compiler_env;
 mod extension_watch;
 mod local_build;
@@ -304,6 +305,14 @@ fn main() {
 
     if args.first().map(String::as_str) == Some("local-build") {
         if let Err(error) = local_build::run(&args[1..]) {
+            eprintln!("xtask: {error}");
+            exit(1);
+        }
+        return;
+    }
+
+    if args.first().map(String::as_str) == Some("build-time") {
+        if let Err(error) = build_time::run(&args[1..]) {
             eprintln!("xtask: {error}");
             exit(1);
         }

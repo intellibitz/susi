@@ -444,13 +444,8 @@ fn stray_bin_warnings() -> Vec<String> {
 /// write failing on a full disk is a substrate-level fault the OS view
 /// should surface, not hide behind generic IO errors.
 fn disk_free(path: &std::path::Path) -> Option<(u64, u64)> {
-    let disks = sysinfo::Disks::new_with_refreshed_list();
     // Longest-mount-point-prefix match (e.g. /home on a separate fs).
-    disks
-        .iter()
-        .filter(|d| path.starts_with(d.mount_point()))
-        .max_by_key(|d| d.mount_point().as_os_str().len())
-        .map(|d| (d.available_space(), d.total_space()))
+    susi_config::host_metrics::filesystem_of(path).map(|fs| (fs.available_bytes, fs.total_bytes))
 }
 
 fn human_bytes(n: u64) -> String {

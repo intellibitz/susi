@@ -16,6 +16,10 @@
 //! - [`inspect_repo_workflow`] reads the coordinator's claims, verification
 //!   slots and integration head straight from the git common directory, with
 //!   no lock taken and no process spawned.
+//! - [`IntegrationPolicy`] is the remote-agent mandate (2026-11-08) made
+//!   mechanical: one `local-agent/<agent>` branch per agent, never `main`,
+//!   task trailers on every commit, destination-first migrations with no
+//!   stubbed ports, and the brief lines every worker receives.
 
 use crate::supervisor::PlanTask;
 use std::collections::{BTreeMap, BTreeSet};
@@ -534,6 +538,332 @@ fn is_oid(text: &str) -> bool {
     matches!(text.len(), 40 | 64) && text.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+// ---------------------------------------------------------------------------
+// Integration policy for remote and cloud agents (CEO mandate 2026-11-08).
+// ---------------------------------------------------------------------------
+
+/// The refs only the gated host moves: direct pushes here are never an
+/// agent's to make.
+const GATE_ONLY_REFS: &[&str] = &["main", "refs/heads/main", "HEAD"];
+
+/// Ref prefixes the native coordinator owns (claims, receipts, integration
+/// pointers).
+const COORDINATOR_REF_PREFIXES: &[&str] = &["refs/susi/"];
+
+/// Where a remote agent's work may be published and what a move out of
+/// core must prove before core deletes anything.
+///
+/// Written after the 2026-11-07 incident: a remote agent pushed about sixty
+/// ungated commits straight to `main`, deleting roughly 20,000 lines under
+/// the message "migrated to commercial" while the destination origin
+/// received none of it. The rules are mechanical here so a wave that would
+/// repeat that is refused before a worker starts, and every worker brief
+/// carries them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrationPolicy {
+    /// Prefix of the one branch per agent and repository that an agent may
+    /// push (`local-agent/`).
+    pub agent_branch_prefix: String,
+    /// Shortest gated cycle on the integrating host, in seconds; an agent
+    /// batches its iterations into one push per cycle.
+    pub gate_cycle_secs: u64,
+}
+
+impl Default for IntegrationPolicy {
+    fn default() -> Self {
+        Self {
+            agent_branch_prefix: "local-agent/".to_string(),
+            gate_cycle_secs: 20 * 60,
+        }
+    }
+}
+
+/// Why a publish or a migration was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PolicyViolation {
+    /// The agent name cannot name a branch.
+    BadAgentName(String),
+    /// The target is `main` or another ref only the gate moves.
+    GateOnlyRef(String),
+    /// The target is the coordinator's own ref space.
+    CoordinatorRef(String),
+    /// The target is another agent's branch.
+    ForeignBranch {
+        /// The branch the agent tried to push.
+        target: String,
+        /// The branch the agent owns.
+        own: String,
+    },
+    /// The target is not under the agent branch prefix at all.
+    NotAnAgentBranch(String),
+    /// A commit in the batch carries no `Task: T-<AGENT>-<n>` trailer.
+    MissingTaskTrailer {
+        /// The commit's first line.
+        subject: String,
+    },
+    /// A commit's trailer names another agent's task.
+    ForeignTaskTrailer {
+        /// The commit's first line.
+        subject: String,
+        /// The trailer found.
+        trailer: String,
+    },
+    /// A core deletion with no destination commit on the commercial origin.
+    DeletionBeforeDestination {
+        /// The module being removed.
+        module: String,
+    },
+    /// The destination commit exists but the module is not declared, or
+    /// did not compile and pass its tests there.
+    DestinationUnproven {
+        /// The module being removed.
+        module: String,
+        /// Which proof is missing.
+        missing: &'static str,
+    },
+    /// A capability's port is kept while its implementation is removed.
+    StubbedCapability {
+        /// The port or function left answering an error.
+        port: String,
+    },
+}
+
+impl std::fmt::Display for PolicyViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BadAgentName(name) => write!(f, "agent name {name:?} cannot name a branch"),
+            Self::GateOnlyRef(target) => write!(
+                f,
+                "{target} is moved only by the gated host; publish on your local-agent branch"
+            ),
+            Self::CoordinatorRef(target) => {
+                write!(f, "{target} belongs to the coordinator; agents never move refs/susi/*")
+            }
+            Self::ForeignBranch { target, own } => {
+                write!(f, "{target} is another agent's branch; yours is {own}")
+            }
+            Self::NotAnAgentBranch(target) => {
+                write!(f, "{target} is not a local-agent branch; agents publish nowhere else")
+            }
+            Self::MissingTaskTrailer { subject } => {
+                write!(f, "commit {subject:?} carries no `Task: T-<AGENT>-<n>` trailer")
+            }
+            Self::ForeignTaskTrailer { subject, trailer } => {
+                write!(f, "commit {subject:?} names another agent's task ({trailer})")
+            }
+            Self::DeletionBeforeDestination { module } => write!(
+                f,
+                "{module}: core may delete only after the destination commit is on the commercial origin"
+            ),
+            Self::DestinationUnproven { module, missing } => {
+                write!(f, "{module}: destination commit exists but {missing}")
+            }
+            Self::StubbedCapability { port } => write!(
+                f,
+                "{port}: a port that answers an error for a removed capability is a defect; keep an implementation, serve a plug, or drop the port with its callers"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for PolicyViolation {}
+
+/// What a migration out of core must prove before core deletes the module.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MigrationProof {
+    /// The module leaving core (`crates/susi-gemi/src/engines/alpha.rs`).
+    pub module: String,
+    /// The commit on the commercial origin that holds it, when there is one.
+    pub destination_commit: Option<String>,
+    /// The module is declared in its destination crate's module tree (not a
+    /// copy nothing reaches).
+    pub destination_declared: bool,
+    /// The destination crate compiles with it.
+    pub destination_compiles: bool,
+    /// The destination's tests for it pass.
+    pub destination_tests_pass: bool,
+    /// Ports that core keeps for the capability; each must name what serves
+    /// it after the move (`Some(plug)`), or be dropped with its callers
+    /// (`None` is only allowed when `port_dropped` says so).
+    pub ports_kept: Vec<(String, Option<String>)>,
+}
+
+impl IntegrationPolicy {
+    /// The one branch `agent` publishes on.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PolicyViolation::BadAgentName`] when the name is empty or
+    /// contains anything but ASCII letters, digits, `-` and `_`.
+    pub fn publish_branch(&self, agent: &str) -> Result<String, PolicyViolation> {
+        let name = agent.trim();
+        let valid = !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !valid {
+            return Err(PolicyViolation::BadAgentName(agent.to_string()));
+        }
+        Ok(format!(
+            "{}{}",
+            self.agent_branch_prefix,
+            name.to_ascii_lowercase()
+        ))
+    }
+
+    /// Whether `agent` may push `target` (a branch name or a full ref).
+    ///
+    /// # Errors
+    ///
+    /// Returns the violation: `main` and the coordinator's refs are never an
+    /// agent's; another agent's branch is not either; anything outside the
+    /// agent branch prefix is refused.
+    pub fn check_push_target(&self, agent: &str, target: &str) -> Result<(), PolicyViolation> {
+        let own = self.publish_branch(agent)?;
+        let target = target.trim();
+        let short = target.strip_prefix("refs/heads/").unwrap_or(target);
+        if GATE_ONLY_REFS.contains(&target) || GATE_ONLY_REFS.contains(&short) {
+            return Err(PolicyViolation::GateOnlyRef(target.to_string()));
+        }
+        if COORDINATOR_REF_PREFIXES
+            .iter()
+            .any(|prefix| target.starts_with(prefix))
+        {
+            return Err(PolicyViolation::CoordinatorRef(target.to_string()));
+        }
+        if !short.starts_with(&self.agent_branch_prefix) {
+            return Err(PolicyViolation::NotAnAgentBranch(target.to_string()));
+        }
+        if short.to_ascii_lowercase() != own {
+            return Err(PolicyViolation::ForeignBranch {
+                target: target.to_string(),
+                own,
+            });
+        }
+        Ok(())
+    }
+
+    /// Check that every commit message in a batch carries a `Task:` trailer
+    /// naming one of `agent`'s tasks (`T-<AGENT>-<n>`, case-insensitive).
+    ///
+    /// # Errors
+    ///
+    /// Returns the first commit without a trailer, or whose trailer names
+    /// another agent.
+    pub fn check_commit_trailers<'a, I>(
+        &self,
+        agent: &str,
+        messages: I,
+    ) -> Result<(), PolicyViolation>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let prefix = format!("t-{}-", agent.trim().to_ascii_lowercase());
+        for message in messages {
+            let subject = message.lines().next().unwrap_or("").to_string();
+            let trailer = message
+                .lines()
+                .rev()
+                .map(str::trim)
+                .find_map(|line| line.strip_prefix("Task:").map(str::trim))
+                .filter(|value| !value.is_empty());
+            let Some(trailer) = trailer else {
+                return Err(PolicyViolation::MissingTaskTrailer { subject });
+            };
+            if !trailer.to_ascii_lowercase().starts_with(&prefix) {
+                return Err(PolicyViolation::ForeignTaskTrailer {
+                    subject,
+                    trailer: trailer.to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether core may delete the module `proof` describes.
+    ///
+    /// # Errors
+    ///
+    /// Destination first: no commit on the commercial origin, no deletion;
+    /// an undeclared, non-compiling or untested destination is not a
+    /// destination; a port kept in core without a plug is a stub.
+    pub fn check_migration(&self, proof: &MigrationProof) -> Result<(), PolicyViolation> {
+        let module = proof.module.clone();
+        if proof
+            .destination_commit
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(str::is_empty)
+        {
+            return Err(PolicyViolation::DeletionBeforeDestination { module });
+        }
+        if !proof.destination_declared {
+            return Err(PolicyViolation::DestinationUnproven {
+                module,
+                missing: "the module is not declared in the destination crate's module tree",
+            });
+        }
+        if !proof.destination_compiles {
+            return Err(PolicyViolation::DestinationUnproven {
+                module,
+                missing: "the destination crate does not compile with it",
+            });
+        }
+        if !proof.destination_tests_pass {
+            return Err(PolicyViolation::DestinationUnproven {
+                module,
+                missing: "the destination's tests for it have not passed",
+            });
+        }
+        if let Some((port, _)) = proof.ports_kept.iter().find(|(_, served_by)| {
+            served_by
+                .as_deref()
+                .map(str::trim)
+                .is_none_or(str::is_empty)
+        }) {
+            return Err(PolicyViolation::StubbedCapability { port: port.clone() });
+        }
+        Ok(())
+    }
+
+    /// The lines every worker brief carries, so a remote worker reads the
+    /// rules with its task instead of discovering them from a refused push.
+    pub fn brief_lines(&self, agent: &str) -> Result<Vec<String>, PolicyViolation> {
+        let branch = self.publish_branch(agent)?;
+        let minutes = self.gate_cycle_secs.div_ceil(60);
+        Ok(vec![
+            format!("Publish only on `{branch}`; never push `main`, never move `refs/susi/*`; the gated host integrates your branch."),
+            format!("Every commit ends with `Task: T-{}-<n>`; the task record in `.agents/tasks/` lists exactly the claimed scopes.", agent.trim().to_ascii_uppercase()),
+            "A move out of core counts only when the destination commit is on the commercial origin, declared, compiling and tested there; core deletes afterwards, in a change that names that commit. Never leave a port answering an error for a removed capability.".to_string(),
+            "Before every push, on the exact tree: cargo fmt --all --check; cargo check --workspace --all-targets --keep-going --offline --locked; cargo clippy --workspace --all-targets --offline --locked -- -D warnings; the touched crates' tests; the guard tests; GMCP evidence re-recorded for any gmcp change.".to_string(),
+            format!("One push per gated cycle (about {minutes} minutes); read the coordination board and your brief first; a stop note halts pushes at once."),
+            "Never edit a file in another agent's claim; keep files LF-ended; report `landed` or `migrated` only with the commit on the target origin.".to_string(),
+        ])
+    }
+
+    /// Refuse a plan whose task keys cannot name branches or collide after
+    /// lowercasing (two tasks would publish on one branch).
+    ///
+    /// # Errors
+    ///
+    /// Returns `EaiError::config` naming the key.
+    pub fn validate_plan<T: WorkflowTask>(&self, tasks: &[T]) -> EaiResult<()> {
+        let mut branches: BTreeMap<String, &str> = BTreeMap::new();
+        for task in tasks {
+            let branch = self
+                .publish_branch(task.key())
+                .map_err(|violation| EaiError::config(violation.to_string()))?;
+            if let Some(previous) = branches.insert(branch.clone(), task.key()) {
+                return Err(EaiError::config(format!(
+                    "tasks {previous} and {} would both publish on {branch}",
+                    task.key()
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -831,5 +1161,131 @@ mod tests {
         std::fs::write(claims.join("bad.claim"), "susi-local-claim-v1\nbad\n").unwrap();
         assert!(inspect_repo_workflow(repo.path()).is_err());
         assert!(inspect_repo_workflow(&repo.path().join("missing")).is_err());
+    }
+
+    // --- integration policy ---------------------------------------------
+
+    #[test]
+    fn an_agent_publishes_on_its_own_branch_and_nowhere_else() {
+        let policy = IntegrationPolicy::default();
+        assert_eq!(
+            policy.publish_branch("Antigravity").ok(),
+            Some("local-agent/antigravity".to_string())
+        );
+        assert!(policy
+            .check_push_target("antigravity", "local-agent/antigravity")
+            .is_ok());
+        assert!(policy
+            .check_push_target("antigravity", "refs/heads/local-agent/antigravity")
+            .is_ok());
+        assert_eq!(
+            policy.check_push_target("antigravity", "main"),
+            Err(PolicyViolation::GateOnlyRef("main".into()))
+        );
+        assert_eq!(
+            policy.check_push_target("antigravity", "refs/heads/main"),
+            Err(PolicyViolation::GateOnlyRef("refs/heads/main".into()))
+        );
+        assert_eq!(
+            policy.check_push_target("antigravity", "refs/susi/integration/current"),
+            Err(PolicyViolation::CoordinatorRef(
+                "refs/susi/integration/current".into()
+            ))
+        );
+        assert_eq!(
+            policy.check_push_target("antigravity", "local-agent/gemini"),
+            Err(PolicyViolation::ForeignBranch {
+                target: "local-agent/gemini".into(),
+                own: "local-agent/antigravity".into(),
+            })
+        );
+        assert_eq!(
+            policy.check_push_target("antigravity", "feature/x"),
+            Err(PolicyViolation::NotAnAgentBranch("feature/x".into()))
+        );
+        assert!(matches!(
+            policy.publish_branch("bad name/"),
+            Err(PolicyViolation::BadAgentName(_))
+        ));
+    }
+
+    #[test]
+    fn every_commit_in_a_batch_names_the_agents_task() {
+        let policy = IntegrationPolicy::default();
+        let good = [
+            "refactor: x\n\nTask: T-GEMINI-1\n",
+            "fix: y\n\nTask: t-gemini-2",
+        ];
+        assert!(policy.check_commit_trailers("gemini", good).is_ok());
+        assert_eq!(
+            policy.check_commit_trailers("gemini", ["[iter 320/400] delete crate"]),
+            Err(PolicyViolation::MissingTaskTrailer {
+                subject: "[iter 320/400] delete crate".into()
+            })
+        );
+        assert_eq!(
+            policy.check_commit_trailers("gemini", ["chore\n\nTask: T-LEAN-1"]),
+            Err(PolicyViolation::ForeignTaskTrailer {
+                subject: "chore".into(),
+                trailer: "T-LEAN-1".into()
+            })
+        );
+    }
+
+    #[test]
+    fn core_deletes_only_after_the_destination_is_proven() {
+        let policy = IntegrationPolicy::default();
+        let module = "crates/susi-gemi/src/engines/alpha.rs";
+        let mut proof = MigrationProof {
+            module: module.into(),
+            ..MigrationProof::default()
+        };
+        assert_eq!(
+            policy.check_migration(&proof),
+            Err(PolicyViolation::DeletionBeforeDestination {
+                module: module.into()
+            })
+        );
+        proof.destination_commit = Some("c128ef95".into());
+        assert!(matches!(
+            policy.check_migration(&proof),
+            Err(PolicyViolation::DestinationUnproven { missing, .. })
+                if missing.contains("not declared")
+        ));
+        proof.destination_declared = true;
+        proof.destination_compiles = true;
+        assert!(matches!(
+            policy.check_migration(&proof),
+            Err(PolicyViolation::DestinationUnproven { missing, .. })
+                if missing.contains("tests")
+        ));
+        proof.destination_tests_pass = true;
+        assert!(policy.check_migration(&proof).is_ok());
+        proof.ports_kept = vec![("gemi /v1/chat/completions local engine".into(), None)];
+        assert!(matches!(
+            policy.check_migration(&proof),
+            Err(PolicyViolation::StubbedCapability { .. })
+        ));
+        proof.ports_kept = vec![(
+            "gemi /v1/chat/completions local engine".into(),
+            Some("susi-gpu-fabric plug over GEMI 9091".into()),
+        )];
+        assert!(policy.check_migration(&proof).is_ok());
+    }
+
+    #[test]
+    fn worker_briefs_carry_the_rules_and_plans_cannot_share_a_branch() {
+        let policy = IntegrationPolicy::default();
+        let lines = policy.brief_lines("Gemini").unwrap_or_default();
+        assert_eq!(lines.len(), 6);
+        assert!(lines[0].contains("`local-agent/gemini`"));
+        assert!(lines[1].contains("Task: T-GEMINI-<n>"));
+        assert!(lines[4].contains("20 minutes"));
+        let ok = [task("alpha", &[], &["a"]), task("beta", &[], &["b"])];
+        assert!(policy.validate_plan(&ok).is_ok());
+        let clash = [task("Alpha", &[], &["a"]), task("alpha", &[], &["b"])];
+        assert!(policy.validate_plan(&clash).is_err());
+        let bad = [task("no spaces", &[], &["a"])];
+        assert!(policy.validate_plan(&bad).is_err());
     }
 }
