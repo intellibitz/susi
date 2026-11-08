@@ -2,7 +2,7 @@
 # Mandates 49/50 (Worktree Workflow, Task Queue) enforcement. Called by pre-commit,
 # pre-merge-commit and pre-push:  workflow-guard <commit|merge|push>
 #
-# The rules are susi's: `susi workflow guard` (crates/susi-gawd/src/admin/guard.rs).
+# The rules are susi's: `susi-commercial workflow guard` (Susi Commercial Apps' susi-dev-workflow).
 #   commit  — refuse in the primary checkout, and refuse plain commits on main
 #   merge   — refuse in the primary checkout (merging into main is allowed)
 #   push    — refuse deleting, force-pushing or non-fast-forwarding main, and a

@@ -10,8 +10,8 @@
 #   scripts/prune-worktrees.sh --apply         # remove YOUR finished worktrees
 #   scripts/prune-worktrees.sh --apply --all   # remove any provably finished one
 #
-# The work is susi's: `susi workflow prune` (crates/susi-gawd/src/admin/
-# workflow.rs) decides and removes, with git run directly, so an installed
+# The work is susi's: `susi-commercial workflow prune` (Susi Commercial Apps'
+# susi-dev-workflow) decides and removes, with git run directly, so an installed
 # susi.exe reclaims worktrees without Git's MSYS userland (awk, jq, cygpath) on
 # PATH. This file stays so that the docs and branches cut before the port, which
 # run `scripts/prune-worktrees.sh`, keep working: it finds a susi that has the
@@ -40,7 +40,8 @@ here=
 if [ -n "$mine" ] && [ ! -L "$mine/target" ]; then
     here="$mine/target"
 fi
-for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
+for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi-commercial 2>/dev/null)" \
+    "$(command -v susi 2>/dev/null)" \
     "${own:+$own/release/susi}" "${own:+$own/release/susi.exe}" \
     "${own:+$own/debug/susi}" "${own:+$own/debug/susi.exe}" \
     "${here:+$here/release/susi}" "${here:+$here/release/susi.exe}" \

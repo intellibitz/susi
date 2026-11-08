@@ -24,9 +24,6 @@ serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 
-[target.'cfg(windows)'.dependencies]
-winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
-
 [dev-dependencies]
 susi-unsafe-ratchet = { workspace = true }
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }

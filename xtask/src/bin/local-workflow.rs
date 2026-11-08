@@ -2343,12 +2343,34 @@ fn seed_worktree_target(primary: &Path, worktree: &Path, background: bool) {
     {
         return;
     }
-    let susi_bin = env::var_os("LOCALAPPDATA")
+    // `workflow seed-target` is Susi Commercial Apps' dev workflow
+    // (`susi-commercial`) since the lean-core move; an installed core `susi`
+    // older than the move still carries it. The first binary that answers
+    // the verb seeds; with none, the worktree keeps a cold target.
+    let installed = env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .map(|local| local.join("SusiLocal/production/entry/susi.exe"))
-        .filter(|path| path.is_file())
-        .unwrap_or_else(|| PathBuf::from("susi"));
-    let mut cmd = Command::new(susi_bin);
+        .filter(|path| path.is_file());
+    let has_seed = |bin: &Path| {
+        Command::new(bin)
+            .args(["workflow", "seed-target", "--help"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    };
+    let Some(seed_bin) = [
+        Some(PathBuf::from("susi-commercial")),
+        installed,
+        Some(PathBuf::from("susi")),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|bin| has_seed(bin)) else {
+        return;
+    };
+    let mut cmd = Command::new(seed_bin);
     cmd.arg("workflow").arg("seed-target");
     if background {
         cmd.arg("--background");

@@ -252,7 +252,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         },
         Commands::Pulse { intent } => {
             let intent_str = intent.join(" ");
-            match susi_gawd::admin::SusiAdmin::ingest_natural_intent(cwd, &intent_str) {
+            match susi_gawd::compliance::SusiAdmin::ingest_natural_intent(cwd, &intent_str) {
                 Ok(msg) => println!("{}", msg),
                 Err(e) => {
                     eprintln!("Pulse ingestion failed: {}", e);
@@ -286,7 +286,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         // with unverified figures (the Mandate 2 failure recorded on
         // SubstrateReport below).
         Commands::Audit { action } => match action {
-            None => match susi_gawd::admin::SusiAdmin::audit_compliance(cwd, Some("push")) {
+            None => match susi_gawd::compliance::SusiAdmin::audit_compliance(cwd, Some("push")) {
                 Ok(report) => println!("{}", report),
                 Err(e) => {
                     eprintln!("Compliance audit failed: {}", e);

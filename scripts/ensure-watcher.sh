@@ -5,7 +5,7 @@
 # primary never drifts into a tree that invites work (Mandate 49). It is a
 # background process: it dies with whatever session or terminal started it, and
 # nothing used to restart it — the audit found it five hours stale while the
-# primary quietly stopped converging, and only `susi workflow check` said so.
+# primary quietly stopped converging, and only `susi-commercial workflow check` said so.
 # So the loop heals it at the boundary every agent crosses (`sync`).
 #
 # Exit 0 when a watcher is alive or was started; 1 when one is stale and
@@ -82,6 +82,6 @@ while [ "$(date +%s)" -le "$deadline" ]; do
 done
 
 # Non-fatal by design: a dead watcher degrades convergence, it does not stop
-# work, and `susi workflow check` reports it too.
-echo "⚠️  primary watcher was stale ($state) and did not heartbeat within ${wait_after}s — start it: susi workflow watch &" >&2
+# work, and `susi-commercial workflow check` reports it too.
+echo "⚠️  primary watcher was stale ($state) and did not heartbeat within ${wait_after}s — start it: susi-commercial workflow watch &" >&2
 exit 0

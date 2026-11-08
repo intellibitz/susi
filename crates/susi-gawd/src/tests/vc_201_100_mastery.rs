@@ -51,16 +51,6 @@ fn vc_201_100_mastery_requires_explicit_cloud_and_preserves_limitations() {
 }
 
 #[test]
-fn vc_201_100_mastery_release_path_consumes_explicit_evidence() {
-    let source =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/admin/release.rs"))
-            .expect("release admin source must exist");
-    assert!(source.contains("SUSI_RELEASE_CLOUD_EVIDENCE"));
-    assert!(source.contains("qualify_multi_stage"));
-    assert!(source.contains("SUSI_RELEASE_SELF_PATCH_EVIDENCE"));
-}
-
-#[test]
 fn vc_201_100_mastery_empty_inputs_fail_qualification_with_limitations() {
     let report = qualify_multi_stage(&[]);
     assert!(!report.qualified);

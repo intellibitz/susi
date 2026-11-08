@@ -22,7 +22,7 @@ const THIRD_PARTY_CEILING: usize = 259;
 const WORKSPACE_CEILING: usize = 50;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
-const DIRECT_FACADE_EDGES_CEILING: usize = 23;
+const DIRECT_FACADE_EDGES_CEILING: usize = 22;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
 /// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
@@ -37,7 +37,7 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 23;
 /// the wave log. A new security capability's boundary checks (2026-11-08:
 /// the `host_only` privacy mode) are re-pinned the same way.
 const LINE_CEILINGS: [(&str, usize); 8] = [
-    ("susi-gawd", 29_291),
+    ("susi-gawd", 13_293),
     ("susi-gawd-swarm", 23_002),
     ("susi-gawd-agents", 11_495),
     ("susi-gawd-a2a", 2_113),

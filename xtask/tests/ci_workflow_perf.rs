@@ -226,9 +226,7 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     for path in [
         "scripts/parallel-workflow.sh",
         ".githooks/pre-push",
-        "crates/susi-gawd/src/admin/tasks.rs",
         "crates/susi-harness/src/adapter.rs",
-        "src/cli/workflow_cli.rs",
         "scripts/workflow-session-start.sh",
         "scripts/susi-worktree.sh",
         ".githooks/post-merge",
@@ -263,39 +261,11 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
                     });
                     matches!((seeds, fallback, end), (Some(s), Some(f), Some(e)) if s < f && f <= at && at < e)
                 }
-                "crates/susi-gawd/src/admin/tasks.rs" => {
-                    // Only inside `guarded_acceptance`, which returns early
-                    // where the seeder is.
-                    let start = code
-                        .iter()
-                        .position(|l| l.starts_with("fn guarded_acceptance("));
-                    let end =
-                        start.and_then(|s| code[s..].iter().position(|l| l == "}").map(|e| s + e));
-                    let seeder_first = start.zip(end).is_some_and(|(s, e)| {
-                        let body = &code[s..e];
-                        let seeder = body.iter().position(|l| l.contains("\"seed-target.sh\""));
-                        let guard_at = body.iter().position(|l| l.contains("\"target-guard.sh\""));
-                        matches!((seeder, guard_at), (Some(a), Some(b)) if a < b)
-                    });
-                    seeder_first && matches!((start, end), (Some(s), Some(e)) if s < at && at < e)
-                }
-                "src/cli/workflow_cli.rs" => {
-                    line.trim() == ".env_remove(\"SUSI_TARGET_GUARD_HELD\")"
-                }
                 _ => false,
             };
             assert!(allowed, "{path} still runs the retired guard: {line}");
         }
     }
-    // For that release the staged `finish` copy outlives an outer guard
-    // hold (an old branch's `target-guard.sh --run cargo run -- workflow
-    // finish`): it must not claim that hold as its own.
-    assert!(
-        code_of("src/cli/workflow_cli.rs")
-            .iter()
-            .any(|line| line.trim() == ".env_remove(\"SUSI_TARGET_GUARD_HELD\")"),
-        "the staged finish must drop an outer guard's hold"
-    );
     // The gates run plain cargo: the gate's clippy argv, run as `cargo clippy "$@"`.
     let gate = read("scripts/parallel-workflow.sh");
     assert!(gate.contains("clippy_args=(--locked --all-targets $lsel -- -D warnings)"));
@@ -303,11 +273,11 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     let hook = read(".githooks/pre-push");
     assert!(hook.contains("cargo clippy --workspace --all-targets --locked -- -D warnings"));
     // Worktrees are seeded, by the scripts and by `workflow start` alike;
-    // scripts/susi-worktree.sh is the stub for `workflow start`, which seeds
-    // in process.
+    // scripts/susi-worktree.sh is the stub for `workflow start` (Susi
+    // Commercial Apps' dev workflow since the lean-core move), which seeds in
+    // process and is tested there.
     for path in [
         "scripts/workflow-session-start.sh",
-        "crates/susi-gawd/src/admin/workflow.rs",
         "crates/susi-harness/src/adapter.rs",
     ] {
         assert!(
@@ -318,10 +288,6 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     assert!(
         read("scripts/susi-worktree.sh").contains("exec \"$bin\" workflow start \"$@\""),
         "scripts/susi-worktree.sh is the stub for `susi workflow start`"
-    );
-    assert!(
-        !read("crates/susi-gawd/src/admin/workflow.rs").contains("symlink_dir"),
-        "`workflow start` must not link the primary's target"
     );
     // The shim only passes through: no lock, no stamps, no fingerprints.
     let shim = read("scripts/target-guard.sh");
@@ -403,10 +369,6 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
             "{path} splits $0 on `/` alone"
         );
     }
-    assert!(
-        read("crates/susi-gawd/src/admin/tasks.rs").contains("seed_own_target(ws);"),
-        "`tasks close` converts a linked target before a cargo acceptance"
-    );
     // A merge that brings the seeding converts a linked target at once; so
     // does the commit that concludes one that stopped on conflicts (Git runs
     // no post-merge for it), and `git worktree add` (before v0.21.23's
@@ -436,8 +398,8 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
             "\"${BASH:-bash}\" \"$top/scripts/seed-target.sh\"",
         ),
         (
-            // The stub execs `susi workflow start`, which seeds in the
-            // background itself (crates/susi-gawd/src/admin/workflow.rs).
+            // The stub execs `workflow start` (susi-commercial), which seeds
+            // in the background itself.
             "scripts/susi-worktree.sh",
             "exec \"$bin\" workflow start \"$@\"",
         ),
@@ -1796,54 +1758,6 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
         "`check-hermetic-tests.sh` must skip `cargo test --doc` when `--test` filters integration test binaries \
          and retry failed tests alone (`NEXTEST_TEST_THREADS=1`) when parallel load causes a flake"
     );
-    let tasks_rs = read("crates/susi-gawd/src/admin/tasks.rs").replace("\r\n", "\n");
-    let renew_body = tasks_rs
-        .split("fn renew_once(")
-        .nth(1)
-        .and_then(|s| s.split("\npub fn release(").next())
-        .expect("renew_once exists in tasks.rs");
-    assert!(
-        !renew_body
-            .lines()
-            .filter(|l| !l.trim_start().starts_with("//"))
-            .any(|l| l.contains("claim-generation")),
-        "`renew_once` must not contend on `refs/claim-generation/current`: renewals do not alter file scopes"
-    );
-    assert!(
-        tasks_rs.contains("if owner_claim.expired(now_unix())")
-            && tasks_rs.contains("push_close_receipt(ws, id, &owner_sha, &owner_claim)"),
-        "`tasks close` must check expiry in memory and atomically bind the receipt to the checked owner"
-    );
-    assert!(
-        tasks_rs.contains("pub fn claims_synced(ws: &Path) -> EaiResult<Vec<Claim>> {\n    records_under::<Claim>(ws, \"refs/claims/\")\n}"),
-        "`claims_synced` must batch claim blob reads through `records_under` (`git cat-file --batch`) instead of spawning two git processes per claim"
-    );
-    let claim_body = tasks_rs
-        .split("fn claim_once(")
-        .nth(1)
-        .and_then(|s| s.split("\nfn claim_blob(").next())
-        .expect("claim_once exists in tasks.rs");
-    let snapshot_fetch = tasks_rs
-        .split("impl ClaimSnapshot {")
-        .nth(1)
-        .and_then(|s| s.split("\nimpl Drop for ClaimSnapshot").next())
-        .expect("ClaimSnapshot exists in tasks.rs");
-    assert!(
-        claim_body.contains("ClaimSnapshot::fetch(ws, &r)?")
-            && !claim_body.contains("\"ls-remote\"")
-            && snapshot_fetch.contains("+refs/claims/*:")
-            && snapshot_fetch.contains("+refs/claim-agents/*:")
-            && snapshot_fetch.contains("+refs/claim-generation/*:")
-            && snapshot_fetch.contains("+refs/closed/*:")
-            && snapshot_fetch.contains("\"--atomic\""),
-        "claim validation must fetch an isolated set of claims, leases, generation and receipts in one trip"
-    );
-    let release_rs = read("crates/susi-gawd/src/admin/release.rs").replace("\r\n", "\n");
-    assert!(
-        release_rs.contains(".args([\"build\", \"--quiet\", \"--bin\", \"susi\"])")
-            && release_rs.contains(".env(\"SUSI_RELEASE_PUSH\", \"1\")"),
-        "`release.rs` must build only `--bin susi` for smoke checks and pass `SUSI_RELEASE_PUSH=1` to skip a duplicate pre-push clippy pass"
-    );
     let pre_push = read(".githooks/pre-push").replace("\r\n", "\n");
     assert!(
         pre_push.contains("SUSI_RELEASE_PUSH"),
@@ -1856,18 +1770,6 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
             && check_owed.contains("SUSI_OWED_REFS_FETCHED"),
         "`scripts/check-owed-runs.sh` must source `posix-compat.sh` for Windows Git Bash, skip heads already merged into main, and reuse `sync`'s fetched snapshot when `SUSI_OWED_REFS_FETCHED=1`"
     );
-    let workflow_rs = read("crates/susi-gawd/src/admin/workflow.rs").replace("\r\n", "\n");
-    let infra_body = workflow_rs
-        .split("pub fn ensure_infrastructure(")
-        .nth(1)
-        .and_then(|s| s.split("\npub fn gather(").next())
-        .expect("ensure_infrastructure exists in workflow.rs");
-    assert!(
-        infra_body.contains("\"--get-regexp\"")
-            && infra_body.contains("\"gc.auto\", \"0\"")
-            && infra_body.contains("\"maintenance.auto\", \"false\""),
-        "`ensure_infrastructure` must disable synchronous Git auto-gc/maintenance in one config probe so `workflow check`, `sync`, and `finish` do not stall for 20s on background pack maintenance"
-    );
     let sweep = read("scripts/kill-leftover-service-runs.sh").replace("\r\n", "\n");
     assert!(
         sweep.contains("tasklist.exe /FI \"IMAGENAME eq susi.exe\""),
@@ -1876,7 +1778,6 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
     assert!(
         pw.contains("prefetch_finish_refs")
             && pw.contains("SUSI_CLOSE_QUEUE_SYNCED=\"$task@$root\"")
-            && tasks_rs.contains("bound_to_this_worktree(\"SUSI_CLOSE_QUEUE_SYNCED\", id, ws)")
             && shell_function(&pw, "seed_own_target").contains("[ -f \"$root/target/.susi-seeded\" ]"),
         "`finish` must prefetch branch and queue refs once across `lease`, `initial-sync`, and `close`, and `seed_own_target` must short-circuit when `target/.susi-seeded` is already present"
     );

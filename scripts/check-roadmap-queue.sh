@@ -159,7 +159,7 @@ if [ "$queue" -eq 0 ]; then
     jq -r --arg name "$NAME" '
         .unqueued[] |
         (.id | ascii_downcase | gsub("-"; "_")) as $fname |
-        "❌ \($name): \(.id) (\(.priority)) \(.vector) — not delivered by its own narrative and nothing queued: susi tasks add \"Verify mastery: \(.vector)\" --accept \"cargo nextest run --locked -E test(\($fname)_mastery)\" --roadmap \(.id)"
+        "❌ \($name): \(.id) (\(.priority)) \(.vector) — not delivered by its own narrative and nothing queued: susi-commercial tasks add \"Verify mastery: \(.vector)\" --accept \"cargo nextest run --locked -E test(\($fname)_mastery)\" --roadmap \(.id)"
     ' <<<"$summary"
     printf '\n%d vector(s) would be left with no work once the queue empties; re-run with --queue to file them\n' "$unqueued_count"
     exit 1
@@ -178,7 +178,7 @@ while IFS= read -r vjson; do
     ' <<<"$vjson")
     size="m"
     [ "$vprio" = "P0" ] && size="l"
-    if out=$(susi tasks add "Verify mastery: $vname" --goal "$goal" --accept "$accept" --size "$size" --roadmap "$vid" --agent "DEEPSEEK" 2>&1); then
+    if out=$(susi-commercial tasks add "Verify mastery: $vname" --goal "$goal" --accept "$accept" --size "$size" --roadmap "$vid" --agent "DEEPSEEK" 2>&1); then
         filed=$((filed + 1))
         last_line=$(printf '%s\n' "$out" | tail -n 1)
         echo "  filed $last_line"
