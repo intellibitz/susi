@@ -744,7 +744,7 @@ the Windows leg. Two findings:
   Linux leg (`cargo-xwin`, 8-9 min there), which has not been tried against the
   native dependencies (ort, candle) this binary carries.
 
-The local cut (`susi admin release --cut patch`) is measured in the next
+The local cut (`susi admin release --cut patch`, now `susi-commercial admin release --cut patch`) is measured in the next
 section when the next release is cut.
 
 ### Windows release cache experiment (2026-11-01)

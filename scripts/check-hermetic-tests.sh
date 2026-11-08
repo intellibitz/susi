@@ -33,7 +33,7 @@ real_home="${HOME}"
 # it (one I/O-bound test: 180 s in the user's temp, 141 s in the checkout, 16 s
 # on a Linux runner). The git dir rather than the cargo target: `finish` stages
 # a copy of the running susi.exe in the temp dir precisely because it is
-# outside the target the gate rebuilds (src/cli/workflow_cli.rs). The place is
+# outside the target the gate rebuilds (the dev workflow's finish). The place is
 # as hermetic as the user's temp (the tests never look for it; git ignores
 # what it did not write there), and the EXIT trap removes it. Linux keeps the
 # system temp: scripts/kill-leftover-service-runs.sh recognises a test's
