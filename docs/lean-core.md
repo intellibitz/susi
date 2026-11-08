@@ -318,3 +318,32 @@ table once the clean baseline is recorded.
   pillar and the pillars still use the stack). The susi-gemi line ceiling goes 21,302 -> 21,300
   (runtime-free candle provider futures; the scout probe test now holds the env lock, whose
   absence let it overwrite the brain backup test's file mid-recovery).
+- 2026-11-09 03:4x (T-DEVWF-1): the developer workflow leaves core. `susi-gawd/src/admin`
+  (task queue, worktree workflow, hook guard, primary parking, target seeding, version sync,
+  release gate) with `worker_identity`, `cloud_session` and `zc_agent_identity`, about 16,300
+  lines, moved destination-first to susi-commercial-apps (merge `5c4793332`, change `ae20411`,
+  gate receipt `3b09dbb72`): crate `susi-dev-workflow`, commands `susi-commercial tasks |
+  workflow | admin sync | verify | release | intent-ladder --adopt-gap`, with the module's
+  suites and the ported tasks CLI suite. Core keeps `susi_gawd::compliance` (the compliance
+  audit, whose version step is now read-only, and the natural-intent evidence ledger) and
+  `susi tasks eval-corpus`. Every dropped command refuses naming its commercial command
+  (`susi tasks <verb>`, `susi workflow <verb>`, `susi admin sync | verify | release`,
+  `--adopt-gap`, the host view's `adopt_gap` mode); every verb of the moved families stays
+  refused as a bare word, which would otherwise become a mission. Hooks and scripts probe
+  `susi-commercial` first; with no binary that has `workflow guard`, the pre-commit /
+  pre-merge / pre-push guard says so and lets git go on (`cargo local-workflow` never runs
+  those hooks and gates every landing), so a contributor without Susi Commercial Apps commits
+  unguarded. `local-workflow start` seeds a new worktree through whichever binary answers
+  `workflow seed-target`. Tests of the moved product left with it; core keeps its own e2e
+  checks of the built binary (Mandate 53, now with the refusals) and pins the task-record
+  schema without the moved crate. susi-gawd drops its only `susi-vendor-winapi` edge (the
+  seed's detached spawn). Ceilings: susi-gawd lines 29,291 -> 13,293, direct facade edges
+  23 -> 22 (workspace 50 and third-party 259 unchanged: the pillars still reach winapi).
+  Measured alternating with main `c60bb469f` on F: before compile2's landing (rustc idle
+  before each run, but 850-1,237 CPU-s against about 780-800 on an idle host, so these walls
+  are not budget numbers): wall 90.9 / 78.6 / 90.6 s against 124.0 / 83.2 / 91.4 s; workspace
+  CPU-s 208.1 / 177.0 / 179.5 against 279.9 / 190.9 / 207.8 (lower in every pair); same 417
+  units. Not done here: the GMCP `intent_ladder` tool description and the queue example in
+  `docs/gmcp-roadmap.md` still name the moved commands (both are pinned by the GMCP ledger and
+  evidence and change only with both re-record phases), and Mandate 55's did-you-mean example
+  in `.agents/identity.json` still names `susi admin release`.
