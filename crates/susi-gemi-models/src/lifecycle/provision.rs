@@ -591,9 +591,32 @@ mod license_tests {
             }),
         );
         cfg.save(&susi_paths::SusiDirs::config_dir()).unwrap();
+        // The ladder must come back from the same path it was saved to. Under
+        // parallel test threads a sibling's `load_global()` used to seed a
+        // default config into this directory (the process environment is
+        // shared), which emptied the ladder and left the probe server below
+        // waiting forever; reads no longer write, and this check names the
+        // failure if that ever regresses.
+        let reloaded = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap();
+        assert_eq!(
+            reloaded.model_ladder().len(),
+            1,
+            "load_global must read back the ladder just saved to {}",
+            dir.display()
+        );
 
         let report = ModelManager::verify_model_ladder(&dir).unwrap();
-        let request = worker.join().unwrap().unwrap();
+        let request = worker.join().unwrap().unwrap_or_else(|e| {
+            panic!(
+                "{e}; verify_model_ladder reported {} ladder step(s) {:?}",
+                report.total_steps,
+                report
+                    .steps
+                    .iter()
+                    .map(|s| format!("{}:{}", s.model_label, s.status))
+                    .collect::<Vec<_>>()
+            )
+        });
         assert!(
             request.starts_with("GET /api/models"),
             "the probe asked the test server for {request:?}"
