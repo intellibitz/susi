@@ -25,7 +25,7 @@ susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud i
 | **Fragmented local & cloud APIs** | Point any OpenAI/Anthropic SDK, MCP client, or A2A peer at `127.0.0.1:9090–9094`. Route across local engines (`Ollama`, `vLLM`, `llama.cpp`, `GGUF`) and cloud APIs through one inspectable policy (`susi os route`). |
 | **Opaque model routing & wasted spend** | Evidence-ranked **Brain** (`susi brain`) learns which provider succeeds per workload class (`reflex`, `chat`, `code`, `reasoning`), quarantines out-of-credit keys, and enforces `SUSI_BUDGET=low\|balanced\|max`. |
 | **Hallucinated agent claims** | **Evidence-gated completion**: missions record live tool receipts (`EvidenceSession` / `ToolReceipt`), verify citations against the workspace, and seal actions into an append-only HMAC-SHA256 audit chain. |
-| **Data egress & untrusted tools** | `local_only` privacy policy keeps model and tool traffic on this machine and its local network (internet egress blocked; the LAN stays reachable); deterministic Tier-0 **Wasm reflexes** execute inside a fuel-metered `Wasmi` sandbox. |
+| **Data egress & untrusted tools** | `local_only` privacy policy keeps model and tool traffic on this machine and its local network (internet egress blocked; the LAN stays reachable), and `host_only` on this machine alone (loopback only: no LAN, discovery, gossip, off-host peers or off-host clients); deterministic Tier-0 **Wasm reflexes** execute inside a fuel-metered `Wasmi` sandbox. |
 
 ```mermaid
 flowchart LR
@@ -98,6 +98,9 @@ The record is in [`docs/lean-core.md`](lean-core.md) and
   policy keeps traffic on this machine and its local network: it blocks every
   known internet-bound tool path, not only URLs with obvious network-shaped
   names, and leaves loopback, private, link-local and `.local` hosts open.
+  `host_only` policy keeps it on this machine alone: only loopback targets,
+  no discovery or gossip toward other hosts, no off-host peer calls, and
+  off-host clients dropped by every listener whatever `bind_address` says.
 - **Cloud AI OS layer** — admits OpenAI-compatible, Anthropic, Gemini,
   OpenRouter, MCP, A2A, and managed CLI peers through the same capability,
   budget, evidence, audit, and placement contracts. Credentials remain
@@ -356,7 +359,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    The privacy posture fails closed: a damaged `privacy_mode` file enforces
    `local_only` instead of silently reading as `balanced`.
    Under `local_only`, the HTTP inference provider itself refuses to send
-   prompts or embedding text to any endpoint off the host/LAN, and model
+   prompts or embedding text to any endpoint off the host/LAN (off the host
+   alone under `host_only`, where no grant reopens egress), and model
    downloads (including the background starter-model download) and admitted search tools
    (Brave/Google/`web_search`), external peer agents,
    proxy endpoints, crates.io scouting, cloud coding agents (Devin/Manus), and

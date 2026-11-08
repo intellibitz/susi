@@ -149,18 +149,16 @@ impl CoreTools {
 
     #[tool(
         name = "privacy_mode",
-        description = "Set the privacy mode (persisted; local_only keeps traffic on this machine and its local network and pins inference routing to local), as `susi privacy mode`. Args: mode (balanced, local_only, open)",
+        description = "Set the privacy mode (persisted; local_only keeps traffic on this machine and its local network, host_only on this machine alone (loopback; no LAN, discovery, gossip or off-host peers); both pin inference routing to local), as `susi privacy mode`. Args: mode (balanced, local_only, host_only, open)",
         input_schema = args::typed::<args::PrivacyMode>()
     )]
     pub fn privacy_mode(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let mode = required_str(arg, "mode")?;
         // `PrivacyMode::parse` maps anything unknown to balanced; over the
         // socket a typo must not silently relax a stricter mode.
-        if PrivacyMode::parse(mode) == PrivacyMode::Balanced
-            && !mode.eq_ignore_ascii_case("balanced")
-        {
+        if PrivacyMode::parse_requested(mode).is_none() {
             return Err(EaiError::config(format!(
-                "unknown privacy mode `{mode}` (expected balanced, local_only or open)"
+                "unknown privacy mode `{mode}` (expected balanced, local_only, host_only or open)"
             )));
         }
         let report = daemon::privacy_mode(mode).map_err(EaiError::config)?;
@@ -761,6 +759,10 @@ mod tests {
         assert_eq!(sent["payload"]["mode"], "local-only");
         let balanced = doc(CoreTools::privacy_mode(&json!({"mode": "Balanced"}), ws));
         assert_eq!(balanced["payload"]["mode"], "Balanced");
+        let host = doc(CoreTools::privacy_mode(&json!({"mode": "host-only"}), ws));
+        assert_eq!(host["payload"]["mode"], "host-only");
+        let typo = CoreTools::privacy_mode(&json!({"mode": "host_onyl"}), ws).unwrap_err();
+        assert!(typo.to_string().contains("host_only"), "{typo}");
     }
 
     #[test]

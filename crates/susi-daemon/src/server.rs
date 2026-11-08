@@ -2033,6 +2033,14 @@ impl SusiDaemon {
         // silently truncate and fail signature verification.
         let mut buf = [0u8; 4096];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {
+            // host_only: discovery is off toward every other host, whatever
+            // the bind, read per datagram so a mode switch applies at once.
+            // A loopback ping is this machine's own readiness probe
+            // (`host_contract_udp_ready`); its pong never leaves the host.
+            if !src.ip().to_canonical().is_loopback() && susi_core::mac_policy::host_only_in_force()
+            {
+                continue;
+            }
             // Only the bound dialect (`SUSI_PING_SIG3`) is answered: its MAC
             // covers the sender's source address, a timestamp and a nonce
             // (`verify_bound_ping`). Anything that is not a signed ping is

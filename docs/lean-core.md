@@ -284,3 +284,12 @@ table once the clean baseline is recorded.
   probe documentation is tighter. The ping protocol itself lives in `susi-config`, outside the
   pillars. Re-pinned at the measured values: susi-gawd 29,296 -> 29,295, susi-gawd-swarm
   23,012 -> 23,000.
+- 2026-11-08 (T-HOSTONLY-1): the `host_only` privacy mode (CEO decision 19:4x) is a new security
+  capability, so three pillars take the few lines it needs at their own boundaries; the policy
+  itself (loopback-only reach, grant refusal, the mode reads) lives in `susi-core` and the
+  daemon, outside the pillars. The scout reads the mode once per pass and sends and reads no
+  discovery datagram under it (susi-gawd-swarm 23,000 -> 23,002); the A2A and GMCP listeners
+  drop an off-host client before negotiating (susi-gawd-a2a 2,109 -> 2,113; susi-gmcp
+  19,344 -> 19,350, of which 4 lines are the `privacy_mode` test of the new spelling); the GEMI
+  provider gate moves onto the mode-aware check and shrinks (susi-gemi 21,304 -> 21,302).
+  Re-pinned at the measured values.

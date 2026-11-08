@@ -216,7 +216,11 @@ impl GemiServer {
 
                 tokio::spawn(async move {
                     let _connection = connection;
-                    let remote = !peer_ip.is_loopback();
+                    // host_only serves this machine alone, whatever the bind.
+                    if crate::susi_core::mac_policy::refuses_remote_client(peer_ip) {
+                        return;
+                    }
+                    let remote = !peer_ip.to_canonical().is_loopback();
                     let Some(io) =
                         negotiate_transport(stream, remote, tls.as_ref(), require_tls_remote, "[GEMI REST]").await
                     else {
