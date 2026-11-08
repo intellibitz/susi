@@ -3,14 +3,14 @@
 #
 # A cloud container starts with no target/: every registry and git crate of the
 # dependency tree compiled cold (about 15 minutes on 4 vCPU before the first
-# `susi workflow check`), and the gate's clippy of a changed crate's dependents
+# `susi-commercial workflow check`), and the gate's clippy of a changed crate's dependents
 # check-built them again (210 s measured; docs/workflow-speed.md). A laptop's
 # worktrees copy a warm snapshot from the primary checkout (scripts/seed-target.sh);
 # a container has no primary. So a snapshot builder (formerly the GitHub
 # Actions workflow target-seed.yml, removed by CEO decision 2026-11-06) builds
 # origin/main the way a cloud session does — the same toolchain, the same
 # `cargo` configuration scripts/cloud-onnxruntime.sh writes — strips the
-# workspace's own units (`susi workflow seed-target --export`), and publishes the
+# workspace's own units (`susi-commercial workflow seed-target --export`), and publishes the
 # rest as assets of the rolling `target-seed` pre-release, named by a key of
 # everything the kept units' fingerprints depend on. This script, run by the
 # session-start hook before the first build, fetches the asset for this

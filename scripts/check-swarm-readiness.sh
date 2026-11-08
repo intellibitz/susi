@@ -256,7 +256,7 @@ for tid in "${open_ids[@]}"; do
 done
 
 if [ "${#ready_list[@]}" -eq 0 ]; then
-    echo "❌ $NAME: no claimable task — every open task is claimed or dependency-blocked (${#open_ids[@]} open, ${#closed_ids[@]} closed); add one: susi tasks add \"…\" --accept \"cargo test …\""
+    echo "❌ $NAME: no claimable task — every open task is claimed or dependency-blocked (${#open_ids[@]} open, ${#closed_ids[@]} closed); add one: susi-commercial tasks add \"…\" --accept \"cargo test …\""
     failures=$((failures + 1))
 else
     r_str=$(printf ', %s' "${ready_list[@]}")

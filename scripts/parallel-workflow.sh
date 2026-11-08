@@ -20,7 +20,7 @@ root=$(git rev-parse --show-toplevel)
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 action=${1:-sync}
 lock="$common/susi-workflow.lock"
-susi_bin=${SUSI_WORKFLOW_BIN:-susi}
+susi_bin=${SUSI_WORKFLOW_BIN:-susi-commercial}
 if [ -f "$common/config" ] && ! grep -q "auto = 0" "$common/config" 2>/dev/null; then
     git config gc.auto 0 2>/dev/null || true
     git config maintenance.auto false 2>/dev/null || true
@@ -441,7 +441,7 @@ gate_tests_kept() {
         diff --no-renames --no-color --name-only "$mb" HEAD -- '*.rs' 2>/dev/null | sort -u)
     [ "$total_after" -lt "$total_before" ] || return 0
     echo "❌ gate: this diff deletes tests — $total_before test(s) in the changed files at the merge base, $total_after now:$dropped" >&2
-    echo "   A change that makes an acceptance pass by removing other tests is refused. Deleting a test on purpose: SUSI_GATE_ALLOW_TEST_REMOVAL=1 susi workflow finish <id>" >&2
+    echo "   A change that makes an acceptance pass by removing other tests is refused. Deleting a test on purpose: SUSI_GATE_ALLOW_TEST_REMOVAL=1 susi-commercial workflow finish <id>" >&2
     return 1
 }
 
@@ -745,16 +745,16 @@ finish)
         if [ "${released_with_push:-0}" = 1 ]; then
             echo 'workflow: release included in the atomic branch push' >&2
         elif ! timed_step release "$susi_bin" tasks release "$task" --force; then
-            echo "❌ pushed $sha, but releasing $task's claim failed (see above); run: susi tasks release $task --force" >&2
+            echo "❌ pushed $sha, but releasing $task's claim failed (see above); run: susi-commercial tasks release $task --force" >&2
             exit 1
         fi
         cat >&2 <<MSG
 ✅ pushed $sha and published the close receipt — the merge is the machinery's now (no wait).
    The close receipt on the remote keeps the debt until $sha is on
-   origin/main (\`susi workflow check\` shows it under "merge published"), and
-   a red run for it is reported at your next \`susi workflow sync\`.
+   origin/main (\`susi-commercial workflow check\` shows it under "merge published"), and
+   a red run for it is reported at your next \`susi-commercial workflow sync\`.
    Claim the next task now; up to SUSI_MERGES_IN_FLIGHT (default 4) may be in flight.
-   (\`susi workflow finish <id> --wait\` polls the run in-line instead.)
+   (\`susi-commercial workflow finish <id> --wait\` polls the run in-line instead.)
 MSG
         exit 0
     fi
@@ -786,7 +786,7 @@ MSG
             echo "❌ the pull request for $branch is closed; it will not merge." >&2
             echo "   The task is closed and its receipt keeps the claim (and this agent) held." >&2
             echo "   Fix it and reopen, or give it up deliberately and on the record:" >&2
-            echo "   susi tasks release $task --abandon <reason>" >&2
+            echo "   susi-commercial tasks release $task --abandon <reason>" >&2
             exit 1
             ;;
         esac
@@ -799,7 +799,7 @@ MSG
    agent will start it. Fix the failure, commit the repair, and run finish again
    (if the acceptance was already published, revert the close and fix under the
    same claim — citing a closed task is refused). To give the task up instead:
-   susi tasks release $task --abandon <reason>
+   susi-commercial tasks release $task --abandon <reason>
 MSG
             exit 1
             ;;
@@ -809,12 +809,12 @@ MSG
             # one. The agent's wait was only ever failure detection, and
             # that is answered now, so the claim is released here instead
             # of at the merge (or the budget). The close receipt keeps
-            # the debt visible in \`susi workflow check\` until it lands.
+            # the debt visible in \`susi-commercial workflow check\` until it lands.
             if "$susi_bin" tasks release "$task" --force; then
                 cat >&2 <<MSG
 ✅ the run for $sha is green — handing the merge to the machinery.
    The close receipt on the remote keeps the debt until $sha is on
-   origin/main (\`susi workflow check\` shows it under "merge published").
+   origin/main (\`susi-commercial workflow check\` shows it under "merge published").
    Claim the next task now; up to SUSI_MERGES_IN_FLIGHT (default 4) may be in flight.
 MSG
                 exit 0
@@ -846,7 +846,7 @@ MSG
                 cat >&2 <<MSG
 ⏳ $sha is still not on origin/main after ${elapsed}s — the merge is queued,
    not failed, so the claim is released and the merge machinery owns the rest.
-   The close receipt on the remote keeps the debt: `susi workflow check` shows
+   The close receipt on the remote keeps the debt: `susi-commercial workflow check` shows
    it under "merge published", and it clears when the merge lands. You may
    claim the next task (up to SUSI_MERGES_IN_FLIGHT merges may be in flight).
 MSG
@@ -913,7 +913,7 @@ watch)
             --log "$common/susi-seed-refresh.log" >/dev/null 2>&1 </dev/null 8>&- &
     }
     # A heartbeat, because the log stays empty while things go well: a stale
-    # stamp is the only way `susi workflow check` can report a dead watcher.
+    # stamp is the only way `susi-commercial workflow check` can report a dead watcher.
     while true; do
         date +%s >"$common/susi-primary-watch.stamp" 2>/dev/null || true
         "$root/scripts/park-primary.sh" --sync-only || true

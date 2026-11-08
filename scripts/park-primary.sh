@@ -12,8 +12,8 @@
 #                                        main, clean and has no local commits. Safe
 #                                        to run from every workflow check and hook.
 #
-# The work is susi's: `susi workflow park-primary` (crates/susi-gawd/src/admin/
-# park.rs) does everything this script did in bash, with git run directly, so an
+# The work is susi's: `susi-commercial workflow park-primary` (Susi Commercial Apps'
+# susi-dev-workflow) does everything this script did in bash, with git run directly, so an
 # installed susi.exe keeps the primary current without Git's MSYS userland on
 # PATH. This file stays so that the hooks (.githooks/sync-primary), the loop
 # scripts, the session-start hook and branches cut before the port, which run
@@ -36,7 +36,8 @@ here=
 if [ -n "$mine" ] && [ ! -L "$mine/target" ]; then
     here="$mine/target"
 fi
-for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
+for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi-commercial 2>/dev/null)" \
+    "$(command -v susi 2>/dev/null)" \
     "${own:+$own/release/susi}" "${own:+$own/release/susi.exe}" \
     "${own:+$own/debug/susi}" "${own:+$own/debug/susi.exe}" \
     "${here:+$here/release/susi}" "${here:+$here/release/susi.exe}" \

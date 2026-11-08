@@ -1,14 +1,22 @@
 #!/bin/sh
-# run-susi <subcommand> <verb> [args...]: run `susi <subcommand> <verb> ...` for a
-# hook, with the first susi that has that verb: $SUSI_WORKFLOW_BIN (the susi that
-# is driving a `workflow finish`), the installed susi on PATH, then this checkout's
-# own build (target/release, target/debug). A susi older than the hook (a stale
-# installed release, a build from before a merge) is passed over, not run into:
-# its usage error would refuse every commit. Nothing here needs more than sh and
-# git; the hook's logic is susi's.
+# run-susi <subcommand> <verb> [args...]: run `<bin> <subcommand> <verb> ...` for a
+# hook, with the first binary that has that verb: $SUSI_WORKFLOW_BIN (the binary
+# driving a `workflow finish`), then `susi-commercial` on PATH (the dev workflow
+# of Susi Commercial Apps, where `workflow` and `tasks` live since the lean-core
+# move), then an older installed `susi` on PATH and this checkout's own build
+# (target/release, target/debug), which still carry the verbs until they are
+# upgraded past the move. A binary without the verb (a current core `susi`
+# refuses `workflow ...` naming susi-commercial) is passed over, not run into:
+# its refusal would refuse every commit. Nothing here needs more than sh and git.
+#
+# The workflow guard is the agent workflow's own rule set, not this open
+# repository's: with no binary that has `workflow guard`, the hook says so and
+# lets git go on. The gated landing (`cargo local-workflow`) never runs these
+# hooks and judges every change itself.
 set -u
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=$(cd "$(dirname "$0")/.." && pwd)
-for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
+for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi-commercial 2>/dev/null)" \
+    "$(command -v susi 2>/dev/null)" \
     "$top/target/release/susi" "$top/target/release/susi.exe" \
     "$top/target/debug/susi" "$top/target/debug/susi.exe"; do
     [ -n "$bin" ] && [ -x "$bin" ] || continue
@@ -16,6 +24,10 @@ for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi 2>/dev/null)" \
         exec "$bin" "$@"
     fi
 done
-echo "❌ no susi with \`$1 $2\` found (SUSI_WORKFLOW_BIN, the installed susi, this checkout's target/)." >&2
-echo "   Install the current release: scripts/susi-release-sync.sh — or build this checkout: cargo build" >&2
+if [ "$1 $2" = "workflow guard" ]; then
+    echo "ℹ️  workflow guard skipped: it is Susi Commercial Apps' dev workflow (\`susi-commercial workflow guard\`), and no binary here has it. \`cargo local-workflow\` gates every landing." >&2
+    exit 0
+fi
+echo "❌ no binary with \`$1 $2\` found (SUSI_WORKFLOW_BIN, susi-commercial, the installed susi, this checkout's target/)." >&2
+echo "   \`$1 $2\` is Susi Commercial Apps' dev workflow: install susi-commercial" >&2
 exit 1

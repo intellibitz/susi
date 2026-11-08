@@ -37,7 +37,6 @@ use super::substrate_cli;
 use super::tasks_cli;
 use super::telemetry_cli;
 use super::tx_cli;
-use super::workflow_cli;
 
 #[derive(Parser)]
 #[command(name = "susi")]
@@ -123,21 +122,22 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         action: Option<setup_cli::SetupCommands>,
     },
-    /// Check that this checkout follows the susi workflow — run this first
+    /// Moved to Susi Commercial Apps (`susi-commercial workflow`); refuses
+    /// naming that command
+    #[command(hide = true, disable_help_flag = true)]
     Workflow {
-        #[command(subcommand)]
-        action: workflow_cli::WorkflowCommands,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// Harness orchestration: author a plan, run a mission, serve the harness API
     Harness {
         #[command(subcommand)]
         action: harness_cli::HarnessCommands,
     },
-    /// The shared task queue: add, claim (atomic), close (only when the check passes)
+    /// RSI eval-corpus runs (the task queue is `susi-commercial tasks`)
     Tasks {
         #[command(subcommand)]
-        // Boxed: `add` carries several strings and would grow every `Commands`.
-        action: Option<Box<tasks_cli::TaskCommands>>,
+        action: Option<tasks_cli::TaskCommands>,
     },
     /// The brain: which model susi trusts for which kind of work (evidence-ranked)
     Brain {
@@ -399,8 +399,6 @@ pub(crate) enum KeyCommands {
 
 #[derive(Subcommand)]
 pub(crate) enum AdminCommands {
-    /// Synchronize version consistency
-    Sync,
     /// Ingest pulse via admin
     Pulse {
         #[arg(trailing_var_arg = true)]
@@ -413,17 +411,6 @@ pub(crate) enum AdminCommands {
     AuditEvidence {
         #[command(subcommand)]
         action: AuditEvidenceCommands,
-    },
-    /// Verify version alignment
-    Verify,
-    /// Full release orchestration: the local gate (type check, compliance
-    /// audit, workspace tests, clippy, smoke and e2e checks). With --cut, also
-    /// bumps the engine version, commits it and pushes the release branch;
-    /// land it with `cargo local-workflow ship`, then tag, qualify and publish
-    /// locally with `cargo local-release`.
-    Release {
-        #[arg(long)]
-        cut: Option<susi_cli_defs::VersionBump>,
     },
     /// Run clippy
     Lint,
@@ -439,7 +426,7 @@ pub(crate) enum AdminCommands {
     /// run the full ladder hermetically (--run), or just the bounded
     /// start-up slice (--slice). The daemon records failing rungs in the
     /// host outbox (--gaps); an agent adopts one as a repair task in its
-    /// own checkout (--adopt-gap).
+    /// own checkout with `susi-commercial admin intent-ladder --adopt-gap`.
     #[command(name = "intent-ladder")]
     IntentLadder {
         /// Run every rung now — hermetic, wall-clock bounded
@@ -455,11 +442,15 @@ pub(crate) enum AdminCommands {
         /// Print the host outbox of failing rungs (`<home>/intent-gaps.json`)
         #[arg(long)]
         gaps: bool,
-        /// Author the outbox gap for this intent id as a repair task in the
-        /// current checkout, and mark it adopted
-        #[arg(long, value_name = "ID")]
+        /// Moved: adopting a gap authors a task-queue record, which is
+        /// `susi-commercial admin intent-ladder --adopt-gap`
+        #[arg(long, value_name = "ID", hide = true)]
         adopt_gap: Option<String>,
     },
+    /// `sync`, `verify` and `release` moved to Susi Commercial Apps
+    /// (`susi-commercial admin <verb>`); refused naming that command
+    #[command(external_subcommand)]
+    Moved(Vec<String>),
 }
 
 #[derive(Subcommand)]
@@ -528,17 +519,15 @@ pub(crate) fn command_skips_composition(command: &Commands) -> bool {
             | Commands::Audit {
                 action: Some(AuditCommands::Verify { .. } | AuditCommands::Query { .. }),
             }
-    )
-}
-
-/// The release gate needs the plane bus and audit hooks, but not the CLI's
-/// background indexer or catalog discovery; smoke missions compose separately.
-pub(crate) fn command_uses_release_composition(command: &Commands) -> bool {
-    matches!(
-        command,
-        Commands::Admin {
-            subcommand: AdminCommands::Release { .. }
-        }
+            // The dev-workflow commands that moved to Susi Commercial Apps
+            // only print their refusal: nothing to compose for that.
+            | Commands::Workflow { .. }
+            | Commands::Tasks {
+                action: None | Some(tasks_cli::TaskCommands::Moved(_)),
+            }
+            | Commands::Admin {
+                subcommand: AdminCommands::Moved(_)
+            }
     )
 }
 
@@ -980,24 +969,33 @@ mod tests {
     }
 
     #[test]
-    fn release_skips_cli_catalog_composition() {
+    fn moved_dev_workflow_commands_refuse_without_composition_or_daemon() {
         for args in [
             &["susi", "admin", "release"][..],
             &["susi", "admin", "release", "--cut", "patch"],
+            &["susi", "admin", "sync"],
+            &["susi", "workflow", "guard", "commit"],
+            &["susi", "workflow", "--help"],
+            &["susi", "tasks"],
+            &["susi", "tasks", "claim", "T-A-1", "--scope", "src"],
         ] {
             let command = Cli::try_parse_from(args).unwrap().command.unwrap();
-            assert!(super::command_uses_release_composition(&command));
-            assert!(!command_skips_composition(&command));
-            assert!(
-                !super::command_requires_daemon(&command),
-                "local release operations must not start or restart a daemon"
-            );
+            assert!(command_skips_composition(&command), "{args:?}");
+            assert!(!super::command_requires_daemon(&command), "{args:?}");
         }
-        let audit = Cli::try_parse_from(["susi", "admin", "audit"])
-            .unwrap()
-            .command
-            .unwrap();
-        assert!(!super::command_uses_release_composition(&audit));
+        let eval = Cli::try_parse_from([
+            "susi",
+            "tasks",
+            "eval-corpus",
+            "--corpus",
+            "c.json",
+            "--input",
+            "i.json",
+        ])
+        .unwrap()
+        .command
+        .unwrap();
+        assert!(!command_skips_composition(&eval));
     }
 
     #[test]
@@ -1144,27 +1142,6 @@ mod tests {
         assert_eq!(
             actual, expected,
             "CLI help/version output drifted from tests/fixtures/cli_help_snapshot.txt"
-        );
-    }
-
-    #[test]
-    fn mirrored_cli_defs_constants_and_types_match_engine() {
-        assert_eq!(
-            susi_cli_defs::VERIFY_BUDGET_SECS,
-            susi_gawd::admin::tasks::VERIFY_BUDGET_SECS,
-            "susi_cli_defs::VERIFY_BUDGET_SECS must match susi_gawd::admin::tasks::VERIFY_BUDGET_SECS"
-        );
-        assert_eq!(
-            super::super::admin_cli::into_engine_version_bump(susi_cli_defs::VersionBump::Patch),
-            susi_gawd::admin::VersionBump::Patch
-        );
-        assert_eq!(
-            super::super::admin_cli::into_engine_version_bump(susi_cli_defs::VersionBump::Minor),
-            susi_gawd::admin::VersionBump::Minor
-        );
-        assert_eq!(
-            super::super::admin_cli::into_engine_version_bump(susi_cli_defs::VersionBump::Major),
-            susi_gawd::admin::VersionBump::Major
         );
     }
 }

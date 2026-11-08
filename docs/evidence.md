@@ -35,8 +35,8 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Admission protocol: MCP | any server admitted explicitly (`susi mcp-add`, or `susi mcp enable` from an installed pack); core bundles no MCP server catalog |
 | Bloat audit | `susi bloat-audit` runs the AST auditor directly (no model narration) and scans every non-test Rust source in the workspace; last measured: 967 files, ~275k lines, 28 `unwrap`, 63 `expect`, 32 `unsafe` blocks — each panic-path `#[allow]` carries a written justification (architecture test) |
 | Substrate report | `susi substrate-report` reports the compiled constitution, topology and selected model; the GMCP `sovereign_dashboard` report tool counts audited activity by its real event type (no invented self-heal/distillation counters) |
-| Version sync | `susi admin sync` replaces Cargo.toml, the README badge, the governance ledgers, and the binary trust anchor atomically |
-| Audit commands | `susi audit` / `susi admin audit` run the static compliance audit; `admin verify` checks version alignment; `admin lint` / `admin audit-deps` run `cargo clippy` / `cargo audit` directly — no model narration |
+| Version sync | `susi-commercial admin sync` (Susi Commercial Apps' dev workflow since the lean-core move) writes the Cargo.toml version into the README badge and the governance ledgers, each file replaced whole |
+| Audit commands | `susi audit` / `susi admin audit` run the static compliance audit; the audit's version step is read-only (`susi-commercial admin verify` is the stand-alone check); `admin lint` / `admin audit-deps` run `cargo clippy` / `cargo audit` directly — no model narration |
 | Model ladder | `susi verify-download-agent` reports network status and each step of the hardware-selected model ladder (no fixed 32B/72B promise) |
 | Self-validation | `self_validate` reports the hardware profile and tensor device and checks the compiled genome; a failure is an error, never a successful receipt |
 | Install | `susi install` runs the substrate initializer directly and reports its real outcome |

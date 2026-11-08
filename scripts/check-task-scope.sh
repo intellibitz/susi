@@ -29,7 +29,7 @@ if [ "${#scopes[@]}" -eq 0 ]; then
     if [ "${#code[@]}" -gt 0 ]; then
         joined=$(printf ', %s' "${code[@]}")
         joined=${joined#, }
-        echo "Task $task reserves no paths — re-claim it with a scope that covers this change (susi tasks release $task, then susi tasks claim $task --scope <path>): $joined" >&2
+        echo "Task $task reserves no paths — re-claim it with a scope that covers this change (susi-commercial tasks release $task, then susi-commercial tasks claim $task --scope <path>): $joined" >&2
         exit 1
     fi
     exit 0

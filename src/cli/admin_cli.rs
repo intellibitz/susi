@@ -1,38 +1,46 @@
-//! `susi admin` — version sync, compliance audit, release orchestration,
-//! config hot-reload, and the admin-pulse commands.
+//! `susi admin` — compliance audit, audit evidence, config hot-reload, the
+//! intent ladder and the admin-pulse commands. Version sync, version
+//! verification and the release gate (`sync`, `verify`, `release`) and
+//! intent-gap adoption moved to Susi Commercial Apps' dev workflow
+//! (`susi-commercial admin ...`); they are refused here naming that command.
 
 use super::defs::{AdminCommands, AuditEvidenceCommands};
 use super::mission_host::MissionHost;
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use susi::SUSI_VERSION;
 
-pub(crate) const fn into_engine_version_bump(
-    bump: susi_cli_defs::VersionBump,
-) -> susi_gawd::admin::VersionBump {
-    match bump {
-        susi_cli_defs::VersionBump::Patch => susi_gawd::admin::VersionBump::Patch,
-        susi_cli_defs::VersionBump::Minor => susi_gawd::admin::VersionBump::Minor,
-        susi_cli_defs::VersionBump::Major => susi_gawd::admin::VersionBump::Major,
+/// Admin verbs that moved to Susi Commercial Apps' dev workflow.
+const MOVED_VERBS: [&str; 3] = ["sync", "verify", "release"];
+
+/// The refusal for `susi admin <words>`: a moved verb names its commercial
+/// command; anything else is not an admin command.
+pub(crate) fn moved_message(words: &[String]) -> String {
+    match words.first().map(String::as_str) {
+        Some(verb) if MOVED_VERBS.contains(&verb) => format!(
+            "`susi admin {verb}` moved to Susi Commercial Apps: run `susi-commercial admin {verb}` \
+             in the checkout"
+        ),
+        Some(other) => {
+            format!("`susi admin {other}` is not an admin command (see `susi admin --help`)")
+        }
+        None => "`susi admin` needs a command (see `susi admin --help`)".to_string(),
     }
+}
+
+/// The refusal for `susi admin intent-ladder --adopt-gap <id>`.
+pub(crate) fn adopt_gap_message(id: &str) -> String {
+    format!(
+        "adopting an intent gap authors a task-queue record, which moved to Susi Commercial          Apps: run `susi-commercial admin intent-ladder --adopt-gap {id}` in the checkout"
+    )
 }
 
 pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
     let (cwd, global_dir) = (host.cwd, host.global_dir);
     match subcommand {
-        AdminCommands::Sync => {
-            match susi_gawd::admin::SusiAdmin::enforce_version_consistency(cwd) {
-                Ok(v) => println!("Version synchronization complete: v{}", v),
-                Err(e) => {
-                    eprintln!("Sync failed: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
         AdminCommands::Pulse { intent } => {
             let intent_str = intent.join(" ");
-            match susi_gawd::admin::SusiAdmin::ingest_natural_intent(cwd, &intent_str) {
+            match susi_gawd::compliance::SusiAdmin::ingest_natural_intent(cwd, &intent_str) {
                 Ok(msg) => println!("{}", msg),
                 Err(e) => {
                     eprintln!("Pulse ingestion failed: {}", e);
@@ -42,7 +50,7 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
         }
         AdminCommands::Audit => {
             // Use fast static compliance audit instead of LLM agent swarm
-            match susi_gawd::admin::SusiAdmin::audit_compliance(cwd, Some("push")) {
+            match susi_gawd::compliance::SusiAdmin::audit_compliance(cwd, Some("push")) {
                 Ok(report) => println!("{}", report),
                 Err(e) => {
                     eprintln!("Compliance audit failed: {}", e);
@@ -52,35 +60,8 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
         }
         AdminCommands::AuditEvidence { action } => run_audit_evidence(action),
         // Deterministic checks and real tools, not model narration: the
-        // swarm used to be asked to "verify", "run clippy", and "run cargo
-        // audit" and would report outcomes nobody measured.
-        AdminCommands::Verify => match susi_gawd::admin::SusiAdmin::verify_version_alignment(cwd) {
-            Ok(()) => println!("Version alignment verified: v{SUSI_VERSION}"),
-            Err(e) => {
-                eprintln!("Version alignment check failed: {}", e);
-                std::process::exit(1);
-            }
-        },
-        AdminCommands::Release { cut } => {
-            // Windows cannot replace a running image: the release gate's
-            // cargo test/clippy rebuild `target\debug\susi.exe` while this
-            // process still holds it open. Stage a copy and exit, same as
-            // `workflow finish` (see workflow_cli::hand_off_finish).
-            #[cfg(windows)]
-            if hand_off_release(cwd) {
-                return;
-            }
-            match susi_gawd::admin::SusiAdmin::execute_release(
-                cwd,
-                cut.map(into_engine_version_bump),
-            ) {
-                Ok(msg) => println!("{}", msg),
-                Err(e) => {
-                    eprintln!("Release failed: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
+        // swarm used to be asked to "run clippy" and "run cargo audit" and
+        // would report outcomes nobody measured.
         AdminCommands::Lint => run_cargo(
             cwd,
             &[
@@ -118,9 +99,11 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
             adopt_gap,
         } => {
             use susi_daemon::host_views::IntentLadder;
-            let action = if let Some(id) = adopt_gap {
-                IntentLadder::AdoptGap(id)
-            } else if gaps {
+            if let Some(id) = adopt_gap {
+                eprintln!("{}", adopt_gap_message(&id));
+                std::process::exit(1);
+            }
+            let action = if gaps {
                 IntentLadder::Gaps
             } else if let Some(id) = verify {
                 IntentLadder::Verify(id)
@@ -143,6 +126,19 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
                     std::process::exit(1);
                 }
             }
+        }
+        AdminCommands::Moved(words) => {
+            eprintln!("{}", moved_message(&words));
+            std::process::exit(
+                if words
+                    .first()
+                    .is_some_and(|w| MOVED_VERBS.contains(&w.as_str()))
+                {
+                    1
+                } else {
+                    2
+                },
+            );
         }
     }
 }
@@ -219,94 +215,26 @@ fn run_cargo(cwd: &std::path::Path, args: &[&str]) {
     }
 }
 
-/// Set on the staged copy so it runs the release in place instead of
-/// staging itself again.
-#[cfg(windows)]
-const RELEASE_STAGED_ENV: &str = "SUSI_RELEASE_STAGED";
+#[cfg(test)]
+mod moved_tests {
+    use super::{adopt_gap_message, moved_message};
 
-/// Copy this process out of `target\` and re-run the same `admin release`
-/// argv from the copy. Returns `true` when the caller must exit so cargo
-/// can relink `target\debug\susi.exe`.
-#[cfg(windows)]
-fn hand_off_release(cwd: &Path) -> bool {
-    if std::env::var_os(RELEASE_STAGED_ENV).is_some() {
-        return false;
+    fn words(w: &[&str]) -> Vec<String> {
+        w.iter().map(|s| (*s).to_string()).collect()
     }
-    let Ok(exe) = std::env::current_exe() else {
-        return false;
-    };
-    let in_target = exe.components().any(|component| {
-        component
-            .as_os_str()
-            .to_string_lossy()
-            .eq_ignore_ascii_case("target")
-    });
-    if !in_target {
-        return false;
-    }
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!(
-        "susi-release-{}-{}-{}",
-        std::process::id(),
-        stamp,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0)
-    ));
-    if std::fs::create_dir_all(&dir).is_err() {
-        return false;
-    }
-    let name = exe
-        .file_name()
-        .unwrap_or_else(|| std::ffi::OsStr::new("susi.exe"));
-    let staged = dir.join(name);
-    if std::fs::copy(&exe, &staged).is_err() {
-        return false;
-    }
-    let Ok(mut child) = std::process::Command::new(&staged)
-        .args(std::env::args_os().skip(1))
-        .current_dir(cwd)
-        .env(RELEASE_STAGED_ENV, "1")
-        .spawn()
-    else {
-        return false;
-    };
-    std::thread::sleep(std::time::Duration::from_millis(250));
-    match child.try_wait() {
-        Ok(Some(status)) => {
-            eprintln!(
-                "susi: the staged release copy {} exited immediately ({status})",
-                staged.display()
-            );
-            false
-        }
-        Ok(None) => {
-            eprintln!(
-                "susi: running this release from the staged copy {} so the gate can relink {}",
-                staged.display(),
-                exe.display()
-            );
-            eprintln!(
-                "susi: this process exits now; the release continues in the staged copy above"
-            );
-            true
-        }
-        Err(_) => false,
-    }
-}
 
-/// Why `susi admin release --cut` must not start, asked by `main` before the
-/// release runs: a version that is released, has an open release pull
-/// request, or is reserved by another branch is refused at the cost of a
-/// `git ls-remote` (`SusiAdmin::release_preflight`). Any other command: `None`.
-pub(crate) fn release_preflight(subcommand: &AdminCommands, cwd: &Path) -> Option<String> {
-    if let AdminCommands::Release { cut: Some(level) } = subcommand {
-        susi_gawd::admin::SusiAdmin::release_preflight(cwd, into_engine_version_bump(*level))
-    } else {
-        None
+    #[test]
+    fn moved_admin_verbs_name_their_commercial_command() {
+        for verb in ["sync", "verify", "release"] {
+            let msg = moved_message(&words(&[verb, "--cut", "patch"]));
+            assert!(
+                msg.contains(&format!("`susi-commercial admin {verb}`")),
+                "{msg}"
+            );
+            assert!(!msg.contains("rebuild"), "{msg}");
+        }
+        assert!(moved_message(&words(&["frobnicate"])).contains("not an admin command"));
+        assert!(adopt_gap_message("r1")
+            .contains("`susi-commercial admin intent-ladder --adopt-gap r1`"));
     }
 }
