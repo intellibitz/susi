@@ -16,8 +16,6 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 
-susi-vendor-mcp = { workspace = true }
-
 [dev-dependencies]
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 
