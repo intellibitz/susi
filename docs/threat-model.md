@@ -162,18 +162,24 @@ TLS on the contract ports (`crates/susi-daemon/src/tls.rs`,
   SANs for localhost, the bind address and the hostname. A loopback bind
   with no configured certificate serves plain HTTP only.
 - `https_only` decides whether plaintext from a non-loopback peer is
-  refused. `tls::https_only()` reads the key from the operator's
-  `config.json` and treats an absent key as `true`, so the enforced default
-  is to refuse remote plaintext. (The compiled `config.default.json` carries
-  `https_only: false`, and the endpoint report in `server.rs` prints that
-  value, but neither reaches the enforcement path; the report is the one
-  that is wrong.) Loopback plaintext always passes.
+  refused. The compiled `config.default.json` carries `https_only: false`,
+  and `SusiConfig::load` merges every missing default into the loaded
+  settings (`heal_in_place`), so on a host that never set the key
+  `tls::https_only()` reads `false`. The enforced default is therefore to
+  **permit** remote plaintext whenever a certificate exists; remote
+  plaintext is refused only when the operator sets `https_only: true` or
+  when no certificate could be loaded or generated. (The module comment in
+  `tls.rs` says "default true" and the function's fallback for an absent
+  key is `true`; neither is reached, because the key is never absent after
+  the merge.) Loopback plaintext always passes.
 - A self-signed certificate authenticates nothing to the client unless the
   client pins it. The `susi` client and the peer channel
-  (`susi_core::mcp_client`) dial `http://<addr>/mcp`, so a cluster that
-  spans hosts needs either `https_only: false` on every member (and then
-  the shared peer bearer crosses the LAN in plaintext) or a TLS-terminating
-  front with certificates the platform verifier trusts.
+  (`susi_core::mcp_client`) dial `http://<addr>/mcp`, so on the default
+  posture a cluster that spans hosts runs its peer channel in plaintext and
+  the shared peer bearer crosses the LAN readable; setting `https_only:
+  true` on a member refuses that channel, because the client never dials
+  `https://`. A TLS-terminating front with certificates the platform
+  verifier trusts is the only way to have both.
 
 ## What the bearer token and the bus secret protect, and what they do not
 
@@ -192,8 +198,9 @@ It does not protect against:
 - any process running as the daemon's user, which reads the file;
 - a caller that was given the token once; there is no per-tool or per-client
   scoping of the host bearer, and a holder may call `privacy_grant`;
-- interception on a plaintext path: with `https_only: false` the bearer is
-  readable by anyone on the network path. Signed member requests are not,
+- interception on a plaintext path: with `https_only` at its default of
+  `false` the bearer is readable by anyone on the network path of a
+  non-loopback bind. Signed member requests are not,
   because the signature covers method, path, a body hash, a timestamp within
   300 s and a nonce the receiver records (`net_guard::signed_request_valid`).
 
@@ -414,17 +421,20 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set.
    address `Explicit` standing and peer-bearer traffic (above).
 3. The shared peer bearer is a symmetric credential; evicting a member
    without a re-key leaves it able to authenticate from a fresh address.
-4. Cluster traffic between hosts is plaintext HTTP unless the operator sets
-   up TLS the platform verifier trusts, and refusing plaintext (`https_only`,
-   the default) refuses the peer channel too.
+4. Cluster traffic between hosts is plaintext HTTP by default (`https_only`
+   is `false` after the default merge), so the peer bearer and the host
+   bearer of any remote client are readable on the path; setting
+   `https_only: true` refuses the peer channel because the client dials
+   `http://`.
 5. Gossip 9095 is open on every interface regardless of `bind_address`.
 6. Egress classification is by tool name; `local_only` permits the whole LAN.
 7. `balanced` grants egress and cloud inference by default; the config key
    that reads as a consent requirement is dead.
 8. Governance vetoes are pattern checks (above).
 9. Core has no Docker sandbox; `exec_command` confinement is the user account.
-10. The endpoint report prints `https_only=false` for an unset key while the
-    enforcement default is `true`.
+10. The `tls.rs` module comment and the function's fallback for an absent
+    key say `https_only` defaults to `true`; the merged default is `false`,
+    and `false` is what is enforced.
 11. Leaf services 18081 and 18084 are unauthenticated when started by hand
     without `SUSI_HOST_TOKEN`; the daemon always passes the token when it
     spawns them.
@@ -451,8 +461,10 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set.
 - **Bind beyond loopback only with a plan for certificates.** The
   self-signed certificate is generated for you but authenticates nothing a
   client does not pin. Supply `tls_cert_path` / `tls_key_path` from a CA the
-  clients trust, keep `https_only` unset or `true`, and put a cluster that
-  must speak plaintext on a network segment you control.
+  clients trust and set `https_only: true` (the default is `false`, so a
+  LAN bind otherwise accepts plaintext bearers). A cluster that spans hosts
+  cannot use `https_only: true` today, so put it on a network segment you
+  control.
 - **Share `cluster.key` deliberately** and only with hosts you would let
   hold the peer bearer. Bind member keys (`member_add`) so bearer-only calls
   from member addresses are refused, and re-key to evict.
