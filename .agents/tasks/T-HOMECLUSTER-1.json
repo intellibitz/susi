@@ -1,7 +1,7 @@
 {
   "id": "T-HOMECLUSTER-1",
   "title": "Zero-config home-LAN peer key preservation and attested status fallback",
-  "goal": "Ensure zero-config home-LAN cluster peers remain attested across UDP discovery refreshes and report live attested status rows when a peer's OS firewall blocks inbound TCP while UDP discovery and Ed25519 subject binding are active.",
+  "goal": "Keep zero-config home-LAN cluster members attested across UDP discovery refreshes: a refresh that carries no key keeps the row's bound node_id, pubkey, key_bound_at and bind_sig. `susi peers status` reports a key-bound member that discovery still sees but whose status call fails (for example inbound TCP refused by the member's OS firewall) truthfully: the row carries the error, live_via_discovery and the key prefix, and none of the unmeasured term, leader, ledger size or key epoch, so divergence stays visible. (Taken over by Claude on the CEO's instruction 2026-11-09 02:20 after Antigravity finished; the earlier version copied this node's state into the member's row.)",
   "state": "in_progress",
   "status": "in_progress",
   "claimed_by": "homecluster",

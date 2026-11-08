@@ -169,7 +169,7 @@ pub fn status_rows() -> Result<Vec<Value>, String> {
                         // divergence this view exists to show.
                         json!({
                             "node": nid,
-                            "error": e,
+                            "error": format!("live by discovery; status unavailable: {e}"),
                             "live_via_discovery": true,
                             "pubkey": pubkey.get(..12).unwrap_or(pubkey),
                             "self": false,
