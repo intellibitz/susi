@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 susi-build-policy = { workspace = true }
-susi-abi = { workspace = true, features = ["cell-server"] }
+susi-abi = { workspace = true }
 susi-core = { workspace = true }
 susi-adapters-llm = { workspace = true }
 susi-gawd-agents = { workspace = true }

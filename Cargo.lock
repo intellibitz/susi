@@ -2696,7 +2696,6 @@ dependencies = [
  "susi-vendor-proptest",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
- "susi-vendor-tokio",
 ]
 
 [[package]]
