@@ -492,6 +492,14 @@ fn enum_variants(source: &str, name: &str) -> Vec<Variant> {
                     .collect()
             })
             .unwrap_or_default();
+        if !ident.is_empty() && attrs.contains("command(external_subcommand)") {
+            // An external-subcommand catch-all is no command of its own: it
+            // captures the verbs that moved out (refused naming their new
+            // home), so it has no name and no socket surface.
+            attrs.clear();
+            subcommand_attr = false;
+            continue;
+        }
         if !ident.is_empty() {
             let cli = attrs
                 .split("(name = \"")

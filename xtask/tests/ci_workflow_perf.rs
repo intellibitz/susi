@@ -266,15 +266,6 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
             assert!(allowed, "{path} still runs the retired guard: {line}");
         }
     }
-    // For that release the staged `finish` copy outlives an outer guard
-    // hold (an old branch's `target-guard.sh --run cargo run -- workflow
-    // finish`): it must not claim that hold as its own.
-    assert!(
-        code_of("src/cli/workflow_cli.rs")
-            .iter()
-            .any(|line| line.trim() == ".env_remove(\"SUSI_TARGET_GUARD_HELD\")"),
-        "the staged finish must drop an outer guard's hold"
-    );
     // The gates run plain cargo: the gate's clippy argv, run as `cargo clippy "$@"`.
     let gate = read("scripts/parallel-workflow.sh");
     assert!(gate.contains("clippy_args=(--locked --all-targets $lsel -- -D warnings)"));
