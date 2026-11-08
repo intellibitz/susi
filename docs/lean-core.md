@@ -261,3 +261,14 @@ table once the clean baseline is recorded.
   Next levers in order: the MCP server facade (rung 2 std socket or destination-first), the
   tokio/hyper stack (rung 2), windows-sys (the daemon's Win32 surface through `susi-vendor-winapi`
   only), and syn (rung 3, derive-free serde).
+- 2026-11-08 11:50 (T-PLUGPORTS-1): the two remaining "moved to commercial" errors became
+  plane-bus plug ports (embeddings `gpu_fabric.embed.*`, browser `desktop.browser.capture`,
+  served by the commercial `susi-plug-host` over core's own bus rendezvous), a default build
+  forwards local inference to a wired plug, and a global config read never seeds `config.json`
+  (the cause of the 35-minute gate stall: a sibling test's read emptied a just-saved config).
+  The pillar line ceiling now counts shipped code only: the `tests/` and `mastery_tests/`
+  directories directly under `src` hold standalone `#[cfg(test)] #[path]` suites and are left
+  out (35 such suites are returning from the commercial copies next), inline `mod tests` still
+  count, and every pin is re-based at the measured shipped value (gawd 29,296, gawd-swarm
+  22,943, gawd-agents 11,495, gawd-a2a 2,108, gemi 21,304, gemi-models 16,797, gmcp 19,344,
+  harness 40,790); gmcp and gemi-models carry the plug ports and the bounded ladder test.
