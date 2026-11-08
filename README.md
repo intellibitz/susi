@@ -2,166 +2,68 @@
 
 ![SUSI Version](https://img.shields.io/badge/version-v0.21.52-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
-**[60-Second Quickstart](#-60-second-quickstart)** · **[Host Contract (`9090–9094`)](#host-contract)** · **[Integrate Your App](docs/integrating-with-susi.md)** · **[Author an Extension Pack](docs/extension-pack.md)** · **[Contributing](CONTRIBUTING.md)** · **[Architecture](ARCHITECTURE.md)**
+**[Two-minute start](#two-minute-start)** · **[Host contract](#host-contract)** · **[Where it stands](#where-it-stands)** · **[Architecture](docs/architecture.md)** · **[Evidence](docs/evidence.md)** · **[Integrate your app](docs/integrating-with-susi.md)** · **[Contributing](CONTRIBUTING.md)**
 
-**One local Rust daemon (`9090–9094`) that unifies your local models (Ollama, llama.cpp, vLLM, GGUF) and cloud AI providers (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter) behind standard MCP, OpenAI/Anthropic HTTP, and A2A sockets—with evidence-gated agent consensus, fuel-metered Wasm sandboxing, and cryptographic audit receipts.**
+Susi is an open, local-first AI operating substrate: one Rust daemon on your
+machine that puts the models, agents and tools you already have behind a
+standards socket on ports `9090-9094`, so any MCP client, OpenAI/Anthropic SDK
+or A2A peer talks to all of them the same way. It routes work across local
+engines (Ollama, llama.cpp, vLLM) and cloud providers by evidence, lets agents
+declare a mission complete only with receipts, and seals what they did into an
+append-only HMAC-SHA256 audit chain. The core is Apache-2.0 and free forever.
 
-**The RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS or a chatbot wrapper; Mandate 45). Verify the crown with `susi crown`.
+Scoped claim (Mandate 45): Susi is an evidence-gated agent-of-agents substrate
+*on* your host, not a replacement operating system and not a chatbot wrapper.
+"RSI" here means two audited loops, only one of which runs unattended; the
+exact scope is in [What RSI means here](docs/architecture.md#what-rsi-means-here).
 
-### Why developers build on `susi`
+## Who it is for
 
-| Problem in today's AI stack | How `susi` solves it on one local socket |
-|---|---|
-| **Fragmented local & cloud APIs** | Point any OpenAI/Anthropic SDK, MCP client, or A2A peer at `127.0.0.1:9090–9094`. Route across local engines (`Ollama`, `vLLM`, `llama.cpp`, `GGUF`) and cloud APIs through one inspectable policy (`susi os route`). |
-| **Opaque model routing & wasted spend** | Evidence-ranked **Brain** (`susi brain`) learns which provider succeeds per workload class (`reflex`, `chat`, `code`, `reasoning`), quarantines out-of-credit keys, and enforces `SUSI_BUDGET=low\|balanced\|max`. |
-| **Hallucinated agent claims** | **Evidence-gated completion**: missions record live tool receipts (`EvidenceSession` / `ToolReceipt`), verify citations against the workspace, and seal actions into an append-only HMAC-SHA256 audit chain. |
-| **Data egress & untrusted tools** | `local_only` privacy policy blocks off-host model and tool egress; deterministic Tier-0 **Wasm reflexes** execute inside a fuel-metered `Wasmi` sandbox. |
+- **Developers** who want one local endpoint for every model and tool, with an
+  inspectable routing decision (`susi os route`) instead of a vendor default.
+- **Teams building products on Susi** from the outside, through the fixed port
+  contract, never by forking it ([integration guide](docs/integrating-with-susi.md),
+  [conformance checker](docs/host-contract-conformance.md)).
+- **Agents and their operators** who need missions grounded in receipts, a
+  governed tool path and an audit trail that survives a crash.
 
-```mermaid
-flowchart LR
-    subgraph Clients["Clients, Editors & Agent SDKs"]
-        MCPClient["MCP Clients (Claude Code, Cursor, IDEs)"]
-        OAI["OpenAI & Anthropic SDKs"]
-        A2APeer["A2A Peers & Custom Apps"]
-    end
+Core is a pure CLI plus standards socket: it ships no UI and bundles no plugin
+content; the desktop, every visual view and curated plugin packs live in Susi
+Commercial Apps, which reaches core over the same public protocols. susi core
+is the free open-source socket. It speaks the standard host protocols and
+admits plugs. It does not ship a third-party product implementation; the third
+party writes that plug.
 
-    subgraph Host["susi Host Contract (127.0.0.1)"]
-        P9090["Port 9090 / 9093: MCP HTTP & SSE"]
-        P9091["Port 9091: OpenAI /v1 & Anthropic /v1/messages"]
-        P9094["Port 9094: A2A JSON-RPC & Agent Card"]
-    end
-
-    subgraph Kernel["Governed Decision & Swarm Plane"]
-        Brain["Evidence-Ranked Brain Router"]
-        Swarm["Consensus Swarm & Truth Verifier"]
-        Audit["HMAC-SHA256 Audit & Privacy Gate"]
-        Wasm["Fuel-Metered Wasmi Reflex Sandbox"]
-    end
-
-    subgraph Backends["Local & Cloud AI Ecosystem"]
-        Local["Local AI: Ollama, llama.cpp, vLLM, GGUF"]
-        Cloud["Cloud AI: OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter"]
-        Ext["Admitted MCP Servers & Extension Packs"]
-    end
-
-    MCPClient --> P9090
-    OAI --> P9091
-    A2APeer --> P9094
-    P9090 & P9091 & P9094 --> Brain
-    Brain --> Swarm
-    Swarm --> Audit
-    Swarm --> Wasm
-    Audit --> Local
-    Audit --> Cloud
-    Audit --> Ext
-```
-
-### ⚡ 60-Second Quickstart
+## Two-minute start
 
 ```bash
-# 1. Start the local host daemon (binds ports 9090–9094 and seeds ~/.susi/api_token)
+# 1. Start the host daemon (binds 9090-9094, seeds ~/.susi/api_token)
 susi start
 
-# 2. Scan your local hardware & running engines (Ollama, llama.cpp, vLLM) or check cloud keys
+# 2. See what you already have: hardware, local engines, cloud keys
 susi ecosystem scan
 susi keys check
 
-# 3. Run an evidence-gated swarm mission in your current workspace
+# 3. Run an evidence-gated mission in the current directory
 susi "analyze this repository and summarize its architecture"
 
-# 4. Call the OpenAI-compatible HTTP socket from curl or any OpenAI SDK
+# 4. Call the OpenAI-compatible socket from curl or any OpenAI SDK
 curl -s http://127.0.0.1:9091/v1/models \
   -H "Authorization: Bearer $(cat ~/.susi/api_token)"
+
+# 5. Ask which model susi trusts for which work, and why
+susi brain                     # SUSI_BUDGET=low|balanced|max turns the cost dial
 ```
 
-susi core is the free open-source socket. It speaks the standard host protocols and admits plugs. It does not ship a third-party product implementation; the third party writes that plug.
-
-susi runs a persistent host daemon, bearer-authenticated HTTP, local and cloud inference behind one router, and agents that require evidence before declaring a mission complete. Native Windows uses MSVC and the Rust installer. Platform qualification is recorded in [Step 1 acceptance](docs/step1-acceptance.md).
-
-### Four Core Pillars on `susi-core`
-
-| Pillar | Crate(s) | Role in the Open-Standards RSI AI OS Router |
-|---|---|---|
-| **GAWD** | `susi-gawd`, `susi-gawd-swarm`, `susi-gawd-agents`, `susi-gawd-a2a` | Evidence-gated multi-agent swarm consensus, A2A (`:9094`) protocol execution, truth verification, and Tier-0 Wasm reflex synthesis |
-| **GEMI** | `susi-gemi`, `susi-gemi-models` | Unified local (Ollama, llama.cpp, vLLM, GGUF/Candle) and cloud (OpenAI, Anthropic, Gemini, OpenRouter) inference router (`:9091`) |
-| **GMCP** | `susi-gmcp` | Standards-compliant MCP 2025-11-25 HTTP/SSE (`:9090` / `:9093`) and stdio server exposing governed host tools and resources |
-| **Harness** | `susi-harness` | Unique parallel multi-agent self-build workflow: isolated worktree reservations, serialized combined-tree verification, and metered cost accounting |
-
-> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including external coding agents and agent frameworks from an installed extension pack or `~/.susi/execution-agents/` adapter files via `susi agents` / `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers from an installed extension pack via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmtime) and optional shell (Docker), distills routine intelligence into **reflexes**, and reports a missing **MCP** tool as a typed capability gap (core never installs or launches one on its own). **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start over what is already installed (engines / Candle fallback); it launches no third-party engine, CLI or MCP server (`tests/core_boot_starts_nothing.rs`). Core is a pure CLI plus standards socket: it ships no UI and bundles no plugin content; the desktop, any visual view and curated plugin packs live in Susi Commercial Apps. Install + optional API keys still apply.
-
-## One operating layer, two AI ecosystems
-
-- **Local AI OS layer** — discovers and manages local runtimes, GGUF/Ollama
-  models, GPU/CPU placement, loaded-model lifecycle, MCP tools, sandboxed
-  Wasm reflexes, workspace memory, and host-resident agents. `local_only`
-  policy blocks every known off-host tool path, not only URLs with obvious
-  network-shaped names.
-- **Cloud AI OS layer** — admits OpenAI-compatible, Anthropic, Gemini,
-  OpenRouter, MCP, A2A, and managed CLI peers through the same capability,
-  budget, evidence, audit, and placement contracts. Credentials remain
-  operator-owned; SUSI neither invents nor silently purchases access.
-- **One decision plane** — a completion is placed locally, in cloud, or on an
-  explicitly requested model by the same policy used by `susi os route` and
-  the MCP `inference_placement` tool. The returned decision id resolves to its signed
-  `INFERENCE_PLACEMENT` audit record, so routing is inspectable after the
-  request instead of being an opaque provider choice.
-
-
-### What RSI means here
-
-Scoped claim (Mandate 1, Mandate 45). Recursive self-improvement is two
-loops in the audited baseline; only one runs unattended. Full agent-owned
-self-development is the required direction, not a claim that the baseline
-already schedules unattended source rewrites.
-
-- **Automatic: learning from receipts.** Successful execution receipts are
-  staged as training samples; after each swarm mission SUSI checks the
-  staged count and, past `reflex_training_threshold`, retrains its Tier-0
-  neural reflex (`crates/susi-gawd/src/reflex_trainer.rs`). Checkpoints
-  publish atomically with one last-known-good generation for recovery.
-- **Gated: patching code.** `apply_patch_cycle` (`susi patch`, MCP tool)
-  applies a workspace-confined patch, runs the test command, and rolls back
-  on failure (`crates/susi-gawd/src/patch_cycle.rs`). It refuses to apply
-  unless the request sets `auto_apply` or `trust_level` is `autonomous`.
-  Nothing schedules it on SUSI's own source by itself (the former
-  `susi-builder.yml` workflow was removed, CEO decision 2026-11-06).
-  Mandate 48 keeps the installed `~/.susi/bin/susi` as the release toolchain
-  that builds the next susi.
-
-The drift audit (`evolution.rs`) suggests reflex candidates; it does not
-write code. That describes current implementation, not a required human step.
-Mandates 62–72 require agents to complete authorized self-development and prove
-each upgrade locally; missing orchestration is engineering work, not completed RSI.
-
----
-
-## Genome
-
-susi's constitutional source of truth is machine-readable and **compiled into
-the binary** at build time (`susi-gawd-agents` `build.rs` → `AlphaSelf`). The
-ledgers live in [`.agents/`](.agents/) — agent-governance data, not end-user
-docs:
-
-| File | Role |
-|------|------|
-| [`.agents/identity.json`](.agents/identity.json) | Constitutional mandates, component topology, protocols (`susi/identity/v1`) |
-| [`.agents/roadmap.json`](.agents/roadmap.json) | Evolutionary vectors (`susi/roadmap/v1`) |
-| [`docs/gmcp-roadmap.md`](docs/gmcp-roadmap.md) | Standards-traceable GMCP completion program and task map |
-| [`.agents/evidence.json`](.agents/evidence.json) | Append-only mission / audit ledger (`susi/evidence/v1`) |
-| [`.agents/tasks/`](.agents/tasks/) | The shared task queue: one file per task, each with an acceptance command (`susi tasks`) |
-| [`.agents/lanes/`](.agents/lanes/) | Which agent works which learning-loop stage: one file per agent |
-| [`.agents/schemas/`](.agents/schemas/) | JSON Schema contracts for identity, roadmap and evidence |
-
-When this README and `identity.json` disagree, source code wins and both are
-updated in the same change.
-
----
+Every HTTP contract port needs `Authorization: Bearer <token>` except
+`/health`. `susi stop` / `susi restart` are deterministic host commands.
+The full command reference is in
+[docs/architecture.md](docs/architecture.md#operating-the-socket-command-reference).
 
 ## Host contract
 
-Building a product on Susi? Start with [docs/integrating-with-susi.md](docs/integrating-with-susi.md).
-
-External clients can trust these ports — the daemon never silently drifts them. Verify an integration against a running host with `cargo run -p susi-conformance` ([docs/host-contract-conformance.md](docs/host-contract-conformance.md)):
+External clients can trust these ports; the daemon never silently drifts them.
+Verify a running host with `cargo run -p susi-conformance`.
 
 | Port | Surface |
 |------|---------|
@@ -171,210 +73,52 @@ External clients can trust these ports — the daemon never silently drifts them
 | **9093** | GMCP HTTP alias (streamable / SSE) |
 | **9094** | A2A HTTP (`/` JSON-RPC, `/stream` SSE, `/.well-known/agent-card.json`) |
 
-Swarm gossip UDP **9095** uses the same `port_offset` but is **not** in this table (`ports::SWARM_UDP`, `host_contract: false` on `susi os --json`). External MCP/A2A clients hard-code 9090–9094; **9092 stays A2A discovery**. Gossip is cluster-member traffic.
+The five ports shift together, never individually: `port_offset` in
+`config.json` or `SUSI_PORT_OFFSET` (which wins) moves all of them, so offset
+`100` gives `9190-9194`. Swarm gossip `9095` uses the same offset but is not
+part of the contract.
 
-- **`global susi`** — background daemon bound to the host substrate (`~/.susi`), not to a project folder.
-- **`susi` CLI** — jailed to the caller's cwd; intents run against that workspace while the daemon owns ports, models, and lock state.
-- **Canonical binary** — `~/.susi/bin/susi` (hot-reloads when the binary hash changes).
-- **Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never missions). `start`/`restart` wait until the host-contract ports are ready and print the endpoints.
-- **Zero-trust HTTP** — daemon seeds `~/.susi/api_token` (0600, regular file, `O_EXCL` install — a symlink, empty file, or unreadable path aborts startup before any port binds); clients must send `Authorization: Bearer <token>` on every HTTP contract port (except `/health` / CORS preflight). Leaf services and spawned cells are never started without the persisted token.
+> **Port collisions.** `9090` is also the Prometheus server default and
+> `9092-9094` are common Kafka listener ports. When a canonical port is busy
+> the daemon logs an advisory naming the alternate it would pick
+> (`canonical port busy: <service> would autoselect <port> -> <alt>`), retries
+> the bind five times while evicting only a stale susi process of its own, and
+> otherwise refuses to start: port randomization is disabled by contract.
+> Start with `SUSI_PORT_OFFSET=100 susi start` instead, and tell your clients
+> the offset. A second instance on one host also needs its own root:
+> `SUSI_HOME=~/.susi-b SUSI_PORT_OFFSET=100 susi start`.
 
-**Port layout (`port_offset`)** — the five contract ports shift together, never
-individually (per-port overrides caused a real scramble once, so the relative
-shape is compile-time): `port_offset` in `config.json` (or `SUSI_PORT_OFFSET`
-env, which wins) moves all of them — offset `100` → `9190–9194`, and the leaf
-services shift too (`18080–18084` → `18180+`). LAN discovery announces the
-effective GMCP port in its pong, and signed pings carry `gmcp_http=` — peers
-on a different offset are still found and reachable; `peers add` against a
-nonstandard layout takes `host:port` explicitly. A *second instance on one
-host* needs its own root as well as its own ports: `SUSI_HOME=~/.susi-b`
-isolates config, lock, and state — `SUSI_HOME=~/.susi-b SUSI_PORT_OFFSET=100
-susi start` brings up a complete sibling node.
+## Where it stands
 
----
+Production, held in source and verified on a running host:
+the five-port contract with bearer auth and `susi-conformance`; `susi crown`
+(exit non-zero if a Tier S pillar fails: truth, evidence, swarm, audit,
+sandbox, host contract and the rest); evidence-gated missions with live tool
+receipts and the HMAC audit chain; Wasm reflexes and the crown's sandbox
+probes on Wasmi, the pure-Rust interpreter (no Wasmtime is linked); the clean
+Windows x86_64 installed journey and production releases C through F with
+promotion and rollback, recorded 2026-11-02 on builds that still carried the
+in-process engine ([docs/step1-acceptance.md](docs/step1-acceptance.md)).
 
-## Foundation pillars (Tier S)
+Gated, measured but not yet accepted: Step 1 of the CEO's vision stays open
+until the final combined source publishes an acceptance receipt and the exact
+production artifact passes the installed journey with A/B promotion, health
+and rollback shown; the user-response budgets are met on a quiet host for one
+build only and production qualification does not yet enforce them; the
+compile budget is 60 s and the last idle measurement is 81.7 s
+([docs/lean-core.md](docs/lean-core.md)).
 
-Every pillar below is a **Tier S** crown USP — must hold in source and pass `susi crown verify`:
-
-1. **Truth** — models never certify. Cited answers resolve through the live
-   receipt ledger, and narrative fails when the mission captured receipts it
-   should cite; an answer with nothing to cite is returned with a visible
-   "No citations found" warning, not as verified truth.
-2. **Evidence** — `EvidenceSession` / `ToolReceipt` ledger; no naked assertions.
-   Overlapping missions on one workspace no longer strand the earlier one's
-   ledger: activations stack, and a finishing mission hands ownership back.
-3. **Swarm** — agent-of-agents consensus (GAWD); `susi crown` checks that the
-   GAWD, GEMI, tools, and agents planes are each wired on the plane bus.
-   DAG task agents run fenced `bash`/`sh`/`shell` blocks through the governed
-   `exec_command` tool with the tag parsed exactly, and each node's evidence
-   binds to its own command's receipt, never another node's.
-   Cluster identity files are installed atomically; an interrupted first
-   start no longer leaves an empty `cluster.key` that strands the node.
-   Operator bans fail closed: a damaged `peers_banned.json` refuses membership
-   and is never overwritten, rather than reading as empty. The verified
-   roster (`peers.json`) is likewise never rewritten from a damaged read,
-   including from `susi peers`, which reports the damage instead.
-4. **Blackboard** — live shared state (`.susi/last_blackboard.json`, redacted
-   with the shared credential redactor and replaced atomically).
-   The context graph (missions, tool calls, patch cycles, observations) is
-   bounded, compacted by atomic rename, and re-read correctly by sibling
-   processes after a compaction; compaction is skipped, never run unlocked,
-   when the cross-process lock is unavailable.
-5. **Glass box** — inspectable traces / blackboard / governance / crown reports (Mandate 26; secrets redacted, not naked).
-   The blackboard, governance, and mission-trace files all pass through the
-   shared credential redactor and are replaced atomically.
-   Interaction memory (`memory.jsonl`, `reasoning_experience.jsonl`) is
-   redacted the same way; experience entries are labeled by the heuristic
-   that promoted them, not as semantically validated.
-   The context graph itself redacts every observation, label, and payload
-   string on record, so no adapter can persist a raw credential there.
-   Error metrics are redacted too: credentials in error text (env-held keys,
-   bundled token patterns) are masked before `error_metrics.jsonl` records them;
-   every writer shares one owner-only, instance-aware sink.
-   Task listings reflect real outcomes: a task whose owner exits without
-   reporting one is recorded as `[ABANDONED]`, not left `Running`; finished
-   records are pruned oldest-first past 512 so the daemon's table stays bounded.
-   The watchdog's idle lease per task category is learned from the measured
-   gap between progress reports, not a constant, and persisted atomically.
-   Agent commands count as progressing only when they produce output, so a
-   hung command is reaped instead of looking busy forever.
-6. **Audit** — append-only HMAC accountability chain; cross-process writers
-   serialize, complete JSONL records are emitted in one write, stale tip
-   checkpoints rebuild from the verified log, and unreadable input fails closed.
-   Recent-activity readers (drift audit, the GMCP `sovereign_dashboard` report tool, placement-decision lookup) read only the log's tail.
-7. **Zero-config Auto** — Mandate 44; `susi auto`; host installs/keys still gate cloud.
-   First-run host config comes from the defaults compiled into the binary,
-   never from a `config.default.json` in whatever directory SUSI runs in.
-8. **Governance-first** — Safety/Security before parallel fleet.
-   The safety veto catches recursive removal of `/` or home in any flag
-   spelling (`rm -fr /`, `rm -r -f ~`, …); content checks stay pattern-based.
-   Critical system paths match whole components, so `~/dev/myapp` or
-   `docs/bootstrap.md` are not mistaken for `/dev` or `/boot`.
-   Destructive and exfiltration patterns likewise match whole commands
-   (`rsync -e ssh` is not `nc -e`).
-   The security veto rejects any action carrying the value of a credential
-   the host holds (`*_API_KEY` / `*_TOKEN` / `*_SECRET`), whatever its prefix.
-   Secret patterns match only at a token start, so words like `risk-assessment`
-   are neither vetoed nor redacted.
-   The privacy posture fails closed: a damaged `privacy_mode` file enforces
-   `local_only` instead of silently reading as `balanced`.
-   Under `local_only`, the HTTP inference provider itself refuses to send
-   prompts or embedding text to any endpoint off the host/LAN, and model
-   downloads (including the background starter-model download) and admitted search tools
-   (Brave/Google/`web_search`), external peer agents,
-   proxy endpoints, crates.io scouting, cloud coding agents (Devin/Manus), and
-   Hugging Face catalog discovery, and remote MCP servers over HTTP need
-   egress consent; host/LAN targets are always allowed.
-   Scoped capability grants stop at a path/host boundary: a grant on
-   `/srv/ws` never authorizes `/srv/ws2`.
-   Local agent messaging (`ipc_send`) is authorized by the default
-   `app://*` transmit grant; the broker still checks per-sender dispatch grants.
-9. **Pluggable** — admission protocols: `CapabilityRegistry` + installed extension packs (core ships and seeds none); managed catalog commands (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`) read compiled model catalogs and whatever installed packs provide.
-   Core never enables, configures or launches a third-party MCP server on its
-   own: a server runs only after an explicit `susi mcp-add` / `susi mcp enable`
-   (servers an earlier core enabled on its own stay in `mcp_config.json` until
-   removed; `susi mcp list` shows them and `susi mcp disable <id>` removes them).
-   Admitting an MCP server refuses a damaged or unreadable `mcp_config.json`
-   instead of rewriting it as only the server being added.
-   A damaged extension-pack `state.json` is never rewritten: startup runs on
-   compiled defaults and load/unload refuse until the operator repairs it.
-10. **Sandbox** — Wasmtime for Wasm; Docker `sandbox_exec` when available.
-    Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is
-    checked before any write, and write, spawn, or test failure rolls back
-    through one transaction snapshot (the only workspace-rollback mechanism;
-    an unused whole-workspace copy routine was removed). Transaction ids are reserved on disk
-    so concurrent processes never overwrite each other's rollback snapshots,
-    and a transaction can only be closed against the workspace it snapshotted.
-11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`. Swarm gossip 9095 uses the same offset but is swarm-internal (`ports::SWARM_UDP`), not part of the published five-tuple (9092 remains A2A UDP discovery).
-    HTTP rate limits bucket IPv6 clients per /64, so rotating addresses
-    within one allocation does not reset the budget.
-    The daemon's binary trust anchor hashes the whole binary (a read error
-    fails instead of truncating the digest) and is replaced atomically.
-12. **Reflexes** — Wasm reflexes under the data dir (synthesized modules are
-    compiled to a staging name and renamed into place, never half-written);
-    automatic native
-    distillation fails closed on unreadable staging/configuration, training
-    failure, or failure to retire consumed samples. Training is cross-process
-    serialized, consumes the invoking workspace's staged experience, and
-    resumes from the globally published weights. Corpus records must be valid
-    JSON with a non-empty intent and an exact registered action label; automatic
-    staging happens once at successful receipt capture and pairs the action with
-    the credential-redacted mission from that same live evidence session. The
-    model persists an append-only action vocabulary beside its weights so new
-    ecosystem capabilities cannot reorder learned output labels; the vocabulary
-    records the exact weights SHA-256 and mismatched pairs fail closed. New
-    immutable checkpoint generations become active through one atomic manifest
-    update, so interrupted training cannot replace the last active bundle; the
-    manifest retains one validated previous generation for automatic fallback.
-    Generations older than active plus previous are pruned after publication;
-    cleanup failures are returned as training warnings.
-    Training atomically claims a staging snapshot, leaving concurrently captured
-    receipts in the live buffer; failed training restores the claim ahead of them.
-    A workspace training lease prevents claim theft, and crash-orphaned claims
-    recover oldest-first before the next cycle.
-    Archived receipts record whether each training sample was staged, and
-    drift audits and training reports include that staging-health line.
-    Claimed buffers drop torn or blank lines and train only when the
-    remaining samples still meet the threshold; a claim with nothing
-    usable left is discarded. Records with a blank intent or an action
-    outside the vocabulary are skipped and reported, so one unlabelable
-    sample cannot fail the batch every cycle.
-    Drift audits report reflex latency violations and logged `*_FAILED` /
-    `*_VIOLATION` / `*_DETECTED` events by type, and an idle trainer says
-    training is not due rather than calling the substrate "optimal".
-    When no reflex tier answers, the request escalates to deep reasoning
-    (cloud/discovered providers) instead of returning a cached apology; the
-    reflex cache is keyed per workspace and bounded. The published model is
-    loaded once and reused until its bundle is republished.
-13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
-    Supervised leaf services back off only on real crash loops: a service
-    that ran stably for 10 minutes before dying gets a fresh restart budget.
-    No distilled "Tier-2 reasoning" weights or vision/audio encoders are
-    claimed: native inference loads GGUF (llama/qwen2); everything else runs
-    on real local (Ollama/vLLM) or cloud LLMs over HTTP.
-14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
-
-Verify: `susi crown` (exit non-zero if any critical USP fails).
-
----
-
-## Verified product claims
-
-These are the claims that hold in source (not marketing unbounded “any protocol”):
-
-| Claim | Holds as |
-|-------|----------|
-| Tier S crown | `susi crown verify` — Truth/Evidence/Swarm/Blackboard/Glass/Audit/Auto/Governance/Pluggable/Sandbox/Host/Reflexes/Provision/Concurrency |
-| Agent-of-agents / OS layer for AI | Multi-agent swarm + host daemon/ports — layer *for* agents, not a host OS (Mandate 45) |
-| Admission protocol: agents | executors and frameworks admitted from an installed pack or `~/.susi/execution-agents/` adapter file; core bundles no agent catalog; UNAVAILABLE until driver/config present |
-| Admission protocol: engines | inference endpoints the user configures (+ discovered local ports); core starts none at boot |
-| Admission protocol: models | compiled coding / frontier / open-weight / OpenRouter catalog views + live `/models`; local GGUF / Ollama |
-| Admission protocol: MCP | any server admitted explicitly (`susi mcp-add`, or `susi mcp enable` from an installed pack); core bundles no MCP server catalog |
-| Bloat audit | `susi bloat-audit` runs the AST auditor directly (no model narration) and scans every non-test Rust source in the workspace; last measured: 967 files, ~275k lines, 28 `unwrap`, 63 `expect`, 32 `unsafe` blocks — each panic-path `#[allow]` carries a written justification (architecture test) |
-| Substrate report | `susi substrate-report` reports the compiled constitution, topology and selected model; the GMCP `sovereign_dashboard` report tool counts audited activity by its real event type (no invented self-heal/distillation counters) |
-| Version sync | `susi admin sync` replaces Cargo.toml, the README badge, the governance ledgers, and the binary trust anchor atomically |
-| Audit commands | `susi audit` / `susi admin audit` run the static compliance audit; `admin verify` checks version alignment; `admin lint` / `admin audit-deps` run `cargo clippy` / `cargo audit` directly — no model narration |
-| Model ladder | `susi verify-download-agent` reports network status and each step of the hardware-selected model ladder (no fixed 32B/72B promise) |
-| Self-validation | `self_validate` reports the hardware profile and tensor device and checks the compiled genome; a failure is an error, never a successful receipt |
-| Install | `susi install` runs the substrate initializer directly and reports its real outcome |
-| Model override | `susi select-model <id>` writes the override directly and rejects empty or multi-line ids |
-| Workspace changes | applied through transactions (`susi tx`, `apply_patch_cycle`); the unused staged-bundle commands (`accept` / `undo`) were removed |
-| Cleanup | `susi os clean` (alias `susi os-clean`) removes only SUSI-owned residue: pre-cap rotated metrics, a stale flat audit log, and oversized stray binaries |
-| Configuration | every key in the bundled `config.default.json` is read by code (orphan keys such as `beacon_interval_secs` were removed) |
-| Intent memory | `susi` natural-intent ingestion types entries with the config-driven `intent_classify` lists (whole words), dedupes only exact repeats, redacts credentials, and writes the ledger atomically |
-| Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
-| Daemon feature surface | live swarm-host components are wired from `composition`. The daemon loop constructs host OS planes and drives them: per-peer HMAC gossip UDP 9095 (HMAC-sealed `gossip_caps.json`; sealing/ingress fail closed when no MAC key exists), egress-gated STUN with honest DNS/timeout errors (skipped while `mac_policy` blocks external egress unless `SUSI_TURN_*` is configured), TURN Allocate with RFC 5389 MESSAGE-INTEGRITY (`SUSI_TURN_USER`/`SUSI_TURN_PASS`, or `SUSI_TURN_RELAY`), no cloud CLI run at boot or on the tick (core starts nothing on its own; `susi os provision probe` version-probes on request), and `os_planes.json` for `susi os`. `susi os provision probe\|list\|apply` is the explicit list/apply surface. Deleted cell-OS sketches are not resurrected; `live_planes` maps those needs onto policy/task/sandbox/checkpoint. Unwired daemon-module ratchet is 0. |
-| Shared foundation | shared code is reached through Cargo edges that point down the leaf order (`paths → error → config → core/sandbox → services → daemon`, enforced by an architecture test). `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`, `susi-core`, `susi-abi`, `susi-http-transport` (the one crate that declares `ureq`, caps response bodies, and exposes HTTP status; callers use `http_call` and never name `ureq::Agent`), `susi-vendor-candle` (Candle + tokenizers) and `susi-adapters-llm` (wire shapes + `post_json` over transport) are single crates — no crate except `susi-http-transport` and the `susi-vendor-*`/`susi-adapters-*` crates declares `reqwest` or `ureq` (an allow-list test, so new crates are covered automatically); `susi-gemi-models` declares neither `reqwest` nor `tokenizers`. Remaining cross-crate `#[path]` mounts are counted by a ratchet that only decreases (159 → 0) |
-| Vendor crates | every third-party SDK lives in its own `susi-vendor-*` crate that exposes SUSI-shaped calls and no vendor types: `susi-vendor-candle` (Candle/tokenizers), `susi-vendor-wasmtime` (Wasmi/bounded WASI + metered cells), `susi-vendor-mcp` (rmcp MCP client + its reqwest transport), `susi-vendor-mcp-server` (rmcp MCP server + `#[tool]`; GMCP never declares `rmcp`), `susi-vendor-cloud` (kubectl/docker/aws/gcloud/az CLIs — no cloud SDKs, ≤ 1 file; `susi-vendor-agents` ≤ 9 files; `susi-vendor-models` ≤ 37 files), `susi-vendor-tantivy` (full-text `DocIndex`), `susi-vendor-fastembed` (one process-wide embedding model; cached load failures feed provider health), `susi-vendor-chrome` (headless Chrome page capture), `susi-vendor-syn` (Rust AST: validity, bloat metrics, outline); the A2A SDK (`ra2a`) is confined to its own plane crate, `susi-gawd-a2a`. Beyond SDKs, every remaining third-party crate is owned by a pure re-export facade (`susi-vendor-serde`, `susi-vendor-tokio`, `susi-vendor-hyper`, … — 48 crates), so susi-* crates declare **zero** third-party dependencies in any dep section while `use serde::…`-style paths compile unchanged (`susi_crates_declare_zero_external_dependencies` ratchet) |
-| One loopback client | the paths, config, sandbox, native and error-event clients share `susi_paths::loopback` (std-only bounded request / status / body / bearer / instance-offset port; response cap 16 MiB) instead of five hand-rolled HTTP/1.0 clients; every leaf-service client now honours the instance port offset, so a dev instance never reaches the release instance's services |
-| One error model | every library crate returns `susi_error::EaiResult`; `anyhow` remains only in the root CLI application. `ResultExt::context` keeps the underlying error's kind (I/O stays Io, JSON stays Config) and rewrites the message in place, so a contextualized failure is one metrics event, not two |
-| Dependency hygiene | every declared dependency is used by its crate (63 dead declarations removed in one pass: `crossbeam` alone was declared by 11 crates and used by 1); every external crate is declared by exactly one `susi-vendor-*` crate — susi-* manifests contain only workspace members; `susi-paths` resolves per-OS user dirs std-only (no `directories`); std `LazyLock` replaces `once_cell`; the pulse queue runs on the workspace's one channel crate (`flume`) |
-| Leaf service shells | the five leaf services (paths, error, config, sandbox, native) are served by one crate, `susi-leaf-services` — the only place they meet axum; the foundation libraries carry no HTTP framework or async runtime; standalone bins enable only their service feature so unrelated Wasmi/Bollard backends stay out, while the root enables `all-services` for `service-run`; all take their port from the one `LEAF_SERVICES` table |
-| Native service boundary | Wasmi is linked only by the compatibility-named `susi-vendor-wasmtime` (WASI reflexes for the `susi-native` service + the metered in-process cell runtime the daemon uses; the daemon no longer carries its own wasmtime/wasm-encoder dependencies); feature planes share one compiled, typed `susi-native-client` instead of source-mounting a misleading `vendor_template` copy |
-| Repository hygiene | the root carries no scratch artifacts (a stray 4.5 MB `test_verify` binary and five unreferenced experiment files were removed); duplicate root `serde_json` and GMCP `tokio` dev-dependency declarations were removed; leftover mount-era crypto and HTTP deps were dropped from twelve crates after the contract remounts; GPU features exist only where Candle reads them (`susi-vendor-candle`, forwarded by `susi-gemi` / `susi-gemi-models`) |
-| Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
-| Harness orchestration | `susi harness` — durable self-build orchestration: supervisor, scheduler, pricing catalogue accounting, budget admission, direct provider routing, and operator JSON/SSE API ([`docs/harness.md`](docs/harness.md), [`docs/harness-os.md`](docs/harness-os.md)) |
+Admitted, not delivered in core: the in-process GGUF model runtime left core
+with no destination yet (two `tests/zc_matrix.rs` tests ignored by CEO
+decision); a default build serves local in-process inference only through a
+plug wired on the plane bus (the commercial `susi-plug-host`) and otherwise
+routes the request to the HTTP engines you run or to cloud providers;
+embeddings and browser page capture are likewise plug ports and, with no plug
+wired, report a typed capability gap. Governance vetoes catch known-dangerous
+shapes by pattern; they are not a sandbox boundary. Core releases only for
+x86_64 Windows and x86_64 Linux; other targets stay portable in source and are
+not released by core. Every gap with its record:
+[docs/evidence.md](docs/evidence.md#admitted-gaps-on-record-2026-11-08).
 
 ## Install
 
@@ -392,324 +136,28 @@ qualification, promotion and rollback have separate evidence gates.
 Legacy `install.sh` and `install.ps1` remain compatibility artifacts. They are
 not the mandated development or installation path and their historical download,
 autostart and build behavior must not be treated as current acceptance evidence.
+Platform scope, installer behavior and qualification are recorded in
+[docs/evidence.md](docs/evidence.md#platforms).
 
-### Platforms
+### Developing susi
 
-Release and CI scope (CEO decision 2026-11-03): the free public core is built,
-tested in CI, and published for vanilla x86_64 Windows and x86_64 Linux only.
-Other platforms stay portable in the source so the Susi commercial suite can
-build and qualify its own "Susi Certified" binaries in the commercial pipeline;
-core runs no CI legs and publishes no assets for them.
+The CEO never inspects code; agents own development, verification, integration
+and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–72).
+Work happens in isolated worktrees with disjoint scopes (`cargo local-workflow
+start <agent> --scope <path>`, `cargo local-build debug`), each commit carries
+`Task: T-<AGENT>-<n>` with its record in [`.agents/tasks/`](.agents/tasks/),
+and integration verifies the actual combined tree before anything lands;
+[`.agents/lanes/`](.agents/lanes/) documents history and never substitutes
+for a reservation. The full path, with the native Windows notes, is in
+[docs/evidence.md](docs/evidence.md#building-susi-the-workflow-mandates-4972).
 
-| Platform | Core release asset | Installers | Source support |
-|----------|--------------------|------------|----------------|
-| Windows x86_64 (MSVC) | `susi-windows-x86_64.exe` | `install.ps1` | qualified ([Step 1 acceptance](docs/step1-acceptance.md)) |
-| Linux x86_64 | `susi-linux-x86_64` | `install.sh` | yes |
-| Windows ARM64 (MSVC) | none | `install.ps1` refuses | portable runtime/link-layer source and dependency-graph checks (`tests/zc_matrix.rs`); no core CI leg; not qualified by core |
-| Linux ARM64 | none | `install.sh` refuses | portable source and dependency-graph checks (`tests/zc_matrix.rs`); no core CI leg; qualified in `susi-commercial-apps` |
-| macOS | none | `install.sh` refuses | portable source and dependency-graph checks (`tests/zc_matrix.rs`); no core CI leg; qualified in `susi-commercial-apps` |
+## Read next
 
-### Developing susi: agent-owned native delivery (Mandate 48)
-
-The CEO never inspects code. Agents own development, verification, integration
-and production qualification. The installed production Susi stays stable while
-agents build candidates in private worktrees, build directories and runtime
-homes. Do not test against production or share `.susi-dev` between workers.
-
-Installed Susi exposes `susi local build debug`; an optimized candidate uses
-`susi local build production`. For the initial build before Susi is installed,
-agents use the Rust [native bootstrap](docs/native-bootstrap.md).
-A candidate is not an approved
-release. Production qualification must bind the exact source/dependency/toolchain
-identity to passing tests and policy audits, executable smoke tests and artifact
-digests, followed by atomic promotion, health verification and tested rollback.
-The strict dependency license gate passes with the replacement implementations;
-future dependency changes must pass the same unchanged policy.
-
-### Building susi: the workflow (Mandates 49–72)
-
-Read [`AGENTS.md`](AGENTS.md), the canonical instructions for every agent.
-The native local workflow has no GitHub account, Actions, pull-request or remote
-claim prerequisite. Use separate branches/worktrees and disjoint task scopes:
-
-```text
-susi local workflow start worker-a --scope crates/susi-paths
-susi local workflow list
-```
-
-Inside that worker's worktree, implement and verify its task, then use
-`susi local workflow commit worker-a "message"` for a scope-checked local commit.
-The command checks staged, unstaged and untracked files and does not change
-shared hook settings. It records ownership, not test success. Task records under
-`.agents/tasks/` use namespaced IDs and meaningful acceptance; task-based commits
-carry `Task: T-<AGENT>-<n>` and the native launcher records `Task: LOCAL-<name>`.
-`.agents/lanes/` documents history and never substitutes for a reservation.
-
-Integration must serialize changes and verify the actual combined tree against
-the current local head. Close a task only after its complete acceptance passes
-there. A clean merge, a compile, zero selected tests or a remote CI result is
-not enough. `susi local workflow integrate worker-a` performs those local gates.
-`susi local workflow ship worker-a` is the optional GitHub publication: one local
-gate for the batch, a direct fast-forward push to `refs/heads/main` on `origin`,
-and four local commit statuses on the published commit.
-GitHub Actions is disabled and its workflow files were removed (CEO decision
-2026-11-06); it is not a merge gate.
-`susi local release qualify` independently qualifies the integrated source.
-
-`CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` are identical
-pointers to the canonical contract. Automatic shell-based SessionStart hooks
-have been removed. Optional remote publishing adapters remain historical
-compatibility tooling and cannot govern local engineering. See
-[`docs/native-rust-direction.md`](docs/native-rust-direction.md) for verified
-implementation status, and [`docs/cloud-sessions.md`](docs/cloud-sessions.md)
-for isolated cloud workers.
-
-### Native Windows
-
-The agent-owned Windows path uses native Rust executables, MSVC and OS APIs.
-There is no Bash, WSL, MSYS, Python or Node prerequisite. Release receipts retain
-the exact source, lockfile, compiler, target, artifact and measured gate results.
-
-Interactive installation shows usage once; give Susi a goal right away with
-`susi "<what you want done>"` (or pipe it on stdin), without restarting the
-terminal or editing configuration. The core CLI takes one-shot goals; the
-interactive conversation lives in the Susi desktop app (susi-commercial-apps).
-Discovered credentials and cached observations are checked when used; they are
-not a claim that a provider is responding. Optional agent and framework checks
-do not delay a goal.
-
-For unattended installation, use `-NoLaunch` when running the downloaded script
-or set `NONINTERACTIVE=1`. An absolute `SUSI_HOME` installs an isolated instance
-without changing persistent User PATH or registering a service. The installer
-keeps one executable and removes an old duplicate only after replacement succeeds.
-`susi setup` shows readiness without changing settings; `susi setup plan --json`
-retains machine-readable discovery and `susi setup apply --json` applies defaults
-without replacing existing configuration.
-
----
-
-## Quickstart
-
-```bash
-# Bring up / tear down the host daemon (control plane — not a mission)
-susi start
-susi stop
-susi restart
-
-# Task across the agent swarm (cwd = workspace)
-susi "analyze this workspace and propose an optimization plan"
-
-# One plain-text operator snapshot, printed once; --json for machines
-susi top
-susi top --filter providers
-susi top --json
-
-# Identity / status
-susi identity
-susi status
-
-# Explain the live local-vs-cloud placement decision (same policy the runtime uses)
-susi os route
-susi os route --requires vision --max-cost 0.01
-susi os route --no-cloud
-susi os route-reset openai-gpt-4o-mini # after repairing credentials/connectivity
-susi os provision probe
-susi os provision list kubernetes
-susi os provision apply kubernetes ./cell.yaml
-
-# Cloud keys (peer of models) — env or ~/.susi/cloud.env
-susi keys set openai          # prompts, or pipe the key on stdin
-susi keys list
-susi keys prefer deepseek
-susi keys check               # one read-only /models call per vendor: valid / rejected / missing
-susi keys models fireworks    # the models a vendor serves right now
-
-# Local AI ecosystem: what is installed, what is running, what the hardware can host
-susi ecosystem scan           # hardware, engines (Ollama, llama.cpp, vLLM, …), GPU backends
-susi ecosystem start ollama   # only engines that need no model choice; core never starts one at boot
-
-# The brain: which model susi trusts for which kind of work, and why
-susi brain
-susi brain classify "fix this bug in my parser"
-
-# Building susi: agents follow AGENTS.md in isolated worktrees
-cargo local-workflow list
-cargo local-build debug
-# Production candidates require passing policy gates; never overwrite production
-
-# Automation (evidence-gated swarm mission)
-susi automate "refactor the auth module and verify with tests"
-
-# Open-admit any MCP server (stdio or HTTP URL)
-susi mcp list                      # catalog of the installed extension pack (empty without one)
-susi extensions load <pack>        # then: susi mcp enable <id>
-susi mcp-add remote-http http://127.0.0.1:3100/mcp
-
-# Point external MCP / HTTP clients at the host contract
-#   http://127.0.0.1:9090/mcp
-#   http://127.0.0.1:9091/
-#   http://127.0.0.1:9093/mcp
-# Bearer required (except /health):
-#   Authorization: Bearer "$(cat ~/.susi/api_token)"
-# Read-only placement contract for remote operators and cloud control planes
-# (MCP tools/call on 9090/9093):
-#   inference_placement {}
-#   inference_placement {"requires": "vision", "max_cost": 0.01}
-#   inference_placement {"allow_cloud": false}
-# Completion requests may execute the same plan with
-#   "susi": {"requires": "vision", "max_cost": 0.01, "allow_cloud": false}
-# `allow_cloud:false` pins execution to a ready local model and fails with
-# HTTP 503 when none is ready. It also rejects an explicitly pinned cloud
-# model instead of weakening the request. Successful completion responses
-# report `X-Susi-Placement: local|cloud|explicit` and
-# `X-Susi-Placement-Id: placement-...` (both CORS-exposed), plus a
-# `susi_placement` object in JSON responses and the opening SSE frame.
-# Resolve that id to the signed decision record:
-#   placement_decision {"decision_id": "placement-..."}
-# Runtime model cache and provider recovery are MCP tools too:
-#   runtime_models_list, runtime_models_load, runtime_models_unload,
-#   inference_reset_provider
-```
-
-Remote access / HTTPS — every socket sniffs each connection's first byte, so
-the same ports serve plain HTTP *and* HTTPS (a TLS ClientHello upgrades when
-a certificate is configured). The contract:
-
-- **Sniffing, not separate ports** — `https://host:9091` and
-  `http://host:9091` coexist, so TLS-terminating reverse proxies and
-  mixed-version peers keep working.
-- **`https_only`** refuses *remote* plaintext; loopback is always exempt so
-  internal `http://127.0.0.1` callers never break.
-- **Auto self-signed**: a non-loopback `bind_address` with no configured cert
-  generates `~/.susi/tls/cert.pem` on start — remote clients use `curl -k`
-  or pin the cert. For browser-trusted HTTPS, supply a real cert via
-  `tls_cert_path`/`tls_key_path` (e.g. Let's Encrypt).
-- **Dual-bind**: a specific `bind_address` (e.g. a LAN IP) binds loopback
-  *alongside* it, so local callers are never stranded. `0.0.0.0`/`::`
-  already cover both.
-
-```jsonc
-{
-  "bind_address": "0.0.0.0",         // listen beyond loopback (default 127.0.0.1)
-  "tls_cert_path": "/path/cert.pem", // optional: real cert (e.g. Let's Encrypt)
-  "tls_key_path": "/path/key.pem",
-  "https_only": false                // true: refuse remote plaintext even with no cert
-}
-```
-
-Stdio MCP for editors that prefer a subprocess:
-```bash
-susi mcp
-```
-
----
-
-## Local and cloud AI ecosystem
-
-susi is hardware-aware at startup and manages the AI you already run.
-
-- **Local.** At bootstrap it inventories the hardware profile and the GPU
-  backends it finds evidence of (CUDA, ROCm, Metal, Vulkan, oneAPI) together with
-  the installed local engines and model stores: Ollama, llama.cpp,
-  vLLM, SGLang, LocalAI, Jan, GPT4All and the
-  Hugging Face cache — installed, running, endpoint, version, and whether susi can
-  start it. The result is saved to `~/.susi/local_ecosystem.json`; `susi
-  ecosystem scan|status|start <id>` shows it. `start` only launches engines that
-  need no model choice. Engines on non-default ports: `SUSI_ENGINE_PORTS=jan=1400,ollama=11435`.
-  Running engines join inference routing automatically.
-- **Cloud.** OpenAI, Anthropic, Gemini, DeepSeek, xAI, Together, Fireworks,
-  DeepInfra, Groq, Mistral, OpenRouter and others are keyed with `susi keys`.
-  `susi keys check [vendor]` makes one read-only `/models` call per vendor and
-  reports valid / rejected / rate-limited / missing / unreachable and whether the
-  configured default model is still served; `susi keys models <vendor>` lists what
-  a vendor serves now. A key check proves the key, not that the account has
-  credit — the brain learns that from real calls.
-
-## Bring-your-own-key agents and open agent standards
-
-susi drives external autonomous agents with the keys you registered (`susi keys set <vendor>`); nothing is provisioned for you. Core bundles no agent catalog: execution-catalog entries come from an installed extension pack (`execution-agents.json`) or an adapter file under `~/.susi/execution-agents/<id>.json`, and run through the managed-agent manager. Typical entries a pack provides:
-
-| Entry | Transport | Notes |
-|---|---|---|
-| `openhands` | headless CLI | registered provider key is mapped to `LLM_API_KEY` / `LLM_BASE_URL`; an explicit `LLM_API_KEY` always wins and no model is chosen for you |
-| `openhands-server` | OpenHands app-server / Cloud REST (`/api/v1/app-conversations`) | `OPENHANDS_API_KEY`; cancel pauses the sandbox; follow-up messages are refused because the API documents none |
-| `gemini-acp` | Agent Client Protocol over stdio | any ACP agent by overriding program/args; tool permission requests are denied unless `SUSI_ACP_AUTO_APPROVE=1` |
-| `a2a` | outbound A2A JSON-RPC | override `url` (and `token_env`) to point at any A2A agent; card discovery, 0.3 and 1.x wire dialects |
-
-Run any of them with `susi agents run <id> --wait "<task>"`; `susi agents doctor <id>` checks prerequisites without spending anything. A failed local task reports the first and last stderr lines (credentials masked) in its `error` field.
-
-## The brain: evidence-ranked model selection
-
-susi does not trust a fixed vendor order. It learns which model to trust, per
-kind of work, from what actually happened.
-
-- **Per task class.** Every inference call records, per provider and per class
-  (`reflex`, `chat`, `code`, `reasoning`), whether it answered and how fast
-  (`~/.susi/brain_evidence.json`). Providers are tried best-first for the
-  prompt's class. **Local is the floor, cloud is the ceiling:** with no evidence,
-  hard work leans to cloud models and reflex-sized work to local engines, and
-  evidence overrides that lean.
-- **Missions teach it.** Each mission is tagged (a non-citable `brain:*`
-  receipt) with the providers that answered it; its verified outcome
-  (`SUCCESS`/`COMPLETE` vs failed, governance blocks skipped) is folded back
-  into their record once per mission.
-- **A failed or unfunded model can never be the brain.**
-  - A no-credit or rejected-key failure (HTTP 402/401/403, "insufficient
-    balance") quarantines the vendor's whole credential scope on a ladder:
-    10 minutes, 1 hour, then 6 hours. A provider with poor evidence and a recent
-    failure sorts behind every healthy one, **even if it is your sticky preferred
-    cloud**.
-  - If the preferred cloud is the one that failed, susi moves the preference to
-    the best healthy cloud (remembering yours as `auto_switched_from`), gives the
-    original one trial call whenever its quarantine lapses, and restores your
-    preference the moment it answers. `susi keys prefer <vendor>` always wins.
-  - The streak clears on its first successful call, on `susi keys set <vendor>`
-    (a new key is the repair) or on an operator reset. **Keys are never removed
-    or disabled by a failure**, so you can top an account up at any time.
-  - Transient trouble (rate limits, network) keeps the short cooldowns.
-- **Cost is a factor evidence outweighs.** Providers sit in coarse
-  marginal-cost tiers (`free`/`low`/`mid`/`high`; defaults in
-  `config/cost-tiers.json`, override in `~/.susi/cost_tiers.json`). A tier step
-  costs a candidate a lot for reflex work and little for hard reasoning.
-  `SUSI_BUDGET=low|balanced|max` turns the dial (`max` ignores cost).
-- **Hard filters come first.** Privacy policy, budget ceilings and cooldowns are
-  applied before ranking; the brain only orders what survives them.
-
-`susi brain` shows the ranking, budget, preferred cloud, failure streaks and
-cooled providers; `susi brain classify "<prompt>"` shows how a prompt is routed;
-`susi brain reset` forgets the history.
-
-## Extension packs
-
-Core is **protocol-generic** (admit/run/doctor/enable + registries). Vendor opinions — launchable catalogs (MCP servers, agent adapters), cloud env alias overrides, ranks — live in **extension packs**, which core never ships or seeds; the user or the commercial desktop installs them. Lifecycle:
-
-- **Install** — a pack is `~/.susi/extensions/<id>/` with a `manifest.json` (core writes none on its own)
-- **Discover / load** — installed packs are discovered and marked loaded; `susi extensions load <id>` verifies checksums/signatures and activates one; `state.json` tracks the active id
-- **CLI** — `susi extensions` / `susi ext` (`list`, `status`, `create <id>`, `load <id>`, `unload <id>`, `validate <dir>`)
-- Manifest schema: [`docs/extension-pack.md`](docs/extension-pack.md)
-- Force active pack: `SUSI_EXTENSION_PACK=<id>`
-
-Model catalogs and cloud-vendor aliases are compiled defaults (offline boot); the active pack's files win when present. Launchable catalogs have no compiled default: with no pack they are empty. See [`config/README.md`](config/README.md) for which file is authoritative (bootstrap MCP ≠ leading MCP ≠ scout registry).
-
-Editorial model catalog **views** stay separate JSON files under `config/` (not one mega-catalog): `coding-models.json`, `frontier-models.json`, `open-weight-models.json`, `openrouter-models.json`, plus `models.catalog.default.json` for the broader ladder. Host overrides live under `~/.susi/{coding-models,frontier-models,open-weight,leading-mcp}/` and preserve unknown keys on configure (Mandate 35).
-
----
-
-## Design principles
-
-Defined in `.agents/identity.json` (`design_principles`):
-- **Autonomous by default** — Mandate 46; plan and execute via swarm consensus, not step-by-step babysitting; evidence-gated and governance-first (not “100% automation”).
-- **Grounded outputs** — claims checked against tools and workspace state.
-- **Traceable reasoning** — Mandate 26; thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`); not “100% transparency” of secrets or vendor internals.
-- **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware (Mandates 5, 28–30; lock-preferring, not “zero blocking forever”).
-- **Rust-only implementation** — runtime, tooling and shipped dependency closure must be Rust (Mandates 43 and 63); incompatible existing components remain migration defects.
-- **Zero-config auto** — boot primes preferences from what is already installed (coding models; execution agents from installed packs) without hand-edited config (Mandate 44); it enables or launches no MCP server, engine or peer on its own; agents own technical setup; credentials and paid-service consent remain explicit gates.
-- **OS layer for AI agents** — agent-of-agents substrate on the host (Mandate 45); not a replacement host OS.
-- **Native installation** — verified artifacts and native provisioning without a Windows shell/emulation prerequisite (Mandates 47 and 64); legacy installer scripts are migration work.
-- **Release-only self-build** — the installed susi is the toolchain that builds the next susi (Mandate 48). Dev builds verify on an isolated dev instance, and only locally qualified, health-checked promotion may replace `~/.susi/bin/susi`. This is a promotion discipline, not “releases can't break.”
-
-Crate boundaries, composition roots, ports, and the admission protocols are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) (enforced by `tests/architecture_tests.rs`).
----
+- [docs/architecture.md](docs/architecture.md): pillars, Tier S invariants, plane bus and its loopback rendezvous, the plug bridge to the commercial suite, the lean-core direction, the command reference.
+- [docs/evidence.md](docs/evidence.md): verified claims, platforms, the delivery workflow and every admitted gap.
+- [ARCHITECTURE.md](ARCHITECTURE.md): the enforceable crate-boundary contract (`tests/architecture_tests.rs`).
+- [docs/gmcp-roadmap.md](docs/gmcp-roadmap.md): the standards-traceable GMCP completion program; the genome ledgers under [`.agents/`](.agents/) are described in [docs/architecture.md](docs/architecture.md#genome).
+- [docs/extension-pack.md](docs/extension-pack.md), [docs/harness.md](docs/harness.md), [VISION.md](VISION.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
