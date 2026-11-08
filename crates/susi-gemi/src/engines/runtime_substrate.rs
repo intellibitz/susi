@@ -1,20 +1,22 @@
-//! Inference substrate when the Candle local engine is not linked.
-//!
-//! Prompt formatting, architecture names, and the repeat penalty stay so the
-//! protocol tests keep running. Loading weights returns a typed error.
+//! Inference substrate served through [`crate::engines::local_plug::LocalEnginePlug`]
+//! (or the built-in GGUF substrate when compiled with `--features local-engine`).
 
+use crate::engines::local_plug::{
+    call_bus_plug, local_engine_plug, TOPIC_LOCAL_LOADED, TOPIC_LOCAL_PRELOAD,
+    TOPIC_LOCAL_REUSABLE, TOPIC_LOCAL_UNLOAD,
+};
+use serde_json::json;
 use std::path::Path;
 
 use crate::susi_error::{EaiError, EaiResult};
 
 const LOCAL_ENGINE_ABSENT: &str =
-    "built-in local model engine is not in this core; rebuild with --features local-engine";
+    "local model engine is not attached; register a LocalEnginePlug (susi-gpu-fabric) or build with --features local-engine";
 
 pub trait NeuralBackend: Send + Sync {}
 
 pub type ModelBackend = Box<dyn NeuralBackend>;
 
-/// Loaded weights. The slim core never constructs one.
 pub struct ModelSubstrate {
     pub(crate) weights: ModelBackend,
     pub(crate) prompt_format: PromptFormat,
@@ -67,27 +69,65 @@ impl PromptFormat {
 pub struct InferenceHost;
 
 impl InferenceHost {
-    pub(crate) fn model_is_reusable(_path: &Path) -> bool {
+    pub(crate) fn model_is_reusable(path: &Path) -> bool {
+        if let Some(plug) = local_engine_plug() {
+            return plug.model_is_reusable(path);
+        }
+        if let Some(Ok(val)) = call_bus_plug(
+            TOPIC_LOCAL_REUSABLE,
+            json!({ "path": path.display().to_string() }),
+        ) {
+            return val
+                .get("reusable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        }
         false
     }
 
     pub fn preload(model_id: &str) -> EaiResult<serde_json::Value> {
-        let _path = resolve_model_id(model_id)?;
-        Err(EaiError::inference(LOCAL_ENGINE_ABSENT))
+        let path = resolve_model_id(model_id)?;
+        Self::preload_resolved(&path)
     }
 
     pub(crate) fn preload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
-        let _ = path;
+        if let Some(plug) = local_engine_plug() {
+            return plug.preload(path);
+        }
+        if let Some(res) = call_bus_plug(
+            TOPIC_LOCAL_PRELOAD,
+            json!({ "path": path.display().to_string() }),
+        ) {
+            return res;
+        }
         Err(EaiError::inference(LOCAL_ENGINE_ABSENT))
     }
 
     pub fn unload(model_id: &str) -> EaiResult<serde_json::Value> {
-        let _path = resolve_model_id(model_id)?;
+        let path = resolve_model_id(model_id)?;
+        if let Some(plug) = local_engine_plug() {
+            return plug.unload(&path);
+        }
+        if let Some(res) = call_bus_plug(
+            TOPIC_LOCAL_UNLOAD,
+            json!({ "path": path.display().to_string() }),
+        ) {
+            return res;
+        }
         Err(EaiError::inference(LOCAL_ENGINE_ABSENT))
     }
 
     pub(crate) fn unload_resolved(path: &Path) -> EaiResult<serde_json::Value> {
-        Ok(serde_json::json!({
+        if let Some(plug) = local_engine_plug() {
+            return plug.unload(path);
+        }
+        if let Some(res) = call_bus_plug(
+            TOPIC_LOCAL_UNLOAD,
+            json!({ "path": path.display().to_string() }),
+        ) {
+            return res;
+        }
+        Ok(json!({
             "path": path,
             "unloaded": false,
             "in_flight_users": null,
@@ -96,6 +136,14 @@ impl InferenceHost {
     }
 
     pub fn loaded_models() -> Vec<serde_json::Value> {
+        if let Some(plug) = local_engine_plug() {
+            return plug.loaded_models();
+        }
+        if let Some(Ok(val)) = call_bus_plug(TOPIC_LOCAL_LOADED, json!({})) {
+            if let Some(arr) = val.get("models").and_then(|v| v.as_array()) {
+                return arr.clone();
+            }
+        }
         Vec::new()
     }
 
@@ -125,8 +173,6 @@ fn resolve_model_id(model_id: &str) -> EaiResult<std::path::PathBuf> {
         .ok_or_else(|| EaiError::inference(format!("model '{id}' not found")))
 }
 
-/// Dampens the logits of already-seen tokens (llama.cpp convention: divide a
-/// positive logit or multiply a negative one by `penalty`).
 pub fn apply_repeat_penalty(logits: &mut [f32], penalty: f32, context: &[u32]) {
     if penalty == 1.0 || penalty <= 0.0 {
         return;
@@ -150,12 +196,19 @@ pub struct ContextSummarizer;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engines::local_plug::{
+        clear_local_engine_plug, register_local_engine_plug, BuiltinLocalEnginePlug,
+    };
 
     #[test]
     fn preload_names_the_missing_engine_when_the_model_exists() {
+        let _guard = crate::engines::env_test_lock();
         let err =
             InferenceHost::preload_resolved(std::path::Path::new("weights.gguf")).unwrap_err();
-        assert!(err.to_string().contains("local-engine"));
+        assert!(
+            err.to_string().contains("local-engine") || err.to_string().contains("weights.gguf"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -170,5 +223,34 @@ mod tests {
         assert!(!InferenceHost::needs_qwen2_backend("llama"));
         assert!(InferenceHost::validate_architecture("qwen3moe").is_ok());
         assert!(InferenceHost::validate_architecture("gpt2").is_err());
+    }
+
+    #[test]
+    fn local_engine_plug_preloads_inspects_and_unloads_valid_gguf() {
+        let _guard = crate::engines::env_test_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let gguf_path = dir.path().join("tiny.gguf");
+        let mut bytes = Vec::from(&b"GGUF"[..]);
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+        bytes.extend_from_slice(&1u64.to_le_bytes());
+        let key = b"general.architecture";
+        bytes.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(key);
+        bytes.extend_from_slice(&8u32.to_le_bytes());
+        bytes.extend_from_slice(&5u64.to_le_bytes());
+        bytes.extend_from_slice(b"llama");
+        std::fs::write(&gguf_path, &bytes).unwrap();
+
+        register_local_engine_plug(BuiltinLocalEnginePlug::shared());
+        let receipt = InferenceHost::preload_resolved(&gguf_path).unwrap();
+        assert_eq!(
+            receipt.get("architecture").and_then(|v| v.as_str()),
+            Some("llama")
+        );
+        assert!(InferenceHost::model_is_reusable(&gguf_path));
+        let unload = InferenceHost::unload_resolved(&gguf_path).unwrap();
+        assert_eq!(unload.get("unloaded").and_then(|v| v.as_bool()), Some(true));
+        clear_local_engine_plug();
     }
 }
