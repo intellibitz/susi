@@ -278,3 +278,9 @@ table once the clean baseline is recorded.
   a copy of the swarm in the paid suite). They live in `src/tests/` and `src/mastery_tests/`
   as before and are excluded from the shipped-line measure; only their `#[cfg(test)] #[path]`
   declarations count: susi-gawd-swarm 22,943 -> 23,012, susi-gawd-a2a 2,108 -> 2,109.
+- 2026-11-08 (T-PEERSEC-1): peer credential hardening shrinks two pillars. The scout's discovery
+  send collapses into one bound-ping loop (`SUSI_PING_SIG3`, one frame per route source) and its
+  unsigned `SUSI_PING` broadcast, which every daemon already dropped, is gone; the bootloader's
+  probe documentation is tighter. The ping protocol itself lives in `susi-config`, outside the
+  pillars. Re-pinned at the measured values: susi-gawd 29,296 -> 29,295, susi-gawd-swarm
+  23,012 -> 23,000.

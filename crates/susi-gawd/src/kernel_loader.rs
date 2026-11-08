@@ -63,7 +63,9 @@ impl SubstrateKernelLoader {
         use std::time::Duration;
 
         let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
-        let signed_ping = crate::susi_config::cluster_key::signed_ping("bootloader", 0, "0");
+        let udp = std::net::SocketAddr::from(([127, 0, 0, 1], cfg.udp_discovery_port()));
+        let signed_ping =
+            crate::susi_config::cluster_key::signed_ping_v3("bootloader", 0, "0", udp);
         let checks: &[(&str, u16, bool)] = &[
             ("GMCP/MCP HTTP", cfg.gmcp_port(), true),
             ("GEMI HTTP", cfg.gemi_port(), true),
@@ -100,13 +102,10 @@ impl SubstrateKernelLoader {
     }
 }
 
-/// Probe the authenticated UDP discovery endpoint (`B7`).
-///
-/// Sends an HMAC-signed `SUSI_PING_SIG` frame to `127.0.0.1:{port}` and waits
-/// up to `timeout` for a `SUSI_PONG_SIG*` reply whose HMAC and echoed `nonce`
-/// verify under `cluster_key::verify_signed_pong`. Fails closed (`false`) when
-/// no signed ping is supplied, when the frame is unsigned, when the responder
-/// drops the ping or returns an unverified pong, or when nothing is listening.
+/// Probe the authenticated UDP discovery endpoint (`B7`): send a bound `SUSI_PING_SIG3`
+/// frame to `127.0.0.1:{port}`, wait up to `timeout` for a `SUSI_PONG_SIG*` reply whose
+/// HMAC and echoed `nonce` verify (`cluster_key::verify_signed_pong`). Fails closed
+/// (`false`) with no or an unsigned frame, a dropped ping, an unverified pong, or no listener.
 pub fn probe_udp_discovery_port(
     port: u16,
     signed_ping_and_nonce: Option<(&str, &str)>,
@@ -148,14 +147,14 @@ pub fn probe_udp_discovery_port(
 #[cfg(test)]
 mod tests {
     use super::probe_udp_discovery_port;
-    use crate::susi_config::cluster_key::{signed_ping, signed_pong, verify_signed_ping};
+    use crate::susi_config::cluster_key::{signed_ping_v3, signed_pong, verify_bound_ping};
     use std::net::UdpSocket;
     use std::time::Duration;
 
     #[test]
     fn probe_udp_discovery_port_succeeds_on_signed_pong() {
-        let (frame, nonce) =
-            signed_ping("bootloader", 0, "0").expect("cluster.key must produce signed ping");
+        let (frame, nonce) = signed_ping_v3("bootloader", 0, "0", ([127, 0, 0, 1], 9).into())
+            .expect("cluster.key must produce signed ping");
         let server = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP responder");
         server
             .set_read_timeout(Some(Duration::from_secs(2)))
@@ -166,8 +165,8 @@ mod tests {
             let mut buf = [0u8; 4096];
             if let Ok((amt, src)) = server.recv_from(&mut buf) {
                 let msg = String::from_utf8_lossy(&buf[..amt]);
-                if let Some((_id, _caps, _sum, _bloom, rx_nonce, _v2)) = verify_signed_ping(&msg) {
-                    if let Some(pong) = signed_pong("test-daemon", 0, "0", &rx_nonce, &[]) {
+                if let Ok(ping) = verify_bound_ping(&msg, src) {
+                    if let Some(pong) = signed_pong("test-daemon", 0, "0", &ping.nonce, &[]) {
                         let _ = server.send_to(pong.as_bytes(), src);
                     }
                 }
@@ -184,8 +183,8 @@ mod tests {
 
     #[test]
     fn probe_udp_discovery_port_rejects_unsigned_mismatched_nonce_and_closed_port() {
-        let (frame, nonce) =
-            signed_ping("bootloader", 0, "0").expect("cluster.key must produce signed ping");
+        let (frame, nonce) = signed_ping_v3("bootloader", 0, "0", ([127, 0, 0, 1], 9).into())
+            .expect("cluster.key must produce signed ping");
         let server = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP responder");
         server
             .set_read_timeout(Some(Duration::from_millis(300)))
@@ -275,8 +274,8 @@ mod tests {
 
     #[test]
     fn probe_udp_discovery_port_rejects_non_pong_reply_and_whitespace_nonce() {
-        let (frame, nonce) =
-            signed_ping("bootloader", 0, "0").expect("cluster.key must produce signed ping");
+        let (frame, nonce) = signed_ping_v3("bootloader", 0, "0", ([127, 0, 0, 1], 9).into())
+            .expect("cluster.key must produce signed ping");
         assert!(!probe_udp_discovery_port(
             9,
             Some((&frame, "   ")),

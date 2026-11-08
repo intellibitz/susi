@@ -149,7 +149,7 @@ impl CoreTools {
 
     #[tool(
         name = "privacy_mode",
-        description = "Set the privacy mode (persisted; local_only also pins inference routing to local), as `susi privacy mode`. Args: mode (balanced, local_only, open)",
+        description = "Set the privacy mode (persisted; local_only keeps traffic on this machine and its local network and pins inference routing to local), as `susi privacy mode`. Args: mode (balanced, local_only, open)",
         input_schema = args::typed::<args::PrivacyMode>()
     )]
     pub fn privacy_mode(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {

@@ -40,6 +40,7 @@ pub fn set_privacy_mode(mode: &str) -> std::io::Result<serde_json::Value> {
     let policy = MacPolicy::global();
     Ok(serde_json::json!({
         "mode": m.as_str(),
+        "network_scope": m.network_scope(),
         "mandatory_sandbox": policy.mandatory_sandbox(),
         "blocks_cloud_inference": policy.blocks_cloud_inference(),
     }))

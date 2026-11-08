@@ -2,14 +2,19 @@
 //! discovery handshake behind authenticated peer membership (VC-200-001).
 //!
 //! Protocol (`susi-peer-v1`):
-//! - Scout sends
-//!   `SUSI_PING_SIG:<node_id>:<caps_csv>:<checksum>:<bloom_hex>:<nonce>:<mac>`
-//!   where `node_id` is the sender's persisted identity (`node_id()`) and
-//!   `mac` is HMAC-SHA256 over `susi-peer-v1:ping:<same fields>`. Pre-identity
-//!   6-field pings (no `node_id`) still verify with an empty sender id so
-//!   mixed-version clusters handshake; `peers add` falls back to that format
-//!   for daemons that predate the field.
-//! - The daemon verifies the MAC and answers
+//! - Scout sends the bound ping
+//!   `SUSI_PING_SIG3:<node_id>:<caps_csv>:<checksum>:<bloom_hex>:<service_hex>:<ts>:<nonce>:<mac>`
+//!   where `node_id` is the sender's persisted identity (`node_id()`),
+//!   `service_hex` hex-encodes the sender's source IP toward this receiver
+//!   plus its HTTP alias port, `ts` is Unix seconds and `mac` is HMAC-SHA256
+//!   over `susi-peer-v1:ping3:<same fields>`. The receiver requires the
+//!   datagram's source IP to equal the advertised one, the timestamp to be
+//!   within `PING_WINDOW_SECS`, and the nonce to be unseen
+//!   (`verify_bound_ping`), so a captured ping neither admits another
+//!   address nor replays. The unbound `SUSI_PING_SIG` / `SUSI_PING_SIG2`
+//!   dialects are retired: they MAC nothing about the sender, and a daemon
+//!   neither answers nor admits them.
+//! - The daemon verifies the ping and answers
 //!   `SUSI_PONG_SIG:<node_id>:<checksum>:<bloom_hex>:<nonce>:<roster_hex>:<mac>`
 //!   — the nonce echoed back binds the pong to this exchange, so replaying a
 //!   captured signed pong against a different ping fails verification. The
@@ -759,126 +764,267 @@ pub fn verify_bind_attestation(node_id: &str, pubkey: &str, sig: &str) -> bool {
         && member_verify(pubkey, &bind_payload(node_id, pubkey), sig)
 }
 
-/// Verified fields of a signed ping: `(node_id, caps_csv, checksum,
-/// bloom_hex, nonce, wants_v2)` — `node_id` is empty for pre-identity
-/// senders; `wants_v2` is true for `SUSI_PING_SIG2` senders, who must
-/// be answered with a `signed_pong_v2` (pubkey-attesting) reply.
-pub type VerifiedPing = (String, String, u64, String, String, bool);
+/// Wire tag of the bound discovery ping, the only ping a daemon answers.
+pub const PING_TAG: &str = "SUSI_PING_SIG3";
 
-/// Build a signed discovery ping. Returns `(wire_message, nonce)` — the nonce
-/// must be kept to verify the answering pong. `None` when no key exists or a
-/// field is not wire-safe.
-pub fn signed_ping(caps_csv: &str, checksum: u64, bloom_hex: &str) -> Option<(String, String)> {
-    let key = cluster_key()?;
-    let node_id = wire_node_id();
-    let nonce = random_nonce_hex();
-    let checksum = checksum.to_string();
-    for f in [&node_id, caps_csv, &checksum, bloom_hex, &nonce] {
-        if !wire_safe(f) {
-            return None;
-        }
-    }
-    let mac = mac_tag(
-        &key,
-        &["ping", &node_id, caps_csv, &checksum, bloom_hex, &nonce],
-    );
-    Some((
-        format!("SUSI_PING_SIG:{node_id}:{caps_csv}:{checksum}:{bloom_hex}:{nonce}:{mac}"),
-        nonce,
-    ))
+/// Clock skew tolerated between a bound ping's timestamp and local time.
+pub const PING_WINDOW_SECS: u64 = 60;
+
+/// Nonces a receiver remembers at once. A ping is recorded only after its
+/// MAC, source and timestamp verify, so only a holder of `cluster.key` can
+/// fill the cache; when it is full of live entries new pings are refused
+/// (fail closed) rather than forgetting a nonce that could then replay.
+pub const PING_NONCE_CAPACITY: usize = 4096;
+
+/// A verified `SUSI_PING_SIG3` ping. `service` is the sender's advertised
+/// MCP endpoint: the datagram's own source IP and the sender's HTTP alias
+/// port, both covered by the MAC.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundPing {
+    pub node_id: String,
+    pub caps_csv: String,
+    pub checksum: u64,
+    pub bloom_hex: String,
+    pub service: std::net::SocketAddr,
+    pub ts_secs: u64,
+    pub nonce: String,
 }
 
-/// Identity-era v2 ping (`SUSI_PING_SIG2`): identical fields to v1,
-/// but asks the responder to attest its Ed25519 pubkey in the pong.
-/// Old daemons reject the unknown tag outright — callers fall back
-/// to `signed_ping` (v1) instead of dead-ending on version skew.
-pub fn signed_ping_v2(caps_csv: &str, checksum: u64, bloom_hex: &str) -> Option<(String, String)> {
-    let key = cluster_key()?;
-    let node_id = wire_node_id();
-    let nonce = random_nonce_hex();
-    let checksum = checksum.to_string();
-    for f in [&node_id, caps_csv, &checksum, bloom_hex, &nonce] {
-        if !wire_safe(f) {
-            return None;
-        }
-    }
-    let mac = mac_tag(
-        &key,
-        &["ping2", &node_id, caps_csv, &checksum, bloom_hex, &nonce],
-    );
-    Some((
-        format!("SUSI_PING_SIG2:{node_id}:{caps_csv}:{checksum}:{bloom_hex}:{nonce}:{mac}"),
-        nonce,
-    ))
+/// Why a discovery datagram earned no admission and no pong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PingRejection {
+    /// No usable `cluster.key` on this node.
+    NoKey,
+    /// `SUSI_PING_SIG` / `SUSI_PING_SIG2`: MACs nothing about the sender, so
+    /// a captured copy replays from any address. Retired, never answered.
+    Unbound,
+    /// Not a ping, wrong field count, or a field outside the wire alphabet.
+    Malformed,
+    /// The MAC does not verify under this cluster's key.
+    BadMac,
+    /// The advertised address is not the datagram's source address.
+    SourceMismatch,
+    /// The timestamp is outside `PING_WINDOW_SECS` of local time.
+    Stale,
+    /// This nonce was already admitted inside the window.
+    Replayed,
+    /// The nonce cache is full of live entries.
+    CacheFull,
 }
 
-/// Legacy 6-field ping for dialing pre-identity daemons — a `peers
-/// add` fallback so a new node can still handshake a peer running a
-/// build that rejects the node_id field outright.
-pub fn signed_ping_legacy(
+/// Bounded, TTL'd record of admitted ping nonces, the same replay defence
+/// `net_guard` keeps for signed requests. Entries expire after twice the
+/// window, by which time the timestamp check refuses the ping anyway.
+#[derive(Debug)]
+pub struct PingNonceCache {
+    seen: std::collections::HashMap<String, u64>,
+    capacity: usize,
+}
+
+impl PingNonceCache {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            seen: std::collections::HashMap::new(),
+            capacity,
+        }
+    }
+
+    /// Record `nonce` admitted at `now`; `Err` when it is already live or
+    /// the cache cannot hold it.
+    pub fn admit(&mut self, nonce: &str, now: u64) -> Result<(), PingRejection> {
+        let ttl = 2 * PING_WINDOW_SECS;
+        if self
+            .seen
+            .get(nonce)
+            .is_some_and(|at| now.saturating_sub(*at) <= ttl)
+        {
+            return Err(PingRejection::Replayed);
+        }
+        if self.seen.len() >= self.capacity {
+            self.seen.retain(|_, at| now.saturating_sub(*at) <= ttl);
+        }
+        if self.seen.len() >= self.capacity {
+            return Err(PingRejection::CacheFull);
+        }
+        self.seen.insert(nonce.to_string(), now);
+        Ok(())
+    }
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// The local address the OS routes `dest` from: a throwaway UDP socket is
+/// connected (which sends nothing) and its local address read back. Works
+/// for unicast, loopback and the limited broadcast address.
+pub fn route_source_ip(dest: std::net::SocketAddr) -> Option<std::net::IpAddr> {
+    let any: std::net::SocketAddr = if dest.is_ipv4() {
+        (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
+    } else {
+        (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
+    };
+    let probe = std::net::UdpSocket::bind(any).ok()?;
+    let _ = probe.set_broadcast(true);
+    probe.connect(dest).ok()?;
+    let ip = probe.local_addr().ok()?.ip();
+    (!ip.is_unspecified()).then_some(ip)
+}
+
+/// Build the bound discovery ping this node sends toward `dest`. The MAC
+/// covers the sender's source IP for that route plus its HTTP alias port,
+/// a timestamp and a fresh nonce, so a captured copy neither verifies from
+/// another address nor replays after the window or twice inside it.
+/// Returns `(wire_message, nonce)`; `None` without a key, a route to
+/// `dest`, or wire-safe fields.
+pub fn signed_ping_v3(
     caps_csv: &str,
     checksum: u64,
     bloom_hex: &str,
+    dest: std::net::SocketAddr,
 ) -> Option<(String, String)> {
     let key = cluster_key()?;
+    let http = crate::SusiConfig::load_global()
+        .map(|c| c.gmcp_http_port())
+        .unwrap_or(susi_paths::ports::GMCP_HTTP);
+    let service = std::net::SocketAddr::new(route_source_ip(dest)?, http);
     let nonce = random_nonce_hex();
-    let checksum = checksum.to_string();
-    for f in [caps_csv, &checksum, bloom_hex, &nonce] {
-        if !wire_safe(f) {
-            return None;
-        }
-    }
-    let mac = mac_tag(&key, &["ping", caps_csv, &checksum, bloom_hex, &nonce]);
-    Some((
-        format!("SUSI_PING_SIG:{caps_csv}:{checksum}:{bloom_hex}:{nonce}:{mac}"),
-        nonce,
-    ))
+    let frame = bound_ping_frame(
+        &key,
+        &wire_node_id(),
+        caps_csv,
+        checksum,
+        bloom_hex,
+        service,
+        unix_now(),
+        &nonce,
+    )?;
+    Some((frame, nonce))
 }
 
-/// Verify a signed ping; `None` for malformed input or a bad MAC —
-/// the caller must not answer. Legacy 6-field pings (pre-identity
-/// builds) verify with an empty node_id so mixed-version clusters
-/// still handshake. `SUSI_PING_SIG2` verifies identically but sets
-/// `wants_v2` — answer it with `signed_pong_v2`.
-pub fn verify_signed_ping(msg: &str) -> Option<VerifiedPing> {
-    let key = cluster_key()?;
-    let parts: Vec<&str> = msg.split(':').collect();
-    let v2 = match parts.first() {
-        Some(&"SUSI_PING_SIG2") => true,
-        Some(&"SUSI_PING_SIG") => false,
-        _ => return None,
-    };
-    // SUSI_PING_SIG[2]:[<node_id>:]<caps>:<checksum>:<bloom>:<nonce>:<mac>
-    let (node_id, caps, checksum_s, bloom, nonce, mac) = match parts.len() {
-        7 => (parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]),
-        6 => ("", parts[1], parts[2], parts[3], parts[4], parts[5]),
-        _ => return None,
-    };
-    for f in [caps, checksum_s, bloom, nonce] {
+/// The `SUSI_PING_SIG3` wire frame:
+/// `SUSI_PING_SIG3:<node_id>:<caps>:<checksum>:<bloom>:<service_hex>:<ts>:<nonce>:<mac>`
+/// with the MAC over `ping3` and every field in order. `service_hex` hex-
+/// encodes the socket address so an IPv6 address cannot collide with the
+/// `:` separator.
+#[allow(clippy::too_many_arguments)] // one flat wire record: a struct would
+                                     // only rename the fields it serializes
+pub fn bound_ping_frame(
+    key: &[u8; 32],
+    node_id: &str,
+    caps_csv: &str,
+    checksum: u64,
+    bloom_hex: &str,
+    service: std::net::SocketAddr,
+    ts_secs: u64,
+    nonce: &str,
+) -> Option<String> {
+    let checksum = checksum.to_string();
+    let service_hex = hex::encode(service.to_string());
+    let ts = ts_secs.to_string();
+    for f in [node_id, caps_csv, &checksum, bloom_hex, nonce] {
         if !wire_safe(f) {
             return None;
         }
     }
-    if !node_id.is_empty() && !wire_safe(node_id) {
-        return None;
+    let fields = [
+        node_id,
+        caps_csv,
+        &checksum,
+        bloom_hex,
+        &service_hex,
+        &ts,
+        nonce,
+    ];
+    let mut macd = vec!["ping3"];
+    macd.extend_from_slice(&fields);
+    let mac = mac_tag(key, &macd);
+    Some(format!("{PING_TAG}:{}:{mac}", fields.join(":")))
+}
+
+/// Verify a discovery datagram received from `src` against this node's
+/// cluster key, the clock and the process-wide nonce cache. Only an `Ok`
+/// ping may be answered or admitted.
+pub fn verify_bound_ping(msg: &str, src: std::net::SocketAddr) -> Result<BoundPing, PingRejection> {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<PingNonceCache>> = std::sync::OnceLock::new();
+    let key = cluster_key().ok_or(PingRejection::NoKey)?;
+    let cache =
+        SEEN.get_or_init(|| std::sync::Mutex::new(PingNonceCache::new(PING_NONCE_CAPACITY)));
+    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+    verify_bound_ping_with(&key, msg, src, unix_now(), &mut cache)
+}
+
+/// [`verify_bound_ping`] with every input explicit. The nonce is recorded
+/// only after the MAC, the source and the timestamp all verify, so forged
+/// or misdirected datagrams burn no cache slot.
+pub fn verify_bound_ping_with(
+    key: &[u8; 32],
+    msg: &str,
+    src: std::net::SocketAddr,
+    now: u64,
+    cache: &mut PingNonceCache,
+) -> Result<BoundPing, PingRejection> {
+    let parts: Vec<&str> = msg.trim_end().split(':').collect();
+    match parts.first() {
+        Some(&PING_TAG) => {}
+        Some(&"SUSI_PING_SIG" | &"SUSI_PING_SIG2") => return Err(PingRejection::Unbound),
+        _ => return Err(PingRejection::Malformed),
     }
-    let tag = if v2 { "ping2" } else { "ping" };
-    let expected = if parts.len() == 6 {
-        mac_tag(&key, &[tag, caps, checksum_s, bloom, nonce])
-    } else {
-        mac_tag(&key, &[tag, node_id, caps, checksum_s, bloom, nonce])
+    let [_, node_id, caps, checksum_s, bloom, service_hex, ts_s, nonce, mac] = parts[..] else {
+        return Err(PingRejection::Malformed);
     };
-    if expected != mac {
-        return None;
+    for f in [node_id, caps, checksum_s, bloom, service_hex, ts_s, nonce] {
+        if !wire_safe(f) {
+            return Err(PingRejection::Malformed);
+        }
     }
-    Some((
-        node_id.to_string(),
-        caps.to_string(),
-        checksum_s.parse().unwrap_or(0),
-        bloom.to_string(),
-        nonce.to_string(),
-        v2,
-    ))
+    let expected = mac_tag(
+        key,
+        &[
+            "ping3",
+            node_id,
+            caps,
+            checksum_s,
+            bloom,
+            service_hex,
+            ts_s,
+            nonce,
+        ],
+    );
+    if !constant_time_eq(expected.as_bytes(), mac.as_bytes()) {
+        return Err(PingRejection::BadMac);
+    }
+    let (Ok(checksum), Ok(ts_secs)) = (checksum_s.parse::<u64>(), ts_s.parse::<u64>()) else {
+        return Err(PingRejection::Malformed);
+    };
+    let service = hex::decode(service_hex)
+        .ok()
+        .and_then(|raw| String::from_utf8(raw).ok())
+        .and_then(|text| text.parse::<std::net::SocketAddr>().ok())
+        .ok_or(PingRejection::Malformed)?;
+    if service.ip().to_canonical() != src.ip().to_canonical() {
+        return Err(PingRejection::SourceMismatch);
+    }
+    if now.abs_diff(ts_secs) > PING_WINDOW_SECS {
+        return Err(PingRejection::Stale);
+    }
+    cache.admit(nonce, now)?;
+    Ok(BoundPing {
+        node_id: node_id.to_string(),
+        caps_csv: caps.to_string(),
+        checksum,
+        bloom_hex: bloom.to_string(),
+        service,
+        ts_secs,
+        nonce: nonce.to_string(),
+    })
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Maximum roster entries carried in a signed pong — keeps the
@@ -955,7 +1101,7 @@ pub fn signed_pong(
     ))
 }
 
-/// V2 pong (`SUSI_PONG_SIG2`) — answers `signed_ping_v2` with this
+/// V2 pong (`SUSI_PONG_SIG2`) — answers a bound ping with this
 /// node's Ed25519 pubkey attested inside the MAC. The shared key
 /// authenticates the datagram; the pubkey inside it binds the
 /// attested `node_id` to a private key only the responder holds —
@@ -1685,86 +1831,208 @@ mod inline_tests {
         }
 
         fn ping(key: &[u8; 32], tag: &str, tail: &[&str]) -> String {
-            let mut fields = vec![if tag == "SUSI_PING_SIG2" {
-                "ping2"
-            } else {
-                "ping"
-            }];
+            let domain = match tag {
+                "SUSI_PING_SIG3" => "ping3",
+                "SUSI_PING_SIG2" => "ping2",
+                _ => "ping",
+            };
+            let mut fields = vec![domain];
             fields.extend_from_slice(tail);
             let mac = mac_tag(key, &fields);
             format!("{tag}:{}:{mac}", tail.join(":"))
         }
 
+        const NOW: u64 = 1_800_000_000;
+
+        fn sender() -> std::net::SocketAddr {
+            "10.0.0.5:9093".parse().unwrap()
+        }
+
+        fn bound(key: &[u8; 32], service: std::net::SocketAddr, ts: u64, nonce: &str) -> String {
+            bound_ping_frame(key, "node", "CORE", 7, "00ff", service, ts, nonce).unwrap()
+        }
+
         #[test]
-        fn ping_verification_rejects_every_malformed_or_forged_variant() {
-            let (_home, key) = home();
-            let good = ping(
-                &key,
-                "SUSI_PING_SIG",
-                &["node", "CORE", "7", "00ff", "n0nce"],
-            );
-            let (id, caps, sum, bloom, nonce, v2) = verify_signed_ping(&good).unwrap();
+        fn a_fresh_bound_ping_admits_with_the_advertised_service() {
+            let mut cache = PingNonceCache::new(8);
+            let frame = bound(&KEY, sender(), NOW, "n0nce");
+            assert!(frame.starts_with("SUSI_PING_SIG3:node:CORE:7:00ff:"));
+            let src: std::net::SocketAddr = "10.0.0.5:51000".parse().unwrap();
+            let got = verify_bound_ping_with(&KEY, &frame, src, NOW + 30, &mut cache).unwrap();
             assert_eq!(
-                (
-                    id.as_str(),
-                    caps.as_str(),
-                    sum,
-                    bloom.as_str(),
-                    nonce.as_str(),
-                    v2
+                got,
+                BoundPing {
+                    node_id: "node".into(),
+                    caps_csv: "CORE".into(),
+                    checksum: 7,
+                    bloom_hex: "00ff".into(),
+                    service: sender(),
+                    ts_secs: NOW,
+                    nonce: "n0nce".into(),
+                }
+            );
+            // IPv6 survives the `:`-separated wire through the hex field,
+            // and a v4-mapped source matches its v4 advertisement.
+            let v6: std::net::SocketAddr = "[fe80::1]:9093".parse().unwrap();
+            let src6: std::net::SocketAddr = "[fe80::1]:40000".parse().unwrap();
+            let frame6 = bound(&KEY, v6, NOW, "n6");
+            let got6 = verify_bound_ping_with(&KEY, &frame6, src6, NOW, &mut cache).unwrap();
+            assert_eq!(got6.service, v6);
+            let mapped: std::net::SocketAddr = "[::ffff:10.0.0.5]:51000".parse().unwrap();
+            let frame_m = bound(&KEY, sender(), NOW, "nm");
+            assert!(verify_bound_ping_with(&KEY, &frame_m, mapped, NOW, &mut cache).is_ok());
+        }
+
+        #[test]
+        fn a_replayed_ping_from_another_source_is_rejected() {
+            let mut cache = PingNonceCache::new(8);
+            let frame = bound(&KEY, sender(), NOW, "n0nce");
+            let replayer: std::net::SocketAddr = "10.0.0.66:51000".parse().unwrap();
+            assert_eq!(
+                verify_bound_ping_with(&KEY, &frame, replayer, NOW, &mut cache),
+                Err(PingRejection::SourceMismatch)
+            );
+            // The refusal burnt no nonce: the real sender still admits.
+            assert!(verify_bound_ping_with(&KEY, &frame, sender(), NOW, &mut cache).is_ok());
+            // Re-addressing the frame breaks the MAC.
+            let readdressed = frame.replace(
+                &hex::encode(sender().to_string()),
+                &hex::encode("10.0.0.66:9093"),
+            );
+            assert_eq!(
+                verify_bound_ping_with(&KEY, &readdressed, replayer, NOW, &mut cache),
+                Err(PingRejection::BadMac)
+            );
+        }
+
+        #[test]
+        fn a_replayed_nonce_is_rejected_inside_the_window() {
+            let mut cache = PingNonceCache::new(8);
+            let frame = bound(&KEY, sender(), NOW, "n0nce");
+            assert!(verify_bound_ping_with(&KEY, &frame, sender(), NOW, &mut cache).is_ok());
+            assert_eq!(
+                verify_bound_ping_with(&KEY, &frame, sender(), NOW + 1, &mut cache),
+                Err(PingRejection::Replayed)
+            );
+            // After twice the window the entry may go: the timestamp check
+            // refuses the old frame on its own.
+            assert_eq!(
+                verify_bound_ping_with(
+                    &KEY,
+                    &frame,
+                    sender(),
+                    NOW + 3 * PING_WINDOW_SECS,
+                    &mut cache
                 ),
-                ("node", "CORE", 7, "00ff", "n0nce", false)
+                Err(PingRejection::Stale)
             );
+        }
 
-            let v2_frame = ping(
-                &key,
-                "SUSI_PING_SIG2",
-                &["node", "CORE", "7", "00ff", "n0nce"],
-            );
-            assert!(
-                verify_signed_ping(&v2_frame).unwrap().5,
-                "SIG2 sets wants_v2"
-            );
+        #[test]
+        fn a_stale_or_future_timestamp_is_rejected() {
+            let mut cache = PingNonceCache::new(8);
+            let old = bound(&KEY, sender(), NOW - PING_WINDOW_SECS - 1, "old");
+            let ahead = bound(&KEY, sender(), NOW + PING_WINDOW_SECS + 1, "ahead");
+            let edge = bound(&KEY, sender(), NOW - PING_WINDOW_SECS, "edge");
+            for frame in [&old, &ahead] {
+                assert_eq!(
+                    verify_bound_ping_with(&KEY, frame, sender(), NOW, &mut cache),
+                    Err(PingRejection::Stale)
+                );
+            }
+            assert!(verify_bound_ping_with(&KEY, &edge, sender(), NOW, &mut cache).is_ok());
+        }
 
-            let legacy = ping(&key, "SUSI_PING_SIG", &["CORE", "7", "00ff", "n0nce"]);
-            assert_eq!(verify_signed_ping(&legacy).unwrap().0, "", "no node id");
+        #[test]
+        fn the_nonce_cache_is_bounded_and_fails_closed_when_full() {
+            let mut cache = PingNonceCache::new(2);
+            assert!(cache.admit("a", NOW).is_ok());
+            assert!(cache.admit("b", NOW).is_ok());
+            assert_eq!(cache.admit("c", NOW), Err(PingRejection::CacheFull));
+            assert_eq!(cache.admit("a", NOW), Err(PingRejection::Replayed));
+            // Expired entries are evicted to make room.
+            assert!(cache.admit("c", NOW + 2 * PING_WINDOW_SECS + 1).is_ok());
+        }
 
-            // Domain separation: a v2 MAC under the v1 tag (and vice versa).
-            let cross = good.replacen("SUSI_PING_SIG", "SUSI_PING_SIG2", 1);
-            assert!(verify_signed_ping(&cross).is_none());
-
+        #[test]
+        fn legacy_and_malformed_pings_are_refused() {
+            let mut cache = PingNonceCache::new(8);
+            let v1 = ping(&KEY, "SUSI_PING_SIG", &["node", "CORE", "7", "00ff", "n1"]);
+            let v2 = ping(&KEY, "SUSI_PING_SIG2", &["node", "CORE", "7", "00ff", "n2"]);
+            for frame in [&v1, &v2] {
+                assert_eq!(
+                    verify_bound_ping_with(&KEY, frame, sender(), NOW, &mut cache),
+                    Err(PingRejection::Unbound)
+                );
+            }
+            let good = bound(&KEY, sender(), NOW, "n0nce");
             let mut bad_mac = good.clone();
             let last = bad_mac.pop().unwrap();
             bad_mac.push(if last == '0' { '1' } else { '0' });
-            let tampered_caps = good.replace(":CORE:", ":GPU:");
-            let wrong_key_mac = ping(
-                &K1,
-                "SUSI_PING_SIG",
-                &["node", "CORE", "7", "00ff", "n0nce"],
+            let svc = hex::encode(sender().to_string());
+            let ts = NOW.to_string();
+            let not_an_addr = ping(
+                &KEY,
+                "SUSI_PING_SIG3",
+                &["node", "CORE", "7", "00ff", "7a7a", &ts, "n3"],
             );
-            // A well-formed MAC over a field that is not wire-safe is still refused.
             let spaced = ping(
-                &key,
-                "SUSI_PING_SIG",
-                &["node", "CO RE", "7", "00ff", "n0nce"],
+                &KEY,
+                "SUSI_PING_SIG3",
+                &["node", "CO RE", "7", "00ff", &svc, &ts, "n4"],
             );
-            for (label, frame) in [
-                ("empty", String::new()),
-                ("tag only", "SUSI_PING_SIG".to_string()),
-                ("too few fields", "SUSI_PING_SIG:a:b".to_string()),
-                ("too many fields", format!("{good}:extra")),
-                ("pong as ping", "SUSI_PONG_SIG:a:1:b:c:0:d".to_string()),
+            for (label, frame, want) in [
+                ("empty", String::new(), PingRejection::Malformed),
+                ("tag only", PING_TAG.to_string(), PingRejection::Malformed),
+                ("extra field", format!("{good}:x"), PingRejection::Malformed),
+                (
+                    "pong",
+                    "SUSI_PONG_SIG3:a:b".to_string(),
+                    PingRejection::Malformed,
+                ),
                 (
                     "unknown tag",
-                    good.replacen("SUSI_PING_SIG", "SUSI_PING_SIG3", 1),
+                    good.replacen(PING_TAG, "SUSI_PING_SIG9", 1),
+                    PingRejection::Malformed,
                 ),
-                ("flipped mac", bad_mac),
-                ("tampered caps", tampered_caps),
-                ("other cluster key", wrong_key_mac),
-                ("non wire-safe field", spaced),
+                ("flipped mac", bad_mac, PingRejection::BadMac),
+                (
+                    "tampered caps",
+                    good.replace(":CORE:", ":GPU:"),
+                    PingRejection::BadMac,
+                ),
+                (
+                    "other key",
+                    bound(&K1, sender(), NOW, "n5"),
+                    PingRejection::BadMac,
+                ),
+                (
+                    "service not an address",
+                    not_an_addr,
+                    PingRejection::Malformed,
+                ),
+                ("non wire-safe field", spaced, PingRejection::Malformed),
             ] {
-                assert!(verify_signed_ping(&frame).is_none(), "{label}");
+                assert_eq!(
+                    verify_bound_ping_with(&KEY, &frame, sender(), NOW, &mut cache),
+                    Err(want),
+                    "{label}"
+                );
             }
+            assert!(bound_ping_frame(&KEY, "", "CORE", 7, "00ff", sender(), NOW, "n").is_none());
+        }
+
+        #[test]
+        fn signed_ping_v3_binds_the_route_source_and_verifies_live() {
+            let (_home, _key) = home();
+            let dest: std::net::SocketAddr = "127.0.0.1:9".parse().unwrap();
+            assert_eq!(route_source_ip(dest), Some(dest.ip()));
+            let (frame, nonce) = signed_ping_v3("CORE", 0, "00", dest).unwrap();
+            let src: std::net::SocketAddr = "127.0.0.1:50000".parse().unwrap();
+            let got = verify_bound_ping(&frame, src).unwrap();
+            assert_eq!((got.node_id, got.nonce), (wire_node_id(), nonce));
+            assert_eq!(got.service.ip(), dest.ip());
+            assert_eq!(verify_bound_ping(&frame, src), Err(PingRejection::Replayed));
         }
 
         fn pong(key: &[u8; 32], tag: &str, fields: &[&str]) -> String {

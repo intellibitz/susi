@@ -84,7 +84,11 @@ profile directories on Windows, or one `~/.susi` root under `SUSI_HOME`).
 `mac_policy::url_stays_local` treats loopback, RFC 1918, unique-local and
 link-local addresses, `localhost`, `*.localhost` and `*.local` as local.
 The egress gate therefore never blocks a LAN target. `local_only` means
-"nothing leaves the LAN", not "nothing leaves the host".
+"nothing leaves the LAN", not "nothing leaves the host", and every surface
+that describes it says so: `susi privacy status` and the `privacy_status`
+tool report a `network_scope` ("this machine and its local network only"),
+the mode-change reports carry the same field, and the CLI help and the GMCP
+tool descriptions name the local network. Core has no host-only mode.
 
 ### Same user, other users, root
 
@@ -132,7 +136,7 @@ reached the socket, and the bearer is the operator's. In particular:
 |------|---------|------|----------------|------------------------|
 | 9090 | GMCP / MCP HTTP (`/mcp`, `/messages`) | `bind_address` (+ loopback) | `NetGuard::is_authorized`: host bearer, cluster peer bearer, or a roster-bound member signature over method, path and body hash; then a per-IP rate limit (120 per minute, IPv6 bucketed per /64), waived for the host's own bearer over loopback | `GET /health`, `OPTIONS` |
 | 9091 | GEMI HTTP (OpenAI-compatible, Anthropic Messages, `/metrics`, `/.well-known/susi`) | same | same (`crates/susi-server/src/lib.rs`) | `GET /health`, `OPTIONS` |
-| 9092 | A2A UDP discovery | `bind_address` | Only `SUSI_PING_SIG` / `SUSI_PING_SIG2` datagrams whose HMAC verifies under `cluster.key` are answered; anything else is dropped before the key loads (`start_udp_discovery_server`) | none: an unsigned probe gets silence |
+| 9092 | A2A UDP discovery | `bind_address` | Only bound `SUSI_PING_SIG3` datagrams are answered: the HMAC under `cluster.key` verifies, the advertised source IP equals the datagram's, the timestamp is within 60 s and the nonce is unseen (`cluster_key::verify_bound_ping`); the retired unbound `SUSI_PING_SIG` / `SUSI_PING_SIG2` and anything else get silence (`start_udp_discovery_server`) | none: an unsigned probe gets silence |
 | 9093 | GMCP HTTP alias | same as 9090 | same as 9090 | same |
 | 9094 | A2A HTTP (JSON-RPC `/`, SSE `/stream`) | same | the same `NetGuard` verifier, receiving the buffered body so body-bound signatures verify (`server.rs`, `a2a_verifier`) | `/.well-known/agent-card.json` |
 | 9095 | Swarm gossip UDP | `0.0.0.0` always | HMAC-SHA256 seal under `HMAC(HMAC(cluster.key, "susi-gossip-v1"), "susi-gossip-peer-v1:<destination id>")`; unsealed datagrams rejected | none |
@@ -167,25 +171,32 @@ TLS on the contract ports (`crates/susi-daemon/src/tls.rs`,
   self-signed certificate is generated once under `<config>/tls/` with
   SANs for localhost, the bind address and the hostname. A loopback bind
   with no configured certificate serves plain HTTP only.
-- `https_only` decides whether plaintext from a non-loopback peer is
-  refused. The compiled `config.default.json` carries `https_only: false`,
-  and `SusiConfig::load` merges every missing default into the loaded
-  settings (`heal_in_place`), so on a host that never set the key
-  `tls::https_only()` reads `false`. The enforced default is therefore to
-  **permit** remote plaintext whenever a certificate exists; remote
-  plaintext is refused only when the operator sets `https_only: true` or
-  when no certificate could be loaded or generated. (The module comment in
-  `tls.rs` says "default true" and the function's fallback for an absent
-  key is `true`; neither is reached, because the key is never absent after
-  the merge.) Loopback plaintext always passes.
+- Plaintext from a non-loopback peer is refused unless the operator sets
+  `allow_remote_plaintext: true` (`tls::remote_tls_required`). The compiled
+  default is `false`, an absent or non-boolean value refuses, and the
+  retired `https_only` key is ignored with a one-time notice: the config
+  healer had written its old default (`false`) into every existing
+  `config.json`, so its value could not tell an operator's choice from the
+  healer's, and honouring it would have left every upgraded install open.
+  Loopback plaintext always passes.
 - A self-signed certificate authenticates nothing to the client unless the
-  client pins it. The `susi` client and the peer channel
-  (`susi_core::mcp_client`) dial `http://<addr>/mcp`, so on the default
-  posture a cluster that spans hosts runs its peer channel in plaintext and
-  the shared peer bearer crosses the LAN readable; setting `https_only:
-  true` on a member refuses that channel, because the client never dials
-  `https://`. A TLS-terminating front with certificates the platform
-  verifier trusts is the only way to have both.
+  client pins it, and the peer channel (`susi_core::mcp_client`) still dials
+  only `http://<addr>/mcp`: TLS with a certificate pinned from the attested
+  roster entry needs a certificate fingerprint carried by the pong and the
+  `member_add` record, which no wire format has yet. The client therefore
+  never sends a bearer off-host (`mcp_client::credential_for_target`): a
+  loopback target gets the credential it was handed; a remote target with
+  no node key bound to its address in `peers.json` is refused before a
+  connection opens; a remote member with a bound key is called with the
+  member signature (method, path, body hash, timestamp, nonce) and a body
+  sealed to its key, and no `Authorization` header. A cluster that spans
+  hosts therefore works only between members that have bound each other's
+  keys and set `allow_remote_plaintext: true`; otherwise its calls fail
+  closed with an error that says why. No automatic path binds a new remote
+  member's key today: the scout's reverse handshake and the endpoint proof
+  of `susi peers add` both call the not-yet-attested address and are
+  refused, so the binding is a manual `peers.json` entry (node id, address,
+  public key) on each host until the peer client gains pinned TLS.
 
 ## What the bearer token and the bus secret protect, and what they do not
 
@@ -204,11 +215,13 @@ It does not protect against:
 - any process running as the daemon's user, which reads the file;
 - a caller that was given the token once; there is no per-tool or per-client
   scoping of the host bearer, and a holder may call `privacy_grant`;
-- interception on a plaintext path: with `https_only` at its default of
-  `false` the bearer is readable by anyone on the network path of a
-  non-loopback bind. Signed member requests are not,
-  because the signature covers method, path, a body hash, a timestamp within
-  300 s and a nonce the receiver records (`net_guard::signed_request_valid`).
+- interception on a plaintext path an operator opened with
+  `allow_remote_plaintext: true`: a remote client that sends the host bearer
+  over `http://` exposes it to the network path. Core's own peer client
+  never does (see the TLS section), and signed member requests carry no
+  reusable credential, because the signature covers method, path, a body
+  hash, a timestamp within 300 s and a nonce the receiver records
+  (`net_guard::signed_request_valid`).
 
 Before the token is seeded, requests without a bearer are accepted from
 loopback only; the daemon seeds the token before any contract port binds and
@@ -236,28 +249,41 @@ which holder signed. `node.key` (Ed25519) closes that gap once a committed
 `member_add` binds the member's public key in every receiver's roster;
 until then, member attribution is self-asserted.
 
-**Discovery (UDP 9092).** A scout broadcasts a signed ping; a daemon that
-verifies it records the sender's address as an `Explicit` peer with a
-synthetic id and an empty public key, and answers with a signed pong echoing
-the ping's nonce and carrying its verified roster. Properties that hold:
+**Discovery (UDP 9092).** A scout sends a bound ping (`SUSI_PING_SIG3`) to
+the broadcast address and to each candidate; its MAC covers the sender's
+source IP on that route (found by connecting a throwaway UDP socket), its
+HTTP alias port, a timestamp and a nonce. A daemon that verifies it records
+the advertised address as an `Explicit` peer with a synthetic id and an
+empty public key, and answers with a signed pong echoing the ping's nonce
+and carrying its verified roster. Properties that hold:
 
 - an unsigned probe is dropped and learns nothing, not even that a daemon is
   listening;
+- a captured ping does not verify from any address but the one it names, is
+  refused outside 60 s of its timestamp, and is refused a second time inside
+  the window: the receiver keeps a bounded nonce cache (4,096 entries,
+  entries expire after twice the window, and a full cache refuses rather
+  than forgets), recording a nonce only after the MAC, source and timestamp
+  verify;
+- the retired unbound pings (`SUSI_PING_SIG`, `SUSI_PING_SIG2`) are neither
+  answered nor admitted, even with a valid MAC; a daemon logs the first one
+  it drops. Members must all run a build that speaks `SUSI_PING_SIG3`;
+- a synthetic row earns no credential: the peer client releases a credential
+  only to loopback or to an address whose node key is bound in the roster,
+  and mission dispatch to an unbound row fails naming the missing
+  attestation (`mcp_client::credential_for_target`);
 - a captured pong cannot be replayed against a different ping, because the
   echoed nonce is part of the MAC;
 - a banned member gets neither admission nor a pong.
 
 Properties that do not hold, recorded as residual risk:
 
-- a signed ping is not bound to its source address and the receiver keeps no
-  nonce cache for pings. A host on the same broadcast domain that captures
-  one broadcast ping can replay it from its own address and be recorded as
-  an `Explicit` peer at that address (`persist_verified_peer`, with no bound
-  key). Mission dispatch then treats the address as a member target and
-  attaches the peer bearer to calls made to it (`amas.rs`), which hands the
-  replaying host a credential `NetGuard` accepts from an unbound address.
-  The scout's reverse handshake and committed `member_add` records upgrade
-  real members to attested ids; they do not evict the synthetic entry.
+- a host that spoofs the UDP source address of a real member can replay
+  that member's ping within the window to a receiver that has not seen it;
+  the receiver then admits the member's own address, which it would admit
+  anyway, and the pong goes to the member, not the spoofer. The nonce cache
+  lives in memory, so a daemon restarted inside the window forgets it; the
+  source binding still holds;
 - the pong discloses the responder's node id and roster (ids and addresses)
   to any holder of `cluster.key`.
 
@@ -423,25 +449,22 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set.
 ## Residual risks, in one place
 
 1. Same-user processes are the operator. Nothing in core distinguishes them.
-2. Signed discovery pings replay from another LAN address and earn that
-   address `Explicit` standing and peer-bearer traffic (above).
-3. The shared peer bearer is a symmetric credential; evicting a member
+2. The shared peer bearer is a symmetric credential; evicting a member
    without a re-key leaves it able to authenticate from a fresh address.
-4. Cluster traffic between hosts is plaintext HTTP by default (`https_only`
-   is `false` after the default merge), so the peer bearer and the host
-   bearer of any remote client are readable on the path; setting
-   `https_only: true` refuses the peer channel because the client dials
-   `http://`.
-5. Gossip 9095 is open on every interface regardless of `bind_address`.
-6. Egress classification is by tool name; `local_only` permits the whole LAN.
-7. `balanced` grants egress and cloud inference by default; the config key
+3. The peer channel has no TLS client. Cross-host peer calls carry no
+   bearer, so no credential crosses the network, but they work only between
+   members whose keys were bound by hand on both sides and that set
+   `allow_remote_plaintext`, and their request and response headers (not
+   the sealed bodies) are readable on the path. Multi-host clusters are
+   therefore off by default.
+4. Gossip 9095 is open on every interface regardless of `bind_address`.
+5. Egress classification is by tool name; `local_only` permits the whole LAN
+   (and says so in every report); core has no host-only mode.
+6. `balanced` grants egress and cloud inference by default; the config key
    that reads as a consent requirement is dead.
-8. Governance vetoes are pattern checks (above).
-9. Core has no Docker sandbox; `exec_command` confinement is the user account.
-10. The `tls.rs` module comment and the function's fallback for an absent
-    key say `https_only` defaults to `true`; the merged default is `false`,
-    and `false` is what is enforced.
-11. Leaf services 18081 and 18084 are unauthenticated when started by hand
+7. Governance vetoes are pattern checks (above).
+8. Core has no Docker sandbox; `exec_command` confinement is the user account.
+9. Leaf services 18081 and 18084 are unauthenticated when started by hand
     without `SUSI_HOST_TOKEN`; the daemon always passes the token when it
     spawns them.
 
@@ -467,10 +490,11 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set.
 - **Bind beyond loopback only with a plan for certificates.** The
   self-signed certificate is generated for you but authenticates nothing a
   client does not pin. Supply `tls_cert_path` / `tls_key_path` from a CA the
-  clients trust and set `https_only: true` (the default is `false`, so a
-  LAN bind otherwise accepts plaintext bearers). A cluster that spans hosts
-  cannot use `https_only: true` today, so put it on a network segment you
-  control.
+  clients trust; remote plaintext is refused unless you set
+  `allow_remote_plaintext: true`. A cluster that spans hosts needs that
+  setting on every member today (the peer client has no TLS yet) and works
+  only between members whose keys are bound, so put it on a network segment
+  you control.
 - **Share `cluster.key` deliberately** and only with hosts you would let
   hold the peer bearer. Bind member keys (`member_add`) so bearer-only calls
   from member addresses are refused, and re-key to evict.

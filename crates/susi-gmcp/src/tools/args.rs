@@ -994,8 +994,8 @@ pub struct IpcList {
 #[derive(JsonSchema)]
 #[schemars(crate = "susi_vendor_mcp_server::schemars")]
 pub struct PrivacyMode {
-    /// `balanced`, `local_only` (aliases `local-only`, `edge`, `strict`) or
-    /// `open` (alias `permissive`). Anything else is refused.
+    /// `balanced`, `local_only` (this machine and its local network; aliases
+    /// `local-only`, `edge`, `strict`) or `open` (`permissive`); else refused.
     pub mode: String,
 }
 

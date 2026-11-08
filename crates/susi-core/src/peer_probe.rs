@@ -61,23 +61,30 @@ pub fn handshake(
             .map(|c| c.udp_discovery_port())
             .unwrap_or(susi_paths::ports::UDP_DISCOVERY)
     });
-    // v2 first — the pong attests the responder's Ed25519 pubkey. v1 and
-    // legacy remain for peers running pre-PKI builds. A zero bloom is
-    // honest: the prober registers no tools.
-    let mut attempts: Vec<(String, String)> = Vec::new();
-    if let Some(p) = susi_config::cluster_key::signed_ping_v2("CORE", 0, "0000000000000000") {
-        attempts.push(p);
-    }
-    if let Some(p) = susi_config::cluster_key::signed_ping("CORE", 0, "0000000000000000") {
-        attempts.push(p);
-    }
-    if let Some(p) = susi_config::cluster_key::signed_ping_legacy("CORE", 0, "0000000000000000") {
-        attempts.push(p);
-    }
-    if attempts.is_empty() {
+    let dest = std::net::ToSocketAddrs::to_socket_addrs(&(host.as_str(), port))
+        .map_err(|e| format!("cannot resolve {host}:{port}: {e}"))?
+        .next()
+        .ok_or_else(|| format!("{host}:{port} resolves to no address"))?;
+    // One bound ping (`SUSI_PING_SIG3`): its MAC names the source address
+    // this route uses, so a copy captured on the wire admits nobody else.
+    // A zero bloom is honest: the prober registers no tools. Daemons that
+    // predate the bound ping answer nothing, and are reported unreachable.
+    if susi_config::cluster_key::cluster_key().is_none() {
         return Err("no cluster key at ~/.susi/cluster.key — peers cannot be verified".to_string());
     }
-    let socket = std::net::UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+    let attempts: Vec<(String, String)> =
+        susi_config::cluster_key::signed_ping_v3("CORE", 0, "0000000000000000", dest)
+            .into_iter()
+            .collect();
+    if attempts.is_empty() {
+        return Err(format!("no route from this host to {dest}"));
+    }
+    let any: std::net::SocketAddr = if dest.is_ipv4() {
+        (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
+    } else {
+        (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
+    };
+    let socket = std::net::UdpSocket::bind(any).map_err(|e| e.to_string())?;
     socket
         .set_read_timeout(Some(std::time::Duration::from_secs(PONG_TIMEOUT_SECS)))
         .map_err(|e| e.to_string())?;
@@ -86,7 +93,7 @@ pub fn handshake(
     let mut buf = [0u8; 4096];
     for (ping, nonce) in attempts {
         socket
-            .send_to(ping.as_bytes(), (host.as_str(), port))
+            .send_to(ping.as_bytes(), dest)
             .map_err(|e| e.to_string())?;
         let deadline =
             std::time::Instant::now() + std::time::Duration::from_secs(PONG_TIMEOUT_SECS);
@@ -146,7 +153,8 @@ pub fn handshake(
     }
     Err(format!(
         "no signed pong from {host}:{port} — peer unreachable, not a susi daemon, \
-         or doesn't share this cluster.key"
+         doesn't share this cluster.key, or predates the bound discovery ping \
+         (SUSI_PING_SIG3; every member must run a build that speaks it)"
     ))
 }
 

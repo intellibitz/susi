@@ -801,7 +801,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     ToolRegistry::register_meta_tool(
         registry,
         "privacy_mode",
-        "Set the privacy mode (balanced, local_only, open)",
+        "Set the privacy mode (balanced, local_only = this machine and its local network, open)",
         MetaCategory::WorkspaceIo,
         adapt(CoreTools::privacy_mode),
     );

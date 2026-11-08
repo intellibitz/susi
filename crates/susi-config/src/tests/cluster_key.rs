@@ -40,18 +40,29 @@ impl Drop for TempHomeGuard<'_> {
     }
 }
 
+/// A bound ping toward loopback and its verification from the loopback
+/// source — the round trip every daemon readiness probe makes.
+fn bound_roundtrip(caps: &str, checksum: u64, bloom: &str) -> (BoundPing, String) {
+    let dest: std::net::SocketAddr = "127.0.0.1:9".parse().unwrap();
+    let (ping, nonce) = signed_ping_v3(caps, checksum, bloom, dest).expect("bound ping");
+    let src: std::net::SocketAddr = "127.0.0.1:50001".parse().unwrap();
+    (verify_bound_ping(&ping, src).expect("verify ping"), nonce)
+}
+
 #[test]
 fn signed_ping_pong_roundtrip_verifies() {
     let _t = set_key_env();
-    let (ping, nonce) = signed_ping("CORE,GPU", 7, "00ff").expect("signed ping");
-    let (pinger_id, caps, checksum, bloom, echoed, wants_v2) =
-        verify_signed_ping(&ping).expect("verify ping");
-    assert!(!wants_v2);
-    assert!(pinger_id.starts_with("susi-node-"));
+    let (ping, nonce) = bound_roundtrip("CORE,GPU", 7, "00ff");
+    assert!(ping.node_id.starts_with("susi-node-"));
     assert_eq!(
-        (caps.as_str(), checksum, bloom.as_str()),
+        (
+            ping.caps_csv.as_str(),
+            ping.checksum,
+            ping.bloom_hex.as_str()
+        ),
         ("CORE,GPU", 7, "00ff")
     );
+    let echoed = ping.nonce;
     assert_eq!(echoed, nonce);
     let roster = vec![
         ("peer-b".to_string(), "10.0.0.2:9090".to_string()),
@@ -72,9 +83,8 @@ fn signed_ping_pong_roundtrip_verifies() {
 #[test]
 fn pong_with_wrong_nonce_or_mac_is_rejected() {
     let _t = set_key_env();
-    let (ping, nonce) = signed_ping("CORE", 1, "00").unwrap();
-    let (_, _, _, _, echoed, _) = verify_signed_ping(&ping).unwrap();
-    let pong = signed_pong("peer", 0, "00", &echoed, &[]).unwrap();
+    let (ping, nonce) = bound_roundtrip("CORE", 1, "00");
+    let pong = signed_pong("peer", 0, "00", &ping.nonce, &[]).unwrap();
     // Wrong expected nonce -> reject.
     assert!(verify_signed_pong(&pong, "deadbeef").is_none());
     // Tampered mac -> reject.
@@ -87,8 +97,8 @@ fn pong_with_wrong_nonce_or_mac_is_rejected() {
 #[test]
 fn legacy_six_field_pong_still_verifies_with_empty_roster() {
     let _t = set_key_env();
-    let (ping, nonce) = signed_ping("CORE", 1, "00").unwrap();
-    let (_, _, _, _, echoed, _) = verify_signed_ping(&ping).unwrap();
+    let (ping, nonce) = bound_roundtrip("CORE", 1, "00");
+    let echoed = ping.nonce;
     // Reconstruct a pre-gossip pong: no roster field, MAC over the
     // original five fields — older daemons still handshake cleanly.
     let key = cluster_key().unwrap();
@@ -100,20 +110,15 @@ fn legacy_six_field_pong_still_verifies_with_empty_roster() {
 }
 
 #[test]
-fn legacy_six_field_ping_verifies_with_empty_node_id() {
+fn retired_unbound_pings_are_refused_even_with_a_valid_mac() {
     let _t = set_key_env();
-    // Reconstruct a pre-identity ping: no node_id field, MAC over the
-    // original four fields — older daemons still handshake cleanly.
+    // A pre-identity ping with a correct MAC: it binds no sender, so a
+    // captured copy would replay from anywhere. Refused, never answered.
     let key = cluster_key().unwrap();
     let mac = mac_tag(&key, &["ping", "CORE", "1", "00", "noncenonce"]);
     let legacy = format!("SUSI_PING_SIG:CORE:1:00:noncenonce:{mac}");
-    let (pinger_id, caps, checksum, bloom, echoed, _) =
-        verify_signed_ping(&legacy).expect("legacy ping");
-    assert!(pinger_id.is_empty());
-    assert_eq!(
-        (caps.as_str(), checksum, bloom.as_str(), echoed.as_str()),
-        ("CORE", 1, "00", "noncenonce")
-    );
+    let src: std::net::SocketAddr = "10.0.0.5:9092".parse().unwrap();
+    assert_eq!(verify_bound_ping(&legacy, src), Err(PingRejection::Unbound));
 }
 
 #[test]
@@ -124,9 +129,8 @@ fn node_id_persists_and_is_wire_safe() {
     // Second call reads back the same identity — identity is stable.
     assert_eq!(node_id().as_deref(), Some(first.as_str()));
     // And it survives the ping wire format unchanged.
-    let (ping, _) = signed_ping("CORE", 1, "00").unwrap();
-    let (pinger_id, _, _, _, _, _) = verify_signed_ping(&ping).unwrap();
-    assert_eq!(pinger_id, first);
+    let (ping, _) = bound_roundtrip("CORE", 1, "00");
+    assert_eq!(ping.node_id, first);
 }
 
 #[test]
@@ -186,9 +190,8 @@ fn peer_channel_ecdh_is_symmetric_and_seal_roundtrips() {
 #[test]
 fn v3_pong_carries_subject_attested_binding() {
     let _t = set_key_env();
-    let (ping, nonce) = signed_ping_v2("CORE", 1, "00").expect("v2 ping");
-    let (_, _, _, _, echoed, wants_v2) = verify_signed_ping(&ping).expect("verify");
-    assert!(wants_v2);
+    let (ping, nonce) = bound_roundtrip("CORE", 1, "00");
+    let echoed = ping.nonce;
     let my_id = wire_node_id();
     let my_pk = node_pubkey_hex().expect("pubkey");
     let pong = signed_pong_v3(&my_id, 3, "abcd", &echoed, &[]).expect("v3 pong");

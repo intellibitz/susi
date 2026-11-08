@@ -2692,9 +2692,10 @@ mod tests {
 
     #[tokio::test]
     async fn negotiate_transport_remote_plaintext_policy() {
-        // Remote plaintext is allowed only when no TLS is configured and
-        // https_only is unset; https_only refuses it. (The remote-TLS-
-        // handshake path needs a cert and is covered by live verification.)
+        // Remote plaintext passes only when the daemon does not require
+        // remote TLS (allow_remote_plaintext); requiring it refuses it. (The
+        // remote-TLS handshake path needs a cert and is covered by live
+        // verification.)
         assert!(
             negotiate_with_prefix(b"GET / HTTP/1.1\r\n\r\n", true, false)
                 .await
@@ -2706,7 +2707,7 @@ mod tests {
                 .is_none()
         );
         // Loopback is always exempt — internal `http://127.0.0.1` callers
-        // must not die when https_only is on.
+        // must not die when remote TLS is required.
         assert!(
             negotiate_with_prefix(b"GET / HTTP/1.1\r\n\r\n", false, true)
                 .await

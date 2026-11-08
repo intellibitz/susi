@@ -80,9 +80,9 @@ impl AsyncWrite for MaybeTls {
 /// to peers that need it.
 ///
 /// Plaintext policy is peer-based: loopback always passes; off-host
-/// (`remote`) plaintext is refused only when `require_tls_remote`
-/// (config `https_only`) is set — so an operator can force TLS on the
-/// external surface while internal `http://127.0.0.1` callers keep working.
+/// (`remote`) plaintext is refused when `require_tls_remote` is set, which
+/// the daemon does unless the operator sets `allow_remote_plaintext` — so
+/// TLS guards the external surface while `http://127.0.0.1` keeps working.
 ///
 /// `surface` prefixes handshake-failure logs (e.g. `"[A2A]"`). Returns
 /// `None` when the connection must be dropped.
