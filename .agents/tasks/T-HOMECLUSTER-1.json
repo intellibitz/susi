@@ -1,7 +1,7 @@
 {
   "id": "T-HOMECLUSTER-1",
   "title": "Zero-config home-LAN peer key preservation and attested status fallback",
-  "goal": "Keep zero-config home-LAN cluster members attested across UDP discovery refreshes: a refresh that carries no key keeps the row's bound node_id, pubkey, key_bound_at and bind_sig. `susi peers status` reports a key-bound member that discovery still sees but whose status call fails (for example inbound TCP refused by the member's OS firewall) truthfully: the row carries the error, live_via_discovery and the key prefix, and none of the unmeasured term, leader, ledger size or key epoch, so divergence stays visible. (Taken over by Claude on the CEO's instruction 2026-11-09 02:20 after Antigravity finished; the earlier version copied this node's state into the member's row.)",
+  "goal": "Keep zero-config home-LAN cluster members attested across UDP discovery refreshes: a refresh that carries no key keeps the row's bound node_id, pubkey, key_bound_at and bind_sig. `susi peers status` reports a key-bound member that discovery still sees but whose status call fails (for example inbound TCP refused by the member's OS firewall) truthfully: the row carries the error, live_via_discovery and the key prefix, and none of the unmeasured term, leader, ledger size or key epoch, so divergence stays visible. (Taken over by Claude on the CEO's instruction 2026-11-09 02:20 after Antigravity finished; the earlier version copied this node's state into the member's row.) Also fixes the root of a gate failure met while landing: crates/susi-daemon/src/watchdog.rs test_watchdog_timeout raced the wall clock (50 ms timeout, two 30 ms sleeps; under gate load both cells read dead). The watchdog now takes its clock as an input internally; the public methods still use Instant::now(), and the test states exact instants.",
   "state": "in_progress",
   "status": "in_progress",
   "claimed_by": "homecluster",
@@ -14,11 +14,13 @@
   "scope": [
     ".agents/tasks/t-homecluster-1.json",
     "crates/susi-core/src/peer_roster.rs",
+    "crates/susi-daemon/src/watchdog.rs",
     "crates/susi-gawd-swarm/src/peer_registry.rs"
   ],
   "scopes": [
     ".agents/tasks/t-homecluster-1.json",
     "crates/susi-core/src/peer_roster.rs",
+    "crates/susi-daemon/src/watchdog.rs",
     "crates/susi-gawd-swarm/src/peer_registry.rs"
   ],
   "acceptance": "cargo test --lib -p susi-core peer_roster --offline --locked",

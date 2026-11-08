@@ -40,15 +40,26 @@ impl WatchdogManager {
 
     /// Registers a new cell with the watchdog.
     pub fn register_cell(&self, cell_id: &str) {
+        self.register_cell_at(cell_id, Instant::now());
+    }
+
+    /// [`Self::register_cell`] at an explicit instant (the clock is an input
+    /// so timing behaviour can be checked exactly, not by sleeping).
+    fn register_cell_at(&self, cell_id: &str, now: Instant) {
         let mut map = self.heartbeats.lock().unwrap_or_else(|e| e.into_inner());
-        map.insert(cell_id.to_string(), Instant::now());
+        map.insert(cell_id.to_string(), now);
     }
 
     /// Records a heartbeat (ping) from a cell.
     pub fn ping(&self, cell_id: &str) -> Result<(), String> {
+        self.ping_at(cell_id, Instant::now())
+    }
+
+    /// [`Self::ping`] at an explicit instant.
+    fn ping_at(&self, cell_id: &str, now: Instant) -> Result<(), String> {
         let mut map = self.heartbeats.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(last_seen) = map.get_mut(cell_id) {
-            *last_seen = Instant::now();
+            *last_seen = now;
             Ok(())
         } else {
             Err(format!(
@@ -66,12 +77,16 @@ impl WatchdogManager {
 
     /// Checks all cells and returns a list of IDs that have exceeded the timeout.
     pub fn find_dead_cells(&self) -> Vec<String> {
+        self.find_dead_cells_at(Instant::now())
+    }
+
+    /// [`Self::find_dead_cells`] as of an explicit instant.
+    fn find_dead_cells_at(&self, now: Instant) -> Vec<String> {
         let map = self.heartbeats.lock().unwrap_or_else(|e| e.into_inner());
-        let now = Instant::now();
         let mut dead = Vec::new();
 
         for (id, last_seen) in map.iter() {
-            if now.duration_since(*last_seen) > self.timeout {
+            if now.saturating_duration_since(*last_seen) > self.timeout {
                 dead.push(id.clone());
             }
         }
@@ -86,30 +101,28 @@ mod tests {
 
     #[test]
     fn test_watchdog_timeout() {
+        // The clock is an input: wall-clock sleeps overshoot under load
+        // (the gate saw both cells dead at 50 ms), so the instants are exact.
         let watchdog = WatchdogManager::new(Duration::from_millis(50));
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
 
-        watchdog.register_cell("good-cell");
-        watchdog.register_cell("bad-cell");
+        watchdog.register_cell_at("good-cell", start);
+        watchdog.register_cell_at("bad-cell", start);
 
-        // Both should be alive initially
-        assert_eq!(watchdog.find_dead_cells().len(), 0);
+        // Both are alive at registration and right up to the timeout.
+        assert!(watchdog.find_dead_cells_at(start).is_empty());
+        assert!(watchdog.find_dead_cells_at(at(50)).is_empty());
 
-        // Sleep to let them approach timeout
-        std::thread::sleep(Duration::from_millis(30));
+        // The good cell pings at 30 ms; at 60 ms only the silent one is dead.
+        watchdog.ping_at("good-cell", at(30)).unwrap();
+        let dead = watchdog.find_dead_cells_at(at(60));
+        assert_eq!(dead, vec!["bad-cell".to_string()]);
 
-        // Good cell pings
-        watchdog.ping("good-cell").unwrap();
-
-        // Sleep past the timeout threshold
-        std::thread::sleep(Duration::from_millis(30));
-
-        // Find dead cells
-        let dead = watchdog.find_dead_cells();
-        assert_eq!(dead.len(), 1);
-        assert_eq!(dead[0], "bad-cell");
-
-        // Good cell should still be alive because it pinged
-        assert!(!dead.contains(&"good-cell".to_string()));
+        // Past its own deadline (30 + 50 ms) the good cell is dead too.
+        let mut dead = watchdog.find_dead_cells_at(at(81));
+        dead.sort();
+        assert_eq!(dead, vec!["bad-cell".to_string(), "good-cell".to_string()]);
     }
 
     #[test]
