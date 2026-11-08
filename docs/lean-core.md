@@ -86,14 +86,14 @@ threads). Baseline measured 2026-11-07 22:53 at origin/main `fc3f5a861`,
 **under load** (a test gate was running on the same machine; a clean re-run
 follows once the gate is idle):
 
-| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | 06:15 idle, landed `66d3ca6d8` | 09:01 idle, landed `240ee4dfb` (iteration 362) | budget |
-| --------- | ---------- | ---------- | ---------- | ---------- | ---------- | -------- |
-| wall clock | 196 s | 165 s | 104.5 s | 107.7 s (88.9 s in a second idle run) | 81.7 s | 60 s |
-| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | 990.5 s (427 units) | 822.7 s (417 units) | under 1,200 s |
-| of which workspace crates | 393 s | 359 s | 184 s | 219 s | 148.4 s | under 150 s |
-| of which third-party | 1,916 s | 1,513 s | 899 s | 772 s | 674.2 s | under 1,000 s, then towards 0 |
-| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | 15 units, 125 s: windows-sys 27, tokio 13, h2/hyper/reqwest 17, rmcp 25, gmcp 15, daemon 11, bin 12 | 17 units, 95.1 s: windows-sys 19 s -> tokio 15.5 -> h2/hyper/hyper-util 8.8 -> susi-core 10.6 -> gawd-agents 4.4 -> gawd-swarm 7.6 -> gawd 8.1 -> daemon 6.0 -> bin 7.5 | under 55 s |
-| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | 40 s | 29.9 s | under 15 s |
+| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | 06:15 idle, landed `66d3ca6d8` | 09:01 idle, landed `240ee4dfb` (iteration 362) | 21:21-21:30 idle, T-CORENET-1 `437ccf597` (three runs alternating with main `92f7ee498`) | budget |
+| --------- | ---------- | ---------- | ---------- | ---------- | ---------- | ---------- | -------- |
+| wall clock | 196 s | 165 s | 104.5 s | 107.7 s (88.9 s in a second idle run) | 81.7 s | 70.1, 70.2, 70.6 s (main: 74.2, 73.3, 76.9 s) | 60 s |
+| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | 990.5 s (427 units) | 822.7 s (417 units) | 775.8-784.7 s (417 units; main 745.8-774.9 s) | under 1,200 s |
+| of which workspace crates | 393 s | 359 s | 184 s | 219 s | 148.4 s | 157.9-161.5 s (main 153.4-162.3 s) | under 150 s |
+| of which third-party | 1,916 s | 1,513 s | 899 s | 772 s | 674.2 s | 617.7-624.0 s (main 592.4-612.7 s) | under 1,000 s, then towards 0 |
+| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | 15 units, 125 s: windows-sys 27, tokio 13, h2/hyper/reqwest 17, rmcp 25, gmcp 15, daemon 11, bin 12 | 17 units, 95.1 s: windows-sys 19 s -> tokio 15.5 -> h2/hyper/hyper-util 8.8 -> susi-core 10.6 -> gawd-agents 4.4 -> gawd-swarm 7.6 -> gawd 8.1 -> daemon 6.0 -> bin 7.5 | 15 units, 81.5-82.1 s: windows-sys 19 -> tokio 9.5 -> h2/hyper/hyper-util 9.7 -> axum 5.7 -> ra2a 7.7 -> gawd-a2a 2.7 -> gawd 8.9 -> daemon 6.0 -> bin 7.4; susi-core starts at 29.7-30.2 s (main 36.8-38.7 s) and is off the path (main: 17 units, 88.5-92.7 s, through susi-http-transport -> susi-adapters-llm -> susi-core) | under 55 s |
+| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | 40 s | 29.9 s | 17.8-18.1 s (main 24.1-25.1 s) | under 15 s |
 
 The idle number is the baseline the budget counts from. Between the two
 measurements Antigravity's iterations 341-350 removed candle, bollard and the
@@ -293,3 +293,28 @@ table once the clean baseline is recorded.
   19,344 -> 19,350, of which 4 lines are the `privacy_mode` test of the new spelling); the GEMI
   provider gate moves onto the mode-aware check and shrinks (susi-gemi 21,304 -> 21,302).
   Re-pinned at the measured values.
+- 2026-11-08 21:30 (T-CORENET-1): susi-core leaves the async runtime and the HTTP stack. The
+  peer MCP client runs on `susi_core::plain_http` (std `TcpStream`, plaintext `http://` only,
+  `https://` refused by name, one budget over connect, send and body, Content-Length, chunked
+  and until-close bodies, redirects never followed as before, no proxy); provider futures are
+  runtime-agnostic (`provider::run_blocking` threads and `provider::block_on`), so the owner-side
+  provider dispatch builds no runtime; the never-set async evidence task-local and the truth
+  verifier's runtime are gone (`cross_examine` is synchronous); `inference_wire` is imported from
+  `susi-adapters-llm`, its real home. susi-core's normal dependencies lose susi-http-transport,
+  susi-adapters-llm, susi-vendor-tokio and three unused facades (dashmap, flume, parking_lot);
+  `cargo tree -p susi-core -e normal` names no tokio, hyper, h2, mio, ureq, reqwest, rustls or
+  native-tls. Measured idle, alternating with main `92f7ee498` on the same worktree and F: drive:
+  wall 70.1 / 70.2 / 70.6 s against 74.2 / 73.3 / 76.9 s; susi-core starts at 29.7-30.2 s against
+  36.8-38.7 s; serial tail 18 s against 24-25 s; the critical path no longer runs through
+  susi-core (now windows-sys -> tokio -> h2/hyper -> axum -> ra2a -> gawd-a2a -> gawd -> daemon ->
+  bin, 81.5-82.1 s). CPU-seconds rise about 3% (775.8-784.7 s against 745.8-774.9 s, same 417
+  units): more units now overlap on the 28 threads. Runs at 20:46-20:52 (two of them read
+  83.6 / 85.8 s) were not checked for other builds and a commercial release build ran from 20:52,
+  so they are not counted. Two gates remain between susi-core and an earlier start: the
+  `cell-server` feature of susi-abi (enabled by the gawd, gemi and gmcp library manifests for
+  their cell binaries) unifies tokio into susi-abi in the host build, so core still starts only
+  after tokio (about 29 s); and susi-gawd-agents itself depends on susi-http-transport. The
+  pillar reach does not move (50 workspace, 259 third-party, 23 facade edges: core is not a
+  pillar and the pillars still use the stack). The susi-gemi line ceiling goes 21,302 -> 21,300
+  (runtime-free candle provider futures; the scout probe test now holds the env lock, whose
+  absence let it overwrite the brain backup test's file mid-recovery).
