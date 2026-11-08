@@ -192,7 +192,11 @@ TLS on the contract ports (`crates/susi-daemon/src/tls.rs`,
   sealed to its key, and no `Authorization` header. A cluster that spans
   hosts therefore works only between members that have bound each other's
   keys and set `allow_remote_plaintext: true`; otherwise its calls fail
-  closed with an error that says why.
+  closed with an error that says why. No automatic path binds a new remote
+  member's key today: the scout's reverse handshake and the endpoint proof
+  of `susi peers add` both call the not-yet-attested address and are
+  refused, so the binding is a manual `peers.json` entry (node id, address,
+  public key) on each host until the peer client gains pinned TLS.
 
 ## What the bearer token and the bus secret protect, and what they do not
 
@@ -449,9 +453,10 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set.
    without a re-key leaves it able to authenticate from a fresh address.
 3. The peer channel has no TLS client. Cross-host peer calls carry no
    bearer, so no credential crosses the network, but they work only between
-   members that bound each other's keys and set `allow_remote_plaintext`,
-   and their request and response headers (not the sealed bodies) are
-   readable on the path.
+   members whose keys were bound by hand on both sides and that set
+   `allow_remote_plaintext`, and their request and response headers (not
+   the sealed bodies) are readable on the path. Multi-host clusters are
+   therefore off by default.
 4. Gossip 9095 is open on every interface regardless of `bind_address`.
 5. Egress classification is by tool name; `local_only` permits the whole LAN
    (and says so in every report); core has no host-only mode.
