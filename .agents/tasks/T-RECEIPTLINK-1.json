@@ -1,0 +1,35 @@
+{
+  "id": "T-RECEIPTLINK-1",
+  "title": "The README links the gate receipts and their verifier",
+  "goal": "Add one \"Read next\" bullet pointing at docs/gate-receipts.md and .agents/receipts/, so the front door says where every gated landing's re-runnable evidence lives and how to replay it.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "receiptlink",
+  "native_worker": "receiptlink",
+  "created_by": "receiptlink",
+  "created_unix": 1794138993,
+  "updated_unix": 1794138993,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-receiptlink-1.json",
+    "readme.md"
+  ],
+  "scope": [
+    ".agents/tasks/t-receiptlink-1.json",
+    "readme.md"
+  ],
+  "acceptance": "cargo test -p susi --test core_docs_promise_no_ui_or_plugins --offline --locked",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--offline",
+      "--locked"
+    ]
+  }
+}
