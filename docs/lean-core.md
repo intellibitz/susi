@@ -248,3 +248,6 @@ table once the clean baseline is recorded.
   them. Two build-time runs at `6f1df35c7` (126.2 s / 1,397.6 CPU-s and 134.9 s / 1,302.8 CPU-s)
   were taken while other agents' gates held the CPU; they are not budget numbers.
 - 2026-11-08 rung 1 MCP client cut (T-ANTIGRAVITY-1, commercial commit `dc623f2`): `susi-tools` serves `McpServerConfig`, `call_blocking_result` and `list_tools_blocking` over `PlaneBus` (`ecosystem_hub.mcp.call` / `ecosystem_hub.mcp.list_tools`) and a std JSON-RPC 2.0 stdio/HTTP client; `susi-vendor-mcp` and the unreached `susi-vendor-jsonschema` facade leave core. Third-party 268 -> 259, workspace 50, direct facade edges 23.
+- 2026-11-08 iteration 362 (Antigravity, adopted through the gate): the MCP SDK facade
+  (`susi-vendor-mcp`, rmcp) replaced by a plane-bus plus std JSON-RPC client in susi-tools; the
+  jsonschema facade crate deleted. Third-party 259, workspace 50, facade edges 23.
