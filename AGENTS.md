@@ -126,17 +126,16 @@ and `cargo fmt --all --check` on the exact tree, and ship through the gate.
    gate remains an open task; do not invent success or bypass checks. Preserve
    both workers' changes and resolve conflicts as agents. Local completion must
    not depend on `origin/main`, a pull request, remote CI, or human code review.
-   When the work should land on GitHub, `cargo local-workflow ship <name> [<name> ...]`
+   When the work should land on `origin`, `cargo local-workflow ship <name> [<name> ...]`
    is the serialized push and merge. Agents keep committing in parallel.
    `ship` runs the local gate once for the batch, fast-forwards `refs/heads/main`
-   on `origin` directly to the verified local integration head, synchronizes
-   local `main`, and posts the four `susi-local/*` commit statuses onto the
-   published commit. It does not open a pull request or run GitHub Actions.
-   `ship --retry` republishes a verified integration head after a failed push.
-   `ruleset apply` prints the main ruleset; `ruleset apply --apply` sends it.
-   This repository carries no GitHub Actions workflow files (removed, CEO
-   decision 2026-11-06); `workflows disable --merge-path` remains only for a
-   repository that still has disabled workflow files on GitHub.
+   on `origin` directly to the verified local integration head plus its gate
+   receipt commit (`.agents/receipts/`, the record of the landing), and
+   synchronizes local `main`. It uses git push and fetch only: no commit
+   statuses, pull requests, Actions or API calls (CEO mandate 2026-11-09:
+   GitHub is storage only). `ship --retry` republishes a verified integration
+   head after a failed push. Releases are tags plus committed records
+   (`releases/<tag>.json`, `docs/releases.md`).
 7. Close only after acceptance and integrated-tree verification succeed for the
    complete task. Zero executed tests do not count. Release ownership deliberately;
    `cargo local-workflow release <name>` preserves the branch/worktree and refuses
@@ -274,8 +273,8 @@ chat, or agent memory.
   GPG and SSH signing identities, and the commercial release authority key).
 - Agents read it only through the launcher's `AgentVault.ps1` helpers
   (`Read-AgentFields`, `Invoke-AgentKdbx`), and a value moves only through a
-  pipe or a child process's environment to its consumer, for example a GitHub
-  repository secret set from stdin. Never print, log, echo, write to a file,
+  pipe or a child process's environment to its consumer, for example a command
+  that reads it from stdin. Never print, log, echo, write to a file,
   paste in chat, or pass a value on a command line; report "set" and at most a
   byte length, and clear variables afterwards.
 - New credentials are generated in-process, stored in the automation vault,

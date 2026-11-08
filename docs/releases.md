@@ -66,7 +66,7 @@ still open; the record names digests, never a download location.
 
 ## Installing and upgrading
 
-The installers (and, once its change lands, the upgrade script) resolve the newest tag with `git ls-remote --tags` against a
+All three paths resolve the newest tag with `git ls-remote --tags` against a
 configured remote, check that tag out, read its record from the remote's
 default branch, build `susi` natively with the recorded profile, features and
 environment, and install the result only when it reports the tag's version.
@@ -80,11 +80,7 @@ toolchain is not installed the installers stop and print the
 |---|---|
 | `install.sh` (Linux x86_64) | `SUSI_SOURCE_REPO`, else the `origin` of the checkout the script runs from |
 | `install.ps1` (Windows x86_64) | `SUSI_SOURCE_REPO`, else the `origin` of the checkout the script runs from |
-| `scripts/susi-release-sync.sh` (upgrades, Windows and Linux) | `SUSI_RELEASE_REMOTE`, else the `origin` of the private release checkout `~/.susi/release-src` that the installer or an earlier sync made |
-
-The release sync's move to this path lands in a separate change (task
-T-NOGH-1, phase two); until it does, it still prefers the published binary
-of the git host's release page and builds only when that download fails.
+| `scripts/susi-release-sync.sh` (upgrades, Windows and Linux; it installs its own next copy from the default branch, not from the tag) | `SUSI_RELEASE_REMOTE`, else the `origin` of the private release checkout `~/.susi/release-src` that the installer or an earlier sync made |
 
 `SUSI_RELEASE_TAG` (installers) and `--tag` (sync) pin a specific release.
 There is no built-in default remote: a script that finds none says which

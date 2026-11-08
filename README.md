@@ -139,11 +139,28 @@ that command.
 Native installation does not by itself qualify a candidate for production;
 qualification, promotion and rollback have separate evidence gates.
 
-Legacy `install.sh` and `install.ps1` remain compatibility artifacts. They are
-not the mandated development or installation path and their historical download,
-autostart and build behavior must not be treated as current acceptance evidence.
-Platform scope, installer behavior and qualification are recorded in
-[docs/evidence.md](docs/evidence.md#platforms).
+From source, a person installs with `install.sh` (x86_64 Linux) or
+`install.ps1` (x86_64 Windows) from a clone of this repository. They need git
+and a Rust toolchain from [rustup](https://rustup.rs): the release tag pins its
+compiler in `rust-toolchain.toml` (1.99.0 for v0.21.52), and when that
+toolchain is missing the installer stops and prints the `rustup toolchain
+install` command. It never installs software for you and downloads no binary.
+
+```sh
+git clone https://github.com/intellibitz/susi.git && cd susi && ./install.sh
+```
+
+```powershell
+git clone https://github.com/intellibitz/susi.git; cd susi; ./install.ps1
+```
+
+The installer builds the newest release tag of the clone's `origin` (or of
+`SUSI_SOURCE_REPO`, the core repository's git URL, when it runs outside a
+clone; `SUSI_RELEASE_TAG` pins a release) with the settings in that release's
+committed record, and installs it only when it reports the tag's version. A
+cold build takes several minutes. Releases, their records and the reference
+checksums are described in [docs/releases.md](docs/releases.md). Platform scope
+and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms).
 
 ### Developing susi
 
