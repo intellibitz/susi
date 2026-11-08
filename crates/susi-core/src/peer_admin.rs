@@ -827,6 +827,19 @@ fn add_over_channel(
     endpoint: &str,
     peer: &susi_config::peer_channel::PeerIdentity,
 ) -> Result<(), String> {
+    // A node with no explicit member other than this peer is joining the
+    // peer's cluster: the peer's leader commits this node's admission and
+    // its ledger becomes this node's (so a repeated `peers add` of the same
+    // hub never starts a second ledger here). A node already in a cluster
+    // admits the peer into its own, through its own leader.
+    let joining = !load_registry()?.iter().any(|n| {
+        n.get("admission").and_then(|a| a.as_str()) == Some("explicit")
+            && n.get("node_id").and_then(|v| v.as_str()) != Some(peer.node_id.as_str())
+            && !n
+                .get("pubkey")
+                .and_then(|v| v.as_str())
+                .is_some_and(|k| k.eq_ignore_ascii_case(&peer.pubkey))
+    });
     let banned = load_banned()?;
     if banned.iter().any(|b| {
         b.get("node_id").and_then(|v| v.as_str()) == Some(peer.node_id.as_str())
@@ -900,14 +913,16 @@ fn add_over_channel(
             peer.node_id
         );
     }
-    commit_membership(
-        out,
-        crate::commit_log::KIND_MEMBER_ADD,
-        &peer.node_id,
-        endpoint,
-        &peer.pubkey,
-        &peer.bind_sig,
-    );
+    if !joining {
+        commit_membership(
+            out,
+            crate::commit_log::KIND_MEMBER_ADD,
+            &peer.node_id,
+            endpoint,
+            &peer.pubkey,
+            &peer.bind_sig,
+        );
+    }
     request_admission(out, peer, endpoint);
     Ok(())
 }

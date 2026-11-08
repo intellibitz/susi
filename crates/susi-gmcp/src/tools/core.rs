@@ -1490,8 +1490,18 @@ impl CoreTools {
             )));
         }
         // The leader votes in its own electorate — otherwise evicting a
-        // dead member would require the dead member's endorsement.
-        let mut electorate: Vec<String> = roster.iter().map(|(nid, _, _)| nid.clone()).collect();
+        // dead member would require the dead member's endorsement. The
+        // swarm roster lists this node itself (its `Local` entry), so it is
+        // taken from there exactly once: a duplicate counts the leader as
+        // two bound members, doubles the quorum it needs, and makes every
+        // proposal to a standalone leader unsatisfiable.
+        let mut electorate: Vec<String> = roster
+            .iter()
+            .map(|(nid, _, _)| nid.clone())
+            .filter(|nid| nid != &self_id)
+            .collect();
+        electorate.sort();
+        electorate.dedup();
         electorate.push(self_id.clone());
         let Some(mut record) = crate::susi_core::commit_log::CommitRecord::seal_member(
             &self_id,
