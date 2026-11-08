@@ -23,19 +23,26 @@ const WORKSPACE_CEILING: usize = 50;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 const DIRECT_FACADE_EDGES_CEILING: usize = 23;
-/// Rust lines under `crates/<crate>/src` per pillar family. A pillar may
-/// take lines only from a crate leaving core (a contract moving in, as
-/// `set_selected_model_override` did on 2026-11-07, +128 in gemi-models
-/// while vendor-models shed far more); the change that moves them re-pins
-/// every crate here at its measured value and says so in the wave log.
+/// Rust lines under `crates/<crate>/src` per pillar family, counting what
+/// ships: the `tests/` and `mastery_tests/` directories directly under `src`
+/// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
+/// left out, so a suite returning to core (2026-11-08: 35 core-subject suites
+/// come back from the commercial copies) never reads as production growth
+/// and a cut can never hide behind a deleted test. Inline `mod tests` inside
+/// production files still count. A pillar may take production lines only from
+/// a crate leaving core (a contract moving in, as `set_selected_model_override`
+/// did on 2026-11-07, +128 in gemi-models while vendor-models shed far more)
+/// or from a plug port that replaces a stub (mandate rule 4); the change that
+/// moves them re-pins every crate here at its measured value and says so in
+/// the wave log.
 const LINE_CEILINGS: [(&str, usize); 8] = [
-    ("susi-gawd", 32_044),
-    ("susi-gawd-swarm", 26_711),
+    ("susi-gawd", 29_296),
+    ("susi-gawd-swarm", 22_943),
     ("susi-gawd-agents", 11_495),
-    ("susi-gawd-a2a", 2_348),
-    ("susi-gemi", 26_405),
-    ("susi-gemi-models", 17_249),
-    ("susi-gmcp", 19_427),
+    ("susi-gawd-a2a", 2_108),
+    ("susi-gemi", 21_304),
+    ("susi-gemi-models", 16_797),
+    ("susi-gmcp", 19_344),
     ("susi-harness", 40_790),
 ];
 
@@ -146,7 +153,15 @@ fn pillar_reach(metadata: &Value) -> Reach {
     }
 }
 
+/// Directories directly under a crate's `src` that hold standalone test
+/// suites rather than shipped code (see [`LINE_CEILINGS`]).
+const SUITE_DIRS: [&str; 2] = ["tests", "mastery_tests"];
+
 fn rust_lines(dir: &Path) -> usize {
+    rust_lines_in(dir, true)
+}
+
+fn rust_lines_in(dir: &Path, top: bool) -> usize {
     let mut total = 0;
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
@@ -154,7 +169,14 @@ fn rust_lines(dir: &Path) -> usize {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            total += rust_lines(&path);
+            let is_suite_dir = top
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| SUITE_DIRS.contains(&n));
+            if !is_suite_dir {
+                total += rust_lines_in(&path, false);
+            }
         } else if path.extension().is_some_and(|e| e == "rs") {
             total += std::fs::read_to_string(&path).map_or(0, |s| s.lines().count());
         }
@@ -202,7 +224,7 @@ fn pillar_source_does_not_grow() {
         eprintln!("lean-core: {krate} src = {lines} lines (ceiling {ceiling})");
         assert!(
             lines <= ceiling,
-            "{krate} grew to {lines} Rust lines under src (ceiling {ceiling}); lean-core cuts only"
+            "{krate} grew to {lines} shipped Rust lines under src (ceiling {ceiling}; suite dirs excluded); lean-core cuts only"
         );
     }
 }

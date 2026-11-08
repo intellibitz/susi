@@ -69,7 +69,10 @@ pub fn local_engine_plug() -> Option<Arc<dyn LocalEnginePlug>> {
     }
     #[cfg(not(feature = "local-engine"))]
     {
-        None
+        // A wired plug (the commercial susi-plug-host) serves a default build.
+        PlaneBus::global()
+            .is_wired(TOPIC_LOCAL_INFER_STREAM)
+            .then(BuiltinLocalEnginePlug::shared)
     }
 }
 
