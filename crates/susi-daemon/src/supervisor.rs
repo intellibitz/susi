@@ -69,15 +69,21 @@ pub fn adopt_ephemeral_child(child: &std::process::Child) -> bool {
 /// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` terminates the children with it.
 ///
 /// The `kernel32` surface is declared here rather than taken from a crate:
-/// `susi-*` crates declare zero third-party dependencies, and the four calls
+/// `susi-*` crates declare zero third-party dependencies, and the few calls
 /// needed are smaller than a `windows-sys` facade would be.
+///
+/// Every supervised leaf gets a job of its own ([`adopt_leaf`]), kept by
+/// pid: stopping a leaf terminates its job, which ends the leaf and every
+/// process it started in one call, as `taskkill /T /F` did, without
+/// launching `taskkill.exe` (about 1.2 s per stop, past 3 s under gate load).
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod child_job {
+    use std::collections::HashMap;
     use std::ffi::c_void;
     use std::os::windows::io::AsRawHandle;
     use std::process::Child;
-    use std::sync::OnceLock;
+    use std::sync::{Mutex, OnceLock};
 
     /// An opaque `HANDLE`.
     type Handle = *mut c_void;
@@ -138,10 +144,24 @@ mod child_job {
             info_len: u32,
         ) -> i32;
         fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
-        #[cfg(test)]
         fn TerminateJobObject(job: Handle, exit_code: u32) -> i32;
         fn CloseHandle(object: Handle) -> i32;
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
+        fn TerminateProcess(process: Handle, exit_code: u32) -> i32;
+        // FILETIME is two little-endian u32 halves: one u64 has its layout.
+        fn GetProcessTimes(
+            process: Handle,
+            creation: *mut u64,
+            exit: *mut u64,
+            kernel: *mut u64,
+            user: *mut u64,
+        ) -> i32;
     }
+
+    /// `PROCESS_TERMINATE`.
+    const PROCESS_TERMINATE: u32 = 0x0001;
+    /// `PROCESS_QUERY_LIMITED_INFORMATION`.
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 
     /// Create an unnamed kill-on-close job; `None` when the OS refuses, which
     /// degrades the lifecycle (a warning, never a failed boot).
@@ -193,6 +213,137 @@ mod child_job {
         // process's lifetime; `process` is `child`'s live handle, borrowed
         // for the call and not closed here.
         unsafe { AssignProcessToJobObject(job as Handle, process) != 0 }
+    }
+
+    /// Each supervised leaf's own job, by pid. The handles stay open until
+    /// the leaf is reaped, and the OS closes them when the daemon process
+    /// ends, however it ends: kill-on-close then ends the leaf's tree.
+    fn leaf_jobs() -> &'static Mutex<HashMap<u32, usize>> {
+        static JOBS: OnceLock<Mutex<HashMap<u32, usize>>> = OnceLock::new();
+        JOBS.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    /// Put a just-spawned leaf in a kill-on-close job of its own, so it can
+    /// be stopped as a tree with [`terminate_tree`]. Falls back to the shared
+    /// [`leaf_job`] when the OS refuses a new job; false when the leaf is in
+    /// no job at all.
+    pub fn adopt_leaf(child: &Child) -> bool {
+        if let Some(job) = create() {
+            if adopt(job, child) {
+                leaf_jobs()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(child.id(), job);
+                return true;
+            }
+            // SAFETY: closing the handle `create` just returned; no alias.
+            unsafe { CloseHandle(job as Handle) };
+        }
+        leaf_job().is_some_and(|job| adopt(job, child))
+    }
+
+    /// Close a reaped leaf's job. Kill-on-close ends anything it left behind.
+    pub fn release(pid: u32) {
+        let job = leaf_jobs()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&pid);
+        if let Some(job) = job {
+            // SAFETY: the registry owned this handle; it was removed above, so
+            // nothing else closes or uses it.
+            unsafe { CloseHandle(job as Handle) };
+        }
+    }
+
+    /// An open process handle, closed on drop.
+    struct Process(Handle);
+
+    impl Process {
+        fn open(pid: u32, access: u32) -> Option<Self> {
+            // SAFETY: integer arguments only; a non-null result is a new
+            // handle this value owns.
+            let handle = unsafe { OpenProcess(access, 0, pid) };
+            (!handle.is_null()).then_some(Self(handle))
+        }
+    }
+
+    impl Drop for Process {
+        fn drop(&mut self) {
+            // SAFETY: this value owns the handle exclusively and closes it once.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    /// When `pid` was created (100 ns ticks), if it can be asked.
+    fn created_at(pid: u32) -> Option<u64> {
+        let process = Process::open(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
+        let (mut creation, mut exit, mut kernel, mut user) = (0u64, 0u64, 0u64, 0u64);
+        // SAFETY: `process` is a live handle with query access; the four
+        // out-pointers name distinct, writable 8-byte FILETIME slots.
+        let ok =
+            unsafe { GetProcessTimes(process.0, &mut creation, &mut exit, &mut kernel, &mut user) };
+        (ok != 0).then_some(creation)
+    }
+
+    fn terminate_one(pid: u32) -> bool {
+        let Some(process) = Process::open(pid, PROCESS_TERMINATE) else {
+            return false;
+        };
+        // SAFETY: `process` is a live handle opened with terminate access.
+        unsafe { TerminateProcess(process.0, 1) != 0 }
+    }
+
+    /// End `pid` and every process it started. A supervised leaf: terminate
+    /// its job, which ends the leaf and everything started inside it. Its
+    /// descendants are also read from the process table first (deepest
+    /// first), which covers any pid with no job (an orphan of an earlier
+    /// daemon, a holder adopted by port) and any process started before the
+    /// job assignment. A descendant counts only when it was created after its
+    /// recorded parent, so a reused parent pid never claims an unrelated
+    /// process.
+    pub fn terminate_tree(pid: u32) -> bool {
+        if pid == 0 || pid == 4 {
+            return false;
+        }
+        let descendants = descendants_of(pid);
+        let job = leaf_jobs()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&pid)
+            .copied();
+        let ended = match job {
+            // SAFETY: the registry keeps this job handle open until release;
+            // terminating a job ends its processes and leaves the handle valid.
+            Some(job) => (unsafe { TerminateJobObject(job as Handle, 1) }) != 0,
+            None => terminate_one(pid),
+        };
+        for descendant in descendants.iter().rev() {
+            terminate_one(*descendant);
+        }
+        ended
+    }
+
+    /// `pid`'s descendants in the process table, parents before children.
+    fn descendants_of(pid: u32) -> Vec<u32> {
+        let table = winapi::host::processes();
+        let mut descendants = Vec::new();
+        let mut frontier = vec![(pid, created_at(pid))];
+        while let Some((parent, parent_born)) = frontier.pop() {
+            let Some(parent_born) = parent_born else {
+                continue;
+            };
+            for row in table.iter().filter(|row| row.parent_pid == parent) {
+                if row.pid == pid || descendants.contains(&row.pid) {
+                    continue;
+                }
+                let born = created_at(row.pid);
+                if born.is_some_and(|born| born >= parent_born) {
+                    descendants.push(row.pid);
+                    frontier.push((row.pid, born));
+                }
+            }
+        }
+        descendants
     }
 
     /// A job scoped to a value: dropping it terminates every process already
@@ -361,9 +512,7 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
             // Windows: tie the child to the daemon's kill-on-close job before
             // any wait can fail, so no daemon exit path leaves it orphaned.
             #[cfg(windows)]
-            if let Some(job) = child_job::leaf_job()
-                && !child_job::adopt(job, &child)
-            {
+            if !child_job::adopt_leaf(&child) {
                 slog(&format!(
                     "[supervisor] {} not placed in the kill-on-close job; it would survive the daemon",
                     svc.name
@@ -382,6 +531,8 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
                 child.take().map(|mut child| {
                     move || {
                         let _ = child.wait();
+                        #[cfg(windows)]
+                        child_job::release(pid);
                     }
                 })
             });
@@ -448,18 +599,70 @@ fn utc_now() -> String {
 
 /// Wait until a port answers HTTP or the deadline passes — bind alone
 /// isn't readiness; axum must actually serve.
+/// Every wait inside it wakes on `shutdown` within [`CANCEL_SLICE`].
 fn wait_for_port(port: u16, deadline: Duration, shutdown: Option<&AtomicBool>) -> bool {
+    let cancelled = || shutdown.is_some_and(|flag| flag.load(Ordering::Acquire));
     let start = Instant::now();
     while start.elapsed() < deadline {
-        if shutdown.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        if cancelled() {
             return false;
         }
-        if service_table::http_probe(port) {
-            return !shutdown.is_some_and(|flag| flag.load(Ordering::Acquire));
+        if http_ready(port, shutdown) {
+            return !cancelled();
         }
-        thread::sleep(Duration::from_millis(100));
+        let pause = Instant::now();
+        while pause.elapsed() < Duration::from_millis(100) && !cancelled() {
+            thread::sleep(CANCEL_SLICE);
+        }
     }
     false
+}
+
+/// How long a readiness wait may go without looking at the shutdown flag.
+const CANCEL_SLICE: Duration = Duration::from_millis(20);
+
+/// `service_table::http_probe` for a cancellable wait: the same request and
+/// the same 500 ms reply budget, but the reply is read in [`CANCEL_SLICE`]
+/// steps that each check `shutdown`. A leaf that accepts the request and
+/// never answers held a teardown for up to 500 ms before (about 0.6 s
+/// measured). The connect is bounded at 100 ms: loopback to a listening
+/// port connects at once, and a refused one is retried by the caller.
+fn http_ready(port: u16, shutdown: Option<&AtomicBool>) -> bool {
+    use std::io::{Read, Write};
+    let cancelled = || shutdown.is_some_and(|flag| flag.load(Ordering::Acquire));
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut stream) = std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100))
+    else {
+        return false;
+    };
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(300)));
+    if cancelled()
+        || stream
+            .write_all(b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            .is_err()
+        || stream.set_read_timeout(Some(CANCEL_SLICE)).is_err()
+    {
+        return false;
+    }
+    let mut buf = [0u8; 16];
+    let mut got = 0;
+    let started = Instant::now();
+    while got < 5 && started.elapsed() < Duration::from_millis(500) {
+        if cancelled() {
+            return false;
+        }
+        match stream.read(&mut buf[got..]) {
+            Ok(0) => break,
+            Ok(n) => got += n,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => return false,
+        }
+    }
+    buf[..got].starts_with(b"HTTP/")
 }
 
 /// Whether a supervised pid is still running.
@@ -483,17 +686,11 @@ fn signal(pid: u32, sig: i32) -> bool {
 }
 
 #[cfg(windows)]
-/// Windows has no signals: terminate the process tree with `taskkill /T /F`.
-/// A console leaf has no top-level window, so the polite form (`taskkill`
-/// without `/F`) would post `WM_CLOSE` to nothing and leave it running.
+/// Windows has no signals: terminate the process tree in-process, through the
+/// leaf's job ([`child_job::terminate_tree`]). A console leaf has no
+/// top-level window, so a polite close would post `WM_CLOSE` to nothing.
 fn signal(pid: u32, _sig: i32) -> bool {
-    Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    child_job::terminate_tree(pid)
 }
 
 #[cfg(all(not(unix), not(windows)))]
@@ -1326,7 +1523,7 @@ fn main() -> std::io::Result<()> {
             }
             let saw_request = accepted.exists();
             cancel.store(true, Ordering::Release);
-            saw_request
+            (saw_request, Instant::now())
         });
         let mut table = Vec::new();
         let start = Instant::now();
@@ -1334,9 +1531,20 @@ fn main() -> std::io::Result<()> {
             record_spawned_service(&service, port, stalled.0.id(), &mut table, Some(&shutdown))
                 .is_none()
         );
+        let returned = Instant::now();
+        let (saw_request, cancelled_at) = trigger.join().unwrap();
         assert!(
-            trigger.join().unwrap(),
+            saw_request,
             "fixture must accept the real readiness request"
+        );
+        let teardown = returned.saturating_duration_since(cancelled_at);
+        eprintln!(
+            "stalled leaf: shutdown raised to child stopped and wait returned in {teardown:?} (whole wait {:?})",
+            returned - start
+        );
+        assert!(
+            teardown < Duration::from_secs(1),
+            "teardown after shutdown took {teardown:?}"
         );
         assert!(
             start.elapsed() < Duration::from_secs(3),
@@ -1463,6 +1671,111 @@ if ([ServiceConsoleFixture]::GetConsoleWindow() -ne [IntPtr]::Zero) { exit 21 }
             "the fake service child outlived the job guard (pid {pid})"
         );
         let _ = child.wait();
+    }
+
+    /// A fake leaf (`cmd`) with a child of its own (`ping`), and the
+    /// grandchild's pid once the process table shows it.
+    #[cfg(windows)]
+    #[allow(clippy::zombie_processes)] // the child is returned; every caller waits it
+    fn leaf_with_grandchild(job: bool) -> (std::process::Child, u32) {
+        let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32");
+        // cmd strips the quotes Rust adds around this one argument.
+        let ping = format!("{} -n 60 127.0.0.1 >NUL", system.join("ping.exe").display());
+        let mut child = Command::new(system.join("cmd.exe"))
+            .args(["/d", "/c", &ping])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn the fake leaf");
+        // As `spawn_service` does: into its job before it can start anything.
+        if job && !child_job::adopt_leaf(&child) {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the fake leaf must get a job");
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let grandchild = winapi::host::processes().into_iter().find(|row| {
+                row.parent_pid == child.id() && row.name.eq_ignore_ascii_case("ping.exe")
+            });
+            if let Some(row) = grandchild {
+                return (child, row.pid);
+            }
+            if Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the fake leaf never started its child");
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Stop `pid` the way the supervisor does and time it until `pid` and
+    /// `grandchild` are both gone (bounded: panics after 10 s).
+    #[cfg(windows)]
+    fn stop_and_time(pid: u32, grandchild: u32) -> Duration {
+        let start = Instant::now();
+        assert!(signal(pid, SIGTERM), "terminating the tree of {pid} failed");
+        while child_alive(pid) || child_alive(grandchild) {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "the tree of {pid} survived termination"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+        start.elapsed()
+    }
+
+    /// Stopping a supervised leaf ends its whole tree through the leaf's own
+    /// job, in-process: `taskkill /T /F` took about 1.2 s per stop on its own,
+    /// and past 3 s under gate load.
+    #[cfg(windows)]
+    #[test]
+    fn stopping_a_leaf_ends_its_tree_through_its_job() {
+        let (mut leaf, grandchild) = leaf_with_grandchild(true);
+        let pid = leaf.id();
+        let took = stop_and_time(pid, grandchild);
+        eprintln!("leaf tree terminated through its job in {took:?}");
+        assert!(took < Duration::from_secs(1), "stopping took {took:?}");
+        let _ = leaf.wait();
+        child_job::release(pid);
+    }
+
+    /// What happens when the daemon dies, however it dies: the OS closes the
+    /// leaf's job handle, and kill-on-close ends the leaf and the process it
+    /// started. Closing the handle here is the same event, minus the daemon.
+    #[cfg(windows)]
+    #[test]
+    fn a_leafs_whole_tree_dies_when_its_job_closes() {
+        let (mut leaf, grandchild) = leaf_with_grandchild(true);
+        let pid = leaf.id();
+        let start = Instant::now();
+        child_job::release(pid);
+        while child_alive(pid) || child_alive(grandchild) {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "the leaf tree outlived its job (pid {pid}, child {grandchild})"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+        eprintln!(
+            "leaf tree ended by closing its job in {:?}",
+            start.elapsed()
+        );
+        let _ = leaf.wait();
+    }
+
+    /// A pid with no job (an orphan of an earlier daemon) is still stopped as
+    /// a tree, from the process table.
+    #[cfg(windows)]
+    #[test]
+    fn stopping_a_pid_without_a_job_still_ends_its_tree() {
+        let (mut leaf, grandchild) = leaf_with_grandchild(false);
+        let took = stop_and_time(leaf.id(), grandchild);
+        eprintln!("unjobbed tree terminated from the process table in {took:?}");
+        assert!(took < Duration::from_secs(1), "stopping took {took:?}");
+        let _ = leaf.wait();
     }
 
     /// A supervised pid's liveness is asked of the OS in-process: the monitor

@@ -104,7 +104,7 @@ impl BenchmarkRunner {
         let model =
             std::env::var("SUSI_BENCH_CLOUD_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
 
-        let payload = crate::susi_core::inference_wire::openai_chat_body(&model, prompt, 1024);
+        let payload = susi_adapters_llm::inference_wire::openai_chat_body(&model, prompt, 1024);
 
         let mem_before = own_rss_bytes();
 
@@ -119,7 +119,7 @@ impl BenchmarkRunner {
         if let Some(ref token) = auth {
             headers.push(("Authorization", token.as_str()));
         }
-        let body = crate::susi_core::inference_wire::post_json(&url, &headers, &payload)
+        let body = susi_adapters_llm::inference_wire::post_json(&url, &headers, &payload)
             .map_err(|e| EaiError::inference(format!("Cloud benchmark endpoint '{}': {e}", url)))?;
         // The response headers can arrive well before generation/body transfer
         // finishes. Include reading the full body in end-to-end latency.
@@ -143,7 +143,7 @@ impl BenchmarkRunner {
     }
 
     fn completion_count(body: &serde_json::Value) -> EaiResult<(usize, String)> {
-        let text = crate::susi_core::inference_wire::openai_chat_text(body)
+        let text = susi_adapters_llm::inference_wire::openai_chat_text(body)
             .map_err(|e| EaiError::inference(format!("Benchmark endpoint: {e}")))?;
         if text.trim().is_empty() {
             return Err(EaiError::inference(

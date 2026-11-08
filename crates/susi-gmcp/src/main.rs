@@ -10,8 +10,7 @@ use susi_gmcp::susi_abi::syscall::{
 
 use susi_gmcp::susi_abi;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bind_addr = cell_bind_addr(cell_ports::GMCP);
     println!("susi-gmcp micro-daemon starting on {bind_addr}");
 
@@ -41,12 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         expected_token,
         "susi-gmcp Swarm Cell",
         handle_tool,
-    )
-    .await?;
+    )?;
     Ok(())
 }
 
-async fn handle_tool(req: SyscallRequest) -> SyscallResponse {
+fn handle_tool(req: SyscallRequest) -> SyscallResponse {
     // Dispatch through the same plane-bus tool path as the daemon. When no
     // tools handler is registered in this process the call fails and the
     // caller gets an Error status - never a fabricated success.
@@ -67,12 +65,9 @@ async fn handle_tool(req: SyscallRequest) -> SyscallResponse {
     let outcome = if name.is_empty() {
         Err("missing tool name in payload (`name`)".to_string())
     } else {
-        tokio::task::spawn_blocking(move || {
-            susi_gmcp::plane_tools::execute_tool(&name, &args, &workspace)
-                .map_err(|e| e.to_string())
-        })
-        .await
-        .unwrap_or_else(|e| Err(format!("tool task failed: {e}")))
+        // Runs on this connection's own thread; the cell server answers a
+        // panic in the tool as an `Error`.
+        susi_gmcp::plane_tools::execute_tool(&name, &args, &workspace).map_err(|e| e.to_string())
     };
     let latency_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
     // The tool registry flattens failures (EaiError display, capability
@@ -160,8 +155,8 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn handle_tool_rejects_missing_tool_name_with_error_status() {
+    #[test]
+    fn handle_tool_rejects_missing_tool_name_with_error_status() {
         let req = SyscallRequest {
             id: "tool-1".to_string(),
             caller_id: "caller".to_string(),
@@ -171,7 +166,7 @@ mod tests {
             payload: serde_json::json!({}),
             timestamp: 1,
         };
-        let resp = handle_tool(req).await;
+        let resp = handle_tool(req);
         assert_eq!(resp.id, "tool-1");
         assert_eq!(resp.status, SyscallStatus::Error);
         assert!(resp
@@ -195,8 +190,8 @@ mod tests {
         assert_eq!(cell.manifest.capabilities.len(), 2);
     }
 
-    #[tokio::test]
-    async fn handle_tool_accepts_tool_alias_and_preserves_request_id() {
+    #[test]
+    fn handle_tool_accepts_tool_alias_and_preserves_request_id() {
         let req = SyscallRequest {
             id: "tool-alias-2".to_string(),
             caller_id: "caller".to_string(),
@@ -209,7 +204,7 @@ mod tests {
             }),
             timestamp: 2,
         };
-        let resp = handle_tool(req).await;
+        let resp = handle_tool(req);
         assert_eq!(resp.id, "tool-alias-2");
     }
 }

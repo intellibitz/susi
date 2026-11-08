@@ -37,13 +37,13 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 23;
 /// the wave log. A new security capability's boundary checks (2026-11-08:
 /// the `host_only` privacy mode) are re-pinned the same way.
 const LINE_CEILINGS: [(&str, usize); 8] = [
-    ("susi-gawd", 29_295),
+    ("susi-gawd", 29_291),
     ("susi-gawd-swarm", 23_002),
     ("susi-gawd-agents", 11_495),
     ("susi-gawd-a2a", 2_113),
-    ("susi-gemi", 21_302),
+    ("susi-gemi", 21_290),
     ("susi-gemi-models", 16_797),
-    ("susi-gmcp", 19_350),
+    ("susi-gmcp", 19_345),
     ("susi-harness", 40_790),
 ];
 

@@ -2,6 +2,8 @@ use crate::susi_error::EaiResult;
 use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 
 /// A type alias for boxed futures to maintain object safety for the Provider trait.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -25,6 +27,105 @@ pub trait Provider: Send + Sync + 'static {
     /// Exposes the underlying type for downcasting if provider-specific
     /// features are needed.
     fn as_any(&self) -> &dyn Any;
+}
+
+/// Drive `fut` to completion on the calling thread, parking it between
+/// polls.
+///
+/// Provider futures are runtime-agnostic: work that blocks runs on a
+/// [`run_blocking`] thread and wakes the future when it finishes, so a plain
+/// thread (a plane-bus handler, a CLI command) completes them without an
+/// async runtime, and an async runtime's task awaits them without blocking
+/// a worker. A future that needs a particular runtime's reactor or timer
+/// cannot be driven here; providers must not return one.
+pub fn block_on<F: Future>(fut: F) -> F::Output {
+    struct ThreadWaker(std::thread::Thread);
+    impl std::task::Wake for ThreadWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let waker = Waker::from(Arc::new(ThreadWaker(std::thread::current())));
+    let mut cx = Context::from_waker(&waker);
+    let mut fut = std::pin::pin!(fut);
+    loop {
+        if let Poll::Ready(out) = fut.as_mut().poll(&mut cx) {
+            return out;
+        }
+        // A spurious unpark only costs one extra poll.
+        std::thread::park();
+    }
+}
+
+/// Run `work` on a thread of its own and resolve with its result once it
+/// returns, without an async runtime. `Err` when the thread cannot be
+/// started or `work` panics. Dropping the future does not stop `work`; its
+/// result is discarded.
+pub fn run_blocking<T, F>(work: F) -> RunBlocking<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let slot: Arc<Mutex<BlockingSlot<T>>> = Arc::new(Mutex::new(BlockingSlot {
+        result: None,
+        waker: None,
+    }));
+    let worker_slot = Arc::clone(&slot);
+    let spawned = std::thread::Builder::new()
+        .name("susi-provider-blocking".into())
+        .spawn(move || {
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).map_err(|payload| {
+                    let reason = payload
+                        .downcast_ref::<&str>()
+                        .map(|s| (*s).to_string())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "non-text panic payload".to_string());
+                    format!("blocking provider work panicked: {reason}")
+                });
+            let waker = {
+                let mut slot = worker_slot.lock().unwrap_or_else(|e| e.into_inner());
+                slot.result = Some(result);
+                slot.waker.take()
+            };
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        });
+    if let Err(e) = spawned {
+        slot.lock().unwrap_or_else(|e| e.into_inner()).result = Some(Err(format!(
+            "blocking provider work could not start a thread: {e}"
+        )));
+    }
+    RunBlocking { slot }
+}
+
+struct BlockingSlot<T> {
+    result: Option<Result<T, String>>,
+    waker: Option<Waker>,
+}
+
+/// The future [`run_blocking`] returns.
+pub struct RunBlocking<T> {
+    slot: Arc<Mutex<BlockingSlot<T>>>,
+}
+
+impl<T> Future for RunBlocking<T> {
+    type Output = Result<T, String>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut slot = self.slot.lock().unwrap_or_else(|e| e.into_inner());
+        match slot.result.take() {
+            Some(result) => Poll::Ready(result),
+            None => {
+                slot.waker = Some(cx.waker().clone());
+                Poll::Pending
+            }
+        }
+    }
 }
 
 std::thread_local! {
@@ -206,5 +307,61 @@ mod on_demand_engine_start_tests {
             e.as_mut().poll(&mut cx),
             std::task::Poll::Ready(Ok(ref v)) if v == &[0.5, -0.5]
         ));
+    }
+
+    #[test]
+    fn block_on_drives_run_blocking_work_from_a_plain_thread() {
+        let worker = super::block_on(super::run_blocking(|| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::thread::current().name().map(str::to_string)
+        }));
+        assert_eq!(
+            worker.unwrap().as_deref(),
+            Some("susi-provider-blocking"),
+            "the work ran on its own thread"
+        );
+        let chained = super::block_on(async {
+            let a = super::run_blocking(|| 2).await.unwrap();
+            let b = super::run_blocking(move || a * 21).await.unwrap();
+            b
+        });
+        assert_eq!(chained, 42);
+    }
+
+    #[test]
+    fn a_panicking_blocking_task_resolves_to_an_error() {
+        let err = super::block_on(super::run_blocking(|| -> u8 { panic!("boom") })).unwrap_err();
+        assert!(err.contains("panicked: boom"), "{err}");
+    }
+
+    #[test]
+    fn provider_futures_complete_under_block_on() {
+        struct BlockingProvider;
+        impl Provider for BlockingProvider {
+            fn name(&self) -> &str {
+                "blocking"
+            }
+            fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+                Box::pin(async { Ok(super::run_blocking(|| true).await.unwrap_or(false)) })
+            }
+            fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
+                let prompt = prompt.to_string();
+                Box::pin(async move {
+                    super::run_blocking(move || format!("gen:{prompt}"))
+                        .await
+                        .map_err(crate::susi_error::EaiError::process)
+                })
+            }
+            fn embed(&self, _text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+                Box::pin(async { Ok(vec![1.0]) })
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+        let p = BlockingProvider;
+        assert!(super::block_on(p.is_healthy()).unwrap());
+        assert_eq!(super::block_on(p.generate("x")).unwrap(), "gen:x");
+        assert_eq!(super::block_on(p.embed("x")).unwrap(), vec![1.0]);
     }
 }
