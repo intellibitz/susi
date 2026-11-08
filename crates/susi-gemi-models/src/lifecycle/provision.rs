@@ -523,14 +523,38 @@ mod license_tests {
         env.set("SUSI_HOME", &dir);
         env.remove("HF_TOKEN");
 
+        // The one-shot server that answers the network probe. Its accept is
+        // bounded: a probe that never arrives (the gate saw this test block its
+        // whole binary for 35 minutes on `join`) must fail the test with a
+        // message, never hang it.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
-        let worker = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
+        let worker = std::thread::spawn(move || -> Result<String, String> {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(conn) => break conn,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= deadline {
+                            return Err(
+                                "the network probe never reached the test's hf_base_url within 20 s"
+                                    .to_string(),
+                            );
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    Err(e) => return Err(format!("accept failed: {e}")),
+                }
+            };
+            stream.set_nonblocking(false).map_err(|e| e.to_string())?;
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+                .map_err(|e| e.to_string())?;
             let mut request = String::new();
-            std::io::BufReader::new(stream.try_clone().unwrap())
+            std::io::BufReader::new(stream.try_clone().map_err(|e| e.to_string())?)
                 .read_line(&mut request)
-                .unwrap();
+                .map_err(|e| e.to_string())?;
             let body = r#"{"id":"org/starter","cardData":{"license":"apache-2.0"},"siblings":[{"rfilename":"starter-Q4_0.gguf","size":1024}]}"#;
             write!(
                 stream,
@@ -538,7 +562,8 @@ mod license_tests {
                 body.len(),
                 body
             )
-            .unwrap();
+            .map_err(|e| e.to_string())?;
+            Ok(request)
         });
 
         let mut cfg = crate::susi_sandbox::manager::SusiConfig::default();
@@ -568,7 +593,11 @@ mod license_tests {
         cfg.save(&susi_paths::SusiDirs::config_dir()).unwrap();
 
         let report = ModelManager::verify_model_ladder(&dir).unwrap();
-        worker.join().unwrap();
+        let request = worker.join().unwrap().unwrap();
+        assert!(
+            request.starts_with("GET /api/models"),
+            "the probe asked the test server for {request:?}"
+        );
         assert!(report.total_steps > 0);
         assert_eq!(report.steps.len(), report.total_steps);
         assert!(report.network_status.contains("Connected: true"));
