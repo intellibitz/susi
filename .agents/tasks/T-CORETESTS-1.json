@@ -1,0 +1,60 @@
+{
+  "id": "T-CORETESTS-1",
+  "title": "Return the core-subject test suites that the migration loop copied into commercial (GAWD swarm, member-identity ledger, CLI, dev workflow)",
+  "goal": "CEO decision 2026-11-08: commercial wires its 93 real features; the 34 suites whose only subject is core come back to core instead of being deleted or dragging a copy of the swarm into the paid product. Each suite is restored at its pre-deletion version from core history (iterations 231-293 deleted them as 'migrate test suite'), re-declared, made to compile against current core, and its tests pass in the gate.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "coretests",
+  "native_worker": "coretests",
+  "created_by": "coretests",
+  "created_unix": 1794113833,
+  "updated_unix": 1794113833,
+  "size": "M",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-coretests-1.json",
+    "crates/susi-daemon/src/lib.rs",
+    "crates/susi-daemon/src/tests",
+    "crates/susi-gawd-swarm/src/lib.rs",
+    "crates/susi-gawd-swarm/src/tests",
+    "tests/cloud_session.rs",
+    "tests/cluster_rekey.rs",
+    "tests/eco_cli.rs",
+    "tests/eco_explain.rs",
+    "tests/lazy_catalog_priming.rs",
+    "tests/mac_grant_persistence.rs",
+    "tests/member_signing.rs",
+    "tests/moonshot_alias.rs",
+    "tests/park_primary.rs",
+    "tests/peer_request_signing.rs"
+  ],
+  "scope": [
+    ".agents/tasks/t-coretests-1.json",
+    "crates/susi-daemon/src/lib.rs",
+    "crates/susi-daemon/src/tests",
+    "crates/susi-gawd-swarm/src/lib.rs",
+    "crates/susi-gawd-swarm/src/tests",
+    "tests/cloud_session.rs",
+    "tests/cluster_rekey.rs",
+    "tests/eco_cli.rs",
+    "tests/eco_explain.rs",
+    "tests/lazy_catalog_priming.rs",
+    "tests/mac_grant_persistence.rs",
+    "tests/member_signing.rs",
+    "tests/moonshot_alias.rs",
+    "tests/park_primary.rs",
+    "tests/peer_request_signing.rs"
+  ],
+  "acceptance": "cargo test -p susi-gawd-swarm --lib --offline --locked",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

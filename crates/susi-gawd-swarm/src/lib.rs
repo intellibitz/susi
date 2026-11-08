@@ -76,11 +76,62 @@ mod audit_action_choke_point_tests;
 #[path = "tests/audit_payload_free_policy.rs"]
 mod audit_payload_free_policy_tests;
 #[cfg(test)]
+#[path = "tests/cancel_propagate_dispatch_wiring.rs"]
+mod cancel_propagate_dispatch_wiring_tests;
+#[cfg(test)]
+#[path = "tests/cancel_terminates.rs"]
+mod cancel_terminates_tests;
+#[cfg(test)]
+#[path = "tests/durable_fence.rs"]
+mod durable_fence_tests;
+#[cfg(test)]
 #[path = "tests/durable_mission_state.rs"]
 mod durable_mission_state_tests;
 #[cfg(test)]
+#[path = "tests/fair_queue_dispatch_wiring.rs"]
+mod fair_queue_dispatch_wiring_tests;
+#[cfg(test)]
+#[path = "tests/independent_verify_dispatch_wiring.rs"]
+mod independent_verify_dispatch_wiring_tests;
+#[cfg(test)]
+#[path = "tests/joint_consensus_membership_wiring.rs"]
+mod joint_consensus_membership_wiring_tests;
+#[cfg(test)]
+#[path = "tests/mission_dag_persist_wiring.rs"]
+mod mission_dag_persist_wiring_tests;
+#[cfg(test)]
+#[path = "tests/mission_resume_cli_wiring.rs"]
+mod mission_resume_cli_wiring_tests;
+#[cfg(test)]
+#[path = "tests/native_role_select_wiring.rs"]
+mod native_role_select_wiring_tests;
+#[cfg(test)]
+#[path = "tests/parallel_roadmap_e2e.rs"]
+mod parallel_roadmap_e2e_tests;
+#[cfg(test)]
+#[path = "tests/resource_schedule_dispatch_wiring.rs"]
+mod resource_schedule_dispatch_wiring_tests;
+#[cfg(test)]
+#[path = "tests/side_effect_journal.rs"]
+mod side_effect_journal_tests;
+#[cfg(test)]
+#[path = "tests/side_effects_dispatch_wiring.rs"]
+mod side_effects_dispatch_wiring_tests;
+#[cfg(test)]
 #[path = "tests/snapshot_rollback.rs"]
 mod snapshot_rollback_tests;
+#[cfg(test)]
+#[path = "tests/swarm_gap_durable_fencing.rs"]
+mod swarm_gap_durable_fencing_tests;
+#[cfg(test)]
+#[path = "tests/swarm_gap_live_admission.rs"]
+mod swarm_gap_live_admission_tests;
+#[cfg(test)]
+#[path = "tests/swarm_gap_real_cancellation.rs"]
+mod swarm_gap_real_cancellation_tests;
+#[cfg(test)]
+#[path = "tests/swarm_gap_safe_replay.rs"]
+mod swarm_gap_safe_replay_tests;
 #[cfg(test)]
 #[path = "tests/swarm_gap_verified_closure.rs"]
 mod swarm_gap_verified_closure_tests;
@@ -88,14 +139,32 @@ mod swarm_gap_verified_closure_tests;
 #[path = "tests/swarm_gap_workspace_isolation.rs"]
 mod swarm_gap_workspace_isolation_tests;
 #[cfg(test)]
+#[path = "tests/task_lease_dispatch_wiring.rs"]
+mod task_lease_dispatch_wiring_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_021.rs"]
 mod vc_201_021_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_022.rs"]
+mod vc_201_022_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_023.rs"]
+mod vc_201_023_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_024.rs"]
+mod vc_201_024_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_025.rs"]
 mod vc_201_025_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_026.rs"]
+mod vc_201_026_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_027.rs"]
 mod vc_201_027_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_028.rs"]
+mod vc_201_028_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_030.rs"]
 mod vc_201_030_tests;
