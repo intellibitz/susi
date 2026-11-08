@@ -61,29 +61,7 @@ fn status(json_out: bool) -> Result<()> {
         "NODE", "TERM", "LEADER", "RECORDS", "ROSTER", "BOUND", "KEY EPOCH"
     );
     for r in &rows {
-        let node = r.get("node").and_then(|v| v.as_str()).unwrap_or("?");
-        if let Some(err) = r.get("error").and_then(|v| v.as_str()) {
-            println!(
-                "{node:<28} {:>5} {:<28} {:>7} {:>6} {:>6} {:<14} offline ({err})",
-                "-", "-", "-", "-", "-", "-"
-            );
-            continue;
-        }
-        let term = r.get("term").and_then(|v| v.as_u64()).unwrap_or(0);
-        let leader = r.get("leader").and_then(|v| v.as_str()).unwrap_or("");
-        let leader_disp = if leader.is_empty() { "(none)" } else { leader };
-        let records = r.get("records").and_then(|v| v.as_u64()).unwrap_or(0);
-        let roster_n = r.get("roster").and_then(|v| v.as_u64()).unwrap_or(0);
-        let bound = r.get("bound").and_then(|v| v.as_u64()).unwrap_or(0);
-        let epoch = r.get("key_epoch").and_then(|v| v.as_str()).unwrap_or("-");
-        let state = if r.get("self").and_then(|v| v.as_bool()) == Some(true) {
-            "this node"
-        } else {
-            "member"
-        };
-        println!(
-            "{node:<28} {term:>5} {leader_disp:<28} {records:>7} {roster_n:>6} {bound:>6} {epoch:<14} {state}"
-        );
+        println!("{}", status_line(r));
     }
     // Divergence surface: differing terms, leaders or key epochs across
     // members is the operator-visible symptom of a partitioned or stale
@@ -97,6 +75,39 @@ fn status(json_out: bool) -> Result<()> {
 /// Liveness for display: only a `last_seen_secs` within the staleness window
 /// counts — anything older (or absent, from a pre-liveness registry) shows
 /// `stale` until the peer re-verifies with a signed pong.
+/// One `susi peers status` table row. A member discovery still sees is
+/// shown as live even when its status call failed: only its term, leader,
+/// records and key epoch are unknown, so those columns stay blank.
+fn status_line(r: &serde_json::Value) -> String {
+    let node = r.get("node").and_then(|v| v.as_str()).unwrap_or("?");
+    if let Some(err) = r.get("error").and_then(|v| v.as_str()) {
+        let state = if r.get("live_via_discovery").and_then(|v| v.as_bool()) == Some(true) {
+            "live, status unavailable"
+        } else {
+            "offline"
+        };
+        return format!(
+            "{node:<28} {:>5} {:<28} {:>7} {:>6} {:>6} {:<14} {state} ({err})",
+            "-", "-", "-", "-", "-", "-"
+        );
+    }
+    let term = r.get("term").and_then(|v| v.as_u64()).unwrap_or(0);
+    let leader = r.get("leader").and_then(|v| v.as_str()).unwrap_or("");
+    let leader_disp = if leader.is_empty() { "(none)" } else { leader };
+    let records = r.get("records").and_then(|v| v.as_u64()).unwrap_or(0);
+    let roster_n = r.get("roster").and_then(|v| v.as_u64()).unwrap_or(0);
+    let bound = r.get("bound").and_then(|v| v.as_u64()).unwrap_or(0);
+    let epoch = r.get("key_epoch").and_then(|v| v.as_str()).unwrap_or("-");
+    let state = if r.get("self").and_then(|v| v.as_bool()) == Some(true) {
+        "this node"
+    } else {
+        "member"
+    };
+    format!(
+        "{node:<28} {term:>5} {leader_disp:<28} {records:>7} {roster_n:>6} {bound:>6} {epoch:<14} {state}"
+    )
+}
+
 fn liveness(n: &serde_json::Value) -> &'static str {
     susi_core::peer_roster::liveness(n)
 }
@@ -233,4 +244,40 @@ fn probe(host: &str, port: Option<u16>) -> Result<()> {
     }
     println!("  local standing:    {}", text("local_standing"));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::status_line;
+    use serde_json::json;
+
+    #[test]
+    fn a_live_member_whose_status_call_failed_reads_live_not_offline() {
+        let line = status_line(&json!({
+            "node": "susi-node-peer",
+            "error": "live by discovery; status unavailable: connection refused",
+            "live_via_discovery": true,
+            "self": false,
+        }));
+        assert!(line.contains("live, status unavailable"), "{line}");
+        assert!(!line.contains("offline"), "{line}");
+        assert!(line.contains("connection refused"), "{line}");
+    }
+
+    #[test]
+    fn an_unreachable_member_discovery_does_not_see_reads_offline() {
+        let line = status_line(&json!({"node": "susi-node-gone", "error": "timed out"}));
+        assert!(line.contains("offline (timed out)"), "{line}");
+    }
+
+    #[test]
+    fn a_reachable_member_shows_its_own_term_and_state() {
+        let line = status_line(&json!({
+            "node": "susi-node-a", "term": 4, "leader": "susi-node-a", "records": 9,
+            "roster": 3, "bound": 2, "key_epoch": "e1", "self": false,
+        }));
+        assert!(line.contains(" 4 ") && line.ends_with("member"), "{line}");
+        let me = status_line(&json!({"node": "susi-node-b", "self": true}));
+        assert!(me.ends_with("this node"), "{me}");
+    }
 }
