@@ -99,6 +99,10 @@ const RETIRED_APPLICATION_COMMANDS: &[(&str, &str)] = &[
     ("release", "`susi-commercial admin release`"),
     ("claim", "`susi-commercial tasks claim`"),
     ("renew", "`susi-commercial tasks renew`"),
+    ("roadmap", "`susi-commercial tasks roadmap`"),
+    ("close", "`susi-commercial tasks close`"),
+    ("watch", "`susi-commercial workflow watch`"),
+    ("prune", "`susi-commercial workflow prune`"),
     ("authored", "`susi-commercial tasks authored`"),
     ("verify-merged", "`susi-commercial tasks verify-merged`"),
     ("finish", "`susi-commercial workflow finish`"),
@@ -177,6 +181,46 @@ mod tests {
         assert!(
             nested.iter().any(|h| h.contains("ecosystem scan")),
             "{nested:?}"
+        );
+    }
+
+    /// Every verb of the families that moved to Susi Commercial Apps (`tasks`,
+    /// `workflow`, `admin sync | verify | release`) was a nested command word
+    /// before the move, so a bare one was refused with a hint. It must still
+    /// be refused: nested nowhere any more, it would otherwise become a
+    /// mission, which spends inference money. (`audit` and `start` are
+    /// top-level core commands and dispatch.)
+    #[test]
+    fn moved_dev_workflow_verbs_are_still_refused() {
+        let missions = [
+            "list",
+            "add",
+            "author",
+            "authored",
+            "roadmap",
+            "claim",
+            "renew",
+            "release",
+            "close",
+            "verify-merged",
+            "sync",
+            "finish",
+            "watch",
+            "prune",
+            "own-identity",
+            "guard",
+            "fetch-refs",
+            "seed-target",
+            "park-primary",
+            "check",
+            "verify",
+        ]
+        .into_iter()
+        .filter(|verb| refuse(&root(), &args(verb)).is_none())
+        .collect::<Vec<_>>();
+        assert!(
+            missions.is_empty(),
+            "these bare words would become missions: {missions:?}"
         );
     }
 
