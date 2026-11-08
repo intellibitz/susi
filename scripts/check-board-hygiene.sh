@@ -86,7 +86,7 @@ while IFS=' ' read -r name sha; do
 done < <(git for-each-ref --format='%(refname) %(objectname)' "$prefix")
 
 for (( i = 0; i < ${#lapsed_tasks[@]}; i++ )); do
-    echo "⚠️  $NAME: ${lapsed_tasks[$i]} (${lapsed_agents[$i]}) has a lapsed claim on a task that is still open — claimable, not debris: susi tasks claim ${lapsed_tasks[$i]}"
+    echo "⚠️  $NAME: ${lapsed_tasks[$i]} (${lapsed_agents[$i]}) has a lapsed claim on a task that is still open — claimable, not debris: susi-commercial tasks claim ${lapsed_tasks[$i]}"
 done
 for (( i = 0; i < ${#dead_tasks[@]}; i++ )); do
     echo "❌ $NAME: claim ref ${dead_tasks[$i]} (${dead_agents[$i]}, task ${dead_states[$i]}) is dead — git push $remote :refs/claims/${dead_tasks[$i]}"

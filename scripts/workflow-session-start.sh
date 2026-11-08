@@ -9,7 +9,7 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 0
 # worktrees, and no way — nor any need — to reach the operator's machine. Mark
 # that clone once, when this hook runs for it (CLAUDE_PROJECT_DIR is the project
 # the hook was started for; a fixture repository a test runs this script in is
-# never marked), and the hooks, the loop scripts and `susi workflow check` all
+# never marked), and the hooks, the loop scripts and `susi-commercial workflow check` all
 # read the mark (scripts/cloud-session.sh, docs/cloud-sessions.md).
 cloud=0
 if [ -x scripts/cloud-session.sh ]; then
@@ -96,29 +96,27 @@ prebuild() {
     fi
 }
 
-if command -v susi >/dev/null 2>&1 && susi workflow --help >/dev/null 2>&1; then
-    susi workflow check 2>&1 || true
-elif [ -x ./target/debug/susi ]; then
-    ./target/debug/susi workflow check 2>&1 || true
+if command -v susi-commercial >/dev/null 2>&1 && susi-commercial workflow --help >/dev/null 2>&1; then
+    susi-commercial workflow check 2>&1 || true
 elif [ "$cloud" = 1 ] && [ "${SUSI_CLOUD_PREBUILD:-1}" != 0 ] && command -v cargo >/dev/null 2>&1 \
     && command -v flock >/dev/null 2>&1; then
     prebuild
 else
-    echo "susi workflow check is not installed here; run: scripts/seed-target.sh; cargo run -q -- workflow check"
+    echo "susi-commercial workflow check is not installed here: the agent workflow is Susi Commercial Apps' dev workflow; this repository's gated landing is cargo local-workflow"
 fi
 if [ "$cloud" = 1 ]; then
     cat <<MSG
 
 Cloud session: this clone is your worktree (branch $(git symbolic-ref -q --short HEAD 2>/dev/null || echo '<detached>')) — do NOT run scripts/susi-worktree.sh,
 and never ask for the operator's laptop (Remote Control, a computer folder, a button): everything runs here.
-Then: target/debug/susi workflow check && target/debug/susi tasks list && target/debug/susi tasks claim <id> --scope <path>,
-end every commit with \`Task: <id>\`, and publish with target/debug/susi workflow finish <id>. Rules: AGENTS.md; docs/cloud-sessions.md.
+Then: susi-commercial workflow check && susi-commercial tasks list && susi-commercial tasks claim <id> --scope <path>,
+end every commit with \`Task: <id>\`, and publish with susi-commercial workflow finish <id>. Rules: AGENTS.md; docs/cloud-sessions.md.
 MSG
 else
     cat <<'MSG'
 
 Not ready? In the primary checkout or on main: scripts/susi-worktree.sh   (no name needed; it prints `cd <path>`)
-Then: susi tasks list && susi tasks claim <id> --scope <path>, and end every commit with `Task: <id>`. Rules: AGENTS.md (START HERE).
+Then: susi-commercial tasks list && susi-commercial tasks claim <id> --scope <path>, and end every commit with `Task: <id>`. Rules: AGENTS.md (START HERE).
 MSG
 fi
 exit 0

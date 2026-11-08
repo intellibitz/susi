@@ -30,10 +30,11 @@ const PENDING: &[&str] = &[];
 /// Production code that launches `susi` under a throwaway home and that a
 /// test drives on every run: its code outside `#[cfg(test)] mod`s is held to
 /// the same rule as a test source, and it must actually call the helper.
-const SPAWN_HELPERS: &[&str] = &[
-    // `SusiAdmin::run_e2e_checks`, run by tests/release_e2e_checks.rs.
-    "crates/susi-gawd/src/admin/release.rs",
-];
+/// None today: the release gate's e2e runner (`SusiAdmin::run_e2e_checks`)
+/// left with the dev workflow for Susi Commercial Apps, and core's own e2e
+/// runner is the integration test `tests/release_e2e_checks.rs`, which the
+/// scan reads as a test source.
+const SPAWN_HELPERS: &[&str] = &[];
 
 /// This file names the patterns it looks for, so it is not scanned.
 const SELF: &str = "tests/child_home_isolation.rs";

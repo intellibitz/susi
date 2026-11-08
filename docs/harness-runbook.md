@@ -7,7 +7,7 @@ The operator's path from an empty shell to a mission SUSI runs on itself.
 | What | Check |
 |---|---|
 | `DEEPSEEK_API_KEY` and `GEMINI_API_KEY` in the environment | the gateway reports a missing key on the first call that needs it |
-| a `susi` binary that can run `workflow` and `tasks` | `susi workflow check` |
+| a `susi-commercial` binary (Susi Commercial Apps' dev workflow) that can run `workflow` and `tasks` | `susi-commercial workflow check` |
 
 Nothing else is installed: the harness routes to the providers directly and the
 worker runs in process, so there is no proxy binary and no external agent runtime
@@ -111,7 +111,7 @@ operator commands.
 | a task failed on every model | the error is about the task or the environment, not the model. Fix the acceptance/scope; the ladder deliberately stopped instead of spending more. |
 | operator paused | send `{"command":"resume","mission_id":"…"}` to `POST /api/command` (or append a resume command to the control log), rerun the same command. |
 | operator aborted | the abort is sticky in that control log. Start a new mission or use a fresh control log. |
-| a claim is stale | `susi tasks audit`; the queue reports the holder and the lease. |
+| a claim is stale | `susi-commercial tasks audit`; the queue reports the holder and the lease. |
 | a model 401s or says the key is unset | the provider key for that model is unset in the environment the gateway runs in. |
 
 ## Cautions

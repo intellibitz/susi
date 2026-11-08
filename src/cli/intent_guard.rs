@@ -93,6 +93,24 @@ const RETIRED_APPLICATION_COMMANDS: &[(&str, &str)] = &[
     ("haystack", "`susi frameworks run haystack`"),
     ("eval", "`susi benchmark` measures a real completion"),
     ("mcp-scout", "`susi mcp` manages admitted servers"),
+    // The dev workflow's verbs, which moved to Susi Commercial Apps with
+    // the task queue and the release gate: a bare `susi release` or
+    // `susi claim T-A-1` is a mistyped command, never a mission.
+    ("release", "`susi-commercial admin release`"),
+    ("claim", "`susi-commercial tasks claim`"),
+    ("renew", "`susi-commercial tasks renew`"),
+    ("roadmap", "`susi-commercial tasks roadmap`"),
+    ("close", "`susi-commercial tasks close`"),
+    ("watch", "`susi-commercial workflow watch`"),
+    ("prune", "`susi-commercial workflow prune`"),
+    ("authored", "`susi-commercial tasks authored`"),
+    ("verify-merged", "`susi-commercial tasks verify-merged`"),
+    ("finish", "`susi-commercial workflow finish`"),
+    ("guard", "`susi-commercial workflow guard`"),
+    ("park-primary", "`susi-commercial workflow park-primary`"),
+    ("seed-target", "`susi-commercial workflow seed-target`"),
+    ("own-identity", "`susi-commercial workflow own-identity`"),
+    ("fetch-refs", "`susi-commercial workflow fetch-refs`"),
     (
         "shell",
         "the interactive conversation lives in the Susi desktop app; the core CLI takes one-shot goals: `susi \"<what you want done>\"`",
@@ -146,8 +164,13 @@ mod tests {
     fn nested_command_words_are_refused_with_a_path_hint() {
         let hint = refuse(&root(), &args("release")).unwrap();
         assert!(
-            hint.contains(&"`susi admin release`".to_string()),
+            hint.contains(&"`susi-commercial admin release`".to_string()),
             "{hint:?}"
+        );
+        let claim = refuse(&root(), &args("claim T-A-1")).unwrap();
+        assert!(
+            claim.contains(&"`susi-commercial tasks claim`".to_string()),
+            "{claim:?}"
         );
         let scan = refuse(&root(), &args("ecosystem scan"));
         assert!(
@@ -158,6 +181,46 @@ mod tests {
         assert!(
             nested.iter().any(|h| h.contains("ecosystem scan")),
             "{nested:?}"
+        );
+    }
+
+    /// Every verb of the families that moved to Susi Commercial Apps (`tasks`,
+    /// `workflow`, `admin sync | verify | release`) was a nested command word
+    /// before the move, so a bare one was refused with a hint. It must still
+    /// be refused: nested nowhere any more, it would otherwise become a
+    /// mission, which spends inference money. (`audit` and `start` are
+    /// top-level core commands and dispatch.)
+    #[test]
+    fn moved_dev_workflow_verbs_are_still_refused() {
+        let missions = [
+            "list",
+            "add",
+            "author",
+            "authored",
+            "roadmap",
+            "claim",
+            "renew",
+            "release",
+            "close",
+            "verify-merged",
+            "sync",
+            "finish",
+            "watch",
+            "prune",
+            "own-identity",
+            "guard",
+            "fetch-refs",
+            "seed-target",
+            "park-primary",
+            "check",
+            "verify",
+        ]
+        .into_iter()
+        .filter(|verb| refuse(&root(), &args(verb)).is_none())
+        .collect::<Vec<_>>();
+        assert!(
+            missions.is_empty(),
+            "these bare words would become missions: {missions:?}"
         );
     }
 

@@ -81,7 +81,7 @@ fn help_lists_no_interactive_shell_command() {
 fn nested_command_word_is_refused_with_a_hint() {
     let (code, stderr, written) = run(&["release"]);
     assert_eq!(code, 2, "{stderr}");
-    assert!(stderr.contains("susi admin release"), "{stderr}");
+    assert!(stderr.contains("susi-commercial admin release"), "{stderr}");
     assert!(written.is_empty(), "{written:?}");
 }
 

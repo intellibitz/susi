@@ -412,15 +412,6 @@ fn run() -> std::process::ExitCode {
         // Lifecycle/status commands compose nothing (see the predicate).
     } else if command
         .as_ref()
-        .is_some_and(cli::defs::command_uses_release_composition)
-    {
-        // Retain the plane bus and hooks used by the release audit. The
-        // mission smoke checks run in separate children with full composition.
-        susi_daemon::boot_trace::phase("composition: release", || {
-            susi_daemon::composition::wire_mcp_serve_substrate(&substrate)
-        });
-    } else if command
-        .as_ref()
         .is_some_and(cli::defs::command_is_local_report)
     {
         susi_daemon::boot_trace::phase(
@@ -524,14 +515,6 @@ fn run() -> std::process::ExitCode {
 
     let mut exit_code = std::process::ExitCode::SUCCESS;
 
-    // Refuse an invalid release cut before executing its release operations.
-    if let Some(cli::defs::Commands::Admin { subcommand }) = &command {
-        if let Some(why) = cli::admin_cli::release_preflight(subcommand, &cwd) {
-            eprintln!("Release refused: {why}");
-            return std::process::ExitCode::FAILURE;
-        }
-    }
-
     let needs_daemon = match &command {
         Some(cmd) => command_requires_daemon(cmd),
         None => {
@@ -567,7 +550,7 @@ fn run() -> std::process::ExitCode {
     } else if !cli.intent.is_empty() {
         let ama = SusiMasterAgent::new();
         let goal = cli.intent.join(" ");
-        match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
+        match susi_gawd::compliance::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
             Ok(msg) => {
                 info!("Natural intent ingested successfully: {}", msg);
             }

@@ -159,14 +159,14 @@ impl PlaneHandler for GawdPlaneHandler {
             topics::GAWD_PULSE_INGEST => {
                 let intent = payload.get("intent").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
-                match crate::admin::SusiAdmin::ingest_natural_intent(&ws, intent) {
+                match crate::compliance::SusiAdmin::ingest_natural_intent(&ws, intent) {
                     Ok(text) => Ok(json!({ "text": text })),
                     Err(e) => Ok(json!({ "error": e.to_string() })),
                 }
             }
             topics::GAWD_AUDIT_COMPLIANCE => {
                 let ws = workspace_path(&payload);
-                match crate::admin::SusiAdmin::audit_compliance(&ws, Some("push")) {
+                match crate::compliance::SusiAdmin::audit_compliance(&ws, Some("push")) {
                     Ok(text) => Ok(json!({ "text": text })),
                     Err(e) => Ok(json!({ "error": format!("Compliance audit failed: {e}") })),
                 }

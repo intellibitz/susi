@@ -148,11 +148,22 @@ pub fn probe_udp_discovery_port(
 mod tests {
     use super::probe_udp_discovery_port;
     use crate::susi_config::cluster_key::{signed_ping_v3, signed_pong, verify_bound_ping};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
     use std::net::UdpSocket;
     use std::time::Duration;
 
     #[test]
     fn probe_udp_discovery_port_succeeds_on_signed_pong() {
+        // The cluster key is read from the environment-resolved config dir
+        // when the ping is signed and again when the responder verifies it;
+        // the HOME-swapping tests in this binary hold the env lock while
+        // they swap, so this one holds it across both reads.
+        let _env = env_lock();
         let (frame, nonce) = signed_ping_v3("bootloader", 0, "0", ([127, 0, 0, 1], 9).into())
             .expect("cluster.key must produce signed ping");
         let server = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP responder");
@@ -183,6 +194,11 @@ mod tests {
 
     #[test]
     fn probe_udp_discovery_port_rejects_unsigned_mismatched_nonce_and_closed_port() {
+        // The cluster key is read from the environment-resolved config dir
+        // when the ping is signed and again when the responder verifies it;
+        // the HOME-swapping tests in this binary hold the env lock while
+        // they swap, so this one holds it across both reads.
+        let _env = env_lock();
         let (frame, nonce) = signed_ping_v3("bootloader", 0, "0", ([127, 0, 0, 1], 9).into())
             .expect("cluster.key must produce signed ping");
         let server = UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral UDP responder");
@@ -274,6 +290,11 @@ mod tests {
 
     #[test]
     fn probe_udp_discovery_port_rejects_non_pong_reply_and_whitespace_nonce() {
+        // The cluster key is read from the environment-resolved config dir
+        // when the ping is signed and again when the responder verifies it;
+        // the HOME-swapping tests in this binary hold the env lock while
+        // they swap, so this one holds it across both reads.
+        let _env = env_lock();
         let (frame, nonce) = signed_ping_v3("bootloader", 0, "0", ([127, 0, 0, 1], 9).into())
             .expect("cluster.key must produce signed ping");
         assert!(!probe_udp_discovery_port(

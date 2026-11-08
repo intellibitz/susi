@@ -50,7 +50,7 @@ behind=$(git rev-list --no-merges --count "${commit}..origin/main" -- \
 if [ "$behind" -gt 0 ]; then
     echo "❌ the installed release ${version} (${commit:0:8}) is ${behind} commit(s) behind origin/main"
     echo "   the workflow fixes merged since are not active for agents that run it"
-    echo "   → cut one (susi admin release --cut patch), merge it, then scripts/susi-release-sync.sh"
+    echo "   → cut one (susi-commercial admin release --cut patch), merge it, then scripts/susi-release-sync.sh"
     exit 1
 fi
 
