@@ -155,6 +155,7 @@ for a reservation. The full path, with the native Windows notes, is in
 
 - [docs/architecture.md](docs/architecture.md): pillars, Tier S invariants, plane bus and its loopback rendezvous, the plug bridge to the commercial suite, the lean-core direction, the command reference.
 - [docs/evidence.md](docs/evidence.md): verified claims, platforms, the delivery workflow and every admitted gap.
+- [docs/gate-receipts.md](docs/gate-receipts.md): every gated landing's receipt under [`.agents/receipts/`](.agents/receipts/), and how to re-run one on a clean clone with `cargo xtask verify-receipt <commit>`.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the enforceable crate-boundary contract (`tests/architecture_tests.rs`).
 - [docs/gmcp-roadmap.md](docs/gmcp-roadmap.md): the standards-traceable GMCP completion program; the genome ledgers under [`.agents/`](.agents/) are described in [docs/architecture.md](docs/architecture.md#genome).
 - [docs/extension-pack.md](docs/extension-pack.md), [docs/harness.md](docs/harness.md), [VISION.md](VISION.md), [CONTRIBUTING.md](CONTRIBUTING.md).
