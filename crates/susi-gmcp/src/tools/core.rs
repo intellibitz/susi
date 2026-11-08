@@ -15,6 +15,11 @@ use crate::susi_core::plane_bus::gemi::HardwareProfiler;
 use crate::susi_core::plane_bus::gemi::ModelManager;
 use crate::susi_core::plane_bus::{agents, gawd, gawd_hooks, tools as plane_tools};
 use crate::susi_error::{EaiError, EaiResult};
+
+/// Plane-bus topic a plug serves for headless page capture: `{"url"}` in,
+/// `{"url","html","png_bytes"}` out (`browser_automate`).
+#[cfg(feature = "tools-rich")]
+pub const TOPIC_BROWSER_CAPTURE: &str = "desktop.browser.capture";
 use crate::tool_registry::GmcpClient;
 
 use super::args;
@@ -2469,8 +2474,17 @@ impl CoreTools {
         let validated_url = secure_external_url(url)?;
         let url = validated_url.as_str();
         let _ = workspace;
+        let bus = crate::susi_core::plane_bus::PlaneBus::global();
+        if bus.is_wired(TOPIC_BROWSER_CAPTURE) {
+            let capture = bus
+                .request(TOPIC_BROWSER_CAPTURE, serde_json::json!({ "url": url }))
+                .map_err(EaiError::process)?;
+            return serde_json::to_string(&capture).map_err(|e| {
+                EaiError::process(format!("browser plug reply is not JSON text: {e}"))
+            });
+        }
         Err(EaiError::process(format!(
-            "[CAPABILITY_GAP] Headless Chrome automation for {url} moved to susi-commercial-apps (susi-desktop)."
+            "[CAPABILITY_GAP] Headless Chrome automation for {url} lives in susi-commercial-apps (susi-desktop); start the susi-plug-host beside this core."
         )))
     }
 
