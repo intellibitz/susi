@@ -1,0 +1,31 @@
+{
+  "id": "T-PR1674-1",
+  "title": "Adopt pull request #1674: pii_redact Wasm reflex example in docs/extension-pack.md, with a review fix",
+  "goal": "Land the outside contribution from pull request #1674 (closes #1673; author kept) through the local gate. It adds a second Wasm reflex example to docs/extension-pack.md: a std-only pii_redact reflex for wasm32-wasip1 with a stdin/argv test harness. Review fix in a separate commit: an email address followed by sentence punctuation was left unredacted, so the trailing full stop or hyphen is split off before the address check, with a fourth harness fixture; the doc now says Susi runs reflexes on Wasmi, that the MCP port carries the daemon's offset, and how to pass the payload (the tool's arguments object reaches the reflex as argv[1]; JSON wrapped in a string value is not parsed again). Verified: the example and harness extracted from the doc build natively and for wasm32-wasip1, the harness passes 4 of 4, and the compiled module run as reflex_pii_redact in an isolated v0.21.52 daemon redacted both an email and a password value.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "pr1674",
+  "native_worker": "pr1674",
+  "created_by": "PR1674",
+  "created_unix": 1794164912,
+  "size": "s",
+  "deps": [],
+  "scope": [
+    ".agents/tasks/t-pr1674-1.json",
+    "docs/extension-pack.md"
+  ],
+  "scopes": [
+    ".agents/tasks/t-pr1674-1.json",
+    "docs/extension-pack.md"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  }
+}
