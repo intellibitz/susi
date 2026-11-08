@@ -115,7 +115,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-core", 3),
     ("susi-sandbox-client", 3),
     ("susi-vendor-wasmtime", 2),
-    ("susi-vendor-mcp", 0),
     ("susi-vendor-mcp-server", 0),
     ("susi-vendor-syn", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.
@@ -158,7 +157,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-http-body-util",
     "susi-vendor-hyper",
     "susi-vendor-hyper-util",
-    "susi-vendor-jsonschema",
     "susi-vendor-libc",
     "susi-vendor-parking-lot",
     "susi-vendor-proptest",
@@ -712,8 +710,8 @@ fn core_os_crates_must_not_declare_http_clients() {
     }
 }
 
-/// Only `susi-vendor-mcp` (client) and `susi-vendor-mcp-server` (server)
-/// may declare the `rmcp` SDK. Feature planes depend on those crates.
+/// Only `susi-vendor-mcp-server` (server)
+/// may declare the `rmcp` SDK. Feature planes depend on that crate.
 #[test]
 fn mcp_sdk_stays_in_vendor_crates() {
     let root = workspace_root();
@@ -721,7 +719,7 @@ fn mcp_sdk_stays_in_vendor_crates() {
         .expect("crates dir")
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|name| name != "susi-vendor-mcp" && name != "susi-vendor-mcp-server")
+        .filter(|name| name != "susi-vendor-mcp-server")
         .collect();
     forbidden_in.sort();
     for crate_name in forbidden_in {
@@ -747,7 +745,7 @@ fn mcp_sdk_stays_in_vendor_crates() {
             let declared = trimmed.starts_with("rmcp ") || trimmed.starts_with("rmcp=");
             assert!(
                 !declared,
-                "{crate_name} must not declare `rmcp` (MCP SDK belongs in susi-vendor-mcp / susi-vendor-mcp-server)"
+                "{crate_name} must not declare `rmcp` (MCP SDK belongs in susi-vendor-mcp-server)"
             );
         }
     }

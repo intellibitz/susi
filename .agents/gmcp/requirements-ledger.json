@@ -108,12 +108,12 @@
    "clause": "`susi-vendor-mcp` connects over stdio or HTTP and lists/calls tools",
    "disposition": {
     "status": "modern",
-    "reason": "published implementation claim: the program must prove it or retract the claim."
+    "reason": "published implementation claim: the program must prove it or retract the claim. Since 2026-11-08 (iteration 362, origin/local-agent/antigravity 9a3810194) the MCP client is the std JSON-RPC client in crates/susi-tools/src/mcp_budget.rs over the plane bus; the susi-vendor-mcp facade (rmcp) is gone from core."
    },
    "trace": {
     "vector": "VC-203-017",
-    "owner": "susi-vendor-mcp",
-    "production_path": "crates/susi-vendor-mcp",
+    "owner": "susi-tools",
+    "production_path": "crates/susi-tools/src/mcp_budget.rs",
     "positive_test": "tests/gmcp_requirements.rs::gmcp_req_203_017_03_integration",
     "negative_test": "tests/gmcp_requirements.rs::gmcp_req_203_017_04_adversarial",
     "evidence": ".agents/gmcp/evidence/VC-203-017.jsonl"
