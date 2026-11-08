@@ -18,6 +18,11 @@ use std::process::{Command, ExitCode, Stdio};
 mod affected;
 #[path = "../compiler_env.rs"]
 mod compiler_env;
+// Shared with the xtask binary, which runs the verifier; the ship tool only
+// writes receipts, so the verification half is unused here.
+#[allow(dead_code)]
+#[path = "../gate_receipt.rs"]
+mod gate_receipt;
 #[path = "../native_provenance.rs"]
 mod native_provenance;
 #[path = "../sysroot_sources.rs"]
@@ -3113,6 +3118,9 @@ impl Remote for GhRemote {
     }
 }
 
+/// What a ship published: `head` is the commit now on origin/main (the
+/// receipt commit), `merge` the verified integration head it sits on and
+/// whose receipt it carries.
 #[derive(Debug)]
 struct ShipReport {
     head: String,
@@ -3524,6 +3532,54 @@ fn record_acceptance(
             transaction.push_str(&format!("create {native_ref} {native_oid}\n"));
         }
     }
+    // The public gate receipt: `.agents/receipts/<head>.json` in a
+    // receipt-only commit on top of the verified head, recorded in the same
+    // ref transaction. `publish_head` pushes that commit; without it nothing
+    // is published.
+    let sources: Vec<serde_json::Value> = inputs
+        .iter()
+        .map(|input| {
+            let task = native_provenance::task_for_claim(
+                root,
+                &input.source,
+                &input.claim.name,
+                &input.claim.scopes,
+            )
+            .ok()
+            .map(|task| task.id);
+            serde_json::json!({
+                "agent": input.claim.name,
+                "commit": input.source,
+                "claim_base": input.claim.base,
+                "task": task,
+            })
+        })
+        .collect();
+    let receipt = timed("acceptance: gate receipt", || {
+        gate_receipt::build(&gate_receipt::Landing {
+            root,
+            head,
+            origin_main: &publish_base,
+            sources: sources.clone(),
+            native_gates: native_gates.as_ref(),
+            evidence,
+        })
+    })
+    .map_err(|error| format!("gate receipt: {error}"))?;
+    let receipt_commit = timed("acceptance: receipt commit", || {
+        gate_receipt::commit_receipt(
+            root,
+            head,
+            &receipt,
+            &gate_receipt::commit_message(head, &sources),
+            &attempt.join("receipt-index"),
+        )
+    })
+    .map_err(|error| format!("gate receipt commit: {error}"))?;
+    transaction.push_str(&format!(
+        "update {} {receipt_commit}\n",
+        gate_receipt::ref_for(head)
+    ));
     transaction.push_str("prepare\ncommit\n");
     timed("acceptance: ref transaction", || {
         git_input(root, &["update-ref", "--stdin"], transaction.as_bytes())
@@ -3824,7 +3880,17 @@ fn publish_head(
     evidence: &[String],
     remote: &mut dyn Remote,
 ) -> Result<ShipReport> {
-    remote.push_ref(root, head, "refs/heads/main")?;
+    // What reaches origin/main is the receipt commit: the verified head plus
+    // `.agents/receipts/<head>.json`. No receipt, no publication.
+    let published = gate_receipt::receipt_commit(root, head)
+        .map_err(|error| format!("gate receipt for {head}: {error}; nothing published"))?
+        .ok_or_else(|| {
+            format!(
+                "no gate receipt commit recorded at {} for verified head {head}; this head was accepted without a receipt (older ship tool), run ship again; nothing published",
+                gate_receipt::ref_for(head)
+            )
+        })?;
+    remote.push_ref(root, &published, "refs/heads/main")?;
     for context in SHIP_CONTEXTS {
         let subcommand = match context {
             "susi-local/format" => "fmt",
@@ -3836,20 +3902,23 @@ fn publish_head(
         let line = gate_evidence(evidence, subcommand)?;
         // The push is the publication. A commit status is a courtesy record on
         // GitHub; failing to post one (no `gh`, offline API) must not undo it.
-        if let Err(error) = remote.post_status(root, head, context, line) {
-            eprintln!("warning: {context} status not posted on {head}: {error}");
+        if let Err(error) = remote.post_status(root, &published, context, line) {
+            eprintln!("warning: {context} status not posted on {published}: {error}");
         }
     }
     Ok(ShipReport {
-        head: head.to_owned(),
+        head: published,
         merge: head.to_owned(),
     })
 }
 
 fn print_ship(report: &ShipReport) {
     println!(
-        "Shipped {} directly to origin/main ({}).",
-        report.head, report.merge
+        "Shipped {} directly to origin/main: verified merge {}, gate receipt {} (verify with `cargo xtask verify-receipt {}`).",
+        report.head,
+        report.merge,
+        gate_receipt::path_for(&report.merge),
+        report.merge
     );
 }
 
@@ -6256,7 +6325,10 @@ mod tests {
             Ok(local_gate_evidence())
         })
         .unwrap();
-        let first_head = first.head.clone();
+        // The receipts describe the verified merge; origin/main holds its
+        // receipt commit.
+        let first_head = first.merge.clone();
+        let first_published = first.head.clone();
         let receipt_ref = git(
             &repo,
             &[
@@ -6288,14 +6360,14 @@ mod tests {
         );
 
         worker(&repo, "two", "second.rs", "second");
-        let mut remote = FakeRemote::single(first_head.clone());
+        let mut remote = FakeRemote::single(first_published.clone());
         let second = ship(&repo, &["two"], &mut remote, |candidate, _attempt| {
             assert!(candidate.join("owned.rs").is_file());
             assert!(candidate.join("second.rs").is_file());
             Ok(local_gate_evidence())
         })
         .unwrap();
-        assert!(is_ancestor(&repo, &first_head, &second.head).unwrap());
+        assert!(is_ancestor(&repo, &first_published, &second.merge).unwrap());
         assert_eq!(remote.pushes.last().unwrap().0, second.head);
     }
 
@@ -6550,11 +6622,21 @@ mod tests {
             Ok(local_gate_evidence())
         })
         .unwrap();
-        assert_eq!(report.head, verified);
+        // The verified merge is published under its receipt commit; the
+        // statuses go on the commit origin/main now points at.
         assert_eq!(report.merge, verified);
+        assert_ne!(report.head, verified);
+        assert_eq!(
+            git(&repo, &["rev-parse", &format!("{}^1", report.head)]).unwrap(),
+            verified
+        );
+        assert_eq!(
+            remote.pushes,
+            vec![(report.head.clone(), "refs/heads/main".to_owned())]
+        );
         assert_eq!(remote.statuses.len(), 4);
         for (sha, context, _description) in &remote.statuses {
-            assert_eq!(sha, &verified);
+            assert_eq!(sha, &report.head);
             assert!(SHIP_CONTEXTS.contains(&context.as_str()), "{context}");
         }
         let mut posted: Vec<_> = remote
@@ -6566,6 +6648,92 @@ mod tests {
         let mut expected: Vec<_> = SHIP_CONTEXTS.to_vec();
         expected.sort();
         assert_eq!(posted, expected);
+    }
+
+    /// Every landing publishes a receipt-only commit carrying
+    /// `.agents/receipts/<verified head>.json`, recorded at
+    /// `refs/susi/receipts/<verified head>`; without that record nothing is
+    /// published (`ship --retry` included).
+    #[test]
+    fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let mut remote = FakeRemote::single(base.clone());
+        let report = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            Ok(local_gate_evidence())
+        })
+        .unwrap();
+        let verified = report.merge.clone();
+        let published = report.head.clone();
+        assert_eq!(
+            git(&repo, &["rev-parse", &gate_receipt::ref_for(&verified)]).unwrap(),
+            published
+        );
+        assert_eq!(
+            git(&repo, &["rev-parse", INTEGRATION_REF]).unwrap(),
+            verified
+        );
+        gate_receipt::check_receipt_only(&repo, &verified, &published).unwrap();
+        let path = gate_receipt::path_for(&verified);
+        let changed = git(
+            &repo,
+            &[
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                &verified,
+                &published,
+            ],
+        )
+        .unwrap();
+        assert_eq!(changed, path);
+        let receipt: serde_json::Value =
+            serde_json::from_str(&git(&repo, &["show", &format!("{published}:{path}")]).unwrap())
+                .unwrap();
+        gate_receipt::check_digest(&receipt).unwrap();
+        assert_eq!(receipt["integration"]["commit"], verified);
+        assert_eq!(receipt["integration"]["origin_main"], base);
+        assert_eq!(receipt["sources"][0]["agent"], "one");
+        assert_eq!(receipt["gates"].as_array().unwrap().len(), 4);
+        assert!(receipt["gates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|gate| gate["exit_code"] == 0));
+        let message = git(&repo, &["log", "-1", "--format=%B", &published]).unwrap();
+        assert!(message.contains("Task: LOCAL-one"), "{message}");
+        // No operator path leaks: the slot, the scratch repository, the home.
+        let text = git(&repo, &["show", &format!("{published}:{path}")]).unwrap();
+        assert!(
+            !text.contains(&repo.display().to_string().replace('\\', "/")),
+            "{text}"
+        );
+        assert!(!text.contains("verify-candidate"), "{text}");
+        // A verifier on this clone agrees with the receipt (static checks).
+        git(&repo, &["reset", "-q", "--hard", &published]).unwrap();
+        let verification = gate_receipt::verify(
+            &repo,
+            &verified,
+            &gate_receipt::Options {
+                static_only: true,
+                ..gate_receipt::Options::default()
+            },
+        )
+        .unwrap();
+        assert!(verification.all_match(), "{}", verification.render());
+        // Without the recorded receipt commit, retry publishes nothing.
+        git(
+            &repo,
+            &["update-ref", "-d", &gate_receipt::ref_for(&verified)],
+        )
+        .unwrap();
+        remote.pushes.clear();
+        let refused = ship_retry(&repo, &mut remote).unwrap_err();
+        assert!(
+            refused.to_string().contains("no gate receipt commit"),
+            "{refused}"
+        );
+        assert!(remote.pushes.is_empty());
     }
 
     fn commit_on(repo: &Path, file: &str, content: &str) -> String {
@@ -6692,8 +6860,12 @@ mod tests {
         assert_eq!(remote.pushes.len(), 1);
         assert_eq!(remote.pushes[0].0, report.head);
         assert_eq!(
-            git(&repo, &["rev-parse", &format!("{}^1", report.head)]).unwrap(),
+            git(&repo, &["rev-parse", &format!("{}^1", report.merge)]).unwrap(),
             third
+        );
+        assert_eq!(
+            git(&repo, &["rev-parse", &format!("{}^1", report.head)]).unwrap(),
+            report.merge
         );
         let tree = git(&repo, &["ls-tree", "--name-only", &report.head]).unwrap();
         for file in ["owned.rs", "later.rs", "third.rs"] {
@@ -6714,7 +6886,7 @@ mod tests {
             receipt.contains(&format!("regate base={third} ")),
             "{receipt}"
         );
-        assert_eq!(integration_head(&repo).unwrap(), Some(report.head));
+        assert_eq!(integration_head(&repo).unwrap(), Some(report.merge));
     }
 
     #[test]
@@ -6852,10 +7024,18 @@ mod tests {
             2,
             "both gates used one candidate: {candidates:?}"
         );
-        assert_eq!(integration_head(&repo).unwrap(), Some(last.clone()));
+        // origin/main holds the last receipt commit; the integration ref and
+        // the receipts name the verified merge under it.
+        let verified_last = git(&repo, &["rev-parse", &format!("{last}^1")]).unwrap();
+        assert_eq!(
+            integration_head(&repo).unwrap(),
+            Some(verified_last.clone())
+        );
         assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
-        let tree_oid = git(&repo, &["rev-parse", &format!("{last}^{{tree}}")]).unwrap();
-        let receipt = matching_receipt(&repo, &last, &tree_oid).unwrap().unwrap();
+        let tree_oid = git(&repo, &["rev-parse", &format!("{verified_last}^{{tree}}")]).unwrap();
+        let receipt = matching_receipt(&repo, &verified_last, &tree_oid)
+            .unwrap()
+            .unwrap();
         assert!(receipt.contains("\nregate base="), "{receipt}");
     }
 
@@ -6957,11 +7137,11 @@ mod tests {
         assert_eq!(runs.get(), 1);
         assert_eq!(remote.pushes.len(), 1);
         assert_eq!(
-            git(&repo, &["rev-parse", &format!("{}^1", report.head)]).unwrap(),
+            git(&repo, &["rev-parse", &format!("{}^1", report.merge)]).unwrap(),
             moved
         );
-        let tree = git(&repo, &["rev-parse", &format!("{}^{{tree}}", report.head)]).unwrap();
-        let receipt = matching_receipt(&repo, &report.head, &tree)
+        let tree = git(&repo, &["rev-parse", &format!("{}^{{tree}}", report.merge)]).unwrap();
+        let receipt = matching_receipt(&repo, &report.merge, &tree)
             .unwrap()
             .unwrap();
         assert!(
@@ -6987,7 +7167,7 @@ mod tests {
             Ok(local_gate_evidence())
         })
         .unwrap()
-        .head;
+        .merge;
         // origin/main then advanced through a ship made elsewhere, and the
         // next claim is reserved on top of it.
         git(
@@ -7003,7 +7183,7 @@ mod tests {
             Ok(local_gate_evidence())
         })
         .unwrap();
-        let head = report.head;
+        let head = report.merge;
         let tree = git(&repo, &["rev-parse", &format!("{head}^{{tree}}")]).unwrap();
         let receipt_ref = git(
             &repo,

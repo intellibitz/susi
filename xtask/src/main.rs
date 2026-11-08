@@ -13,6 +13,10 @@
 mod build_time;
 mod compiler_env;
 mod extension_watch;
+// Shared with the local-workflow binary, which writes the receipts this
+// binary verifies; the writer half is unused here.
+#[allow(dead_code)]
+mod gate_receipt;
 mod local_build;
 // Shared with the local-release binary, which also uses `select_product_features`;
 // this binary only needs `product_feature_args` (local-build).
@@ -305,6 +309,14 @@ fn main() {
 
     if args.first().map(String::as_str) == Some("local-build") {
         if let Err(error) = local_build::run(&args[1..]) {
+            eprintln!("xtask: {error}");
+            exit(1);
+        }
+        return;
+    }
+
+    if args.first().map(String::as_str) == Some("verify-receipt") {
+        if let Err(error) = gate_receipt::run(&args[1..]) {
             eprintln!("xtask: {error}");
             exit(1);
         }
