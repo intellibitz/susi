@@ -10,8 +10,7 @@ use susi_gawd::susi_abi::syscall::{
 
 use susi_gawd::susi_abi;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bind_addr = cell_bind_addr(cell_ports::GAWD);
     println!("susi-gawd micro-daemon starting on {bind_addr}");
 
@@ -41,12 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         expected_token,
         "susi-gawd Swarm Cell",
         handle_plan,
-    )
-    .await?;
+    )?;
     Ok(())
 }
 
-async fn handle_plan(req: SyscallRequest) -> SyscallResponse {
+fn handle_plan(req: SyscallRequest) -> SyscallResponse {
     // Run the mission through the real master agent; an empty goal is an
     // error, never a fabricated "plan executed" success.
     let goal = req
@@ -61,16 +59,15 @@ async fn handle_plan(req: SyscallRequest) -> SyscallResponse {
     let outcome = if goal.trim().is_empty() {
         Err("missing goal in payload (`goal`)".to_string())
     } else {
-        tokio::task::spawn_blocking(move || {
-            susi_gawd::ama::SusiMasterAgent::new().solve_stream_report(
-                &goal,
-                &workspace,
-                env!("CARGO_PKG_VERSION"),
-                &|_| {},
-            )
-        })
-        .await
-        .map_err(|e| format!("planner task failed: {e}"))
+        // The cell server runs each connection on its own thread, so the
+        // blocking mission runs here directly; a panic in it is answered as
+        // an `Error` by the server.
+        Ok(susi_gawd::ama::SusiMasterAgent::new().solve_stream_report(
+            &goal,
+            &workspace,
+            env!("CARGO_PKG_VERSION"),
+            &|_| {},
+        ))
     };
     let latency_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
     match outcome {
@@ -123,9 +120,9 @@ mod inline_tests {
         }
     }
 
-    #[tokio::test]
-    async fn handle_plan_rejects_missing_goal_field_with_error_status() {
-        let resp = handle_plan(sample_request("req-1", serde_json::json!({}))).await;
+    #[test]
+    fn handle_plan_rejects_missing_goal_field_with_error_status() {
+        let resp = handle_plan(sample_request("req-1", serde_json::json!({})));
         assert_eq!(resp.id, "req-1");
         assert_eq!(resp.status, SyscallStatus::Error);
         assert!(resp
@@ -135,21 +132,20 @@ mod inline_tests {
             .contains("missing goal"));
     }
 
-    #[tokio::test]
-    async fn handle_plan_rejects_whitespace_only_goal_with_error_status() {
+    #[test]
+    fn handle_plan_rejects_whitespace_only_goal_with_error_status() {
         let resp = handle_plan(sample_request(
             "req-2",
             serde_json::json!({ "goal": "   \t\n  " }),
-        ))
-        .await;
+        ));
         assert_eq!(resp.id, "req-2");
         assert_eq!(resp.status, SyscallStatus::Error);
         assert_eq!(resp.data, serde_json::Value::Null);
     }
 
-    #[tokio::test]
-    async fn handle_plan_rejects_empty_intent_fallback_with_error_status() {
-        let resp = handle_plan(sample_request("req-3", serde_json::json!({ "intent": "" }))).await;
+    #[test]
+    fn handle_plan_rejects_empty_intent_fallback_with_error_status() {
+        let resp = handle_plan(sample_request("req-3", serde_json::json!({ "intent": "" })));
         assert_eq!(resp.id, "req-3");
         assert_eq!(resp.status, SyscallStatus::Error);
     }
