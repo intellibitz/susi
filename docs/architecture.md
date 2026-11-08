@@ -193,16 +193,37 @@ susi start` brings up a complete sibling node.
 
 **When a canonical port is busy.** 9090 is also the default port of the
 Prometheus server, and 9092-9094 are the ports Kafka brokers commonly listen
-on, so a developer machine often has one of them taken. The daemon does not
-move a single port on its own: at start it logs an advisory for each busy
-canonical port (`canonical port busy: <service> would autoselect <port> ->
-<alternate>`, `crates/susi-daemon/src/server.rs`), then tries to bind five
-times, evicting only a stale susi process of its own instance that still holds
-the port. If a foreign process holds it, the start refuses with
-`Fatal: canonical port <n> is unavailable ... Port randomization is disabled
-by contract`. The remedy is the uniform shift: `SUSI_PORT_OFFSET=100 susi
-start` moves all five ports together (9190-9194), and external clients are
-told the offset instead of discovering a drifted port.
+on, so a developer machine often has one of them taken. The daemon binds six
+ports as one block, the five contract ports and gossip 9095
+(`crates/susi-daemon/src/port_fallback.rs`). Before it binds, it probes each
+with a real bind on every address it will use, offers each held port to the
+stale-susi reclaim (only a susi process of this instance with the trusted
+binary hash is evicted), and then:
+
+- **Offset pinned** (`SUSI_PORT_OFFSET` set to any value, `0` included, or a
+  non-zero `port_offset` in `config.json`): the pinned block is bound exactly.
+  If a foreign process holds one of its ports the start refuses with
+  `Fatal: canonical port <n> is unavailable ...`, as it always has.
+- **Nothing pinned**: when a foreign process still holds one of the six, the
+  daemon serves the whole block at the first offset `k * 100` (`k` = 1..=20)
+  where all six bind, and logs `canonical port <n> (...) held by pid <p>
+  (<image>); serving the host contract at offset <k*100>: ports ...`. No free
+  block up to offset 2000 refuses the start, naming the holder and
+  `SUSI_PORT_OFFSET`.
+
+The chosen offset is set as `SUSI_PORT_OFFSET` in the daemon's own
+environment before any worker or leaf service starts, so the whole process
+tree agrees on it, and it is published in `<config dir>/ports.json` with
+`offset`, `pid` and `fallback_from` (the configured offset; it differs from
+`offset` exactly when the daemon fell back). Clients resolve the offset in one
+order, `SUSI_PORT_OFFSET`, the explicit config key, the live daemon's
+`ports.json`, then 0 (`susi_paths::ports::resolve_offset`). A `ports.json`
+counts only while its pid holds the instance's substrate lock (on Windows the
+OS byte-range lock on `substrate.lock`, on Linux a live `/proc/<pid>`), and the
+daemon removes it on a clean stop, as does `susi stop`. The fallback is
+deterministic for the host's state, uniform and announced: a client that
+hard-codes 9090 reaches it only when the canonical block is free, which is
+why the start banner and `susi os status` say when a fallback is in effect.
 
 ---
 

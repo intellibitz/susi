@@ -191,13 +191,34 @@ impl SusiConfig {
     /// second instance or a nonstandard host layout gets clean ports while
     /// the relative contract shape stays fixed (the legacy per-port config
     /// keys stay ignored: scrambled individual ports were the incident that
-    /// made the contract compile-time). `SUSI_PORT_OFFSET` env wins over the
-    /// `port_offset` config key.
+    /// made the contract compile-time).
+    ///
+    /// Resolution ([`susi_paths::ports::resolve_offset`]): an explicit
+    /// offset ([`Self::explicit_port_offset`]) wins; otherwise the offset the
+    /// live daemon of this instance published in `ports.json` (an automatic
+    /// fallback block, or 0); otherwise 0.
     pub fn port_offset(&self) -> u16 {
-        std::env::var("SUSI_PORT_OFFSET")
-            .ok()
-            .and_then(|v| v.trim().parse::<u16>().ok())
-            .unwrap_or_else(|| self.get_or_bundled_default("port_offset"))
+        susi_paths::ports::resolve_offset(
+            susi_paths::ports::explicit_env_offset(),
+            self.configured_port_offset(),
+            susi_paths::ports::live_daemon_offset,
+        )
+    }
+
+    /// The offset an operator pinned: `SUSI_PORT_OFFSET` (any value that
+    /// parses, `0` included, wins), else a non-zero `port_offset` config key.
+    /// `None` means nothing is pinned and the daemon may fall back to a free
+    /// block. A config value of 0 is not a pin: heal backfills
+    /// `port_offset: 0` into every `config.json`, so 0 cannot tell an
+    /// operator's choice from the default.
+    pub fn explicit_port_offset(&self) -> Option<u16> {
+        susi_paths::ports::explicit_env_offset().or_else(|| self.configured_port_offset())
+    }
+
+    /// The non-zero `port_offset` config value, if any.
+    fn configured_port_offset(&self) -> Option<u16> {
+        let configured: u16 = self.get_or_bundled_default("port_offset");
+        (configured > 0).then_some(configured)
     }
     // Public substrate ports are a hard contract with external clients:
     // canonical base + the uniform offset. Individual per-port overrides are
@@ -875,6 +896,39 @@ mod tests {
             !redacted.contains(&format!("{sample_pattern}abcdef123456")),
             "governance.secret_tokens pattern must be masked: {redacted}"
         );
+    }
+
+    #[test]
+    fn explicit_port_offset_is_env_or_a_non_zero_config_key() {
+        let _guard = crate::env_test_lock();
+        let prev_offset = std::env::var_os("SUSI_PORT_OFFSET");
+        let with = |value: Option<u16>| {
+            let mut settings = DynamicRegistry::new();
+            if let Some(v) = value {
+                settings.insert("port_offset".into(), DynamicValue::from(v));
+            }
+            SusiConfig { settings }
+        };
+        std::env::remove_var("SUSI_PORT_OFFSET");
+        let unpinned = [with(None), with(Some(0))].map(|c| c.explicit_port_offset());
+        let config_pin = with(Some(300)).explicit_port_offset();
+        let config_pin_resolved = with(Some(300)).port_offset();
+        std::env::set_var("SUSI_PORT_OFFSET", "0");
+        let env_zero = with(Some(300)).explicit_port_offset();
+        let env_zero_resolved = with(Some(300)).port_offset();
+        match prev_offset {
+            Some(v) => std::env::set_var("SUSI_PORT_OFFSET", v),
+            None => std::env::remove_var("SUSI_PORT_OFFSET"),
+        }
+        assert_eq!(unpinned, [None, None], "a healed 0 is not a pin");
+        assert_eq!(config_pin, Some(300));
+        assert_eq!(config_pin_resolved, 300);
+        assert_eq!(
+            env_zero,
+            Some(0),
+            "SUSI_PORT_OFFSET=0 pins the canonical block"
+        );
+        assert_eq!(env_zero_resolved, 0);
     }
 
     #[test]

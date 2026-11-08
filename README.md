@@ -79,13 +79,19 @@ The five ports shift together, never individually: `port_offset` in
 part of the contract.
 
 > **Port collisions.** `9090` is also the Prometheus server default and
-> `9092-9094` are common Kafka listener ports. When a canonical port is busy
-> the daemon logs an advisory naming the alternate it would pick
-> (`canonical port busy: <service> would autoselect <port> -> <alt>`), retries
-> the bind five times while evicting only a stale susi process of its own, and
-> otherwise refuses to start: port randomization is disabled by contract.
-> Start with `SUSI_PORT_OFFSET=100 susi start` instead, and tell your clients
-> the offset. A second instance on one host also needs its own root:
+> `9092-9094` are common Kafka listener ports. When no offset is pinned and a
+> process other than this instance's susi holds one of the six ports the
+> daemon binds (`9090-9094` and gossip `9095`), the daemon first evicts only a
+> stale susi process of its own, then moves the whole block to the first free
+> offset of 100 (`9190-9195`, then `9290-9295`, up to offset `2000`). It logs
+> which port was held and by which process, and publishes the chosen offset
+> with its pid in `ports.json` in its config directory; `susi start`, `susi os
+> status` and every client of the same instance find it there, and the start
+> banner says the block is a fallback. The ports never move one at a time and
+> never become ephemeral. To choose the block yourself, pin it: a
+> `SUSI_PORT_OFFSET` value (`0` included) or a non-zero `port_offset` in
+> `config.json` is bound exactly, and the daemon refuses to start if that block
+> is taken. A second instance on one host also needs its own root:
 > `SUSI_HOME=~/.susi-b SUSI_PORT_OFFSET=100 susi start`.
 
 ## Where it stands

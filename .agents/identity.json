@@ -308,7 +308,7 @@
           "tier": 1
         },
         {
-          "function": "Host-contract REST on port **9091** (`susi_paths::ports::GEMI`). External clients may hard-code it; the daemon never randomizes or silently drifts this port (same contract as 9090/9092/9093/9094).",
+          "function": "Host-contract REST on port **9091** (`susi_paths::ports::GEMI`). External clients may hard-code it; the daemon never randomizes or silently drifts this port (same contract as 9090/9092/9093/9094): it moves only with the uniform offset, and an automatic fallback to the first free block of 100 when nothing is pinned and a foreign process holds the canonical block is logged and published in ports.json.",
           "symbol": "GEMI Server",
           "tier": 1
         },
@@ -452,7 +452,7 @@
         },
         {
           "id": 22,
-          "imperative": "Autonomously recover from structural pathologies, memory faults, or a *stale susi* process holding a host-contract port (Sovereign Eviction / reclaim). Host-contract ports themselves never randomize or drift to ephemeral alternatives — if a foreign process owns 9090–9094, bind fails closed.",
+          "imperative": "Autonomously recover from structural pathologies, memory faults, or a *stale susi* process holding a host-contract port (Sovereign Eviction / reclaim). Host-contract ports themselves never randomize or drift to ephemeral alternatives — if a foreign process owns a port of the block, a pinned offset fails closed, and an unpinned daemon moves the whole block to the first free offset of 100 (CEO decision 2026-11-08), logged and published in ports.json.",
           "title": "Self-Healing Reflex"
         },
         {
