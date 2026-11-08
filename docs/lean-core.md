@@ -86,18 +86,26 @@ threads). Baseline measured 2026-11-07 22:53 at origin/main `fc3f5a861`,
 **under load** (a test gate was running on the same machine; a clean re-run
 follows once the gate is idle):
 
-| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | budget |
-|---------|----------|----------|----------|--------|
-| wall clock | 196 s | 165 s | 104.5 s | 60 s |
-| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | under 1,200 s |
-| of which workspace crates | 393 s | 359 s | 184 s | under 150 s |
-| of which third-party | 1,916 s | 1,513 s | 899 s | under 1,000 s, then towards 0 |
-| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | under 55 s |
-| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | under 15 s |
+| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | 06:15 idle, landed `66d3ca6d8` | budget |
+|---------|----------|----------|----------|----------|--------|
+| wall clock | 196 s | 165 s | 104.5 s | 107.7 s (88.9 s in a second idle run) | 60 s |
+| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | 990.5 s (427 units) | under 1,200 s |
+| of which workspace crates | 393 s | 359 s | 184 s | 219 s | under 150 s |
+| of which third-party | 1,916 s | 1,513 s | 899 s | 772 s | under 1,000 s, then towards 0 |
+| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | 15 units, 125 s: windows-sys 27, tokio 13, h2/hyper/reqwest 17, rmcp 25, gmcp 15, daemon 11, bin 12 | under 55 s |
+| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | 40 s | under 15 s |
 
 The idle number is the baseline the budget counts from. Between the two
 measurements Antigravity's iterations 341-350 removed candle, bollard and the
 sandbox crate from the host binary's closure.
+
+Wall is the noisiest column: two idle runs on the same landed commit
+`66d3ca6d8` read 88.9 s (04:36) and 107.7 s (06:15), while their unit count is
+identical (427) and their CPU-seconds agree within 5% (941 s and 990.5 s).
+Sequential builds on a machine other agents also use move wall by up to 20%
+with no source change, so the unit count and CPU-seconds are the ratchet and
+wall is the number the CEO reads; quote a wall number only with the run it
+came from.
 
 Two independent constraints, both binding:
 
@@ -129,7 +137,7 @@ Two independent constraints, both binding:
 | MCP vendor: rmcp, ra2a | 74 | no | Claude, rung 2 |
 | docker: bollard (+ its time/icu tail) | 74 | no | Antigravity: susi-sandbox leaves |
 | regex | 63 | no | audit users; most are product |
-| wasm text format: wast, wat | 53 | no | Claude: core accepts binary `.wasm` only |
+| wasm text format: wast, wat | 0 (was 21.4 s for `wast` at `b814235c4`) | no | done, T-DEEPSEEK-1: the host accepts binary `.wasm` only |
 | tracing, clap | 100 | no | keep, trim features |
 
 ### What leaves the pillars (module level)
@@ -165,7 +173,8 @@ crate (rung 3).
    one gated ship per crate, ceilings lowered in the same change.
 3. rcgen/TLS, rmcp/ra2a, hyper/axum/tower, ureq, bollard (rung 2 and the
    sandbox move): 600 CPU-seconds.
-4. wast/wat, jsonschema in daemon, regex users, clap/tracing features.
+4. jsonschema in daemon, regex users, clap/tracing features (wast/wat is cut,
+   T-DEEPSEEK-1).
 5. serde derive off the critical path (rung 3 decision).
 
 ### Measuring
@@ -226,3 +235,15 @@ table once the clean baseline is recorded.
 - 2026-11-08 wave 3 (T-LEAN3-1): landed main measured at 104.5 s wall / 1,083 CPU-seconds (from
   165 / 1,872 at iteration 350): the sysinfo cut and Antigravity's crate deletions. The unused
   jsonschema line leaves GMCP's manifest; `cargo xtask` alias added. Third-party 268.
+- 2026-11-08 binary `.wasm` only (T-DEEPSEEK-1, landed `66d3ca6d8`): the socket no longer compiles
+  the WebAssembly text format. `susi-vendor-wasmtime` refuses any input without the binary magic
+  at both entry points (`resources::check_binary_module`, from `cell::instantiate` and
+  `wasm::execute_reflex`), and `wat` moved to a dev-dependency of that crate, so `wat` and its
+  `wast` parser left the host closure: 5 units (462 -> 457 on its own base `b814235c4`; the landed
+  tree measures 427 units and 990.5 CPU-seconds, after wave 3's jsonschema cut landed too). The
+  daemon's crown sandbox probes carry the compiled bytes of their fixtures with the WAT source in
+  doc comments, and a new test (`sandbox_check_runs_the_embedded_binary_probes`) runs them through
+  the live sandbox check. No ceiling moved: `susi-vendor-wasmtime` is not in the four pillars'
+  closure, so the third-party count, the workspace count and the line pins stay where wave 3 left
+  them. Two build-time runs at `6f1df35c7` (126.2 s / 1,397.6 CPU-s and 134.9 s / 1,302.8 CPU-s)
+  were taken while other agents' gates held the CPU; they are not budget numbers.
