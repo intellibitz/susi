@@ -8,13 +8,18 @@
   "native_worker": "coretests",
   "created_by": "coretests",
   "created_unix": 1794113833,
-  "updated_unix": 1794113833,
+  "updated_unix": 1794116127,
   "size": "M",
   "deps": [],
   "scopes": [
     ".agents/tasks/t-coretests-1.json",
+    "crates/susi-config/src/extensions.rs",
+    "crates/susi-config/src/lib.rs",
+    "crates/susi-config/src/tests",
     "crates/susi-daemon/src/lib.rs",
     "crates/susi-daemon/src/tests",
+    "crates/susi-gawd-a2a/src/lib.rs",
+    "crates/susi-gawd-a2a/src/mastery_tests",
     "crates/susi-gawd-swarm/src/lib.rs",
     "crates/susi-gawd-swarm/src/tests",
     "tests/cloud_session.rs",
@@ -26,12 +31,18 @@
     "tests/member_signing.rs",
     "tests/moonshot_alias.rs",
     "tests/park_primary.rs",
-    "tests/peer_request_signing.rs"
+    "tests/peer_request_signing.rs",
+    "tests/vc_201_098_mastery.rs"
   ],
   "scope": [
     ".agents/tasks/t-coretests-1.json",
+    "crates/susi-config/src/extensions.rs",
+    "crates/susi-config/src/lib.rs",
+    "crates/susi-config/src/tests",
     "crates/susi-daemon/src/lib.rs",
     "crates/susi-daemon/src/tests",
+    "crates/susi-gawd-a2a/src/lib.rs",
+    "crates/susi-gawd-a2a/src/mastery_tests",
     "crates/susi-gawd-swarm/src/lib.rs",
     "crates/susi-gawd-swarm/src/tests",
     "tests/cloud_session.rs",
@@ -43,7 +54,8 @@
     "tests/member_signing.rs",
     "tests/moonshot_alias.rs",
     "tests/park_primary.rs",
-    "tests/peer_request_signing.rs"
+    "tests/peer_request_signing.rs",
+    "tests/vc_201_098_mastery.rs"
   ],
   "acceptance": "cargo test -p susi-gawd-swarm --lib --offline --locked",
   "accept": {
