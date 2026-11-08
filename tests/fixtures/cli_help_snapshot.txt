@@ -1733,7 +1733,7 @@ Usage: susi privacy [COMMAND]
 
 Commands:
   status   Show privacy mode and active capability grants
-  mode     Set privacy mode: balanced | local_only | open
+  mode     Set privacy mode: balanced | local_only (this machine and its local network) | open
   grant    Grant a cryptographic capability token
   revoke   Revoke a capability grant
   consent  Explicit consent for network egress (and cloud inference under local_only)
@@ -1751,7 +1751,7 @@ Options:
   -h, --help  Print help
 
 === susi privacy mode ===
-Set privacy mode: balanced | local_only | open
+Set privacy mode: balanced | local_only (this machine and its local network) | open
 
 Usage: susi privacy mode <MODE>
 

@@ -55,7 +55,7 @@ impl axum::serve::Listener for DualListener {
                     continue;
                 }
             };
-            // Off-host plaintext is refused only under `https_only`;
+            // Off-host plaintext is refused unless allow_remote_plaintext;
             // loopback is always exempt (internal http://127.0.0.1 callers).
             let remote = !addr.ip().is_loopback();
             if let Some(io) = negotiate_transport(
