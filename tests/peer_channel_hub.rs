@@ -867,8 +867,8 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
 /// member binds the hub and keeps an uplink to it, and a member's `susi
 /// peers status` then reaches the hub on the product path. Repeating `peers
 /// add` is idempotent: a joining member never starts a ledger of its own.
-/// (Whether the members then learn each other from the hub's ledger is the
-/// swarm's liveness model, not the channel: see `docs/peer-channel.md`.)
+/// The member admitted first learns the second from the hub's ledger push
+/// and calls it through the hub.
 #[test]
 fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
     let _g = commit_log::ENV_LOCK
@@ -934,10 +934,46 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
         std::thread::sleep(Duration::from_millis(500));
     }
     assert!(binds(&b, &hub), "B binds the hub: {:?}", roster_of(&b));
+    // The hub pushes each committed admission to every bound member over
+    // its uplink, so the member already in the cluster learns the new
+    // member's key from the hub's ledger, and a member-to-member call then
+    // travels member -> hub -> member on the product path. (The newer
+    // member learns the older ones only through ledger sync, which the
+    // swarm drives; see `docs/peer-channel.md`, "Limits".)
+    let deadline = Instant::now() + limit;
+    while !binds(&a, &b) {
+        assert!(
+            Instant::now() < deadline,
+            "A never learned B's key from the hub's ledger: {:?}",
+            roster_of(&a)
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let rows = peers_status(&a);
+        if rows
+            .get(&b.node_id)
+            .is_some_and(|r| r.get("error").is_none())
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "A never reached B through the hub: {rows:?}"
+        );
+        std::thread::sleep(Duration::from_secs(1));
+    }
     // A second `peers add` of the same hub is idempotent: the joining
     // member still holds no ledger record it sealed itself.
-    let again = join(&a, &endpoint, limit);
-    assert!(!again.contains("committed to ledger"), "{again}");
+    let (ok, again, again_err) =
+        run_cli(&a, &["peers", "add", &endpoint], Duration::from_secs(120));
+    assert!(ok, "repeated peers add failed: {again}{again_err}");
+    assert!(
+        again.contains("already a member under this key"),
+        "{again}{again_err}"
+    );
+    assert!(!again.contains("committed to ledger"), "{again}{again_err}");
     let own_records = std::fs::read_to_string(a.config.join("commit_log.jsonl"))
         .unwrap_or_default()
         .lines()

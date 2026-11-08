@@ -858,6 +858,16 @@ fn add_over_channel(
         endpoint,
         vec![endpoint.to_string()],
     )?;
+    // Already a member under this very key: `peers add` refreshes the
+    // address hint and the uplink and commits nothing (a repeat must never
+    // seal a second admission or start a ledger here).
+    let already_bound = load_registry()?.iter().any(|n| {
+        n.get("admission").and_then(|a| a.as_str()) == Some("explicit")
+            && n.get("node_id").and_then(|v| v.as_str()) == Some(peer.node_id.as_str())
+            && n.get("pubkey")
+                .and_then(|v| v.as_str())
+                .is_some_and(|k| k.eq_ignore_ascii_case(&peer.pubkey))
+    });
     let node = serde_json::json!({
         "node_id": peer.node_id,
         "address": endpoint,
@@ -913,7 +923,13 @@ fn add_over_channel(
             peer.node_id
         );
     }
-    if !joining {
+    if already_bound {
+        say!(
+            out,
+            "{} was already a member under this key; its address hint is now {endpoint}",
+            peer.node_id
+        );
+    } else if !joining {
         commit_membership(
             out,
             crate::commit_log::KIND_MEMBER_ADD,
@@ -923,8 +939,24 @@ fn add_over_channel(
             &peer.bind_sig,
         );
     }
-    request_admission(out, peer, endpoint);
+    if self_admitted_by_other() {
+        say!(out, "this node's own admission is already in its ledger");
+    } else {
+        request_admission(out, peer, endpoint);
+    }
     Ok(())
+}
+
+/// Whether this node's ledger holds a committed admission of this node that
+/// another member sealed: it has been admitted to the cluster it joined.
+fn self_admitted_by_other() -> bool {
+    let self_id = susi_config::cluster_key::wire_node_id();
+    let prefix = format!("{self_id}@");
+    crate::commit_log::load().iter().any(|r| {
+        r.kind == crate::commit_log::KIND_MEMBER_ADD
+            && r.coordinator != self_id
+            && r.value.starts_with(&prefix)
+    })
 }
 
 /// The address hint this node gives when it asks to be admitted: its

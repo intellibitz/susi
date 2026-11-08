@@ -14,7 +14,6 @@
 //!   to the GMCP surface over an in-process socket pair, tagged with the
 //!   identity the session proved.
 
-use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -60,12 +59,16 @@ pub fn start(cfg: &susi_config::SusiConfig) {
     let stop = Arc::new(AtomicBool::new(false));
     let keeper_stop = Arc::clone(&stop);
     let policy: link::SharedDialPolicy = Arc::new(dial_policy);
-    if let Err(e) = std::thread::Builder::new()
-        .name("susi-channel-uplinks".into())
-        .spawn(move || link::keep_uplinks(keeper_stop, policy))
-    {
-        eprintln!("[CHANNEL] uplink keeper not started: {e}");
-    }
+    crate::service_supervision::Supervisor::global().spawn(
+        "peer-channel-uplinks",
+        5,
+        None,
+        move || {
+            let stop = Arc::clone(&keeper_stop);
+            let policy = Arc::clone(&policy);
+            Some(move || link::keep_uplinks(stop, policy))
+        },
+    );
     let Some(listen) = cfg
         .get::<String>("peer_channel_listen")
         .and_then(|raw| link::parse_listen(&raw))
@@ -89,12 +92,17 @@ pub fn start(cfg: &susi_config::SusiConfig) {
     };
     eprintln!("[CHANNEL] sealed peer channel listening on {listen}");
     let allow: link::AcceptPolicy = Arc::new(|from: &SocketAddr| posture_refusal(from).is_none());
-    if let Err(e) = std::thread::Builder::new()
-        .name("susi-channel-listen".into())
-        .spawn(move || link::serve_listener(listener, stop, allow, advertise))
-    {
-        eprintln!("[CHANNEL] listener not started: {e}");
-    }
+    crate::service_supervision::Supervisor::global().spawn(
+        "peer-channel-listen",
+        5,
+        None,
+        move || {
+            let listener = listener.try_clone().ok()?;
+            let (stop, allow, advertise) =
+                (Arc::clone(&stop), Arc::clone(&allow), advertise.clone());
+            Some(move || link::serve_listener(listener, stop, allow, advertise))
+        },
+    );
 }
 
 /// A connected loopback socket pair whose accepted end is provably the
@@ -150,49 +158,13 @@ fn serve_locally(stream: ChannelStream, peer: ChannelPeer) {
         eprintln!("[CHANNEL] no GMCP surface in this process; session from {node} closed");
         return;
     }
-    let (mut from_peer, mut to_peer) = stream.split();
-    from_peer.set_read_timeout(Some(SESSION_IDLE));
-    let Ok(mut to_gmcp) = local.try_clone() else {
-        return;
-    };
-    let mut from_gmcp = local;
-    let inbound = std::thread::Builder::new()
-        .name("susi-channel-in".into())
-        .spawn(move || {
-            let mut buf = vec![0u8; 64 * 1024];
-            loop {
-                match from_peer.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        if to_gmcp.write_all(&buf[..n]).is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-            let _ = to_gmcp.shutdown(std::net::Shutdown::Write);
-        });
-    if inbound.is_err() {
-        return;
-    }
-    let mut buf = vec![0u8; 60 * 1024];
-    loop {
-        match from_gmcp.read(&mut buf) {
-            Ok(0) | Err(_) => break,
-            Ok(n) => {
-                if to_peer.write_all(&buf[..n]).is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    let _ = from_gmcp.shutdown(std::net::Shutdown::Both);
-    drop(to_peer);
+    link::bridge(stream, local, SESSION_IDLE);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
 
     #[test]
     fn lan_sources_are_loopback_private_and_link_local_only() {

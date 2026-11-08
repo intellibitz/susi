@@ -343,4 +343,18 @@ All members upgrade together. Mixed clusters fail closed:
   down, those members cannot reach each other (they never reach each other
   any other way).
 - A2A (9094) and GEMI (9091) are not carried between machines; the peer
-  protocol is MCP on GMCP.
+  protocol is MCP on GMCP. `susi mcp call <host:port>` to another machine
+  is refused unless that address is a member bound by key: the peer client
+  reaches other machines only inside the channel.
+- The swarm counts a member live only when it answers a UDP discovery ping
+  (`PEER_STALE_SECS`, 30 s). A member reachable only through the hub never
+  does, so the hub's swarm marks it inactive 30 s after it was last seen:
+  calls to it still work over its uplink, and the hub's `member_propose`
+  pushes each committed admission to every bound member in `peers.json`
+  (not only the live ones), so a member already in the cluster learns each
+  newcomer's key. A newcomer learns the members admitted before it only
+  through ledger anti-entropy, which the swarm runs only toward members it
+  counts live; until it does, the newcomer serves calls from older members
+  with the standing of an unbound cluster-key holder. A liveness source
+  from live channel links belongs in the swarm (its owner after the
+  product-module move).

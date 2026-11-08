@@ -9,8 +9,10 @@
 //! - an unattested remote peer (no node key bound to its address, like the
 //!   row a discovery ping creates) receives nothing: the call fails naming
 //!   the missing attestation before a connection is made;
-//! - an attested remote member receives no bearer over plaintext `http://`,
-//!   only the member signature, and the failure names the cross-host rule;
+//! - an attested remote member receives nothing in plaintext at all: the
+//!   call opens the sealed peer channel to the member's key, so what reaches
+//!   its address is the channel preamble and ciphertext, never a request
+//!   line, a header or a bearer, and the failure names the cross-host rule;
 //! - a loopback target still receives the bearer it was handed;
 //! - a bound discovery ping (`SUSI_PING_SIG3`) sent over a real UDP socket
 //!   verifies from its own source, while the same datagram replayed from
@@ -95,6 +97,8 @@ fn write_roster(dir: &std::path::Path, node_id: &str, addr: &str, pubkey: &str) 
     if !pubkey.is_empty() {
         row["pubkey"] = serde_json::json!(pubkey);
         row["key_bound_at"] = serde_json::json!(1u64);
+        // Where the peer channel dials this member itself.
+        row["channel_endpoint"] = serde_json::json!(addr);
     }
     std::fs::write(
         dir.join("peers.json"),
@@ -138,15 +142,15 @@ fn an_unattested_peer_never_receives_the_bearer() {
 }
 
 #[test]
-fn no_bearer_crosses_plaintext_http_to_a_remote_member() {
+fn nothing_crosses_plaintext_http_to_a_remote_member() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let home = isolated_cluster_home("pca-attested");
     let ip = lan_ip();
-    let (addr, heads) = fake_peer(ip, Duration::from_secs(10));
-    // Attested: a node key is bound to the address. Our own key stands in
-    // for the member's, so the sealed body is one we could open.
+    let (addr, heads) = fake_peer(ip, Duration::from_secs(20));
+    // Attested: a node key is bound to the address, which is also the
+    // member's channel endpoint. The listener there is no channel peer.
     let member_pk = cluster_key::node_pubkey_hex().expect("node.key generates");
     write_roster(&home.config(), "member-b", &addr, &member_pk);
     let bearer = cluster_key::peer_bearer().expect("cluster.key yields the peer bearer");
@@ -154,7 +158,7 @@ fn no_bearer_crosses_plaintext_http_to_a_remote_member() {
     assert_eq!(
         mcp_client::credential_for_target(&addr, Some(&bearer)),
         Ok(None),
-        "an attested remote member authenticates by signature, not bearer"
+        "an attested remote member is called without the bearer"
     );
     let err = mcp_client::call_tool(
         &addr,
@@ -163,19 +167,19 @@ fn no_bearer_crosses_plaintext_http_to_a_remote_member() {
         Some(&bearer),
     )
     .unwrap_err();
-    assert!(err.contains("HTTP 401"), "{err}");
+    assert!(err.contains("peer channel"), "{err}");
     assert!(err.contains("cross-host peer calls"), "{err}");
     let head = heads
-        .recv_timeout(Duration::from_secs(8))
-        .expect("the attested member receives the request");
-    assert!(head.starts_with("post /mcp"), "{head}");
-    assert!(!head.contains("authorization:"), "bearer leaked: {head}");
+        .recv_timeout(Duration::from_secs(15))
+        .expect("the member's address sees the channel open");
+    assert!(head.starts_with("susipc1"), "{head}");
+    assert!(!head.contains("/mcp"), "request line leaked: {head}");
+    assert!(!head.contains("authorization"), "header leaked: {head}");
+    assert!(!head.contains("x-susi"), "header leaked: {head}");
     assert!(
         !head.contains(&bearer.to_ascii_lowercase()),
         "bearer value leaked: {head}"
     );
-    assert!(head.contains("x-susi-req-sig:"), "member signature: {head}");
-    assert!(head.contains("x-susi-enc: v1"), "sealed body: {head}");
 }
 
 #[test]

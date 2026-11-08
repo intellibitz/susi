@@ -19,9 +19,15 @@ models.
 
 ## Summary
 
-- The daemon binds `127.0.0.1` by default. On that posture the only socket
-  reachable from another machine is swarm gossip (UDP 9095), which rejects
-  every datagram not sealed under this host's `cluster.key`.
+- The daemon binds `127.0.0.1` by default; on that posture no socket is
+  reachable from another machine. Gossip (UDP 9095) and discovery (UDP 9092)
+  bind `bind_address` and answer only loopback and local-network sources.
+- Machines talk to each other only inside the sealed peer channel
+  (`docs/peer-channel.md`): Noise `XXpsk0` over the node keys with the
+  cluster key as PSK, hop by hop and end to end, on one dedicated port
+  (`peer_channel_listen`, default TCP 29090) that a hub opens and members
+  dial out to. Remote plaintext on the contract ports is refused
+  unconditionally.
 - Every HTTP contract port (9090, 9091, 9093, 9094) requires a bearer token
   or a roster-bound Ed25519 request signature on every request, including
   requests from loopback. `/health`, CORS preflight and the A2A agent card
@@ -68,15 +74,25 @@ profile directories on Windows, or one `~/.susi` root under `SUSI_HOME`).
 - **LAN** becomes reachable for 9090-9094 only when the operator sets
   `bind_address` to an interface address or a wildcard (`0.0.0.0`, `::`).
   A specific address is bound alongside loopback so local callers keep
-  working (`SusiDaemon::bind_tcp_canonical`). UDP 9092 binds on the same
-  `bind_address`, so on the default posture there is no LAN discovery
-  surface at all.
-- **Gossip UDP 9095** binds `0.0.0.0:<port>` regardless of `bind_address`,
-  and falls back to `0.0.0.0:0` when the port is taken
-  (`composition::bind_swarm_gossip`). It is the one socket open to every
-  interface on the default posture. Every datagram is HMAC-SHA256 sealed
-  under a key derived from `cluster.key`; unsealed or mismatched datagrams
-  are counted and dropped (`GossipManager::ingest`).
+  working (`SusiDaemon::bind_tcp_canonical`). Even then, plaintext from
+  another machine is refused (below), so a wider bind serves TLS clients
+  only. UDP 9092 binds on the same `bind_address`, so on the default
+  posture there is no LAN discovery surface at all; on a wider bind it
+  drops every datagram from a public source unread
+  (`peer_channel_host::is_lan_source`).
+- **Gossip UDP 9095** binds `bind_address` too (`composition::bind_swarm_gossip`),
+  and drops datagrams from public sources unread (`GossipManager::poll_recv`).
+  Every datagram is HMAC-SHA256 sealed under a key derived from
+  `cluster.key`; unsealed or mismatched datagrams are counted and dropped
+  (`GossipManager::ingest`).
+- **The peer channel port** (`peer_channel_listen`, default TCP 29090,
+  never shifted by `port_offset`) is the one surface meant for other
+  machines. It is off unless configured; a hub binds it on a wide address
+  while `bind_address` stays loopback. Before a byte is read, each
+  connecting address is checked against the privacy posture (the egress
+  rule: nothing beyond loopback under `host_only`, nothing beyond the local
+  network under `local_only`). A connection that does not open with a valid
+  first handshake message under this cluster's key gets no answer at all.
 - **Internet** is never a bind the code chooses. It is reached only as a
   client: provider calls, STUN, model downloads, remote MCP servers and
   remote A2A peers, each gated by the privacy posture described below.
@@ -177,10 +193,11 @@ reached the socket, and the bearer is the operator's. In particular:
 |------|---------|------|----------------|------------------------|
 | 9090 | GMCP / MCP HTTP (`/mcp`, `/messages`) | `bind_address` (+ loopback) | `NetGuard::is_authorized`: host bearer, cluster peer bearer, or a roster-bound member signature over method, path and body hash; then a per-IP rate limit (120 per minute, IPv6 bucketed per /64), waived for the host's own bearer over loopback | `GET /health`, `OPTIONS` |
 | 9091 | GEMI HTTP (OpenAI-compatible, Anthropic Messages, `/metrics`, `/.well-known/susi`) | same | same (`crates/susi-server/src/lib.rs`) | `GET /health`, `OPTIONS` |
-| 9092 | A2A UDP discovery | `bind_address` | Only bound `SUSI_PING_SIG3` datagrams are answered: the HMAC under `cluster.key` verifies, the advertised source IP equals the datagram's, the timestamp is within 60 s and the nonce is unseen (`cluster_key::verify_bound_ping`); the retired unbound `SUSI_PING_SIG` / `SUSI_PING_SIG2` and anything else get silence (`start_udp_discovery_server`) | none: an unsigned probe gets silence |
+| 9092 | A2A UDP discovery | `bind_address` | Datagrams from public sources are dropped unread; only bound `SUSI_PING_SIG3` datagrams are answered: the HMAC under `cluster.key` verifies, the advertised source IP equals the datagram's, the timestamp is within 60 s and the nonce is unseen (`cluster_key::verify_bound_ping`); the retired unbound `SUSI_PING_SIG` / `SUSI_PING_SIG2` and anything else get silence (`start_udp_discovery_server`) | none: an unsigned probe gets silence |
 | 9093 | GMCP HTTP alias | same as 9090 | same as 9090 | same |
 | 9094 | A2A HTTP (JSON-RPC `/`, SSE `/stream`) | same | the same `NetGuard` verifier, receiving the buffered body so body-bound signatures verify (`server.rs`, `a2a_verifier`) | `/.well-known/agent-card.json` |
-| 9095 | Swarm gossip UDP | `0.0.0.0` always | HMAC-SHA256 seal under `HMAC(HMAC(cluster.key, "susi-gossip-v1"), "susi-gossip-peer-v1:<destination id>")`; unsealed datagrams rejected | none |
+| 9095 | Swarm gossip UDP | `bind_address` (loopback under `host_only`); public sources dropped | HMAC-SHA256 seal under `HMAC(HMAC(cluster.key, "susi-gossip-v1"), "susi-gossip-peer-v1:<destination id>")`; unsealed datagrams rejected | none |
+| 29090 (`peer_channel_listen`) | Sealed peer channel (off unless configured) | the configured address; never offset | Noise `XXpsk0` link handshake: the first message must open under the cluster PSK (silence otherwise), both sides prove their node key, replayed first messages are refused; each call is a second, end-to-end `XXpsk0` session to the destination's key; GMCP then authorizes by that identity (`NetGuard::channel_authorized`) | none |
 | 18080 | `susi-paths` leaf | loopback only | none on its routes (path and port lookups) | all |
 | 18081 | `susi-error` leaf | loopback only | `SUSI_HOST_TOKEN` when the daemon spawned it; open when started by hand without that variable | `/healthz` |
 | 18082 | `susi-config` leaf | loopback only | host bearer, fail closed (`auth::host_token`) | `/healthz` |
@@ -212,32 +229,38 @@ TLS on the contract ports (`crates/susi-daemon/src/tls.rs`,
   self-signed certificate is generated once under `<config>/tls/` with
   SANs for localhost, the bind address and the hostname. A loopback bind
   with no configured certificate serves plain HTTP only.
-- Plaintext from a non-loopback peer is refused unless the operator sets
-  `allow_remote_plaintext: true` (`tls::remote_tls_required`). The compiled
-  default is `false`, an absent or non-boolean value refuses, and the
-  retired `https_only` key is ignored with a one-time notice: the config
-  healer had written its old default (`false`) into every existing
-  `config.json`, so its value could not tell an operator's choice from the
-  healer's, and honouring it would have left every upgraded install open.
-  Loopback plaintext always passes.
-- A self-signed certificate authenticates nothing to the client unless the
-  client pins it, and the peer channel (`susi_core::mcp_client`) still dials
-  only `http://<addr>/mcp`: TLS with a certificate pinned from the attested
-  roster entry needs a certificate fingerprint carried by the pong and the
-  `member_add` record, which no wire format has yet. The client therefore
-  never sends a bearer off-host (`mcp_client::credential_for_target`): a
-  loopback target gets the credential it was handed; a remote target with
-  no node key bound to its address in `peers.json` is refused before a
-  connection opens; a remote member with a bound key is called with the
-  member signature (method, path, body hash, timestamp, nonce) and a body
-  sealed to its key, and no `Authorization` header. A cluster that spans
-  hosts therefore works only between members that have bound each other's
-  keys and set `allow_remote_plaintext: true`; otherwise its calls fail
-  closed with an error that says why. No automatic path binds a new remote
-  member's key today: the scout's reverse handshake and the endpoint proof
-  of `susi peers add` both call the not-yet-attested address and are
-  refused, so the binding is a manual `peers.json` entry (node id, address,
-  public key) on each host until the peer client gains pinned TLS.
+- Plaintext from a non-loopback peer is refused unconditionally
+  (`tls::remote_tls_required` always answers true). Two keys that once
+  decided it are retired and ignored: `https_only` (the config healer had
+  written its old default, `false`, into every existing `config.json`, so
+  its value could not tell an operator's choice from the healer's) and
+  `allow_remote_plaintext` (retired with the sealed peer channel; a `true`
+  left in a config logs a one-time notice and opens nothing). Loopback
+  plaintext always passes.
+- A self-signed certificate authenticates nothing to a client that does not
+  pin it, so TLS on these ports is for operator-chosen clients with a
+  configured certificate. Susi machines do not use it: every call between
+  them travels inside the sealed peer channel (`docs/peer-channel.md`). The
+  peer client (`susi_core::mcp_client`) never sends a bearer off-host and
+  never sends anything off-host outside the channel: a remote target is
+  refused unless `peers.json` binds a node key to its address, and an
+  attested member is reached by its key, through a link this process holds,
+  its own channel endpoint, a hub (`peer_channel_hubs.json`) or this node's
+  daemon. The request inside the channel still carries the member signature
+  and a body sealed to the member's key, and no `Authorization` header.
+- The receiving daemon hands a terminated channel session to GMCP over an
+  in-process socket pair, with the identity the session proved; GMCP
+  authorizes each request by that identity: this node's own key or a bound
+  member is authorized, an identity that proved the cluster key but is not
+  bound has the standing of a cluster peer-bearer caller, a banned identity
+  or one claiming a bound member's node id or key is refused.
+- Membership is identity-keyed: a member-signed request verifies by the
+  node key bound to the node id, not by the address it came from
+  (`NetGuard::signed_request_valid`), so a member behind NAT or with a new
+  public address is the same member, while the nonce record and the 300 s
+  window still refuse a replay. `susi peers add <host:port>` binds a member
+  by the key its channel handshake proved, whatever address it was reached
+  at.
 
 ## What the bearer token and the bus secret protect, and what they do not
 
@@ -256,12 +279,12 @@ It does not protect against:
 - any process running as the daemon's user, which reads the file;
 - a caller that was given the token once; there is no per-tool or per-client
   scoping of the host bearer, and a holder may call `privacy_grant`;
-- interception on a plaintext path an operator opened with
-  `allow_remote_plaintext: true`: a remote client that sends the host bearer
-  over `http://` exposes it to the network path. Core's own peer client
-  never does (see the TLS section), and signed member requests carry no
-  reusable credential, because the signature covers method, path, a body
-  hash, a timestamp within 300 s and a nonce the receiver records
+- a remote client the operator gives the bearer to over a TLS connection
+  it does not authenticate (an unpinned self-signed certificate). Remote
+  plaintext is refused outright, core's own peer client never sends a
+  bearer off-host, and signed member requests carry no reusable credential,
+  because the signature covers method, path, a body hash, a timestamp
+  within 300 s and a nonce the receiver records
   (`net_guard::signed_request_valid`).
 
 Before the token is seeded, requests without a bearer are accepted from
@@ -290,7 +313,9 @@ which holder signed. `node.key` (Ed25519) closes that gap once a committed
 `member_add` binds the member's public key in every receiver's roster;
 until then, member attribution is self-asserted.
 
-**Discovery (UDP 9092).** A scout sends a bound ping (`SUSI_PING_SIG3`) to
+**Discovery (UDP 9092)** is a local-network convenience: a datagram from a
+public source is dropped unread. Members on other networks join over the
+peer channel instead. A scout sends a bound ping (`SUSI_PING_SIG3`) to
 the broadcast address and to each candidate; its MAC covers the sender's
 source IP on that route (found by connecting a throwaway UDP socket), its
 HTTP alias port, a timestamp and a nonce. A daemon that verifies it records
@@ -495,14 +520,19 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set; under
 1. Same-user processes are the operator. Nothing in core distinguishes them.
 2. The shared peer bearer is a symmetric credential; evicting a member
    without a re-key leaves it able to authenticate from a fresh address.
-3. The peer channel has no TLS client. Cross-host peer calls carry no
-   bearer, so no credential crosses the network, but they work only between
-   members whose keys were bound by hand on both sides and that set
-   `allow_remote_plaintext`, and their request and response headers (not
-   the sealed bodies) are readable on the path. Multi-host clusters are
-   therefore off by default.
-4. Gossip 9095 is open on every interface regardless of `bind_address`,
-   except under `host_only`, which re-binds it to loopback.
+3. Cross-machine traffic is sealed by the peer channel, but the channel
+   authenticates nodes, not users, and does not hide traffic analysis: the
+   network path sees that two addresses talk, the `SUSIPC1` preamble, and
+   message sizes and timing; a hub that relays a call between two members
+   sees the stream's source and destination node ids and sizes, never its
+   content. A cluster-key holder not bound in a roster can call that node
+   with peer-bearer standing (residual 2). Members reachable only through a
+   hub are not counted live by the swarm, whose liveness is UDP pongs
+   (`PEER_STALE_SECS` 30): the hub's ledger pushes and quorum skip them
+   after 30 s until a channel-link liveness source exists.
+4. Gossip 9095 and discovery 9092 follow `bind_address` and drop public
+   sources; a wide `bind_address` still exposes both to the local network,
+   where any `cluster.key` holder can seal gossip and answer pings.
 5. Egress classification is by tool name; `local_only` permits the whole LAN
    (and says so in every report); `host_only` confines the network to this
    machine but not the machine's own processes (see "Loopback, LAN,
@@ -518,8 +548,9 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set; under
 ## Recommended operator posture
 
 - **Keep `bind_address` at `127.0.0.1`** unless a remote client needs the
-  socket. On that posture the daemon's only off-host surface is gossip 9095,
-  and gossip is inert without a shared `cluster.key`.
+  socket. Machines in one cluster never need it: they talk over the peer
+  channel. On that posture the daemon has no off-host surface except the
+  channel port when one is configured.
 - **Run the daemon as a dedicated user** when other local users or untrusted
   local software share the machine. The bearer, the MAC key and the audit
   key are only as private as that account's files.
@@ -539,11 +570,12 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set; under
 - **Bind beyond loopback only with a plan for certificates.** The
   self-signed certificate is generated for you but authenticates nothing a
   client does not pin. Supply `tls_cert_path` / `tls_key_path` from a CA the
-  clients trust; remote plaintext is refused unless you set
-  `allow_remote_plaintext: true`. A cluster that spans hosts needs that
-  setting on every member today (the peer client has no TLS yet) and works
-  only between members whose keys are bound, so put it on a network segment
-  you control.
+  clients trust; remote plaintext is always refused.
+- **Connect machines over the peer channel only.** One hub opens
+  `peer_channel_listen` (forward that single TCP port, 29090 by default, on
+  the hub's router and allow it in the hub's firewall; never forward
+  9090-9095); every other machine runs `susi peers add <hub>:29090` and
+  keeps an uplink. All members run a release with the channel.
 - **Share `cluster.key` deliberately** and only with hosts you would let
   hold the peer bearer. Bind member keys (`member_add`) so bearer-only calls
   from member addresses are refused, and re-key to evict.

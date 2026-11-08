@@ -1556,11 +1556,35 @@ impl CoreTools {
         let args = serde_json::to_value(&record)
             .map_err(|e| EaiError::internal(format!("serialize record: {e}")))?;
         let mut pushed = 0usize;
-        for target in roster
-            .iter()
-            .map(|(_, a, _)| a.clone())
+        // Every bound member, not only those the swarm currently counts
+        // live: a member reached only over the peer channel never answers a
+        // UDP ping, and a committed record it never receives would leave it
+        // without the roster change. A push to a dead member just fails.
+        let bound_members: Vec<String> =
+            crate::susi_config::cluster_key::config_json_rows("peers.json")
+                .iter()
+                .filter(|r| r.get("admission").and_then(|v| v.as_str()) == Some("explicit"))
+                .filter(|r| {
+                    r.get("pubkey")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|k| !k.is_empty())
+                })
+                .filter_map(|r| {
+                    r.get("address")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
+                .collect();
+        let mut targets: Vec<String> = roster.iter().map(|(_, a, _)| a.clone()).collect();
+        for a in bound_members
+            .into_iter()
             .chain(std::iter::once(addr.to_string()))
         {
+            if !targets.contains(&a) {
+                targets.push(a);
+            }
+        }
+        for target in targets {
             if target.starts_with("127.")
                 || target.starts_with("::1")
                 || target.starts_with("localhost")

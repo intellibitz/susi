@@ -1265,6 +1265,53 @@ impl Write for ChannelStream {
     }
 }
 
+/// Pump a terminated session and a local socket into each other until
+/// either side ends: the peer's bytes go to `socket` (whose write half is
+/// shut when the peer closes), the socket's bytes go back to the peer
+/// (whose stream is closed when the socket ends). `idle` bounds each wait
+/// for the peer's next bytes. Blocks the calling thread; one helper thread
+/// carries the other direction.
+pub fn bridge(stream: ChannelStream, socket: TcpStream, idle: Duration) {
+    let (mut from_peer, mut to_peer) = stream.split();
+    from_peer.set_read_timeout(Some(idle));
+    let Ok(mut to_socket) = socket.try_clone() else {
+        return;
+    };
+    let mut from_socket = socket;
+    let inbound = std::thread::Builder::new()
+        .name("susi-channel-in".into())
+        .spawn(move || {
+            let mut buf = vec![0u8; 64 * 1024];
+            loop {
+                match from_peer.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if to_socket.write_all(&buf[..n]).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            let _ = to_socket.shutdown(std::net::Shutdown::Write);
+        });
+    if inbound.is_err() {
+        return;
+    }
+    let mut buf = vec![0u8; APP_CHUNK];
+    loop {
+        match from_socket.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                if to_peer.write_all(&buf[..n]).is_err() {
+                    break;
+                }
+            }
+        }
+    }
+    let _ = from_socket.shutdown(std::net::Shutdown::Both);
+    drop(to_peer);
+}
+
 /// Run the end-to-end initiator handshake on a fresh stream.
 fn start_session(end: StreamEnd, want: &str, timeout: Duration) -> Result<ChannelStream, String> {
     let local = local_identity()?;
