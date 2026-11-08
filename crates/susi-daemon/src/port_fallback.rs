@@ -150,9 +150,11 @@ pub fn tcp_bind_addrs(bind_address: &str, port: u16) -> Vec<String> {
     addrs
 }
 
-/// The UDP addresses a block port is bound on: A2A discovery binds
-/// `bind_address`, gossip binds the wildcard; a port is free only when both
-/// would bind.
+/// The UDP addresses a block port is probed on. A2A discovery and gossip
+/// both bind `bind_address`; the wildcard is probed as well because a
+/// foreign program holding the port on the wildcard would still share it
+/// (Windows lets a specific bind sit beside another process's wildcard
+/// bind), so such a port counts as held.
 fn udp_bind_addrs(bind_address: &str, port: u16) -> Vec<String> {
     let mut addrs = vec![format!("{bind_address}:{port}")];
     if bind_address != "0.0.0.0" {
