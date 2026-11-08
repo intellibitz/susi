@@ -49,6 +49,10 @@ pub const SETTING_REGISTRY: &[SettingEntry] = &[
         derivation: SettingDerivation::Constant,
     },
     SettingEntry {
+        key: "allow_remote_plaintext",
+        derivation: SettingDerivation::Constant,
+    },
+    SettingEntry {
         key: "alpha_weights_filename",
         derivation: SettingDerivation::Constant,
     },
@@ -146,10 +150,6 @@ pub const SETTING_REGISTRY: &[SettingEntry] = &[
     SettingEntry {
         key: "home_scan_root_exclude_dirs",
         derivation: SettingDerivation::Detection,
-    },
-    SettingEntry {
-        key: "https_only",
-        derivation: SettingDerivation::Constant,
     },
     SettingEntry {
         key: "inference_endpoints",

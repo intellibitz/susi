@@ -2760,7 +2760,7 @@ impl CoreTools {
 
     #[tool(
         name = "privacy_status",
-        description = "Report privacy mode, mandatory sandbox, and cryptographic capability grants",
+        description = "Report privacy mode, its network scope (local_only = this machine and its local network), mandatory sandbox, and cryptographic capability grants",
         input_schema = args::no_args()
     )]
     pub fn privacy_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {

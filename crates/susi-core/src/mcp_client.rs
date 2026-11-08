@@ -353,9 +353,11 @@ fn read_body(resp: susi_http_transport::HttpCall, sealed: Option<&str>) -> Resul
 /// `result` object of the `tools/call` response — callers extract the tool's
 /// text payload via `result.pointer("/content/0/text")`.
 ///
-/// `bearer` is the host api_token when the caller is entitled to present it
-/// (the admission decision belongs to the caller — this client forwards
-/// whatever it is given).
+/// `bearer` is the credential the caller would present (the host api_token
+/// or the cluster peer bearer). It passes [`credential_for_target`] first:
+/// only a loopback target ever receives it, an unattested remote target is
+/// refused before any byte is sent, and an attested remote member is
+/// authorized by this node's member signature instead.
 pub fn call_tool(
     addr: &str,
     tool: &str,
@@ -402,6 +404,80 @@ pub fn session_call(
 /// [`session_call`] with `timeout_secs` as the receive window for the
 /// request itself.
 pub fn session_call_with_timeout(
+    addr: &str,
+    method: &str,
+    params: &Value,
+    bearer: Option<&str>,
+    timeout_secs: u64,
+) -> Result<Value, String> {
+    let bearer = credential_for_target(addr, bearer)?;
+    session_exchange(addr, method, params, bearer, timeout_secs).map_err(|e| {
+        if is_loopback_target(addr) {
+            e
+        } else {
+            format!("{e} ({CROSS_HOST_NOTE})")
+        }
+    })
+}
+
+/// Appended to every failed call to another host, so an operator reading
+/// the error learns why a cluster spanning hosts does not answer.
+const CROSS_HOST_NOTE: &str = "cross-host peer calls travel plaintext http://     authenticated only by this node's member signature: the peer must have this     node's key bound in its roster and must set allow_remote_plaintext, because     the peer client does not yet speak TLS";
+
+/// True when `addr` (`host:port`, `[v6]:port` or a bare host) names this
+/// machine: a loopback address or `localhost`.
+pub fn is_loopback_target(addr: &str) -> bool {
+    let host = match addr.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
+        None if addr.matches(':').count() > 1 => addr,
+        None => addr.split(':').next().unwrap_or_default(),
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.to_canonical().is_loopback())
+}
+
+/// The credential a peer call to `addr` may carry, or why the call is
+/// refused before anything is sent.
+///
+/// - No credential requested: nothing to protect, the call proceeds.
+/// - Loopback target: the credential never leaves this machine.
+/// - Remote target with no node key bound to its address in `peers.json`
+///   (no committed `member_add`, no attested handshake — for example the
+///   synthetic row a discovery ping creates): refused. The cluster peer
+///   bearer is the credential `NetGuard` accepts from any unbound address,
+///   so handing it to an unattested address hands that address the cluster.
+/// - Remote attested member: the bearer is withheld because this client
+///   speaks plaintext `http://` only; the request authenticates by this
+///   node's Ed25519 member signature (method, path, body hash, timestamp,
+///   nonce) and its body is sealed to the member's bound key. A node with
+///   no `node.key` cannot sign, so the call is refused.
+pub fn credential_for_target<'a>(
+    addr: &str,
+    bearer: Option<&'a str>,
+) -> Result<Option<&'a str>, String> {
+    if bearer.is_none() || is_loopback_target(addr) {
+        return Ok(bearer);
+    }
+    if crate::susi_config::cluster_key::bound_pubkey_for_addr(addr).is_none() {
+        return Err(format!(
+            "refusing to send a credential to {addr}: the peer is not attested              (no committed member_add or attested handshake binds a node key to              this address in peers.json)"
+        ));
+    }
+    if crate::susi_config::cluster_key::node_pubkey_hex().is_none() {
+        return Err(format!(
+            "refusing to send a credential to {addr} over plaintext http://:              this node has no node.key to authenticate by member signature, and              the peer client does not yet speak TLS"
+        ));
+    }
+    Ok(None)
+}
+
+/// The initialize → initialized → request → DELETE exchange, carrying
+/// `bearer` exactly as [`credential_for_target`] released it.
+fn session_exchange(
     addr: &str,
     method: &str,
     params: &Value,

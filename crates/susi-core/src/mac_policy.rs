@@ -22,8 +22,12 @@ pub enum PrivacyMode {
     /// Read/write/exec allowed for host; network egress still needs a grant.
     #[default]
     Balanced,
-    /// No cloud inference, no network egress, host exec forced through sandbox
-    /// unless a capability token explicitly allows otherwise.
+    /// Traffic stays on this machine and its local network: loopback,
+    /// private (RFC 1918 / unique-local) and link-local addresses,
+    /// `localhost` and `*.local` hosts remain reachable, so it is LAN-wide,
+    /// not host-only. No cloud inference, no internet egress, host exec
+    /// forced through sandbox unless a capability token explicitly allows
+    /// otherwise.
     LocalOnly,
     /// Permissive: default grants include network.egress (still audited).
     Open,
@@ -55,6 +59,22 @@ impl PrivacyMode {
             Self::Balanced => "balanced",
             Self::LocalOnly => "local_only",
             Self::Open => "open",
+        }
+    }
+
+    /// Where host-initiated traffic may go under this mode, in the words
+    /// every status and mode-change report shows the operator. The local
+    /// network is always in reach (`url_stays_local`); no mode confines
+    /// traffic to this machine alone.
+    pub fn network_scope(self) -> &'static str {
+        match self {
+            Self::Balanced => {
+                "this machine and its local network; internet egress needs a network.egress grant"
+            }
+            Self::LocalOnly => {
+                "this machine and its local network only (loopback, private, link-local and .local hosts); internet egress and cloud inference blocked"
+            }
+            Self::Open => "this machine and its local network, plus the internet (egress audited)",
         }
     }
 }
@@ -221,6 +241,7 @@ fn read_sticky_mode(dir: &Path) -> Option<PrivacyMode> {
 /// / unique-local), or link-local addresses, `localhost`, `*.localhost`,
 /// `*.local`. Anything else leaves the network — including a plain-`http://`
 /// internet host. Parsed with std only (every crate mounts this module).
+/// This is the boundary `local_only` enforces: LAN-wide, not host-only.
 pub fn url_stays_local(url: &str) -> bool {
     let Some((_, rest)) = url.split_once("://") else {
         return false;
@@ -1105,6 +1126,7 @@ impl MacPolicy {
     pub fn status_json(&self) -> serde_json::Value {
         serde_json::json!({
             "mode": self.mode().as_str(),
+            "network_scope": self.mode().network_scope(),
             "mandatory_sandbox": self.mandatory_sandbox(),
             "blocks_cloud_inference": self.blocks_cloud_inference(),
             "blocks_network_by_default": self.blocks_network_by_default(),
@@ -1229,6 +1251,27 @@ mod tests {
         assert!(!writer.is_permitted("agent", actions::NETWORK_EGRESS, "*"));
         assert!(!reader.is_permitted("agent", actions::NETWORK_EGRESS, "*"));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Every mode's report names the local network as in reach, so no
+    /// operator reads `local_only` as "this machine only".
+    #[test]
+    fn status_names_the_network_scope_of_every_mode() {
+        for mode in [
+            PrivacyMode::Balanced,
+            PrivacyMode::LocalOnly,
+            PrivacyMode::Open,
+        ] {
+            let status = policy(mode).status_json();
+            let scope = status["network_scope"].as_str().unwrap();
+            assert_eq!(scope, mode.network_scope());
+            assert!(
+                scope.contains("this machine and its local network"),
+                "{scope}"
+            );
+        }
+        assert!(PrivacyMode::LocalOnly.network_scope().contains("only"));
+        assert!(url_stays_local("http://192.168.1.20:9093/mcp"));
     }
 
     #[test]

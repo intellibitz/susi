@@ -5,9 +5,9 @@
 //!     configured; anything else is plain HTTP. Loopback and remote sockets
 //!     behave identically — sniffing keeps the surface compatible with
 //!     TLS-terminating reverse proxies and mixed-version peers.
-//!   - Plaintext policy is peer-based: off-host plaintext is refused only
-//!     when `https_only` is set; loopback always passes so internal
-//!     `http://127.0.0.1` callers are never broken.
+//!   - Plaintext policy is peer-based: off-host plaintext is refused unless
+//!     the operator sets `allow_remote_plaintext`; loopback always passes so
+//!     internal `http://127.0.0.1` callers are never broken.
 //!
 //! Certificate resolution order:
 //!   1. `tls_cert_path` + `tls_key_path` in config.json (PEM pair)
@@ -15,8 +15,13 @@
 //!      cert persisted under `<global_dir>/tls/`
 //!   3. loopback bind with no cert → `None` (plain HTTP only)
 //!
-//! `https_only` (default true): refuse remote plaintext even when no TLS
-//! certificate can be offered.
+//! Remote plaintext is refused by default, with or without a certificate:
+//! the cluster peer bearer and the host bearer must never cross the network
+//! readable. `allow_remote_plaintext: true` is the only way to permit it.
+//! The retired `https_only` key is ignored: the config loader wrote its old
+//! default (`false`) into every existing `config.json`, so its value cannot
+//! tell an operator's choice from the healer's, and honouring it would have
+//! left every upgraded install open.
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -111,9 +116,9 @@ pub fn endpoint_acceptor(bind_address: &str, global_dir: &Path) -> Option<TlsAcc
                  remote transport policy applies{}",
                 e,
                 if https_only() {
-                    "; https_only refuses remote connections entirely"
+                    "; remote connections are refused entirely"
                 } else {
-                    " (plaintext explicitly enabled)"
+                    " (allow_remote_plaintext permits remote plaintext)"
                 }
             );
             None
@@ -121,12 +126,27 @@ pub fn endpoint_acceptor(bind_address: &str, global_dir: &Path) -> Option<TlsAcc
     }
 }
 
-/// Whether non-loopback peers must speak TLS (`https_only` config key).
+/// Whether non-loopback peers must speak TLS: true unless the operator set
+/// `allow_remote_plaintext: true`. A config that cannot be read, or a value
+/// that is not a boolean, keeps remote plaintext refused.
 pub fn https_only() -> bool {
-    crate::susi_sandbox::manager::SusiConfig::load_global()
-        .unwrap_or_default()
-        .get::<bool>("https_only")
-        .unwrap_or(true)
+    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    remote_tls_required(&cfg)
+}
+
+/// [`https_only`] over an already loaded config. Logs once per process when
+/// the config still carries the retired `https_only` key, so an operator who
+/// set it learns that it no longer decides anything.
+pub fn remote_tls_required(cfg: &crate::susi_sandbox::manager::SusiConfig) -> bool {
+    static RETIRED_KEY_NOTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if cfg.get::<serde_json::Value>("https_only").is_some() {
+        RETIRED_KEY_NOTED.get_or_init(|| {
+            eprintln!(
+                "[TLS] config key `https_only` is retired and ignored: remote plaintext                  is refused unless `allow_remote_plaintext` is true"
+            );
+        });
+    }
+    cfg.get::<bool>("allow_remote_plaintext") != Some(true)
 }
 
 /// How long a staged certificate may wait before activation is refused.
@@ -346,6 +366,39 @@ pub fn revoke_prev_cert_at(tls_dir: &Path) -> bool {
 #[cfg(test)]
 mod inline_tests {
     use super::*;
+
+    /// The compiled defaults refuse remote plaintext, a stale `https_only:
+    /// false` written by the config healer cannot reopen it, and only an
+    /// explicit boolean `allow_remote_plaintext: true` does.
+    #[test]
+    fn remote_plaintext_is_refused_unless_explicitly_allowed() {
+        let defaults = crate::susi_sandbox::manager::SusiConfig::default();
+        assert_eq!(defaults.get::<bool>("allow_remote_plaintext"), Some(false));
+        assert!(defaults.get::<serde_json::Value>("https_only").is_none());
+        assert!(remote_tls_required(&defaults));
+
+        let mut healed = defaults.clone();
+        healed
+            .settings
+            .insert("https_only".into(), serde_json::json!(false));
+        assert!(remote_tls_required(&healed), "retired key reopens nothing");
+
+        let mut not_bool = defaults.clone();
+        not_bool
+            .settings
+            .insert("allow_remote_plaintext".into(), serde_json::json!("true"));
+        assert!(remote_tls_required(&not_bool), "only a boolean opts in");
+
+        let mut empty = defaults.clone();
+        empty.settings.clear();
+        assert!(remote_tls_required(&empty), "an absent key refuses");
+
+        let mut opted_in = defaults;
+        opted_in
+            .settings
+            .insert("allow_remote_plaintext".into(), serde_json::json!(true));
+        assert!(!remote_tls_required(&opted_in));
+    }
 
     #[test]
     fn is_loopback_recognizes_ipv4_ipv6_and_localhost_variants() {

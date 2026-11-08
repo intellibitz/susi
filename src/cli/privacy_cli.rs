@@ -28,6 +28,7 @@ pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "mode": m.as_str(),
+                    "network_scope": m.network_scope(),
                     "mandatory_sandbox": MacPolicy::global().mandatory_sandbox(),
                     "blocks_cloud_inference": MacPolicy::global().blocks_cloud_inference(),
                 }))?

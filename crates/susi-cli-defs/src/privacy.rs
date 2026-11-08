@@ -12,7 +12,7 @@ use clap::Subcommand;
 pub enum PrivacyCommands {
     /// Show privacy mode and active capability grants.
     Status,
-    /// Set privacy mode: balanced | local_only | open
+    /// Set privacy mode: balanced | local_only (this machine and its local network) | open
     #[allow(missing_docs)]
     Mode { mode: String },
     /// Grant a cryptographic capability token.

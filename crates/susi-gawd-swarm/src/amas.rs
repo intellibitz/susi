@@ -1724,16 +1724,15 @@ impl SusiSupervisor {
         }
         let arg_val = serde_json::from_str(arg).unwrap_or(serde_json::json!(arg));
 
-        // Only Local / Explicit peers may receive a bearer credential.
-        // The credential itself is the cluster peer bearer — the host
-        // api_token is a per-node secret the remote cannot validate.
-        // UDP-discovered peers stay unauthenticated on purpose.
-        let bearer = if Self::peer_allows_bearer(addr) {
-            crate::susi_config::cluster_key::peer_bearer()
-        } else {
-            None
-        };
-
+        // Local / Explicit rows may ask for the cluster peer bearer; the
+        // client releases it only to loopback or a key-attested member.
+        let bearer = Self::peer_allows_bearer(addr)
+            .then(crate::susi_config::cluster_key::peer_bearer)
+            .flatten();
+        if let Err(e) = crate::susi_core::mcp_client::credential_for_target(addr, bearer.as_deref())
+        {
+            return format!("[A2A Error ({addr})]: {e}");
+        }
         match crate::susi_core::mcp_client::call_tool(addr, tool_name, &arg_val, bearer.as_deref())
         {
             Ok(result) => {
