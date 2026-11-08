@@ -23,7 +23,6 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub use susi_core;
 
-pub mod agent_integration;
 pub mod ama;
 pub mod amas;
 pub mod anti_entropy;
@@ -48,7 +47,6 @@ pub mod parallel_dispatch;
 pub mod peer_registry;
 pub mod quorum_durable;
 pub mod resource_schedule;
-pub mod roadmap_agents;
 pub mod role_select;
 pub mod side_effect_journal;
 pub mod side_effects;
@@ -106,9 +104,6 @@ mod mission_resume_cli_wiring_tests;
 #[path = "tests/native_role_select_wiring.rs"]
 mod native_role_select_wiring_tests;
 #[cfg(test)]
-#[path = "tests/parallel_roadmap_e2e.rs"]
-mod parallel_roadmap_e2e_tests;
-#[cfg(test)]
 #[path = "tests/resource_schedule_dispatch_wiring.rs"]
 mod resource_schedule_dispatch_wiring_tests;
 #[cfg(test)]
@@ -132,9 +127,6 @@ mod swarm_gap_real_cancellation_tests;
 #[cfg(test)]
 #[path = "tests/swarm_gap_safe_replay.rs"]
 mod swarm_gap_safe_replay_tests;
-#[cfg(test)]
-#[path = "tests/swarm_gap_verified_closure.rs"]
-mod swarm_gap_verified_closure_tests;
 #[cfg(test)]
 #[path = "tests/swarm_gap_workspace_isolation.rs"]
 mod swarm_gap_workspace_isolation_tests;
