@@ -263,15 +263,21 @@ impl BinaryResult {
 
 /// Where the gate's own test executables live, so a fixture's nested
 /// `cargo test` output inside a test binary is never mistaken for an outer
-/// harness: `<target_dir>/[<triple>/]`.
+/// harness: `<target_dir>/[<triple>/]`. Cargo prints an executable's path
+/// relative to its working directory when the target directory lies inside
+/// it (a serial `cargo test` gate in the candidate), and absolute otherwise
+/// (the concurrent runner, a verifier's sibling target), so both spellings
+/// count when `cwd` is known.
 pub struct OuterBinaries<'a> {
     pub target_dir: &'a str,
     pub triple: Option<&'a str>,
+    /// The command's working directory.
+    pub cwd: Option<&'a str>,
 }
 
 impl OuterBinaries<'_> {
-    fn prefix(&self) -> String {
-        let mut prefix = self.target_dir.replace('\\', "/");
+    fn with_triple(&self, dir: &str) -> String {
+        let mut prefix = dir.replace('\\', "/");
         if !prefix.ends_with('/') {
             prefix.push('/');
         }
@@ -280,6 +286,22 @@ impl OuterBinaries<'_> {
             prefix.push('/');
         }
         prefix
+    }
+
+    /// The absolute prefix and, when the target directory lies inside `cwd`,
+    /// the cwd-relative one.
+    fn prefixes(&self) -> Vec<String> {
+        let mut prefixes = vec![self.with_triple(self.target_dir)];
+        if let Some(cwd) = self.cwd {
+            let target = Path::new(self.target_dir);
+            if let Ok(relative) = target.strip_prefix(Path::new(cwd)) {
+                let relative = relative.to_string_lossy();
+                if !relative.is_empty() {
+                    prefixes.push(self.with_triple(&relative));
+                }
+            }
+        }
+        prefixes
     }
 }
 
@@ -348,7 +370,7 @@ fn result_counts(line: &str) -> Option<Counts> {
 /// banner's block also contains the enclosing executable's result.
 pub fn parse_binaries(log: &str, outer: &OuterBinaries<'_>, doc_gate: bool) -> Vec<BinaryResult> {
     let text = strip_ansi(log);
-    let prefix = outer.prefix();
+    let prefixes = outer.prefixes();
     let lines: Vec<&str> = text.lines().collect();
     // (index, name, source) of every outer header.
     let mut headers: Vec<(usize, String, String)> = Vec::new();
@@ -363,7 +385,10 @@ pub fn parse_binaries(log: &str, outer: &OuterBinaries<'_>, doc_gate: bool) -> V
                 continue;
             };
             let normalized = executable.replace('\\', "/");
-            if !normalized.starts_with(&prefix) {
+            if !prefixes
+                .iter()
+                .any(|prefix| normalized.starts_with(prefix.as_str()))
+            {
                 continue;
             }
             headers.push((index, binary_name(&normalized), source.to_owned()));
@@ -644,9 +669,12 @@ pub fn gates_from_native(root: &Path, native: &Value) -> Result<Vec<GateRecord>>
                         );
                     }
                 }
+                // The gate's working directory is read to resolve
+                // cwd-relative `Running` paths; it is never recorded.
                 let outer = OuterBinaries {
                     target_dir,
                     triple: option_value(&raw, "--target"),
+                    cwd: gate.get("cwd").and_then(Value::as_str),
                 };
                 let doc_gate = raw.iter().any(|arg| arg == "--doc");
                 binaries = parse_binaries(&String::from_utf8_lossy(&log), &outer, doc_gate);
@@ -1228,15 +1256,15 @@ pub fn rerun_gate(
     if recorded.argv.first().map(String::as_str) != Some("cargo") {
         return Err(format!("gate {} is not a cargo command", recorded.id).into());
     }
-    let mut argv = recorded.argv.clone();
     let target_text = target_dir
         .to_str()
         .ok_or("target directory must be valid UTF-8")?
         .to_owned();
-    if recorded.isolated_target_dir {
-        argv.push("--target-dir".into());
-        argv.push(target_text.clone());
-    }
+    let argv = if recorded.isolated_target_dir {
+        with_target_dir(&recorded.argv, &target_text)
+    } else {
+        recorded.argv.clone()
+    };
     let _ = fs::remove_dir_all(home);
     fs::create_dir_all(home.join("AppData/Local"))?;
     if let Some(parent) = log_path.parent() {
@@ -1269,6 +1297,7 @@ pub fn rerun_gate(
         let outer = OuterBinaries {
             target_dir: &target_text,
             triple: option_value(&argv, "--target"),
+            cwd: worktree.to_str(),
         };
         let doc_gate = argv.iter().any(|arg| arg == "--doc");
         let binaries = observed_harnesses(recorded, parse_binaries(&text, &outer, doc_gate));
@@ -1291,6 +1320,43 @@ pub fn rerun_gate(
         log_sha256: Some(sha256_hex(&bytes)),
         binaries,
     })
+}
+
+/// `argv` with `--target-dir <dir>` added where Cargo reads it: before the
+/// first `--`, after which arguments belong to the tool Cargo runs (clippy's
+/// `-- -D warnings`, a test harness's flags).
+pub fn with_target_dir(argv: &[String], dir: &str) -> Vec<String> {
+    let at = argv
+        .iter()
+        .position(|arg| arg == "--")
+        .unwrap_or(argv.len());
+    let mut out = Vec::with_capacity(argv.len() + 2);
+    out.extend_from_slice(&argv[..at]);
+    out.push("--target-dir".to_owned());
+    out.push(dir.to_owned());
+    out.extend_from_slice(&argv[at..]);
+    out
+}
+
+/// Settings that make a checkout byte-identical to the committed blobs
+/// whatever the operator's Git configuration says. Git for Windows ships
+/// `core.autocrlf=true` system-wide; a verifier run with its home moved (so
+/// a user's `autocrlf=false` is not read) then checked the scratch tree out
+/// with CRLF, and the GMCP ledger's pinned hashes of vendored sources failed.
+/// The ship tool checks its candidate out with the same settings
+/// (`CHECKOUT_AS_COMMITTED` in local-workflow).
+pub const CHECKOUT_AS_COMMITTED: [&str; 4] = ["-c", "core.autocrlf=false", "-c", "core.eol=lf"];
+
+/// The `git worktree` invocation the verifier uses: no hooks, the committed
+/// bytes ([`CHECKOUT_AS_COMMITTED`]), and long paths allowed so a deep clone
+/// on Windows can check the tree out (the ship tool's worktree commands pass
+/// the same setting).
+fn worktree_git<'a>(rest: &[&'a str]) -> Vec<&'a str> {
+    let mut args = vec!["-c", "core.hooksPath=", "-c", "core.longpaths=true"];
+    args.extend_from_slice(&CHECKOUT_AS_COMMITTED);
+    args.push("worktree");
+    args.extend_from_slice(rest);
+    args
 }
 
 /// The harnesses of a re-run that the recorded gate covered. A narrowed
@@ -1544,33 +1610,20 @@ pub fn verify(root: &Path, commit: &str, options: &Options) -> Result<Report> {
     let target_dir = scratch_root.join(format!("{short}-target"));
     let home = scratch_root.join(format!("{short}-home"));
     let logs = scratch_root.join(format!("{short}-logs"));
+    let worktree_text = worktree
+        .to_str()
+        .ok_or("scratch path must be valid UTF-8")?
+        .to_owned();
     let _ = Command::new("git")
         .current_dir(root)
-        .args([
-            "-c",
-            "core.hooksPath=",
-            "worktree",
-            "remove",
-            "--force",
-            &worktree.to_string_lossy(),
-        ])
+        .args(worktree_git(&["remove", "--force", &worktree_text]))
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
     let _ = fs::remove_dir_all(&worktree);
     git(
         root,
-        &[
-            "-c",
-            "core.hooksPath=",
-            "worktree",
-            "add",
-            "--detach",
-            worktree
-                .to_str()
-                .ok_or("scratch path must be valid UTF-8")?,
-            &head,
-        ],
+        &worktree_git(&["add", "--detach", &worktree_text, &head]),
     )?;
     let outcome = rerun_all(
         &receipt,
@@ -1585,14 +1638,7 @@ pub fn verify(root: &Path, commit: &str, options: &Options) -> Result<Report> {
     if !options.keep {
         let _ = Command::new("git")
             .current_dir(root)
-            .args([
-                "-c",
-                "core.hooksPath=",
-                "worktree",
-                "remove",
-                "--force",
-                &worktree.to_string_lossy(),
-            ])
+            .args(worktree_git(&["remove", "--force", &worktree_text]))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
@@ -1893,11 +1939,158 @@ mod tests {
         );
     }
 
+    /// Regression (first receipt, fe3521e36): the serial task gate ran with
+    /// its target directory inside the candidate, Cargo printed cwd-relative
+    /// `Running` paths, and the receipt recorded 280 passes but no harness.
+    #[test]
+    fn parse_binaries_reads_cwd_relative_running_paths() {
+        let log = "     Running unittests src\\main.rs (target\\check-gate\\x86_64-pc-windows-msvc\\debug\\deps\\xtask-0123456789abcdef.exe)\n\nrunning 2 tests\ntest a ... ok\ntest b ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n     Running tests\\cli.rs (target\\check-gate\\x86_64-pc-windows-msvc\\debug\\deps\\cli-fedcba9876543210.exe)\n\nrunning 1 test\n     Running unittests src/lib.rs (target/debug/deps/fixture-0000000000000000.exe)\ntest c ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n";
+        let with_cwd = OuterBinaries {
+            target_dir: "F:\\ops\\candidate\\target\\check-gate",
+            triple: Some("x86_64-pc-windows-msvc"),
+            cwd: Some("F:\\ops\\candidate"),
+        };
+        let parsed = parse_binaries(log, &with_cwd, false);
+        let names: Vec<(&str, &str)> = parsed
+            .iter()
+            .map(|b| (b.name.as_str(), b.source.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("xtask", "unittests src\\main.rs"),
+                ("cli", "tests\\cli.rs")
+            ]
+        );
+        assert_eq!(
+            totals(&parsed),
+            Some(Counts {
+                passed: 3,
+                failed: 0,
+                ignored: 0
+            })
+        );
+        // Without the working directory the relative form is not matched,
+        // and a target directory outside the cwd adds no relative form.
+        let no_cwd = OuterBinaries {
+            cwd: None,
+            ..with_cwd
+        };
+        assert!(parse_binaries(log, &no_cwd, false).is_empty());
+        let outside = OuterBinaries {
+            target_dir: "F:\\elsewhere\\target",
+            triple: Some("x86_64-pc-windows-msvc"),
+            cwd: Some("F:\\ops\\candidate"),
+        };
+        assert_eq!(outside.prefixes().len(), 1);
+    }
+
+    #[test]
+    fn the_rerun_target_dir_goes_before_the_tool_arguments() {
+        let clippy: Vec<String> = [
+            "cargo",
+            "clippy",
+            "-p",
+            "x",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+        assert_eq!(
+            with_target_dir(&clippy, "T"),
+            [
+                "cargo",
+                "clippy",
+                "-p",
+                "x",
+                "--all-targets",
+                "--target-dir",
+                "T",
+                "--",
+                "-D",
+                "warnings"
+            ]
+        );
+        let test: Vec<String> = ["cargo", "test", "-p", "x"]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        assert_eq!(
+            with_target_dir(&test, "T"),
+            ["cargo", "test", "-p", "x", "--target-dir", "T"]
+        );
+        // The receipt's argv round-trips: sanitizing the re-run argv gives it back.
+        assert_eq!(
+            sanitize_argv(&with_target_dir(&clippy, "T")),
+            (clippy, true)
+        );
+        assert_eq!(
+            worktree_git(&["add", "--detach", "p", "h"]),
+            [
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "core.longpaths=true",
+                "-c",
+                "core.autocrlf=false",
+                "-c",
+                "core.eol=lf",
+                "worktree",
+                "add",
+                "--detach",
+                "p",
+                "h"
+            ]
+        );
+    }
+
+    /// Regression (first full verification of fe3521e36): with the home
+    /// moved, Git read only the system `core.autocrlf=true`, the scratch tree
+    /// was checked out with CRLF, and the GMCP ledger's pinned source hashes
+    /// failed 40 tests that passed in the gate.
+    #[test]
+    fn the_scratch_checkout_keeps_the_committed_bytes_under_autocrlf() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let head = commit_file(&repo, "spec.mdx", "one\ntwo\n", "spec");
+        git(&repo, &["config", "core.autocrlf", "true"]).unwrap();
+        let converted = scratch.0.join("converted");
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                converted.to_str().unwrap(),
+                &head,
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(converted.join("spec.mdx")).unwrap(),
+            b"one\r\ntwo\r\n",
+            "the fixture must reproduce the conversion"
+        );
+        let exact = scratch.0.join("exact");
+        let exact_text = exact.to_str().unwrap().to_owned();
+        git(
+            &repo,
+            &worktree_git(&["add", "--detach", &exact_text, &head]),
+        )
+        .unwrap();
+        assert_eq!(fs::read(exact.join("spec.mdx")).unwrap(), b"one\ntwo\n");
+    }
+
     #[test]
     fn parse_binaries_reads_outer_harnesses_and_skips_nested_fixture_output() {
         let outer = OuterBinaries {
             target_dir: "F:\\ops\\slot\\target",
             triple: Some("x86_64-pc-windows-msvc"),
+            cwd: None,
         };
         let binaries = parse_binaries(RUNNER_LOG, &outer, false);
         let summary: Vec<(String, String, Option<Counts>)> = binaries
@@ -1954,6 +2147,7 @@ mod tests {
         let elsewhere = OuterBinaries {
             target_dir: "/other",
             triple: None,
+            cwd: None,
         };
         assert!(parse_binaries(crashed, &elsewhere, false).is_empty());
     }
@@ -2487,6 +2681,7 @@ mod tests {
         let outer = OuterBinaries {
             target_dir: "F:\\ops\\slot\\target",
             triple: Some("x86_64-pc-windows-msvc"),
+            cwd: None,
         };
         let observed = parse_binaries(RUNNER_LOG, &outer, false);
         assert!(observed.iter().any(|b| b.source == "doc-tests"));

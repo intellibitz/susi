@@ -86,7 +86,13 @@ Field by field:
   hash, `source` the `Running` header's source such as `unittests src/lib.rs`,
   `tests/cli.rs` or `doc-tests`) with its own pass/fail/ignored counts.
   Output of a fixture's nested `cargo test` inside a test is excluded by the
-  executable path, so only the gate's own binaries are listed.
+  executable path, so only the gate's own binaries are listed. Cargo prints
+  that path relative to the gate's working directory when the target
+  directory is inside it (a serial `cargo test` gate, such as a task's
+  acceptance command) and absolute otherwise; both forms are read. The first
+  receipt (`.agents/receipts/fe3521e36f44b54a333b6110df75e64bd7ea80a5.json`)
+  predates that and lists no harnesses for its `task:T-RECEIPTS-1` gate,
+  only its totals.
 - `log_sha256` is the digest of the gate log retained in the gate host's Git
   object store (`refs/susi/provenance/receipts/*` names the blobs); the
   receipt carries the digest, not the log.
@@ -138,9 +144,20 @@ The tool reports one line per check and exits non-zero on any mismatch:
    variables are removed; `CARGO_HOME`/`RUSTUP_HOME` are kept). Each gate's
    `argv` runs there in order, its log lands in `<H12>-logs/<id>.log`, and the
    tool compares the exit code, the test totals and the per-harness counts
-   with the receipt. `--only <gate-id>` (repeatable) limits the re-run,
-   `--static-only` skips it, `--keep` leaves the worktree and home in place,
-   `--scratch <dir>` moves the scratch root. One rule of comparison: a
+   with the receipt. A gate that ran with its own target directory gets the
+   scratch one, inserted before any `--` so it reaches Cargo and not the
+   tool behind it (clippy's `-- -D warnings`). `--only <gate-id>`
+   (repeatable) limits the re-run, `--static-only` skips it, `--keep` leaves
+   the worktree and home in place, `--scratch <dir>` moves the scratch root.
+   The scratch worktree is checked out with `core.autocrlf=false` and
+   `core.eol=lf`, as the gate checks out its candidate, so both test the
+   committed bytes whatever the host's Git configuration says (Git for
+   Windows sets `core.autocrlf=true` system-wide; with the home moved, a
+   user's own `false` is not read, and a CRLF checkout fails the GMCP
+   ledger's pinned source hashes). It also uses `core.longpaths=true`; on Windows
+   a clone at a deep path should still pass a short `--scratch` (for example
+   `C:\vr`), because the build and the test binaries under a long target path
+   were not exercised beyond the checkout. One rule of comparison: a
    narrowed test gate builds its binaries with `--no-run` and runs them
    through the concurrent runner, so its receipt lists no doctests (the
    separate `doc-tests` gate covers them); a plain re-run of the same
@@ -159,7 +176,10 @@ A mismatch is reported as such, never explained away. Known causes: a test
 that is flaky under load (the board records one in `tests/first_goal_opening.rs`
 on 2026-11-08) shows up as a harness whose counts differ or an exit code of
 101; a missing `cargo-deny` shows as a non-zero exit of the `licenses` gate;
-a different host triple is a skip, not a mismatch.
+a different host triple is a skip, not a mismatch. Receipts verified with
+the first verifier (before `T-RECEIPTS2-1`) showed a clippy exit code of 101
+on every re-run: it appended the target directory after clippy's `--`. Run
+the current verifier.
 
 ## For the gate host
 
