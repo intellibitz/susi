@@ -13,7 +13,9 @@
 //! corrupt stream drops the connection — framing cannot be recovered. A
 //! handler that panics answers its request with an `Error` status and the
 //! connection stays up, as the blocking-task wrapper each cell binary used
-//! before did.
+//! before did. That holds where panics unwind (the dev and test profiles);
+//! the release profile sets `panic = "abort"`, so there a panic ends the
+//! cell process, exactly as it did under the blocking-task wrapper.
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
@@ -168,9 +170,10 @@ fn serve_connection<H>(
     }
 }
 
-/// Run `handler` on an authenticated request. A panic inside it becomes an
-/// `Error` response that names the panic, never a dropped connection and
-/// never a success.
+/// Run `handler` on an authenticated request. Where panics unwind, a panic
+/// inside it becomes an `Error` response that names the panic, never a
+/// dropped connection and never a success (under `panic = "abort"` the
+/// process ends instead).
 fn dispatch<H>(handler: &H, req: SyscallRequest) -> SyscallResponse
 where
     H: Fn(SyscallRequest) -> SyscallResponse,
