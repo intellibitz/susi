@@ -7,10 +7,16 @@
 //! any id — this is destination-binding, not a per-peer secret. The capability
 //! store `gossip_caps.json` is HMAC-sealed (`susi-gossip-store-v1`); unsigned
 //! files are ignored.
+//!
+//! Under the `host_only` privacy posture gossip serves this machine alone:
+//! the socket is bound to loopback (re-scoped by the recv loop within
+//! [`SCOPE_RECHECK`] of a mode switch, no restart), a datagram from another
+//! address is dropped unread even inside that window, and nothing is sent
+//! to another host.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::net::UdpSocket;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
@@ -19,6 +25,9 @@ const GOSSIP_LABEL: &[u8] = b"susi-gossip-v1";
 const PEER_LABEL: &[u8] = b"susi-gossip-peer-v1:";
 const STORE_LABEL: &[u8] = b"susi-gossip-store-v1";
 const MAC_LEN: usize = 32;
+/// How often the recv loop re-reads the privacy posture to re-scope the
+/// socket (loopback under `host_only`, the requested address otherwise).
+pub const SCOPE_RECHECK: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// A gossip message exchanged between Swarm OS nodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,8 +47,13 @@ pub enum GossipMessage {
 pub struct GossipManager {
     /// Maps cell_id to a list of known capabilities.
     pub peer_capabilities: Arc<RwLock<HashMap<String, HashSet<String>>>>,
-    /// UDP socket for broadcasting / receiving.
-    socket: Option<Arc<UdpSocket>>,
+    /// UDP socket for broadcasting / receiving. Behind a lock so the recv
+    /// loop can re-scope it when the privacy posture changes; senders hold
+    /// the read guard for one send, so a dropped socket closes at once.
+    socket: Arc<RwLock<Option<UdpSocket>>>,
+    /// The address `bind` asked for, its port pinned to the one first
+    /// bound: the scope outside `host_only`.
+    requested: Arc<RwLock<Option<SocketAddr>>>,
     /// `None` when neither a cluster key nor OS entropy exists — sealing and
     /// ingress fail closed rather than falling back to a known zero key.
     mac_key: Option<Arc<[u8; 32]>>,
@@ -90,7 +104,8 @@ impl GossipManager {
     pub fn new() -> Self {
         Self {
             peer_capabilities: Arc::new(RwLock::new(HashMap::new())),
-            socket: None,
+            socket: Arc::new(RwLock::new(None)),
+            requested: Arc::new(RwLock::new(None)),
             mac_key: process_mac_key().map(Arc::new),
             store: None,
             rejected: Arc::new(AtomicU64::new(0)),
@@ -244,17 +259,52 @@ impl GossipManager {
         }
     }
 
-    /// Binds the gossip manager to a local UDP port.
+    /// Binds the gossip manager to a local UDP port: `addr`, or its
+    /// family's loopback address while `host_only` is in force.
     pub fn bind(&mut self, addr: &str) -> std::io::Result<()> {
-        let socket = UdpSocket::bind(addr)?;
-        socket.set_nonblocking(true)?;
-        self.socket = Some(Arc::new(socket));
+        self.bind_scoped(addr, susi_core::mac_policy::host_only_in_force())
+    }
+
+    /// [`bind`](Self::bind) with the posture given: loopback when
+    /// `host_only`, `addr` otherwise.
+    pub fn bind_scoped(&mut self, addr: &str, host_only: bool) -> std::io::Result<()> {
+        let requested = addr.to_socket_addrs()?.next().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{addr} names no socket address"),
+            )
+        })?;
+        let socket = open_udp(scoped(requested, host_only))?;
+        let requested = SocketAddr::new(requested.ip(), socket.local_addr()?.port());
+        *self.requested.write().unwrap_or_else(|e| e.into_inner()) = Some(requested);
+        *self.socket.write().unwrap_or_else(|e| e.into_inner()) = Some(socket);
         Ok(())
+    }
+
+    /// Re-scope the bound socket to the posture: loopback while
+    /// `host_only`, the requested address otherwise. `Ok(true)` when it
+    /// re-bound. The old socket closes before the new one binds (a wildcard
+    /// and a specific bind of one port conflict); a failed bind leaves
+    /// gossip unbound, never on the wider scope, and the next call retries.
+    pub fn align_scope(&self, host_only: bool) -> std::io::Result<bool> {
+        let Some(requested) = *self.requested.read().unwrap_or_else(|e| e.into_inner()) else {
+            return Ok(false);
+        };
+        let want = scoped(requested, host_only);
+        let mut slot = self.socket.write().unwrap_or_else(|e| e.into_inner());
+        if slot.as_ref().and_then(|s| s.local_addr().ok()) == Some(want) {
+            return Ok(false);
+        }
+        *slot = None;
+        *slot = Some(open_udp(want)?);
+        Ok(true)
     }
 
     /// Bound socket address, if `bind` succeeded.
     pub fn local_addr(&self) -> Option<String> {
         self.socket
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .and_then(|s| s.local_addr().ok())
             .map(|a| a.to_string())
@@ -310,14 +360,25 @@ impl GossipManager {
         Ok(())
     }
 
-    /// One non-blocking recv. `Ok(true)` means a datagram was ingested.
+    /// One non-blocking recv. `Ok(true)` means a datagram was consumed:
+    /// ingested, or dropped unread because it came from another host while
+    /// `host_only` is in force.
     pub fn poll_recv(&self) -> std::io::Result<bool> {
-        let Some(socket) = &self.socket else {
-            return Ok(false);
-        };
         let mut buf = [0u8; 2048];
-        match socket.recv_from(&mut buf) {
+        let received = {
+            let slot = self.socket.read().unwrap_or_else(|e| e.into_inner());
+            let Some(socket) = slot.as_ref() else {
+                return Ok(false);
+            };
+            socket.recv_from(&mut buf)
+        };
+        match received {
             Ok((n, src)) => {
+                if !src.ip().to_canonical().is_loopback()
+                    && susi_core::mac_policy::host_only_in_force()
+                {
+                    return Ok(true);
+                }
                 let _ = self.ingest(&buf[..n], Some(&src.to_string()));
                 Ok(true)
             }
@@ -337,8 +398,38 @@ impl GossipManager {
             move || {
                 let this = this.clone();
                 Some(move || {
+                    let mut scoped_at: Option<std::time::Instant> = None;
+                    let mut last_scope_error: Option<String> = None;
                     loop {
                         crate::service_supervision::heartbeat("gossip-recv");
+                        if scoped_at.is_none_or(|at| at.elapsed() >= SCOPE_RECHECK) {
+                            let host_only = susi_core::mac_policy::host_only_in_force();
+                            match this.align_scope(host_only) {
+                                Ok(true) => {
+                                    last_scope_error = None;
+                                    eprintln!(
+                                        "[gossip] privacy posture {}: listening on {}",
+                                        if host_only {
+                                            "host_only"
+                                        } else {
+                                            "not host_only"
+                                        },
+                                        this.local_addr().unwrap_or_default()
+                                    );
+                                }
+                                Ok(false) => last_scope_error = None,
+                                Err(error) => {
+                                    let error = error.to_string();
+                                    if last_scope_error.as_deref() != Some(error.as_str()) {
+                                        eprintln!(
+                                            "[gossip] could not re-scope the socket: {error}"
+                                        );
+                                        last_scope_error = Some(error);
+                                    }
+                                }
+                            }
+                            scoped_at = Some(std::time::Instant::now());
+                        }
                         match this.poll_recv() {
                             Ok(true) => {}
                             Ok(false) => std::thread::sleep(std::time::Duration::from_millis(50)),
@@ -366,7 +457,12 @@ impl GossipManager {
     }
 
     /// Fan out host capabilities (and a discovery ping) to verified cluster peers.
+    /// Nothing goes out while `host_only` is in force: every member is
+    /// another host.
     pub fn fanout_to_cluster(&self, gossip_port: u16) {
+        if susi_core::mac_policy::host_only_in_force() {
+            return;
+        }
         let Ok(peers) = susi_core::plane_bus::gawd::cluster_peers() else {
             return;
         };
@@ -380,7 +476,12 @@ impl GossipManager {
                 &us,
                 vec!["host".to_string(), "infer".to_string()],
             );
-            if let Some(socket) = &self.socket {
+            if let Some(socket) = self
+                .socket
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+            {
                 let msg = GossipMessage::PeerDiscovery {
                     from_ip: from_ip.clone(),
                     from_id: us.clone(),
@@ -395,7 +496,8 @@ impl GossipManager {
         self.persist();
     }
 
-    /// Advertises this node's capabilities to a known peer.
+    /// Advertises this node's capabilities to a known peer. Refused for a
+    /// target on another host while `host_only` is in force.
     pub fn advertise(
         &self,
         target_addr: &str,
@@ -403,7 +505,18 @@ impl GossipManager {
         cell_id: &str,
         capabilities: Vec<String>,
     ) -> std::io::Result<()> {
-        if let Some(socket) = &self.socket {
+        if !target_on_this_machine(target_addr) && susi_core::mac_policy::host_only_in_force() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("host-only privacy mode: no gossip to {target_addr} (another host)"),
+            ));
+        }
+        if let Some(socket) = self
+            .socket
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
             let msg = GossipMessage::AdvertiseCapabilities {
                 cell_id: cell_id.to_string(),
                 capabilities,
@@ -435,9 +548,103 @@ impl GossipManager {
     }
 }
 
+/// `requested`, or its family's loopback address (same port) under
+/// `host_only`.
+fn scoped(requested: SocketAddr, host_only: bool) -> SocketAddr {
+    if !host_only || requested.ip().is_loopback() {
+        return requested;
+    }
+    let loopback = match requested {
+        SocketAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        SocketAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+    };
+    SocketAddr::new(loopback, requested.port())
+}
+
+fn open_udp(addr: SocketAddr) -> std::io::Result<UdpSocket> {
+    let socket = UdpSocket::bind(addr)?;
+    socket.set_nonblocking(true)?;
+    Ok(socket)
+}
+
+/// Whether a `host:port` gossip target is this machine (loopback or
+/// `localhost`).
+fn target_on_this_machine(target: &str) -> bool {
+    match target.parse::<SocketAddr>() {
+        Ok(addr) => addr.ip().to_canonical().is_loopback(),
+        Err(_) => target
+            .rsplit_once(':')
+            .is_some_and(|(host, _)| susi_core::mac_policy::host_is_this_machine(host)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// This host's routed non-loopback IPv4 address, if it has one.
+    fn routed_ipv4() -> Option<IpAddr> {
+        let probe = UdpSocket::bind("0.0.0.0:0").ok()?;
+        probe.connect("192.0.2.1:9").ok()?;
+        let ip = probe.local_addr().ok()?.ip();
+        (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+    }
+
+    #[test]
+    fn host_only_scopes_the_socket_to_loopback_and_back() {
+        let mut manager = GossipManager::new();
+        manager.bind_scoped("0.0.0.0:0", false).unwrap();
+        let wide: SocketAddr = manager.local_addr().unwrap().parse().unwrap();
+        assert!(wide.ip().is_unspecified(), "{wide}");
+
+        assert!(manager.align_scope(true).unwrap());
+        let narrow: SocketAddr = manager.local_addr().unwrap().parse().unwrap();
+        assert_eq!(narrow, SocketAddr::from(([127, 0, 0, 1], wide.port())));
+        assert!(!manager.align_scope(true).unwrap(), "already scoped");
+        // A loopback sender still reaches the narrowed socket.
+        let local = UdpSocket::bind("127.0.0.1:0").unwrap();
+        local.send_to(b"local", narrow).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !manager.poll_recv().unwrap() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "loopback datagram never arrived"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // Another host cannot reach it at all: nothing is listening there.
+        match routed_ipv4() {
+            Some(ip) => {
+                let sender = UdpSocket::bind((ip, 0)).unwrap();
+                let _ = sender.send_to(b"from-the-lan", (ip, wide.port()));
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                assert!(
+                    !manager.poll_recv().unwrap(),
+                    "an off-host datagram arrived"
+                );
+            }
+            None => eprintln!("no routed non-loopback IPv4 on this host: off-host leg skipped"),
+        }
+
+        assert!(manager.align_scope(false).unwrap());
+        assert_eq!(manager.local_addr().unwrap(), wide.to_string());
+        // Booting under host_only binds loopback from the start.
+        let mut boot = GossipManager::new();
+        boot.bind_scoped("0.0.0.0:0", true).unwrap();
+        let addr: SocketAddr = boot.local_addr().unwrap().parse().unwrap();
+        assert!(addr.ip().is_loopback(), "{addr}");
+    }
+
+    #[test]
+    fn gossip_targets_on_this_machine_are_loopback_or_localhost() {
+        assert!(target_on_this_machine("127.0.0.1:9095"));
+        assert!(target_on_this_machine("[::1]:9095"));
+        assert!(target_on_this_machine("localhost:9095"));
+        assert!(!target_on_this_machine("192.168.1.4:9095"));
+        assert!(!target_on_this_machine("[fe80::1]:9095"));
+        assert!(!target_on_this_machine("node.local:9095"));
+        assert!(!target_on_this_machine("node-alpha.internal:9095"));
+    }
 
     #[test]
     fn test_gossip_capability_propagation() {

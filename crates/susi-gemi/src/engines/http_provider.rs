@@ -385,18 +385,16 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
 }
 
 /// The provider itself refuses to send a prompt or embedding text off the
-/// host/LAN while the privacy posture is `local_only` without a cloud grant.
-/// Callers filter providers by name; this holds even for a provider
-/// registered before the switch, or named outside the vendor heuristics.
+/// mode's local reach (host/LAN; loopback alone under `host_only`) while
+/// cloud inference is blocked. Callers filter providers by name; this holds
+/// even for a provider registered before the switch, or named outside the
+/// vendor heuristics.
 fn refuse_off_host_under_local_only(api_base: &str) -> crate::susi_core::susi_error::EaiResult<()> {
-    if !crate::susi_core::mac_policy::url_stays_local(api_base)
-        && crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
-    {
-        return Err(crate::susi_core::susi_error::EaiError::governance(format!(
-            "[PRIVACY] local_only: refusing to send inference payload to {api_base}"
-        )));
+    let policy = crate::susi_core::mac_policy::MacPolicy::global();
+    match policy.inference_refusal(api_base) {
+        Some(reason) => Err(crate::susi_core::susi_error::EaiError::governance(reason)),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// The loopback socket of a local-engine base such as
@@ -483,7 +481,7 @@ pub fn register_configured_cloud_endpoints(
 ) {
     if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
         if std::env::var("SUSI_VERBOSE").is_ok() {
-            eprintln!("[PRIVACY] local_only mode — skipping cloud inference endpoint registration");
+            eprintln!("[PRIVACY] cloud inference blocked — skipping cloud endpoint registration");
         }
         return;
     }

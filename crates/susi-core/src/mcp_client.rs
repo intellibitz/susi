@@ -133,10 +133,8 @@ fn post(
     // The one transport for remote MCP/GMCP calls, including the daemon's
     // zero-config scouting, which never passes authorize_tool: arguments
     // (and tool listings) leave the host only when the posture allows it.
-    if !crate::susi_core::mac_policy::egress_permitted(url) {
-        return Err(format!(
-            "[PRIVACY] network egress to {url} blocked by the privacy posture"
-        ));
+    if let Some(refusal) = crate::susi_core::mac_policy::egress_refusal(url) {
+        return Err(refusal);
     }
     let mut headers: Vec<(String, String)> = vec![(
         "accept".into(),
@@ -410,6 +408,13 @@ pub fn session_call_with_timeout(
     bearer: Option<&str>,
     timeout_secs: u64,
 ) -> Result<Value, String> {
+    // Host-only first: a peer on another address is refused before the
+    // credential is weighed or a connection opens, attested member or not.
+    if !is_loopback_target(addr) && crate::susi_core::mac_policy::host_only_in_force() {
+        return Err(format!(
+            "[PRIVACY] host_only: refusing the peer call to {addr}: host-only privacy mode confines traffic to this machine (loopback)"
+        ));
+    }
     let bearer = credential_for_target(addr, bearer)?;
     session_exchange(addr, method, params, bearer, timeout_secs).map_err(|e| {
         if is_loopback_target(addr) {

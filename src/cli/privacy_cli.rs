@@ -1,6 +1,6 @@
 //! Privacy / MAC capability CLI.
 use anyhow::{bail, Result};
-use susi_core::mac_policy::{actions, MacPolicy, PrivacyMode};
+use susi_core::mac_policy::{actions, MacPolicy};
 
 pub use susi_cli_defs::privacy::*;
 
@@ -17,22 +17,12 @@ pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
             );
         }
         PrivacyCommands::Mode { mode } => {
-            let m = PrivacyMode::parse(&mode);
-            susi_daemon::privacy::persist_privacy_mode(m)?;
-            // Also align inference routing sticky preference for local_only
-            // (through the router, so it lands where the router reads it).
-            if matches!(m, PrivacyMode::LocalOnly) {
-                susi_gemi::engines::routing::InferenceRouter::set_local_only();
-            }
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "mode": m.as_str(),
-                    "network_scope": m.network_scope(),
-                    "mandatory_sandbox": MacPolicy::global().mandatory_sandbox(),
-                    "blocks_cloud_inference": MacPolicy::global().blocks_cloud_inference(),
-                }))?
-            );
+            // The one mode-change path the socket's `privacy_mode` also takes:
+            // refuses an unknown mode, persists the sticky file a running
+            // daemon reads per operation, and pins inference routing to local
+            // under local_only and host_only.
+            let report = susi_daemon::privacy::set_privacy_mode(&mode)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
         }
         PrivacyCommands::Grant {
             subject,

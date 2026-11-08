@@ -108,7 +108,11 @@ pub fn wire_daemon_os_planes(workspace: &Path) {
 
 fn spawn_nat_discovery() {
     // STUN reaches public servers; honor the host egress posture unless the
-    // operator explicitly configured a relay path.
+    // operator explicitly configured a relay path. host_only admits no
+    // relay either: the relay is another host.
+    if susi_core::mac_policy::host_only_in_force() {
+        return;
+    }
     let explicit_relay = std::env::var("SUSI_TURN_SERVER").is_ok_and(|v| !v.trim().is_empty())
         || std::env::var("SUSI_TURN_RELAY").is_ok_and(|v| !v.trim().is_empty());
     if !explicit_relay && !susi_core::mac_policy::egress_permitted("stun://stun.l.google.com:19302")
@@ -117,6 +121,9 @@ fn spawn_nat_discovery() {
     }
     crate::service_supervision::Supervisor::global().spawn_oneshot("stun-discovery", 1, || {
         Some(|| {
+            if susi_core::mac_policy::host_only_in_force() {
+                return;
+            }
             if let Some(planes) = DAEMON_OS.get() {
                 match planes.nat.status() {
                     crate::nat::NatStatus::Unknown => match planes.nat.discover_default() {

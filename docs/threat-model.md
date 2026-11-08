@@ -88,7 +88,48 @@ The egress gate therefore never blocks a LAN target. `local_only` means
 that describes it says so: `susi privacy status` and the `privacy_status`
 tool report a `network_scope` ("this machine and its local network only"),
 the mode-change reports carry the same field, and the CLI help and the GMCP
-tool descriptions name the local network. Core has no host-only mode.
+tool descriptions name the local network.
+
+`host_only` is the mode that confines traffic to this machine. Its reach is
+`mac_policy::url_stays_on_host`: `127.0.0.0/8`, `::1`, an IPv4-mapped
+loopback address and the name `localhost`; private, link-local,
+unique-local, `*.local` and `*.localhost` hosts are other machines to it.
+What it guarantees while the sticky mode file says `host_only` (every check
+reads that file, so a switch by any process applies to the running daemon at
+the next datagram, connection or send, without a restart):
+
+- **Outbound**: every egress gate (`MacPolicy::egress_refusal`, behind
+  `egress_permitted`) refuses a non-loopback target with an error naming
+  host-only mode, and no grant reopens it: `is_permitted` answers no for
+  `network.egress` beyond loopback and for `cloud.inference` under this mode,
+  `consent_egress` is refused, and `authorize_tool` denies every tool that
+  needs `network.egress`. The GEMI provider gate refuses a LAN provider like
+  a cloud one. Peer calls (`mcp_client::session_call_with_timeout`) to any
+  non-loopback address are refused before a connection opens, attested
+  member or not; directed discovery pings (`peers add`, `peers probe`) too.
+  STUN discovery does not run, even with a TURN relay configured.
+- **Discovery**: the UDP 9092 responder drops every datagram whose source is
+  not loopback before it looks at it; the one it still answers is a signed
+  ping from this machine, which is the host contract's own readiness probe
+  (`host_contract_udp_ready`), and that pong never leaves the host. The
+  scout sends no broadcast or directed ping and reads none.
+- **Gossip 9095**: re-bound to loopback within half a second of the switch
+  (back to its configured address when the mode changes again), datagrams
+  from another address are dropped unread even inside that window, and
+  nothing is sent or advertised to another host.
+- **Listeners**: GMCP, the GMCP alias, GEMI and A2A (9090-9094 and their
+  offset blocks) drop a client whose address is not loopback before
+  negotiating TLS or reading a byte, whatever `bind_address` says. The bind
+  itself does not change, so the port still accepts the TCP handshake.
+
+Limits: `host_only` confines the network, not the machine. Every local
+process can still reach the loopback listeners (held off only by the bearer
+and bus checks), same-user processes are the operator, a caller holding the
+bearer can switch the mode back, and a plug or child process that opens its
+own sockets without these gates is not confined by them. The standalone cell
+micro-daemons bind loopback unless `SUSI_CELL_ADDR` says otherwise and do not
+read the mode. An older binary that does not know `host_only` reads the file
+as damaged and enforces `local_only`.
 
 ### Same user, other users, root
 
@@ -412,7 +453,7 @@ clients receive the bearer.
 
 ## The privacy posture, as implemented
 
-`PrivacyMode` (`mac_policy.rs`) has three values. What each seeds for the
+`PrivacyMode` (`mac_policy.rs`) has four values. What each seeds for the
 `susi` subject (`seed_defaults`):
 
 | Mode | `filesystem.read/write`, `sandbox.exec`, `transmit app://*` | `process.exec` | `network.egress` | `cloud.inference` |
@@ -420,17 +461,19 @@ clients receive the bearer.
 | `balanced` (default) | granted | granted | granted | granted |
 | `open` | granted | granted | granted | granted |
 | `local_only` | granted | not granted; `exec_command` refused (see above) | not granted | not granted |
+| `host_only` | granted | not granted; `exec_command` refused (see above) | not granted, and no grant is honoured beyond loopback | not granted, and no grant is honoured |
 
 `balanced` and `open` differ only in `blocks_network_by_default`: in
 `balanced` an egress tool still has to find a grant, and the seeded wildcard
 grant is that grant until the operator revokes it. The `require_egress_consent`
 key in `config.json` is read by nothing. The practical posture is therefore:
-`local_only` keeps traffic on the host and LAN; the other two permit egress
-and cloud inference out of the box.
+`local_only` keeps traffic on the host and LAN, `host_only` on the host
+alone; the other two permit egress and cloud inference out of the box.
 
 Posture state is a sticky file (`privacy_mode`) every cell process reads; a
-damaged file enforces `local_only`. Switching to `local_only` revokes the
-wildcard egress, cloud and exec grants in the same call.
+damaged file enforces `local_only`. Every switch revokes the wildcard
+egress, cloud and exec grants in the same call, and a switch to `local_only`
+or `host_only` does not seed them again.
 
 Which tools count as egress is decided by name
 (`requirements_for_tool`): an explicit list (`a2a_delegate`, `brave_search`,
@@ -444,7 +487,8 @@ Direct provider calls, model downloads and the peer channel call
 On every boot in a posture that permits egress, the daemon sends STUN binding
 requests to `stun.l.google.com:19302` and `stun.cloudflare.com:3478` to learn
 its public address (`composition::spawn_nat_discovery`). Under `local_only`
-it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set.
+it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set; under
+`host_only` it never does.
 
 ## Residual risks, in one place
 
@@ -457,9 +501,12 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set.
    `allow_remote_plaintext`, and their request and response headers (not
    the sealed bodies) are readable on the path. Multi-host clusters are
    therefore off by default.
-4. Gossip 9095 is open on every interface regardless of `bind_address`.
+4. Gossip 9095 is open on every interface regardless of `bind_address`,
+   except under `host_only`, which re-binds it to loopback.
 5. Egress classification is by tool name; `local_only` permits the whole LAN
-   (and says so in every report); core has no host-only mode.
+   (and says so in every report); `host_only` confines the network to this
+   machine but not the machine's own processes (see "Loopback, LAN,
+   internet" above).
 6. `balanced` grants egress and cloud inference by default; the config key
    that reads as a consent requirement is dead.
 7. Governance vetoes are pattern checks (above).
@@ -481,7 +528,9 @@ it does not, unless `SUSI_TURN_SERVER` or `SUSI_TURN_RELAY` is set.
   `api_token` and restarting; there is no finer scope.
 - **Use `local_only`** when the host must not talk to the internet, and
   remember it still talks to the LAN and still refuses host exec rather than
-  isolating it. Revoke the wildcard grants explicitly if you stay in
+  isolating it. **Use `host_only`** when it must not talk to any other
+  machine, the local network included: no discovery, gossip, peers, LAN
+  providers or off-host clients, even with a wide `bind_address`. Revoke the wildcard grants explicitly if you stay in
   `balanced` but want egress consent per tool
   (`susi privacy revoke` / `privacy_revoke`).
 - **Use `port_offset`** to run a second instance or to move the socket off

@@ -528,7 +528,9 @@ impl SusiSupervisor {
                             }
                         });
 
-                        if let Ok((amt, src)) = socket.recv_from(&mut buf) {
+                        // host_only: no discovery datagram is read or sent.
+                        let host_only = crate::susi_core::mac_policy::host_only_in_force();
+                        if let (Ok((amt, src)), false) = (socket.recv_from(&mut buf), host_only) {
                             let msg = String::from_utf8_lossy(&buf[..amt]);
                             // Signed pong: peer proved it holds cluster.key and
                             // echoed our nonce — promote to Explicit + persist.
@@ -867,8 +869,8 @@ impl SusiSupervisor {
                         // Each ping is bound to the source address its route
                         // uses (one frame per source), so a captured copy
                         // never verifies from another host.
-                        let mut dests = targets;
-                        if broadcast_due {
+                        let mut dests = if host_only { Vec::new() } else { targets };
+                        if broadcast_due && !host_only {
                             last_broadcast = std::time::Instant::now();
                             dests.push(format!("255.255.255.255:{port}"));
                         }

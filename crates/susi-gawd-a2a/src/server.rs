@@ -57,7 +57,11 @@ impl axum::serve::Listener for DualListener {
             };
             // Off-host plaintext is refused unless allow_remote_plaintext;
             // loopback is always exempt (internal http://127.0.0.1 callers).
-            let remote = !addr.ip().is_loopback();
+            // host_only serves this machine alone, whatever the bind.
+            let remote = !addr.ip().to_canonical().is_loopback();
+            if crate::susi_core::mac_policy::refuses_remote_client(addr.ip()) {
+                continue;
+            }
             if let Some(io) = negotiate_transport(
                 stream,
                 remote,
