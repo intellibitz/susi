@@ -12,10 +12,12 @@
   "deps": [],
   "scopes": [
     ".agents/tasks/t-nogh-1.json",
+    "agents.md",
     "docs/releases.md",
     "install.ps1",
     "install.sh",
     "releases",
+    "tests/github_enforce.rs",
     "tests/installer_contract.rs",
     "tests/no_github_coupling.rs",
     "tests/release_records.rs",
