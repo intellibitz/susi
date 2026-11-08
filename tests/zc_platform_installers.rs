@@ -113,16 +113,51 @@ fn zc_platform_installers_plan_steps_are_unique_and_scripts_non_empty() {
     assert!(!ps1.trim().is_empty(), "install.ps1 must be non-empty");
 }
 
+/// Both installers build the release tag from source (CEO decision
+/// 2026-11-09: no artifact store): the tag comes from `git ls-remote --tags`,
+/// its record from `releases/<tag>.json`, the gate is the tag's version, and
+/// the reference checksum is compared and reported, never trusted or enforced.
+/// Neither downloads a binary or names a git host.
 #[test]
-fn zc_platform_installers_verify_sha256_checksum_before_installing() {
+fn zc_platform_installers_build_the_release_tag_and_gate_on_its_version() {
     let (sh, ps1) = read_installers();
+    for (name, body) in [("install.sh", &sh), ("install.ps1", &ps1)] {
+        for needle in [
+            "ls-remote --tags --refs",
+            "releases/",
+            "SUSI_SOURCE_REPO",
+            "rust-toolchain.toml",
+            "rustup toolchain install",
+            "RUSTUP_AUTO_INSTALL",
+            "Refusing to build",
+            "expected '",
+            "reference build",
+        ] {
+            assert!(body.contains(needle), "{name} lacks {needle:?}");
+        }
+        let lower = body.to_ascii_lowercase();
+        for retired in [
+            "github",
+            "releases/latest",
+            "invoke-webrequest",
+            "curl ",
+            "wget ",
+            "rustup target add",
+            "mold",
+        ] {
+            assert!(
+                !lower.contains(retired),
+                "{name} still contains {retired:?}"
+            );
+        }
+    }
     assert!(
         sh.contains("sha256sum") || sh.contains("shasum"),
-        "install.sh must verify SHA-256 checksums"
+        "install.sh reports the build's SHA-256 against the reference build"
     );
     assert!(
         ps1.contains("Get-FileHash") && ps1.to_ascii_uppercase().contains("SHA256"),
-        "install.ps1 must verify SHA-256 checksums via Get-FileHash"
+        "install.ps1 reports the build's SHA-256 against the reference build"
     );
 }
 
