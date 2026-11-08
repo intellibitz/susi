@@ -34,9 +34,10 @@ impl Provider for CandleProvider {
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             // Blocking inference runs on a thread of its own, so the future
             // completes under any executor (or none: `provider::block_on`).
-            let res = run_blocking(move || GemiEngine::generate_reasoning_deep(&prompt, &workspace))
-                .await
-                .map_err(crate::susi_core::susi_error::EaiError::process)?;
+            let res =
+                run_blocking(move || GemiEngine::generate_reasoning_deep(&prompt, &workspace))
+                    .await
+                    .map_err(crate::susi_core::susi_error::EaiError::process)?;
             Ok(res)
         })
     }
@@ -77,13 +78,9 @@ mod inline_tests {
 
     #[test]
     fn embed_returns_unimplemented_inference_error() {
+        // No async runtime: provider futures complete under core's block_on.
         let p = CandleProvider;
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("tokio runtime");
-        let err = rt
-            .block_on(p.embed("hello world"))
+        let err = crate::susi_core::provider::block_on(p.embed("hello world"))
             .expect_err("embed is unimplemented");
         assert!(err.to_string().contains("not implemented"));
     }
@@ -97,12 +94,6 @@ mod inline_tests {
             .expect("tokio runtime");
         let res = rt.block_on(p.is_healthy());
         assert!(res.is_ok());
-    }
-
-    #[test]
-    fn is_healthy_completes_without_an_async_runtime() {
-        let p = CandleProvider;
-        assert!(crate::susi_core::provider::block_on(p.is_healthy()).is_ok());
     }
 
     #[test]

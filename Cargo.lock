@@ -2755,10 +2755,8 @@ name = "susi-core"
 version = "0.1.0"
 dependencies = [
  "susi-abi",
- "susi-adapters-llm",
  "susi-config",
  "susi-error",
- "susi-http-transport",
  "susi-paths",
  "susi-vendor-criterion",
  "susi-vendor-ed25519-dalek",

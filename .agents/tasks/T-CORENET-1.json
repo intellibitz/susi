@@ -18,6 +18,7 @@
     "crates/susi-core/cargo.toml",
     "crates/susi-core/src/capture.rs",
     "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/mcp_client.rs",
     "crates/susi-core/src/plain_http.rs",
     "crates/susi-core/src/provider.rs",
     "crates/susi-core/src/registry_ipc.rs",
@@ -30,8 +31,11 @@
     "crates/susi-gemi/src/benchmark.rs",
     "crates/susi-gemi/src/credential_scout.rs",
     "crates/susi-gemi/src/engines/candle_provider.rs",
+    "crates/susi-gemi/src/engines/http_provider.rs",
     "crates/susi-gemi/src/provider_contract.rs",
-    "crates/susi-gemi/src/tests/vc_202_001_mastery.rs"
+    "crates/susi-gemi/src/tests/vc_202_001_mastery.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
   ],
   "scopes": [
     ".agents/build-time.jsonl",
@@ -41,6 +45,7 @@
     "crates/susi-core/cargo.toml",
     "crates/susi-core/src/capture.rs",
     "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/mcp_client.rs",
     "crates/susi-core/src/plain_http.rs",
     "crates/susi-core/src/provider.rs",
     "crates/susi-core/src/registry_ipc.rs",
@@ -53,8 +58,11 @@
     "crates/susi-gemi/src/benchmark.rs",
     "crates/susi-gemi/src/credential_scout.rs",
     "crates/susi-gemi/src/engines/candle_provider.rs",
+    "crates/susi-gemi/src/engines/http_provider.rs",
     "crates/susi-gemi/src/provider_contract.rs",
-    "crates/susi-gemi/src/tests/vc_202_001_mastery.rs"
+    "crates/susi-gemi/src/tests/vc_202_001_mastery.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
   ],
   "acceptance": "cargo test -p susi-core --lib plain_http --offline --locked passes: framed POST and DELETE requests, Content-Length, chunked and until-close bodies, interim 1xx skipped, error statuses returned and redirects not followed, the body cap, malformed bodies refused, one budget bounding a silent server and a stalled body, https:// and header injection refused.",
   "accept": {

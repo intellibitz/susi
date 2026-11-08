@@ -28,8 +28,8 @@ use serde_json::{json, Value};
 use std::any::Any;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 fn tool_topic(name: &str) -> String {
     format!("capability.tool.{name}")

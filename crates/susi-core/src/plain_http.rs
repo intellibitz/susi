@@ -614,7 +614,11 @@ mod tests {
         assert_eq!(resp.header("missing"), None);
         assert_eq!(resp.into_bytes(1024).unwrap(), b"{\"ok\":true}");
         let seen = server.join().unwrap();
-        assert!(seen.head.starts_with("POST /mcp HTTP/1.1\r\n"), "{}", seen.head);
+        assert!(
+            seen.head.starts_with("POST /mcp HTTP/1.1\r\n"),
+            "{}",
+            seen.head
+        );
         assert!(seen.head.contains(&format!("Host: {addr}\r\n")));
         assert!(seen.head.contains("Connection: close\r\n"));
         assert!(seen.head.contains("Content-Length: 8\r\n"));
@@ -648,7 +652,9 @@ mod tests {
     #[test]
     fn error_statuses_are_returned_and_redirects_are_not_followed() {
         let (addr, server) = serve(vec![
-            Some(b"HTTP/1.1 302 Found\r\nLocation: /elsewhere\r\nContent-Length: 0\r\n\r\n".to_vec()),
+            Some(
+                b"HTTP/1.1 302 Found\r\nLocation: /elsewhere\r\nContent-Length: 0\r\n\r\n".to_vec(),
+            ),
             Some(b"HTTP/1.1 404 Not Found\r\nContent-Length: 4\r\n\r\nnope".to_vec()),
         ]);
         let first = call("POST", &format!("http://{addr}/mcp"), &[], Some(b"{}"), 5).unwrap();
@@ -700,7 +706,10 @@ mod tests {
         let (addr, server) = serve(vec![
             Some(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort".to_vec()),
             Some(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nabc\r\n".to_vec()),
-            Some(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcXY0\r\n\r\n".to_vec()),
+            Some(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcXY0\r\n\r\n"
+                    .to_vec(),
+            ),
             Some(b"garbage\r\n\r\n".to_vec()),
         ]);
         let url = format!("http://{addr}/");
@@ -801,16 +810,29 @@ mod tests {
     fn urls_parse_hosts_ports_and_paths() {
         let t = parse_url("http://127.0.0.1:9093/mcp").unwrap();
         assert_eq!(
-            (t.host.as_str(), t.port, t.authority.as_str(), t.path.as_str()),
+            (
+                t.host.as_str(),
+                t.port,
+                t.authority.as_str(),
+                t.path.as_str()
+            ),
             ("127.0.0.1", 9093, "127.0.0.1:9093", "/mcp")
         );
         let t = parse_url("http://[::1]:9093/mcp?x=1#frag").unwrap();
         assert_eq!(
-            (t.host.as_str(), t.port, t.authority.as_str(), t.path.as_str()),
+            (
+                t.host.as_str(),
+                t.port,
+                t.authority.as_str(),
+                t.path.as_str()
+            ),
             ("::1", 9093, "[::1]:9093", "/mcp?x=1")
         );
         let t = parse_url("HTTP://peer.lan").unwrap();
-        assert_eq!((t.host.as_str(), t.port, t.path.as_str()), ("peer.lan", 80, "/"));
+        assert_eq!(
+            (t.host.as_str(), t.port, t.path.as_str()),
+            ("peer.lan", 80, "/")
+        );
         let t = parse_url("http://peer.lan?q").unwrap();
         assert_eq!(t.path, "/?q");
         assert!(parse_url("http://host:notaport/").is_err());

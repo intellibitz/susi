@@ -77,8 +77,8 @@ where
     let spawned = std::thread::Builder::new()
         .name("susi-provider-blocking".into())
         .spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-                .map_err(|payload| {
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).map_err(|payload| {
                     let reason = payload
                         .downcast_ref::<&str>()
                         .map(|s| (*s).to_string())
