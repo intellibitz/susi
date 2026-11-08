@@ -12,14 +12,10 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
-dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
-tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
-flume = { package = "susi-vendor-flume", path = "../susi-vendor-flume" }
-parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
 regex = { package = "susi-vendor-regex", path = "../susi-vendor-regex" }
 tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }

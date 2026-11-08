@@ -13,6 +13,7 @@
   "scope": [
     ".agents/build-time.jsonl",
     ".agents/tasks/t-corenet-1.json",
+    "architecture.md",
     "cargo.lock",
     "crates/susi-core/cargo.toml",
     "crates/susi-core/src/capture.rs",
@@ -35,6 +36,7 @@
   "scopes": [
     ".agents/build-time.jsonl",
     ".agents/tasks/t-corenet-1.json",
+    "architecture.md",
     "cargo.lock",
     "crates/susi-core/cargo.toml",
     "crates/susi-core/src/capture.rs",
