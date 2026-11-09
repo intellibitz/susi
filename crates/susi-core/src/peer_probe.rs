@@ -164,20 +164,82 @@ pub fn handshake(
     ))
 }
 
+/// The channel endpoint `peers add` / `peers probe` try first for `host`:
+/// `host:port` as given, `host` plus `port`, or `host` on the default
+/// channel port.
+pub fn channel_endpoint(host: &str, port: Option<u16>) -> String {
+    let inline = host
+        .rsplit_once(':')
+        .is_some_and(|(h, p)| !h.is_empty() && !h.ends_with(':') && p.parse::<u16>().is_ok());
+    match (inline, port) {
+        (true, _) => host.to_string(),
+        (false, Some(p)) => format!("{host}:{p}"),
+        (false, None) => format!("{host}:{}", susi_config::peer_channel_link::DEFAULT_PORT),
+    }
+}
+
+/// The identity at a channel endpoint: a link handshake proves that the
+/// responder holds this cluster's key and which node key it holds, whatever
+/// address its traffic appears to come from. The link stays open for the
+/// endpoint proof that follows. This node's own daemon is refused.
+pub fn channel_identity(endpoint: &str) -> Result<susi_config::peer_channel::PeerIdentity, String> {
+    if crate::mac_policy::host_only_in_force() && !crate::mcp_client::is_loopback_target(endpoint) {
+        return Err(format!(
+            "[PRIVACY] host_only: no peer channel to {endpoint}: host-only privacy mode confines traffic to this machine (loopback)"
+        ));
+    }
+    let link = susi_config::peer_channel_link::dial(
+        endpoint,
+        susi_config::peer_channel::Expect::AnyMember,
+        susi_config::peer_channel_link::DialMode {
+            persistent: false,
+            hub: true,
+        },
+        &crate::mcp_client::channel_dial_policy,
+    )?;
+    let peer = link.peer().clone();
+    if susi_config::cluster_key::node_pubkey_hex()
+        .is_some_and(|own| own.eq_ignore_ascii_case(&peer.pubkey))
+    {
+        link.close("self");
+        return Err(format!(
+            "{endpoint} is this node's own daemon ({}); this command needs a remote host",
+            peer.node_id
+        ));
+    }
+    Ok(peer)
+}
+
 /// Post-handshake endpoint proof: call `cluster_status` on the attested
-/// address over the signed peer channel and require the serving node's id
-/// to match. Returns the peer's reported status.
-pub fn verify_endpoint(node_id: &str, address: &str) -> Result<Value, String> {
-    let bearer = susi_config::cluster_key::peer_bearer();
-    let result = crate::mcp_client::call_tool(
+/// identity inside the sealed peer channel and require the serving node's
+/// id to match. `direct` lists channel endpoints of that node itself.
+/// Returns the peer's reported status.
+pub fn verify_endpoint(
+    node_id: &str,
+    pubkey: &str,
+    address: &str,
+    direct: Vec<String>,
+) -> Result<Value, String> {
+    if pubkey.is_empty() {
+        return Err(format!(
+            "{node_id} attests no node key (a pre-v3 build): the sealed peer channel needs one, so it cannot be admitted"
+        ));
+    }
+    let target = susi_config::peer_channel_link::Target {
+        node_id: node_id.to_string(),
+        pubkey: pubkey.to_string(),
+        direct,
+    };
+    let result = crate::mcp_client::session_call_to(
+        &target,
         address,
-        "cluster_status",
-        &json!({}),
-        bearer.as_deref(),
+        "tools/call",
+        &json!({"name": "cluster_status", "arguments": {}}),
+        20,
     )
     .map_err(|e| {
         format!(
-            "{node_id} verified over UDP but its MCP endpoint {address} is unreachable ({e}) — not admitting a peer that can't serve"
+            "{node_id} proved its identity but its MCP endpoint is unreachable over the peer channel ({e}) — not admitting a peer that can't serve"
         )
     })?;
     let status = result
@@ -206,8 +268,67 @@ fn names(rows: &[Value], node_id: &str, address: &str) -> bool {
 /// report what it attests and our local standing for it. Nothing is
 /// persisted; admission is `susi peers add`.
 pub fn probe_report(host: &str, port: Option<u16>) -> Result<Value, String> {
+    // The sealed peer channel first: it reaches members on other networks
+    // and proves the identity directly.
+    let endpoint = channel_endpoint(host, port);
+    if let Ok(peer) = channel_identity(&endpoint) {
+        return report(
+            Attested {
+                node_id: peer.node_id.clone(),
+                checksum: 0,
+                bloom_hex: String::new(),
+                roster_members: 0,
+                pubkey: peer.pubkey.clone(),
+                bind_sig: peer.bind_sig.clone(),
+                via: "peer channel",
+            },
+            &endpoint,
+            vec![endpoint.clone()],
+        );
+    }
     let ((node_id, checksum, bloom_hex, roster, pubkey, bind_sig), ip) = handshake(host, port)?;
     let address = format!("{}:{}", ip, peer_http_port());
+    let direct = vec![format!(
+        "{ip}:{}",
+        susi_config::peer_channel_link::DEFAULT_PORT
+    )];
+    report(
+        Attested {
+            node_id,
+            checksum,
+            bloom_hex,
+            roster_members: roster.len(),
+            pubkey,
+            bind_sig,
+            via: "LAN discovery",
+        },
+        &address,
+        direct,
+    )
+}
+
+/// What a probe learned about a peer before the endpoint proof.
+struct Attested {
+    node_id: String,
+    checksum: u64,
+    bloom_hex: String,
+    roster_members: usize,
+    pubkey: String,
+    bind_sig: String,
+    via: &'static str,
+}
+
+fn report(a: Attested, address: &str, direct: Vec<String>) -> Result<Value, String> {
+    let Attested {
+        node_id,
+        checksum,
+        bloom_hex,
+        roster_members,
+        pubkey,
+        bind_sig,
+        via,
+    } = a;
+    let address = address.to_string();
     let banned = names(
         &susi_config::cluster_key::read_json_rows_strict(&banned_path())?,
         &node_id,
@@ -225,7 +346,7 @@ pub fn probe_report(host: &str, port: Option<u16>) -> Result<Value, String> {
     } else {
         "not a member — `susi peers add` to admit"
     };
-    let endpoint = match verify_endpoint(&node_id, &address) {
+    let endpoint = match verify_endpoint(&node_id, &pubkey, &address, direct) {
         Ok(s) => json!({
             "serving": true,
             "state": s.get("state").and_then(|v| v.as_str()).unwrap_or("up"),
@@ -247,11 +368,12 @@ pub fn probe_report(host: &str, port: Option<u16>) -> Result<Value, String> {
     };
     Ok(json!({
         "verified": true,
+        "via": via,
         "node_id": node_id,
         "address": address,
         "registry_checksum": checksum,
         "capability_bloom": bloom,
-        "gossip_roster_members": roster.len(),
+        "gossip_roster_members": roster_members,
         // A public key: safe to show in full; the prefix is what the CLI prints.
         "signing_key": {
             "pubkey": pubkey,

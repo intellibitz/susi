@@ -55,7 +55,7 @@ impl axum::serve::Listener for DualListener {
                     continue;
                 }
             };
-            // Off-host plaintext is refused unless allow_remote_plaintext;
+            // Off-host plaintext is always refused (require_tls_remote);
             // loopback is always exempt (internal http://127.0.0.1 callers).
             // host_only serves this machine alone, whatever the bind.
             let remote = !addr.ip().to_canonical().is_loopback();

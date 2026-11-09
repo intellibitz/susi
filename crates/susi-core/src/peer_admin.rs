@@ -781,10 +781,15 @@ fn handshake(
 }
 
 /// Post-handshake endpoint proof (`crate::peer_probe::verify_endpoint`):
-/// the attested node must serve MCP at its claimed address under the same
-/// identity. Returns the peer's reported status.
-fn verify_endpoint(node_id: &str, address: &str) -> Result<serde_json::Value, String> {
-    crate::peer_probe::verify_endpoint(node_id, address)
+/// the attested node must serve MCP inside the sealed peer channel under
+/// the same identity. Returns the peer's reported status.
+fn verify_endpoint(
+    node_id: &str,
+    pubkey: &str,
+    address: &str,
+    direct: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    crate::peer_probe::verify_endpoint(node_id, pubkey, address, direct)
 }
 
 /// Join a peer by address: verify the responder cryptographically via
@@ -798,13 +803,290 @@ fn peer_http_port() -> u16 {
 }
 
 pub fn add(out: Out<'_>, host: &str, port: Option<u16>) -> Result<(), String> {
+    // The sealed peer channel first: it is how a member on another network
+    // (a hub behind a forwarded port, a laptop elsewhere) joins, and it
+    // proves the responder's identity whatever address its traffic comes
+    // from. LAN discovery is the zero-config path on one network.
+    let endpoint = crate::peer_probe::channel_endpoint(host, port);
+    match crate::peer_probe::channel_identity(&endpoint) {
+        Ok(peer) => add_over_channel(out, &endpoint, &peer),
+        Err(channel_err) => add_over_lan(out, host, port).map_err(|lan_err| {
+            format!(
+                "{host} answered neither the sealed peer channel at {endpoint} ({channel_err}) nor LAN discovery ({lan_err})"
+            )
+        }),
+    }
+}
+
+/// Admit the node a channel handshake proved at `endpoint`: prove it serves
+/// under that identity, bind its key in the roster with `endpoint` as its
+/// address hint, keep an uplink to it when this node cannot be dialed,
+/// commit the admission, and ask it to admit this node in turn.
+fn add_over_channel(
+    out: Out<'_>,
+    endpoint: &str,
+    peer: &susi_config::peer_channel::PeerIdentity,
+) -> Result<(), String> {
+    // A node with no explicit member other than this peer is joining the
+    // peer's cluster: the peer's leader commits this node's admission and
+    // its ledger becomes this node's (so a repeated `peers add` of the same
+    // hub never starts a second ledger here). A node already in a cluster
+    // admits the peer into its own, through its own leader.
+    let joining = !load_registry()?.iter().any(|n| {
+        n.get("admission").and_then(|a| a.as_str()) == Some("explicit")
+            && n.get("node_id").and_then(|v| v.as_str()) != Some(peer.node_id.as_str())
+            && !n
+                .get("pubkey")
+                .and_then(|v| v.as_str())
+                .is_some_and(|k| k.eq_ignore_ascii_case(&peer.pubkey))
+    });
+    let banned = load_banned()?;
+    if banned.iter().any(|b| {
+        b.get("node_id").and_then(|v| v.as_str()) == Some(peer.node_id.as_str())
+            || b.get("pubkey")
+                .and_then(|v| v.as_str())
+                .is_some_and(|k| !k.is_empty() && k.eq_ignore_ascii_case(&peer.pubkey))
+    }) {
+        return Err(format!(
+            "{} is banned — `susi peers unban` it before re-adding",
+            peer.node_id
+        ));
+    }
+    verify_endpoint(
+        &peer.node_id,
+        &peer.pubkey,
+        endpoint,
+        vec![endpoint.to_string()],
+    )?;
+    // Already a member under this very key: `peers add` refreshes the
+    // address hint and the uplink and commits nothing (a repeat must never
+    // seal a second admission or start a ledger here).
+    let already_bound = load_registry()?.iter().any(|n| {
+        n.get("admission").and_then(|a| a.as_str()) == Some("explicit")
+            && n.get("node_id").and_then(|v| v.as_str()) == Some(peer.node_id.as_str())
+            && n.get("pubkey")
+                .and_then(|v| v.as_str())
+                .is_some_and(|k| k.eq_ignore_ascii_case(&peer.pubkey))
+    });
+    let node = serde_json::json!({
+        "node_id": peer.node_id,
+        "address": endpoint,
+        "channel_endpoint": endpoint,
+        "node_type": "PEER",
+        "is_active": true,
+        "capabilities": ["CORE"],
+        "registry_checksum": 0,
+        "latency_ms": 0,
+        "uptime_secs": 0,
+        "trust_score": 0.8,
+        "capability_bloom": [],
+        "admission": "explicit",
+        "last_seen_secs": now_secs(),
+        "pubkey": peer.pubkey,
+        "bind_sig": peer.bind_sig,
+    });
+    {
+        let _peers_lock =
+            crate::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
+        let mut nodes = load_registry()?;
+        nodes.retain(|n| {
+            n.get("node_id").and_then(|v| v.as_str()) != Some(peer.node_id.as_str())
+                && n.get("address").and_then(|v| v.as_str()) != Some(endpoint)
+                && !n
+                    .get("pubkey")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|k| k.eq_ignore_ascii_case(&peer.pubkey))
+        });
+        nodes.push(node);
+        susi_config::atomic_write_bytes(
+            &registry_path(),
+            serde_json::to_string_pretty(&nodes)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    say!(
+        out,
+        "verified + admitted over the sealed peer channel: {} ({endpoint}), node key {}…",
+        peer.node_id,
+        peer.pubkey.get(..16).unwrap_or(&peer.pubkey)
+    );
+    // A node with no channel listener of its own (a laptop behind NAT) is
+    // reachable only over a link it keeps open: its daemon dials this peer
+    // and holds the link, with keepalive and reconnect.
+    if susi_config::peer_channel_link::local_listen_addr().is_none() {
+        susi_config::peer_channel_link::remember_hub(&peer.node_id, &peer.pubkey, endpoint)?;
+        say!(
+            out,
+            "uplink: this node's daemon keeps a sealed link open to {} so the cluster can reach it",
+            peer.node_id
+        );
+    }
+    if already_bound {
+        say!(
+            out,
+            "{} was already a member under this key; its address hint is now {endpoint}",
+            peer.node_id
+        );
+    } else if !joining {
+        commit_membership(
+            out,
+            crate::commit_log::KIND_MEMBER_ADD,
+            &peer.node_id,
+            endpoint,
+            &peer.pubkey,
+            &peer.bind_sig,
+        );
+    }
+    let admitted = if self_admitted_by_other() {
+        say!(out, "this node's own admission is already in its ledger");
+        true
+    } else {
+        request_admission(out, peer, endpoint)
+    };
+    // A member admitted to an existing cluster takes that cluster's ledger
+    // at once (the members admitted before it, their keys), rather than
+    // waiting for anti-entropy the swarm runs only toward members it counts
+    // live — a member behind NAT never is, to UDP.
+    if admitted {
+        let report = crate::commit_log_report::sync_report();
+        let pulled = report
+            .pointer("/totals/pulled")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        say!(
+            out,
+            "ledger sync: {pulled} record(s) pulled from the cluster"
+        );
+    }
+    Ok(())
+}
+
+/// Whether this node's ledger holds a committed admission of this node that
+/// another member sealed: it has been admitted to the cluster it joined.
+fn self_admitted_by_other() -> bool {
+    let self_id = susi_config::cluster_key::wire_node_id();
+    let prefix = format!("{self_id}@");
+    crate::commit_log::load().iter().any(|r| {
+        r.kind == crate::commit_log::KIND_MEMBER_ADD
+            && r.coordinator != self_id
+            && r.value.starts_with(&prefix)
+    })
+}
+
+/// The address hint this node gives when it asks to be admitted: its
+/// public channel endpoint when it has one (`peer_channel_public`), else a
+/// routing name under `.invalid` that never resolves — such a node is
+/// reached by its identity over the link it keeps, never by dialing.
+fn own_routing_address() -> String {
+    let cfg = susi_config::SusiConfig::load_global().ok();
+    let public = cfg
+        .as_ref()
+        .and_then(|c| c.get::<serde_json::Value>("peer_channel_public"))
+        .and_then(|v| match v {
+            serde_json::Value::String(one) => Some(one),
+            serde_json::Value::Array(many) => many
+                .into_iter()
+                .find_map(|v| v.as_str().map(str::to_string)),
+            serde_json::Value::Null
+            | serde_json::Value::Bool(_)
+            | serde_json::Value::Number(_)
+            | serde_json::Value::Object(_) => None,
+        })
+        .filter(|a| !a.trim().is_empty());
+    public.unwrap_or_else(|| {
+        format!(
+            "{}.invalid:{}",
+            susi_config::cluster_key::wire_node_id(),
+            peer_http_port()
+        )
+    })
+}
+
+/// Ask the peer just admitted to admit this node too (`member_propose`
+/// with this node's own key and binding attestation). The peer seals the
+/// change only as its cluster's leader, so this can be refused; the result
+/// is reported either way and nothing local depends on it.
+fn request_admission(
+    out: Out<'_>,
+    peer: &susi_config::peer_channel::PeerIdentity,
+    endpoint: &str,
+) -> bool {
+    let self_id = susi_config::cluster_key::wire_node_id();
+    let (Some(pubkey), Some(sig)) = (
+        susi_config::cluster_key::node_pubkey_hex(),
+        susi_config::cluster_key::bind_attestation(),
+    ) else {
+        note!(
+            out,
+            "note: no node.key here — cannot ask {} to admit this node",
+            peer.node_id
+        );
+        return false;
+    };
+    let self_addr = own_routing_address();
+    let target = susi_config::peer_channel_link::Target {
+        node_id: peer.node_id.clone(),
+        pubkey: peer.pubkey.clone(),
+        direct: vec![endpoint.to_string()],
+    };
+    let args = serde_json::json!({
+        "name": "member_propose",
+        "arguments": {
+            "member": format!("{self_id}@{self_addr}"),
+            "kind": crate::commit_log::KIND_MEMBER_ADD,
+            "member_pubkey": pubkey,
+            "subject_sig": sig,
+        }
+    });
+    match crate::mcp_client::session_call_to(&target, endpoint, "tools/call", &args, 30) {
+        Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
+            say!(
+                out,
+                "{} admitted this node ({self_id}@{self_addr})",
+                peer.node_id
+            );
+            true
+        }
+        Ok(result) => {
+            let detail = result
+                .pointer("/content/0/text")
+                .and_then(|t| t.as_str())
+                .unwrap_or("refused")
+                .to_string();
+            note!(
+                out,
+                "note: {} has not admitted this node yet — {detail}; run this `susi peers add` again once its cluster has elected a leader",
+                peer.node_id
+            );
+            false
+        }
+        Err(e) => {
+            note!(
+                out,
+                "note: could not ask {} to admit this node — {e}",
+                peer.node_id
+            );
+            false
+        }
+    }
+}
+
+/// Admission over LAN discovery: the bound `SUSI_PING_SIG3` handshake
+/// proves the responder holds the cluster key at its source address, then
+/// the endpoint proof runs inside the sealed peer channel to the key the
+/// pong attested (on the default channel port of that host, or through a
+/// hub this node already uses).
+fn add_over_lan(out: Out<'_>, host: &str, port: Option<u16>) -> Result<(), String> {
     let ((node_id, checksum, bloom_hex, roster, pubkey, bind_sig), ip) = handshake(host, port)?;
     {
         let address = format!("{}:{}", ip, peer_http_port());
+        let channel_endpoint = format!("{ip}:{}", susi_config::peer_channel_link::DEFAULT_PORT);
         // The pong attested an id — now prove the claimed endpoint is
         // live, serving, and owned by that same id before any local
         // state changes.
-        verify_endpoint(&node_id, &address)?;
+        verify_endpoint(&node_id, &pubkey, &address, vec![channel_endpoint.clone()])?;
         // A banned member was operator-evicted — re-adding must be a
         // deliberate `peers unban` first, not an accidental re-add.
         let banned = load_banned()?;
@@ -839,6 +1121,7 @@ pub fn add(out: Out<'_>, host: &str, port: Option<u16>) -> Result<(), String> {
             // key is the subject's claim, not ours.
             "pubkey": pubkey,
             "bind_sig": bind_sig,
+            "channel_endpoint": channel_endpoint,
         });
 
         // Serialize the roster RMW with the daemon's apply/scout

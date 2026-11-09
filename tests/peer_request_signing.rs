@@ -113,14 +113,17 @@ fn bound_member_authenticates_by_signature_and_loses_bearer() {
         None, peer, &req2, "POST", "/mcp", None
     ));
 
-    // A signature arriving from the wrong source IP is refused — the
-    // sig is genuine but the member must call from its registered
-    // address.
+    // Membership is identity-keyed: the same member's genuine signature
+    // verifies from another source address (a NAT router, a changed
+    // public address), and once used it cannot be replayed from any.
     let sig3 = sign(&self_id, ts, "nonce-3", "POST", "/mcp");
     let req3 = signed(&self_id, "nonce-3", ts, &sig3);
     let roaming: IpAddr = "10.0.0.77".parse().unwrap();
-    assert!(!NetGuard::is_authorized(
+    assert!(NetGuard::is_authorized(
         None, roaming, &req3, "POST", "/mcp", None
+    ));
+    assert!(!NetGuard::is_authorized(
+        None, peer, &req3, "POST", "/mcp", None
     ));
 
     // A stale timestamp is refused.

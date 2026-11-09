@@ -1490,8 +1490,18 @@ impl CoreTools {
             )));
         }
         // The leader votes in its own electorate — otherwise evicting a
-        // dead member would require the dead member's endorsement.
-        let mut electorate: Vec<String> = roster.iter().map(|(nid, _, _)| nid.clone()).collect();
+        // dead member would require the dead member's endorsement. The
+        // swarm roster lists this node itself (its `Local` entry), so it is
+        // taken from there exactly once: a duplicate counts the leader as
+        // two bound members, doubles the quorum it needs, and makes every
+        // proposal to a standalone leader unsatisfiable.
+        let mut electorate: Vec<String> = roster
+            .iter()
+            .map(|(nid, _, _)| nid.clone())
+            .filter(|nid| nid != &self_id)
+            .collect();
+        electorate.sort();
+        electorate.dedup();
         electorate.push(self_id.clone());
         let Some(mut record) = crate::susi_core::commit_log::CommitRecord::seal_member(
             &self_id,
@@ -1546,11 +1556,35 @@ impl CoreTools {
         let args = serde_json::to_value(&record)
             .map_err(|e| EaiError::internal(format!("serialize record: {e}")))?;
         let mut pushed = 0usize;
-        for target in roster
-            .iter()
-            .map(|(_, a, _)| a.clone())
+        // Every bound member, not only those the swarm currently counts
+        // live: a member reached only over the peer channel never answers a
+        // UDP ping, and a committed record it never receives would leave it
+        // without the roster change. A push to a dead member just fails.
+        let bound_members: Vec<String> =
+            crate::susi_config::cluster_key::config_json_rows("peers.json")
+                .iter()
+                .filter(|r| r.get("admission").and_then(|v| v.as_str()) == Some("explicit"))
+                .filter(|r| {
+                    r.get("pubkey")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|k| !k.is_empty())
+                })
+                .filter_map(|r| {
+                    r.get("address")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
+                .collect();
+        let mut targets: Vec<String> = roster.iter().map(|(_, a, _)| a.clone()).collect();
+        for a in bound_members
+            .into_iter()
             .chain(std::iter::once(addr.to_string()))
         {
+            if !targets.contains(&a) {
+                targets.push(a);
+            }
+        }
+        for target in targets {
             if target.starts_with("127.")
                 || target.starts_with("::1")
                 || target.starts_with("localhost")

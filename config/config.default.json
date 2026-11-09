@@ -70,7 +70,6 @@
   "port_offset": 0,
   "tls_cert_path": "",
   "tls_key_path": "",
-  "allow_remote_plaintext": false,
   "openrouter_http_referer": "https://github.com/intellibitz/susi",
   "openrouter_app_title": "SUSI",
   "allow_origin": "*",
