@@ -1,0 +1,30 @@
+{
+  "title": "Unify model publication with fail-closed readiness and rollback",
+  "scopes": [
+    "crates/susi-gemi-models/src/transactional_download.rs",
+    "crates/susi-gemi-models/tests/transactional_publish.rs",
+    ".agents/tasks/T-DOTMODELPUBLISH-1.json",
+    "crates/susi-gemi-models/src/model_cache.rs",
+    "crates/susi-gemi-models/src/lifecycle/scan.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "id": "T-DOTMODELPUBLISH-1",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "--lib",
+      "--test",
+      "transactional_publish"
+    ]
+  },
+  "status": "in_progress",
+  "claimed_by": "dot-model-publish",
+  "native_worker": "dot-model-publish",
+  "created_by": "dot-model-publish",
+  "created_unix": 1794238682
+}

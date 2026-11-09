@@ -51,13 +51,15 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 21;
 /// features); 28 fewer units in the host build (T-NOMCPSDK-1, wave log).
 /// 2026-11-09: susi-gemi-models 16,797 -> 16,743 (hardware.rs reads Windows
 /// memory, swap and uptime through host_metrics; T-NOWINDOW-1).
+/// 2026-11-09: 16,743 -> 16,737 after shared scan/cache predicates and
+/// fail-closed model publication consolidation (T-DOTMODELPUBLISH-1).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
     ("susi-gawd-swarm", 20_673),
     ("susi-gawd-agents", 11_495),
     ("susi-gawd-a2a", 2_113),
     ("susi-gemi", 21_290),
-    ("susi-gemi-models", 16_743),
+    ("susi-gemi-models", 16_737),
     ("susi-gmcp", 25_900),
     ("susi-harness", 40_790),
 ];

@@ -8,6 +8,32 @@ use std::path::{Path, PathBuf};
 use super::types::*;
 use super::{ModelManager, ModelScanRules, MODEL_SCAN_GENERATION};
 
+// Keep traversal policies separate (bounded inventory vs deep home scan), but
+// share cycle/exclusion admission and the model-file predicate.
+fn visit_model_directory(
+    dir: &Path,
+    visited: &mut std::collections::HashSet<PathBuf>,
+    rules: &ModelScanRules,
+) -> bool {
+    if dir.canonicalize().is_ok_and(|path| !visited.insert(path)) {
+        return false;
+    }
+    let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    !rules.exclude_dirs.iter().any(|excluded| excluded == name)
+}
+
+fn model_extension(path: &Path, rules: &ModelScanRules) -> Option<String> {
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    // Membership, not suffix alone, keeps generic binary caches out.
+    (rules.extensions.iter().any(|e| e == &extension)
+        && path.metadata().map(|m| m.len()).unwrap_or(0) > rules.min_bytes)
+        .then_some(extension)
+}
+
 impl ModelManager {
     pub fn verify_local_models(workspace: &Path) -> Vec<ModelVerificationResult> {
         let models = Self::list_models(workspace);
@@ -176,17 +202,7 @@ impl ModelManager {
         if depth > 5 {
             return;
         }
-        if let Ok(canonical) = dir.canonicalize() {
-            if !visited.insert(canonical) {
-                return;
-            }
-        }
-        let folder_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if rules
-            .exclude_dirs
-            .iter()
-            .any(|excluded| excluded == folder_name)
-        {
+        if !visit_model_directory(dir, visited, rules) {
             return;
         }
 
@@ -196,16 +212,7 @@ impl ModelManager {
                 if path.is_dir() {
                     Self::recursive_scan_model_dir(&path, discovered, visited, depth + 1, rules);
                 } else if path.is_file() {
-                    let lower_ext = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_lowercase();
-                    // "bin" deliberately excluded: too generic a signal on its
-                    // own (browser/GPU-shader/build-tool caches all produce
-                    // large .bin files with no relation to model weights).
-                    let is_valid = rules.extensions.iter().any(|e| e == &lower_ext);
-                    if is_valid && path.metadata().map(|m| m.len()).unwrap_or(0) > rules.min_bytes {
+                    if let Some(lower_ext) = model_extension(&path, rules) {
                         let file_name =
                             path.file_name().and_then(|n| n.to_str()).unwrap_or("model");
                         let checksum = None;
@@ -333,17 +340,7 @@ impl ModelManager {
         visited: &mut std::collections::HashSet<PathBuf>,
         rules: &ModelScanRules,
     ) {
-        if let Ok(canonical) = dir.canonicalize() {
-            if !visited.insert(canonical) {
-                return;
-            }
-        }
-        let folder_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if rules
-            .exclude_dirs
-            .iter()
-            .any(|excluded| excluded == folder_name)
-        {
+        if !visit_model_directory(dir, visited, rules) {
             return;
         }
 
@@ -354,20 +351,8 @@ impl ModelManager {
                 let path = entry.path();
                 if path.is_dir() {
                     sub_dirs.push(path);
-                } else if path.is_file() {
-                    let lower_ext = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_lowercase();
-                    // "bin" deliberately excluded: too generic a signal on its
-                    // own (browser/GPU-shader/build-tool caches all produce
-                    // large .bin files with no relation to model weights).
-                    if rules.extensions.iter().any(|e| e == &lower_ext)
-                        && path.metadata().map(|m| m.len()).unwrap_or(0) > rules.min_bytes
-                    {
-                        folder_has_model = true;
-                    }
+                } else if path.is_file() && model_extension(&path, rules).is_some() {
+                    folder_has_model = true;
                 }
             }
 
