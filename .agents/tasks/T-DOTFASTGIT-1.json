@@ -26,11 +26,11 @@
       "batched_git_paths"
     ]
   },
-  "checkpoint": "All142 local-workflow tests passed163.36s with four threads; independent review and Clippy/fmt passed. Ready for integrated native gate, no publication yet.",
+  "checkpoint": "All 142 local-workflow tests passed in 163.36s with four threads; independent review and Clippy/fmt passed. Ready for integrated native gate, no publication yet.",
   "measurements": [
-    "Ten-agent same coverage baseline38.19s, changed37.53s, one sample each and noisy; no reliable end-to-end speed ratio claimed.",
-    "Five primitive pairs separateMs369.09,451.35,472.19,299.84,343.00 vs batchMs48.56,58.57,42.22,40.25,50.84; six fewer process launches per commit.",
-    "Two new guard/path regressions passed6.94s; Clippy -D warnings passed. No cache or skipped guards.",
-    "Full changed binary142passed0failed163.36s at4threads, ordinary local environment; not directly comparable to prior345.42s isolated gate environment and competing binaries."
+    "Ten-agent same coverage: baseline 38.19s, changed 37.53s, one sample each and noisy; no reliable end-to-end speed ratio claimed.",
+    "Five primitive pairs: separate ms 369.09, 451.35, 472.19, 299.84, 343.00 vs batch ms 48.56, 58.57, 42.22, 40.25, 50.84; six fewer process launches per commit.",
+    "Two new guard/path regressions passed in 6.94s; Clippy -D warnings passed. No cache or skipped guards.",
+    "Full changed binary: 142 passed, 0 failed, 163.36s at 4 threads, ordinary local environment; not directly comparable to prior 345.42s isolated gate environment and competing binaries."
   ]
 }
