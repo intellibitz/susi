@@ -351,10 +351,8 @@ impl ModelManager {
                 let path = entry.path();
                 if path.is_dir() {
                     sub_dirs.push(path);
-                } else if path.is_file() {
-                    if model_extension(&path, rules).is_some() {
-                        folder_has_model = true;
-                    }
+                } else if path.is_file() && model_extension(&path, rules).is_some() {
+                    folder_has_model = true;
                 }
             }
 
