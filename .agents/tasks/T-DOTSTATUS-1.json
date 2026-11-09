@@ -1,0 +1,30 @@
+{
+  "id": "T-DOTSTATUS-1",
+  "title": "Batch HEAD working-tree path discovery",
+  "goal": "Use one robust porcelain status read for literal HEAD change discovery while preserving exact staged, unstaged, deleted, renamed, untracked, ignored, and path-name behavior; retain the existing non-HEAD path.",
+  "created_by": "dot-status",
+  "created_unix": 1794240143,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-status",
+  "claimed_by": "dot-status",
+  "deps": [],
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-DOTSTATUS-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "status_paths"
+    ]
+  },
+  "checkpoint": "Implementation includes an operation-local HEAD porcelain fast path, preserves the legacy path for non-HEAD and directory paths (including submodules), and rejects unborn HEAD headers. Focused acceptance: 3 passed, 0 failed, 146 filtered, 9.44s. `cargo fmt --all -- --check` and focused Clippy (`-p xtask --bin local-workflow -- -D warnings`) passed. Primitive-only five-pair measurements supplied by parent: legacy 236.9/186.4/204.2/199.6/228.4ms; status 89.3/73.8/80.6/102.0/83.6ms; no full-suite speedup claimed. Awaiting native commit and integration; not shipped."
+}
