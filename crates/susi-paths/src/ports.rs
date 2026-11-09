@@ -302,7 +302,14 @@ mod tests {
     #[test]
     fn env_offset_parses_trimmed_u16_and_ignores_everything_else() {
         let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let previous = std::env::var_os("SUSI_PORT_OFFSET");
+        // An unusable env value reads as unset and falls through to the live
+        // daemon's published offset, so the case table is only deterministic
+        // under a private empty home that has no daemon (a machine running a
+        // daemon on offset 100 otherwise answers 100 for "abc").
+        let home = std::env::temp_dir().join(format!("susi_ports_env_{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let mut guard = crate::test_env::EnvGuard::isolated();
+        guard.set("HOME", &home);
         let cases: [(Option<&str>, u16); 8] = [
             (Some("100"), 100),
             (Some(" 250 "), 250),
@@ -321,10 +328,8 @@ mod tests {
             }
             observed.push((env_port_offset(), effective(GMCP), effective(u16::MAX)));
         }
-        match previous {
-            Some(v) => std::env::set_var("SUSI_PORT_OFFSET", v),
-            None => std::env::remove_var("SUSI_PORT_OFFSET"),
-        }
+        drop(guard);
+        let _ = std::fs::remove_dir_all(&home);
         for ((value, expected), (offset, gmcp, max)) in cases.iter().zip(observed) {
             assert_eq!(offset, *expected, "{value:?}");
             assert_eq!(gmcp, GMCP.saturating_add(*expected), "{value:?}");

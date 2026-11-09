@@ -74,7 +74,12 @@ const BUILDERS: [&str; 10] = [
 const HELD_BY_OTHER_CLAIMS: [(&str, &str, usize, &str); 2] = [
     // Five `taskkill` calls in test teardown, reserved by the dot-gmcp-cleanup claim
     // (its independent fix wraps each in `bounded_cmd::output_within`).
-    ("tests/gmcp_requirements.rs", "taskkill", 5, "dot-gmcp-cleanup"),
+    (
+        "tests/gmcp_requirements.rs",
+        "taskkill",
+        5,
+        "dot-gmcp-cleanup",
+    ),
     // The `tasklist` liveness probe, reserved by the dot-reuse claim (the
     // independent fix replaces it with the pid probe).
     (

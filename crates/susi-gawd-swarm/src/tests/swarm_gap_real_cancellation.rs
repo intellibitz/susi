@@ -138,15 +138,21 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
     env.set("XDG_CONFIG_HOME", config_dir.join("config"));
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap().to_string();
-    let accepted = Arc::new(AtomicBool::new(false));
-    let server_accepted = Arc::clone(&accepted);
+    // Readiness handshake: the peer signals the instant it accepts the
+    // connection, so the test cancels only once the request is in flight.
+    // Before connecting, the dispatch loads cluster state and credentials
+    // from the private home, which takes as long as the host needs under
+    // load; the wait is event-driven, and its bound only fails a dispatch
+    // that never reaches the peer.
+    let (accepted_tx, accepted_rx) = std::sync::mpsc::channel::<()>();
     let server = std::thread::spawn(move || {
         let (_stream, _) = listener.accept().unwrap();
-        server_accepted.store(true, Ordering::Release);
+        accepted_tx.send(()).unwrap();
         std::thread::sleep(Duration::from_millis(500));
     });
 
-    let handle = CancellationHandle::with_deadline_after(Duration::from_secs(10));
+    // Backstop only: the test cancels explicitly, long before this expires.
+    let handle = CancellationHandle::with_deadline_after(Duration::from_secs(120));
     let worker_handle = handle.clone();
     let worker_address = address.clone();
     let worker = std::thread::spawn(move || {
@@ -157,12 +163,8 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
             &worker_handle,
         )
     });
-    let accept_deadline = Instant::now() + Duration::from_secs(1);
-    while !accepted.load(Ordering::Acquire) && Instant::now() < accept_deadline {
-        std::thread::sleep(Duration::from_millis(5));
-    }
     assert!(
-        accepted.load(Ordering::Acquire),
+        accepted_rx.recv_timeout(Duration::from_secs(60)).is_ok(),
         "peer request did not start"
     );
     let cancelled_at = Instant::now();
