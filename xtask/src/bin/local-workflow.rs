@@ -5854,7 +5854,8 @@ mod tests {
     }
 
     #[test]
-    fn real_native_cargo_gates_accept_a_passing_fixture() {
+    // Queue this long real qualification early; preserve every assertion below.
+    fn a_critical_path_real_native_cargo_gates_accept_a_passing_fixture() {
         let scratch = Scratch::new();
         let repo = scratch.repo();
         let native_worker = start(
