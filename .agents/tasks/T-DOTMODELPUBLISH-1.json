@@ -5,12 +5,14 @@
     "crates/susi-gemi-models/tests/transactional_publish.rs",
     ".agents/tasks/T-DOTMODELPUBLISH-1.json",
     "crates/susi-gemi-models/src/model_cache.rs",
-    "crates/susi-gemi-models/src/lifecycle/scan.rs"
+    "crates/susi-gemi-models/src/lifecycle/scan.rs",
+    "tests/lean_core_ceilings.rs"
   ],
   "id": "T-DOTMODELPUBLISH-1",
   "accept": {
     "cmd": [
-      "cargo test --offline --locked -p susi-gemi-models --lib --test transactional_publish"
+      "cargo test --offline --locked -p susi-gemi-models --lib --test transactional_publish",
+      "cargo test --offline --locked -p susi --test lean_core_ceilings"
     ]
   },
   "status": "in_progress",
