@@ -80,5 +80,43 @@
       }
     ],
     "initial_script_issue": "An initial smoke script used reserved PowerShell HOME variable; corrected and both required isolated scratch checks rerun."
+  },
+  "dependency_repair": {
+    "source_parent": "fde9a1cf3d5b4a1aaaa0db622a5ad8f8cc0fdb8b",
+    "actual_metadata": {
+      "direct_facades": 20,
+      "third_party_unique_names": 196,
+      "workspace": 46
+    },
+    "previous_failed_native_candidate": {
+      "direct_facades": 21,
+      "third_party_unique_names": 198,
+      "workspace": 48
+    },
+    "changes": [
+      "Remove unused susi-gawd-swarm -> susi-vendor-flume edge; all-cfg source scan found no uses.",
+      "Use already-required hyper::body::{Bytes,Buf} public exports at all four GMCP import sites, eliminating its redundant bytes facade compile edge."
+    ],
+    "type_and_features": "One locked bytes 1.12.1 package. Both former facade and Hyper use bytes default features; Hyper is a nonoptional normal dependency and reexports the identical Bytes and Buf definitions.",
+    "checks": [
+      {
+        "result": "passed",
+        "command": "cargo check --workspace --all-targets --keep-going --offline --locked"
+      },
+      {
+        "result": "passed independently of workspace feature unification",
+        "command": "cargo check -p susi-gmcp --all-targets --offline --locked"
+      },
+      {
+        "result": "passed independently of workspace feature unification",
+        "command": "cargo check -p susi-harness --all-targets --offline --locked"
+      },
+      {
+        "result": "passed",
+        "command": "cargo clippy -p susi-gmcp -p susi-gawd-swarm --all-targets --offline --locked -- -D warnings"
+      }
+    ],
+    "qualification": "Compile-only at this stage. Await accepted registry-isolation source before runtime tests and both mandatory native GMCP evidence phases.",
+    "caveat": "Flume facade remains an unreferenced workspace member pending separate cleanup; no full-workspace build-time improvement is claimed. External bytes remains in the product graph. No ceiling was raised."
   }
 }

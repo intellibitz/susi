@@ -5,8 +5,8 @@ use crate::mcp::{
     ServiceExt,
 };
 use crate::protocol::GmcpService;
-use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
+use hyper::body::Bytes;
 use hyper::{
     body::Incoming,
     header::{HeaderValue, CONTENT_TYPE},

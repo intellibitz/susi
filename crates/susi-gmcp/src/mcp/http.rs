@@ -15,8 +15,8 @@ use super::message::*;
 use super::model::*;
 use super::service::{serve_directly, serve_server, CancellationToken, DropGuard, ServerHandler};
 use super::transport::Transport;
-use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
+use hyper::body::Bytes;
 use hyper::body::{Body, Frame};
 use hyper::http::{self, HeaderMap, HeaderValue, Method, Request, Response, StatusCode};
 use std::{
@@ -1475,7 +1475,7 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
             let Ok(mut data) = frame.into_data() else {
                 continue;
             };
-            use bytes::Buf;
+            use hyper::body::Buf;
             if data.remaining() > max.saturating_sub(collected.len()) {
                 return Err(boxed(text_response(
                     StatusCode::PAYLOAD_TOO_LARGE,

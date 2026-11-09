@@ -257,8 +257,8 @@ async fn task_poll_update_and_cooperative_cancellation() {
 
 #[tokio::test]
 async fn http_discovery_header_validation_and_origin_protection() {
-    use bytes::Bytes;
     use http_body_util::{BodyExt, Full};
+    use hyper::body::Bytes;
     use tower_service::Service;
     let mut http = crate::server::http_service(service());
     let request = |method: &str, host: &str, origin: Option<&str>| {

@@ -440,3 +440,21 @@ table once the clean baseline is recorded.
   passes rmcp; it now runs syn -> serde_derive -> susi-config -> susi-core -> susi-gmcp (19.7 s,
   from 15.8 s) -> susi-daemon -> bin. Next levers for 60 s: the proc-macro/serde chain gating
   susi-config, susi-core and susi-gmcp's own compile time, windows-sys, and tokio/hyper (rung 2).
+- 2026-11-10 T-DOTHARNESSNATIVE-1 (native harness without growing pillar reach):
+  the standalone `susi-harness` remains in the harness pillar and keeps its package,
+  executable name and build command. It now uses the existing original Rust Windows
+  entry/TLS and OS-UCRT build boundary, instead of requiring `vcruntime140.dll`.
+  Those two real workspace dependencies are counted, not hidden behind an optional
+  feature or moved outside the measured product. Two obsolete compile edges leave:
+  `susi-gawd-swarm` never references its declared flume dependency, and GMCP now uses
+  `hyper::body::{Bytes, Buf}`, the already-required Hyper API's public exports of the
+  identical locked bytes types, rather than compiling a separate bytes facade.
+  The external bytes implementation remains counted. The bytes facade still serves
+  susi-server; the now-unreferenced flume facade remains a workspace member pending
+  separate cleanup, so full-workspace builds still compile it. No capability is
+  removed. Combined normal+build pillar reach stays at 46 workspace crates, while
+  third-party names fall from 198 to 196 (flume and spin) and direct facade edges
+  from 21 to 20. Both lower ceilings are pinned. This is a dependency-graph reduction,
+  not a measured host build-time or total executable-size improvement. Standalone
+  diagnostic PE/link-map evidence is separate from full production qualification;
+  the source-bound GMCP evidence must be renewed in both phases before integration.

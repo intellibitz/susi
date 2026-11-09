@@ -17,15 +17,23 @@
   },
   "scopes": [
     ".agents/evidence/dot-harness-native.json",
+    ".agents/gmcp/evidence",
     ".agents/tasks/t-dotharnessnative-1.json",
     "cargo.lock",
+    "crates/susi-gawd-swarm/cargo.toml",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-gmcp/src/mcp/http.rs",
+    "crates/susi-gmcp/src/protocol_tests.rs",
+    "crates/susi-gmcp/src/server.rs",
     "crates/susi-harness/build.rs",
     "crates/susi-harness/cargo.toml",
     "crates/susi-harness/src/bin/susi-harness.rs",
-    "crates/susi-harness/tests/native_link.rs"
+    "crates/susi-harness/tests/native_link.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
   ],
   "size": "m",
-  "goal": "Remove foreign CRT dependency using the existing original Rust entry and OS-UCRT boundary; bind regression tests to the actual standalone executable.",
+  "goal": "Remove foreign CRT dependency using the existing original Rust entry and OS-UCRT boundary; bind regression tests to the actual standalone executable. Preserve the four-pillar reach by removing unused flume and redundant bytes facade compile edges, with unchanged Hyper type identity and renewed GMCP evidence.",
   "created_by": "Codex",
   "status": "in_progress",
   "id": "T-DOTHARNESSNATIVE-1"
