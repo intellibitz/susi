@@ -25,3 +25,24 @@ fn qualification_and_test_launchers_disable_registry_fallback() {
         );
     }
 }
+
+#[test]
+fn scrubbed_grandchildren_preserve_the_callers_registry_opt_out() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repository");
+    for file in [
+        "crates/susi-config/src/setup_workflow.rs",
+        "crates/susi-tools/src/mcp_budget.rs",
+        "xtask/src/installed_delivery.rs",
+    ] {
+        let source = std::fs::read_to_string(root.join(file)).expect("child launcher source");
+        assert!(
+            source.contains("inherit_registry_isolation(&mut command)"),
+            "{file}"
+        );
+    }
+    let hermetic = std::fs::read_to_string(root.join("crates/susi-gawd/src/intent_ladder.rs"))
+        .expect("hermetic runner");
+    assert!(hermetic.contains(".env(\"SUSI_NO_REGISTRY_ENV\", \"1\")"));
+}

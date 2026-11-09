@@ -100,6 +100,7 @@ fn checked_command(
     let mut command = if user {
         let mut command = Command::new(exe);
         command.env_clear();
+        susi_paths::test_env::inherit_registry_isolation(&mut command);
         for key in [
             "SystemRoot",
             "WINDIR",

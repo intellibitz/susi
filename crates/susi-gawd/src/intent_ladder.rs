@@ -536,7 +536,8 @@ pub fn schedule_secs() -> u64 {
 /// The production runner: spawn the susi binary itself with the intent
 /// as the request — the same `susi <intent>` path a user hits — inside
 /// a scrubbed environment. `env_clear` + an explicit minimal env means
-/// no provider credential survives into the run; `SUSI_OFFLINE` keeps
+/// no inherited key survives; `SUSI_NO_REGISTRY_ENV` blocks persistent keys;
+/// `SUSI_OFFLINE` keeps
 /// even a configured-path fetch off; the scratch `SUSI_HOME` has no
 /// consent grants, so egress is triple-gated.
 pub struct ProcessRunner {
@@ -587,6 +588,7 @@ impl Runner for ProcessRunner {
             .env("HOME", &env.home)
             .env("SUSI_HOME", &env.home)
             .env("SUSI_OFFLINE", "1")
+            .env("SUSI_NO_REGISTRY_ENV", "1")
             .env("SUSI_HERMETIC_FORBIDDEN", &env.home)
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());

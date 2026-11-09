@@ -7,11 +7,16 @@
   "dependencies": [],
   "scopes": [
     ".agents/tasks/t-dotregistryisolation-1.json",
+    "crates/susi-config/src/setup_workflow.rs",
+    "crates/susi-gawd/src/intent_ladder.rs",
     "crates/susi-harness/src/secrets.rs",
+    "crates/susi-paths/src/test_env.rs",
+    "crates/susi-tools/src/mcp_budget.rs",
     "xtask/src/bin/local-channel.rs",
     "xtask/src/bin/local-release.rs",
     "xtask/src/bin/local-workflow.rs",
     "xtask/src/bin/startup-gate.rs",
+    "xtask/src/installed_delivery.rs",
     "xtask/tests/registry_environment_isolation.rs"
   ],
   "accept": {
@@ -20,10 +25,11 @@
       "test",
       "-p",
       "susi-harness",
+      "-p",
+      "susi-paths",
       "--lib",
       "--offline",
-      "--locked",
-      "secrets::tests"
+      "--locked"
     ],
     "criteria": [
       "SUSI_NO_REGISTRY_ENV presence is checked only in the child process environment before registry lookup, including previously cached credentials and snapshots.",
@@ -38,6 +44,10 @@
     "cargo clippy -p susi-harness -p xtask --all-targets --features xtask/release-tooling --offline --locked -- -D warnings: passed.",
     "cargo fmt --all --check and git diff --check: passed.",
     "Tests used a private target/runtime/home and process SUSI_NO_REGISTRY_ENV=1. Existing native registry test created and removed only its unique synthetic HKCU Software test key; no actual Environment or credentials inspected.",
-    "Combined integration with native-link and receipt replay isolation is pending; no production deployment or qualification claimed."
+    "Combined integration with native-link and receipt replay isolation is pending; no production deployment or qualification claimed.",
+    "First native batch stopped at task filename case mismatch; fixed through native commit. Second stopped during test compilation after discovering env_clear grandchildren needed explicit opt-out; zero runtime headers in current gate-3 log. No gate bypass or publication.",
+    "Shared private-home and hermetic intent child paths now force registry isolation. Ordinary setup, MCP and installed-delivery children preserve an existing caller opt-out without changing normal credential discovery. Additional focused verification is pending.",
+    "Followup: cargo test -p susi-paths --offline --locked passed 79 tests, including no-registry opt-out inheritance with absent/empty/0/1 modes, forced private child mode, and scoped state restoration. Full combined-tree tests still pending.",
+    "Followup paths/config/xtask all-target Clippy with release-tooling passed; launcher contract2 passed. Final two isolated callers require a clean-worktree scope extension before adding their explicit switch."
   ]
 }
