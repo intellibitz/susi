@@ -1,7 +1,7 @@
 {
   "id": "T-DOTTESTORDER-1",
   "deps": [],
-  "checkpoint": "Name/comment-only change moves unchanged real qualification fixture earlier in sorted libtest queue. Four controlled valid full launcher suite samples each passed 158 tests, no failures/ignored. Baseline outer109.240/105.027s, candidate97.413/94.945s; observed9.6–10.8% pair reduction, not a production or overall gate claim. All assertions and test selection retained. One baseline2 attempt invalid because wrapper derived Rustup path from previously isolated USERPROFILE; retained failure logs, fixed wrapper to immutable original toolchain paths, reran successfully. Independent review found no active exact-name callers; substring preserved. Artifacts/logs retained F:/st/testorder. Native gate pending. Focused Clippy -D warnings, cargo fmt --all --check, and git diff --check passed. No production code changed.",
+  "checkpoint": "Name/comment-only change moves unchanged real qualification fixture earlier in sorted libtest queue. Four controlled valid full launcher suite samples each passed 158 tests, no failures/ignored. Baseline outer109.240/105.027s, candidate97.413/94.945s; observed9.6–10.8% pair reduction, not a production or overall gate claim. All assertions and test selection retained. One baseline2 attempt invalid because wrapper derived Rustup path from previously isolated USERPROFILE; retained failure logs, fixed wrapper to immutable original toolchain paths, reran successfully. Independent review found no active exact-name callers; substring preserved. Artifacts/logs retained F:/st/testorder. Native gate pending. Focused Clippy -D warnings, cargo fmt --all --check, and git diff --check passed. No production code changed. Full combined native gate rejected missing created_unix in this record; corrected from first recorded native task commit timestamp, not a fabricated historical time. Other source remains unchanged. After metadata repair, cargo test --offline --locked -p susi --test task_records --target-dir target/testorder passed3/3 (0.59s tests; fresh dependency build65s).",
   "status": "in_progress",
   "scopes": [
     "xtask/src/bin/local-workflow.rs",
@@ -66,5 +66,7 @@
       "label": "baseline2-corrected",
       "binary_sha256": "2206AB7978969EA5DE366DFA7E09E5570D345221579A4C4D76AD65528C53B711"
     }
-  ]
+  ],
+  "created_unix": 1794248363,
+  "created_unix_source": "First native commit recording this task: ce27e43fe8aab3a7111e0a6a8542fb369ad95285 (Git committer timestamp); exact earlier file creation time not asserted."
 }
