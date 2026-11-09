@@ -18,6 +18,11 @@ regex = { package = "susi-vendor-regex", path = "../susi-vendor-regex" }
 tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 
+# Owner-only ACL on the plane-bus secret, set through Win32 (no `icacls`
+# process, which opened a console window from the windowless daemon).
+[target.'cfg(windows)'.dependencies]
+winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
+
 [dev-dependencies]
 criterion = { package = "susi-vendor-criterion", path = "../susi-vendor-criterion" }
 proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }

@@ -589,7 +589,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
     fn port_holder_pids(ports: &[u16]) -> Vec<u32> {
         #[cfg(windows)]
         {
-            Command::new("netstat")
+            susi_paths::console::background_command("netstat")
                 .args(["-ano", "-p", "tcp"])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
@@ -612,7 +612,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
     fn is_susi_process(pid: u32) -> bool {
         #[cfg(windows)]
         {
-            Command::new("tasklist")
+            susi_paths::console::background_command("tasklist")
                 .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
@@ -1873,7 +1873,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                 }
                 #[cfg(windows)]
                 {
-                    let mut kill = Command::new("taskkill");
+                    let mut kill = susi_paths::console::background_command("taskkill");
                     kill.args(["/PID", &pid.to_string(), "/F"]);
                     let _ =
                         susi_core::bounded_cmd::output_within(&mut kill, Duration::from_secs(10));
@@ -1934,7 +1934,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         }
         #[cfg(windows)]
         {
-            let mut netstat = Command::new("netstat");
+            let mut netstat = susi_paths::console::background_command("netstat");
             netstat.arg("-ano");
             if let Ok(out) =
                 susi_core::bounded_cmd::output_within(&mut netstat, Duration::from_secs(10))
@@ -2449,7 +2449,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         #[cfg(windows)]
         {
             let _ = force;
-            let _ = Command::new("taskkill")
+            let _ = susi_paths::console::background_command("taskkill")
                 .args(["/PID", &pid.to_string(), "/T", "/F"])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -2687,7 +2687,7 @@ mod tests {
         impl Drop for Reap {
             fn drop(&mut self) {
                 #[cfg(windows)]
-                let _ = Command::new("taskkill")
+                let _ = susi_paths::console::background_command("taskkill")
                     .args(["/F", "/PID", &self.0.to_string()])
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())

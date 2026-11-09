@@ -278,7 +278,7 @@ pub fn spawn_cell(path: &Path) -> bool {
                 let path = path.clone();
                 let token = token.clone();
                 Some(move || {
-                    let spawned = std::process::Command::new(&path)
+                    let spawned = susi_paths::console::background_command(&path)
                         .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, token)
                         .spawn();
                     track(path, spawned);
@@ -324,7 +324,7 @@ pub fn spawn_cell(path: &Path) -> bool {
                 let universal_cell_path = universal_cell_path.clone();
                 let bind_addr = bind_addr.clone();
                 Some(move || {
-                    let spawned = std::process::Command::new(universal_cell_path)
+                    let spawned = susi_paths::console::background_command(universal_cell_path)
                         .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, token)
                         .arg(bind_addr)
                         .arg(&path)

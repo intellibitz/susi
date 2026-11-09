@@ -19,7 +19,7 @@ fn msg(error: impl std::fmt::Display) -> String {
 /// The checkout containing `cwd` (`git rev-parse --show-toplevel`), else
 /// `cwd` itself.
 pub fn repo_root(cwd: &Path) -> PathBuf {
-    std::process::Command::new("git")
+    susi_paths::console::background_command("git")
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(cwd)
         .output()

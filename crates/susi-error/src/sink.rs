@@ -41,17 +41,11 @@ pub fn append_metrics_line(
     let mut file = options.open(path)?;
     file.write_all(format!("{entry}\n").as_bytes())?;
     drop(file);
+    // Best-effort, as before. Set natively: an `icacls` process launched
+    // from a windowless caller (the daemon) opened a console window.
     #[cfg(windows)]
     if !existed_before {
-        let user = std::env::var("USERNAME")
-            .or_else(|_| std::env::var("USER"))
-            .unwrap_or_default();
-        if !user.is_empty() {
-            let _ = std::process::Command::new("icacls")
-                .arg(path)
-                .args(["/inheritance:r", "/grant:r", &format!("{user}:F")])
-                .output();
-        }
+        let _ = winapi::acl::restrict_to_current_user(path);
     }
     Ok(())
 }
@@ -81,15 +75,18 @@ mod tests {
         }
         #[cfg(windows)]
         {
-            let out = std::process::Command::new("icacls")
-                .arg(&path)
-                .output()
-                .unwrap();
-            assert!(out.status.success());
-            let stdout = String::from_utf8_lossy(&out.stdout).to_ascii_lowercase();
-            assert!(
-                !stdout.contains("everyone:") && !stdout.contains("builtin\\users:"),
-                "unexpected broad ACL on metrics sink: {stdout}"
+            // Exactly one entry: the current user's full control, not
+            // inherited; no Everyone, no BUILTIN\Users.
+            let aces = winapi::acl::read_dacl(&path).unwrap().unwrap();
+            assert_eq!(
+                aces,
+                vec![winapi::acl::Ace {
+                    sid: winapi::acl::current_user_sid().unwrap(),
+                    deny: false,
+                    inherited: false,
+                    mask: winapi::acl::FILE_ALL_ACCESS,
+                }],
+                "unexpected ACL on metrics sink"
             );
         }
         let _ = std::fs::remove_dir_all(&dir);

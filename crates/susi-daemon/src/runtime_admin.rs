@@ -373,15 +373,146 @@ impl SusiRuntimeAdmin {
                 {
                     continue;
                 }
-                if let Ok(out) = std::process::Command::new("icacls").arg(&path).output() {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    if Self::windows_acl_is_overly_permissive(&stdout) {
+                if let Some(listing) = Self::windows_acl_listing(&path) {
+                    if Self::windows_acl_is_overly_permissive(&listing) {
                         findings.push(path.display().to_string());
                     }
                 }
             }
         }
         findings
+    }
+
+    /// `path`'s access list in `icacls` notation (one `principal:(flags)(rights)`
+    /// line per allow or deny entry), read natively. This scan used to run
+    /// `icacls <path>` once per credential file; from the windowless daemon
+    /// each run opened a console window (a test home's `node.key` did so on
+    /// 2026-11-09). `None` when the list cannot be read, as a failed `icacls`
+    /// run reported nothing before.
+    #[cfg(windows)]
+    fn windows_acl_listing(path: &Path) -> Option<String> {
+        let entries = match winapi::acl::read_dacl(path).ok()? {
+            Some(entries) => entries,
+            // A NULL DACL grants everyone full access.
+            None => {
+                return Some(Self::icacls_entry_line(
+                    "S-1-1-0",
+                    false,
+                    false,
+                    0x001F_01FF,
+                ));
+            }
+        };
+        Some(
+            entries
+                .iter()
+                .map(|e| Self::icacls_entry_line(&e.sid, e.deny, e.inherited, e.mask))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn windows_acl_listing(_path: &Path) -> Option<String> {
+        None
+    }
+
+    /// One access-list entry the way `icacls` prints it, so
+    /// [`Self::windows_acl_is_overly_permissive`] judges native readings and
+    /// `icacls` output alike. Well-known broad principals carry the names
+    /// `icacls` prints on an English host; every other trustee prints as
+    /// `*<SID>`, which matches no broad principal (and, unlike a localized or
+    /// user-chosen account name, cannot match one by accident).
+    #[cfg(any(windows, test))]
+    pub(crate) fn icacls_entry_line(sid: &str, deny: bool, inherited: bool, mask: u32) -> String {
+        let principal = match sid {
+            "S-1-1-0" => "Everyone".to_string(),
+            "S-1-5-11" => "NT AUTHORITY\\Authenticated Users".to_string(),
+            "S-1-5-32-545" => "BUILTIN\\Users".to_string(),
+            "S-1-5-32-546" => "BUILTIN\\Guests".to_string(),
+            // The built-in Guest account: relative id 501 of a machine or
+            // domain (`S-1-5-21-<three ids>-501`).
+            guest if guest.starts_with("S-1-5-21-") && guest.ends_with("-501") => {
+                "Guest".to_string()
+            }
+            other => format!("*{other}"),
+        };
+        format!(
+            "{principal}:{}{}({})",
+            if inherited { "(I)" } else { "" },
+            if deny { "(DENY)" } else { "" },
+            Self::icacls_rights(mask)
+        )
+    }
+
+    /// An access mask in `icacls` rights notation: generic bits mapped to
+    /// their file rights (as the access check maps them), then the simple
+    /// rights `F`, `M`, `RX`/`R`, `W`, `D` that the mask contains, then each
+    /// remaining specific right, in `icacls`'s order. Matches `icacls` on
+    /// Windows 11 for every combination checked (see the unit test).
+    #[cfg(any(windows, test))]
+    pub(crate) fn icacls_rights(mask: u32) -> String {
+        const FILE_GENERIC_READ: u32 = 0x0012_0089;
+        const FILE_GENERIC_WRITE: u32 = 0x0012_0116;
+        const FILE_GENERIC_EXECUTE: u32 = 0x0012_00A0;
+        const FILE_ALL_ACCESS: u32 = 0x001F_01FF;
+        const SIMPLE: [(&str, u32); 6] = [
+            ("F", FILE_ALL_ACCESS),
+            ("M", 0x0013_01BF),
+            ("RX", 0x0012_00A9),
+            ("R", 0x0012_0089),
+            ("W", 0x0010_0116),
+            ("D", 0x0011_0000),
+        ];
+        const SPECIFIC: [(&str, u32); 16] = [
+            ("DE", 0x0001_0000),
+            ("Rc", 0x0002_0000),
+            ("WDAC", 0x0004_0000),
+            ("WO", 0x0008_0000),
+            ("S", 0x0010_0000),
+            ("AS", 0x0100_0000),
+            ("MA", 0x0200_0000),
+            ("RD", 0x0000_0001),
+            ("WD", 0x0000_0002),
+            ("AD", 0x0000_0004),
+            ("REA", 0x0000_0008),
+            ("WEA", 0x0000_0010),
+            ("X", 0x0000_0020),
+            ("DC", 0x0000_0040),
+            ("RA", 0x0000_0080),
+            ("WA", 0x0000_0100),
+        ];
+        let mut mask = mask;
+        for (generic, rights) in [
+            (0x1000_0000, FILE_ALL_ACCESS),
+            (0x8000_0000, FILE_GENERIC_READ),
+            (0x4000_0000, FILE_GENERIC_WRITE),
+            (0x2000_0000, FILE_GENERIC_EXECUTE),
+        ] {
+            if mask & generic != 0 {
+                mask = (mask & !generic) | rights;
+            }
+        }
+        let mut rest = mask;
+        let mut parts = Vec::new();
+        for (name, bits) in SIMPLE {
+            // `RX` covers `R`; a right whose bits are all taken adds nothing.
+            if mask & bits == bits && rest & bits != 0 && !(name == "R" && parts.contains(&"RX")) {
+                parts.push(name);
+                rest &= !bits;
+            }
+        }
+        for (name, bits) in SPECIFIC {
+            if rest & bits == bits {
+                parts.push(name);
+                rest &= !bits;
+            }
+        }
+        if parts.is_empty() {
+            "N".to_string()
+        } else {
+            parts.join(",")
+        }
     }
 
     /// Inspect `icacls` output and return `true` when broad non-owner principals

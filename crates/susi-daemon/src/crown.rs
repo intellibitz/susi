@@ -564,7 +564,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
         .unwrap_or(0);
     // Reflex synthesis compiles Rust to wasm32-wasip1; without that target
     // installed, capability-gap resolution can never produce a reflex.
-    let wasi_target = std::process::Command::new("rustc")
+    let wasi_target = susi_paths::console::background_command("rustc")
         .args(["--print", "target-libdir", "--target", "wasm32-wasip1"])
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -594,7 +594,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
 
     // --- GPU acceleration (non-critical host capability) ---
     let gpu_present = susi_core::bounded_cmd::output_within(
-        std::process::Command::new("nvidia-smi").arg("-L"),
+        susi_paths::console::background_command("nvidia-smi").arg("-L"),
         std::time::Duration::from_secs(5),
     )
     .is_ok_and(|o| o.status.success());

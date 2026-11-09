@@ -25,7 +25,7 @@ fn terminate(pid: u32) -> Result<(), String> {
         .map(|s| s.success())
         .unwrap_or(false);
     #[cfg(windows)]
-    let ok = std::process::Command::new("taskkill")
+    let ok = susi_paths::console::background_command("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .status()
         .map(|s| s.success())

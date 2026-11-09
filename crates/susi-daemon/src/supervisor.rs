@@ -433,16 +433,9 @@ pub fn reexec_path() -> Option<PathBuf> {
 }
 
 fn configure_background_service(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // Redirected stdio alone does not prevent a detached daemon's console
-        // child from allocating a Windows Terminal window.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    #[cfg(not(windows))]
-    let _ = command;
+    // Redirected stdio alone does not prevent a detached daemon's console
+    // child from allocating a Windows Terminal window.
+    susi_paths::console::without_window(command);
 }
 
 /// Spawn a leaf service detached, with stdout/stderr appended to

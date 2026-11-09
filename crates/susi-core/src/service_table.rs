@@ -441,7 +441,7 @@ pub fn pid_for_port(port: u16) -> Option<u32> {
 /// Windows: the owner of the LISTENING row for `port` in `netstat -ano`.
 #[cfg(windows)]
 pub fn pid_for_port(port: u16) -> Option<u32> {
-    let mut cmd = std::process::Command::new("netstat");
+    let mut cmd = susi_paths::console::background_command("netstat");
     cmd.args(["-ano", "-p", "tcp"]);
     let out = crate::bounded_cmd::output_within(&mut cmd, PORT_OWNER_TIMEOUT).ok()?;
     parse_netstat_owners(&out.stdout, &[port], false)
@@ -715,7 +715,7 @@ mod tests {
         // every listener with owner 0; then no owner may be invented.
         #[cfg(windows)]
         {
-            let table = std::process::Command::new("netstat")
+            let table = susi_paths::console::background_command("netstat")
                 .args(["-ano", "-p", "tcp"])
                 .output()
                 .unwrap();

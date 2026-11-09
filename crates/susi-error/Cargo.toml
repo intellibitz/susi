@@ -10,6 +10,11 @@ susi-paths = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
+# Owner-only ACL on the metrics sink, set through Win32 (no `icacls`
+# process, which opened a console window from the windowless daemon).
+[target.'cfg(windows)'.dependencies]
+winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
+
 [lints]
 workspace = true
 
