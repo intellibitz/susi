@@ -1,0 +1,28 @@
+{
+  "id": "T-RELEASE53REC-1",
+  "native_worker": "release53rec",
+  "title": "Record Susi core v0.21.53: the committed release record of the tag",
+  "goal": "Commit releases/v0.21.53.json (schema susi-release-record/v1) for the annotated tag v0.21.53 on afdbc3a99 (receipt commit of the gated bump landing b8cb3bca5, T-RELEASE53-1). It records the Windows x86_64 reference build from a fresh clone of the tag with the settings of releases/v0.21.52.json (dist profile, LTO off, 16 codegen units, --features susi/local-engine, -p susi -p susi-harness), each binary's sha256, the offline checks run on both binaries in isolated homes and their results (the two v0.21.52 checks of commands that moved to Susi Commercial Apps in e9914677a marked superseded, the current tests/release_e2e_checks.rs contract run instead, the harness no-key onboarding check not run because live keys are in this host's registry environment), not locally qualified, and the Linux x86_64 reference build owed. No binaries are committed and no GitHub Release is made (CEO mandate 2026-11-09: GitHub is storage only).",
+  "size": "s",
+  "deps": [
+    "T-RELEASE53-1"
+  ],
+  "scopes": [
+    ".agents/tasks/t-release53rec-1.json",
+    "releases/v0.21.53.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "RELEASE53REC",
+  "created_unix": 1794195953
+}
