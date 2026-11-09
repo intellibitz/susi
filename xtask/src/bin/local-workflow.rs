@@ -3683,6 +3683,20 @@ where
     result
 }
 
+/// A workspace proof binds commit identity, not just the tree. Retain old
+/// evidence for audit, but never expose its machine-readable key after remerge.
+fn retire_workspace_proofs(evidence: &mut [String], tested: &str, merged: &str) {
+    if tested == merged {
+        return;
+    }
+    for line in evidence {
+        if line.starts_with(workspace_test_proof::PREFIX)
+            || line.starts_with("workspace-test-attestation-v1=")
+        {
+            *line = format!("historical workspace proof head={tested}: {line}");
+        }
+    }
+}
 fn ship_in_slot<F>(
     root: &Path,
     slot: &Slot,
@@ -3768,6 +3782,7 @@ where
         })
         .map_err(|error| format!("re-merge: {error}"))?;
         let merged = git(&slot.candidate, &["rev-parse", "HEAD"])?;
+        retire_workspace_proofs(&mut evidence, &tested, &merged);
         let (needed, covers) = timed("re-gate selection", || {
             regate_needed(&slot.candidate, &tested)
         });
@@ -6566,6 +6581,89 @@ mod tests {
     }
 
     #[test]
+    fn workspace_proof_regate_retires_old_keys_for_partial_and_full_passes() {
+        for full_regate in [false, true] {
+            let (_scratch, repo, base) = ship_fixture("one");
+            let moved = commit_on(&repo, "later.rs", "later");
+            let mut remote = FakeRemote::single(base.clone());
+            remote.mains = vec![base, moved.clone(), moved];
+            let mut runs = 0;
+            let report = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+                runs += 1;
+                let mut evidence = local_gate_evidence();
+                if runs == 1 || full_regate {
+                    evidence.push(format!("{}proof-{runs}", workspace_test_proof::PREFIX));
+                    evidence.push(format!("workspace-test-attestation-v1=attestation-{runs}"));
+                }
+                Ok(evidence)
+            })
+            .unwrap();
+            assert_eq!(runs, 2);
+            let tree = git(&repo, &["rev-parse", &format!("{}^{{tree}}", report.merge)]).unwrap();
+            let receipt = matching_receipt(&repo, &report.merge, &tree)
+                .unwrap()
+                .unwrap();
+            assert!(receipt.contains("historical workspace proof head="));
+            let active: Vec<_> = receipt
+                .lines()
+                .filter(|line| {
+                    line.starts_with(workspace_test_proof::PREFIX)
+                        || line.starts_with("workspace-test-attestation-v1=")
+                })
+                .collect();
+            if full_regate {
+                assert_eq!(
+                    active,
+                    [
+                        "workspace-test-pass-v1=proof-2",
+                        "workspace-test-attestation-v1=attestation-2"
+                    ]
+                );
+            } else {
+                assert!(active.is_empty(), "{active:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn workspace_proof_failed_regate_never_publishes() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let moved = commit_on(&repo, "later.rs", "later");
+        let mut remote = FakeRemote::single(base.clone());
+        remote.mains = vec![base, moved];
+        let mut runs = 0;
+        let error = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
+            runs += 1;
+            if runs == 2 {
+                return Err("failed re-gate".into());
+            }
+            let mut evidence = local_gate_evidence();
+            evidence.push(format!("{}old", workspace_test_proof::PREFIX));
+            Ok(evidence)
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("failed re-gate"));
+        assert!(remote.pushes.is_empty());
+        assert!(integration_head(&repo).unwrap().is_none());
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn workspace_proof_retirement_preserves_same_head_and_is_idempotent() {
+        let original = vec![
+            format!("{}key", workspace_test_proof::PREFIX),
+            "cargo test => passed".into(),
+        ];
+        let mut evidence = original.clone();
+        retire_workspace_proofs(&mut evidence, "same", "same");
+        assert_eq!(evidence, original);
+        retire_workspace_proofs(&mut evidence, "same", "new");
+        let retired = evidence.clone();
+        retire_workspace_proofs(&mut evidence, "new", "newer");
+        assert_eq!(evidence, retired);
+        assert_eq!(evidence[1], original[1]);
+    }
+    #[test]
     fn ship_reverifies_once_when_main_moves() {
         let (_scratch, repo, base) = ship_fixture("one");
         let moved = commit_on(&repo, "later.rs", "later");
@@ -6869,7 +6967,10 @@ mod tests {
         let runs = std::cell::Cell::new(0);
         let report = ship(&repo, &["one"], &mut remote, |_candidate, _attempt| {
             runs.set(runs.get() + 1);
-            Ok(local_gate_evidence())
+            let mut evidence = local_gate_evidence();
+            evidence.push(format!("{}old", workspace_test_proof::PREFIX));
+            evidence.push("workspace-test-attestation-v1=old".into());
+            Ok(evidence)
         })
         .unwrap();
         assert_eq!(runs.get(), 1);
@@ -6882,6 +6983,11 @@ mod tests {
         let receipt = matching_receipt(&repo, &report.merge, &tree)
             .unwrap()
             .unwrap();
+        assert!(!receipt
+            .lines()
+            .any(|line| line.starts_with(workspace_test_proof::PREFIX)
+                || line.starts_with("workspace-test-attestation-v1=")));
+        assert!(receipt.contains("historical workspace proof head="));
         assert!(
             receipt.contains(" skipped: the merged tree equals the tested tree"),
             "{receipt}"
