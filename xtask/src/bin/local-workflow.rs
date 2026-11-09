@@ -3192,8 +3192,22 @@ fn ship_scope_base(root: &Path, claim: &Claim, source: &str, publish_base: &str)
     Ok(base)
 }
 
-fn check_ship_source(root: &Path, claim: &Claim, publish_base: &str) -> Result<String> {
-    if state(&claim.worktree)? != state(root)?
+/// The expected directory belongs to the lock held by this operation. Recheck
+/// at each batch boundary; never carry this observation across a gate silently.
+fn require_workflow(root: &Path, expected: &Path) -> Result<()> {
+    if state(root)? != expected {
+        return Err("repository workflow directory changed during operation".into());
+    }
+    Ok(())
+}
+
+fn check_ship_source(
+    root: &Path,
+    workflow: &Path,
+    claim: &Claim,
+    publish_base: &str,
+) -> Result<String> {
+    if state(&claim.worktree)? != workflow
         || git(&claim.worktree, &["branch", "--show-current"])?
             != format!("local-agent/{}", claim.name)
     {
@@ -3242,7 +3256,12 @@ fn check_ship_source(root: &Path, claim: &Claim, publish_base: &str) -> Result<S
     Ok(source)
 }
 
-fn load_sources(root: &Path, claimants: &[&str], publish_base: &str) -> Result<Vec<SourceInput>> {
+fn load_sources(
+    root: &Path,
+    workflow: &Path,
+    claimants: &[&str],
+    publish_base: &str,
+) -> Result<Vec<SourceInput>> {
     if claimants.is_empty() {
         return Err("at least one claimant is required".into());
     }
@@ -3253,15 +3272,15 @@ fn load_sources(root: &Path, claimants: &[&str], publish_base: &str) -> Result<V
             return Err("duplicate integration claimant".into());
         }
     }
-    let workflow = state(root)?;
-    let _claims = Lock::acquire(&workflow)?;
-    claimants
+    require_workflow(root, workflow)?;
+    let _claims = Lock::acquire(workflow)?;
+    let inputs = claimants
         .iter()
         .map(|claimant| {
             let path = workflow.join("claims").join(format!("{claimant}.claim"));
             let bytes = fs::read(&path)?;
             let claim = read_claim(&path)?;
-            let source = check_ship_source(root, &claim, publish_base)?;
+            let source = check_ship_source(root, workflow, &claim, publish_base)?;
             Ok(SourceInput {
                 claim,
                 source,
@@ -3269,7 +3288,9 @@ fn load_sources(root: &Path, claimants: &[&str], publish_base: &str) -> Result<V
                 path,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    require_workflow(root, workflow)?;
+    Ok(inputs)
 }
 
 /// One stable candidate worktree per repository, beside its primary checkout
@@ -3783,8 +3804,10 @@ where
         timed("fetch origin/main", || remote.fetch_main(root))
             .map_err(|error| format!("fetch: {error}"))?
     };
-    let inputs = timed("load sources", || load_sources(root, claimants, &base))
-        .map_err(|error| format!("load: {error}"))?;
+    let inputs = timed("load sources", || {
+        load_sources(root, workflow, claimants, &base)
+    })
+    .map_err(|error| format!("load: {error}"))?;
     timed("merge candidate", || {
         merge_onto(root, &slot.candidate, &base, &inputs)
     })
@@ -3806,9 +3829,10 @@ where
         if current == base {
             {
                 let _claims = Lock::acquire(workflow)?;
+                require_workflow(root, workflow)?;
                 for input in &inputs {
                     if fs::read(&input.path)? != input.bytes
-                        || check_ship_source(root, &input.claim, &base)? != input.source
+                        || check_ship_source(root, workflow, &input.claim, &base)? != input.source
                     {
                         return Err(
                             "source or reservation changed during verification; retry against its new head"
@@ -3816,6 +3840,7 @@ where
                         );
                     }
                 }
+                require_workflow(root, workflow)?;
                 timed("record acceptance", || {
                     record_acceptance(
                         root,
@@ -4645,6 +4670,67 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    #[test]
+    fn workflow_context_rejects_a_foreign_lock_directory_before_loading() {
+        let (_scratch, repo, base) = ship_fixture("one");
+        let foreign = Scratch::new();
+        let other = foreign.repo();
+        assert!(load_sources(&repo, &state(&other).unwrap(), &["one"], &base).is_err());
+        assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn workflow_context_rechecks_root_and_source_gitfile_after_the_gate() {
+        for redirect_source in [false, true] {
+            let (scratch, repo, base) = ship_fixture("one");
+            let foreign = Scratch::new();
+            let other = foreign.repo();
+            let entry = scratch.0.join("entry");
+            git(
+                &repo,
+                &[
+                    "-c",
+                    "core.hooksPath=",
+                    "worktree",
+                    "add",
+                    "--detach",
+                    text(&entry).unwrap(),
+                    &base,
+                ],
+            )
+            .unwrap();
+            let claim = read_claim(&state(&repo).unwrap().join("claims/one.claim")).unwrap();
+            let redirected = if redirect_source {
+                claim.worktree.join(".git")
+            } else {
+                entry.join(".git")
+            };
+            let original = fs::read(&redirected).unwrap();
+            let mut remote = FakeRemote::single(base);
+            let result = ship(&entry, &["one"], &mut remote, |_candidate, _attempt| {
+                fs::write(
+                    &redirected,
+                    format!("gitdir: {}\n", other.join(".git").display()),
+                )
+                .unwrap();
+                Ok(local_gate_evidence())
+            });
+            fs::write(&redirected, original).unwrap();
+            let error = result.unwrap_err().to_string();
+            assert!(
+                error.contains(if redirect_source {
+                    "claim repository"
+                } else {
+                    "workflow directory changed"
+                }),
+                "{error}"
+            );
+            assert!(remote.pushes.is_empty());
+            assert!(integration_head(&repo).unwrap().is_none());
+            assert_eq!(claims(&state(&repo).unwrap()).unwrap().len(), 1);
+        }
+    }
+
     #[test]
     fn timing_record_preserves_nested_phases_without_calling_the_sum_elapsed() {
         let phases = vec![
