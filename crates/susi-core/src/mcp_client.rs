@@ -123,7 +123,9 @@ struct Session {
 /// The response plus the peer's bound pubkey when the request went out
 /// sealed — `Some` means the peer MUST answer sealed; an unsealed reply
 /// is a downgrade attempt, not a format variant.
+#[allow(clippy::too_many_arguments)] // the request's flat parts plus the route it takes
 fn post(
+    route: &Route,
     url: &str,
     bearer: Option<&str>,
     session: Option<&Session>,
@@ -191,7 +193,7 @@ fn post(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let call = crate::susi_core::plain_http::call("POST", url, &refs, Some(&wire), timeout_secs)
+    let call = send(route, "POST", url, &refs, Some(&wire), timeout_secs)
         .map_err(|e| format!("POST {url}: {e}"))?;
     Ok((call, sealed_to))
 }
@@ -200,7 +202,7 @@ fn post(
 /// terminate sessions they no longer need). A 405 — server does not allow
 /// client-initiated termination — or a transport error only means the
 /// server reclaims the session on its own idle timeout.
-fn delete_session(url: &str, bearer: Option<&str>, session: &Session) {
+fn delete_session(route: &Route, url: &str, bearer: Option<&str>, session: &Session) {
     let mut headers: Vec<(String, String)> = vec![
         ("mcp-session-id".into(), session.id.clone()),
         ("mcp-protocol-version".into(), session.version.clone()),
@@ -213,13 +215,128 @@ fn delete_session(url: &str, bearer: Option<&str>, session: &Session) {
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let _ = crate::susi_core::plain_http::call(
+    let _ = send(
+        route,
         "DELETE",
         url,
         &refs,
         None,
         handshake_timeout_secs(session.request_timeout_secs),
     );
+}
+
+/// How a call reaches its peer: a loopback target over a plain local
+/// connection, anything else only inside the sealed peer channel, to the
+/// identity the route names.
+enum Route {
+    Local,
+    Channel(crate::susi_config::peer_channel_link::Target),
+}
+
+/// The channel identity of the remote member registered at `addr`: the
+/// node id and key `peers.json` binds to that address (exactly, or by host
+/// when exactly one bound member is registered on it), plus the channel
+/// endpoints known for that node — its own `channel_endpoint` and, when it
+/// is one of this node's hubs, the hub's addresses. `None` when no bound
+/// member claims the address: such a target is not attested, and nothing
+/// is sent to it.
+pub fn channel_target(addr: &str) -> Option<crate::susi_config::peer_channel_link::Target> {
+    let roster = crate::susi_config::cluster_key::config_json_rows("peers.json");
+    let bound = |row: &&Value| {
+        row.get("pubkey")
+            .and_then(Value::as_str)
+            .is_some_and(|k| !k.is_empty())
+    };
+    let address = |row: &Value| {
+        row.get("address")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    let host_of = |a: &str| {
+        a.rsplit_once(':')
+            .map_or(a.to_string(), |(h, _)| h.to_string())
+    };
+    let row = roster
+        .iter()
+        .filter(bound)
+        .find(|row| address(row).as_deref() == Some(addr))
+        .or_else(|| {
+            let host = host_of(addr);
+            let mut same_host = roster
+                .iter()
+                .filter(bound)
+                .filter(|row| address(row).is_some_and(|a| host_of(&a) == host));
+            match (same_host.next(), same_host.next()) {
+                (Some(only), None) => Some(only),
+                _ => None,
+            }
+        })?;
+    let node_id = row.get("node_id").and_then(Value::as_str)?.to_string();
+    let pubkey = row.get("pubkey").and_then(Value::as_str)?.to_string();
+    let mut direct: Vec<String> = row
+        .get("channel_endpoint")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .into_iter()
+        .collect();
+    for hub in crate::susi_config::peer_channel_link::hubs() {
+        if hub.pubkey.eq_ignore_ascii_case(&pubkey) {
+            for a in hub.addresses {
+                if !direct.contains(&a) {
+                    direct.push(a);
+                }
+            }
+        }
+    }
+    Some(crate::susi_config::peer_channel_link::Target {
+        node_id,
+        pubkey,
+        direct,
+    })
+}
+
+/// The privacy gate every channel dial passes, per resolved address.
+pub fn channel_dial_policy(addr: &std::net::SocketAddr) -> Result<(), String> {
+    let url = match addr.ip().to_canonical() {
+        std::net::IpAddr::V4(v4) => format!("http://{v4}:{}/", addr.port()),
+        std::net::IpAddr::V6(v6) => format!("http://[{v6}]:{}/", addr.port()),
+    };
+    crate::susi_core::mac_policy::egress_refusal(&url).map_or(Ok(()), Err)
+}
+
+/// One HTTP request on `route`: a local connection, or a fresh end-to-end
+/// session inside the peer channel carrying the same HTTP/1.1 exchange.
+#[allow(clippy::too_many_arguments)] // the request's flat parts plus the route it takes
+fn send(
+    route: &Route,
+    method: &str,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: Option<&[u8]>,
+    timeout_secs: u64,
+) -> Result<crate::susi_core::plain_http::Response, String> {
+    match route {
+        Route::Local => {
+            crate::susi_core::plain_http::call(method, url, headers, body, timeout_secs)
+        }
+        Route::Channel(target) => {
+            let open_within =
+                std::time::Duration::from_secs(timeout_secs.clamp(1, DEFAULT_TIMEOUT_SECS));
+            let stream = crate::susi_config::peer_channel_link::open(
+                target,
+                open_within,
+                &channel_dial_policy,
+            )?;
+            crate::susi_core::plain_http::call_over(
+                Box::new(stream),
+                method,
+                url,
+                headers,
+                body,
+                timeout_secs,
+            )
+        }
+    }
 }
 
 /// Receive window for the handshake and the closing `DELETE`: the default,
@@ -417,7 +534,16 @@ pub fn session_call_with_timeout(
         ));
     }
     let bearer = credential_for_target(addr, bearer)?;
-    session_exchange(addr, method, params, bearer, timeout_secs).map_err(|e| {
+    let route = if is_loopback_target(addr) {
+        Route::Local
+    } else {
+        Route::Channel(channel_target(addr).ok_or_else(|| {
+            format!(
+                "refusing the peer call to {addr}: no member with a bound node key is registered at that address, and this client reaches other machines only through the sealed peer channel, to a proven identity"
+            )
+        })?)
+    };
+    session_exchange(&route, addr, method, params, bearer, timeout_secs).map_err(|e| {
         if is_loopback_target(addr) {
             e
         } else {
@@ -426,9 +552,36 @@ pub fn session_call_with_timeout(
     })
 }
 
+/// [`session_call_with_timeout`] to the identity `target` names, for a peer
+/// not yet bound in this roster (the endpoint proof of `peers add`, which
+/// learned that identity from a channel handshake). `addr` is the routing
+/// name the request carries; the channel decides where it goes.
+pub fn session_call_to(
+    target: &crate::susi_config::peer_channel_link::Target,
+    addr: &str,
+    method: &str,
+    params: &Value,
+    timeout_secs: u64,
+) -> Result<Value, String> {
+    if crate::susi_core::mac_policy::host_only_in_force() {
+        return Err(format!(
+            "[PRIVACY] host_only: refusing the peer call to {addr}: host-only privacy mode confines traffic to this machine (loopback)"
+        ));
+    }
+    session_exchange(
+        &Route::Channel(target.clone()),
+        addr,
+        method,
+        params,
+        None,
+        timeout_secs,
+    )
+    .map_err(|e| format!("{e} ({CROSS_HOST_NOTE})"))
+}
+
 /// Appended to every failed call to another host, so an operator reading
 /// the error learns why a cluster spanning hosts does not answer.
-const CROSS_HOST_NOTE: &str = "cross-host peer calls travel plaintext http:// authenticated only by this node's member signature: the peer must have this node's key bound in its roster and must set allow_remote_plaintext, because the peer client does not yet speak TLS";
+const CROSS_HOST_NOTE: &str = "cross-host peer calls travel only inside the sealed peer channel: the peer must be bound in this roster (node id and key), reachable through a link this process holds, its own channel endpoint, a hub in peer_channel_hubs.json, or this node's daemon, and it must have this node bound in its roster too";
 
 /// True when `addr` (`host:port`, `[v6]:port` or a bare host) names this
 /// machine: a loopback address or `localhost`.
@@ -456,11 +609,12 @@ pub fn is_loopback_target(addr: &str) -> bool {
 ///   synthetic row a discovery ping creates): refused. The cluster peer
 ///   bearer is the credential `NetGuard` accepts from any unbound address,
 ///   so handing it to an unattested address hands that address the cluster.
-/// - Remote attested member: the bearer is withheld because this client
-///   speaks plaintext `http://` only; the request authenticates by this
-///   node's Ed25519 member signature (method, path, body hash, timestamp,
-///   nonce) and its body is sealed to the member's bound key. A node with
-///   no `node.key` cannot sign, so the call is refused.
+/// - Remote attested member: the bearer is withheld; the call travels in
+///   the sealed peer channel, where the identity this node proves is the
+///   credential, and the request still carries this node's Ed25519 member
+///   signature and a body sealed to the member's key. A node with no
+///   `node.key` can neither run the channel nor sign, so the call is
+///   refused.
 pub fn credential_for_target<'a>(
     addr: &str,
     bearer: Option<&'a str>,
@@ -475,7 +629,7 @@ pub fn credential_for_target<'a>(
     }
     if crate::susi_config::cluster_key::node_pubkey_hex().is_none() {
         return Err(format!(
-            "refusing to send a credential to {addr} over plaintext http://: this node has no node.key to authenticate by member signature, and the peer client does not yet speak TLS"
+            "refusing the peer call to {addr}: this node has no node.key to run the sealed peer channel"
         ));
     }
     Ok(None)
@@ -483,7 +637,9 @@ pub fn credential_for_target<'a>(
 
 /// The initialize → initialized → request → DELETE exchange, carrying
 /// `bearer` exactly as [`credential_for_target`] released it.
+#[allow(clippy::too_many_arguments)] // the request's flat parts plus the route it takes
 fn session_exchange(
+    route: &Route,
     addr: &str,
     method: &str,
     params: &Value,
@@ -495,6 +651,7 @@ fn session_exchange(
     // 1. initialize — the response header carries the session id and the
     //    result carries the negotiated protocol revision.
     let (init, sealed) = post(
+        route,
         &url,
         bearer,
         None,
@@ -537,7 +694,7 @@ fn session_exchange(
     let version = match init_result.and_then(|result| negotiated_version(&result)) {
         Ok(version) => version,
         Err(e) => {
-            delete_session(&url, bearer, &session);
+            delete_session(route, &url, bearer, &session);
             return Err(format!("peer {addr}: {e}"));
         }
     };
@@ -546,6 +703,7 @@ fn session_exchange(
     // 2. notifications/initialized — required before the session accepts
     //    further messages; 3. the request; then release the session.
     let result = post(
+        route,
         &url,
         bearer,
         Some(&session),
@@ -559,9 +717,9 @@ fn session_exchange(
                 response.status
             ));
         }
-        session_request(&url, bearer, &session, method, params)
+        session_request(route, &url, bearer, &session, method, params)
     });
-    delete_session(&url, bearer, &session);
+    delete_session(route, &url, bearer, &session);
     result
 }
 
@@ -581,7 +739,9 @@ fn negotiated_version(result: &Value) -> Result<String, String> {
 
 /// POST one request inside an established session and parse the matching
 /// response message.
+#[allow(clippy::too_many_arguments)] // the request's flat parts plus the route it takes
 fn session_request(
+    route: &Route,
     url: &str,
     bearer: Option<&str>,
     session: &Session,
@@ -589,6 +749,7 @@ fn session_request(
     params: &Value,
 ) -> Result<Value, String> {
     let (resp, sealed) = post(
+        route,
         url,
         bearer,
         Some(session),

@@ -82,46 +82,57 @@ try {
         Check ($ShellProcess.ExitCode -eq 0) "Shell rollback integration failed: $ShellOutput"
         Check ((Get-FileHash (Join-Path $ShellBin 'susi.exe')).Hash -eq $OriginalHash) 'Shell selected the wrong canonical executable'
         Check ((Get-Content (Join-Path $ShellInstall 'fixture-runtime-home.txt') -Raw) -eq $ShellInstall) 'Native executable received a different installation home'
-    # Run the real download verifier with a local gh fixture. Windows paths
-    # contain backslashes, which make filename-mode sha256sum escape its hash.
+    # Run the real release-record checks on Windows paths: the record must name
+    # the tag and the commit it points at, and the reference checksum is
+    # reported for a matching and a differing build, never enforced. Windows
+    # paths contain backslashes, which make filename-mode sha256sum escape its
+    # hash.
     $Updater = Get-Content (Join-Path $PSScriptRoot 'susi-release-sync.sh') -Raw
-    $DownloadFunction = [regex]::Match($Updater, '(?s)download_release_asset\(\) \{.*?\r?\n\}').Value
-    Check ($DownloadFunction.Length -gt 0) 'Release download verifier missing'
+    $Functions = foreach ($Name in 'record_field', 'check_record', 'record_env', 'record_sha', 'host_asset', 'report_reference') {
+        $Body = [regex]::Match($Updater, "(?s)$Name\(\) \{.*?\r?\n\}").Value
+        Check ($Body.Length -gt 0) "Release record function $Name missing"
+        $Body
+    }
     $ChecksumScript = Join-Path $Scratch 'checksum.sh'
     $Harness = @'
 set -euo pipefail
 log() { printf '%s\n' "$*" >&2; }
-release_repo_slug() { printf fixture; }
-gh() {
-    local dir="" asset=susi-windows-x86_64.exe
-    while [ $# -gt 0 ]; do
-        if [ "$1" = --dir ]; then dir="$2"; shift; fi
-        shift
-    done
-    cp "$SUSI_CHECKSUM_FIXTURE" "$dir/$asset"
-    printf '%s  %s\n' "$SUSI_TEST_CHECKSUM" "$asset" > "$dir/$asset.sha256"
+die() { log "error: $*"; exit 1; }
+RECORD="$TARGET/record.json"
+mkdir -p "$TARGET"
+cat >"$RECORD" <<EOF
+{
+  "tag": "v0.0.1",
+  "commit": "1111111111111111111111111111111111111111",
+  "build": {
+    "profile": "dist",
+    "features": "susi/local-engine",
+    "env": ["CARGO_PROFILE_DIST_LTO=false", "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"]
+  },
+  "assets": [
+    { "file": "susi-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi", "bin": "susi", "sha256": "$SUSI_TEST_CHECKSUM" }
+  ]
 }
+EOF
 '@
-    $Harness += "`n" + $DownloadFunction + "`n" + @'
-asset=susi-windows-x86_64.exe
-tag=v0.0.1
-result=$(download_release_asset "$tag" "$asset")
-[ "$result" = "$TARGET/download/v0.0.1/$asset" ] || { echo 'matching checksum rejected' >&2; exit 1; }
-SUSI_TEST_CHECKSUM=0000000000000000000000000000000000000000000000000000000000000000
-tag=v0.0.2
-result=$(download_release_asset "$tag" "$asset")
-[ -z "$result" ] || { echo 'mismatched checksum accepted' >&2; exit 1; }
+    $Harness += "`n" + ($Functions -join "`n") + "`n" + @'
+check_record v0.0.1 1111111111111111111111111111111111111111
+[ "$(record_env)" = "CARGO_PROFILE_DIST_LTO=false CARGO_PROFILE_DIST_CODEGEN_UNITS=16" ] || { echo 'record env misread' >&2; exit 1; }
+( check_record v0.0.1 2222222222222222222222222222222222222222 ) 2>/dev/null && { echo 'a tag that points elsewhere was accepted' >&2; exit 1; }
+report_reference "$SUSI_CHECKSUM_FIXTURE" 2>&1 | grep -q 'matches the reference build' || { echo 'matching checksum not reported' >&2; exit 1; }
+sed -i 's/"sha256": "[0-9a-f]*"/"sha256": "0000000000000000000000000000000000000000000000000000000000000000"/' "$RECORD"
+report_reference "$SUSI_CHECKSUM_FIXTURE" 2>&1 | grep -q 'differs from the reference build' || { echo 'differing checksum not reported' >&2; exit 1; }
 '@
     [IO.File]::WriteAllText($ChecksumScript, $Harness.Replace("`r`n", "`n"))
     $StartInfo.Arguments = '"' + $ChecksumScript + '"'
     $StartInfo.EnvironmentVariables['TARGET'] = (Join-Path $Scratch 'native-backslash-target')
     $StartInfo.EnvironmentVariables['SUSI_CHECKSUM_FIXTURE'] = $Candidate
-    $StartInfo.EnvironmentVariables['SUSI_TEST_CHECKSUM'] = $NewHash
+    $StartInfo.EnvironmentVariables['SUSI_TEST_CHECKSUM'] = $NewHash.ToLower()
     $ChecksumProcess = [Diagnostics.Process]::Start($StartInfo)
-    Check ($ChecksumProcess.WaitForExit(30000)) 'Checksum integration timed out'
+    Check ($ChecksumProcess.WaitForExit(30000)) 'Release record integration timed out'
     $ChecksumOutput = $ChecksumProcess.StandardOutput.ReadToEnd() + $ChecksumProcess.StandardError.ReadToEnd()
-    Check ($ChecksumProcess.ExitCode -eq 0) "Checksum integration failed: $ChecksumOutput"
-    'PASS: owned process safety, replacement, rollback, canonical home, matching and mismatched checksums on Windows paths'
+    Check ($ChecksumProcess.ExitCode -eq 0) "Release record integration failed: $ChecksumOutput"
+    'PASS: owned process safety, replacement, rollback, canonical home, release record checks and reference checksums on Windows paths'
 } finally {
     foreach ($Process in $Processes) { if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -ErrorAction SilentlyContinue } }
     if (Test-Path -LiteralPath $Scratch) { Remove-Item -LiteralPath $Scratch -Recurse -Force }

@@ -1066,13 +1066,16 @@ operation log, and there is no cross-coordinator term ordering.
    declared vocabulary reserved for Wasm/exec surfaces.
 5. **CI** — reject layer violations (architecture tests already fail the build).
 
-## Release retention
+## Releases
 
-Semver GitHub Releases keep the newest **two** `vX.Y.Z` entries (assets).
-The rolling `dev` pre-release is never pruned. Older GitHub Release objects are
-deleted by `scripts/prune-old-github-releases.sh` (run with `gh` auth; the
-`release.yml`/`dev-release.yml` workflows that ran it were removed, CEO decision
-2026-11-06); **git tags are retained**.
+A release is an annotated `vX.Y.Z` tag plus its committed record
+`releases/<tag>.json` (reference-build sha256 per asset, build settings,
+checks); installers and the upgrade script build the tag from source and gate
+on its version ([docs/releases.md](docs/releases.md)). No git host's release
+page is the record (CEO mandate 2026-11-09: GitHub is storage only), so the
+script that pruned GitHub Release objects was deleted; **git tags are
+retained**. GitHub Releases published before the mandate stay until the CEO
+decides on them.
 
 ## RSI OS isolation iterations (2026-09-28)
 

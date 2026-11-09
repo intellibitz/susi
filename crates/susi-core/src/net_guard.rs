@@ -108,16 +108,41 @@ impl NetGuard {
         }
     }
 
+    /// Authorize a request that arrived inside a sealed peer-channel
+    /// session (`susi_config::peer_channel_link`). The session's handshake
+    /// proved the cluster key and the caller's node key, so the identity is
+    /// the credential and the source address plays no part (behind NAT it
+    /// is a router's). Standing is read again per request, so a member
+    /// banned after the session opened is refused at its next request:
+    ///
+    /// - this node's own key, or a member bound to that node id: authorized;
+    /// - an identity not bound in this roster (it proved `cluster.key`, the
+    ///   standing a cluster peer-bearer caller has): authorized, as the
+    ///   shared bearer would be — the membership flows (`peers add`,
+    ///   endorsements) run on it;
+    /// - banned, or claiming a bound member's node id or key under another
+    ///   identity: refused;
+    /// - member-signature headers naming a different node than the session
+    ///   proved: refused.
+    pub fn channel_authorized(
+        peer: &crate::susi_config::peer_channel_link::ChannelPeer,
+        signed: &SignedRequest<'_>,
+    ) -> bool {
+        if signed.present() && signed.node != Some(peer.identity.node_id.as_str()) {
+            return false;
+        }
+        crate::susi_config::peer_channel_link::classify(&peer.identity).is_ok()
+    }
+
     /// Verify a signed peer request: the claimed node must be a roster
-    /// member with a bound pubkey, the source IP must be that member's
-    /// registered address, the timestamp must be inside the skew window,
+    /// member with a bound pubkey, the timestamp must be inside the skew window,
     /// the nonce must be fresh, and the Ed25519 signature must cover the
     /// canonical request string — v2 (body-bound) checked first, v1
     /// (method+path only) accepted for senders that predate body
     /// binding.
     fn signed_request_valid(
         signed: &SignedRequest<'_>,
-        peer: &IpAddr,
+        _peer: &IpAddr,
         method: &str,
         path: &str,
         body: Option<&[u8]>,
@@ -127,12 +152,14 @@ impl NetGuard {
         else {
             return false;
         };
-        let Some((pubkey, member_ip)) = Self::bound_member(node) else {
+        // Identity-keyed: the roster binds the node id to its key, and the
+        // key verifies the request; the address the request came from is a
+        // routing fact, not part of the identity (a member behind NAT, a
+        // changed public address). Replay is closed by the nonce record and
+        // the timestamp window, substitution by the body hash.
+        let Some(pubkey) = Self::bound_member(node) else {
             return false;
         };
-        if member_ip != *peer {
-            return false;
-        }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -160,27 +187,16 @@ impl NetGuard {
         sig_ok && Self::record_nonce(node, nonce)
     }
 
-    /// The `(pubkey, registered_ip)` of a roster member whose node key is
-    /// bound — the roster binding is what makes a member-signed request
-    /// meaningful (the pubkey was committed by `member_add`, not
-    /// self-asserted).
-    fn bound_member(node: &str) -> Option<(String, IpAddr)> {
-        let peers = crate::susi_config::cluster_key::config_json_rows("peers.json");
-        peers.iter().find_map(|p| {
-            if p.get("node_id").and_then(|v| v.as_str()) != Some(node) {
-                return None;
-            }
-            let pubkey = p.get("pubkey").and_then(|v| v.as_str()).unwrap_or("");
-            if pubkey.is_empty() {
-                return None;
-            }
-            let ip = p
-                .get("address")
-                .and_then(|v| v.as_str())
-                .and_then(|a| a.split(':').next())
-                .and_then(|h| h.parse::<IpAddr>().ok())?;
-            Some((pubkey.to_string(), ip))
-        })
+    /// The pubkey of a roster member whose node key is bound — the roster
+    /// binding is what makes a member-signed request meaningful (the pubkey
+    /// was committed by `member_add`, not self-asserted). A banned member's
+    /// signature authorizes nothing.
+    fn bound_member(node: &str) -> Option<String> {
+        let pubkey = crate::susi_config::cluster_key::bound_pubkey_for_node(node)?;
+        let banned = crate::susi_config::cluster_key::member_banned(|b| {
+            b.get("node_id").and_then(|v| v.as_str()) == Some(node)
+        });
+        (!banned).then_some(pubkey)
     }
 
     /// Whether `ip` is the registered address of a member whose node key

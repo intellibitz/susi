@@ -347,3 +347,13 @@ table once the clean baseline is recorded.
   `docs/gmcp-roadmap.md` still name the moved commands (both are pinned by the GMCP ledger and
   evidence and change only with both re-record phases), and Mandate 55's did-you-mean example
   in `.agents/identity.json` still names `susi admin release`.
+- 2026-11-09 T-PEERCHAN-1 (sealed peer channel, `docs/peer-channel.md`): `susi-gmcp` re-pinned
+  19,345 -> 19,469 (+124), at the measured value, as the brief for this task allows. The lines are
+  the GMCP side of the channel in `server.rs` (sessions that terminate at this node are served
+  over an in-process socket pair with the identity their handshake proved, authorized by
+  `NetGuard::channel_authorized`; their `Host` is the loopback name) and the `member_propose`
+  fix in `tools/core.rs` (the leader is counted once, which made every proposal to a standalone
+  leader fail; a committed admission is pushed to every bound member). The channel itself (Noise
+  `XXpsk0` over the node keys, links, relay, uplinks) lives in `susi-config`, `susi-core` and the
+  daemon, outside the pillar ceilings. No crate is added: pillar reach stays 50 workspace, 259
+  third-party, 22 facade edges. GMCP evidence re-recorded in both phases with the change.

@@ -385,7 +385,7 @@ impl GossipManager {
 
     /// One non-blocking recv. `Ok(true)` means a datagram was consumed:
     /// ingested, or dropped unread because it came from another host while
-    /// `host_only` is in force.
+    /// `host_only` is in force, or from a public (non-LAN) address.
     pub fn poll_recv(&self) -> std::io::Result<bool> {
         let mut buf = [0u8; 2048];
         let received = {
@@ -400,6 +400,13 @@ impl GossipManager {
                 if !src.ip().to_canonical().is_loopback()
                     && susi_core::mac_policy::host_only_in_force()
                 {
+                    return Ok(true);
+                }
+                // Gossip is a local-network convenience: a datagram from a
+                // public address is dropped unread, whatever the bind.
+                // Machines on other networks talk over the sealed peer
+                // channel (`docs/peer-channel.md`).
+                if !crate::peer_channel_host::is_lan_source(src.ip()) {
                     return Ok(true);
                 }
                 let _ = self.ingest(&buf[..n], Some(&src.to_string()));

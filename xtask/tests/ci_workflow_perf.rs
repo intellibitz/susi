@@ -1725,7 +1725,7 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
     assert!(
         sync_fn.contains("SUSI_SYNC_IN_FINISH") && pw.contains("export SUSI_SYNC_IN_FINISH=1"),
         "`finish` must set SUSI_SYNC_IN_FINISH=1 so its two internal `sync` calls skip \
-         redundant `renew_owned_claims` and `check-owed-runs.sh` remote round-trips"
+         the redundant `renew_owned_claims` remote round-trip"
     );
     let gate_fn = shell_function(&pw, "gate");
     let test_steps = shell_function(&pw, "gate_test_steps");
@@ -1762,13 +1762,6 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
     assert!(
         pre_push.contains("SUSI_RELEASE_PUSH"),
         "`.githooks/pre-push` must honor `SUSI_RELEASE_PUSH=1` after the release gate has already verified the tree"
-    );
-    let check_owed = read("scripts/check-owed-runs.sh").replace("\r\n", "\n");
-    assert!(
-        check_owed.contains("posix-compat.sh")
-            && check_owed.contains("git merge-base --is-ancestor \"$head\" \"$remote/main\"")
-            && check_owed.contains("SUSI_OWED_REFS_FETCHED"),
-        "`scripts/check-owed-runs.sh` must source `posix-compat.sh` for Windows Git Bash, skip heads already merged into main, and reuse `sync`'s fetched snapshot when `SUSI_OWED_REFS_FETCHED=1`"
     );
     let sweep = read("scripts/kill-leftover-service-runs.sh").replace("\r\n", "\n");
     assert!(

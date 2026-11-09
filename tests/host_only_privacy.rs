@@ -9,13 +9,17 @@
 //!   non-loopback IPv4 address of this host, attested member or not, is
 //!   refused naming host-only mode and the listener there sees no
 //!   connection; a loopback peer is still reached; switching to
-//!   `local_only` reaches the same off-host listener again;
-//! - a real daemon (`susi daemon-start`) bound to every interface with
-//!   remote plaintext allowed, so nothing but the mode can refuse: under
+//!   `local_only` reaches the same off-host listener again, and what
+//!   arrives there is the sealed peer channel's preamble, never a
+//!   plaintext request;
+//! - a real daemon (`susi daemon-start`) bound to every interface: under
 //!   `host_only` a signed discovery ping from the routed address gets no
-//!   pong and no HTTP listener answers a client from that address, while
-//!   loopback pings and clients are served; `susi privacy mode local_only`
-//!   on the running daemon restores both, and `host_only` closes them again.
+//!   pong and no listener answers a client from that address, not even a
+//!   TLS handshake, while loopback pings and clients are served; `susi
+//!   privacy mode local_only` on the running daemon restores the pong and
+//!   the TLS answer, and `host_only` closes them again. Plaintext HTTP from
+//!   the routed address is refused in every mode (remote plaintext is
+//!   retired; machines talk over the sealed peer channel).
 //!
 //! Both need a routed non-loopback IPv4 interface (the gate host has one);
 //! without one they fail naming that, rather than pass vacuously. Every
@@ -95,6 +99,7 @@ fn write_roster(dir: &Path, node_id: &str, addr: &str, pubkey: &str) {
     let row = serde_json::json!({
         "node_id": node_id,
         "address": addr,
+        "channel_endpoint": addr,
         "node_type": "PEER",
         "admission": "explicit",
         "pubkey": pubkey,
@@ -157,15 +162,18 @@ fn host_only_refuses_peer_calls_off_host_before_any_connection() {
     assert!(head.starts_with("post /mcp"), "{head}");
 
     // The refusal is the mode's: under local_only the same off-host
-    // listener is reached by the same call.
+    // listener is reached by the same call — inside the sealed peer
+    // channel (the listener is no channel peer, so the handshake fails),
+    // never as a plaintext request.
     policy.set_mode(PrivacyMode::LocalOnly).unwrap();
     let err =
         mcp_client::call_tool(&addr, "cluster_status", &serde_json::json!({}), None).unwrap_err();
-    assert!(err.contains("HTTP 401"), "{err}");
+    assert!(err.contains("peer channel"), "{err}");
     let head = heads
-        .recv_timeout(Duration::from_secs(8))
+        .recv_timeout(Duration::from_secs(15))
         .expect("local_only reaches the LAN listener");
-    assert!(head.starts_with("post /mcp"), "{head}");
+    assert!(head.starts_with("susipc1"), "{head}");
+    assert!(!head.contains("/mcp"), "{head}");
     policy.set_mode(PrivacyMode::HostOnly).unwrap();
     assert!(!mac_policy::egress_permitted(&format!("http://{addr}/mcp")));
 }
@@ -307,6 +315,63 @@ fn discovery_answers(source: IpAddr, target: SocketAddr) -> bool {
     false
 }
 
+/// A well-formed TLS 1.2 ClientHello record (ECDHE with X25519 or P-256,
+/// AES-128-GCM, ECDSA and RSA signature schemes, secure renegotiation):
+/// a TLS listener that negotiates with the client, whichever TLS stack the
+/// platform gives it, answers with a ServerHello.
+fn client_hello() -> Vec<u8> {
+    let mut ext = Vec::new();
+    // supported_groups: x25519, secp256r1
+    ext.extend_from_slice(&[0x00, 0x0a, 0x00, 0x06, 0x00, 0x04, 0x00, 0x1d, 0x00, 0x17]);
+    // ec_point_formats: uncompressed
+    ext.extend_from_slice(&[0x00, 0x0b, 0x00, 0x02, 0x01, 0x00]);
+    // signature_algorithms: ecdsa_secp256r1_sha256, rsa_pss_rsae_sha256,
+    // rsa_pkcs1_sha256
+    ext.extend_from_slice(&[
+        0x00, 0x0d, 0x00, 0x08, 0x00, 0x06, 0x04, 0x03, 0x08, 0x04, 0x04, 0x01,
+    ]);
+    // renegotiation_info: empty (initial handshake)
+    ext.extend_from_slice(&[0xff, 0x01, 0x00, 0x01, 0x00]);
+    let mut body = vec![0x03, 0x03];
+    body.extend_from_slice(&[0x5a; 32]); // random
+    body.push(0x00); // session id
+                     // ECDHE_ECDSA / ECDHE_RSA with AES-128-GCM-SHA256
+    body.extend_from_slice(&[0x00, 0x04, 0xc0, 0x2b, 0xc0, 0x2f]);
+    body.extend_from_slice(&[0x01, 0x00]); // no compression
+    body.extend_from_slice(&u16::try_from(ext.len()).unwrap().to_be_bytes());
+    body.extend_from_slice(&ext);
+    let mut handshake = vec![0x01, 0x00];
+    handshake.extend_from_slice(&u16::try_from(body.len()).unwrap().to_be_bytes());
+    handshake.extend_from_slice(&body);
+    let mut record = vec![0x16, 0x03, 0x01];
+    record.extend_from_slice(&u16::try_from(handshake.len()).unwrap().to_be_bytes());
+    record.extend_from_slice(&handshake);
+    record
+}
+
+/// What a listener at `target` sends back to a TLS ClientHello from this
+/// host's address on the route to it: a handshake record (ServerHello)
+/// when it negotiates TLS with that client, nothing when it drops the
+/// client first.
+fn tls_reply(target: SocketAddr) -> Vec<u8> {
+    let Ok(mut stream) = TcpStream::connect_timeout(&target, Duration::from_secs(3)) else {
+        return Vec::new();
+    };
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let _ = stream.write_all(&client_hello());
+    let mut reply = Vec::new();
+    let mut chunk = [0u8; 64];
+    while reply.len() < 64 {
+        match stream.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => reply.extend_from_slice(&chunk[..n]),
+        }
+    }
+    reply
+}
+
 /// What an HTTP listener at `target` sends back to a plain request from
 /// this host's address on the route to it: the first bytes of a response,
 /// or empty when the connection is closed without one.
@@ -371,8 +436,10 @@ fn a_daemon_bound_beyond_loopback_serves_this_machine_alone_under_host_only() {
     let config_dir = susi_paths::SusiDirs::config_dir();
     std::fs::create_dir_all(&config_dir).unwrap();
     std::fs::write(config_dir.join("cluster.key"), hex::encode([0x3Cu8; 32])).unwrap();
-    // Every interface, and remote plaintext allowed: nothing but the mode
-    // stands between an off-host client and the listeners.
+    // Every interface: a self-signed certificate is provisioned, so only the
+    // mode stands between an off-host TLS client and the listeners. The
+    // retired `allow_remote_plaintext: true` stays in the file to show that
+    // it opens nothing.
     std::fs::write(
         config_dir.join("config.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
@@ -453,6 +520,11 @@ fn a_daemon_bound_beyond_loopback_serves_this_machine_alone_under_host_only() {
                 reply.is_empty(),
                 "host_only served an off-host client on port {port}: {reply:?}"
             );
+            let tls = tls_reply(SocketAddr::new(ip, port));
+            assert!(
+                tls.is_empty(),
+                "host_only negotiated TLS with an off-host client on port {port}: {tls:?}"
+            );
             assert!(
                 http_reply(SocketAddr::new(loopback, port)).starts_with("HTTP/"),
                 "loopback client on port {port} must be served; log:\n{}",
@@ -470,11 +542,16 @@ fn a_daemon_bound_beyond_loopback_serves_this_machine_alone_under_host_only() {
         daemon.log()
     );
     for port in tcp {
+        let tls = tls_reply(SocketAddr::new(ip, port));
+        assert!(
+            tls.first() == Some(&0x16),
+            "local_only must negotiate TLS with the off-host client on port {port}: {tls:?}; log:\n{}",
+            daemon.log()
+        );
         let reply = http_reply(SocketAddr::new(ip, port));
         assert!(
-            reply.starts_with("HTTP/"),
-            "local_only must serve the off-host client on port {port}: {reply:?}; log:\n{}",
-            daemon.log()
+            reply.is_empty(),
+            "remote plaintext is refused in every mode, port {port}: {reply:?}"
         );
     }
 

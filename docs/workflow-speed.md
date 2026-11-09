@@ -609,7 +609,14 @@ nextest's retry). The merge itself remains the machinery's: PR #1187 opened on t
 push at 23:17 and was merged by 23:19, about two minutes after the push
 (Compile Check and Workflow Compliance on the branch run, then the merge job).
 
-## The cloud target seed (2026-11-01)
+## The cloud target seed (2026-11-01; retired 2026-11-09)
+
+> Retired by the CEO mandate of 2026-11-09 (GitHub is storage only): the
+> snapshot was published as assets of a GitHub pre-release and fetched through
+> the release API, so `scripts/cloud-target-seed.sh` and
+> `scripts/cloud-onnxruntime.sh` (Microsoft's ONNX Runtime from GitHub
+> releases) were deleted, and a cloud session builds cold. The measurements
+> below are history.
 
 The cold numbers of a cloud session, from the session above: the background
 build of susi took about 15 minutes (21:58 → 22:13 on 4 vCPU, ~700 registry
@@ -816,7 +823,8 @@ serial latency outside compilation:
   when absent; `start_worktree` and `parallel-workflow.sh` enforce the same.
 - **Single-fetch `sync` and `finish` prefetch.** Normal `susi-commercial workflow sync`
   previously ran up to three separate `git fetch` round-trips (branch tips,
-  `renew_owned_claims` and `check-owed-runs.sh`). `sync_fetch_origin` now
+  `renew_owned_claims` and `check-owed-runs.sh`, the hosted-run check deleted
+  2026-11-09 with the git host's API). `sync_fetch_origin` now
   fetches `+refs/heads/*:refs/remotes/origin/*`, `+refs/claims/*:refs/claims/*`,
   `+refs/claim-agents/*:refs/claim-agents/*` and `+refs/closed/*:refs/closed/*`
   together in one locked `git fetch`, passing `SUSI_REMOTE_CLAIM_FETCHED=1` and
