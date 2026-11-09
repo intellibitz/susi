@@ -687,34 +687,49 @@ fn record_phase(name: &str, millis: u128) {
     }
 }
 
+/// V2 separates actual elapsed operation time from inclusive, possibly nested
+/// phase durations. Historical unversioned total_ms was only a phase sum.
+fn timing_record(
+    unix: u64,
+    command: &str,
+    outcome: &str,
+    elapsed: std::time::Duration,
+    phases: &[(String, u128)],
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema": "susi-local-workflow-timings-v2",
+        "unix": unix,
+        "command": command,
+        "outcome": outcome,
+        "elapsed_ms": elapsed.as_millis(),
+        "elapsed_scope": "outer operation, including waits, retries, publication and cleanup; excluding summary serialization",
+        "phases_ms": phases.iter().map(|(name, millis)| serde_json::json!([name, millis])).collect::<Vec<_>>(),
+        "inclusive_phase_sum_ms": phases.iter().map(|(_, millis)| millis).sum::<u128>(),
+    })
+}
+
 /// Print the phase table for this run and append it as one JSON line to
 /// `<git common dir>/susi-local-workflow/timings.jsonl` (history for speed work).
-fn finish_phases(root: &Path, command: &str, outcome: &str) {
+fn finish_phases(root: &Path, command: &str, outcome: &str, elapsed: std::time::Duration) {
     let phases = match PHASES.lock() {
         Ok(mut phases) => std::mem::take(&mut *phases),
         Err(_) => return,
     };
-    let total: u128 = phases.iter().map(|(_, millis)| millis).sum();
+
     eprintln!("{command} timings ({outcome}):");
     for (name, millis) in &phases {
         eprintln!("  {name:<28} {:>8.1} s", *millis as f64 / 1000.0);
     }
     eprintln!(
         "  {:<28} {:>8.1} s",
-        "total (measured phases)",
-        total as f64 / 1000.0
+        "elapsed (outer operation)",
+        elapsed.as_secs_f64()
     );
     let Ok(dir) = state(root) else { return };
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs());
-    let line = serde_json::json!({
-        "unix": stamp,
-        "command": command,
-        "outcome": outcome,
-        "phases_ms": phases.iter().map(|(name, millis)| serde_json::json!([name, millis])).collect::<Vec<_>>(),
-        "total_ms": total,
-    });
+    let line = timing_record(stamp, command, outcome, elapsed, &phases);
     if let Ok(mut file) = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -4560,9 +4575,10 @@ fn run(args: &[String]) -> Result<()> {
         Some("finish-merge") if args.iter().any(|arg| arg == "--sign") => return Err("finish-merge does not support signing".into()),
         Some("commit") if args.len() == 5 && args[3] == "--sign" => commit(&root, &args[1], &args[2], Some(&args[4]))?,
         Some("integrate") if args.len() >= 2 => {
+            let started = std::time::Instant::now();
             let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
             let result = integrate_with(&root, &names, verify_candidate);
-            finish_phases(&root, "integrate", if result.is_ok() { "integrated" } else { "failed" });
+            finish_phases(&root, "integrate", if result.is_ok() { "integrated" } else { "failed" }, started.elapsed());
             result?;
         }
         Some("list") if args.len() == 1 => {
@@ -4596,13 +4612,14 @@ fn run(args: &[String]) -> Result<()> {
             print_ship(&ship_retry(&root, &mut GitRemote)?);
         }
         Some("ship") if args.len() >= 2 => {
+            let started = std::time::Instant::now();
             let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
             let mut remote = GitRemote;
-            let result = match repo_kind(&root)? {
+            let result = repo_kind(&root).and_then(|kind| match kind {
                 RepoKind::Susi => ship(&root, &names, &mut remote, verify_candidate),
                 RepoKind::Commercial => ship(&root, &names, &mut remote, commercial_gate),
-            };
-            finish_phases(&root, "ship", if result.is_ok() { "shipped" } else { "failed" });
+            });
+            finish_phases(&root, "ship", if result.is_ok() { "shipped" } else { "failed" }, started.elapsed());
             print_ship(&result?);
         }
         _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | status [--json] | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>]".into()),
@@ -4628,6 +4645,46 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    #[test]
+    fn timing_record_preserves_nested_phases_without_calling_the_sum_elapsed() {
+        let phases = vec![
+            ("build".to_owned(), 100),
+            ("binaries".to_owned(), 200),
+            ("workspace".to_owned(), 300),
+        ];
+        let record = timing_record(
+            7,
+            "ship",
+            "shipped",
+            std::time::Duration::from_millis(450),
+            &phases,
+        );
+        assert_eq!(record["schema"], "susi-local-workflow-timings-v2");
+        assert_eq!(record["elapsed_ms"], 450);
+        assert_eq!(record["inclusive_phase_sum_ms"], 600);
+        assert_eq!(record["phases_ms"].as_array().unwrap().len(), 3);
+        assert!(record.get("total_ms").is_none());
+    }
+
+    #[test]
+    fn timing_record_includes_unphased_time_and_keeps_failure_outcome() {
+        let record = timing_record(
+            8,
+            "integrate",
+            "failed",
+            std::time::Duration::from_millis(125),
+            &[],
+        );
+        assert_eq!(record["elapsed_ms"], 125);
+        assert_eq!(record["inclusive_phase_sum_ms"], 0);
+        assert_eq!(record["outcome"], "failed");
+        assert_eq!(record["command"], "integrate");
+        assert!(record["elapsed_scope"]
+            .as_str()
+            .unwrap()
+            .contains("retries"));
+    }
+
     #[test]
     fn batched_git_paths_match_individual_queries_and_preserve_every_guard() {
         let scratch = Scratch::new();
