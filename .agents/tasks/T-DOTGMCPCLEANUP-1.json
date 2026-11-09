@@ -10,7 +10,6 @@
   "deps": [],
   "scope": [
     ".agents/gmcp/evidence",
-    ".agents/tasks/t-dot-gmcp-cleanup-1.json",
     ".agents/tasks/t-dotgmcpcleanup-1.json",
     "tests/gmcp_requirements.rs"
   ],
@@ -30,7 +29,6 @@
   "created_unix": 1794224460,
   "scopes": [
     ".agents/gmcp/evidence",
-    ".agents/tasks/t-dot-gmcp-cleanup-1.json",
     ".agents/tasks/t-dotgmcpcleanup-1.json",
     "tests/gmcp_requirements.rs"
   ]
