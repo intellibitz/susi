@@ -26,6 +26,10 @@
 //! susi-harness gateway [--port 9180]  the metering gateway, OpenAI-compatible
 //! ```
 
+// Retain the original Rust process entry and TLS boundary in Windows binaries.
+#[cfg(windows)]
+extern crate susi_windows_runtime;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use susi_harness::catalog::PriceCatalogue;

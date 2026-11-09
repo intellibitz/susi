@@ -2692,7 +2692,6 @@ dependencies = [
  "susi-paths",
  "susi-sandbox-client",
  "susi-vendor-dashmap",
- "susi-vendor-flume",
  "susi-vendor-parking-lot",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
@@ -2756,7 +2755,6 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
- "susi-vendor-bytes",
  "susi-vendor-dashmap",
  "susi-vendor-hex",
  "susi-vendor-http-body-util",
@@ -2782,6 +2780,7 @@ name = "susi-harness"
 version = "0.21.53"
 dependencies = [
  "susi-adapters-llm",
+ "susi-build-os-ucrt",
  "susi-error",
  "susi-http-transport",
  "susi-paths",
@@ -2794,6 +2793,7 @@ dependencies = [
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
  "susi-vendor-windows-registry",
+ "susi-windows-runtime",
 ]
 
 [[package]]

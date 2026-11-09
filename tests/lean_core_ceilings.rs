@@ -23,7 +23,8 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// 2026-11-09: 231 -> 198 when GMCP began serving MCP itself (rmcp,
 /// rmcp-macros, schemars, schemars_derive, sse-stream, pastey, darling and
 /// the rest of the SDK's tail left the build).
-const THIRD_PARTY_CEILING: usize = 198;
+/// 2026-11-10: 198 -> 196 after the unused swarm flume edge (and spin) left.
+const THIRD_PARTY_CEILING: usize = 196;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower),
 /// then 47 -> 46 (susi-vendor-mcp-server deleted).
@@ -31,7 +32,8 @@ const WORKSPACE_CEILING: usize = 46;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
-const DIRECT_FACADE_EDGES_CEILING: usize = 21;
+/// 2026-11-10: 21 -> 20; GMCP uses Hyper's existing Bytes/Buf exports.
+const DIRECT_FACADE_EDGES_CEILING: usize = 20;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
 /// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
