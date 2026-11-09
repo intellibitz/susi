@@ -11,6 +11,7 @@
   "deps": [],
   "scopes": [
     "xtask/src/test_runner.rs",
+    "xtask/src/bin/local-workflow.rs",
     ".agents/tasks/T-DOTSCHEDULER-1.json"
   ],
   "accept": {
@@ -26,5 +27,11 @@
       "test_runner::tests::"
     ]
   },
-  "checkpoint": "Initial implementation in test_runner.rs is incomplete and unvalidated. Launcher callsites must migrate from pre-divided test_threads to raw total_test_threads before the source compiles; focused tests and review remain pending. No commit or build performed."
+  "checkpoint": "Frozen experimental scheduler passes 11 focused runner tests, Clippy -D warnings, fmt and diff checks. First identical-artifact full selected suite pair passed 96/96 binaries and 973 tests (0 failed,7 ignored) each: baseline230233ms, weighted174514ms. This single pair is not a performance guarantee. Independent final review approved; repeated pairs and native gate pending, no publication. Aggregate limit concerns assigned libtest threads, not every nested OS process/thread.",
+  "measurements": [
+    "Same96 test-artifact SHA256 values verified unchanged after both runs; fresh runtime homes, same seed duration schedule, same6 lanes/28 rawbudget and nestedCargo4jobs.",
+    "Weighted exact xtask/bin/local-workflow assigned2/6lanes and8/28libtestthreads; other targets remain one proportionalunit.",
+    "Critical local-workflow binary baseline230.19s vs weighted162.62s. Total selected suite230.23s vs174.51s.",
+    "Private ordinary-toolchain artifactbuild88.30s is separate from runner timings. Native trusted-sysroot/license/provenance gates still required."
+  ]
 }

@@ -1196,7 +1196,7 @@ fn run_test_binaries(
         .join("test-durations.json");
     let settings = test_runner::Settings {
         concurrency: lanes,
-        test_threads: test_runner::threads_per_binary(gate.share.test_threads, lanes),
+        total_test_threads: gate.share.test_threads,
         build_jobs: test_runner::threads_per_binary(gate.share.jobs, lanes),
         home_root: &home_root,
         target_dir: gate.target,
@@ -1206,10 +1206,10 @@ fn run_test_binaries(
         log: gate.log_path,
     };
     eprintln!(
-        "test runner: {} binaries on {} lanes, {} test threads each",
+        "test runner: {} binaries on up to {} lanes, {} aggregate test-thread budget",
         binaries.len(),
         lanes,
-        settings.test_threads
+        settings.total_test_threads
     );
     let env = gate.env;
     let launch = move |binary: &test_runner::Binary, home: &Path| -> Result<Command> {
@@ -4409,7 +4409,7 @@ fn check_test_binaries(gate: &CheckGate<'_>, args: &[String]) -> Result<std::pro
     let durations = target.join("test-durations.json");
     let settings = test_runner::Settings {
         concurrency: lanes,
-        test_threads: test_runner::threads_per_binary(share.test_threads, lanes),
+        total_test_threads: share.test_threads,
         build_jobs: test_runner::threads_per_binary(share.jobs, lanes),
         home_root: &home_root,
         target_dir: target,
@@ -4419,10 +4419,10 @@ fn check_test_binaries(gate: &CheckGate<'_>, args: &[String]) -> Result<std::pro
         log: &log_path,
     };
     println!(
-        "check: {} test binaries on {} lanes, {} test threads each; output in {}",
+        "check: {} test binaries on up to {} lanes, {} aggregate test-thread budget; output in {}",
         binaries.len(),
         lanes,
-        settings.test_threads,
+        settings.total_test_threads,
         log_path.display()
     );
     let launch = move |binary: &test_runner::Binary, bin_home: &Path| -> Result<Command> {
