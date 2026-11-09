@@ -278,6 +278,7 @@ fn cargo_command(workspace: &Path) -> EaiResult<Command> {
         .env("HOME", &home)
         .env("USERPROFILE", &home)
         .env("SUSI_HOME", home.join("susi"))
+        .env("SUSI_NO_REGISTRY_ENV", "1")
         .env("APPDATA", home.join("appdata"))
         .env("LOCALAPPDATA", home.join("localappdata"))
         .env("XDG_CONFIG_HOME", home.join("config"))

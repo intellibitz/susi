@@ -35,6 +35,7 @@ fn scrubbed_grandchildren_preserve_the_callers_registry_opt_out() {
         "crates/susi-config/src/setup_workflow.rs",
         "crates/susi-tools/src/mcp_budget.rs",
         "xtask/src/installed_delivery.rs",
+        "xtask/src/bin/local-release.rs",
     ] {
         let source = std::fs::read_to_string(root.join(file)).expect("child launcher source");
         assert!(
@@ -45,4 +46,21 @@ fn scrubbed_grandchildren_preserve_the_callers_registry_opt_out() {
     let hermetic = std::fs::read_to_string(root.join("crates/susi-gawd/src/intent_ladder.rs"))
         .expect("hermetic runner");
     assert!(hermetic.contains(".env(\"SUSI_NO_REGISTRY_ENV\", \"1\")"));
+}
+
+#[test]
+fn nested_native_gates_and_installed_health_probes_disable_registry() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repository");
+    for file in [
+        "crates/susi-gawd/src/repo_gate.rs",
+        "src/installed_channel/transaction.rs",
+    ] {
+        let source = std::fs::read_to_string(root.join(file)).expect("isolated launcher source");
+        assert!(
+            source.contains(".env(\"SUSI_NO_REGISTRY_ENV\", \"1\")"),
+            "{file}"
+        );
+    }
 }

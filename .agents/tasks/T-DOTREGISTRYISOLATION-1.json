@@ -9,9 +9,11 @@
     ".agents/tasks/t-dotregistryisolation-1.json",
     "crates/susi-config/src/setup_workflow.rs",
     "crates/susi-gawd/src/intent_ladder.rs",
+    "crates/susi-gawd/src/repo_gate.rs",
     "crates/susi-harness/src/secrets.rs",
     "crates/susi-paths/src/test_env.rs",
     "crates/susi-tools/src/mcp_budget.rs",
+    "src/installed_channel/transaction.rs",
     "xtask/src/bin/local-channel.rs",
     "xtask/src/bin/local-release.rs",
     "xtask/src/bin/local-workflow.rs",
@@ -48,6 +50,7 @@
     "First native batch stopped at task filename case mismatch; fixed through native commit. Second stopped during test compilation after discovering env_clear grandchildren needed explicit opt-out; zero runtime headers in current gate-3 log. No gate bypass or publication.",
     "Shared private-home and hermetic intent child paths now force registry isolation. Ordinary setup, MCP and installed-delivery children preserve an existing caller opt-out without changing normal credential discovery. Additional focused verification is pending.",
     "Followup: cargo test -p susi-paths --offline --locked passed 79 tests, including no-registry opt-out inheritance with absent/empty/0/1 modes, forced private child mode, and scoped state restoration. Full combined-tree tests still pending.",
-    "Followup paths/config/xtask all-target Clippy with release-tooling passed; launcher contract2 passed. Final two isolated callers require a clean-worktree scope extension before adding their explicit switch."
+    "Followup paths/config/xtask all-target Clippy with release-tooling passed; launcher contract2 passed. Final two isolated callers require a clean-worktree scope extension before adding their explicit switch.",
+    "Final scope extension acquired from clean checkpoint. Native self-patch cargo gate and installed-version scratch probe now explicitly block persistent registry environment; current full-workspace acceptance remains required before publication."
   ]
 }

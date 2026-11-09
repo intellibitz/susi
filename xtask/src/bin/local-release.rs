@@ -2000,6 +2000,7 @@ fn production_command_at(
             command.env_remove(key);
         }
     }
+    susi_paths::test_env::inherit_registry_isolation(&mut command);
     command
         .args(args)
         .env("SUSI_HOME", runtime)
