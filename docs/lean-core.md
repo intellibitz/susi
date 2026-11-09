@@ -86,14 +86,14 @@ threads). Baseline measured 2026-11-07 22:53 at origin/main `fc3f5a861`,
 **under load** (a test gate was running on the same machine; a clean re-run
 follows once the gate is idle):
 
-| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | 06:15 idle, landed `66d3ca6d8` | 09:01 idle, landed `240ee4dfb` (iteration 362) | 21:21-21:30 idle, T-CORENET-1 `437ccf597` (three runs alternating with main `92f7ee498`) | budget |
-| --------- | ---------- | ---------- | ---------- | ---------- | ---------- | ---------- | -------- |
-| wall clock | 196 s | 165 s | 104.5 s | 107.7 s (88.9 s in a second idle run) | 81.7 s | 70.1, 70.2, 70.6 s (main: 74.2, 73.3, 76.9 s) | 60 s |
-| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | 990.5 s (427 units) | 822.7 s (417 units) | 775.8-784.7 s (417 units; main 745.8-774.9 s) | under 1,200 s |
-| of which workspace crates | 393 s | 359 s | 184 s | 219 s | 148.4 s | 157.9-161.5 s (main 153.4-162.3 s) | under 150 s |
-| of which third-party | 1,916 s | 1,513 s | 899 s | 772 s | 674.2 s | 617.7-624.0 s (main 592.4-612.7 s) | under 1,000 s, then towards 0 |
-| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | 15 units, 125 s: windows-sys 27, tokio 13, h2/hyper/reqwest 17, rmcp 25, gmcp 15, daemon 11, bin 12 | 17 units, 95.1 s: windows-sys 19 s -> tokio 15.5 -> h2/hyper/hyper-util 8.8 -> susi-core 10.6 -> gawd-agents 4.4 -> gawd-swarm 7.6 -> gawd 8.1 -> daemon 6.0 -> bin 7.5 | 15 units, 81.5-82.1 s: windows-sys 19 -> tokio 9.5 -> h2/hyper/hyper-util 9.7 -> axum 5.7 -> ra2a 7.7 -> gawd-a2a 2.7 -> gawd 8.9 -> daemon 6.0 -> bin 7.4; susi-core starts at 29.7-30.2 s (main 36.8-38.7 s) and is off the path (main: 17 units, 88.5-92.7 s, through susi-http-transport -> susi-adapters-llm -> susi-core) | under 55 s |
-| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | 40 s | 29.9 s | 17.8-18.1 s (main 24.1-25.1 s) | under 15 s |
+| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | 06:15 idle, landed `66d3ca6d8` | 09:01 idle, landed `240ee4dfb` (iteration 362) | 21:21-21:30 idle, T-CORENET-1 `437ccf597` (three runs alternating with main `92f7ee498`) | 06:18-06:26, no other build or gate at each run's start, T-A2ASTD-1 `3acbb47b3` (two runs alternating with main `aae59f4c2`) | budget |
+| --------- | ---------- | ---------- | ---------- | ---------- | ---------- | ---------- | ---------- | -------- |
+| wall clock | 196 s | 165 s | 104.5 s | 107.7 s (88.9 s in a second idle run) | 81.7 s | 70.1, 70.2, 70.6 s (main: 74.2, 73.3, 76.9 s) | 83.1, 86.2 s (main: 83.8, 82.8 s; 78.3 s at `c70d17be1` 05:56) | 60 s |
+| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | 990.5 s (427 units) | 822.7 s (417 units) | 775.8-784.7 s (417 units; main 745.8-774.9 s) | 893.3, 896.8 s (417 units; main 955.3, 909.1 s, 417 units) | under 1,200 s |
+| of which workspace crates | 393 s | 359 s | 184 s | 219 s | 148.4 s | 157.9-161.5 s (main 153.4-162.3 s) | 186.5, 190.4 s (main 203.5, 191.9 s) | under 150 s |
+| of which third-party | 1,916 s | 1,513 s | 899 s | 772 s | 674.2 s | 617.7-624.0 s (main 592.4-612.7 s) | 706.8, 706.3 s (main 751.7, 717.2 s) | under 1,000 s, then towards 0 |
+| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | 15 units, 125 s: windows-sys 27, tokio 13, h2/hyper/reqwest 17, rmcp 25, gmcp 15, daemon 11, bin 12 | 17 units, 95.1 s: windows-sys 19 s -> tokio 15.5 -> h2/hyper/hyper-util 8.8 -> susi-core 10.6 -> gawd-agents 4.4 -> gawd-swarm 7.6 -> gawd 8.1 -> daemon 6.0 -> bin 7.5 | 15 units, 81.5-82.1 s: windows-sys 19 -> tokio 9.5 -> h2/hyper/hyper-util 9.7 -> axum 5.7 -> ra2a 7.7 -> gawd-a2a 2.7 -> gawd 8.9 -> daemon 6.0 -> bin 7.4; susi-core starts at 29.7-30.2 s (main 36.8-38.7 s) and is off the path (main: 17 units, 88.5-92.7 s, through susi-http-transport -> susi-adapters-llm -> susi-core) | 10 units, 93.6-94.6 s: windows-sys 22 -> tokio 11-13 -> tokio-util 1 -> rmcp 21-23 -> gmcp 16 -> daemon 8-9 -> bin 8-9, the same path as main (main 95.1 s; one main run read 103.9 s through the serde/config/core/gawd chain); susi-gawd no longer waits on susi-gawd-a2a | under 55 s |
+| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | 40 s | 29.9 s | 17.8-18.1 s (main 24.1-25.1 s) | 18.0, 20.3 s (main 18.0, 16.9 s) | under 15 s |
 
 The idle number is the baseline the budget counts from. Between the two
 measurements Antigravity's iterations 341-350 removed candle, bollard and the
@@ -310,10 +310,12 @@ table once the clean baseline is recorded.
   bin, 81.5-82.1 s). CPU-seconds rise about 3% (775.8-784.7 s against 745.8-774.9 s, same 417
   units): more units now overlap on the 28 threads. Runs at 20:46-20:52 (two of them read
   83.6 / 85.8 s) were not checked for other builds and a commercial release build ran from 20:52,
-  so they are not counted. Two gates remain between susi-core and an earlier start: the
-  `cell-server` feature of susi-abi (enabled by the gawd, gemi and gmcp library manifests for
-  their cell binaries) unifies tokio into susi-abi in the host build, so core still starts only
-  after tokio (about 29 s); and susi-gawd-agents itself depends on susi-http-transport. The
+  so they are not counted. At this landing two gates remained between susi-core and an earlier
+  start: the `cell-server` feature of susi-abi, which unified tokio into susi-abi; and
+  susi-gawd-agents' own susi-http-transport edge. (Corrected 2026-11-09, T-A2ASTD-1: the first
+  no longer exists. Since `d14dfe5ee`, T-COMPILE2-1, susi-abi's cell server is std-only and the
+  feature with its tokio edge is gone, so tokio reaches neither susi-abi nor susi-core; core
+  now waits on susi-config, not tokio.) The
   pillar reach does not move (50 workspace, 259 third-party, 23 facade edges: core is not a
   pillar and the pillars still use the stack). The susi-gemi line ceiling goes 21,302 -> 21,300
   (runtime-free candle provider futures; the scout probe test now holds the env lock, whose
@@ -357,3 +359,28 @@ table once the clean baseline is recorded.
   `XXpsk0` over the node keys, links, relay, uplinks) lives in `susi-config`, `susi-core` and the
   daemon, outside the pillar ceilings. No crate is added: pillar reach stays 50 workspace, 259
   third-party, 22 facade edges. GMCP evidence re-recorded in both phases with the change.
+- 2026-11-09 T-A2ASTD-1 (the A2A HTTP stack off the path into susi-gawd): susi-gawd used no item
+  of susi-gawd-a2a and only re-exported it (`susi_gawd::a2a`, `capabilities`, `executor`,
+  `server`, `task_store`); the daemon was the one caller. The dependency moves from susi-gawd to
+  susi-daemon, which now serves the A2A port (9094 + offset) through `susi_gawd_a2a::server`
+  directly. No crate is added, no third-party crate is added, and no line of the A2A server
+  changes, so bearer auth, `host_only`, `bind_address` and the protocol are untouched; the live
+  host-contract conformance run (`susi-conformance --port-offset 700`, isolated home) gives the
+  same 24 checks and outcomes on main `aae59f4c2` and on the branch, A2A card, unknown method,
+  `/stream` codes and the 401s on `/` and `/stream` included. A std rewrite of the A2A server
+  was not taken: the daemon keeps tokio, hyper and axum through susi-gmcp, susi-harness and
+  susi-http-transport anyway (`cargo tree -p susi -i hyper`), so it would only remove ra2a and its
+  client tail while re-implementing the A2A task store, SSE streaming and push configuration.
+  Pillar reach: 259 -> 231 third-party (ra2a with its reqwest/rustls/hyper-tls client side,
+  tower-http, the windows 0.52 targets), 50 -> 47 workspace (susi-gawd-a2a, susi-vendor-ra2a,
+  susi-vendor-tower), 22 facade edges unchanged; the host binary still compiles the same 417
+  units, because the daemon reaches them now. susi-gawd lines 13,293 -> 13,288. Measured
+  06:18-06:26 (no other build or gate at each run's start), alternating branch `3acbb47b3` and
+  main `aae59f4c2`: wall 83.1 / 86.2 s against 83.8 / 82.8 s, CPU-s 893.3 / 896.8 against
+  955.3 / 909.1, all 417 units: no wall gain, as expected. On this tree susi-gawd was already
+  unblocked by susi-gawd-swarm, with susi-gawd-a2a ending 0.1-1.7 s before it; after the change
+  susi-gawd-a2a feeds only the daemon and ends 5.5-6.5 s before the daemon starts, so a shorter
+  gawd chain (swarmmove, config and core shrink) is no longer capped by the A2A chain. The
+  critical path in every run since peerchan is windows-sys -> tokio -> rmcp -> susi-gmcp ->
+  susi-daemon -> bin (93.6-95.1 s of units), which is what stands between the build and 60 s
+  next, together with the serial gawd chain behind it.
