@@ -4,8 +4,8 @@
   "goal": "Use one robust porcelain status read for literal HEAD change discovery while preserving exact staged, unstaged, deleted, renamed, untracked, ignored, and path-name behavior; retain the existing non-HEAD path.",
   "created_by": "dot-status",
   "created_unix": 1794240143,
-  "state": "in_progress",
-  "status": "in_progress",
+  "state": "blocked",
+  "status": "blocked",
   "native_worker": "dot-status",
   "claimed_by": "dot-status",
   "deps": [],
@@ -26,5 +26,5 @@
       "status_paths"
     ]
   },
-  "checkpoint": "Implementation includes an operation-local HEAD porcelain fast path, preserves the legacy path for non-HEAD and directory paths (including submodules), and rejects unborn HEAD headers. Focused acceptance: 3 passed, 0 failed, 146 filtered, 9.44s. `cargo fmt --all -- --check` and focused Clippy (`-p xtask --bin local-workflow -- -D warnings`) passed. Primitive-only five-pair measurements supplied by parent: legacy 236.9/186.4/204.2/199.6/228.4ms; status 89.3/73.8/80.6/102.0/83.6ms; no full-suite speedup claimed. Local native commit 465ad5565; task remains in progress pending integration/combined-tree acceptance and is not shipped."
+  "checkpoint": "PARKED, NOT SHIPPED. Immutable candidate 3ded55ccf7e236da40ef65754670cfc4ff98d92f (source blob348f430c90ffc68adb97b714444a0e6bbbbade6e) retained in branch history. Primitive query savings did not demonstrate ten-agent gain: new27.45s vs old26.28s; second new45.97s under variable load. Argon static HOLD: deleted/uninitialized submodule ignore parity, locale-sensitive unborn header, blank status pair; not independently reproduced or resolved. Restored launcher exactly to claim base to free supported scope for separate scheduler experiment; no production change accepted."
 }
