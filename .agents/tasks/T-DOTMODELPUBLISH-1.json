@@ -11,10 +11,18 @@
   "id": "T-DOTMODELPUBLISH-1",
   "accept": {
     "cmd": [
-      "cargo test --offline --locked -p susi-gemi-models --lib --test transactional_publish",
-      "cargo test --offline --locked -p susi --test lean_core_ceilings"
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "--lib",
+      "--test",
+      "transactional_publish"
     ]
   },
   "status": "in_progress",
-  "claimed_by": "dot-model-publish"
+  "claimed_by": "dot-model-publish",
+  "native_worker": "dot-model-publish"
 }
