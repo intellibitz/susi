@@ -39,6 +39,22 @@ pub const FALLBACK_CLI_ENV: &str = "SUSI_HARNESS_FALLBACK_CLI";
 /// Environment variable naming the PAYG model a CLI turn fails over to.
 pub const FALLBACK_PAYG_ENV: &str = "SUSI_HARNESS_FALLBACK_PAYG";
 
+/// Presence opts this process into Argon-only Antigravity routing, even if the
+/// value is empty or misspelled. Remove the variable to disable the policy.
+pub const ANTIGRAVITY_ARGON_ONLY_ENV: &str = "SUSI_HARNESS_ANTIGRAVITY_ARGON_ONLY";
+
+/// Exact model pinned by the opt-in Antigravity policy.
+pub const ANTIGRAVITY_ARGON_MODEL: &str = "gemini-4-argon-high";
+
+fn argon_model(submodel: Option<&str>) -> Result<&'static str, String> {
+    match submodel {
+        None | Some(ANTIGRAVITY_ARGON_MODEL) => Ok(ANTIGRAVITY_ARGON_MODEL),
+        Some(other) => Err(format!(
+            "Antigravity Argon-only policy refuses model '{other}'; requires {ANTIGRAVITY_ARGON_MODEL}"
+        )),
+    }
+}
+
 /// The prompt flag argument for CLIs that take the real prompt on stdin.
 const STDIN_PROMPT: &str = "Execute the instructions provided on stdin.";
 
@@ -417,6 +433,8 @@ pub struct CliSubRunner {
     pub command_override: Option<CliCommand>,
     /// How often the child is polled for exit.
     pub poll_interval: Duration,
+    /// Pin Antigravity to Argon High and reject conflicting model selections.
+    pub antigravity_argon_only: bool,
 }
 
 impl Default for CliSubRunner {
@@ -426,6 +444,7 @@ impl Default for CliSubRunner {
             search_dirs: None,
             command_override: None,
             poll_interval: DEFAULT_POLL_INTERVAL,
+            antigravity_argon_only: false,
         }
     }
 }
@@ -465,6 +484,9 @@ impl CliSubRunner {
     /// installed.
     pub fn resolve(&self, model: &str) -> Result<Vec<CliCommand>, String> {
         if let Some(command) = &self.command_override {
+            if self.antigravity_argon_only {
+                return Err("Argon-only policy refuses an unverified command override".into());
+            }
             return Ok(vec![command.clone()]);
         }
         let dirs = self.search_dirs.clone().unwrap_or_else(default_search_dirs);
@@ -487,6 +509,11 @@ impl CliSubRunner {
                     }
                 },
             },
+        };
+        let submodel = if self.antigravity_argon_only && kind == CliToolKind::Antigravity {
+            Some(argon_model(submodel.as_deref())?.to_string())
+        } else {
+            submodel
         };
         let (candidates, args, pipe_prompt_on_stdin) = build_invocation(kind, submodel.as_deref());
         let command = |program: PathBuf| CliCommand {
@@ -764,6 +791,8 @@ pub struct AdaptiveRunner<P: Runner = NativeWorker, C: Runner = CliSubRunner> {
     pub fallback_cli_model: Option<String>,
     /// The PAYG model a `cli:` turn fails over to, e.g. `deepseek-flash`.
     pub fallback_payg_model: Option<String>,
+    /// Restrict Antigravity routes to Argon High, with no PAYG rerouting.
+    pub antigravity_argon_only: bool,
 }
 
 impl Default for AdaptiveRunner<NativeWorker, CliSubRunner> {
@@ -778,7 +807,8 @@ impl Default for AdaptiveRunner<NativeWorker, CliSubRunner> {
 
 impl AdaptiveRunner<NativeWorker, CliSubRunner> {
     /// The production runner configured from the environment:
-    /// [`ADAPTIVE_ENV`], [`FALLBACK_CLI_ENV`] and [`FALLBACK_PAYG_ENV`].
+    /// [`ADAPTIVE_ENV`], [`FALLBACK_CLI_ENV`], [`FALLBACK_PAYG_ENV`] and
+    /// the process-scoped [`ANTIGRAVITY_ARGON_ONLY_ENV`] opt-in.
     #[must_use]
     pub fn from_env() -> Self {
         let read = |name: &str| {
@@ -787,7 +817,13 @@ impl AdaptiveRunner<NativeWorker, CliSubRunner> {
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty())
         };
+        let argon_only = std::env::var_os(ANTIGRAVITY_ARGON_ONLY_ENV).is_some();
         Self {
+            antigravity_argon_only: argon_only,
+            cli_runner: CliSubRunner {
+                antigravity_argon_only: argon_only,
+                ..CliSubRunner::default()
+            },
             fallback_cli_model: read(FALLBACK_CLI_ENV),
             fallback_payg_model: read(FALLBACK_PAYG_ENV),
             ..Self::new(
@@ -808,7 +844,16 @@ impl<P: Runner, C: Runner> AdaptiveRunner<P, C> {
             strategy,
             fallback_cli_model: None,
             fallback_payg_model: None,
+            antigravity_argon_only: false,
         }
+    }
+
+    /// Restrict this runner's Antigravity routes without changing other users'
+    /// defaults. Missing submodels pin Argon High; conflicting ones fail closed.
+    #[must_use]
+    pub fn with_antigravity_argon_only(mut self) -> Self {
+        self.antigravity_argon_only = true;
+        self
     }
 
     /// Set the CLI spec PAYG fails over to.
@@ -848,6 +893,16 @@ impl<P: Runner, C: Runner> AdaptiveRunner<P, C> {
             primary,
             failover: None,
         };
+        // A restricted Antigravity request cannot be silently converted to a
+        // PAYG request, even by payg-first/payg-only or an installed fallback.
+        if self.antigravity_argon_only
+            && matches!(
+                CliToolKind::parse_spec(model),
+                Some((CliToolKind::Antigravity, _))
+            )
+        {
+            return only(cli(model));
+        }
         match self.strategy {
             AdaptiveStrategy::PaygOnly => only(payg(payg_model.unwrap_or(model))),
             AdaptiveStrategy::CliSubOnly => only(cli(model)),
@@ -885,7 +940,22 @@ impl<P: Runner, C: Runner> AdaptiveRunner<P, C> {
     fn run_on(&self, mode: ExecutionMode, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
         match mode {
             ExecutionMode::PaygByok => self.payg_runner.run(config),
-            ExecutionMode::MonthlySubCli => self.cli_runner.run(config),
+            ExecutionMode::MonthlySubCli => {
+                if self.antigravity_argon_only {
+                    if let Some((CliToolKind::Antigravity, model)) =
+                        CliToolKind::parse_spec(&config.model)
+                    {
+                        let model = match argon_model(model.as_deref()) {
+                            Ok(model) => model,
+                            Err(message) => return Ok(RunOutcome::Failed { message }),
+                        };
+                        return self
+                            .cli_runner
+                            .run(&with_model(config, &format!("cli:antigravity:{model}")));
+                    }
+                }
+                self.cli_runner.run(config)
+            }
         }
     }
 }
@@ -1251,6 +1321,117 @@ mod tests {
         // The unspecified case does not invent or override the user's model.
         let (_, args, _) = build_invocation(CliToolKind::Antigravity, None);
         assert!(!args.iter().any(|arg| arg == "--model"));
+    }
+
+    #[test]
+    fn argon_policy_pins_missing_model_and_refuses_conflicts_before_launch() {
+        let installed = tempfile::tempdir().unwrap();
+        std::fs::write(installed.path().join("agy.exe"), b"").unwrap();
+        let runner = CliSubRunner {
+            antigravity_argon_only: true,
+            ..CliSubRunner::default().with_search_dirs(vec![installed.path().to_path_buf()])
+        };
+        for spec in [
+            "cli:agy",
+            "sub:antigravity",
+            "cli:antigravity:gemini-4-argon-high",
+        ] {
+            let command = runner.resolve(spec).unwrap();
+            assert!(command[0]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--model", ANTIGRAVITY_ARGON_MODEL]));
+        }
+        for spec in ["cli:agy:other", "sub:antigravity:gemini-4-argon-low"] {
+            assert!(runner.resolve(spec).unwrap_err().contains("Argon-only"));
+        }
+        let overridden = CliSubRunner {
+            antigravity_argon_only: true,
+            ..CliSubRunner::with_command(sort_command())
+        };
+        assert!(overridden.resolve("cli:agy").is_err());
+    }
+
+    #[test]
+    fn argon_policy_never_spends_payg_for_an_antigravity_request() {
+        for strategy in [
+            AdaptiveStrategy::Auto,
+            AdaptiveStrategy::PreferCliSubThenPayg,
+            AdaptiveStrategy::PreferPaygThenCliSub,
+            AdaptiveStrategy::PaygOnly,
+            AdaptiveStrategy::CliSubOnly,
+        ] {
+            for outcome in [
+                RunOutcome::Failed {
+                    message: "quota exhausted".into(),
+                },
+                RunOutcome::TimedOut,
+            ] {
+                let runner = AdaptiveRunner::new(
+                    Scripted::ok("must not run"),
+                    Scripted::new(outcome.clone()),
+                    strategy,
+                )
+                .with_fallback_payg_model("paid-model")
+                .with_antigravity_argon_only();
+                assert!(runner.plan("cli:agy").failover.is_none());
+                assert_eq!(runner.run(&config("cli:agy")).unwrap(), outcome);
+                assert!(runner.payg_runner.seen().is_empty());
+                assert_eq!(
+                    runner.cli_runner.seen(),
+                    [format!("cli:antigravity:{ANTIGRAVITY_ARGON_MODEL}")]
+                );
+            }
+            let runner = AdaptiveRunner::new(
+                Scripted::ok("must not run"),
+                Scripted::ok("must not run"),
+                strategy,
+            )
+            .with_fallback_payg_model("paid-model")
+            .with_antigravity_argon_only();
+            assert!(matches!(
+                runner.run(&config("cli:agy:other")).unwrap(),
+                RunOutcome::Failed { .. }
+            ));
+            assert!(runner.payg_runner.seen().is_empty());
+            assert!(runner.cli_runner.seen().is_empty());
+        }
+    }
+
+    #[test]
+    fn argon_policy_from_env_wires_both_production_layers() {
+        let runner = AdaptiveRunner::from_env();
+        let expected = std::env::var_os(ANTIGRAVITY_ARGON_ONLY_ENV).is_some();
+        assert_eq!(runner.antigravity_argon_only, expected);
+        assert_eq!(runner.cli_runner.antigravity_argon_only, expected);
+        if expected {
+            assert!(runner.plan("cli:antigravity").failover.is_none());
+            assert!(matches!(
+                runner.run(&config("cli:agy:refused-model")).unwrap(),
+                RunOutcome::Failed { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn argon_policy_is_opt_in_and_does_not_restrict_other_routes() {
+        let unrestricted = AdaptiveRunner::new(
+            Scripted::ok("payg"),
+            Scripted::ok("cli"),
+            AdaptiveStrategy::Auto,
+        );
+        unrestricted.run(&config("cli:agy:other")).unwrap();
+        assert_eq!(unrestricted.cli_runner.seen(), ["cli:agy:other"]);
+        let restricted = AdaptiveRunner::new(
+            Scripted::ok("payg"),
+            Scripted::ok("cli"),
+            AdaptiveStrategy::Auto,
+        )
+        .with_antigravity_argon_only();
+        restricted.run(&config("cli:claude:opus")).unwrap();
+        restricted.run(&config("paid-model")).unwrap();
+        assert_eq!(restricted.cli_runner.seen(), ["cli:claude:opus"]);
+        assert_eq!(restricted.payg_runner.seen(), ["paid-model"]);
     }
 
     #[test]
