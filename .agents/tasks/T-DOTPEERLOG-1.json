@@ -1,4 +1,5 @@
 {
+  "created_unix": 1794209297,
   "goal": "Preserve replay denial assertions while waiting for the asynchronous diagnostic after socket EOF; no runtime behavior changes.",
   "native_worker": "dot-peer-log",
   "claimed_by": "dot-peer-log",
