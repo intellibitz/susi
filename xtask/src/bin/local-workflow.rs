@@ -465,6 +465,22 @@ fn apply_gate_share(command: &mut Command, share: GateShare) {
         .env("NEXTEST_TEST_THREADS", share.nextest_threads.to_string());
 }
 
+/// Windows process-heavy commercial tests share launcher/handle resources in
+/// addition to CPUs. Bound their libtest fan-out without reducing compiler
+/// parallelism, test selection, or any deadline. Other gates keep their share.
+fn commercial_command_share(mut share: GateShare, args: &[String], windows: bool) -> GateShare {
+    let process_heavy = args.iter().any(|arg| arg == "--workspace")
+        || args.windows(2).any(|pair| {
+            matches!(pair, [flag, package]
+                if (flag == "-p" || flag == "--package")
+                    && matches!(package.as_str(), "susi-dev-workflow" | "susi-ecosystem-hub"))
+        });
+    if windows && args.first().map(String::as_str) == Some("test") && process_heavy {
+        share.test_threads = share.test_threads.min(8);
+    }
+    share
+}
+
 fn print_gate_share(command: &str, share: GateShare) {
     eprintln!(
         "gate share for cargo {command}: {} live gate(s) on this host; {} build jobs, {} test threads",
@@ -3995,7 +4011,7 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("CARGO_TERM_COLOR", "never")
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
-        let share = current_gate_share();
+        let share = commercial_command_share(current_gate_share(), &args, cfg!(windows));
         apply_gate_share(&mut command, share);
         print_gate_share(args.first().map_or("?", String::as_str), share);
         let mut status = command.status()?;
@@ -7090,6 +7106,42 @@ mod tests {
         assert_eq!(gate_share(28, 40).jobs, 2);
         assert_eq!(gate_share(28, 40).nextest_threads, 2);
         assert_eq!(gate_share(28, 0), gate_share(28, 1));
+    }
+
+    #[test]
+    fn commercial_process_heavy_share_caps_only_windows_test_fanout() {
+        let base = gate_share(28, 1);
+        for args in [
+            vec!["test", "--workspace", "--locked"],
+            vec!["test", "-p", "susi-dev-workflow", "--locked"],
+            vec!["test", "--package", "susi-ecosystem-hub"],
+        ] {
+            let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+            let bounded = commercial_command_share(base, &args, true);
+            assert_eq!(bounded.test_threads, 8);
+            assert_eq!(bounded.jobs, base.jobs);
+            assert_eq!(bounded.nextest_threads, base.nextest_threads);
+            assert_eq!(bounded.live, base.live);
+            assert_eq!(commercial_command_share(base, &args, false), base);
+            let smaller = gate_share(4, 1);
+            assert_eq!(commercial_command_share(smaller, &args, true), smaller);
+            let mut command = Command::new("cargo");
+            apply_gate_share(&mut command, bounded);
+            for (key, expected) in [("CARGO_BUILD_JOBS", "28"), ("RUST_TEST_THREADS", "8")] {
+                assert!(command.get_envs().any(|(name, value)| {
+                    name == key && value == Some(std::ffi::OsStr::new(expected))
+                }));
+            }
+        }
+        for args in [
+            vec!["clippy", "--workspace"],
+            vec!["test", "-p", "susi-reflex-modules"],
+            vec!["test", "--package"],
+            vec![],
+        ] {
+            let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+            assert_eq!(commercial_command_share(base, &args, true), base);
+        }
     }
 
     /// Regression (2026-11-06): `check` isolated HOME/USERPROFILE but not the
