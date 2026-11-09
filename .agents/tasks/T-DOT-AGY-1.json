@@ -1,0 +1,43 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "dot",
+  "id": "T-DOT-AGY-1",
+  "goal": "Honor explicit model selection and installed Antigravity CLI contract; distinguish print/polling timers from task deadlines without weakening cancellation or safety.",
+  "state": "in_progress",
+  "claimed_by": "dot-agy",
+  "deps": [],
+  "title": "Correct Antigravity CLI model, invocation and discovery contract",
+  "native_worker": "dot-agy",
+  "scopes": [
+    ".agents/tasks/t-dot-agy-1.json",
+    "crates/susi-harness/src/adaptive.rs"
+  ],
+  "status": "in_progress",
+  "implementation": [
+    "Honor explicit --model, remove unsupported --yolo and retain sandbox restrictions.",
+    "Set --print-timeout 0 and discover LOCALAPPDATA/agy/bin.",
+    "Retain existing ExecutorConfig.timeout as a true task deadline, not a status polling timeout."
+  ],
+  "verification": [
+    "cargo test -p susi-harness --lib --offline --locked adaptive:: : 28 passed, 0 failed; compile 48.72s, tests 2.07s.",
+    "cargo test -p susi-harness --lib --offline --locked: 525 tests succeeded.",
+    "cargo clippy -p susi-harness --lib --offline --locked -- -D warnings: passed (50.31s).",
+    "cargo fmt --all --check: passed.",
+    "Argon read-only design review completed SUCCESS after 196.66s, no caller timeout, conversation 758cb915-0558-4a6a-9a73-d179aa039e00."
+  ],
+  "remaining": [
+    "No integration, push, merge or production qualification performed.",
+    "Unbounded mission execution needs explicit supervisor cancellation wired through typed outcomes; current Failed/TimedOut would trigger configured PAYG fallback. No unsafe infinite-wait policy added.",
+    "Real agy launched for design review; adapter stdin end-to-end with real model not separately qualified."
+  ]
+}

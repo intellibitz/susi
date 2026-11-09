@@ -250,8 +250,11 @@ pub fn build_invocation(
             ),
             CliToolKind::Antigravity => (
                 vec!["agy", "agy.exe", "antigravity"],
-                owned(&["--yolo", "-p", STDIN_PROMPT]),
-                None,
+                // agy uses --model (not the Gemini CLI's -m/--yolo contract).
+                // Its print timer is disabled; the harness task budget remains
+                // authoritative and is separate from polling for completion.
+                owned(&["--sandbox", "--print-timeout", "0", "--print", STDIN_PROMPT]),
+                Some("--model"),
             ),
             CliToolKind::Qwen => (
                 vec!["qwen", "qwen.cmd", "qwen.exe"],
@@ -314,6 +317,7 @@ pub fn default_search_dirs() -> Vec<PathBuf> {
         .unwrap_or_default();
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         let local = PathBuf::from(local);
+        dirs.push(local.join("agy").join("bin"));
         dirs.push(local.join("claude-nolitellm"));
         dirs.push(local.join("Programs").join("claude"));
     }
@@ -1154,9 +1158,21 @@ mod tests {
             strings(&["--yolo", "-p", STDIN_PROMPT, "-m", "flash"])
         );
 
-        let (programs, args, _) = build_invocation(CliToolKind::Antigravity, Some("ignored"));
+        let (programs, args, _) =
+            build_invocation(CliToolKind::Antigravity, Some("gemini-4-argon-high"));
         assert_eq!(programs, ["agy", "agy.exe", "antigravity"]);
-        assert_eq!(args, strings(&["--yolo", "-p", STDIN_PROMPT]));
+        assert_eq!(
+            args,
+            strings(&[
+                "--sandbox",
+                "--print-timeout",
+                "0",
+                "--print",
+                STDIN_PROMPT,
+                "--model",
+                "gemini-4-argon-high"
+            ])
+        );
 
         let (programs, args, _) = build_invocation(CliToolKind::Qwen, None);
         assert_eq!(programs, ["qwen", "qwen.cmd", "qwen.exe"]);
@@ -1207,6 +1223,43 @@ mod tests {
         assert!(!default_search_dirs().is_empty());
         // The live scan never panics, whatever this machine has installed.
         let _ = discover_cli_tools();
+    }
+
+    #[test]
+    fn antigravity_resolves_the_requested_model_without_permission_bypass() {
+        let installed = tempfile::tempdir().unwrap();
+        std::fs::write(installed.path().join("agy.exe"), b"").unwrap();
+        let runner = CliSubRunner::default().with_search_dirs(vec![installed.path().to_path_buf()]);
+        let resolved = runner
+            .resolve("cli:antigravity:gemini-4-argon-high")
+            .unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].program, installed.path().join("agy.exe"));
+        assert!(resolved[0]
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--model", "gemini-4-argon-high"]));
+        assert!(resolved[0]
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--print-timeout", "0"]));
+        assert!(resolved[0].args.iter().any(|arg| arg == "--sandbox"));
+        assert!(!resolved[0]
+            .args
+            .iter()
+            .any(|arg| arg == "--yolo" || arg == "--dangerously-skip-permissions"));
+        // The unspecified case does not invent or override the user's model.
+        let (_, args, _) = build_invocation(CliToolKind::Antigravity, None);
+        assert!(!args.iter().any(|arg| arg == "--model"));
+    }
+
+    #[test]
+    fn default_discovery_includes_antigravity_local_installation() {
+        // Read-only environment inspection avoids racing parallel tests.
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let expected = PathBuf::from(local).join("agy").join("bin");
+            assert!(default_search_dirs().contains(&expected));
+        }
     }
 
     #[test]
