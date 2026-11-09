@@ -1,0 +1,28 @@
+{
+  "goal": "Preserve replay denial assertions while waiting for the asynchronous diagnostic after socket EOF; no runtime behavior changes.",
+  "native_worker": "dot-peer-log",
+  "claimed_by": "dot-peer-log",
+  "title": "Bound replay refusal diagnostic synchronization",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "peer_channel_hub"
+    ]
+  },
+  "acceptance": "Both peer_channel_hub tests pass in isolated native Windows state; no full gate or publication in this task.",
+  "scope": [
+    "tests/peer_channel_hub.rs",
+    ".agents/tasks/t-dot-peer-log-1.json"
+  ],
+  "id": "T-DOT-PEER-LOG-1",
+  "created_by": "dot-peer-log",
+  "deps": [],
+  "size": "S",
+  "status": "in_progress",
+  "state": "in_progress",
+  "verification": "2026-11-09 native Windows: rustfmt --check passed; cargo test --offline --locked --target x86_64-pc-windows-msvc --test peer_channel_hub -- --test-threads=2 passed 2/2 in 40.44s; initial private-target build 1m45s. No full gate, push, merge, or production qualification."
+}

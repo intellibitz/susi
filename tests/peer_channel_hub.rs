@@ -726,11 +726,17 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         read_some(&mut replay, Duration::from_secs(5)).is_empty(),
         "the hub answered a replayed handshake"
     );
-    assert!(
-        hub_d.log().contains("replayed handshake refused"),
-        "{}",
-        hub_d.log()
-    );
+    // accept() drops the refused socket before its caller writes the log.
+    // EOF therefore proves refusal, not that the diagnostic is readable yet.
+    let log_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let log = hub_d.log();
+        if log.contains("replayed handshake refused") {
+            break;
+        }
+        assert!(Instant::now() < log_deadline, "{log}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 
     // Dialing the hub while expecting another node's key fails closed.
     {
