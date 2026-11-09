@@ -245,10 +245,9 @@ fn legacy_owner_alive(dir: &Path) -> bool {
         return false;
     }
     if cfg!(windows) {
-        Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
-            .output()
-            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")))
+        // Query the process object directly: no shell, console window, or
+        // parsing of a process-list snapshot. Unreadable identity stays live.
+        susi_config::process_probe::pid_alive(pid).unwrap_or(true)
     } else {
         Path::new(&format!("/proc/{pid}")).exists()
     }
@@ -464,6 +463,22 @@ fn apply_gate_share(command: &mut Command, share: GateShare) {
         .env("CARGO_BUILD_JOBS", share.jobs.to_string())
         .env("RUST_TEST_THREADS", share.test_threads.to_string())
         .env("NEXTEST_TEST_THREADS", share.nextest_threads.to_string());
+}
+
+/// Windows process-heavy commercial tests share launcher/handle resources in
+/// addition to CPUs. Bound their libtest fan-out without reducing compiler
+/// parallelism, test selection, or any deadline. Other gates keep their share.
+fn commercial_command_share(mut share: GateShare, args: &[String], windows: bool) -> GateShare {
+    let process_heavy = args.iter().any(|arg| arg == "--workspace")
+        || args.windows(2).any(|pair| {
+            matches!(pair, [flag, package]
+                if (flag == "-p" || flag == "--package")
+                    && matches!(package.as_str(), "susi-dev-workflow" | "susi-ecosystem-hub"))
+        });
+    if windows && args.first().map(String::as_str) == Some("test") && process_heavy {
+        share.test_threads = share.test_threads.min(8);
+    }
+    share
 }
 
 fn print_gate_share(command: &str, share: GateShare) {
@@ -3393,13 +3408,27 @@ fn merge_onto(root: &Path, candidate: &Path, base: &str, inputs: &[SourceInput])
     Ok(())
 }
 
+struct PublicationHead<'a> {
+    head: &'a str,
+    observed_base: &'a str,
+}
+
 fn record_acceptance(
     root: &Path,
     attempt: &Path,
     inputs: &[SourceInput],
-    head: &str,
+    publication: PublicationHead<'_>,
     evidence: &[String],
 ) -> Result<()> {
+    let PublicationHead {
+        head,
+        observed_base: publish_base,
+    } = publication;
+    // This is the exact final fetch checked under the publication lock, not
+    // HEAD^1: after a multi-source batch that parent is an intermediate merge.
+    if !valid_oid(publish_base) || !is_ancestor(root, publish_base, head)? {
+        return Err("fetched publication base is not contained in the verified head".into());
+    }
     let native_gates = if attempt.join("native-gates.json").is_file() {
         Some(serde_json::from_slice::<serde_json::Value>(&fs::read(
             attempt.join("native-gates.json"),
@@ -3407,7 +3436,6 @@ fn record_acceptance(
     } else {
         None
     };
-    let publish_base = git(root, &["rev-parse", &format!("{head}^1")])?;
     let tree = git(root, &["rev-parse", &format!("{head}^{{tree}}")])?;
     let previous = integration_head(root)?;
     // The receipt's `previous` names the accepted history this integration
@@ -3425,13 +3453,13 @@ fn record_acceptance(
             eprintln!(
                 "preserved unrelated integration ref {previous} at refs/susi/integration/displaced"
             );
-            chain_previous = Some(publish_base.clone());
-        } else if previous != &publish_base && is_ancestor(root, previous, &publish_base)? {
+            chain_previous = Some(publish_base.to_owned());
+        } else if previous.as_str() != publish_base && is_ancestor(root, previous, publish_base)? {
             // The local ref is behind origin/main (main advanced through ships
             // made elsewhere). The history this integration builds on is the
             // publish base it was merged onto, not the stale ref, which can be
             // older than the claim base and would make the receipt unverifiable.
-            chain_previous = Some(publish_base.clone());
+            chain_previous = Some(publish_base.to_owned());
         }
     }
     let zero = "0".repeat(head.len());
@@ -3456,7 +3484,7 @@ fn record_acceptance(
         transaction.push_str(&format!("create {receipt_ref} {oid}\n"));
         if let Some(gates) = &native_gates {
             let scope_base = timed("acceptance: scope base", || {
-                ship_scope_base(root, &input.claim, &input.source, &publish_base)
+                ship_scope_base(root, &input.claim, &input.source, publish_base)
             })?;
             let native = timed("acceptance: provenance receipt", || {
                 native_provenance::receipt(
@@ -3509,7 +3537,7 @@ fn record_acceptance(
         gate_receipt::build(&gate_receipt::Landing {
             root,
             head,
-            origin_main: &publish_base,
+            origin_main: publish_base,
             sources: sources.clone(),
             native_gates: native_gates.as_ref(),
             evidence,
@@ -3756,7 +3784,16 @@ where
                     }
                 }
                 timed("record acceptance", || {
-                    record_acceptance(root, &slot.attempt, &inputs, &head, &evidence)
+                    record_acceptance(
+                        root,
+                        &slot.attempt,
+                        &inputs,
+                        PublicationHead {
+                            head: &head,
+                            observed_base: &base,
+                        },
+                        &evidence,
+                    )
                 })?;
             }
             let report = timed("publish", || publish_head(root, &head, &evidence, remote));
@@ -3996,7 +4033,7 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("CARGO_TERM_COLOR", "never")
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
-        let share = current_gate_share();
+        let share = commercial_command_share(current_gate_share(), &args, cfg!(windows));
         apply_gate_share(&mut command, share);
         print_gate_share(args.first().map_or("?", String::as_str), share);
         let mut status = command.status()?;
@@ -6411,6 +6448,56 @@ mod tests {
     }
 
     #[test]
+    fn ship_batch_receipt_records_the_final_fetched_remote_not_an_intermediate_merge() {
+        for moved_during_gate in [false, true] {
+            let (_scratch, repo, base) = ship_fixture("one");
+            worker(&repo, "two", "second.rs", "second");
+            let expected = if moved_during_gate {
+                commit_on(&repo, "remote-change.rs", "remote change")
+            } else {
+                base.clone()
+            };
+            let mut remote = FakeRemote::single(base.clone());
+            if moved_during_gate {
+                remote.mains = vec![base, expected.clone(), expected.clone()];
+            }
+            let runs = std::cell::Cell::new(0);
+            let report = ship(
+                &repo,
+                &["one", "two"],
+                &mut remote,
+                |_candidate, _attempt| {
+                    runs.set(runs.get() + 1);
+                    Ok(local_gate_evidence())
+                },
+            )
+            .unwrap();
+            assert_eq!(runs.get(), if moved_during_gate { 2 } else { 1 });
+            assert_eq!(remote.pushes.len(), 1);
+            let parent = git(&repo, &["rev-parse", &format!("{}^1", report.merge)]).unwrap();
+            assert_ne!(
+                parent, expected,
+                "the second source creates an intermediate merge"
+            );
+            let receipt: serde_json::Value = serde_json::from_str(
+                &git(
+                    &repo,
+                    &[
+                        "show",
+                        &format!("{}:{}", report.head, gate_receipt::path_for(&report.merge)),
+                    ],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(receipt["integration"]["origin_main"], expected);
+            assert_eq!(receipt["integration"]["merge_first_parent"], parent);
+            assert!(is_ancestor(&repo, &expected, &report.merge).unwrap());
+            gate_receipt::check_digest(&receipt).unwrap();
+        }
+    }
+
+    #[test]
     fn ship_publishes_the_gate_receipt_commit_and_refuses_without_one() {
         let (_scratch, repo, base) = ship_fixture("one");
         let mut remote = FakeRemote::single(base.clone());
@@ -7093,6 +7180,42 @@ mod tests {
         assert_eq!(gate_share(28, 0), gate_share(28, 1));
     }
 
+    #[test]
+    fn commercial_process_heavy_share_caps_only_windows_test_fanout() {
+        let base = gate_share(28, 1);
+        for args in [
+            vec!["test", "--workspace", "--locked"],
+            vec!["test", "-p", "susi-dev-workflow", "--locked"],
+            vec!["test", "--package", "susi-ecosystem-hub"],
+        ] {
+            let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+            let bounded = commercial_command_share(base, &args, true);
+            assert_eq!(bounded.test_threads, 8);
+            assert_eq!(bounded.jobs, base.jobs);
+            assert_eq!(bounded.nextest_threads, base.nextest_threads);
+            assert_eq!(bounded.live, base.live);
+            assert_eq!(commercial_command_share(base, &args, false), base);
+            let smaller = gate_share(4, 1);
+            assert_eq!(commercial_command_share(smaller, &args, true), smaller);
+            let mut command = Command::new("cargo");
+            apply_gate_share(&mut command, bounded);
+            for (key, expected) in [("CARGO_BUILD_JOBS", "28"), ("RUST_TEST_THREADS", "8")] {
+                assert!(command.get_envs().any(|(name, value)| {
+                    name == key && value == Some(std::ffi::OsStr::new(expected))
+                }));
+            }
+        }
+        for args in [
+            vec!["clippy", "--workspace"],
+            vec!["test", "-p", "susi-reflex-modules"],
+            vec!["test", "--package"],
+            vec![],
+        ] {
+            let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+            assert_eq!(commercial_command_share(base, &args, true), base);
+        }
+    }
+
     /// Regression (2026-11-06): `check` isolated HOME/USERPROFILE but not the
     /// toolchain homes, so tests that run `cargo tree --offline` found an
     /// empty cargo home and failed only under `check`.
@@ -7151,6 +7274,20 @@ mod tests {
         drop(lock);
     }
 
+    #[test]
+    fn legacy_owner_metadata_rejects_malformed_and_self_identity() {
+        let scratch = Scratch::new();
+        let dir = scratch.0.join("owner-probe");
+        fs::create_dir_all(&dir).unwrap();
+        assert!(!legacy_owner_alive(&dir));
+        for record in [
+            "pid=not-a-number\n".to_owned(),
+            format!("pid={}\n", std::process::id()),
+        ] {
+            fs::write(dir.join("owner"), record).unwrap();
+            assert!(!legacy_owner_alive(&dir));
+        }
+    }
     /// Transition (2026-11-07): a launcher from before per-ship slots holds
     /// `integration` for its whole gate and its `integrate` moves the accepted
     /// ref without `publish`; a slot ship's publication waits for it, but
