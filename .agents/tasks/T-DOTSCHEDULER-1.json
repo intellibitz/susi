@@ -1,0 +1,30 @@
+{
+  "id": "T-DOTSCHEDULER-1",
+  "title": "Bound test-runner libtest threads by acquired lanes",
+  "goal": "For the exact xtask/bin/local-workflow test binary, reserve two real test-runner lanes and assign proportional RUST_TEST_THREADS from one raw aggregate budget. Clamp effective lanes to the budget, preserve CARGO_BUILD_JOBS, and keep unrelated binaries unchanged or conservatively bounded.",
+  "created_by": "dot-scheduler",
+  "created_unix": 1794241314,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-scheduler",
+  "claimed_by": "dot-scheduler",
+  "deps": [],
+  "scopes": [
+    "xtask/src/test_runner.rs",
+    ".agents/tasks/T-DOTSCHEDULER-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "test_runner::tests::"
+    ]
+  },
+  "checkpoint": "Initial implementation in test_runner.rs is incomplete and unvalidated. Launcher callsites must migrate from pre-divided test_threads to raw total_test_threads before the source compiles; focused tests and review remain pending. No commit or build performed."
+}

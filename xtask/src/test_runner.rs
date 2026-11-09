@@ -236,14 +236,15 @@ pub fn concurrency(jobs: usize) -> usize {
     (jobs / 4).clamp(2, 6)
 }
 
-/// Test threads for each binary when `concurrency` of them run at once.
+/// Legacy per-binary estimate retained for callers migrating to raw budgets.
 pub fn threads_per_binary(test_threads: usize, concurrency: usize) -> usize {
     (test_threads / concurrency.max(1)).max(2)
 }
 
 pub struct Settings<'a> {
     pub concurrency: usize,
-    pub test_threads: usize,
+    /// Raw aggregate libtest-thread budget shared by concurrent binaries.
+    pub total_test_threads: usize,
     /// `CARGO_BUILD_JOBS` for the cargo invocations some suites run
     /// themselves (xtask's tests build scratch workspaces): the gate's jobs
     /// divided among the lanes, so six lanes do not each claim every core.
@@ -273,7 +274,12 @@ pub struct Outcome {
 /// The variables Cargo sets when it runs a test binary (the compile-time
 /// `env!` ones are already inside the executable), plus the target
 /// directories on `PATH` for any dynamic library beside the binaries.
-fn cargo_runtime_env(command: &mut Command, binary: &Binary, settings: &Settings<'_>) {
+fn cargo_runtime_env(
+    command: &mut Command,
+    binary: &Binary,
+    settings: &Settings<'_>,
+    test_threads: usize,
+) {
     let profile_dir = match settings.triple {
         Some(triple) => settings.target_dir.join(triple).join("debug"),
         None => settings.target_dir.join("debug"),
@@ -310,7 +316,7 @@ fn cargo_runtime_env(command: &mut Command, binary: &Binary, settings: &Settings
         .env("CARGO_CRATE_NAME", binary.target_name.replace('-', "_"))
         .env("CARGO_PRIMARY_PACKAGE", "1")
         .env("CARGO_BUILD_JOBS", settings.build_jobs.to_string())
-        .env("RUST_TEST_THREADS", settings.test_threads.to_string());
+        .env("RUST_TEST_THREADS", test_threads.to_string());
     if binary.kind == "bin" {
         command.env("CARGO_BIN_NAME", &binary.target_name);
     }
@@ -392,17 +398,39 @@ struct Shared<'a> {
 }
 
 fn weight(binary: &Binary, heavy: &[String]) -> usize {
-    if heavy.contains(&binary.target_name) {
+    if is_local_workflow(binary) || heavy.contains(&binary.target_name) {
         2
     } else {
         1
     }
 }
 
+fn is_local_workflow(binary: &Binary) -> bool {
+    binary.package == "xtask" && binary.kind == "bin" && binary.target_name == "local-workflow"
+}
+
+/// Effective test threads for a binary holding `weight` scheduler lanes.
+/// The workflow runner is the one exact target assigned two proportional
+/// units. Other binaries (including unrelated targets with the same name)
+/// stay at one unit even if nextest marks them heavy. Since units per binary
+/// never exceed the acquired lane weight, total assignment is bounded by the
+/// aggregate raw budget whenever active weights fit within the lane pool.
+fn threads_for_binary(binary: &Binary, budget: usize, lanes: usize, acquired_weight: usize) -> usize {
+    let per_lane = (budget.max(1) / lanes.max(1)).max(1);
+    let units = if is_local_workflow(binary) {
+        acquired_weight.max(1)
+    } else {
+        1
+    };
+    per_lane.saturating_mul(units)
+}
+
 fn run_one(
     shared: &Shared<'_>,
     index: usize,
     binary: &Binary,
+    acquired_weight: usize,
+    effective_lanes: usize,
     launch: &(dyn Fn(&Binary, &Path) -> Result<Command> + Sync),
 ) -> Result<()> {
     let settings = shared.settings;
@@ -416,7 +444,15 @@ fn run_one(
         .join(format!("{index}-{}.log", binary.target_name));
     let capture = fs::File::create(&capture_path)?;
     let mut command = launch(binary, &home)?;
-    cargo_runtime_env(&mut command, binary, settings);
+    let test_threads = threads_for_binary(
+        binary,
+        settings.total_test_threads,
+        effective_lanes,
+        acquired_weight,
+    );
+    // Keep Cargo's nested-build budget unchanged. Only the actual libtest
+    // thread allocation follows the scheduler lanes acquired by this binary.
+    cargo_runtime_env(&mut command, binary, settings, test_threads);
     command
         .stdout(Stdio::from(capture.try_clone()?))
         .stderr(Stdio::from(capture));
@@ -494,7 +530,8 @@ pub fn run(
         settings,
     };
     let started = Instant::now();
-    let lanes = settings.concurrency.max(1);
+    let total_test_threads = settings.total_test_threads.max(1);
+    let lanes = settings.concurrency.max(1).min(total_test_threads);
     let workers = lanes.min(binaries.len().max(1));
     let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
     std::thread::scope(|scope| {
@@ -518,17 +555,39 @@ pub fn run(
                     // Every binary holds one lane; a heavy one holds two so
                     // it keeps the CPU its deadlines assume. The lane count
                     // stays the limit on what runs at once.
-                    let weight = weight(&binary, shared.settings.heavy).min(lanes);
-                    if shared.lanes.take(weight).is_err() {
+                    let acquired_weight = weight(&binary, shared.settings.heavy).min(lanes);
+                    if shared.lanes.take(acquired_weight).is_err() {
                         break;
                     }
-                    if let Err(error) = run_one(shared, index, &binary, launch) {
+                    let assigned_threads = threads_for_binary(
+                        &binary,
+                        shared.settings.total_test_threads,
+                        lanes,
+                        acquired_weight,
+                    );
+                    if let Err(error) = run_one(
+                        shared,
+                        index,
+                        &binary,
+                        acquired_weight,
+                        lanes,
+                        launch,
+                    ) {
                         if let Ok(mut errors) = errors.lock() {
                             errors.push(format!("{}: {error}", binary.id()));
                         }
                         shared.stop.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
-                    shared.lanes.give(weight);
+                    shared.lanes.give(acquired_weight);
+                    if let Ok(mut log) = shared.log.lock() {
+                        let _ = writeln!(
+                            log,
+                            "runner: {} assigned {acquired_weight}/{lanes} lanes and {assigned_threads}/{} test threads",
+                            binary.id(),
+                            shared.settings.total_test_threads.max(1)
+                        );
+                        let _ = log.flush();
+                    }
                     index += workers;
                 }
             });
