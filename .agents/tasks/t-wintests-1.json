@@ -1,7 +1,7 @@
 {
   "id": "T-WINTESTS-1",
   "title": "Run the repository's script and hook suites natively on Windows",
-  "goal": "Since b6276f0b4 (2026-11-01) about twenty integration test files were compiled for unix only, so the Windows gate ran none of their script, hook, installer, publication and release-tag checks for eight days; that is how the release-sync helper defect shipped in v0.21.53. The surviving files (the rest moved to Susi Commercial Apps) run natively on Windows again: hermetic_scope, hook_enforcement, installer_contract, release_tag_provenance and workflow_publication lose their crate-level cfg(unix); agent_bootstrap and sync_hooks lose their per-test cfg(unix). Scripts and hooks run as git runs them: under Git for Windows bash, located from `git --exec-path` (bash.exe on PATH can be the WSL launcher), through one shared tests/common helper instead of four copies that called `sh` or a hard-coded Program Files path. Every script, hook and git invocation of these fixtures is bounded (120 s, both pipes drained with a deadline) so a prompt, held lock or leftover child fails the test instead of hanging the gate. Hook executability is checked where it matters on every host, the committed git mode 100755, plus the exec bit on Unix. The GMCP ledger authoring checker's parity with the native verifier runs on Windows too.",
+  "goal": "Since b6276f0b4 (2026-11-01) about twenty integration test files were compiled for unix only, so the Windows gate ran none of their script, hook, installer, publication and release-tag checks for eight days; that is how the release-sync helper defect shipped in v0.21.53. The surviving files (the rest moved to Susi Commercial Apps) run natively on Windows again: hermetic_scope, hook_enforcement, installer_contract, release_tag_provenance and workflow_publication lose their crate-level cfg(unix); agent_bootstrap and sync_hooks lose their per-test cfg(unix). Scripts and hooks run as git runs them: under Git for Windows bash, located from `git --exec-path` (bash.exe on PATH can be the WSL launcher), through one shared tests/common helper instead of four copies that called `sh` or a hard-coded Program Files path. Every script, hook and git invocation of these fixtures is bounded (120 s, both pipes drained with a deadline) so a prompt, held lock or leftover child fails the test instead of hanging the gate. Hook executability is checked where it matters on every host, the committed git mode 100755, plus the exec bit on Unix. The GMCP ledger authoring checker's parity with the native verifier runs on Windows too. Because tests/gmcp_requirements.rs is part of the GMCP artifact digest, the GMCP evidence is re-recorded in both phases on this tree.",
   "state": "in_progress",
   "status": "in_progress",
   "claimed_by": "wintests",
@@ -12,6 +12,7 @@
   "deps": [],
   "scope": [
     ".agents/tasks/t-wintests-1.json",
+    ".agents/gmcp/evidence",
     "tests/agent_bootstrap.rs",
     "tests/common/mod.rs",
     "tests/gmcp_requirements.rs",
@@ -24,6 +25,7 @@
   ],
   "scopes": [
     ".agents/tasks/t-wintests-1.json",
+    ".agents/gmcp/evidence",
     "tests/agent_bootstrap.rs",
     "tests/common/mod.rs",
     "tests/gmcp_requirements.rs",
