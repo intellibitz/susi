@@ -18,8 +18,7 @@
     "tests/hook_enforcement.rs",
     "tests/installer_contract.rs",
     "tests/release_tag_provenance.rs",
-    "tests/sync_hooks.rs",
-    "tests/workflow_publication.rs"
+    "tests/sync_hooks.rs"
   ],
   "scopes": [
     ".agents/tasks/t-wintests-1.json",
@@ -29,8 +28,7 @@
     "tests/hook_enforcement.rs",
     "tests/installer_contract.rs",
     "tests/release_tag_provenance.rs",
-    "tests/sync_hooks.rs",
-    "tests/workflow_publication.rs"
+    "tests/sync_hooks.rs"
   ],
   "acceptance": "On Windows, `cargo test --offline --locked` of agent_bootstrap, hermetic_scope, hook_enforcement, installer_contract, release_tag_provenance, sync_hooks and workflow_publication runs and passes their script and hook tests (before this change five of those binaries ran 0 tests on Windows); gmcp_req_203_001_01_contract runs the ledger checker under Git for Windows bash and agrees with the native verifier.",
   "accept": {
@@ -56,5 +54,5 @@
     ]
   },
   "updated_unix": 1794207119,
-  "successor_handoff": "2026-11-09: Broader Windows test proposal remains blocked: requires Bash and has unbounded helpers. Not qualified or ready to merge. Immutable local checkpoint checkpoint/wintests-20261109 at d527dac487c457e3e89367aa1c8fccd020967001 preserves source and successful 54-check plus 9-mastery evidence. GMCP test/evidence delta retired reversibly to claim base for native scoped handoff to independent cleanup task; no history deleted."
+  "successor_handoff": "2026-11-09: Broader Windows test proposal remains blocked: requires Bash and has unbounded helpers. Not qualified or ready to merge. Immutable local checkpoint checkpoint/wintests-20261109 at d527dac487c457e3e89367aa1c8fccd020967001 preserves source and successful 54-check plus 9-mastery evidence. GMCP test/evidence delta retired reversibly to claim base for native scoped handoff to independent cleanup task; no history deleted. 2026-11-09: workflow_publication unaccepted delta retired reversibly to claim base for scoped nowindow helper correction. Original checkpoint checkpoint/wintests-workflow-publication-20261109 at 02779205d24f65a3bbb07082d0ef3b571c7e53a1 retained. Broader Windows Bash-suite proposal remains held and not qualified."
 }

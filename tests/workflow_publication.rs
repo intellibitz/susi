@@ -1,10 +1,12 @@
 //! Exercise the actual atomic publisher against a disposable bare Git remote.
+// Optional POSIX/hosted compatibility fixtures execute shell scripts.
+// Native Windows delivery is covered by the Rust coordinator, bootstrap,
+// installer and release suites; it must not require a POSIX userland.
+#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::PathBuf;
 use std::process::Command;
-
-mod common;
 
 struct Fixture(PathBuf);
 
@@ -23,7 +25,11 @@ fn publication_case(existing_branch: &str) {
         std::env::temp_dir().join(format!("susi-publication-{}-{unique}", std::process::id())),
     );
     std::fs::create_dir_all(&fixture.0).unwrap();
-    let bash = common::posix_shell();
+    let bash = if cfg!(windows) {
+        PathBuf::from("C:/Program Files/Git/bin/bash.exe")
+    } else {
+        PathBuf::from("bash")
+    };
     let publisher = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("scripts/publish-task-branch.sh")
         .to_string_lossy()
@@ -85,14 +91,15 @@ fi
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
-    command
+    let output = command
         .args(["-c", script, "fixture", &publisher, existing_branch])
         .current_dir(&fixture.0)
         .env("SUSI_AGENT", "FIXTURE")
         .env("SUSI_TASK_REMOTE", "origin")
         .env("SUSI_QUEUE_TRANSPORT", "git")
-        .env("SUSI_CLOUD_SESSION", "false");
-    let output = common::output_within(&mut command, b"", common::SCRIPT_BOUND);
+        .env("SUSI_CLOUD_SESSION", "false")
+        .output()
+        .unwrap();
     assert!(
         output.status.success(),
         "publication case {existing_branch} failed:\n{}\n{}",
