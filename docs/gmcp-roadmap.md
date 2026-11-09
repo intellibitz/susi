@@ -217,7 +217,8 @@ evidence artifact, matrix cell, risk disposition, or upstream change is missing.
 
 The full, normative mastery text is in [`.agents/roadmap.json`](../.agents/roadmap.json).
 Task-level detail lives in [`.agents/tasks/`](../.agents/tasks/). The structural
-checker is [`scripts/check-gmcp-roadmap.py`](../scripts/check-gmcp-roadmap.py).
+checker is the native Rust [`check-gmcp-roadmap`](../xtask/src/bin/check-gmcp-roadmap.rs)
+binary, sharing its validator with the `gmcp_roadmap` integration test.
 
 ## Execution waves
 
@@ -317,11 +318,36 @@ susi tasks close <task-id>
 Validate roadmap structure at any time:
 
 ```bash
-python3 scripts/check-gmcp-roadmap.py
-cargo test --locked --test gmcp_roadmap
+cargo run --offline --locked -p xtask --bin check-gmcp-roadmap
+cargo test --offline --locked --test gmcp_roadmap
 ```
 
-The checker validates vector coverage, unique requirement IDs, dependency integrity,
-acyclic ordering, acceptance commands, mastery fan-in, terminal fan-in, and
-documentation coverage. It deliberately does not mark capability delivered; only
-the requirement and mastery tests can do that.
+The checker preserves the rules actually implemented by the legacy
+[`scripts/check-gmcp-roadmap.sh`](../scripts/check-gmcp-roadmap.sh), without a
+shell, jq, Python, or other process prerequisite. The optional CLI argument is
+the repository root. JSON/I/O failures and failed validation return a nonzero
+exit status. The integration test calls the same validator directly.
+Inputs are UTF-8 JSON and documentation. The existing serde_json parser is
+reused; malformed encodings, unsupported JSON numbers, and extra top-level
+roadmap values fail closed. Parser diagnostics are not byte-for-byte jq output.
+
+The parity fixtures in [`xtask/src/gmcp_roadmap.rs`](../xtask/src/gmcp_roadmap.rs)
+cover these source-backed rules:
+
+| Legacy source operation | Native checks and fixtures |
+| --- | --- |
+| `vectors`, `from_entries`, `range(1; 49)` | An array containing all 48 VC-203 IDs; last duplicate object wins; other vectors may satisfy dependencies. |
+| `depends_on`, `index($vid)`, `$by_id[.]` | Array-valued dependencies, no direct self-reference, every dependency exists. |
+| Priority comparisons, `length`, `startswith` | P0/P1/P2; nonempty type/name; mastery length at least 160; explicit progress prefix. Unicode lengths and jq's accepted numeric/collection lengths are preserved. |
+| `unique \| sort` on VC-203-048 | Direct fan-in from all preceding 47 vectors, ignoring order and duplicates. |
+| Immediate open/done task files, `scan`, count | Both directories contribute JSON streams; exactly one matching Requirement token per counted record; total 336. Case, ASCII digits, suffixes and prefix matching are preserved. |
+| Document substring loops and `grep -Fq` | Every vector, all six completion tokens, and the README link are required. |
+
+The old checker does **not** enforce unique requirement IDs, a 001-048 range on
+task tokens, indirect acyclicity, task dependency ordering, acceptance-command
+content, or verdict contents. Those pre-existing limitations remain explicit;
+this portability migration does not add new requirements. Its old success text
+claimed acyclic dependencies without checking them; the native success text
+omits that unsupported claim. Both implementations count records rather than
+proving requirement uniqueness. This structural check does not mark capability
+delivered; only the requirement and mastery tests can do that.
