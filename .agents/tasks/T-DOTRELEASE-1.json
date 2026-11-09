@@ -1,0 +1,28 @@
+{
+  "created_unix": 1794210069,
+  "id": "T-DOTRELEASE-1",
+  "state": "in_progress",
+  "status": "in_progress",
+  "title": "Match exact busy PID lines in Windows promotion regression",
+  "native_worker": "dot-release-test",
+  "size": "S",
+  "goal": "Remove PID substring collisions and preserve diagnostic details without weakening runtime ownership checks",
+  "claimed_by": "dot-release-test",
+  "verification": "2026-11-09 native Windows: fixture PowerShell full acceptance passed before and after correction. cargo test --offline --locked --test release_workflow passes 1/1, 0 ignored in24.21s; private-target build1m17s. CRLF/LF and prefix/suffix PID collision checks execute within acceptance. git diff --check clean. Production helper unchanged. Original concurrent gate root cause unconfirmed: previous log omitted output/PIDs. Combined gate not run; no publication or production changes.",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "scopes": [
+    "scripts/test-release-sync-windows.ps1",
+    ".agents/tasks/t-dotrelease-1.json"
+  ],
+  "deps": [],
+  "created_by": "dot-release-test"
+}
