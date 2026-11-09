@@ -332,6 +332,7 @@ impl Instance {
             .args(args)
             .current_dir(&self.cwd)
             .env("SUSI_HOME", &self.susi_home)
+            .env("SUSI_NO_REGISTRY_ENV", "1")
             .env("SUSI_PORT_OFFSET", self.port_offset.to_string())
             .env_remove("SUSI_VERBOSE")
             .env_remove("SUSI_BOOT_TRACE")
@@ -783,6 +784,26 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn isolated_children_disable_registry_environment() {
+        let instance = Instance {
+            root: PathBuf::from("private"),
+            susi_home: PathBuf::from("private/susi"),
+            cwd: PathBuf::from("private/workspace"),
+            goal: None,
+            port_offset: 400,
+        };
+        for command in [
+            instance.command(Path::new("unused"), &["--version"]),
+            instance.goal_command(Path::new("unused"), Path::new("private/workspace")),
+        ] {
+            assert!(command
+                .get_envs()
+                .any(|(key, value)| key == "SUSI_NO_REGISTRY_ENV"
+                    && value == Some(std::ffi::OsStr::new("1"))));
+        }
+    }
 
     fn case(name: &str) -> Case {
         *CASES.iter().find(|c| c.name == name).unwrap()

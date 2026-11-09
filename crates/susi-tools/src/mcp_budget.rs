@@ -308,6 +308,7 @@ fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, 
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     command.env_clear();
+    susi_paths::test_env::inherit_registry_isolation(&mut command);
     for key in [
         "PATH",
         "SystemRoot",

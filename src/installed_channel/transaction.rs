@@ -297,7 +297,8 @@ fn version_output(exe: &Path) -> Result<String> {
     command
         .env("HOME", &scratch)
         .env("USERPROFILE", &scratch)
-        .env("SUSI_HOME", scratch.join(".susi"));
+        .env("SUSI_HOME", scratch.join(".susi"))
+        .env("SUSI_NO_REGISTRY_ENV", "1");
     for key in [
         "ProgramData",
         "ALLUSERSPROFILE",

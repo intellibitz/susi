@@ -5,7 +5,7 @@
 //! `SUSI_PORT_OFFSET`, so a test that only swaps `HOME`/`XDG_CONFIG_HOME`
 //! still reads and writes the launching instance (e.g. `~/.susi-dev`) when
 //! run from a dev binary. [`EnvGuard::isolated`] removes both instance knobs;
-//! every change is undone in reverse order on drop.
+//! registry environment fallback is disabled, and every change is undone in reverse order on drop.
 //!
 //! Callers keep holding their own env lock — this only saves and restores.
 //!
@@ -86,6 +86,9 @@ pub fn isolate_home<'c>(cmd: &'c mut Command, home: &Path) -> &'c mut Command {
                 }
         })
     };
+    // Clearing a child's process environment does not clear Windows user or
+    // machine environment registry values. Private-home runs never read them.
+    cmd.env("SUSI_NO_REGISTRY_ENV", "1");
     cmd.env("HOME", home);
     for (var, dir) in moved_with_home(home) {
         cmd.env(var, dir);
@@ -103,6 +106,15 @@ pub fn isolate_home<'c>(cmd: &'c mut Command, home: &Path) -> &'c mut Command {
     cmd
 }
 
+/// Preserve the caller's registry opt-out after `env_clear`, without changing
+/// normal credential discovery for an ordinary, non-isolated child.
+pub fn inherit_registry_isolation(cmd: &mut Command) -> &mut Command {
+    if let Some(value) = std::env::var_os("SUSI_NO_REGISTRY_ENV") {
+        cmd.env("SUSI_NO_REGISTRY_ENV", value);
+    }
+    cmd
+}
+
 /// Restores every variable it touched (to its prior value, or unset) on drop.
 #[derive(Debug)]
 #[must_use = "the environment is restored when the guard is dropped"]
@@ -112,9 +124,10 @@ pub struct EnvGuard {
 
 impl EnvGuard {
     /// Guard with the launching instance's `SUSI_HOME` / `SUSI_PORT_OFFSET`
-    /// removed for its lifetime.
+    /// removed and registry environment fallback disabled for its lifetime.
     pub fn isolated() -> Self {
         let mut guard = Self { saved: Vec::new() };
+        guard.set("SUSI_NO_REGISTRY_ENV", "1");
         for var in INSTANCE_VARS {
             guard.remove(var);
         }
@@ -170,11 +183,46 @@ impl Drop for EnvGuard {
 mod tests {
     use super::EnvGuard;
 
+    #[test]
+    fn private_home_disables_registry_even_after_environment_clear() {
+        let mut child = std::process::Command::new("unused");
+        child.env_clear().env("SUSI_NO_REGISTRY_ENV", "0");
+        super::isolate_home(&mut child, std::path::Path::new("private"));
+        assert!(child
+            .get_envs()
+            .any(|(key, value)| key == "SUSI_NO_REGISTRY_ENV"
+                && value == Some(std::ffi::OsStr::new("1"))));
+    }
+
+    #[test]
+    fn registry_isolation_is_inherited_only_when_the_caller_requests_it() {
+        let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut env = EnvGuard::isolated();
+        env.remove("SUSI_NO_REGISTRY_ENV");
+        let mut normal = std::process::Command::new("unused");
+        normal.env_clear();
+        super::inherit_registry_isolation(&mut normal);
+        assert!(!normal
+            .get_envs()
+            .any(|(key, _)| key == "SUSI_NO_REGISTRY_ENV"));
+        for value in ["", "0", "1"] {
+            env.set("SUSI_NO_REGISTRY_ENV", value);
+            let mut isolated = std::process::Command::new("unused");
+            isolated.env_clear();
+            super::inherit_registry_isolation(&mut isolated);
+            assert!(isolated
+                .get_envs()
+                .any(|(key, found)| key == "SUSI_NO_REGISTRY_ENV"
+                    && found == Some(std::ffi::OsStr::new(value))));
+        }
+    }
+
     /// Swapping `HOME` swaps the whole home: on Windows that is
     /// `USERPROFILE`, and both come back on drop.
     #[test]
     fn a_swapped_home_is_the_resolved_home_and_is_restored() {
         let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let before_registry = std::env::var_os("SUSI_NO_REGISTRY_ENV");
         let before_home = std::env::var_os("HOME");
         let before_profile = std::env::var_os("USERPROFILE");
         let tmp = std::env::temp_dir().join(format!("susi_env_guard_{}", std::process::id()));
@@ -183,6 +231,7 @@ mod tests {
             env.set("HOME", &tmp);
             assert_eq!(crate::xdg::home_dir().as_deref(), Some(tmp.as_path()));
         }
+        assert_eq!(std::env::var_os("SUSI_NO_REGISTRY_ENV"), before_registry);
         assert_eq!(std::env::var_os("HOME"), before_home);
         assert_eq!(std::env::var_os("USERPROFILE"), before_profile);
     }
@@ -250,6 +299,10 @@ mod tests {
             envs.get("XDG_CACHE_HOME").and_then(Option::as_ref),
             Some(&home.join(".cache").into_os_string())
         );
+        assert_eq!(
+            envs.get("SUSI_NO_REGISTRY_ENV").and_then(Option::as_ref),
+            Some(&OsStr::new("1").to_os_string())
+        );
         assert_eq!(envs.get("SUSI_HOME"), Some(&None));
         assert_eq!(envs.get("SUSI_PORT_OFFSET"), Some(&None));
 
@@ -283,6 +336,7 @@ mod tests {
     #[test]
     fn env_guard_reverses_multiple_mutations_on_same_variable_in_lifo_order() {
         let _g = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let before_registry = std::env::var_os("SUSI_NO_REGISTRY_ENV");
         let before_home = std::env::var_os("HOME");
         let before_profile = std::env::var_os("USERPROFILE");
         let tmp_a = std::env::temp_dir().join(format!("susi_env_lifo_a_{}", std::process::id()));
@@ -294,6 +348,7 @@ mod tests {
             env.set("HOME", &tmp_b);
             assert_eq!(crate::xdg::home_dir().as_deref(), Some(tmp_b.as_path()));
         }
+        assert_eq!(std::env::var_os("SUSI_NO_REGISTRY_ENV"), before_registry);
         assert_eq!(std::env::var_os("HOME"), before_home);
         assert_eq!(std::env::var_os("USERPROFILE"), before_profile);
     }

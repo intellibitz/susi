@@ -299,14 +299,16 @@ impl SetupPlan {
             });
         };
         let path = std::env::var_os("PATH").unwrap_or_default();
-        let output = Command::new(&executable)
+        let mut command = Command::new(&executable);
+        command
             .env_clear()
             .env("PATH", path)
             .env("HOME", home)
             .env("SUSI_HOME", home)
             .env("SUSI_SETUP_PROBE", "1")
             .arg("setup completion probe")
-            .current_dir(home)
+            .current_dir(home);
+        let output = susi_paths::test_env::inherit_registry_isolation(&mut command)
             .output()
             .map_err(|e| format!("run setup mission with {engine}: {e}"))?;
         let stdout = String::from_utf8_lossy(&output.stdout);

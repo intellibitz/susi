@@ -1100,6 +1100,7 @@ fn apply_gate_env(command: &mut Command, gate: &GateEnv<'_>) -> Result<()> {
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env("SUSI_HOME", home.join("susi"))
+        .env("SUSI_NO_REGISTRY_ENV", "1")
         .env("XDG_CONFIG_HOME", home.join("config"))
         .env("XDG_DATA_HOME", home.join("data"))
         .env("XDG_CACHE_HOME", home.join("cache"))
@@ -4118,6 +4119,7 @@ fn commercial_gate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("SUSI_HOME", home.join("susi"))
+            .env("SUSI_NO_REGISTRY_ENV", "1")
             .env("CARGO_HOME", &cargo_home)
             .env("RUSTUP_HOME", &rustup_home)
             .env("CARGO_TARGET_DIR", &target)
@@ -4381,6 +4383,7 @@ fn check_env(
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env("SUSI_HOME", home.join("susi"))
+        .env("SUSI_NO_REGISTRY_ENV", "1")
         .env("APPDATA", home.join("appdata"))
         .env("LOCALAPPDATA", home.join("localappdata"))
         .env("XDG_CONFIG_HOME", home.join("config"))
@@ -7653,6 +7656,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn integration_gate_disables_registry_environment() {
+        let mut command = Command::new("unused");
+        apply_gate_env(
+            &mut command,
+            &GateEnv {
+                home: Path::new("private/home"),
+                cargo_home: Path::new("toolchain/cargo"),
+                rustup_home: Path::new("toolchain/rustup"),
+                target: Path::new("private/target"),
+                sysroot: None,
+            },
+        )
+        .unwrap();
+        assert!(command
+            .get_envs()
+            .any(|(key, value)| key == "SUSI_NO_REGISTRY_ENV"
+                && value == Some(std::ffi::OsStr::new("1"))));
+    }
     /// Regression (2026-11-06): `check` isolated HOME/USERPROFILE but not the
     /// toolchain homes, so tests that run `cargo tree --offline` found an
     /// empty cargo home and failed only under `check`.
@@ -7677,6 +7699,7 @@ mod tests {
             })
             .collect();
         let get = |key: &str| envs.get(key).cloned().flatten();
+        assert_eq!(get("SUSI_NO_REGISTRY_ENV").as_deref(), Some("1"));
         assert_eq!(get("CARGO_HOME").as_deref(), Some("real/.cargo"));
         assert_eq!(get("RUSTUP_HOME").as_deref(), Some("real/.rustup"));
         assert_eq!(get("CARGO_TARGET_DIR").as_deref(), Some("worktree/target"));

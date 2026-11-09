@@ -1,0 +1,61 @@
+{
+  "id": "T-DOTREGISTRYISOLATION-1",
+  "native_worker": "dot-registry-isolation",
+  "title": "Isolate native qualification from persistent Windows credentials",
+  "created_by": "Codex",
+  "status": "implemented_pending_integration",
+  "dependencies": [],
+  "scopes": [
+    ".agents/tasks/t-dotregistryisolation-1.json",
+    "crates/susi-config/src/setup_workflow.rs",
+    "crates/susi-gawd/src/intent_ladder.rs",
+    "crates/susi-gawd/src/repo_gate.rs",
+    "crates/susi-harness/src/secrets.rs",
+    "crates/susi-paths/src/test_env.rs",
+    "crates/susi-tools/src/mcp_budget.rs",
+    "src/installed_channel/transaction.rs",
+    "xtask/src/bin/local-channel.rs",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/bin/startup-gate.rs",
+    "xtask/src/installed_delivery.rs",
+    "xtask/tests/registry_environment_isolation.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "-p",
+      "susi-paths",
+      "--lib",
+      "--offline",
+      "--locked"
+    ],
+    "criteria": [
+      "SUSI_NO_REGISTRY_ENV presence is checked only in the child process environment before registry lookup, including previously cached credentials and snapshots.",
+      "Isolated keys, settings and home discovery never consult persistent Windows environment; synthetic child-process regression preserves normal user/machine and process/file behavior without reading real registry environment.",
+      "Native qualification, local workflow gates, local channel tests and startup gates explicitly set the switch on child commands after inherited settings are removed.",
+      "Disjoint gate_receipt.rs wiring belongs to its existing claimant; this change does not alter live production launch or user configuration."
+    ]
+  },
+  "verification": [
+    "cargo test -p susi-harness --lib --offline --locked: 531 passed, including 21 secrets tests and the synthetic isolated child regression.",
+    "Targeted xtask launcher/source-contract checks: 6 relevant tests passed (channel, startup, integration gate, check environment, release proof environment, wiring contract).",
+    "cargo clippy -p susi-harness -p xtask --all-targets --features xtask/release-tooling --offline --locked -- -D warnings: passed.",
+    "cargo fmt --all --check and git diff --check: passed.",
+    "Tests used a private target/runtime/home and process SUSI_NO_REGISTRY_ENV=1. Existing native registry test created and removed only its unique synthetic HKCU Software test key; no actual Environment or credentials inspected.",
+    "Combined integration with native-link and receipt replay isolation is pending; no production deployment or qualification claimed.",
+    "First native batch stopped at task filename case mismatch; fixed through native commit. Second stopped during test compilation after discovering env_clear grandchildren needed explicit opt-out; zero runtime headers in current gate-3 log. No gate bypass or publication.",
+    "Shared private-home and hermetic intent child paths now force registry isolation. Ordinary setup, MCP and installed-delivery children preserve an existing caller opt-out without changing normal credential discovery. Additional focused verification is pending.",
+    "Followup: cargo test -p susi-paths --offline --locked passed 79 tests, including no-registry opt-out inheritance with absent/empty/0/1 modes, forced private child mode, and scoped state restoration. Full combined-tree tests still pending.",
+    "Followup paths/config/xtask all-target Clippy with release-tooling passed; launcher contract2 passed. Final two isolated callers require a clean-worktree scope extension before adding their explicit switch.",
+    "Final scope extension acquired from clean checkpoint. Native self-patch cargo gate and installed-version scratch probe now explicitly block persistent registry environment; current full-workspace acceptance remains required before publication.",
+    "Four-claim gate reached 403 passed / 2 failed / 3 ignored before lean-core stopped it: GAWD source +3 lines and native-harness dependency reach 48 vs 46. Failed evidence blob b2cc7cf6657fe40f391631c8accac08dd51ddb60 retained; no source publication.",
+    "Replaced duplicated private HOME/USERPROFILE/registry setters in GAWD with shared isolate_home. Source is 12653 lines, matching unchanged 12653 ceiling. cargo test -p susi-gawd --lib --offline --locked: 284 passed, 3 ignored. Strict gawd all-target Clippy, 3 launcher wiring tests and full fmt pass. Native-link architecture fix and complete combined gate remain pending.",
+    "Narrowed three-claim gate reached 91 of 143 binaries; harness 531 passed and lean-core/bootstrap passed, then task_records rejected this record missing created_unix. Failed log blob 534ca1b215ce75276f6f0f9cc759851185fa86ea, outer 415.8 seconds, retained without publication. Repaired creation provenance using original task commit timestamp; all-record schema preflight and full gate retry pending."
+  ],
+  "created_unix": 1794250548,
+  "creation_provenance": "created_unix is the recorded commit time of initial task-record commit 6b430852ebac9a145cd14994a605d4c4966ccbc3; the exact earlier filesystem creation time was not recorded."
+}

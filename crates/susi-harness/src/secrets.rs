@@ -15,6 +15,13 @@
 //! process, so a command that checks several providers reads the registry once
 //! per variable.
 //!
+//! Native test and qualification launchers set `SUSI_NO_REGISTRY_ENV` in
+//! each child's process environment before startup. Its presence (including
+//! an empty value) disables both persistent Windows environment scopes for
+//! keys, settings and home discovery, before the registry cache is touched.
+//! It is never read from a `.env` file or the registry. Callers must still
+//! scrub inherited credentials and use private working/data-home directories.
+//!
 //! A provider that publishes a fixed key form ([`ProviderRecord::key_prefix`],
 //! `sk-ant-` for Anthropic) gets only a value of that form. A scope holding
 //! something else under the name (a token for another tool, a stale paste) is
@@ -66,12 +73,13 @@ pub fn lookup(name: &str) -> Option<ApiKey> {
     }
     let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
     let mut cache = cache.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(found) = cache.get(name) {
+    let cache_key = (name.to_string(), registry_environment_disabled());
+    if let Some(found) = cache.get(&cache_key) {
         return found.clone();
     }
     let shape = crate::providers::Registry::builtin().key_prefix_for(name);
     let found = first_fitting(name, shape).map(ApiKey);
-    cache.insert(name.to_string(), found.clone());
+    cache.insert(cache_key, found.clone());
     found
 }
 
@@ -490,7 +498,14 @@ pub fn is_set(name: &str) -> bool {
     lookup(name).is_some()
 }
 
-static CACHE: OnceLock<Mutex<BTreeMap<String, Option<ApiKey>>>> = OnceLock::new();
+// Partition cached keys too: enabling isolation must not return a key that
+// an earlier non-isolated lookup obtained from a persistent environment.
+type KeyCache = BTreeMap<(String, bool), Option<ApiKey>>;
+static CACHE: OnceLock<Mutex<KeyCache>> = OnceLock::new();
+
+fn registry_environment_disabled() -> bool {
+    std::env::var_os("SUSI_NO_REGISTRY_ENV").is_some()
+}
 
 /// Whether `name` is a variable the harness reads: upper-case letters,
 /// digits and `_`. Any other name is never looked up.
@@ -513,6 +528,11 @@ fn process_value(name: &str) -> Option<String> {
 /// Machine environment values; secrets remain in memory and are never logged.
 #[cfg(windows)]
 fn registry_value(name: &str, scope: &str) -> Option<String> {
+    // Check before touching the snapshot, even when it was initialized by a
+    // previous lookup. Do not use `setting`: it calls back into this function.
+    if registry_environment_disabled() {
+        return None;
+    }
     windows_scopes()
         .get(scope)?
         .get(&name.to_ascii_uppercase())
@@ -544,9 +564,21 @@ fn read_registry_scope(root: &windows_registry::Key, path: &str) -> BTreeMap<Str
     )
 }
 
+// A child-process regression installs synthetic scopes before any lookup;
+// it never opens the user's real registry, even if isolation regresses.
+#[cfg(all(windows, test))]
+static TEST_WINDOWS_SCOPES: OnceLock<BTreeMap<String, BTreeMap<String, String>>> = OnceLock::new();
+#[cfg(all(windows, test))]
+static TEST_WINDOWS_READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 #[cfg(windows)]
 fn windows_scopes() -> &'static BTreeMap<String, BTreeMap<String, String>> {
     static SCOPES: OnceLock<BTreeMap<String, BTreeMap<String, String>>> = OnceLock::new();
+    #[cfg(test)]
+    if let Some(scopes) = TEST_WINDOWS_SCOPES.get() {
+        TEST_WINDOWS_READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        return scopes;
+    }
     SCOPES.get_or_init(|| {
         BTreeMap::from([
             (
@@ -623,6 +655,132 @@ pub(crate) mod test_dotenv {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn registry_environment_isolation_covers_keys_settings_homes_and_cached_values() {
+        const CHILD: &str = "SUSI_REGISTRY_ISOLATION_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let scratch = std::env::temp_dir().join(format!(
+                "susi-registry-isolation-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&scratch).unwrap();
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child.env_clear();
+            for key in ["SystemRoot", "WINDIR"] {
+                if let Some(value) = std::env::var_os(key) {
+                    child.env(key, value);
+                }
+            }
+            let result = child
+                .args([
+                    "--exact",
+                    "secrets::tests::registry_environment_isolation_covers_keys_settings_homes_and_cached_values",
+                    "--test-threads=1",
+                ])
+                .env(CHILD, "1")
+                .env("SUSI_NO_REGISTRY_ENV", "1")
+                .env("HOME", &scratch)
+                .env("USERPROFILE", &scratch)
+                .env("SUSI_HOME", &scratch)
+                .current_dir(&scratch)
+                .output()
+                .unwrap();
+            std::fs::remove_dir(&scratch).unwrap();
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            assert!(
+                result.status.success() && stdout.contains("1 passed; 0 failed"),
+                "{stdout}\n{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+
+        const KEY: &str = "SUSI_TEST_REGISTRY_KEY";
+        const SETTING: &str = "SUSI_TEST_REGISTRY_SETTING";
+        let fixture_home = std::env::var("SUSI_HOME").unwrap();
+        TEST_WINDOWS_SCOPES
+            .set(BTreeMap::from([
+                (
+                    "User".into(),
+                    BTreeMap::from([
+                        (KEY.into(), "synthetic-key".into()),
+                        (SETTING.into(), "synthetic-user-setting".into()),
+                        ("SUSI_HOME".into(), "synthetic-registry-home".into()),
+                    ]),
+                ),
+                (
+                    "Machine".into(),
+                    BTreeMap::from([(SETTING.into(), "synthetic-machine-setting".into())]),
+                ),
+            ]))
+            .unwrap();
+        test_dotenv::with("SUSI_NO_REGISTRY_ENV=1\n", || {
+            test_dotenv::with_home("", || {
+                // The launcher sets isolation before the first lookup. No registry
+                // snapshot, including our synthetic one, is consulted.
+                assert!(lookup(KEY).is_none());
+                assert!(setting(SETTING).is_none());
+                std::env::remove_var("SUSI_HOME");
+                assert_eq!(
+                    data_home(),
+                    std::path::Path::new(&fixture_home).join(".susi")
+                );
+                assert_eq!(
+                    TEST_WINDOWS_READS.load(std::sync::atomic::Ordering::SeqCst),
+                    0
+                );
+
+                // Normal behavior remains available. A .env switch cannot change
+                // this policy; only the explicitly supplied process environment can.
+                std::env::remove_var("SUSI_NO_REGISTRY_ENV");
+                assert_eq!(lookup(KEY).unwrap().expose(), "synthetic-key");
+                assert_eq!(setting(SETTING).as_deref(), Some("synthetic-user-setting"));
+                assert_eq!(
+                    registry_value(SETTING, "Machine").as_deref(),
+                    Some("synthetic-machine-setting")
+                );
+                assert_eq!(
+                    data_home(),
+                    std::path::PathBuf::from("synthetic-registry-home")
+                );
+                let reads = TEST_WINDOWS_READS.load(std::sync::atomic::Ordering::SeqCst);
+                assert!(reads > 0);
+
+                // Presence is fail-closed, even an empty or unexpected value. The
+                // old key cache and initialized registry snapshot remain bypassed.
+                for value in ["", "0", "1"] {
+                    std::env::set_var("SUSI_NO_REGISTRY_ENV", value);
+                    assert!(lookup(KEY).is_none());
+                    assert!(setting(SETTING).is_none());
+                    assert_eq!(
+                        data_home(),
+                        std::path::Path::new(&fixture_home).join(".susi")
+                    );
+                    assert_eq!(
+                        TEST_WINDOWS_READS.load(std::sync::atomic::Ordering::SeqCst),
+                        reads
+                    );
+                }
+                std::env::set_var(KEY, "synthetic-process-key");
+                assert_eq!(
+                    first_fitting(KEY, None).as_deref(),
+                    Some("synthetic-process-key")
+                );
+                test_dotenv::with_home(
+                    "SUSI_TEST_REGISTRY_SETTING=synthetic-file-setting\n",
+                    || {
+                        assert_eq!(setting(SETTING).as_deref(), Some("synthetic-file-setting"));
+                    },
+                );
+            })
+        });
+    }
 
     #[test]
     fn debug_and_display_never_show_the_key() {

@@ -259,6 +259,7 @@ fn cargo_command(workspace: &Path) -> EaiResult<Command> {
             command.env_remove(key);
         }
     }
+    susi_paths::test_env::isolate_home(&mut command, &home);
     command
         .env(
             "CARGO_HOME",
@@ -275,8 +276,6 @@ fn cargo_command(workspace: &Path) -> EaiResult<Command> {
         .env("CARGO_TARGET_DIR", &target)
         .env("CARGO_BUILD_TARGET_DIR", &target)
         .env("CARGO_BUILD_BUILD_DIR", &target)
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
         .env("SUSI_HOME", home.join("susi"))
         .env("APPDATA", home.join("appdata"))
         .env("LOCALAPPDATA", home.join("localappdata"))
