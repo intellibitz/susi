@@ -1,0 +1,38 @@
+{
+  "id": "T-DOTREVOKE-1",
+  "title": "Persist revocation tombstones for every subject",
+  "goal": "Prevent a sibling memory binding from reappearing after shared revocation.",
+  "created_by": "dot-revoke",
+  "created_unix": 1794241909,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-revoke",
+  "claimed_by": "dot-revoke",
+  "deps": [],
+  "scopes": [
+    "crates/susi-core/src/mac_policy.rs",
+    ".agents/tasks/T-DOTREVOKE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "mac_policy::tests::"
+    ]
+  },
+  "evidence": [
+    "Two cross-instance regressions failed original implementation; 26 MacPolicy tests pass with fix in isolated SUSI_HOME and TEMP.",
+    "cargo clippy --offline --locked -p susi-core --all-targets -- -D warnings passed.",
+    "Independent review /root/revoke_bug/review approved; no blocking findings."
+  ],
+  "limitations": [
+    "Hardens private preloaded attach transition. Current public constructors seed only susi defaults before attach and persisted grants are not cached; no demonstrated current public non-susi exploit.",
+    "Absent or repeated persistent revokes now write tombstones and may report write errors; return bool still describes prior local presence.",
+    "Native gate/ship remains required; no live user state touched."
+  ]
+}

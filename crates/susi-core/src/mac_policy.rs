@@ -887,15 +887,10 @@ impl MacPolicy {
                 .contains_key(&key),
             Err(error) => return Err(error),
         };
-        if present {
-            if subject == "susi" && matches!(resource, "*" | "app://*") {
-                // New consumers seed implicit host defaults. A tombstone masks
-                // this binding until it is explicitly granted again.
-                crate::susi_config::atomic_write_bytes(&current, b"null")?;
-            } else {
-                std::fs::remove_file(&current)?;
-            }
-        }
+        // Missing records fall back to a consumer's memory bindings. Persist
+        // a tombstone for every subject, even if this instance sees no grant,
+        // so a sibling's preexisting binding cannot survive revocation.
+        crate::susi_config::atomic_write_bytes(&current, b"null")?;
         self.grants
             .write()
             .unwrap_or_else(|e| e.into_inner())
@@ -1390,6 +1385,72 @@ mod tests {
         assert!(!writer
             .revoke("worker", actions::PROCESS_EXEC, &scope)
             .unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn revoke_masks_a_siblings_preexisting_memory_binding() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-mac-revoke-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // Exercise the supported internal attach transition: the reader already
+        // holds a process-local grant before joining the shared store.
+        let cached = policy(PrivacyMode::LocalOnly);
+        cached
+            .grant("worker", actions::PROCESS_EXEC, "*", None)
+            .unwrap();
+        let reader = cached.with_state_dir(root.clone());
+        let writer = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        writer
+            .grant("worker", actions::PROCESS_EXEC, "*", None)
+            .unwrap();
+        assert!(reader.is_permitted("worker", actions::PROCESS_EXEC, "*"));
+        assert!(writer.revoke("worker", actions::PROCESS_EXEC, "*").unwrap());
+        assert!(!reader.is_permitted("worker", actions::PROCESS_EXEC, "*"));
+        assert!(reader.grants_for("worker").is_empty());
+        assert!(!writer.revoke("worker", actions::PROCESS_EXEC, "*").unwrap());
+        let restarted = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        assert!(!restarted.is_permitted("worker", actions::PROCESS_EXEC, "*"));
+        writer
+            .grant("worker", actions::PROCESS_EXEC, "*", None)
+            .unwrap();
+        assert!(reader.is_permitted("worker", actions::PROCESS_EXEC, "*"));
+        assert!(restarted.is_permitted("worker", actions::PROCESS_EXEC, "*"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn revoke_masks_a_siblings_memory_binding_without_a_disk_record() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-mac-revoke-absent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let cached = policy(PrivacyMode::LocalOnly);
+        cached
+            .grant("worker", actions::PROCESS_EXEC, "*", None)
+            .unwrap();
+        let reader = cached.with_state_dir(root.clone());
+        let writer = policy(PrivacyMode::LocalOnly).with_state_dir(root.clone());
+        assert!(reader.is_permitted("worker", actions::PROCESS_EXEC, "*"));
+        // The return value still describes this writer's observed old binding.
+        assert!(!writer.revoke("worker", actions::PROCESS_EXEC, "*").unwrap());
+        assert!(!reader.is_permitted("worker", actions::PROCESS_EXEC, "*"));
+        let (path, _) = grant_paths(
+            &root.join("mac.grants"),
+            "worker",
+            actions::PROCESS_EXEC,
+            "*",
+        );
+        assert_eq!(std::fs::read(path).unwrap(), b"null");
         std::fs::remove_dir_all(root).unwrap();
     }
 
