@@ -245,10 +245,9 @@ fn legacy_owner_alive(dir: &Path) -> bool {
         return false;
     }
     if cfg!(windows) {
-        Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
-            .output()
-            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")))
+        // Query the process object directly: no shell, console window, or
+        // parsing of a process-list snapshot. Unreadable identity stays live.
+        susi_config::process_probe::pid_alive(pid).unwrap_or(true)
     } else {
         Path::new(&format!("/proc/{pid}")).exists()
     }
@@ -7151,6 +7150,20 @@ mod tests {
         drop(lock);
     }
 
+    #[test]
+    fn legacy_owner_metadata_rejects_malformed_and_self_identity() {
+        let scratch = Scratch::new();
+        let dir = scratch.0.join("owner-probe");
+        fs::create_dir_all(&dir).unwrap();
+        assert!(!legacy_owner_alive(&dir));
+        for record in [
+            "pid=not-a-number\n".to_owned(),
+            format!("pid={}\n", std::process::id()),
+        ] {
+            fs::write(dir.join("owner"), record).unwrap();
+            assert!(!legacy_owner_alive(&dir));
+        }
+    }
     /// Transition (2026-11-07): a launcher from before per-ship slots holds
     /// `integration` for its whole gate and its `integrate` moves the accepted
     /// ref without `publish`; a slot ship's publication waits for it, but

@@ -1,0 +1,50 @@
+{
+  "id": "T-DOTREUSE-1",
+  "title": "Remove Windows process-list spawn without weakening legacy ownership",
+  "goal": "Bind compositional same-attempt task coverage to exact source, artifacts, invocation and runtime identity before reuse; measure actual critical path and preserve fail-closed fallback.",
+  "created_by": "dot-reuse",
+  "created_unix": 1794222774,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-reuse",
+  "claimed_by": "dot-reuse",
+  "deps": [],
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/test_runner.rs",
+    "xtask/src/native_provenance.rs",
+    "xtask/src/task_test_reuse.rs",
+    ".agents/tasks/T-DOTREUSE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "legacy_"
+    ]
+  },
+  "checkpoint": "Native tasklist removal implemented with existing conservative process_probe::pid_alive; no new dependency or scanner exemption. Proof reuse remains design only and disabled.",
+  "reuse_design": [
+    "Only exact-candidate/same-attempt completed whole binaries; filters/docs/custom harness/unknown flags run fresh.",
+    "Resolve acceptance with successful Cargo no-run JSON; require complete unambiguous artifact inventory and exact features/profile/package ID/target/triple/executable hash plus dependent product and dynamic artifact closure.",
+    "Bind final executable args/cwd/effective environment hash, toolchain/sysroot/config/lock/runner digest, clean-home role, immutable per-binary log/counts and unique execution ID. Never persist secret values.",
+    "Explicit reused-binary-coverage-v1 variant; only earlier successful executed sources, no forward refs/cycles/reuse-of-reuse; same candidate and attempt. Re-merge invalidates all coverage.",
+    "Gate receipt publication must retain reused-versus-executed distinction. Negative tests cover all identity changes, incomplete/duplicate inventories, failed or empty source, changed artifacts/logs, foreign attempt, unsupported selectors."
+  ],
+  "measurements": [
+    "Full unchanged local-workflow unit baseline4threads:135passed,0failed,327.88s; host contention prevents clean speed conclusion.",
+    "Previous gate task:T-DOTPROOF-1 recompiles a different feature artifact then runs5filtered tests; strict initial reuse cannot cover it.",
+    "Unchanged8thread comparison:135passed,0failed,448.46s. Concurrent host activity means no clean causal comparison; do not increase allocation or claim improvement."
+  ],
+  "verification": [
+    "Focused legacy_ tests:4passed,0failed,10.20s.",
+    "Clippy -D warnings, formatting and whitespace checks passed.",
+    "Independent process API semantic review approved; unknown identity remains live. No proof reuse or concurrency behavior enabled."
+  ]
+}
