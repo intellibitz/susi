@@ -1,0 +1,44 @@
+{
+  "schema": "susi-release-record/v1",
+  "product": "susi",
+  "version": "0.21.53",
+  "tag": "v0.21.53",
+  "commit": "afdbc3a995dc1c7f27505155344bb614d724d46f",
+  "tagged": "2026-11-09T09:09:32+05:30",
+  "build": {
+    "toolchain": "1.99.0",
+    "host": "x86_64-pc-windows-msvc",
+    "source": "fresh clone of the tag, Cargo.lock unchanged",
+    "profile": "dist",
+    "features": "susi/local-engine",
+    "env": ["CARGO_PROFILE_DIST_LTO=false", "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"],
+    "command": "cargo build --locked --profile dist -p susi-harness -p susi --features susi/local-engine"
+  },
+  "reproducible": false,
+  "assets": [
+    { "file": "susi-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi", "bin": "susi", "sha256": "4f93428bfbca011891159522dd27d259167e0d040a28bb380e770c53edfa6274" },
+    { "file": "susi-harness-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi-harness", "bin": "susi-harness", "sha256": "23c96223dfc88c674d5aedb08619e9529c36435f92cf11180e68f1acdb139ba1" }
+  ],
+  "missing_targets": [
+    { "target": "x86_64-unknown-linux-gnu", "reason": "no Linux host was available when the release was cut; the Linux reference build is owed" }
+  ],
+  "checks": {
+    "offline_artifact_checks": { "run": 13, "passed": 11 },
+    "superseded": [
+      { "check": "tasks", "reason": "the task queue moved to Susi Commercial Apps in e9914677a (devwf); the binary refuses with exit 1 and names `susi-commercial tasks list`, which the current contract in tests/release_e2e_checks.rs expects" },
+      { "check": "workflow check", "reason": "the developer workflow moved to Susi Commercial Apps in e9914677a (devwf); the binary exits 1 and names `susi-commercial workflow check` instead of printing `not ready`, which the current contract in tests/release_e2e_checks.rs expects" }
+    ],
+    "current_e2e_checks": { "run": 8, "passed": 8 },
+    "not_run": [
+      { "check": "harness no-key onboarding", "reason": "live provider keys are set in this host's registry environment, so the no-key first run cannot be observed here" }
+    ],
+    "locally_qualified": false,
+    "qualification_note": "not locally qualified: of the 14 v0.21.52 offline checks, 11 passed, 2 are superseded by the devwf move, and 1 did not run on the build host; no Linux build exists"
+  },
+  "provenance": [
+    "commit and tagged time: the annotated tag v0.21.53 (git cat-file -p v0.21.53; git for-each-ref --format=%(taggerdate:iso-strict))",
+    "sha256: sha256sum of target/dist/susi.exe and target/dist/susi-harness.exe in a fresh clone of the tag at F:/tmp/r53/src, built on 2026-11-09 (dist profile finished in 2m 47s); the clone's tree and Cargo.lock were unchanged after the build",
+    "features: cargo fingerprint of the susi binary in that target (default, local-engine); susi-harness built with no features",
+    "checks: the v0.21.52 offline check set (missions identity, status, models; brain classify, brain status, ecosystem scan, tasks, workflow check, release --help refused, nested command refused; harness version, env, budget) and the eight checks of tests/release_e2e_checks.rs, each run against the reference binaries in an isolated home (HOME, USERPROFILE, APPDATA, LOCALAPPDATA, XDG_CONFIG_HOME, SUSI_HOME moved, provider key variables removed, SUSI_PORT_OFFSET=700) on 2026-11-09"
+  ]
+}
