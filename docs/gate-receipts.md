@@ -203,9 +203,13 @@ commit and refuses to publish without one.
 
 ## Complete workspace binary execution (staged)
 
-`SUSI_LOCAL_TEST_RUNNER=workspace-binaries` selects the new explicit Windows
-native runtime protocol for a whole-workspace integration test gate. The
-default remains unchanged while workspace qualification is incomplete. Linux
+The experimental `workspace-binaries` path is **not available for production
+activation, receipt publication, or full public replay yet**. The pinned stable
+rustdoc rejects `--test` with `--emit=dep-info`; compile-only doctest discovery
+also requires unstable options. The current Git-visible input snapshot cannot
+account for ignored files consumed by doctests. An explicit request fails
+closed rather than pretending that snapshot is complete. No unstable flags or
+source-code include scanner are used. The default remains unchanged. Linux
 continues to use serial Cargo; the runner does not yet reproduce its dynamic
 library runtime contract. `serial` and `nextest` retain their existing meanings.
 
@@ -225,8 +229,8 @@ and results in the local Git object store. Its private retention refs do not
 travel with an ordinary publication/fetch. Historical validation of those
 original artifact identities requires the retained objects, but not the old
 worktree or target directory. The public receipt intentionally carries only a
-path-free typed descriptor, counts, and the original selection. Public replay
-rebuilds a fresh inventory from the published source in an isolated checkout,
+path-free typed descriptor, counts, and the original selection. The experimental
+replay plumbing rebuilds a fresh inventory from source in an isolated checkout,
 executes it, runs the exact companion doctests, and compares observations. It
 does not claim to recover or independently authenticate old private artifacts.
 Selecting this mode with `--only` requires selecting `doc-tests` too. A missing

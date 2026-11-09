@@ -32,13 +32,13 @@
       "local-workflow"
     ]
   },
-  "checkpoint": "Unfinished typed whole-workspace execution and replay implementation. Strict inventory, guarded launches, retained native evidence, and portable fresh public replay are wired behind explicit Windows opt-in. Default serial behavior is unchanged. Genuine fixture and historical tests passed, but actual Susi build-script duplicate-record compatibility, further negative tests, lint, full gates, independent review and scheduler-source integration remain pending. No acceptance, speed or publication claim.",
+  "checkpoint": "Unfinished experimental typed whole-workspace execution and fresh replay. Production activation, publication, and full public replay fail closed pending an accepted repository-input contract; default serial and historical nextest remain unchanged. Strict inventory, exact guarded execution, matching docs, complete native-proof validation, and typed replay fixtures are implemented. Final focused Clippy and affected evidence, receipt, and provenance tests pass. No source snapshot implementation is authorized. Full correctness qualification, representative clean-clone qualification, scheduler integration, and same-artifact benefit measurement remain pending. No acceptance, speed, or publication claim.",
   "recovery": {
     "method": "Original-source recovery; exact bytes verified before continuing. Library materialization failed on Windows metadata support.",
     "original_task_sha256": "F08D1B41B98194920F78D357CB8CCDDADCB803BB9C726A0CFE1505FFEAF4DF1A"
   },
   "validation": {
-    "notes": "Separate validation observations, not a full acceptance run. Last capture compiled all workspace tests but did not execute them. Runtime metadata exposed repeated identical host/target build-script records requiring a narrowly tested correction.",
+    "notes": "Separate focused observations, not a full acceptance run. Real whole-workspace capture compiled 197 test executables without executing tests. Legitimate identical host/target build-script records are supported with role/profile constraints; conflicting maps and private-root overrides are rejected. An ignored include fixture demonstrates the unresolved input boundary, so production activation remains unavailable.",
     "typed_replay_tests": {
       "failed": 0,
       "outer_ms": 30641,
@@ -77,6 +77,110 @@
       "failed": 0,
       "outer_ms": 40502,
       "passed": 19
+    },
+    "bounded_correctness_tests": {
+      "source_head": "8421ddf8133d56317f777130e73a8dd4618d2507",
+      "source_state": "Owned uncommitted correctness fixes, before parameter-struct-only lint refactor.",
+      "command_prefix": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--features",
+        "release-tooling",
+        "--bin",
+        "local-workflow"
+      ],
+      "groups": [
+        {
+          "filter": "test_binary_evidence::tests::",
+          "passed": 7,
+          "failed": 0,
+          "outer_ms": 30837
+        },
+        {
+          "filter": "gate_receipt::tests::",
+          "passed": 22,
+          "failed": 0,
+          "outer_ms": 38056
+        },
+        {
+          "filter": "native_provenance::tests::",
+          "passed": 4,
+          "failed": 0,
+          "outer_ms": 1063
+        }
+      ],
+      "clippy": {
+        "exit_code": 101,
+        "findings": [
+          "verify_plan argument count",
+          "execute argument count",
+          "persistence callback type complexity"
+        ],
+        "correction": "Parameter records and named callback alias prepared; final rerun pending."
+      }
+    },
+    "review": "Native source review findings addressed in focused tests. Earlier headless Argon code review returned no review after a denied tool request and is not approval. A separate source-only architecture review requested gemini-4-argon-high and returned a nonempty SUCCESS response, exit 0, conversation aa967133-fefc-4520-9b0e-0e1a4aafeed5, with no resolved-model field. It recommends serial option A now and bounded clean-candidate option B only after explicit scope acceptance. This is not implementation or activation approval.",
+    "final_bounded_verification": {
+      "source_head": "8421ddf8133d56317f777130e73a8dd4618d2507",
+      "source_state": "Frozen owned source with the parameter-struct lint correction; zero frozen source hash changes during checks.",
+      "command_prefix": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--features",
+        "release-tooling",
+        "--bin",
+        "local-workflow"
+      ],
+      "groups": [
+        {
+          "filter": "test_binary_evidence::tests::",
+          "passed": 7,
+          "failed": 0,
+          "outer_ms": 32462
+        },
+        {
+          "filter": "gate_receipt::tests::",
+          "passed": 22,
+          "failed": 0,
+          "outer_ms": 89466
+        },
+        {
+          "filter": "native_provenance::tests::",
+          "passed": 4,
+          "failed": 0,
+          "outer_ms": 1114
+        }
+      ],
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--features",
+          "release-tooling",
+          "--bin",
+          "local-workflow",
+          "--bin",
+          "xtask",
+          "--tests",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "outer_ms": 9825
+      }
     }
   }
 }

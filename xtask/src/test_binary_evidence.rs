@@ -19,6 +19,14 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub const SCHEMA: &str = "susi/cargo-test-binaries/v1";
 const BUILD_SUFFIX: [&str; 2] = ["--no-run", "--message-format=json"];
 
+/// The experimental inventory protocol must not be promoted as complete
+/// source-input evidence until doctest dependency coverage is supported.
+/// Pinned stable rustdoc rejects --test with --emit=dep-info, and its no-run
+/// discovery flag requires unstable-options. Never use bootstrap to evade it.
+pub fn require_supported_source_inputs() -> Result<()> {
+    Err("complete workspace binary mode is unavailable: supported doctest input accounting is not yet implemented; use serial Cargo".into())
+}
+
 pub fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
@@ -123,7 +131,7 @@ pub fn build_argv(test_argv: &[String]) -> Result<Vec<String>> {
             _ => {
                 return Err(
                     "unsupported or filtering whole-workspace argument; use serial Cargo".into(),
-                )
+                );
             }
         }
     }
@@ -387,15 +395,25 @@ impl Inventory {
     }
 }
 
+pub struct RetainedRecords<'a> {
+    pub plan: &'a Value,
+    pub result: &'a Value,
+    pub raw: &'a [u8],
+    pub metadata_raw: &'a [u8],
+}
+
 /// Verify retained records without depending on the lifetime of target caches.
 pub fn verify_plan(
-    plan: &Value,
-    result: &Value,
-    raw: &[u8],
-    metadata_raw: &[u8],
+    records: RetainedRecords<'_>,
     argv: &[String],
     cwd: &Path,
 ) -> Result<Vec<String>> {
+    let RetainedRecords {
+        plan,
+        result,
+        raw,
+        metadata_raw,
+    } = records;
     if plan["schema"] != SCHEMA
         || result["schema"] != SCHEMA
         || strings(plan, "argv")? != argv
@@ -464,7 +482,14 @@ pub fn verify_plan(
             return Err("invalid binary runner budget".into());
         }
     }
-    Runtime::parse(raw)?;
+    let triple = argv
+        .windows(2)
+        .find_map(|p| (p[0] == "--target").then_some(p[1].as_str()));
+    if runner["settings"]["triple"] != json!(triple)
+        || plan["runtime"] != Runtime::parse(raw, target, triple)?.record
+    {
+        return Err("substituted build-script runtime contract".into());
+    }
     let docs = doc_argv(&test_argv(argv)?)?;
     if strings(plan, "doc_argv")? != docs {
         return Err("weakened planned doctest companion".into());
@@ -606,10 +631,12 @@ impl RunnerInputs {
 /// cannot reproduce. Serial Cargo remains available for unsupported contracts.
 pub struct Runtime {
     environments: BTreeMap<String, BTreeMap<String, String>>,
+    record: Value,
 }
 impl Runtime {
-    pub fn parse(raw: &[u8]) -> Result<Self> {
+    pub fn parse(raw: &[u8], target: &Path, triple: Option<&str>) -> Result<Self> {
         let mut environments = BTreeMap::new();
+        let mut records: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         for line in std::str::from_utf8(raw)?
             .lines()
             .filter(|l| !l.trim().is_empty())
@@ -622,6 +649,39 @@ impl Runtime {
                 return Err("binary runtime does not support build-script library search paths; use serial Cargo".into());
             }
             let package = text(&value, "package_id")?;
+            // Cargo legitimately reports a dependency's build script once for
+            // the host and again for an explicit target. Their cfgs/link flags
+            // affect the already-bound compiled artifacts; they are not child
+            // environment variables. Preserve BOTH complete records and roles.
+            // Only the equal runtime env projection may be shared.
+            strings(&value, "cfgs")?;
+            strings(&value, "linked_libs")?;
+            let out = Path::new(text(&value, "out_dir")?);
+            inside(out, target)?;
+            if out.file_name().is_none_or(|name| name != "out") {
+                return Err("unsupported build-script output directory".into());
+            }
+            let profile = out
+                .parent()
+                .and_then(Path::parent)
+                .ok_or("invalid build-script profile")?;
+            let host_profile = target.join("debug/build");
+            let selected_profile = triple.map(|t| target.join(t).join("debug/build"));
+            let role = if selected_profile.as_deref() == Some(profile) {
+                "target"
+            } else if profile == host_profile {
+                "host"
+            } else {
+                return Err("unsupported build-script target/profile".into());
+            };
+            if records
+                .entry(package.into())
+                .or_default()
+                .insert(role.into(), digest(&serde_json::to_vec(&value)?))
+                .is_some()
+            {
+                return Err("duplicate build-script record in one target/profile".into());
+            }
             let mut environment = BTreeMap::new();
             for pair in value["env"]
                 .as_array()
@@ -641,10 +701,13 @@ impl Runtime {
                 let upper = key.to_ascii_uppercase();
                 if upper.starts_with("CARGO")
                     || upper.starts_with("RUST")
+                    || upper.starts_with("XDG_")
                     || [
                         "PATH",
                         "HOME",
                         "USERPROFILE",
+                        "HOMEDRIVE",
+                        "HOMEPATH",
                         "APPDATA",
                         "LOCALAPPDATA",
                         "SUSI_HOME",
@@ -671,14 +734,19 @@ impl Runtime {
                     return Err("duplicate build-script runtime environment".into());
                 }
             }
-            if environments
-                .insert(package.to_owned(), environment)
-                .is_some()
-            {
-                return Err("duplicate build-script package runtime record".into());
+            if let Some(previous) = environments.get(package) {
+                if previous != &environment {
+                    return Err("conflicting host/target build-script runtime environments".into());
+                }
+            } else {
+                environments.insert(package.to_owned(), environment);
             }
         }
-        Ok(Self { environments })
+        Ok(Self {
+            environments,
+            record: json!({"schema":"susi/build-script-runtime/v1",
+            "profile":"debug","triple":triple,"records":records}),
+        })
     }
     pub fn apply(
         &self,
@@ -981,18 +1049,30 @@ impl Execution {
     }
 }
 
+pub struct ExecutionSpec<'a> {
+    pub root: &'a Path,
+    pub argv: &'a [String],
+    pub settings: &'a super::test_runner::Settings<'a>,
+    pub callback_source: &'a [u8],
+}
+
+pub type RetainPlan<'a> = dyn Fn(&Value, &[u8], &[u8]) -> Result<()> + 'a;
+
 /// Build, strictly seal, and actually execute the complete Cargo inventory.
 /// `retain` runs before any child and lets the native launcher persist immutable
 /// evidence. Public replay rebuilds fresh evidence, not unavailable old blobs.
 pub fn execute(
-    root: &Path,
-    argv: &[String],
+    spec: ExecutionSpec<'_>,
     build: &mut Command,
-    settings: &super::test_runner::Settings<'_>,
-    callback_source: &[u8],
     launch: &(dyn Fn(&Binary, &Path) -> Result<Command> + Sync),
-    retain: &dyn Fn(&Value, &[u8], &[u8]) -> Result<()>,
+    retain: &RetainPlan<'_>,
 ) -> Result<Execution> {
+    let ExecutionSpec {
+        root,
+        argv,
+        settings,
+        callback_source,
+    } = spec;
     if !cfg!(windows) {
         return Err("complete binary runtime currently requires Windows; use serial Cargo".into());
     }
@@ -1024,7 +1104,7 @@ pub fn execute(
     for diagnostic in diagnostics {
         log.write_all(diagnostic.as_bytes())?;
     }
-    let runtime = Runtime::parse(&output.stdout)?;
+    let runtime = Runtime::parse(&output.stdout, settings.target_dir, settings.triple)?;
     let inventory = Inventory::seal(
         &output.stdout,
         &metadata,
@@ -1037,7 +1117,7 @@ pub fn execute(
     let plan = json!({"schema":SCHEMA,"argv":argv,"cwd":root,"target_dir":settings.target_dir,
         "doc_argv":doc_argv(&logical)?,"build_stdout_sha256":digest(&output.stdout),
         "metadata_sha256":digest(&metadata_raw),"artifacts":inventory.artifacts,
-        "input_sha256":inputs.sha256,"runner":runner.record});
+        "input_sha256":inputs.sha256,"runner":runner.record,"runtime":runtime.record});
     retain(&plan, &output.stdout, &metadata_raw)?;
     let checked_launch = |binary: &Binary, home: &Path| {
         let mut command = launch(binary, home)?;
@@ -1263,6 +1343,128 @@ mod tests {
     }
 
     #[test]
+    fn repeated_build_scripts_require_distinct_roles_and_equal_runtime_maps() {
+        let f = Fixture::new();
+        let host = json!({"reason":"build-script-executed","package_id":"same-package",
+            "linked_paths":[],"linked_libs":[],"cfgs":["host_config"],"env":[["VALUE","same"]],
+            "out_dir":f.target.join("debug/build/pkg-host/out")});
+        let mut target = host.clone();
+        target["out_dir"] = json!(f.target.join("native/debug/build/pkg-target/out"));
+        target["cfgs"] = json!(["target_config"]);
+        let raw = |other: &Value| format!("{host}\n{other}\n").into_bytes();
+        let parsed = Runtime::parse(&raw(&target), &f.target, Some("native")).unwrap();
+        assert_eq!(parsed.environments.len(), 1);
+        assert_eq!(
+            parsed.record["records"]["same-package"]
+                .as_object()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(Runtime::parse(&raw(&host), &f.target, Some("native")).is_err());
+        for case in 0..4 {
+            let mut changed = target.clone();
+            match case {
+                0 => changed["env"] = json!([["VALUE", "different"]]),
+                1 => {
+                    changed["out_dir"] = json!(f.target.join("native/release/build/pkg-target/out"))
+                }
+                2 => changed["linked_paths"] = json!(["native=unsupported"]),
+                _ => changed["env"] = json!([["CARGO_TARGET_DIR", "unsupported"]]),
+            }
+            assert!(Runtime::parse(&raw(&changed), &f.target, Some("native")).is_err());
+        }
+        for key in [
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "XDG_STATE_HOME",
+            "HOMEDRIVE",
+            "HOMEPATH",
+        ] {
+            let mut redirected = target.clone();
+            redirected["env"] = json!([[key, "outside-private-home"]]);
+            assert!(Runtime::parse(&raw(&redirected), &f.target, Some("native")).is_err());
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn real_ignored_include_mutation_cannot_enable_complete_input_claim() {
+        let f = Fixture::new();
+        fs::write(f.root.join("Cargo.toml"),"[package]\nname=\"ignored_fixture\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[workspace]\n").unwrap();
+        fs::write(f.root.join(".gitignore"), "target/\nignored-data.txt\n").unwrap();
+        fs::write(f.root.join("ignored-data.txt"), b"first").unwrap();
+        fs::write(f.root.join("src/lib.rs"),"/// ```\n/// assert_eq!(ignored_fixture::TEXT, \"first\");\n/// assert_eq!(ignored_fixture::BYTES, b\"first\");\n/// ```\npub const TEXT: &str=include_str!(\"../ignored-data.txt\");\npub const BYTES: &[u8]=include_bytes!(\"../ignored-data.txt\");\n").unwrap();
+        let mut cargo = Command::new("cargo");
+        super::super::compiler_env::apply_checked(&mut cargo).unwrap();
+        cargo.current_dir(&f.root);
+        for key in [
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_TARGET_DIR",
+            "CARGO_BUILD_BUILD_DIR",
+        ] {
+            cargo.env(key, &f.target);
+        }
+        assert!(cargo
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap()
+            .status
+            .success());
+        for args in [
+            vec!["init", "-q"],
+            vec!["add", "."],
+            vec![
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@localhost",
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "ignored fixture",
+            ],
+        ] {
+            assert!(Command::new("git")
+                .current_dir(&f.root)
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success());
+        }
+        let mut docs = Command::new("cargo");
+        super::super::compiler_env::apply_checked(&mut docs).unwrap();
+        docs.current_dir(&f.root)
+            .args(["test", "--doc", "--workspace", "--offline", "--locked"])
+            .env("CARGO_BUILD_JOBS", "4");
+        for key in [
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_TARGET_DIR",
+            "CARGO_BUILD_BUILD_DIR",
+        ] {
+            docs.env(key, &f.target);
+        }
+        assert!(docs.output().unwrap().status.success());
+        assert!(require_supported_source_inputs().is_err());
+        fs::write(f.root.join("ignored-data.txt"), b"second").unwrap();
+        assert!(Command::new("git")
+            .current_dir(&f.root)
+            .args(["diff", "--quiet"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(!docs.output().unwrap().status.success());
+        // Neither unchanged Git state nor passing binaries authorizes a claim
+        // covering ignored doctest inputs. No ignored contents are retained.
+        assert!(require_supported_source_inputs().is_err());
+    }
+
+    #[test]
     #[cfg(windows)]
     fn real_cargo_inventory_runtime_docs_and_relocated_history() {
         let f = Fixture::new();
@@ -1394,11 +1596,13 @@ pub fn value() -> u32 { 3 }
             Ok(())
         };
         let execution = execute(
-            &f.root,
-            &argv,
+            ExecutionSpec {
+                root: &f.root,
+                argv: &argv,
+                settings: &settings,
+                callback_source: include_bytes!("test_binary_evidence.rs"),
+            },
             &mut build,
-            &settings,
-            include_bytes!("test_binary_evidence.rs"),
             &launch,
             &retain,
         )
@@ -1428,14 +1632,34 @@ pub fn value() -> u32 { 3 }
         let (plan, raw, metadata) = retained.into_inner().unwrap().unwrap();
         let result = execution.result.clone();
         assert_eq!(
-            verify_plan(&plan, &result, &raw, &metadata, &argv, &f.root).unwrap(),
+            verify_plan(
+                RetainedRecords {
+                    plan: &plan,
+                    result: &result,
+                    raw: &raw,
+                    metadata_raw: &metadata
+                },
+                &argv,
+                &f.root,
+            )
+            .unwrap(),
             doc_argv(&logical).unwrap()
         );
         let mut weakened = plan.clone();
         weakened["doc_argv"][9] = json!("a");
         let mut forged_result = result.clone();
         forged_result["plan_sha256"] = json!(digest(&serde_json::to_vec(&weakened).unwrap()));
-        assert!(verify_plan(&weakened, &forged_result, &raw, &metadata, &argv, &f.root).is_err());
+        assert!(verify_plan(
+            RetainedRecords {
+                plan: &weakened,
+                result: &forged_result,
+                raw: &raw,
+                metadata_raw: &metadata
+            },
+            &argv,
+            &f.root,
+        )
+        .is_err());
         for index in 0..4 {
             let mut changed = result.clone();
             match index {
@@ -1452,7 +1676,17 @@ pub fn value() -> u32 { 3 }
                     changed["failed"] = json!(1);
                 }
             }
-            assert!(verify_plan(&plan, &changed, &raw, &metadata, &argv, &f.root).is_err());
+            assert!(verify_plan(
+                RetainedRecords {
+                    plan: &plan,
+                    result: &changed,
+                    raw: &raw,
+                    metadata_raw: &metadata
+                },
+                &argv,
+                &f.root,
+            )
+            .is_err());
         }
         fs::write(
             f.root.join("src/lib.rs"),
@@ -1470,7 +1704,17 @@ pub fn value() -> u32 { 3 }
         fs::rename(&f.root, &relocated).unwrap();
         // No old source/target path exists. Historical verification uses only
         // retained bytes and intentionally never calls the legacy live parser.
-        assert!(verify_plan(&plan, &result, &raw, &metadata, &argv, &f.root).is_ok());
+        assert!(verify_plan(
+            RetainedRecords {
+                plan: &plan,
+                result: &result,
+                raw: &raw,
+                metadata_raw: &metadata
+            },
+            &argv,
+            &f.root,
+        )
+        .is_ok());
         fs::remove_dir_all(relocated).unwrap();
     }
 }

@@ -664,6 +664,20 @@ pub fn gates_from_native(root: &Path, native: &Value) -> Result<Vec<GateRecord>>
         .ok_or("native gate plan has no gates")?;
     let mut records = Vec::with_capacity(gates.len());
     for gate in gates {
+        if gate.get("execution").is_some() {
+            let plan = native
+                .get("plan")
+                .and_then(Value::as_array)
+                .ok_or("missing native binary gate plan")?;
+            let planned: Vec<_> = plan.iter().filter(|p| p["id"] == gate["id"]).collect();
+            if planned.len() != 1
+                || planned[0]["argv"] != gate["argv"]
+                || planned[0]["execution"] != json!({"schema":crate::test_binary_evidence::SCHEMA})
+            {
+                return Err("unplanned or substituted native binary execution".into());
+            }
+            crate::native_provenance::verify_binary_execution(root, gate, gates)?;
+        }
         let id = gate
             .get("id")
             .and_then(Value::as_str)
@@ -869,6 +883,12 @@ pub fn build(landing: &Landing<'_>) -> Result<Value> {
         Some(native) => gates_from_native(root, native)?,
         None => gates_from_evidence(evidence),
     };
+    // The fallback path is not allowed to turn a successful compilation into
+    // an untyped test receipt when native-gates.json is missing.
+    validate_executions(&gates)?;
+    if gates.iter().any(|g| g.execution.is_some()) {
+        crate::test_binary_evidence::require_supported_source_inputs()?;
+    }
     if gates.is_empty() {
         return Err("no gate results to record".into());
     }
@@ -1364,6 +1384,9 @@ pub fn rerun_gate(
     home: &Path,
     log_path: &Path,
 ) -> Result<GateRecord> {
+    if recorded.execution.is_some() {
+        crate::test_binary_evidence::require_supported_source_inputs()?;
+    }
     Ok(rerun_gate_retained(recorded, worktree, target_dir, home, log_path)?.0)
 }
 
@@ -1447,11 +1470,13 @@ fn rerun_gate_retained(
             Ok(child)
         };
         let execution = crate::test_binary_evidence::execute(
-            worktree,
-            &argv,
+            crate::test_binary_evidence::ExecutionSpec {
+                root: worktree,
+                argv: &argv,
+                settings: &settings,
+                callback_source: include_bytes!("gate_receipt.rs"),
+            },
             &mut command,
-            &settings,
-            include_bytes!("gate_receipt.rs"),
             &launch,
             &|_, _, _| Ok(()),
         )?;
@@ -1885,6 +1910,9 @@ fn rerun_all(
     report: &mut Report,
 ) -> Result<()> {
     validate_executions(gates)?;
+    if gates.iter().any(|g| g.execution.is_some()) {
+        crate::test_binary_evidence::require_supported_source_inputs()?;
+    }
     if !options.only.is_empty()
         && gates.iter().any(|g| {
             g.execution.is_some()
@@ -1947,6 +1975,12 @@ fn rerun_all(
     }
     for execution in retained_executions {
         execution.recheck()?;
+        // This enclosing measurement includes the final guard pass and the
+        // companion gates; per-gate Cargo times remain informational only.
+        eprintln!(
+            "verify-receipt: complete binary replay including final input checks: {} ms",
+            execution.elapsed_ms()
+        );
     }
     Ok(())
 }
@@ -2652,6 +2686,19 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("did not pass"));
+        let compile_only=vec!["cargo test --workspace --offline --locked --no-run --message-format=json => exit code: 0; elapsed-ms=1".into()];
+        let fallback = Landing {
+            root: &repo,
+            head: &head,
+            origin_main: &base,
+            sources: vec![],
+            native_gates: None,
+            evidence: &compile_only,
+        };
+        assert!(build(&fallback)
+            .unwrap_err()
+            .to_string()
+            .contains("no typed execution descriptor"));
         let empty: Vec<String> = vec!["gate-selection=workspace:x".into()];
         let landing = Landing {
             root: &repo,
@@ -2861,6 +2908,30 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("invalid log blob"));
+    }
+
+    #[test]
+    fn native_conversion_rejects_schema_only_and_missing_binary_evidence() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let argv = crate::test_binary_evidence::build_argv(&[
+            "cargo".into(),
+            "test".into(),
+            "--workspace".into(),
+        ])
+        .unwrap();
+        let mode = json!({"schema":crate::test_binary_evidence::SCHEMA});
+        let mut native = json!({"plan":[{"id":"workspace-tests","argv":argv,"execution":mode}],
+            "gates":[{"id":"workspace-tests","argv":argv,"execution":mode}]});
+        assert!(gates_from_native(&repo, &native)
+            .unwrap_err()
+            .to_string()
+            .contains("plan_blob"));
+        for field in ["plan_blob", "raw_blob", "metadata_blob", "result_blob"] {
+            native["gates"][0]["execution"][field] =
+                json!("0000000000000000000000000000000000000000");
+        }
+        assert!(gates_from_native(&repo, &native).is_err());
     }
 
     #[test]

@@ -1177,7 +1177,10 @@ fn run_complete_binaries(
         build_jobs: test_runner::threads_per_binary(gate.share.jobs, lanes),
         home_root: &homes,
         target_dir: gate.target,
-        triple: Some(gate.host),
+        triple: gate
+            .args
+            .windows(2)
+            .find_map(|p| (p[0] == "--target").then_some(p[1].as_str())),
         durations: &durations,
         heavy: &heavy,
         log: gate.log_path,
@@ -1197,11 +1200,13 @@ fn run_complete_binaries(
     };
     let retained = std::cell::RefCell::new(None);
     let execution = test_binary_evidence::execute(
-        gate.candidate,
-        &argv,
+        test_binary_evidence::ExecutionSpec {
+            root: gate.candidate,
+            argv: &argv,
+            settings: &settings,
+            callback_source: include_bytes!("local-workflow.rs"),
+        },
         &mut build,
-        &settings,
-        include_bytes!("local-workflow.rs"),
         &launch,
         &|plan, raw, metadata| {
             *retained.borrow_mut() = Some(native_provenance::retain_binary_plan(
@@ -1658,6 +1663,9 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     let complete_workspace = !nextest
         && complete_workspace_requested()
         && matches!(selection, affected::Selection::Workspace(_));
+    if complete_workspace {
+        test_binary_evidence::require_supported_source_inputs()?;
+    }
     let parallel_tests = !nextest
         && !test_runner::serial_requested()
         && (matches!(selection, affected::Selection::Packages(_)) || complete_workspace);
@@ -1952,13 +1960,22 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     if let Some((index, execution, mut descriptor)) = pending_binary {
         native_provenance::finish_binary_plan(candidate, &mut descriptor, &execution)?;
         native_gates[index]["execution"] = descriptor;
-        // Inclusive of input/artifact hashing, companions, and persistence.
+        // Preliminary per-gate time. The enclosing phase below also includes
+        // final receipt persistence and the last input/artifact guard pass.
         native_gates[index]["elapsed_ms"] = serde_json::json!(execution.elapsed_ms());
         fs::write(
             attempt.join("native-gates.json"),
             serde_json::to_vec_pretty(&serde_json::json!({"plan":plan,"gates":native_gates}))?,
         )?;
         execution.recheck()?;
+        record_phase(
+            "complete workspace binaries including persistence and final checks",
+            execution.elapsed_ms(),
+        );
+        evidence.push(format!(
+            "complete-binaries-inclusive-ms={}",
+            execution.elapsed_ms()
+        ));
     }
     if let (Some((key, command)), Some(sysroot)) = (pending_workspace_proof, sysroot.as_ref()) {
         let remeasured = workspace_test_proof::fingerprint(
@@ -2325,7 +2342,12 @@ where
     };
     for (claim, source, _, bytes) in &inputs {
         let claimant = &claim.name;
-        let receipt = format!("susi-local-integration-v1\nagent={claimant}\nsource={source}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n", claim.base, previous.as_deref().unwrap_or("none"), evidence.join("\n"));
+        let receipt = format!(
+            "susi-local-integration-v1\nagent={claimant}\nsource={source}\nclaim-base={}\nprevious={}\ncommit={head}\ntree={tree}\n{}\n",
+            claim.base,
+            previous.as_deref().unwrap_or("none"),
+            evidence.join("\n")
+        );
         let oid = git_input(root, &["hash-object", "-w", "--stdin"], receipt.as_bytes())?;
         let receipt_ref = format!("refs/susi/integration/receipts/{claimant}/{source}");
         transaction.push_str(&format!("create {receipt_ref} {oid}\n"));
@@ -4307,6 +4329,10 @@ fn check(root: &Path) -> Result<()> {
     let workspace = affected::load(&top)?;
     let selection = affected::select(&workspace, &changed);
     let workspace_selected = matches!(selection, affected::Selection::Workspace(_));
+    let complete_workspace = !nextest && workspace_selected && complete_workspace_requested();
+    if complete_workspace {
+        test_binary_evidence::require_supported_source_inputs()?;
+    }
     match selection {
         affected::Selection::Packages(packages) => {
             println!(
@@ -4335,8 +4361,14 @@ fn check(root: &Path) -> Result<()> {
     }
     // A narrowed `cargo test` gate runs through the concurrent binary runner
     // (see `test_runner`), which leaves doctests to the companion gate.
-    let runner_tests = !nextest && !test_runner::serial_requested() && !workspace_selected;
-    if nextest {
+    let runner_tests =
+        !nextest && !test_runner::serial_requested() && (!workspace_selected || complete_workspace);
+    if complete_workspace {
+        let logical: Vec<String> = std::iter::once("cargo".into())
+            .chain(gates[2].iter().cloned())
+            .collect();
+        gates.push(test_binary_evidence::doc_argv(&logical)?[1..].to_vec());
+    } else if nextest {
         if let Some(doc) = doc_gate(&gates[2], Some(&workspace.libraries)) {
             gates.push(doc);
         }
@@ -4357,6 +4389,24 @@ fn check(root: &Path) -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| original_home.join(".rustup"));
     let target = top.join("target");
+    if complete_workspace {
+        let (_, host) = gate_receipt::rustc_version(&top)?;
+        for args in gates
+            .iter_mut()
+            .filter(|args| args.first().is_some_and(|a| a == "test"))
+        {
+            args.extend([
+                "--target".into(),
+                host.clone(),
+                "--target-dir".into(),
+                text(&target)?.into(),
+            ]);
+        }
+        let logical: Vec<String> = std::iter::once("cargo".into())
+            .chain(gates[2].iter().cloned())
+            .collect();
+        gates[2] = test_binary_evidence::build_argv(&logical)?[1..].to_vec();
+    }
     seed_worktree_target(&top, &top, false);
     // The same refusal a ship makes: a check that would run out of disk
     // fails after its compile time with an error that reads like a compiler
@@ -4375,6 +4425,7 @@ fn check(root: &Path) -> Result<()> {
     )?;
     let _live = live_gate();
     let total = std::time::Instant::now();
+    let mut pending_binary = None;
     for args in &gates {
         let started = std::time::Instant::now();
         let mut command = check_command(&top, args, &target, &home, (&cargo_home, &rustup_home));
@@ -4384,7 +4435,27 @@ fn check(root: &Path) -> Result<()> {
         let binaries_gate = runner_tests
             && args.first().map(String::as_str) == Some("test")
             && !args.iter().any(|arg| arg == "--doc");
-        let status = if binaries_gate {
+        let status = if binaries_gate && complete_workspace {
+            let log = home.join("complete-workspace.log");
+            fs::write(&log, [])?;
+            pending_binary = Some(run_complete_binaries(&TestBinariesGate {
+                candidate: &top,
+                attempt: &home,
+                args,
+                host: "",
+                target: &target,
+                log_path: &log,
+                share,
+                env: GateEnv {
+                    home: &home,
+                    cargo_home: &cargo_home,
+                    rustup_home: &rustup_home,
+                    target: &target,
+                    sysroot: None,
+                },
+            })?);
+            exit_status(0)
+        } else if binaries_gate {
             check_test_binaries(
                 &CheckGate {
                     top: &top,
@@ -4407,6 +4478,14 @@ fn check(root: &Path) -> Result<()> {
         if !status.success() {
             return Err(format!("check failed: cargo {}", args.join(" ")).into());
         }
+    }
+    if let Some((execution, mut descriptor)) = pending_binary {
+        native_provenance::finish_binary_plan(&top, &mut descriptor, &execution)?;
+        execution.recheck()?;
+        record_phase(
+            "check complete binaries including final input checks",
+            execution.elapsed_ms(),
+        );
     }
     println!("check: passed in {:.1}s", total.elapsed().as_secs_f64());
     Ok(())
@@ -6032,7 +6111,12 @@ mod tests {
         let head = integrate_many_with(&repo, &["native", "second"], verify_candidate).unwrap();
         assert_eq!(integration_head(&repo).unwrap(), Some(head.clone()));
         verify_real_native_provenance(&repo, &scratch.0, &head);
-        let broken = worker(&repo, "broken", "src/lib.rs", "#[test]\nfn failing_test() {\n    let actual = std::hint::black_box(4);\n    assert_eq!(actual, 5);\n}\n");
+        let broken = worker(
+            &repo,
+            "broken",
+            "src/lib.rs",
+            "#[test]\nfn failing_test() {\n    let actual = std::hint::black_box(4);\n    assert_eq!(actual, 5);\n}\n",
+        );
         extend(&broken, "broken", &[".agents/tasks/T-BROKEN-1.json".into()]).unwrap();
         fs::write(
             broken.join(".agents/tasks/T-BROKEN-1.json"),
