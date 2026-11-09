@@ -264,70 +264,15 @@ impl SusiRuntimeAdmin {
                 .is_some_and(|name| name == "bus")
     }
 
-    /// Best-effort local scan of `substrate_home` for exfiltration risk:
-    /// known credential/key files whose permissions grant group or other
-    /// any access. This is the substrate-safety scan `perform_host_readiness`
-    /// promises — no LLM-driven analysis, but a real, bounded, permission-based
-    /// check rather than an inert placeholder. A `*.key`/`*token*` file
-    /// existing under `~/.susi` is expected (cluster/node identity); the
-    /// risk is exposure via permissive bits, not mere existence.
-    #[cfg(unix)]
-    fn scan_for_exfiltration_risks(substrate_home: &Path) -> Vec<String> {
-        use std::os::unix::fs::PermissionsExt;
-
-        const SENSITIVE_NAME_FRAGMENTS: &[&str] = &[
-            "key",
-            "token",
-            "secret",
-            "credential",
-            "id_rsa",
-            "id_ed25519",
-            ".pem",
-        ];
-        const MAX_ENTRIES: usize = 4096;
-
-        let mut findings = Vec::new();
-        let mut stack = vec![substrate_home.to_path_buf()];
-        let mut visited = 0usize;
-
-        while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                visited += 1;
-                if visited > MAX_ENTRIES {
-                    return findings;
-                }
-                let path = entry.path();
-                let Ok(metadata) = entry.metadata() else {
-                    continue;
-                };
-                if metadata.is_dir() {
-                    if !Self::is_bus_endpoint_metadata(&path) {
-                        stack.push(path);
-                    }
-                    continue;
-                }
-                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                    continue;
-                };
-                let lower = name.to_ascii_lowercase();
-                if !SENSITIVE_NAME_FRAGMENTS
-                    .iter()
-                    .any(|frag| lower.contains(frag))
-                {
-                    continue;
-                }
-                if metadata.permissions().mode() & 0o077 != 0 {
-                    findings.push(path.display().to_string());
-                }
-            }
-        }
-        findings
-    }
-
-    #[cfg(not(unix))]
+    /// Local scan of `substrate_home` for exfiltration risk: known
+    /// credential/key files whose permissions grant group or other any access.
+    /// This is the substrate-safety scan `perform_host_readiness` promises: no
+    /// LLM-driven analysis, a real, bounded, permission-based check. A
+    /// `*.key`/`*token*` file existing under `~/.susi` is expected
+    /// (cluster/node identity); the risk is exposure via permissive access,
+    /// not mere existence. Whatever the scan cannot see (a directory it cannot
+    /// list, an entry it cannot stat, the entry budget running out) is a
+    /// finding too: only a path that vanished mid-scan is skipped.
     fn scan_for_exfiltration_risks(substrate_home: &Path) -> Vec<String> {
         const SENSITIVE_NAME_FRAGMENTS: &[&str] = &[
             "key",
@@ -339,23 +284,48 @@ impl SusiRuntimeAdmin {
             ".pem",
         ];
         const MAX_ENTRIES: usize = 4096;
+        let unverifiable = |path: &Path, what: &str, error: &std::io::Error| {
+            format!("{} ({what} unverifiable: {error})", path.display())
+        };
 
         let mut findings = Vec::new();
         let mut stack = vec![substrate_home.to_path_buf()];
         let mut visited = 0usize;
 
         while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
+            let entries = match std::fs::read_dir(&dir) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    findings.push(unverifiable(&dir, "directory", &error));
+                    continue;
+                }
             };
-            for entry in entries.flatten() {
+            for entry in entries {
                 visited += 1;
                 if visited > MAX_ENTRIES {
+                    findings.push(format!(
+                        "{} (scan stopped after {MAX_ENTRIES} entries; the rest is unverified)",
+                        substrate_home.display()
+                    ));
                     return findings;
                 }
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        findings.push(unverifiable(&dir, "directory entry", &error));
+                        continue;
+                    }
+                };
                 let path = entry.path();
-                let Ok(metadata) = entry.metadata() else {
-                    continue;
+                let metadata = match entry.metadata() {
+                    Ok(metadata) => metadata,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    // Without metadata this may be a directory or a credential.
+                    Err(error) => {
+                        findings.push(unverifiable(&path, "metadata", &error));
+                        continue;
+                    }
                 };
                 if metadata.is_dir() {
                     if !Self::is_bus_endpoint_metadata(&path) {
@@ -363,19 +333,21 @@ impl SusiRuntimeAdmin {
                     }
                     continue;
                 }
-                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                    continue;
-                };
-                let lower = name.to_ascii_lowercase();
+                let lower = entry.file_name().to_string_lossy().to_ascii_lowercase();
                 if !SENSITIVE_NAME_FRAGMENTS
                     .iter()
                     .any(|frag| lower.contains(frag))
                 {
                     continue;
                 }
-                if let Some(finding) = Self::acl_finding(&path, Self::windows_acl_listing(&path)) {
-                    findings.push(finding);
-                }
+                #[cfg(unix)]
+                let finding = {
+                    use std::os::unix::fs::PermissionsExt;
+                    (metadata.permissions().mode() & 0o077 != 0).then(|| path.display().to_string())
+                };
+                #[cfg(not(unix))]
+                let finding = Self::acl_finding(&path, Self::windows_acl_listing(&path));
+                findings.extend(finding);
             }
         }
         findings
@@ -456,6 +428,7 @@ impl SusiRuntimeAdmin {
             "S-1-5-11" => "NT AUTHORITY\\Authenticated Users".to_string(),
             "S-1-5-32-545" => "BUILTIN\\Users".to_string(),
             "S-1-5-32-546" => "BUILTIN\\Guests".to_string(),
+            "S-1-5-7" => "NT AUTHORITY\\ANONYMOUS LOGON".to_string(),
             // The built-in Guest account: relative id 501 of a machine or
             // domain (`S-1-5-21-<three ids>-501`).
             guest if guest.starts_with("S-1-5-21-") && guest.ends_with("-501") => {
@@ -534,41 +507,59 @@ impl SusiRuntimeAdmin {
                 rest &= !bits;
             }
         }
-        if parts.is_empty() {
+        // A bit this notation has no name for is shown, never dropped: the
+        // parser treats the `U` token as unknown rights.
+        let mut text = parts.join(",");
+        if rest != 0 {
+            text.push_str(&format!(
+                "{}U{rest:X}",
+                if text.is_empty() { "" } else { "," }
+            ));
+        }
+        if text.is_empty() {
             "N".to_string()
         } else {
-            parts.join(",")
+            text
         }
     }
 
-    /// Inspect `icacls` output and return `true` when broad non-owner principals
-    /// (`Everyone`, `BUILTIN\Users`, `Authenticated Users`, `Guests`) are granted
-    /// write, modify, or full-access permissions (`(F)`, `(M)`, `(W)`), or when
-    /// `Everyone` is granted read access on a credential file.
+    /// Inspect `icacls`-notation output and return `true` when a broad
+    /// non-owner principal holds more than it may. `Everyone`, `Guests` and
+    /// `Anonymous` may hold nothing; `BUILTIN\Users` and `Authenticated Users`
+    /// may hold read rights only. Every parenthesized group is split into its
+    /// comma-separated tokens and each token is judged, so `(R,W)`, `(WDAC)`,
+    /// `(DE)` and `(DENY)(W)` are caught as `(F)`, `(M)` and `(W)` are. Fail
+    /// closed: a token that is not a known inheritance flag or read right, or
+    /// a broad-principal entry whose rights do not parse, is overly permissive.
     #[cfg(any(not(unix), test))]
     #[must_use]
     pub(crate) fn windows_acl_is_overly_permissive(icacls_output: &str) -> bool {
-        const BROAD_PRINCIPALS: &[&str] = &[
-            "everyone:",
-            "builtin\\users:",
-            "nt authority\\authenticated users:",
-            "authenticated users:",
-            "builtin\\guests:",
-            "guest:",
+        // (principal as `icacls` prints it, may it hold read rights)
+        const BROAD_PRINCIPALS: &[(&str, bool)] = &[
+            ("everyone:", false),
+            ("builtin\\users:", true),
+            ("nt authority\\authenticated users:", true),
+            ("authenticated users:", true),
+            ("builtin\\guests:", false),
+            ("guest:", false),
+            ("anonymous logon:", false),
         ];
+        const INHERITANCE: &[&str] = &["i", "oi", "ci", "io", "np", "n"];
+        const READ: &[&str] = &["r", "rx", "rd", "rea", "ra", "rc", "x", "s"];
         for raw_line in icacls_output.lines() {
             let line = raw_line.trim().to_ascii_lowercase();
             if line.is_empty() || line.starts_with("successfully processed") {
                 continue;
             }
-            for principal in BROAD_PRINCIPALS {
-                if let Some(idx) = line.find(principal) {
-                    let perms = &line[idx + principal.len()..];
-                    if *principal == "everyone:"
-                        || perms.contains("(f)")
-                        || perms.contains("(m)")
-                        || perms.contains("(w)")
-                        || perms.contains("(rx,w)")
+            for (principal, may_read) in BROAD_PRINCIPALS {
+                for (idx, _) in line.match_indices(principal) {
+                    let Some(tokens) = Self::acl_rights_tokens(&line[idx + principal.len()..])
+                    else {
+                        return true;
+                    };
+                    if tokens
+                        .iter()
+                        .any(|t| !INHERITANCE.contains(t) && !(*may_read && READ.contains(t)))
                     {
                         return true;
                     }
@@ -576,6 +567,23 @@ impl SusiRuntimeAdmin {
             }
         }
         false
+    }
+
+    /// The tokens of `(a,b)(c)...` (a clean run of groups, nothing else), or
+    /// `None` when the text is not exactly that or holds no token at all.
+    #[cfg(any(not(unix), test))]
+    fn acl_rights_tokens(mut text: &str) -> Option<Vec<&str>> {
+        let mut tokens = Vec::new();
+        text = text.trim();
+        while !text.is_empty() {
+            let (group, tail) = text.strip_prefix('(')?.split_once(')')?;
+            if group.contains('(') {
+                return None;
+            }
+            tokens.extend(group.split(',').map(str::trim));
+            text = tail.trim_start();
+        }
+        (!tokens.is_empty()).then_some(tokens)
     }
 
     /// Host-only readiness (models, substrate safety). Never treats
@@ -1088,6 +1096,128 @@ mod tests {
         assert!(!SusiRuntimeAdmin::windows_acl_is_overly_permissive(
             locked_down
         ));
+    }
+
+    /// Adversarial: every right the formatter can print for a broad principal
+    /// must be judged, composite groups and specific bits included.
+    #[test]
+    fn windows_acl_parser_fails_closed_on_composite_specific_and_malformed_rights() {
+        let judge = SusiRuntimeAdmin::windows_acl_is_overly_permissive;
+        for exposed in [
+            r"BUILTIN\Users:(R,W)",
+            r"BUILTIN\Users:(W,D)",
+            r"BUILTIN\Users:(R,W,D)",
+            r"BUILTIN\Users:(I)(R,W)",
+            r"BUILTIN\Users:(WD)",
+            r"BUILTIN\Users:(AD)",
+            r"BUILTIN\Users:(WEA)",
+            r"BUILTIN\Users:(DC)",
+            r"BUILTIN\Users:(DE)",
+            r"BUILTIN\Users:(WDAC)",
+            r"BUILTIN\Users:(WO)",
+            r"BUILTIN\Users:(R,WDAC)",
+            r"BUILTIN\Users:(R)(WO)",
+            r"BUILTIN\Users:(R,U200)",
+            r"BUILTIN\Users:(DENY)(W)",
+            r"BUILTIN\Users:(I)(OI)(CI)(M)",
+            r"NT AUTHORITY\Authenticated Users:(R,W)",
+            r"NT AUTHORITY\Authenticated Users:(WDAC)",
+            r"Everyone:(R)",
+            r"Everyone:(I)(RX)",
+            r"BUILTIN\Guests:(R)",
+            r"Guest:(R)",
+            r"NT AUTHORITY\ANONYMOUS LOGON:(R)",
+            // Not a clean run of groups, or no rights at all: unparseable.
+            r"Everyone:",
+            r"Everyone:(",
+            r"Everyone:(N",
+            r"BUILTIN\Users:",
+            r"BUILTIN\Users:()",
+            r"BUILTIN\Users:(R",
+            r"BUILTIN\Users:(R)junk",
+            r"BUILTIN\Users:((R))",
+            r"BUILTIN\Users:(R,)",
+            // Upper case, padding and a second broad entry on the line.
+            r"  builtin\USERS:(r,w)  ",
+            "C:\\susi\\cluster.key BUILTIN\\Users:(R) BUILTIN\\Users:(W)",
+        ] {
+            assert!(judge(exposed), "must be flagged: {exposed}");
+        }
+        for restrictive in [
+            r"BUILTIN\Users:(R)",
+            r"BUILTIN\Users:(I)(RX)",
+            r"BUILTIN\Users:(OI)(CI)(RX)",
+            r"BUILTIN\Users:(R,RC,REA,RA,S)",
+            r"NT AUTHORITY\Authenticated Users:(I)(R)",
+            r"Everyone:(N)",
+            r"*S-1-5-18:(F)",
+            r"*S-1-5-21-1-2-3-1001:(M)",
+            r"BUILTIN\Administrators:(I)(F)",
+        ] {
+            assert!(!judge(restrictive), "must not be flagged: {restrictive}");
+        }
+    }
+
+    /// The formatter and the parser agree on every mask: for any combination
+    /// of two access bits, `BUILTIN\Users` is flagged exactly when the mask
+    /// holds a bit beyond read/execute, and `Everyone` for any right at all.
+    #[test]
+    fn every_mask_the_formatter_prints_is_judged_by_what_it_grants() {
+        const READ_ONLY: u32 = 0x0012_00A9 | 0x8000_0000 | 0x2000_0000;
+        let mut masks = vec![0u32, 0x001F_01FF, 0x0013_01BF, 0x0012_0089, 0x0012_0116];
+        for a in 0..32 {
+            masks.push(1u32 << a);
+            for b in a + 1..32 {
+                masks.push((1u32 << a) | (1u32 << b));
+            }
+        }
+        for mask in masks {
+            let users = SusiRuntimeAdmin::icacls_entry_line("S-1-5-32-545", false, false, mask);
+            assert_eq!(
+                SusiRuntimeAdmin::windows_acl_is_overly_permissive(&users),
+                mask & !READ_ONLY != 0,
+                "{mask:#x} printed as {users}"
+            );
+            let everyone = SusiRuntimeAdmin::icacls_entry_line("S-1-1-0", false, false, mask);
+            assert_eq!(
+                SusiRuntimeAdmin::windows_acl_is_overly_permissive(&everyone),
+                mask != 0,
+                "{mask:#x} printed as {everyone}"
+            );
+        }
+        assert_eq!(SusiRuntimeAdmin::icacls_rights(0x0012_019F), "R,W");
+        assert_eq!(SusiRuntimeAdmin::icacls_rights(0x0000_8000), "U8000");
+    }
+
+    #[test]
+    fn the_scan_reports_what_it_cannot_list_or_finish() {
+        let root = std::env::temp_dir().join(format!("susi_scan_blind_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        // A home that is not a directory cannot be listed: a finding.
+        let not_a_directory = root.join("home");
+        std::fs::write(&not_a_directory, b"x").unwrap();
+        let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&not_a_directory);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(
+            findings[0].contains("directory unverifiable"),
+            "{findings:?}"
+        );
+        // A home that does not exist yet has nothing to expose.
+        assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&root.join("absent")).is_empty());
+
+        // Past the entry budget the rest is unverified, and says so.
+        let big = root.join("big");
+        std::fs::create_dir_all(&big).unwrap();
+        for index in 0..4097 {
+            std::fs::File::create(big.join(format!("f{index}"))).unwrap();
+        }
+        let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&big);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].contains("scan stopped"), "{findings:?}");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Give `path` the access list `icacls <path> /grant *S-1-1-0:F` gave: the

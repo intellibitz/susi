@@ -53,28 +53,44 @@ process token user.
 - No raw pointer, handle or descriptor crosses out of the module. Errors are
   `io::Error` from the Win32 status; a failure to restrict a secret is
   reported, not ignored, by callers that require it.
-- Fail-closed reads: `read_dacl` lists only allow and deny entries. Entry
-  types that never carry access (audit, alarm, mandatory label, resource
-  attribute, scoped policy, trust label, access filter) are left out; every
-  other type (compound, object, callback, and any type newer than this
-  module) fails the read with the typed `UnsupportedAce` error (index and
-  type byte, an `io::Error` of kind `Unsupported`), so a list that omitted an
-  entry able to grant access never reads as restrictive. The readiness scan in
-  `susi-daemon` reports such a file as an unverifiable credential finding
-  rather than a clean one. This change adds no `unsafe` expression to
-  production code (the classification is safe code), so the geiger counts
-  below are unchanged; the new tests use per-function test-only allowances
-  that cargo-geiger does not count.
-- Tests (real files, real Win32): the DACL after `restrict_to_current_user` is
-  exactly one non-inherited `FILE_ALL_ACCESS` entry for the token user (the
-  owner can still rewrite and delete the file); `set_protected_dacl` holds the
-  requested grants in order; SID strings round-trip through the binary form
-  and malformed strings are refused; a missing path and an embedded NUL are
-  errors, not panics; real files whose DACL holds an object allow, a callback
-  allow or a callback deny entry (planted with `AddAce` at `ACL_REVISION_DS`)
-  fail `read_dacl` with `UnsupportedAce { index, ace_type }`; every one of the
-  256 entry types is classified and none that can carry access is skipped; a
-  raw allow/deny pair still lists exactly.
+- Fail-closed reads: `read_dacl` lists only allow and deny entries, each as
+  stored (an inherit-only entry is listed like any other, so the reader can
+  only over-report). Every other entry type fails the read with the typed
+  `UnsupportedAce` error (index and type byte, an `io::Error` of kind
+  `Unsupported`): compound, object, callback, any type newer than this module,
+  and also the audit, alarm, mandatory-label, resource-attribute,
+  scoped-policy, trust-label and access-filter types, which belong to a SACL,
+  not a DACL, so one found in a DACL is not a list this module can vouch for
+  (an earlier revision skipped them as harmless; the type table is deleted).
+  An ACL header whose revision is not `ACL_REVISION` (2) or `ACL_REVISION_DS`
+  (4) fails with `InvalidData` before any entry is walked. A list that omitted
+  an entry able to grant access therefore never reads as restrictive, and the
+  readiness scan in `susi-daemon` reports such a file as an unverifiable
+  credential finding rather than a clean one. The one new production `unsafe`
+  expression reads the header revision next to the entry count that was
+  already read (same `// SAFETY:` justification); geiger counts below were
+  regenerated.
+- Tests (real files, real Win32, plus in-memory ACLs): the DACL after
+  `restrict_to_current_user` is exactly one non-inherited `FILE_ALL_ACCESS`
+  entry for the token user (the owner can still rewrite and delete the file);
+  `set_protected_dacl` holds the requested grants in order; SID strings
+  round-trip through the binary form and malformed strings are refused; a
+  missing path and an embedded NUL are errors, not panics; real files whose
+  DACL holds an object allow, a callback allow or a callback deny entry
+  (planted with `AddAce` at `ACL_REVISION_DS`) fail `read_dacl` with
+  `UnsupportedAce { index, ace_type }`; an in-memory ACL with each other
+  entry type byte that `AddAce` accepts (at least the 20 documented types)
+  behind an allow entry fails the walk with that index and type; ACL revisions 0, 1, 3, 5 and 0xFF fail with
+  `InvalidData` while 2 and 4 walk; an inherit-only entry is listed; a raw
+  allow/deny pair still lists exactly.
+- Callers (`susi-core` bus secret, `susi-error` metrics sink): both set the
+  owner-only list on the empty file they just created (`create_new`) before
+  they write anything to it, and report a failure instead of ignoring it. The
+  bus secret then returns an empty key, which matches no presented key, and
+  leaves the empty file in place (nothing secret was written; nothing is
+  deleted). The sink removes only the empty file it created in that call and
+  returns the error, so the next call restricts again rather than appending to
+  an unrestricted file.
 
 ## Executed evidence
 
@@ -87,7 +103,7 @@ owned child before checking the EOF timing assertion.
 passed. The integrated seed fixture regression remains a separate required gate.
 
 `unsafe-review.json` is actual cargo-geiger (0.14.0) output, regenerated
-2026-11-09 after the `acl` module, for a byte-identical standalone copy of this
+2026-11-09 after the `acl` fail-closed revision and entry-type change (170 before this change, 174 after it; the revision read is the one production expression added, the rest is in the new test helpers, which this scan includes), for a byte-identical standalone copy of this
 facade (all five modules: acl, detached, environment, host, lib), with the
 same winapi dependency and features. Only workspace
 lint inheritance was replaced by an empty `[workspace]` to isolate the scan from
@@ -97,9 +113,9 @@ unrelated prototype trees. Invocation:
 cargo geiger --manifest-path <isolated-copy>/Cargo.toml --target x86_64-pc-windows-msvc --all-dependencies --offline --output-format Json
 ```
 
-First-party counts (whole facade): **0 unsafe functions, 170 unsafe expressions,
-0 unsafe impls, 0 unsafe traits, 0 unsafe methods** (30 safe functions, 2 safe
-impls, 3 safe methods). The previous file (38 unsafe expressions) predated the
+First-party counts (whole facade): **0 unsafe functions, 174 unsafe expressions,
+0 unsafe impls, 0 unsafe traits, 0 unsafe methods** (31 safe functions, 4 safe
+impls, 4 safe methods). The previous file (38 unsafe expressions) predated the
 `acl`, `host` and `environment` modules and was stale; the count includes
 expressions inside justified blocks. The `winapi` dependency itself reports 87
 used unsafe expressions and 9 used unsafe functions. No ratchet baseline
@@ -110,4 +126,4 @@ Reviewed SHA-256 (UTF-8, LF):
 - `src/detached.rs`: `08ad0c1994c531ad00a111abb48a0c3e257dfcfa892614eedcd344467aa37140`
   (the previously recorded `3aa44740...` was stale: `detached.rs` changed in
   582d887c9 after that review)
-- `src/acl.rs`: `28e938d7b12c0e623af4a98ea5419f5288586cfbf51cd3014c80b84b0e00a67c`
+- `src/acl.rs`: `ed69183ac7cf985f314c5dbd98a0f1a02cf894de828548cbfceaa1dfa6574a74`

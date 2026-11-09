@@ -36,7 +36,7 @@ use winapi::um::securitybaseapi::{
 use winapi::um::winbase::LocalFree;
 use winapi::um::winnt::{
     TokenUser, ACCESS_ALLOWED_ACE, ACCESS_ALLOWED_ACE_TYPE, ACCESS_DENIED_ACE_TYPE, ACE_HEADER,
-    ACL, ACL_REVISION, DACL_SECURITY_INFORMATION, INHERITED_ACE, PACL,
+    ACL, ACL_REVISION, ACL_REVISION_DS, DACL_SECURITY_INFORMATION, INHERITED_ACE, PACL,
     PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER,
 };
 
@@ -86,41 +86,6 @@ impl std::error::Error for UnsupportedAce {}
 #[must_use]
 pub fn unsupported_ace(error: &io::Error) -> Option<&UnsupportedAce> {
     error.get_ref()?.downcast_ref::<UnsupportedAce>()
-}
-
-/// What a DACL entry type means for who may open the file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AceClass {
-    /// `ACCESS_ALLOWED_ACE_TYPE`: grants the mask to the trustee.
-    Allow,
-    /// `ACCESS_DENIED_ACE_TYPE`: denies the mask to the trustee.
-    Deny,
-    /// Audit, alarm, label and policy entries: they never grant or deny
-    /// access, so omitting them from the list loses no permission.
-    NoAccess,
-    /// Anything else (compound, object, callback and unknown types): it may
-    /// grant or deny access and cannot be listed here.
-    Unsupported,
-}
-
-fn classify_ace_type(ace_type: u8) -> AceClass {
-    match ace_type {
-        ACCESS_ALLOWED_ACE_TYPE => AceClass::Allow,
-        ACCESS_DENIED_ACE_TYPE => AceClass::Deny,
-        // SYSTEM_AUDIT, SYSTEM_ALARM, SYSTEM_AUDIT_OBJECT, SYSTEM_ALARM_OBJECT.
-        0x02 | 0x03 | 0x07 | 0x08 => AceClass::NoAccess,
-        // SYSTEM_AUDIT/ALARM_CALLBACK and their object forms.
-        0x0D..=0x10 => AceClass::NoAccess,
-        // MANDATORY_LABEL, RESOURCE_ATTRIBUTE, SCOPED_POLICY_ID,
-        // PROCESS_TRUST_LABEL, ACCESS_FILTER.
-        0x11..=0x15 => AceClass::NoAccess,
-        // ACCESS_ALLOWED_COMPOUND (4), ACCESS_ALLOWED_OBJECT (5),
-        // ACCESS_DENIED_OBJECT (6), ACCESS_ALLOWED_CALLBACK (9),
-        // ACCESS_DENIED_CALLBACK (0xA), ACCESS_ALLOWED_CALLBACK_OBJECT (0xB),
-        // ACCESS_DENIED_CALLBACK_OBJECT (0xC), and types newer than this
-        // module.
-        _ => AceClass::Unsupported,
-    }
 }
 
 /// Restrict `path` to the current user: a protected DACL with a single
@@ -182,10 +147,13 @@ pub fn set_protected_dacl(path: &Path, grants: &[(&str, u32)]) -> io::Result<()>
 }
 
 /// `path`'s DACL entries in order; `None` for a NULL DACL, which grants
-/// everyone full access. Only allow and deny entries are listed. Entries that
-/// never carry access (audit, alarm, label, policy) are left out; any other
-/// type (object, callback, compound, unknown) fails the read with an
-/// [`UnsupportedAce`] error rather than yielding a list that looks complete.
+/// everyone full access. Only allow and deny entries are listed, each exactly
+/// as stored (an inherit-only entry is listed like any other, so the reader
+/// can only over-report). Any other entry type (object, callback, compound,
+/// and the audit, alarm, label and policy types that belong to a SACL, not a
+/// DACL), and any ACL revision other than `ACL_REVISION` or `ACL_REVISION_DS`,
+/// fails the read: with an [`UnsupportedAce`] error for an entry, with
+/// `InvalidData` for the revision. A listing never hides what it cannot read.
 #[allow(unsafe_code)]
 pub fn read_dacl(path: &Path) -> io::Result<Option<Vec<Ace>>> {
     let name = wide_path(path)?;
@@ -268,7 +236,15 @@ fn token_user_sid(token: HANDLE) -> io::Result<String> {
 fn dacl_entries(dacl: PACL) -> io::Result<Vec<Ace>> {
     // SAFETY: `dacl` is the non-null DACL GetNamedSecurityInfoW returned,
     // valid while its descriptor lives (the caller frees it afterwards).
-    let count = unsafe { (*dacl).AceCount };
+    let (revision, count) = unsafe { ((*dacl).AclRevision, (*dacl).AceCount) };
+    // An ACL header this module does not know may lay its entries out
+    // differently; do not walk it.
+    if ![ACL_REVISION, ACL_REVISION_DS].contains(&revision) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("DACL has unsupported ACL revision {revision}"),
+        ));
+    }
     let mut entries = Vec::with_capacity(usize::from(count));
     for index in 0..count {
         let mut ace: LPVOID = std::ptr::null_mut();
@@ -279,19 +255,15 @@ fn dacl_entries(dacl: PACL) -> io::Result<Vec<Ace>> {
         // SAFETY: GetAce succeeded, so `ace` points at an entry inside the
         // DACL that starts with an ACE_HEADER.
         let header = unsafe { *ace.cast::<ACE_HEADER>() };
-        let deny = match classify_ace_type(header.AceType) {
-            AceClass::Allow => false,
-            AceClass::Deny => true,
-            AceClass::NoAccess => continue,
+        let deny = match header.AceType {
+            ACCESS_ALLOWED_ACE_TYPE => false,
+            ACCESS_DENIED_ACE_TYPE => true,
             // Fail closed: a listing that omitted an entry able to grant
             // access would read as a clean, restrictive list.
-            AceClass::Unsupported => {
+            ace_type => {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,
-                    UnsupportedAce {
-                        index,
-                        ace_type: header.AceType,
-                    },
+                    UnsupportedAce { index, ace_type },
                 ));
             }
         };
@@ -459,9 +431,6 @@ fn win32_status(status: DWORD) -> io::Result<()> {
 mod inline_tests {
     use super::*;
 
-    /// `ACL_REVISION_DS`: object and callback entries need it.
-    const ACL_REVISION_DS: DWORD = 4;
-
     fn scratch_file(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!(
             "susi-acl-{tag}-{}-{}",
@@ -540,11 +509,11 @@ mod inline_tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// Write `path`'s DACL as the given raw entries (header, mask, SID, ...
-    /// exactly as stored), protected, with no validation of their types, so
-    /// a test can plant an entry type `set_protected_dacl` cannot produce.
+    /// An in-memory ACL (`ACL_REVISION_DS`, which object and callback entries
+    /// need) of the given raw entries (header, mask, SID, ... exactly as
+    /// stored), with no validation of their types, as DWORDs.
     #[allow(unsafe_code)]
-    fn set_raw_dacl(path: &Path, aces: &[Vec<u8>]) {
+    fn memory_acl(aces: &[Vec<u8>]) -> Vec<u32> {
         let size = (std::mem::size_of::<ACL>() + aces.iter().map(Vec::len).sum::<usize>() + 3) & !3;
         let mut acl_buf = vec![0u32; size / 4];
         let acl = acl_buf.as_mut_ptr().cast::<ACL>();
@@ -552,12 +521,15 @@ mod inline_tests {
         // bytes that outlives the calls; each raw entry is a complete ACE
         // owned by `aces` and copied into the list by AddAce.
         unsafe {
-            assert_ne!(InitializeAcl(acl, size as DWORD, ACL_REVISION_DS), 0);
+            assert_ne!(
+                InitializeAcl(acl, size as DWORD, DWORD::from(ACL_REVISION_DS)),
+                0
+            );
             for ace in aces {
                 assert_ne!(
                     winapi::um::securitybaseapi::AddAce(
                         acl,
-                        ACL_REVISION_DS,
+                        DWORD::from(ACL_REVISION_DS),
                         DWORD::MAX,
                         ace.as_ptr().cast_mut().cast(),
                         ace.len() as DWORD,
@@ -569,6 +541,13 @@ mod inline_tests {
                 );
             }
         }
+        acl_buf
+    }
+
+    /// Write `path`'s DACL as the given raw entries, protected.
+    #[allow(unsafe_code)]
+    fn set_raw_dacl(path: &Path, aces: &[Vec<u8>]) {
+        let mut acl_buf = memory_acl(aces);
         let mut name = wide_path(path).unwrap();
         // SAFETY: as in `set_protected_dacl`: only the DACL is set, from the
         // valid list built above and a NUL-terminated path owned for the call.
@@ -579,7 +558,7 @@ mod inline_tests {
                 DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                acl,
+                acl_buf.as_mut_ptr().cast::<ACL>(),
                 std::ptr::null_mut(),
             )
         };
@@ -606,25 +585,94 @@ mod inline_tests {
         ace
     }
 
+    /// Walk an in-memory ACL the way `read_dacl` walks a file's.
+    #[allow(unsafe_code)]
+    fn walk(acl_buf: &mut [u32]) -> io::Result<Vec<Ace>> {
+        dacl_entries(acl_buf.as_mut_ptr().cast::<ACL>())
+    }
+
     #[test]
-    fn only_allow_and_deny_are_listed_and_only_non_access_types_are_skipped() {
-        const NO_ACCESS: [u8; 11] = [
-            0x02, 0x03, 0x07, 0x08, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13,
-        ];
-        for ace_type in 0..=u8::MAX {
-            let class = classify_ace_type(ace_type);
-            let expected = match ace_type {
-                0 => AceClass::Allow,
-                1 => AceClass::Deny,
-                0x14 | 0x15 => AceClass::NoAccess,
-                t if NO_ACCESS.contains(&t) => AceClass::NoAccess,
-                _ => AceClass::Unsupported,
+    fn only_allow_and_deny_are_listed_and_every_other_type_fails_the_read() {
+        let user = current_user_sid().unwrap();
+        let mut ordinary = memory_acl(&[raw_ace(0x00, FILE_ALL_ACCESS, &[], &user)]);
+        assert_eq!(walk(&mut ordinary).unwrap().len(), 1);
+        // Every other byte, the SACL-only audit, alarm, label, attribute,
+        // policy and filter types included: a DACL holding one is not a list
+        // this module can vouch for.
+        let mut refused = 0;
+        for ace_type in (0..=u8::MAX).filter(|t| !matches!(t, 0 | 1)) {
+            let planted = raw_ace(ace_type, 0x0012_0089, &[], "S-1-1-0");
+            let mut acl_buf = vec![0u32; 64];
+            // SAFETY: a scratch ACL header of 256 bytes, initialised before
+            // the raw entry is appended behind the allow entry.
+            #[allow(unsafe_code)]
+            let added = unsafe {
+                let acl = acl_buf.as_mut_ptr().cast::<ACL>();
+                assert_ne!(InitializeAcl(acl, 256, DWORD::from(ACL_REVISION_DS)), 0);
+                let allow = raw_ace(0x00, FILE_ALL_ACCESS, &[], &user);
+                assert_ne!(
+                    winapi::um::securitybaseapi::AddAce(
+                        acl,
+                        DWORD::from(ACL_REVISION_DS),
+                        DWORD::MAX,
+                        allow.as_ptr().cast_mut().cast(),
+                        allow.len() as DWORD
+                    ),
+                    0
+                );
+                winapi::um::securitybaseapi::AddAce(
+                    acl,
+                    DWORD::from(ACL_REVISION_DS),
+                    DWORD::MAX,
+                    planted.as_ptr().cast_mut().cast(),
+                    planted.len() as DWORD,
+                )
             };
-            assert_eq!(class, expected, "ace type {ace_type:#04x}");
+            if added == 0 {
+                continue; // Windows itself refuses this byte as an entry type.
+            }
+            refused += 1;
+            let error = walk(&mut acl_buf).expect_err("a non-allow, non-deny entry must fail");
+            assert_eq!(
+                unsupported_ace(&error),
+                Some(&UnsupportedAce { index: 1, ace_type }),
+                "ace type {ace_type:#04x}"
+            );
         }
-        // Every type that can carry a right is unsupported, never skipped.
-        for carrying in [0x04, 0x05, 0x06, 0x09, 0x0A, 0x0B, 0x0C, 0x16, 0xFF] {
-            assert_eq!(classify_ace_type(carrying), AceClass::Unsupported);
+        // At least the documented types (4..=0x15) reach the reader.
+        assert!(refused >= 0x14, "only {refused} types could be planted");
+    }
+
+    #[test]
+    fn an_unknown_acl_revision_fails_the_read_and_flags_are_not_dropped() {
+        let user = current_user_sid().unwrap();
+        let mut inherit_only = raw_ace(0x00, 0x0012_0089, &[], "S-1-1-0");
+        inherit_only[1] = 0x08; // INHERIT_ONLY_ACE
+        let mut acl_buf = memory_acl(&[raw_ace(0x00, FILE_ALL_ACCESS, &[], &user), inherit_only]);
+        let listed = walk(&mut acl_buf).unwrap();
+        assert_eq!(
+            listed.len(),
+            2,
+            "an inherit-only entry is listed, not dropped"
+        );
+        assert_eq!(listed[1].sid, "S-1-1-0");
+        for revision in [0u8, 1, 3, 5, 0xFF] {
+            // SAFETY: the header byte of an ACL buffer owned by this test.
+            #[allow(unsafe_code)]
+            unsafe {
+                (*acl_buf.as_mut_ptr().cast::<ACL>()).AclRevision = revision;
+            }
+            let error = walk(&mut acl_buf).expect_err("an unknown revision must fail");
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains("revision"), "{error}");
+        }
+        for revision in [ACL_REVISION, ACL_REVISION_DS] {
+            #[allow(unsafe_code)]
+            // SAFETY: as above.
+            unsafe {
+                (*acl_buf.as_mut_ptr().cast::<ACL>()).AclRevision = revision;
+            }
+            assert_eq!(walk(&mut acl_buf).unwrap().len(), 2);
         }
     }
 

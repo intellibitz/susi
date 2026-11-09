@@ -5,7 +5,6 @@
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -244,10 +243,8 @@ fn select(root: &Path, current: &str, previous: Option<&str>) {
 
 fn command(exe: &Path, profile: &Path) -> Command {
     let mut command = Command::new(exe);
-    command
-        .env_clear()
-        .current_dir(profile)
-        .creation_flags(0x08000000);
+    command.env_clear().current_dir(profile);
+    susi_paths::console::without_window(&mut command);
     let system = std::env::var_os("SystemRoot").unwrap();
     let drive = Path::new(&system)
         .ancestors()

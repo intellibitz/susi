@@ -29,25 +29,32 @@ pub fn append_metrics_line(
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    #[cfg(windows)]
-    let existed_before = path.exists();
     let mut options = std::fs::OpenOptions::new();
-    options.create(true).append(true);
+    options.append(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options.open(path)?;
-    file.write_all(format!("{entry}\n").as_bytes())?;
-    drop(file);
-    // Best-effort, as before. Set natively: an `icacls` process launched
-    // from a windowless caller (the daemon) opened a console window.
-    #[cfg(windows)]
-    if !existed_before {
-        let _ = winapi::acl::restrict_to_current_user(path);
-    }
-    Ok(())
+    let mut file = match options.clone().create_new(true).open(path) {
+        Ok(file) => {
+            // A file this call created is restricted to the current user
+            // natively (an `icacls` process launched from a windowless caller
+            // opened a console window) before anything is written to it. On
+            // failure the empty file this call just made is removed, so the
+            // next call restricts again instead of appending to an open file.
+            #[cfg(windows)]
+            if let Err(error) = winapi::acl::restrict_to_current_user(path) {
+                drop(file);
+                let _ = std::fs::remove_file(path);
+                return Err(error);
+            }
+            file
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => options.open(path)?,
+        Err(error) => return Err(error),
+    };
+    file.write_all(format!("{entry}\n").as_bytes())
 }
 
 #[cfg(test)]

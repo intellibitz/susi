@@ -489,15 +489,17 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
         opts.mode(0o600);
     }
     if let Ok(mut f) = opts.open(&path) {
+        // Owner-only on Windows too, set natively (an `icacls` process
+        // launched from the windowless daemon opened a console window) and
+        // BEFORE the key is written: the file is ours (create_new) and still
+        // empty, so a failure leaves nothing exposed and nothing to delete.
+        // The key is then withheld: an empty key matches no presented key,
+        // so the bus refuses every client rather than run on an open file.
+        #[cfg(windows)]
+        if winapi::acl::restrict_to_current_user(&path).is_err() {
+            return String::new();
+        }
         if f.write_all(candidate.as_bytes()).is_ok() {
-            drop(f);
-            // Owner-only on Windows too, best-effort as before: set
-            // natively, since an `icacls` process launched from the
-            // windowless daemon opened a console window.
-            #[cfg(windows)]
-            {
-                let _ = winapi::acl::restrict_to_current_user(&path);
-            }
             return candidate;
         }
     }
