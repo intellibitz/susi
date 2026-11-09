@@ -10,7 +10,7 @@
   "created_unix": 1794208042,
   "size": "M",
   "deps": [
-    "T-DOT-GMCP-CLEANUP-1"
+    "T-DOTGMCPCLEANUP-1"
   ],
   "scope": [
     ".agents/tasks/t-nowindow-1.json",
