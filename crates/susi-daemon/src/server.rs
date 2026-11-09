@@ -1614,7 +1614,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
             let workspace = workspace_gemi.clone();
             let listeners: Vec<std::net::TcpListener> = gemi_server
                 .iter()
-                .filter_map(|l| l.try_clone().ok())
+                .filter_map(|l| l.clone_uninheritable().ok())
                 .collect();
             let tls = tls_gemi.clone();
             Some(move || {
@@ -1633,7 +1633,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
             let workspace = workspace_gmcp.clone();
             let listeners: Vec<std::net::TcpListener> = gmcp_primary
                 .iter()
-                .filter_map(|l| l.try_clone().ok())
+                .filter_map(|l| l.clone_uninheritable().ok())
                 .collect();
             let tls = tls_gmcp.clone();
             Some(move || {
@@ -1656,7 +1656,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                 let workspace = workspace_gmcp_alias.clone();
                 let listeners: Vec<std::net::TcpListener> = gmcp_alias
                     .iter()
-                    .filter_map(|l| l.try_clone().ok())
+                    .filter_map(|l| l.clone_uninheritable().ok())
                     .collect();
                 let tls = tls_gmcp_alias.clone();
                 Some(move || {
@@ -1681,7 +1681,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
             move || {
                 // Only signed pings are answered; the pong carries the
                 // responder's attested identity and roster, no port.
-                let socket = udp_socket.try_clone().ok();
+                let socket = udp_socket.clone_uninheritable().ok();
                 Some(move || {
                     let Some(socket) = socket else {
                         eprintln!("[UDP] socket lost; discovery worker exiting");
@@ -1724,8 +1724,10 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         let tls_a2a = tls_acceptor;
         let require_tls_a2a = require_tls_remote;
         crate::service_supervision::Supervisor::global().spawn("a2a-http", 5, None, move || {
-            let listeners: Vec<std::net::TcpListener> =
-                a2a_http.iter().filter_map(|l| l.try_clone().ok()).collect();
+            let listeners: Vec<std::net::TcpListener> = a2a_http
+                .iter()
+                .filter_map(|l| l.clone_uninheritable().ok())
+                .collect();
             let verifier = Arc::clone(&a2a_verifier);
             let tls = tls_a2a.clone();
             Some(move || {
@@ -2541,9 +2543,173 @@ fn udp_port_bound(target: std::net::SocketAddr, wait: Duration) -> bool {
     }
 }
 
+/// A clone of a daemon socket that no child process inherits.
+///
+/// On Windows `try_clone` duplicates a socket through `WSADuplicateSocketW`,
+/// and the duplicate comes back inheritable although the original is not
+/// (measured on Windows 11 build 26300 with Rust 1.99), while every
+/// `Command::spawn` creates its child with `bInheritHandles = TRUE`. The
+/// supervised servers serve clones of the host-contract sockets, so every
+/// leaf service, cell, probe and tool the daemon started held all five
+/// ports, and a descendant that outlived the daemon (two hung
+/// `ollama --version` processes on the CEO laptop, 2026-11-07) kept them
+/// bound under the dead daemon's pid: every later daemon fell back to the
+/// next port block. Clearing the inherit flag on each clone keeps the ports
+/// with the daemon. Elsewhere `try_clone` already duplicates close-on-exec.
+pub(crate) trait UninheritableClone: Sized {
+    /// `try_clone`, with the inherit flag cleared on the new handle.
+    fn clone_uninheritable(&self) -> std::io::Result<Self>;
+}
+
+impl UninheritableClone for std::net::TcpListener {
+    fn clone_uninheritable(&self) -> std::io::Result<Self> {
+        let clone = self.try_clone()?;
+        #[cfg(windows)]
+        forbid_inheritance(&clone)?;
+        Ok(clone)
+    }
+}
+
+impl UninheritableClone for std::net::UdpSocket {
+    fn clone_uninheritable(&self) -> std::io::Result<Self> {
+        let clone = self.try_clone()?;
+        #[cfg(windows)]
+        forbid_inheritance(&clone)?;
+        Ok(clone)
+    }
+}
+
+/// Clear `HANDLE_FLAG_INHERIT` on a socket handle.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn forbid_inheritance(socket: &impl std::os::windows::io::AsRawSocket) -> std::io::Result<()> {
+    use winapi::um::handleapi::SetHandleInformation;
+    use winapi::um::winnt::HANDLE;
+    const HANDLE_FLAG_INHERIT: u32 = 0x0000_0001;
+    // SAFETY: the raw socket is a live handle owned by `socket` for the whole
+    // call; `SetHandleInformation` only clears its inherit bit.
+    if unsafe { SetHandleInformation(socket.as_raw_socket() as HANDLE, HANDLE_FLAG_INHERIT, 0) }
+        == 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The daemon half of [`a_dead_daemons_ports_are_free_while_its_child_lives`]:
+    /// binds a TCP listener and a UDP socket, serves clones of them the way
+    /// the supervised servers do, starts a long-lived child the way a leaf
+    /// service, cell or probe starts, reports both ports and the child's pid,
+    /// and exits without closing anything itself.
+    #[test]
+    #[ignore = "helper: plays a daemon that dies while its child lives"]
+    #[allow(clippy::zombie_processes)] // the child must outlive this process
+    fn daemon_that_dies_with_a_child_alive() {
+        let Some(report) = std::env::var_os("SUSI_SOCKFIX_REPORT") else {
+            return;
+        };
+        let tcp = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let served = (
+            tcp.clone_uninheritable().unwrap(),
+            udp.clone_uninheritable().unwrap(),
+        );
+        #[cfg(windows)]
+        let mut child = Command::new("ping");
+        #[cfg(windows)]
+        child.args(["-n", "60", "127.0.0.1"]);
+        #[cfg(not(windows))]
+        let mut child = Command::new("sleep");
+        #[cfg(not(windows))]
+        child.arg("60");
+        let child = child
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let line = format!(
+            "{} {} {}",
+            tcp.local_addr().unwrap().port(),
+            udp.local_addr().unwrap().port(),
+            child.id()
+        );
+        std::fs::write(report, line).unwrap();
+        let _alive_until_exit = (tcp, udp, served);
+        std::process::exit(0);
+    }
+
+    /// Defect 2026-11-08: a daemon's ports stayed bound after it died
+    /// because a child it started inherited its socket clones. Once the
+    /// daemon is gone its ports are free, while that child still runs.
+    #[test]
+    fn a_dead_daemons_ports_are_free_while_its_child_lives() {
+        let report =
+            std::env::temp_dir().join(format!("susi-dead-daemon-ports-{}", std::process::id()));
+        let _ = std::fs::remove_file(&report);
+        let mut daemon = Command::new(std::env::current_exe().unwrap());
+        daemon
+            .args([
+                "--ignored",
+                "--exact",
+                "server::tests::daemon_that_dies_with_a_child_alive",
+            ])
+            .env("SUSI_SOCKFIX_REPORT", &report)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let mut daemon = daemon.spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let status = loop {
+            if let Some(status) = daemon.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() > deadline {
+                let _ = daemon.kill();
+                let _ = daemon.wait();
+                panic!("the daemon stand-in did not exit within 60 s");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert!(status.success(), "daemon stand-in failed: {status}");
+        let line = std::fs::read_to_string(&report).unwrap();
+        let _ = std::fs::remove_file(&report);
+        let fields: Vec<u32> = line
+            .split_whitespace()
+            .map(|f| f.parse().unwrap())
+            .collect();
+        let (tcp_port, udp_port, child) = (fields[0] as u16, fields[1] as u16, fields[2]);
+        struct Reap(u32);
+        impl Drop for Reap {
+            fn drop(&mut self) {
+                #[cfg(windows)]
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/PID", &self.0.to_string()])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+                #[cfg(not(windows))]
+                let _ = Command::new("kill")
+                    .args(["-9", &self.0.to_string()])
+                    .status();
+            }
+        }
+        let _reap = Reap(child);
+        assert!(
+            susi_core::service_table::pid_alive(child),
+            "the child {child} must still run for this check to mean anything"
+        );
+        std::net::TcpListener::bind(("127.0.0.1", tcp_port)).unwrap_or_else(|e| {
+            panic!("TCP {tcp_port} is still held after the daemon died (child {child}): {e}")
+        });
+        std::net::UdpSocket::bind(("127.0.0.1", udp_port)).unwrap_or_else(|e| {
+            panic!("UDP {udp_port} is still held after the daemon died (child {child}): {e}")
+        });
+    }
 
     /// No extra port-holder targets — the fake-process tests need none.
     fn no_targets() -> Vec<u32> {
