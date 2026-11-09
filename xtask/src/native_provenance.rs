@@ -552,6 +552,59 @@ pub fn task_for_claim(root: &Path, source: &str, worker: &str, scopes: &[String]
 mod native_test_counts;
 use native_test_counts::test_counts;
 
+/// Retain the exact plan and Cargo bytes before any test binary is launched.
+pub fn retain_binary_plan(root: &Path, plan: &Value, raw: &[u8], metadata: &[u8]) -> Result<Value> {
+    Ok(json!({"schema":super::test_binary_evidence::SCHEMA,
+        "plan_blob":store_blob(root,&serde_json::to_vec(plan)?)?,
+        "raw_blob":store_blob(root,raw)?,"metadata_blob":store_blob(root,metadata)?}))
+}
+
+pub fn finish_binary_plan(
+    root: &Path,
+    descriptor: &mut Value,
+    execution: &super::test_binary_evidence::Execution,
+) -> Result<()> {
+    execution.recheck()?;
+    let plan = evidence_blob(root, string(descriptor, "plan_blob")?)?;
+    if plan != serde_json::to_vec(&execution.plan)? {
+        return Err("retained binary plan was substituted".into());
+    }
+    descriptor["result_blob"] = json!(store_blob(root, &serde_json::to_vec(&execution.result)?)?);
+    Ok(())
+}
+
+fn verify_binary_execution(root: &Path, gate: &Value, gates: &[Value]) -> Result<()> {
+    let descriptor = gate.get("execution").ok_or("missing binary execution")?;
+    if descriptor["schema"] != super::test_binary_evidence::SCHEMA
+        || gate["id"] != "workspace-tests"
+    {
+        return Err("unknown native binary execution mode or gate".into());
+    }
+    let plan: Value =
+        serde_json::from_slice(&evidence_blob(root, string(descriptor, "plan_blob")?)?)?;
+    let result: Value =
+        serde_json::from_slice(&evidence_blob(root, string(descriptor, "result_blob")?)?)?;
+    let raw = evidence_blob(root, string(descriptor, "raw_blob")?)?;
+    let metadata = evidence_blob(root, string(descriptor, "metadata_blob")?)?;
+    let docs = super::test_binary_evidence::verify_plan(
+        &plan,
+        &result,
+        &raw,
+        &metadata,
+        &strings(gate, "argv")?,
+        Path::new(string(gate, "cwd")?),
+    )?;
+    let companions: Vec<_> = gates.iter().filter(|g| g["id"] == "doc-tests").collect();
+    if companions.len() != 1
+        || strings(companions[0], "argv")? != docs
+        || companions[0].get("execution").is_some()
+        || companions[0]["exit_code"] != 0
+    {
+        return Err("native binary execution omitted or weakened doctests".into());
+    }
+    Ok(())
+}
+
 pub struct GateExecution<'a> {
     pub id: &'a str,
     pub argv: &'a [String],
@@ -681,8 +734,24 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<Stri
         if argv.first().map(String::as_str) != Some("cargo") {
             return Err("unknown native gate executable".into());
         }
+        if (gate.get("execution").is_some() || expected.get("execution").is_some())
+            && argv.get(1).map(String::as_str) != Some("test")
+        {
+            return Err("execution mode attached to a non-test native gate".into());
+        }
         if argv.get(1).map(String::as_str) == Some("test") {
-            acceptance(&argv)?;
+            if gate.get("execution").is_some() {
+                if expected["execution"] != json!({"schema":super::test_binary_evidence::SCHEMA}) {
+                    return Err("unplanned native binary execution mode".into());
+                }
+                verify_binary_execution(root, gate, gates)?;
+                acceptance(&super::test_binary_evidence::test_argv(&argv)?)?;
+            } else {
+                if expected.get("execution").is_some() {
+                    return Err("native gate lost its planned execution mode".into());
+                }
+                acceptance(&argv)?;
+            }
             if passed == 0 && !argv.iter().any(|arg| arg == "--doc") {
                 return Err("zero executed native tests".into());
             }
@@ -737,7 +806,10 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<Stri
             && strings(gate, "argv")
                 .is_ok_and(|argv| argv.get(1).map(String::as_str) == Some("nextest"))
     });
-    if nextest_workspace {
+    let binary_workspace = gates
+        .iter()
+        .any(|gate| gate["id"] == "workspace-tests" && gate.get("execution").is_some());
+    if nextest_workspace || binary_workspace {
         expected_ids.insert("doc-tests".into());
     }
     if ids
@@ -794,6 +866,8 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<Stri
                 ];
             }
         }
+    }
+    if nextest_workspace || binary_workspace {
         required.push((
             "doc-tests",
             &[
@@ -840,7 +914,9 @@ fn verify_gates(root: &Path, receipt: &Value, task: &Task, tasks: &BTreeSet<Stri
                 suffix.drain(..2);
             }
         }
-        let expected_suffix: &[&str] = if id == "clippy" {
+        let expected_suffix: &[&str] = if id == "workspace-tests" && binary_workspace {
+            &["--no-run", "--message-format=json"]
+        } else if id == "clippy" {
             &["--", "-D", "warnings"]
         } else {
             &[]

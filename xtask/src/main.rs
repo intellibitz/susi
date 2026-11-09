@@ -23,6 +23,11 @@ mod local_build;
 #[allow(dead_code)]
 mod product_features;
 mod sysroot_sources;
+// Shared with the launcher; public receipt replay rebuilds fresh evidence.
+#[allow(dead_code)]
+mod test_binary_evidence;
+#[allow(dead_code)]
+mod test_runner;
 mod trusted_sysroot;
 
 #[cfg(windows)]

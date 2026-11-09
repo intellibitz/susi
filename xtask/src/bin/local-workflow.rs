@@ -1151,6 +1151,76 @@ struct TestBinariesGate<'a> {
     env: GateEnv<'a>,
 }
 
+fn complete_workspace_requested() -> bool {
+    // Kept explicit during migration. Unsupported hosts preserve serial
+    // coverage; publication requires typed replay rather than a v1 proof.
+    cfg!(windows) && env::var("SUSI_LOCAL_TEST_RUNNER").is_ok_and(|v| v == "workspace-binaries")
+}
+
+fn run_complete_binaries(
+    gate: &TestBinariesGate<'_>,
+) -> Result<(test_binary_evidence::Execution, serde_json::Value)> {
+    let argv: Vec<String> = std::iter::once("cargo".into())
+        .chain(gate.args.iter().cloned())
+        .collect();
+    let mut build = Command::new("cargo");
+    apply_gate_env(&mut build, &gate.env)?;
+    build.current_dir(gate.candidate).args(gate.args);
+    apply_gate_share(&mut build, gate.share);
+    let lanes = test_runner::concurrency(gate.share.jobs);
+    let homes = gate.attempt.join("complete-test-homes");
+    let durations = gate.attempt.join("complete-test-durations.json");
+    let heavy = test_runner::heavy_binaries(gate.candidate);
+    let settings = test_runner::Settings {
+        concurrency: lanes,
+        total_test_threads: gate.share.test_threads,
+        build_jobs: test_runner::threads_per_binary(gate.share.jobs, lanes),
+        home_root: &homes,
+        target_dir: gate.target,
+        triple: Some(gate.host),
+        durations: &durations,
+        heavy: &heavy,
+        log: gate.log_path,
+    };
+    let launch = |binary: &test_runner::Binary, home: &Path| {
+        let mut command = Command::new(&binary.executable);
+        let nested = home.join("target");
+        apply_gate_env(
+            &mut command,
+            &GateEnv {
+                home,
+                target: &nested,
+                ..gate.env
+            },
+        )?;
+        Ok(command)
+    };
+    let retained = std::cell::RefCell::new(None);
+    let execution = test_binary_evidence::execute(
+        gate.candidate,
+        &argv,
+        &mut build,
+        &settings,
+        include_bytes!("local-workflow.rs"),
+        &launch,
+        &|plan, raw, metadata| {
+            *retained.borrow_mut() = Some(native_provenance::retain_binary_plan(
+                gate.candidate,
+                plan,
+                raw,
+                metadata,
+            )?);
+            Ok(())
+        },
+    )?;
+    Ok((
+        execution,
+        retained
+            .into_inner()
+            .ok_or("binary plan was not retained before execution")?,
+    ))
+}
+
 /// Build the gate's test binaries with `cargo test ... --no-run`, then run
 /// them through the concurrent runner, each in its own home under the
 /// attempt directory. Returns the gate's status (0 only when the build and
@@ -1585,10 +1655,20 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     // runner, which (like nextest) leaves doctests to a companion gate. The
     // whole-workspace gate keeps serial `cargo test`: its signed test proof
     // is keyed on that exact invocation.
+    let complete_workspace = !nextest
+        && complete_workspace_requested()
+        && matches!(selection, affected::Selection::Workspace(_));
     let parallel_tests = !nextest
         && !test_runner::serial_requested()
-        && matches!(selection, affected::Selection::Packages(_));
-    let doc = if nextest {
+        && (matches!(selection, affected::Selection::Packages(_)) || complete_workspace);
+    let doc = if complete_workspace {
+        let logical: Vec<String> = std::iter::once("cargo".into())
+            .chain(gates[3].iter().cloned())
+            .collect();
+        let docs = test_binary_evidence::doc_argv(&logical)?;
+        gates[3] = test_binary_evidence::build_argv(&logical)?[1..].to_vec();
+        Some(docs[1..].to_vec())
+    } else if nextest {
         doc_gate(&gates[3], libraries.as_ref())
     } else if parallel_tests {
         // `doc_gate` skips the `nextest run` prefix; give the `test` gate
@@ -1658,10 +1738,16 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             let argv: Vec<_> = std::iter::once("cargo".to_owned())
                 .chain(args.iter().cloned())
                 .collect();
-            serde_json::json!({"id":id,"argv":argv})
+            let mut entry = serde_json::json!({"id":id,"argv":argv});
+            if complete_workspace && id == "workspace-tests" {
+                entry["execution"] = serde_json::json!({"schema":test_binary_evidence::SCHEMA});
+            }
+            entry
         })
         .collect();
     let mut native_gates = Vec::new();
+    let mut pending_binary: Option<(usize, test_binary_evidence::Execution, serde_json::Value)> =
+        None;
     let mut pending_workspace_proof: Option<(String, Command)> = None;
     let mut sysroot = None;
     let mut evidence = Vec::new();
@@ -1726,7 +1812,23 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
                 .get(index)
                 .is_some_and(|id| id == "workspace-tests")
             && args.first().map(String::as_str) == Some("test");
-        let (mut status, runner_note) = if binaries_gate {
+        let (mut status, runner_note) = if binaries_gate && complete_workspace {
+            let (execution, descriptor) = run_complete_binaries(&TestBinariesGate {
+                candidate,
+                attempt,
+                args,
+                host,
+                target: &gate_target,
+                log_path: &log_path,
+                share,
+                env: gate_env,
+            })?;
+            pending_binary = Some((index, execution, descriptor));
+            (
+                exit_status(0),
+                Some("runner=complete-inventory-v1; companion doctests pending".into()),
+            )
+        } else if binaries_gate {
             // Cargo builds the binaries; the runner executes them beside
             // each other. The planned `cargo test` argv stays the gate's
             // identity in the evidence and the receipt. (`command` stays
@@ -1846,6 +1948,17 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             "sysroot={}",
             serde_json::to_string(&sysroot.evidence)?
         ));
+    }
+    if let Some((index, execution, mut descriptor)) = pending_binary {
+        native_provenance::finish_binary_plan(candidate, &mut descriptor, &execution)?;
+        native_gates[index]["execution"] = descriptor;
+        // Inclusive of input/artifact hashing, companions, and persistence.
+        native_gates[index]["elapsed_ms"] = serde_json::json!(execution.elapsed_ms());
+        fs::write(
+            attempt.join("native-gates.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({"plan":plan,"gates":native_gates}))?,
+        )?;
+        execution.recheck()?;
     }
     if let (Some((key, command)), Some(sysroot)) = (pending_workspace_proof, sysroot.as_ref()) {
         let remeasured = workspace_test_proof::fingerprint(

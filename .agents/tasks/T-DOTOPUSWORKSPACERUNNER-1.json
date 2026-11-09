@@ -13,6 +13,9 @@
     "xtask/src/bin/local-workflow.rs",
     "xtask/src/native_provenance.rs",
     "xtask/src/test_binary_evidence.rs",
+    "xtask/src/gate_receipt.rs",
+    "xtask/src/main.rs",
+    "docs/gate-receipts.md",
     ".agents/tasks/T-DOTOPUSWORKSPACERUNNER-1.json"
   ],
   "accept": {
@@ -29,29 +32,51 @@
       "local-workflow"
     ]
   },
-  "checkpoint": "Unfinished native implementation checkpoint only. Strict Cargo inventory, retained metadata, artifact pins, input/runner binding helpers exist. Launcher/native-receipt/public-replay wiring and real fixtures are pending. New execution mode is not enabled. No full acceptance or publication claim.",
+  "checkpoint": "Unfinished typed whole-workspace execution and replay implementation. Strict inventory, guarded launches, retained native evidence, and portable fresh public replay are wired behind explicit Windows opt-in. Default serial behavior is unchanged. Genuine fixture and historical tests passed, but actual Susi build-script duplicate-record compatibility, further negative tests, lint, full gates, independent review and scheduler-source integration remain pending. No acceptance, speed or publication claim.",
   "recovery": {
     "method": "Original-source recovery; exact bytes verified before continuing. Library materialization failed on Windows metadata support.",
     "original_task_sha256": "F08D1B41B98194920F78D357CB8CCDDADCB803BB9C726A0CFE1505FFEAF4DF1A"
   },
   "validation": {
-    "notes": "Focused unit tests only. Unused helper warnings are expected until production wiring; no Clippy/full-gate success claimed.",
-    "command": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "xtask",
-      "--features",
-      "release-tooling",
-      "--bin",
-      "local-workflow",
-      "test_binary_evidence::tests::"
-    ],
-    "passed": 4,
-    "failed": 0,
-    "outer_ms": 6834,
-    "filtered": 161
+    "notes": "Separate validation observations, not a full acceptance run. Last capture compiled all workspace tests but did not execute them. Runtime metadata exposed repeated identical host/target build-script records requiring a narrowly tested correction.",
+    "typed_replay_tests": {
+      "failed": 0,
+      "outer_ms": 30641,
+      "passed": 2
+    },
+    "focused_evidence_tests": {
+      "failed": 0,
+      "outer_ms": 28491,
+      "passed": 5
+    },
+    "workspace_capture": {
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--offline",
+        "--locked",
+        "--features",
+        "xtask/release-tooling",
+        "--target",
+        "x86_64-pc-windows-msvc",
+        "--target-dir",
+        "<private-target>",
+        "--no-run",
+        "--message-format=json"
+      ],
+      "json_sha256": "5efc665a67783f5160d51d286447af1f68f7a8f5d7b1121032702da82a3b1973",
+      "frozen_source_hash_changes": 0,
+      "outer_ms": 559281,
+      "records": 676,
+      "test_executables": 197,
+      "executed_tests": 0,
+      "exit_code": 0
+    },
+    "historical_receipt_tests": {
+      "failed": 0,
+      "outer_ms": 40502,
+      "passed": 19
+    }
   }
 }

@@ -8,9 +8,9 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
 use super::test_runner::{Binary, Outcome};
@@ -79,7 +79,12 @@ fn inside(path: &Path, root: &Path) -> Result<()> {
         || !path.starts_with(root)
         || path == root
     {
-        return Err("binary evidence path escaped its isolated directory".into());
+        return Err(format!(
+            "binary evidence path {} escaped isolated directory {}",
+            path.display(),
+            root.display()
+        )
+        .into());
     }
     Ok(())
 }
@@ -94,6 +99,33 @@ pub fn build_argv(test_argv: &[String]) -> Result<Vec<String>> {
         })
     {
         return Err("invalid whole-workspace binary test command".into());
+    }
+    let mut seen = BTreeSet::new();
+    let mut arguments = test_argv[2..].iter();
+    while let Some(flag) = arguments.next() {
+        if !seen.insert(flag) {
+            return Err("duplicate binary selection argument".into());
+        }
+        match flag.as_str() {
+            "--workspace"
+            | "--offline"
+            | "--locked"
+            | "--all-features"
+            | "--no-default-features" => {}
+            "--target" | "--target-dir" | "--features" => {
+                let value = arguments
+                    .next()
+                    .ok_or("binary selection flag without value")?;
+                if value.is_empty() || value.starts_with('-') {
+                    return Err("invalid binary selection value".into());
+                }
+            }
+            _ => {
+                return Err(
+                    "unsupported or filtering whole-workspace argument; use serial Cargo".into(),
+                )
+            }
+        }
     }
     let mut argv = test_argv.to_vec();
     argv.extend(BUILD_SUFFIX.map(str::to_owned));
@@ -121,7 +153,14 @@ pub fn doc_argv(test: &[String]) -> Result<Vec<String>> {
 /// Parse every executable artifact before the older runner can deduplicate it.
 /// The same parser is used on the retained raw bytes by the receipt verifier.
 pub fn identities(raw: &[u8], metadata: &Value, root: &Path, target: &Path) -> Result<Vec<Value>> {
-    inside(target, root)?;
+    if !root.is_absolute()
+        || !target.is_absolute()
+        || target
+            .components()
+            .any(|c| matches!(c, Component::ParentDir))
+    {
+        return Err("non-absolute binary evidence directories".into());
+    }
     let mut found = BTreeMap::new();
     let mut paths = BTreeSet::new();
     let mut finished = false;
@@ -133,6 +172,22 @@ pub fn identities(raw: &[u8], metadata: &Value, root: &Path, target: &Path) -> R
             return Err("Cargo output continued after build-finished".into());
         }
         let message: Value = serde_json::from_str(line)?;
+        if message["reason"] == "compiler-artifact" {
+            text(&message, "package_id")?;
+            text(&message, "manifest_path")?;
+            text(&message["target"], "name")?;
+            text(&message["target"], "src_path")?;
+            if strings(&message["target"], "kind")?.is_empty()
+                || message["profile"]["test"].as_bool().is_none()
+                || (!message["executable"].is_null() && message["executable"].as_str().is_none())
+            {
+                return Err("malformed Cargo artifact record".into());
+            }
+            strings(&message, "features")?;
+            if message.get("executable").is_none() {
+                return Err("Cargo artifact omitted executable field".into());
+            }
+        }
         match message["reason"].as_str() {
             Some("build-finished") => {
                 if message["success"] != true {
@@ -346,6 +401,7 @@ pub fn verify_plan(
         || strings(plan, "argv")? != argv
         || Path::new(text(plan, "cwd")?) != cwd
         || text(plan, "build_stdout_sha256")? != digest(raw)
+        || text(result, "plan_sha256")? != digest(&serde_json::to_vec(plan)?)
     {
         return Err("substituted binary execution plan".into());
     }
@@ -385,6 +441,30 @@ pub fn verify_plan(
         return Err("incomplete binary execution evidence".into());
     }
     sha(text(plan, "input_sha256")?)?;
+    let runner = &plan["runner"];
+    if runner["assurance"] != "deterministic-runner-inputs-v1"
+        || runner["nested_target"] != "per-binary-home/target"
+        || runner["runtime_libraries"] != "outer-target-profile-and-deps"
+        || Path::new(text(&runner["settings"], "target_dir")?) != target
+    {
+        return Err("missing binary runtime assurance contract".into());
+    }
+    for field in [
+        "runner_source_sha256",
+        "callback_source_sha256",
+        "parent_path_sha256",
+        "parent_cargo_sha256",
+        "resolved_cargo_sha256",
+        "runner_executable_sha256",
+    ] {
+        sha(text(runner, field)?)?;
+    }
+    for field in ["concurrency", "total_test_threads", "build_jobs"] {
+        if runner["settings"][field].as_u64().is_none_or(|n| n == 0) {
+            return Err("invalid binary runner budget".into());
+        }
+    }
+    Runtime::parse(raw)?;
     let docs = doc_argv(&test_argv(argv)?)?;
     if strings(plan, "doc_argv")? != docs {
         return Err("weakened planned doctest companion".into());
@@ -467,7 +547,10 @@ pub struct RunnerInputs {
     cargo: PathBuf,
 }
 impl RunnerInputs {
-    pub fn capture(settings: &super::test_runner::Settings<'_>) -> Result<Self> {
+    pub fn capture(
+        settings: &super::test_runner::Settings<'_>,
+        callback_source: &[u8],
+    ) -> Result<Self> {
         let parent_path = std::env::var_os("PATH");
         let parent_cargo = std::env::var_os("CARGO");
         let cargo = parent_cargo
@@ -493,7 +576,8 @@ impl RunnerInputs {
             .map(|p| p.to_str().ok_or("non-UTF8 runner CARGO"))
             .transpose()?;
         let record = json!({"assurance":"deterministic-runner-inputs-v1","runner_source_sha256":digest(include_bytes!("test_runner.rs")),
-            "callback_source_sha256":digest(include_bytes!("bin/local-workflow.rs")),
+            "callback_source_sha256":digest(callback_source),
+            "runner_executable_sha256":file_digest(&std::env::current_exe()?)?,
             "parent_path_sha256":digest(&serde_json::to_vec(&path_text)?),"parent_cargo_sha256":digest(&serde_json::to_vec(&cargo_text)?),
             "resolved_cargo":cargo,"resolved_cargo_sha256":file_digest(&cargo)?,
             "settings":{"concurrency":settings.concurrency,"total_test_threads":settings.total_test_threads,"build_jobs":settings.build_jobs,
@@ -874,6 +958,109 @@ impl Inputs {
     }
 }
 
+/// A successful binary run whose inputs and artifact pins remain live until
+/// every companion gate has finished. It is never a serial workspace proof.
+pub struct Execution {
+    pub plan: Value,
+    pub result: Value,
+    inventory: Inventory,
+    inputs: Inputs,
+    runner: RunnerInputs,
+    started: std::time::Instant,
+}
+
+impl Execution {
+    pub fn recheck(&self) -> Result<()> {
+        self.inventory.recheck()?;
+        self.inputs.recheck()?;
+        self.runner.recheck()
+    }
+
+    pub fn elapsed_ms(&self) -> u128 {
+        self.started.elapsed().as_millis()
+    }
+}
+
+/// Build, strictly seal, and actually execute the complete Cargo inventory.
+/// `retain` runs before any child and lets the native launcher persist immutable
+/// evidence. Public replay rebuilds fresh evidence, not unavailable old blobs.
+pub fn execute(
+    root: &Path,
+    argv: &[String],
+    build: &mut Command,
+    settings: &super::test_runner::Settings<'_>,
+    callback_source: &[u8],
+    launch: &(dyn Fn(&Binary, &Path) -> Result<Command> + Sync),
+    retain: &dyn Fn(&Value, &[u8], &[u8]) -> Result<()>,
+) -> Result<Execution> {
+    if !cfg!(windows) {
+        return Err("complete binary runtime currently requires Windows; use serial Cargo".into());
+    }
+    let started = std::time::Instant::now();
+    let logical = test_argv(argv)?;
+    let actual = build
+        .get_args()
+        .map(|a| a.to_str().ok_or("non-UTF8 build argument"))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if actual != argv[1..] || build.get_current_dir() != Some(root) {
+        return Err("binary build command differs from its plan".into());
+    }
+    let inputs = Inputs::capture(root, build)?;
+    let metadata_raw = metadata_for_build(root, build)?;
+    let metadata: Value = serde_json::from_slice(&metadata_raw)?;
+    let mut log = fs::OpenOptions::new().append(true).open(settings.log)?;
+    let output = build
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(log.try_clone()?))
+        .output()?;
+    if !output.status.success() {
+        log.write_all(&output.stdout)?;
+        return Err("complete binary build failed".into());
+    }
+    // The strict parser must run before the legacy parser drops duplicate rows.
+    identities(&output.stdout, &metadata, root, settings.target_dir)?;
+    let (binaries, diagnostics) =
+        super::test_runner::parse_artifacts(std::str::from_utf8(&output.stdout)?)?;
+    for diagnostic in diagnostics {
+        log.write_all(diagnostic.as_bytes())?;
+    }
+    let runtime = Runtime::parse(&output.stdout)?;
+    let inventory = Inventory::seal(
+        &output.stdout,
+        &metadata,
+        root,
+        settings.target_dir,
+        &binaries,
+    )?;
+    let runner = RunnerInputs::capture(settings, callback_source)?;
+    inputs.recheck()?;
+    let plan = json!({"schema":SCHEMA,"argv":argv,"cwd":root,"target_dir":settings.target_dir,
+        "doc_argv":doc_argv(&logical)?,"build_stdout_sha256":digest(&output.stdout),
+        "metadata_sha256":digest(&metadata_raw),"artifacts":inventory.artifacts,
+        "input_sha256":inputs.sha256,"runner":runner.record});
+    retain(&plan, &output.stdout, &metadata_raw)?;
+    let checked_launch = |binary: &Binary, home: &Path| {
+        let mut command = launch(binary, home)?;
+        runtime.apply(&inventory, binary, &mut command)?;
+        inventory.launch(binary)?;
+        Ok(command)
+    };
+    let outcome = super::test_runner::run(&binaries, settings, &checked_launch)?;
+    let executed = inventory.complete(&outcome)?;
+    inputs.recheck()?;
+    runner.recheck()?;
+    let result = json!({"schema":SCHEMA,"executed":executed,"ran":outcome.ran,"failed":0,
+        "input_sha256_after":inputs.sha256,"plan_sha256":digest(&serde_json::to_vec(&plan)?)});
+    Ok(Execution {
+        plan,
+        result,
+        inventory,
+        inputs,
+        runner,
+        started,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1073,5 +1260,217 @@ mod tests {
         weakened.push("--".into());
         weakened.push("filter".into());
         assert!(build_argv(&weakened).is_err());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn real_cargo_inventory_runtime_docs_and_relocated_history() {
+        let f = Fixture::new();
+        fs::write(f.root.join("Cargo.toml"), "[package]\nname=\"fixture\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[workspace]\n[features]\na=[]\nb=[]\n").unwrap();
+        fs::write(
+            f.root.join(".gitignore"),
+            "target/\nhomes/\n*.log\ndurations.json\n",
+        )
+        .unwrap();
+        fs::write(
+            f.root.join("build.rs"),
+            "fn main(){println!(\"cargo:rustc-env=FIXTURE_RUNTIME=from-build\");}",
+        )
+        .unwrap();
+        fs::write(f.root.join("src/lib.rs"), r#"
+/// ```
+/// assert_eq!(fixture::value(), 3);
+/// ```
+pub fn value() -> u32 { 3 }
+#[test] fn unit() {
+    assert!(cfg!(feature="a") && cfg!(feature="b"));
+    assert_eq!(std::env::var("FIXTURE_RUNTIME").unwrap(), "from-build");
+    assert_eq!(std::env::var("CARGO_PKG_NAME").unwrap(), "fixture");
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
+    assert_eq!(std::path::PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").unwrap()), home.join("target"));
+    assert_eq!(std::path::PathBuf::from(std::env::var_os("CARGO").unwrap()), std::path::PathBuf::from(std::env::var_os("FIXTURE_EXPECTED_CARGO").unwrap()));
+    assert_eq!(std::env::split_paths(&std::env::var_os("PATH").unwrap()).next().unwrap(), std::path::PathBuf::from(std::env::var_os("FIXTURE_OUTER_DEPS").unwrap()));
+    assert!(std::env::var("RUST_TEST_THREADS").unwrap().parse::<usize>().unwrap() <= 4);
+}
+"#).unwrap();
+        fs::create_dir_all(f.root.join("tests")).unwrap();
+        fs::write(
+            f.root.join("tests/integration.rs"),
+            "#[test] fn integration(){assert_eq!(fixture::value(),3);}",
+        )
+        .unwrap();
+        let mut generate = Command::new("cargo");
+        super::super::compiler_env::apply_checked(&mut generate).unwrap();
+        assert!(generate
+            .current_dir(&f.root)
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap()
+            .status
+            .success());
+        for args in [
+            vec!["init", "-q"],
+            vec!["add", "."],
+            vec![
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@localhost",
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "fixture",
+            ],
+        ] {
+            assert!(Command::new("git")
+                .current_dir(&f.root)
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success());
+        }
+        let logical = vec![
+            "cargo".into(),
+            "test".into(),
+            "--workspace".into(),
+            "--offline".into(),
+            "--locked".into(),
+            "--target-dir".into(),
+            f.target.to_str().unwrap().into(),
+            "--features".into(),
+            "a,b".into(),
+        ];
+        let argv = build_argv(&logical).unwrap();
+        let mut build = Command::new("cargo");
+        super::super::compiler_env::apply_checked(&mut build).unwrap();
+        build
+            .current_dir(&f.root)
+            .args(&argv[1..])
+            .env("CARGO_BUILD_JOBS", "4");
+        for key in [
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_TARGET_DIR",
+            "CARGO_BUILD_BUILD_DIR",
+        ] {
+            build.env(key, &f.target);
+        }
+        let homes = f.root.join("homes");
+        let log = f.root.join("run.log");
+        let durations = f.root.join("durations.json");
+        fs::write(&log, "").unwrap();
+        let settings = super::super::test_runner::Settings {
+            concurrency: 2,
+            total_test_threads: 4,
+            build_jobs: 2,
+            home_root: &homes,
+            target_dir: &f.target,
+            triple: None,
+            durations: &durations,
+            heavy: &[],
+            log: &log,
+        };
+        let runner =
+            RunnerInputs::capture(&settings, include_bytes!("test_binary_evidence.rs")).unwrap();
+        let launch = |binary: &Binary, home: &Path| -> Result<Command> {
+            let mut command = Command::new(&binary.executable);
+            command
+                .env("HOME", home)
+                .env("USERPROFILE", home)
+                .env("CARGO_TARGET_DIR", home.join("target"))
+                .env(
+                    "FIXTURE_EXPECTED_CARGO",
+                    text(&runner.record, "resolved_cargo")?,
+                )
+                .env("FIXTURE_OUTER_DEPS", f.target.join("debug/deps"));
+            Ok(command)
+        };
+        let retained = Mutex::new(None);
+        let retain = |plan: &Value, raw: &[u8], metadata: &[u8]| -> Result<()> {
+            *retained.lock().unwrap() = Some((plan.clone(), raw.to_vec(), metadata.to_vec()));
+            Ok(())
+        };
+        let execution = execute(
+            &f.root,
+            &argv,
+            &mut build,
+            &settings,
+            include_bytes!("test_binary_evidence.rs"),
+            &launch,
+            &retain,
+        )
+        .unwrap_or_else(|error| panic!("{error}: {}", fs::read_to_string(&log).unwrap()));
+        assert_eq!(execution.result["ran"], 2);
+        let mut docs = Command::new("cargo");
+        super::super::compiler_env::apply_checked(&mut docs).unwrap();
+        for key in [
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_TARGET_DIR",
+            "CARGO_BUILD_BUILD_DIR",
+        ] {
+            docs.env(key, &f.target);
+        }
+        let doc_output = docs
+            .current_dir(&f.root)
+            .args(&doc_argv(&logical).unwrap()[1..])
+            .env("CARGO_BUILD_JOBS", "4")
+            .output()
+            .unwrap();
+        assert!(
+            doc_output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&doc_output.stderr)
+        );
+        execution.recheck().unwrap();
+        let (plan, raw, metadata) = retained.into_inner().unwrap().unwrap();
+        let result = execution.result.clone();
+        assert_eq!(
+            verify_plan(&plan, &result, &raw, &metadata, &argv, &f.root).unwrap(),
+            doc_argv(&logical).unwrap()
+        );
+        let mut weakened = plan.clone();
+        weakened["doc_argv"][9] = json!("a");
+        let mut forged_result = result.clone();
+        forged_result["plan_sha256"] = json!(digest(&serde_json::to_vec(&weakened).unwrap()));
+        assert!(verify_plan(&weakened, &forged_result, &raw, &metadata, &argv, &f.root).is_err());
+        for index in 0..4 {
+            let mut changed = result.clone();
+            match index {
+                0 => {
+                    changed["executed"].as_array_mut().unwrap().pop();
+                }
+                1 => {
+                    changed["executed"][1] = changed["executed"][0].clone();
+                }
+                2 => {
+                    changed["executed"][0] = json!("unplanned");
+                }
+                _ => {
+                    changed["failed"] = json!(1);
+                }
+            }
+            assert!(verify_plan(&plan, &changed, &raw, &metadata, &argv, &f.root).is_err());
+        }
+        fs::write(
+            f.root.join("src/lib.rs"),
+            "/// ```\n/// assert!(false);\n/// ```\npub fn value()->u32 {3}\n",
+        )
+        .unwrap();
+        assert!(execution.recheck().is_err());
+        let failed_docs = docs.output().unwrap();
+        assert!(!failed_docs.status.success());
+        drop(execution);
+        drop(build);
+        drop(docs);
+        drop(generate);
+        let relocated = f.root.with_extension("relocated");
+        fs::rename(&f.root, &relocated).unwrap();
+        // No old source/target path exists. Historical verification uses only
+        // retained bytes and intentionally never calls the legacy live parser.
+        assert!(verify_plan(&plan, &result, &raw, &metadata, &argv, &f.root).is_ok());
+        fs::remove_dir_all(relocated).unwrap();
     }
 }
