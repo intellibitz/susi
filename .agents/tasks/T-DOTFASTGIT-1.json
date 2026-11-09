@@ -1,0 +1,36 @@
+{
+  "id": "T-DOTFASTGIT-1",
+  "title": "Batch native commit operation path resolution",
+  "goal": "Remove six Git process launches per commit without caching paths or weakening operation guards.",
+  "created_by": "dot-fastgit",
+  "created_unix": 1794231106,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-fastgit",
+  "claimed_by": "dot-fastgit",
+  "deps": [],
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-DOTFASTGIT-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "batched_git_paths"
+    ]
+  },
+  "checkpoint": "All 142 local-workflow tests passed in 163.36s with four threads; independent review and Clippy/fmt passed. Ready for integrated native gate, no publication yet.",
+  "measurements": [
+    "Ten-agent same coverage: baseline 38.19s, changed 37.53s, one sample each and noisy; no reliable end-to-end speed ratio claimed.",
+    "Five primitive pairs: separate ms 369.09, 451.35, 472.19, 299.84, 343.00 vs batch ms 48.56, 58.57, 42.22, 40.25, 50.84; six fewer process launches per commit.",
+    "Two new guard/path regressions passed in 6.94s; Clippy -D warnings passed. No cache or skipped guards.",
+    "Full changed binary: 142 passed, 0 failed, 163.36s at 4 threads, ordinary local environment; not directly comparable to prior 345.42s isolated gate environment and competing binaries."
+  ]
+}

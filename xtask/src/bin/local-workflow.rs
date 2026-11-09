@@ -38,6 +38,25 @@ mod workspace_test_proof;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+/// Resolve worktree-local Git paths together. Reject incomplete or ambiguous
+/// output rather than silently omitting any operation guard.
+fn git_paths(root: &Path, names: &[&str]) -> Result<Vec<PathBuf>> {
+    let mut args = vec!["rev-parse", "--path-format=absolute"];
+    for name in names {
+        args.extend(["--git-path", *name]);
+    }
+    let output = git(root, &args)?;
+    parse_git_paths(&output, names.len())
+}
+
+fn parse_git_paths(output: &str, expected: usize) -> Result<Vec<PathBuf>> {
+    let paths: Vec<_> = output.lines().map(PathBuf::from).collect();
+    if paths.len() != expected || paths.iter().any(|p| !p.is_absolute()) {
+        return Err("Git returned incomplete or non-absolute operation paths".into());
+    }
+    Ok(paths)
+}
+
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
     let out = Command::new("git")
         .arg("--literal-pathspecs")
@@ -2670,9 +2689,9 @@ fn scoped_commit(
         Some(key) => Some((key, git(&claim.worktree, &["rev-parse", "HEAD"])?)),
         None => None,
     };
-    // A normal task commit must never consume another Git operation.
-    let mut forbidden = Vec::new();
-    for marker in [
+    // Resolve all worktree-aware paths in one Git process, without caching.
+    // Every marker remains checked here and rechecked before ref publication.
+    let markers = [
         "MERGE_HEAD",
         "MERGE_AUTOSTASH",
         "CHERRY_PICK_HEAD",
@@ -2680,18 +2699,17 @@ fn scoped_commit(
         "sequencer",
         "rebase-merge",
         "rebase-apply",
-    ] {
-        if marker == "MERGE_HEAD" && merge_parent.is_some() {
+    ];
+    let resolved = git_paths(&claim.worktree, &markers)?;
+    let mut forbidden = Vec::new();
+    for (marker, path) in markers.iter().zip(resolved) {
+        if *marker == "MERGE_HEAD" && merge_parent.is_some() {
             continue;
         }
-        let path = git(
-            &claim.worktree,
-            &["rev-parse", "--path-format=absolute", "--git-path", marker],
-        )?;
-        if Path::new(&path).exists() {
+        if path.exists() {
             return Err("finish the existing Git operation before committing".into());
         }
-        forbidden.push(PathBuf::from(path));
+        forbidden.push(path);
     }
     let paths = claimed_changes(&claim)?;
     if paths.is_empty() && merge_parent.is_none() {
@@ -4610,6 +4628,54 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    #[test]
+    fn batched_git_paths_match_individual_queries_and_preserve_every_guard() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let worktree = start(&repo, "markers", &["owned.rs".into()]).unwrap();
+        let names = [
+            "MERGE_HEAD",
+            "MERGE_AUTOSTASH",
+            "CHERRY_PICK_HEAD",
+            "REVERT_HEAD",
+            "sequencer",
+            "rebase-merge",
+            "rebase-apply",
+        ];
+        for root in [&repo, &worktree] {
+            let paths = git_paths(root, &names).unwrap();
+            for (name, path) in names.iter().zip(paths) {
+                let individual = git(
+                    root,
+                    &["rev-parse", "--path-format=absolute", "--git-path", name],
+                )
+                .unwrap();
+                assert_eq!(path, PathBuf::from(individual));
+            }
+        }
+        fs::write(worktree.join("owned.rs"), "change").unwrap();
+        let before = git(&worktree, &["rev-parse", "HEAD"]).unwrap();
+        for path in git_paths(&worktree, &names).unwrap() {
+            fs::write(&path, "operation in progress").unwrap();
+            assert!(commit(&worktree, "markers", "must refuse", None).is_err());
+            assert_eq!(git(&worktree, &["rev-parse", "HEAD"]).unwrap(), before);
+            fs::remove_file(path).unwrap();
+        }
+        commit(&worktree, "markers", "all guards absent", None).unwrap();
+        assert_ne!(git(&worktree, &["rev-parse", "HEAD"]).unwrap(), before);
+    }
+
+    #[test]
+    fn batched_git_paths_reject_incomplete_relative_and_extra_output() {
+        let root = env::temp_dir();
+        let absolute = root.display().to_string();
+        assert!(parse_git_paths(&absolute, 1).is_ok());
+        assert!(parse_git_paths("", 1).is_err());
+        assert!(parse_git_paths("relative/path", 1).is_err());
+        assert!(parse_git_paths(&absolute, 2).is_err());
+        assert!(parse_git_paths(&format!("{absolute}\n{absolute}"), 1).is_err());
+    }
+
     #[test]
     fn workspace_proof_waits_for_every_planned_gate() {
         assert!(completed_workspace_proof("key", Some("key"), 0, 0).is_none());
