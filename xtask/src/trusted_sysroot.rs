@@ -265,6 +265,30 @@ fn admit_destination(
     Ok(verified)
 }
 
+// Recompile from the tracked consumer instead of trusting an old executable.
+// The sysroot identity covers source/archives, but not the current OS ICU.
+fn qualify_consumer(root: &Path, destination: &Path, host: &str, output: &Path) -> Result<()> {
+    let executable = output.join(native_target::executable(host, "consumer"));
+    let mut consumer = Command::new("rustc");
+    super::compiler_env::apply(&mut consumer);
+    let mut execute = Command::new(&executable);
+    super::compiler_env::apply(&mut execute);
+    if !consumer
+        .current_dir(root)
+        .arg("toolchain/windows-stdlib/consumer.rs")
+        .args(["--test", "--edition", "2021", "--sysroot"])
+        .arg(destination.join("sysroot"))
+        .arg("-o")
+        .arg(&executable)
+        .status()?
+        .success()
+        || !execute.status()?.success()
+    {
+        return Err("custom sysroot stable consumer qualification failed".into());
+    }
+    Ok(())
+}
+
 pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let started = std::time::Instant::now();
     let (compiler, installed) = compiler(root)?;
@@ -279,7 +303,7 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     fs::create_dir_all(&storage)?;
     let destination = storage.join(&key);
     if destination.join("executed-record.json").is_file() {
-        if let Ok(verified) = admit_destination(
+        if let Ok(mut verified) = admit_destination(
             root,
             &destination,
             &installed,
@@ -289,6 +313,25 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
             started,
             true,
         ) {
+            if host.ends_with("-unknown-linux-gnu") {
+                // OS ICU may change without changing the compiler or source key.
+                // Private output avoids concurrent cache readers replacing each
+                // other's consumer. A failed recheck is an error, not a cache miss.
+                let nonce = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_nanos();
+                let output = storage.join(format!("consumer-check-{}-{nonce}", std::process::id()));
+                fs::create_dir(&output)?;
+                reject_redirects(&output)?;
+                qualify_consumer(root, &destination, host, &output)?;
+                if identity(root, &compiler)? != key {
+                    return Err("sysroot consumer source changed during recheck".into());
+                }
+                verified.recheck()?;
+                verified.evidence["consumer_rechecked"] = json!(true);
+                verified.evidence["elapsed_ms"] = json!(started.elapsed().as_millis());
+                fs::remove_dir_all(&output)?;
+            }
             return Ok(verified);
         }
     }
@@ -319,26 +362,8 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     if !status.success() {
         return Err("tracked sysroot builder failed; private evidence retained".into());
     }
-    // The tracked builder must finish and the reviewed stable consumer must
-    // execute before admission; externally supplied receipts cannot enter.
-    let executable = staging.join(native_target::executable(host, "consumer"));
-    let mut consumer = Command::new("rustc");
-    super::compiler_env::apply(&mut consumer);
-    let mut execute = Command::new(&executable);
-    super::compiler_env::apply(&mut execute);
-    if !consumer
-        .current_dir(root)
-        .arg("toolchain/windows-stdlib/consumer.rs")
-        .args(["--test", "--edition", "2021", "--sysroot"])
-        .arg(staging.join("sysroot"))
-        .arg("-o")
-        .arg(&executable)
-        .status()?
-        .success()
-        || !execute.status()?.success()
-    {
-        return Err("custom sysroot stable consumer qualification failed".into());
-    }
+    // Stable consumer execution, not an imported receipt, is required.
+    qualify_consumer(root, &staging, host, &staging)?;
     let _ = admit_destination(
         root, &staging, &installed, &compiler, host, &key, started, false,
     )?;

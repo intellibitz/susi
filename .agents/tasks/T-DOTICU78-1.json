@@ -1,0 +1,45 @@
+{
+  "id": "T-DOTICU78-1",
+  "native_worker": "dot-icu78",
+  "title": "Qualify runtime ICU 78 Unicode 17 without direct linkage",
+  "created_by": "DOTICU78",
+  "created_unix": 1794264998,
+  "status": "in_progress",
+  "dependencies": [],
+  "scopes": [
+    "toolchain/windows-stdlib/platform_unicode.rs",
+    "toolchain/windows-stdlib/consumer.rs",
+    "toolchain/windows-stdlib/builder.rs",
+    "toolchain/windows-stdlib/qualify_linux.rs",
+    "toolchain/windows-stdlib/NATIVE-BUILDS.md",
+    "xtask/src/elf_imports.rs",
+    "xtask/src/trusted_sysroot.rs",
+    ".agents/tasks/T-DOTICU78-1.json"
+  ],
+  "accept": {
+    "criteria": [
+      "Compare all Unicode scalars and all eleven replacement properties plus lower upper title fold against the unchanged pinned Rust compiler; review differences.",
+      "Run fresh private stdlib consumer with actual system ICU 78; preserve Windows and older Linux contracts, fixed system directories, fail-closed behavior and no direct ICU imports.",
+      "Run affected host IDNA and regex runtime tests; acquire actual Opus contribution and Argon review.",
+      "Recheck actual consumer on cached Linux sysroot admission without weakening source or artifact guards."
+    ],
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "progress": [
+    "Actual Claude Opus 5.5 contribution and Argon source-only review completed; Argon approved with zero blocking findings.",
+    "ICU78 all-scalar audit passes 1112064 scalars, eleven properties and four conversions without accepted mismatches; fresh and cached private-sysroot consumers pass.",
+    "Windows before and after audit differs solely at U+0345: 71 to70, other70 lines identical; pending scoped update of historical audit expectation and explicit regressions.",
+    "Unrelated CachyOS OpenSSL path and susi-config host_metrics lint failures remain outside this claim."
+  ]
+}
