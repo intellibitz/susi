@@ -300,7 +300,9 @@ fn http_jsonrpc_exchange(
 
 fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, String> {
     let mut command = Command::new(&config.command);
-    command
+    // A stdio server is a console program launched unattended (from the
+    // detached daemon too); without this Windows opens a window for it.
+    susi_paths::console::without_window(&mut command)
         .args(&config.args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -910,5 +912,58 @@ mod tests {
             Duration::from_secs(2),
         );
         assert!(res.is_err());
+    }
+
+    /// The stdio sink starts its child with `CREATE_NO_WINDOW`, observed in
+    /// the child: it is alone in a console of its own (a child without the
+    /// flag shares the runner's console) and no window shows that console (a
+    /// child of a console-less parent, such as the detached daemon, would
+    /// get a visible one). Args, `config.env` and the cleared environment
+    /// are kept. The probe is PowerShell reading Win32, not an MCP server.
+    #[cfg(windows)]
+    #[test]
+    fn stdio_child_runs_in_its_own_hidden_console() {
+        let powershell = std::path::PathBuf::from(
+            std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into()),
+        )
+        .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+        let script = "Add-Type -Name W -Namespace N -MemberDefinition \
+            '[DllImport(\"kernel32.dll\")] public static extern System.IntPtr GetConsoleWindow(); \
+             [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(System.IntPtr h); \
+             [DllImport(\"kernel32.dll\")] public static extern uint GetConsoleProcessList(uint[] l, uint n);'; \
+            $h = [N.W]::GetConsoleWindow(); $l = New-Object 'System.UInt32[]' 64; \
+            Write-Output ('attached=' + [N.W]::GetConsoleProcessList($l, 64) + \
+            ' visible=' + ($h -ne [System.IntPtr]::Zero -and [N.W]::IsWindowVisible($h)) + \
+            ' marker=' + $env:SUSI_NOWINDOW_MARKER + ' cargo=' + [bool]$env:CARGO_MANIFEST_DIR)";
+        let config = McpServerConfig {
+            command: powershell.to_string_lossy().into_owned(),
+            args: ["-NoProfile", "-NonInteractive", "-Command", script]
+                .map(String::from)
+                .to_vec(),
+            env: Some(HashMap::from([(
+                "SUSI_NOWINDOW_MARKER".to_string(),
+                "kept".to_string(),
+            )])),
+            extra: HashMap::new(),
+        };
+        let mut child = spawn_stdio_command(&config).unwrap();
+        drop(child.stdin.take());
+        // Bounded: a test fails, never hangs.
+        let deadline = Instant::now() + Duration::from_secs(120);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("powershell probe did not finish within 120 s");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout).trim(),
+            "attached=1 visible=False marker=kept cargo=False",
+            "{out:?}"
+        );
     }
 }
