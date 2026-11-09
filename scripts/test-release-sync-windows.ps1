@@ -9,6 +9,15 @@ $Candidate = Join-Path $Scratch 'candidate.exe'
 $Ready = Join-Path $Scratch 'ready'
 $Processes = @()
 function Check($Condition, $Message) { if (-not $Condition) { throw $Message } }
+# busy emits one complete decimal PID per line. Substring regex matching can
+# confuse unrelated PIDs (for example, 1234 and 51234) and fail a safe swap.
+function Has-PidLine([string]$Text, [int]$ProcessId) {
+    @($Text -split '\r?\n') -contains [string]$ProcessId
+}
+Check (Has-PidLine "51234`r`n67890" 51234) 'CRLF PID line not recognized'
+Check (Has-PidLine "51234`n67890" 67890) 'LF PID line not recognized'
+Check (-not (Has-PidLine '51234' 1234)) 'PID suffix matched an unrelated process'
+Check (-not (Has-PidLine '51234' 5123)) 'PID prefix matched an unrelated process'
 # Waits, bounded, until a daemon fixture has put its leaf service in its job,
 # and returns that leaf: a `service-run` copy of the daemon's own image.
 function Wait-Leaf($Daemon) {
@@ -117,7 +126,7 @@ public class SusiPromotionFixture {
     $Leaf = Wait-Leaf $Daemon
     $Processes += $Leaf
     $Busy = Run-Helper 'busy'
-    Check ($Busy.Code -eq 0 -and $Busy.Text -match "$($Client.Id)" -and $Busy.Text -notmatch "$($Other.Id)") 'Exact-owned client detection failed'
+    Check ($Busy.Code -eq 0 -and (Has-PidLine $Busy.Text $Client.Id) -and -not (Has-PidLine $Busy.Text $Other.Id)) "Exact-owned client detection failed: code=$($Busy.Code), client=$($Client.Id), other=$($Other.Id), output=[$($Busy.Text)]"
     Check ((Run-Helper 'running').Text -match 'running') 'Owned daemon not detected'
     $Refused = Run-Helper 'swap' $Candidate
     Check ($Refused.Code -ne 0) 'Active-client promotion must fail'
