@@ -42,8 +42,8 @@
     }
   ],
   "remaining": [
-    "Combined-tree local workflow check and serialized integration/ship after the registry-isolation lane is available.",
-    "Rebuild optimized artifacts from the accepted source and run full release/sysroot/license/native provenance qualification; this diagnostic does not qualify or deploy production."
+    "Serialized local-workflow source gate and publication on the final clean tree.",
+    "Strict release/sysroot/license/native provenance qualification of optimized artifacts; diagnostic native proof alone does not qualify or deploy production."
   ],
   "restrictions": [
     "No provider requests or credentials accessed.",
@@ -116,7 +116,58 @@
         "command": "cargo clippy -p susi-gmcp -p susi-gawd-swarm --all-targets --offline --locked -- -D warnings"
       }
     ],
-    "qualification": "Compile-only at this stage. Await accepted registry-isolation source before runtime tests and both mandatory native GMCP evidence phases.",
+    "qualification": "Both required native GMCP phases passed on accepted registry-isolation source and append-only records were committed. Actual combined source gate and strict production qualification remain separate.",
     "caveat": "Flume facade remains an unreferenced workspace member pending separate cleanup; no full-workspace build-time improvement is claimed. External bytes remains in the product graph. No ceiling was raised."
+  },
+  "current_source_verification": {
+    "accepted_isolation_source": "3a0d9c217b394f63e52b4d4c0135e7198a04cadf",
+    "rebased_source": "a9c79cdcab30cbe856daffc158fb60e167801bd6",
+    "requirement_evidence_commit": "1202c34248350cfface9d220e91ec0f5b9df9bc0",
+    "gmcp_requirements": {
+      "result": "54 passed; 0 failed",
+      "command": "cargo local-release record-gmcp",
+      "tested_commit": "a9c79cdcab30cbe856daffc158fb60e167801bd6"
+    },
+    "gmcp_mastery": {
+      "result": "9 passed; 0 failed",
+      "command": "cargo local-release record-gmcp --mastery",
+      "tested_commit": "1202c34248350cfface9d220e91ec0f5b9df9bc0"
+    },
+    "native_regression": {
+      "result": "9 passed; 0 failed on current isolated source",
+      "command": "cargo test -p susi-harness --test native_link --offline --locked"
+    },
+    "optimized_diagnostic": {
+      "diagnostic_only": true,
+      "production_qualified": false,
+      "source_commit": "a9c79cdcab30cbe856daffc158fb60e167801bd6",
+      "accepted_isolation_source": "3a0d9c217b394f63e52b4d4c0135e7198a04cadf",
+      "artifact_sha256": "95f656fa2fc90109332ca552b35c5d9c20352bd0457d307556477cc9e6599373",
+      "bytes": 3332096,
+      "map_sha256": "0db75a4dd9343047c6e89463705d8bd283b35348790a4ac20b05509e34d3b7a6",
+      "build_command": "cargo build -p susi-harness --bin susi-harness --release --offline --locked",
+      "profile": "release defaults; stock sysroot; not full production qualification",
+      "native_link": "PASS unchanged PE/link-map inspector including original Rust entry and forbidden CRT origins",
+      "historical_pe_inspector": "PE-PASS",
+      "smoke_checks": [
+        {
+          "elapsed_ms": 720.4271,
+          "scratch_file_count": 0,
+          "argument": "--version",
+          "stderr_characters": 0,
+          "exit_code": 0,
+          "stdout_characters": 21
+        },
+        {
+          "elapsed_ms": 32.5395,
+          "scratch_file_count": 0,
+          "argument": "--help",
+          "stderr_characters": 0,
+          "exit_code": 0,
+          "stdout_characters": 1145
+        }
+      ]
+    },
+    "isolation": "Native recorder uses the accepted launcher and private HOME/SUSI_HOME. SUSI_NO_REGISTRY_ENV=1 is set before child startup; TEMP/TMP are external private F:/tmp/dot-harness-native/scratch."
   }
 }
