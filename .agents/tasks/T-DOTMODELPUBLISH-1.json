@@ -3,7 +3,9 @@
   "scopes": [
     "crates/susi-gemi-models/src/transactional_download.rs",
     "crates/susi-gemi-models/tests/transactional_publish.rs",
-    ".agents/tasks/T-DOTMODELPUBLISH-1.json"
+    ".agents/tasks/T-DOTMODELPUBLISH-1.json",
+    "crates/susi-gemi-models/src/model_cache.rs",
+    "crates/susi-gemi-models/src/lifecycle/scan.rs"
   ],
   "id": "T-DOTMODELPUBLISH-1",
   "accept": {

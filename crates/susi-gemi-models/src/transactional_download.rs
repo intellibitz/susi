@@ -10,11 +10,6 @@ use crate::resumable_downloads::{self, DownloadPlan, RangeRequest, RangeResponse
 use crate::susi_error::{EaiError, EaiResult};
 use std::path::{Path, PathBuf};
 
-enum Producer {
-    Range { verified: bool },
-    Streaming,
-}
-
 fn remove_if_present(path: &Path) -> EaiResult<()> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -107,14 +102,7 @@ impl Store {
                 verified: false,
             });
         }
-        self.promote(
-            name,
-            plan,
-            resumed_from,
-            Producer::Range {
-                verified: report.verified,
-            },
-        )
+        self.promote(name, plan, resumed_from, false)
     }
 
     /// Promote an artifact downloaded by a streaming producer.
@@ -161,22 +149,19 @@ impl Store {
             )));
         }
 
-        self.promote(name, plan, resumed_from, Producer::Streaming)
+        self.promote(name, plan, resumed_from, true)
     }
 
     /// Both producers use the same commit point: readiness is invalidated
     /// before replacing bytes, and published atomically only after provenance.
+    /// Both callers have already rejected any declared checksum mismatch.
     fn promote(
         &self,
         name: &str,
         plan: &DownloadPlan,
         resumed_from: u64,
-        producer: Producer,
+        streamed: bool,
     ) -> EaiResult<PublishReport> {
-        let (streamed, verified) = match producer {
-            Producer::Range { verified } => (false, verified),
-            Producer::Streaming => (true, plan.sha256.is_some()),
-        };
         let staged = if streamed {
             self.staging_target(name)
         } else {
@@ -227,7 +212,7 @@ impl Store {
             published: true,
             path: Some(final_path),
             resumed_from,
-            verified,
+            verified: plan.sha256.is_some(),
         })
     }
 

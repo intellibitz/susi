@@ -32,6 +32,25 @@ fn publish(
 }
 
 #[test]
+fn publication_without_a_declared_digest_is_not_reported_verified() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::new(root.path());
+    let mut unverified = plan();
+    unverified.sha256 = None;
+    let report = store
+        .publish(NAME, &unverified, &|_| {
+            Ok(RangeResponse {
+                status: 200,
+                body: DATA.to_vec(),
+                accept_ranges: true,
+            })
+        })
+        .unwrap();
+    assert!(report.published);
+    assert!(!report.verified);
+}
+
+#[test]
 fn range_producer_replaces_old_payload_and_invalidates_old_provenance() {
     let root = tempfile::tempdir().unwrap();
     let store = Store::new(root.path());

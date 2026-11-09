@@ -112,6 +112,15 @@ impl<T> Default for ModelCache<T> {
 }
 
 impl<T> ModelCache<T> {
+    // Callers canonicalize once; clone under the map lock, never hold it
+    // while observing or mutating the per-model slot.
+    fn slot(&self, canonical_path: &Path) -> Option<Slot<T>> {
+        self.slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(canonical_path)
+            .cloned()
+    }
     /// Point-in-time view of every slot. Uses `try_lock`/`try_read` only:
     /// a slot mid-load reports `loading`, a model mid-generation (write
     /// lock held) reports `busy` without its backend detail — observing
@@ -165,13 +174,7 @@ impl<T> ModelCache<T> {
         let Ok(path) = path.canonicalize() else {
             return false;
         };
-        let Some(slot) = self
-            .slots
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&path)
-            .cloned()
-        else {
+        let Some(slot) = self.slot(&path) else {
             return false;
         };
         slot.try_lock().ok().is_none_or(|entry| entry.is_some())
@@ -205,13 +208,7 @@ impl<T> ModelCache<T> {
         let Ok(version) = ModelVersion::read(&path) else {
             return false;
         };
-        let Some(slot) = self
-            .slots
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&path)
-            .cloned()
-        else {
+        let Some(slot) = self.slot(&path) else {
             return false;
         };
         let Some(guard) = slot.try_lock().ok() else {
@@ -290,13 +287,7 @@ impl<T> ModelCache<T> {
     /// `get_or_load` never loads into an orphaned slot.
     pub fn evict(&self, path: &Path) -> EaiResult<Option<Evicted<T>>> {
         let path = path.canonicalize()?;
-        let Some(slot) = self
-            .slots
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&path)
-            .cloned()
-        else {
+        let Some(slot) = self.slot(&path) else {
             return Ok(None);
         };
         let Some(mut entry) = slot.try_lock().ok() else {
