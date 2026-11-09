@@ -16,10 +16,14 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 
 /// Third-party (non-workspace) crates the four pillars compile. 2026-11-07:
 /// 331 before the lean-core program began, 313 after wave 1 (rayon, flume
-/// and jsonschema edges cut from the GAWD and GEMI crates).
-const THIRD_PARTY_CEILING: usize = 259;
+/// and jsonschema edges cut from the GAWD and GEMI crates). 2026-11-09:
+/// 259 -> 231 when susi-gawd stopped depending on the A2A tier (ra2a, its
+/// reqwest/rustls client side and tower-http); susi-daemon serves A2A and
+/// still compiles them, so the host binary's unit count did not move.
+const THIRD_PARTY_CEILING: usize = 231;
 /// Workspace crates the four pillars compile (themselves included).
-const WORKSPACE_CEILING: usize = 50;
+/// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower).
+const WORKSPACE_CEILING: usize = 47;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 const DIRECT_FACADE_EDGES_CEILING: usize = 22;
@@ -37,7 +41,7 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 22;
 /// the wave log. A new security capability's boundary checks (2026-11-08:
 /// the `host_only` privacy mode) are re-pinned the same way.
 const LINE_CEILINGS: [(&str, usize); 8] = [
-    ("susi-gawd", 13_293),
+    ("susi-gawd", 13_288),
     ("susi-gawd-swarm", 23_002),
     ("susi-gawd-agents", 11_495),
     ("susi-gawd-a2a", 2_113),
