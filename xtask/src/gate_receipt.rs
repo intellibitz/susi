@@ -1271,6 +1271,7 @@ fn isolated_env(command: &mut Command, home: &Path) {
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env("SUSI_HOME", home.join("susi"))
+        .env("SUSI_NO_REGISTRY_ENV", "1")
         .env("XDG_CONFIG_HOME", home.join("config"))
         .env("XDG_DATA_HOME", home.join("data"))
         .env("XDG_CACHE_HOME", home.join("cache"))
@@ -2903,6 +2904,24 @@ mod tests {
         assert!(checks
             .iter()
             .any(|c| c.name.ends_with("harnesses") && c.outcome == Outcome::Mismatch));
+    }
+
+    #[test]
+    fn receipt_rerun_env_disables_registry_fallback() {
+        let home = Path::new("isolated-receipt-home");
+        let mut command = Command::new("cargo");
+        // Override any caller-supplied setting without mutating process state.
+        command.env("SUSI_NO_REGISTRY_ENV", "0");
+        isolated_env(&mut command, home);
+        let environment: BTreeMap<_, _> = command.get_envs().collect();
+        assert_eq!(
+            environment.get(std::ffi::OsStr::new("SUSI_NO_REGISTRY_ENV")),
+            Some(&Some(std::ffi::OsStr::new("1")))
+        );
+        assert_eq!(
+            environment.get(std::ffi::OsStr::new("SUSI_HOME")),
+            Some(&Some(home.join("susi").as_os_str()))
+        );
     }
 
     #[test]

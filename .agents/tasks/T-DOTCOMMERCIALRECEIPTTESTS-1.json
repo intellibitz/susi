@@ -1,6 +1,6 @@
 {
   "deps": [],
-  "title": "Assert candidate native receipt evidence round-trips",
+  "title": "Verify receipt evidence and isolate replay registry environment",
   "accept": {
     "cmd": [
       "cargo",
@@ -9,7 +9,7 @@
       "xtask",
       "--bin",
       "local-workflow",
-      "native_gates_carry_counts_and_harnesses_from_the_retained_log",
+      "gate_receipt",
       "--offline",
       "--locked"
     ]
@@ -20,7 +20,7 @@
     ".agents/tasks/T-DOTCOMMERCIALRECEIPTTESTS-1.json",
     "xtask/src/gate_receipt.rs"
   ],
-  "goal": "Extend only the existing native gate receipt regression fixture to assert count, binaries, log digest and exact selection round-trip, and rejection of a corrupt log digest/blob. Do not change production behavior, launcher, native_provenance, or reuse evidence. Document unsupported candidate-path binding.",
+  "goal": "Preserve the native receipt count, harness, log digest, selection and corrupt-log regressions. Explicitly disable persistent Windows environment fallback for receipt replay with SUSI_NO_REGISTRY_ENV=1 after environment scrubbing, and pin it with a command-environment regression. Preserve launcher, native_provenance and reuse semantics. This does not qualify a production release.",
   "scopes": [
     ".agents/tasks/T-DOTCOMMERCIALRECEIPTTESTS-1.json",
     "xtask/src/gate_receipt.rs"
@@ -29,8 +29,8 @@
   "created_unix": 1794235751,
   "id": "T-DOTCOMMERCIALRECEIPTTESTS-1",
   "state": "in_progress",
-  "updated_unix": 1794235751,
+  "updated_unix": 1794250289,
   "created_by": "dot-commercial-receipt-tests",
-  "acceptance": "cargo test -p xtask --bin local-workflow native_gates_carry_counts_and_harnesses_from_the_retained_log --offline --locked",
+  "acceptance": "cargo test -p xtask --bin local-workflow gate_receipt --offline --locked; cargo local-workflow check; combined-tree native integration remains required",
   "status": "in_progress"
 }
