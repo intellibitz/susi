@@ -215,6 +215,20 @@ impl Daemon {
     fn log(&self) -> String {
         std::fs::read_to_string(&self.log).unwrap_or_default()
     }
+
+    fn assert_log_contains(&self, expected: &str) {
+        // accept() drops the refused socket before its caller writes the log.
+        // EOF therefore proves refusal, not that the diagnostic is readable yet.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let log = self.log();
+            if log.contains(expected) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "missing {expected:?}: {log}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
 }
 
 impl Drop for Daemon {
@@ -726,17 +740,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         read_some(&mut replay, Duration::from_secs(5)).is_empty(),
         "the hub answered a replayed handshake"
     );
-    // accept() drops the refused socket before its caller writes the log.
-    // EOF therefore proves refusal, not that the diagnostic is readable yet.
-    let log_deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let log = hub_d.log();
-        if log.contains("replayed handshake refused") {
-            break;
-        }
-        assert!(Instant::now() < log_deadline, "{log}");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    hub_d.assert_log_contains("replayed handshake refused");
 
     // Dialing the hub while expecting another node's key fails closed.
     {
@@ -858,11 +862,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         }
         link::close_links();
         drop(env);
-        assert!(
-            hub_d.log().contains("is bound to a different node key"),
-            "{}",
-            hub_d.log()
-        );
+        hub_d.assert_log_contains("is bound to a different node key");
     }
 
     drop(hub_d);
