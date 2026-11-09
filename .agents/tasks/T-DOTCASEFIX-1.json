@@ -1,0 +1,30 @@
+{
+  "id": "T-DOTCASEFIX-1",
+  "title": "Avoid staging missing already-staged paths",
+  "goal": "Validate all claimed changed paths, but pass only unstaged and untracked paths to git add. This must allow already-staged deletions and case-only renames, while preserving staged-scope rejection and all commit, signing, merge and hook guards.",
+  "created_by": "dot-casefix",
+  "created_unix": 1794245127,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-casefix",
+  "claimed_by": "dot-casefix",
+  "deps": [],
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-DOTCASEFIX-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "commit_only_stages"
+    ]
+  },
+  "checkpoint": "Reproduced the defect in a disposable temporary Git repo: staging a deletion then passing that removed path to `git add -A --pathspec-from-file` exited 128 with `fatal: pathspec 'gone.txt' did not match any files`. Implemented `PathChanges { all, to_stage }`: all three existing Git queries and full scope validation remain; only unstaged/untracked paths are sent to `git add`, and the add is skipped for already-staged changes. Validation on Windows at base HEAD 2ae050b534aa10f5ed4195aa50ca3c33987f46fe: focused 8 tests passed, 0 failed, 150 filtered, 3.63s; fmt, diff check, focused Clippy -D warnings passed. Built ordinary launcher target/casefix/debug/local-workflow.exe (SHA256 962C3686D0882A35619661B4DFF7B46A93C9E52F19111B70B0380E3E5D5A758A). Tests cover staged/out-of-scope staged deletions, literal bracket+space path unstaged deletion, staged rename, staged+unstaged revert, mixed final content, Windows case-only rename, and Windows duplicate-case index entry removal. Native local commit e96a45b23e681e0b99ad7c9e7f701084760fad39; not shipped. No nowindow files touched."
+}

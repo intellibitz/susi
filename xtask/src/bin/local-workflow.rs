@@ -2594,9 +2594,23 @@ fn release(root: &Path, claimant: &str) -> Result<()> {
 
 /// Collect each index and working-tree delta separately: their combined HEAD
 /// diff can be empty even when the index still contains a staged change.
+#[derive(Debug, Default, Eq, PartialEq)]
+struct PathChanges {
+    /// All staged, unstaged and untracked paths for authorization checks.
+    all: Vec<String>,
+    /// Paths from the worktree and untracked sets that still need `git add`.
+    /// Staged paths are validated but must not be resubmitted as pathspecs:
+    /// a staged deletion no longer exists, and can make `git add -A` fail.
+    to_stage: Vec<String>,
+}
+
 fn changed_paths(root: &Path, base: &str) -> Result<Vec<String>> {
-    let mut paths = Vec::new();
-    for args in [
+    Ok(changed_path_changes(root, base)?.all)
+}
+
+fn changed_path_changes(root: &Path, base: &str) -> Result<PathChanges> {
+    let mut changes = PathChanges::default();
+    for (index, args) in [
         vec![
             "diff",
             "--cached",
@@ -2608,7 +2622,10 @@ fn changed_paths(root: &Path, base: &str) -> Result<Vec<String>> {
         ],
         vec!["diff", "--no-renames", "--name-only", "-z"],
         vec!["ls-files", "--others", "--exclude-standard", "-z"],
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let out = Command::new("git")
             .arg("--literal-pathspecs")
             .env("GIT_NO_REPLACE_OBJECTS", "1")
@@ -2627,12 +2644,18 @@ fn changed_paths(root: &Path, base: &str) -> Result<Vec<String>> {
             .split(|byte| *byte == 0)
             .filter(|p| !p.is_empty())
         {
-            paths.push(String::from_utf8(path.to_vec())?);
+            let path = String::from_utf8(path.to_vec())?;
+            changes.all.push(path.clone());
+            if index != 0 {
+                changes.to_stage.push(path);
+            }
         }
     }
-    paths.sort();
-    paths.dedup();
-    Ok(paths)
+    changes.all.sort();
+    changes.all.dedup();
+    changes.to_stage.sort();
+    changes.to_stage.dedup();
+    Ok(changes)
 }
 
 fn owns_path(held: &str, changed: &str) -> bool {
@@ -2647,8 +2670,16 @@ fn claimed_changes(claim: &Claim) -> Result<Vec<String>> {
 }
 
 fn claimed_changes_against(claim: &Claim, base: &str) -> Result<Vec<String>> {
-    let paths = changed_paths(&claim.worktree, base)?;
-    for path in &paths {
+    Ok(claimed_path_changes_against(claim, base)?.all)
+}
+
+fn claimed_path_changes(claim: &Claim) -> Result<PathChanges> {
+    claimed_path_changes_against(claim, "HEAD")
+}
+
+fn claimed_path_changes_against(claim: &Claim, base: &str) -> Result<PathChanges> {
+    let changes = changed_path_changes(&claim.worktree, base)?;
+    for path in &changes.all {
         let normalized = scope(path)?;
         if !claim.scopes.iter().any(|held| owns_path(held, &normalized)) {
             return Err(format!(
@@ -2658,7 +2689,7 @@ fn claimed_changes_against(claim: &Claim, base: &str) -> Result<Vec<String>> {
             .into());
         }
     }
-    Ok(paths)
+    Ok(changes)
 }
 
 /// Scope-guarded local commit, not a test/release gate. It never changes the
@@ -2726,8 +2757,8 @@ fn scoped_commit(
         }
         forbidden.push(path);
     }
-    let paths = claimed_changes(&claim)?;
-    if paths.is_empty() && merge_parent.is_none() {
+    let changes = claimed_path_changes(&claim)?;
+    if changes.all.is_empty() && merge_parent.is_none() {
         return Err("nothing to commit".into());
     }
     let hooks = state.join("empty-hooks");
@@ -2742,32 +2773,34 @@ fn scoped_commit(
     }
     // NUL-delimited literal pathspecs preserve spaces and metacharacters and
     // avoid the Windows command-line length limit for large tasks.
-    let mut add = Command::new("git")
-        .arg("--literal-pathspecs")
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .current_dir(&claim.worktree)
-        .args([
-            "--literal-pathspecs",
-            "add",
-            "-A",
-            "--pathspec-from-file=-",
-            "--pathspec-file-nul",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    if let Some(mut input) = add.stdin.take() {
-        for path in &paths {
-            input.write_all(path.as_bytes())?;
-            input.write_all(&[0])?;
+    if !changes.to_stage.is_empty() {
+        let mut add = Command::new("git")
+            .arg("--literal-pathspecs")
+            .env("GIT_NO_REPLACE_OBJECTS", "1")
+            .current_dir(&claim.worktree)
+            .args([
+                "--literal-pathspecs",
+                "add",
+                "-A",
+                "--pathspec-from-file=-",
+                "--pathspec-file-nul",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        if let Some(mut input) = add.stdin.take() {
+            for path in &changes.to_stage {
+                input.write_all(path.as_bytes())?;
+                input.write_all(&[0])?;
+            }
+        } else {
+            return Err("could not open git add input".into());
         }
-    } else {
-        return Err("could not open git add input".into());
-    }
-    let out = add.wait_with_output()?;
-    if !out.status.success() {
-        return Err(format!("git add failed: {}", String::from_utf8_lossy(&out.stderr)).into());
+        let out = add.wait_with_output()?;
+        if !out.status.success() {
+            return Err(format!("git add failed: {}", String::from_utf8_lossy(&out.stderr)).into());
+        }
     }
     let hook_config = format!("core.hooksPath={}", text(&hooks)?);
     let trailer = format!("Task: LOCAL-{claimant}");
@@ -4883,6 +4916,200 @@ mod tests {
             }
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    fn tracked_file_fixture(
+        claimant: &str,
+        path: &str,
+        scope_path: &str,
+        contents: &str,
+    ) -> (Scratch, PathBuf, PathBuf) {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let file = repo.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, contents).unwrap();
+        git(&repo, &["add", "--", path]).unwrap();
+        git(
+            &repo,
+            &["-c", "core.hooksPath=", "commit", "-qm", "fixture file"],
+        )
+        .unwrap();
+        let worktree = start(&repo, claimant, &[scope_path.to_owned()]).unwrap();
+        (scratch, repo, worktree)
+    }
+
+    #[test]
+    fn commit_only_stages_an_already_staged_deletion_without_readding_its_path() {
+        let (_scratch, repo, worktree) =
+            tracked_file_fixture("staged-delete", "src/gone.txt", "src", "base\n");
+        fs::remove_file(worktree.join("src/gone.txt")).unwrap();
+        git(&worktree, &["add", "-u", "--", "src/gone.txt"]).unwrap();
+        let before = git(&worktree, &["rev-parse", "HEAD"]).unwrap();
+        commit(&worktree, "staged-delete", "delete tracked file", None).unwrap();
+        assert_ne!(git(&worktree, &["rev-parse", "HEAD"]).unwrap(), before);
+        assert!(git(&worktree, &["cat-file", "-e", "HEAD:src/gone.txt"]).is_err());
+        assert!(git(&worktree, &["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+        assert_eq!(integration_head(&repo).unwrap(), None);
+    }
+
+    #[test]
+    fn commit_only_stages_an_unstaged_deletion() {
+        let path = "src/a [file].txt";
+        let (_scratch, _repo, worktree) =
+            tracked_file_fixture("unstaged-delete", path, "src", "base\n");
+        fs::remove_file(worktree.join(path)).unwrap();
+        commit(&worktree, "unstaged-delete", "delete tracked file", None).unwrap();
+        assert!(git(&worktree, &["cat-file", "-e", "HEAD:src/a [file].txt"]).is_err());
+        assert!(git(&worktree, &["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn commit_only_stages_a_previously_staged_rename() {
+        let (_scratch, _repo, worktree) =
+            tracked_file_fixture("staged-rename", "src/old.txt", "src", "base\n");
+        git(&worktree, &["mv", "--", "src/old.txt", "src/new.txt"]).unwrap();
+        commit(&worktree, "staged-rename", "rename tracked file", None).unwrap();
+        let names = git(&worktree, &["ls-tree", "-r", "--name-only", "HEAD"]).unwrap();
+        assert!(names.lines().any(|name| name == "src/new.txt"), "{names}");
+        assert!(!names.lines().any(|name| name == "src/old.txt"), "{names}");
+        assert!(git(&worktree, &["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn commit_only_stages_the_unstaged_side_of_a_staged_revert() {
+        let (_scratch, _repo, worktree) =
+            tracked_file_fixture("staged-revert", "src/value.txt", "src", "base\n");
+        fs::write(worktree.join("src/value.txt"), "staged\n").unwrap();
+        git(&worktree, &["add", "--", "src/value.txt"]).unwrap();
+        fs::write(worktree.join("src/value.txt"), "base\n").unwrap();
+        let before = git(&worktree, &["rev-parse", "HEAD"]).unwrap();
+        assert!(commit(&worktree, "staged-revert", "revert staged content", None).is_err());
+        assert_eq!(git(&worktree, &["rev-parse", "HEAD"]).unwrap(), before);
+        assert!(git(&worktree, &["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn commit_only_stages_final_content_after_a_second_unstaged_edit() {
+        let (_scratch, _repo, worktree) =
+            tracked_file_fixture("staged-final", "src/value.txt", "src", "base\n");
+        fs::write(worktree.join("src/value.txt"), "staged intermediate\n").unwrap();
+        git(&worktree, &["add", "--", "src/value.txt"]).unwrap();
+        fs::write(worktree.join("src/value.txt"), "final content\n").unwrap();
+        commit(&worktree, "staged-final", "commit final content", None).unwrap();
+        assert_eq!(
+            git(&worktree, &["show", "HEAD:src/value.txt"]).unwrap(),
+            "final content"
+        );
+        assert!(git(&worktree, &["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn commit_only_stages_a_scoped_windows_case_only_rename() {
+        let (_scratch, _repo, worktree) =
+            tracked_file_fixture("case-rename", "src/Task.json", "src", "base\n");
+        git(
+            &worktree,
+            &["mv", "--force", "--", "src/Task.json", "src/task.json"],
+        )
+        .unwrap();
+        commit(&worktree, "case-rename", "rename task casing", None).unwrap();
+        let names = git(&worktree, &["ls-tree", "-r", "--name-only", "HEAD"]).unwrap();
+        assert!(names.lines().any(|name| name == "src/task.json"), "{names}");
+        assert!(
+            !names.lines().any(|name| name == "src/Task.json"),
+            "{names}"
+        );
+        assert!(git(&worktree, &["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn commit_only_stages_exact_removal_from_a_duplicate_case_index() {
+        let (_scratch, _repo, worktree) =
+            tracked_file_fixture("case-index", "src/Task.json", "src", "base\n");
+        let blob = git(&worktree, &["rev-parse", "HEAD:src/Task.json"]).unwrap();
+        let duplicate = format!("100644,{blob},src/task.json");
+        git(
+            &worktree,
+            &["update-index", "--add", "--cacheinfo", &duplicate],
+        )
+        .unwrap();
+        git(
+            &worktree,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "commit",
+                "-qm",
+                "duplicate case fixture",
+            ],
+        )
+        .unwrap();
+        let index = git(&worktree, &["ls-files"]).unwrap();
+        assert!(index.lines().any(|path| path == "src/Task.json"), "{index}");
+        assert!(index.lines().any(|path| path == "src/task.json"), "{index}");
+
+        git(
+            &worktree,
+            &["update-index", "--force-remove", "--", "src/task.json"],
+        )
+        .unwrap();
+        let before = git(&worktree, &["rev-parse", "HEAD"]).unwrap();
+        commit(
+            &worktree,
+            "case-index",
+            "remove duplicate lowercase entry",
+            None,
+        )
+        .unwrap();
+        assert_ne!(git(&worktree, &["rev-parse", "HEAD"]).unwrap(), before);
+        let tree = git(&worktree, &["ls-tree", "-r", "--name-only", "HEAD"]).unwrap();
+        assert!(tree.lines().any(|path| path == "src/Task.json"), "{tree}");
+        assert!(!tree.lines().any(|path| path == "src/task.json"), "{tree}");
+        assert!(worktree.join("src/Task.json").is_file());
+        assert!(git(&worktree, &["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn commit_only_stages_rejects_staged_out_of_scope_deletion() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        fs::write(repo.join("outside.txt"), "base\n").unwrap();
+        git(&repo, &["add", "--", "outside.txt"]).unwrap();
+        git(
+            &repo,
+            &["-c", "core.hooksPath=", "commit", "-qm", "outside fixture"],
+        )
+        .unwrap();
+        let worktree = start(&repo, "outside-delete", &["src".into()]).unwrap();
+        fs::remove_file(worktree.join("outside.txt")).unwrap();
+        git(&worktree, &["add", "-u", "--", "outside.txt"]).unwrap();
+        let before = git(&worktree, &["rev-parse", "HEAD"]).unwrap();
+        let error = commit(&worktree, "outside-delete", "reject outside delete", None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("reserved scopes"), "{error}");
+        assert_eq!(git(&worktree, &["rev-parse", "HEAD"]).unwrap(), before);
+        assert_eq!(
+            git(&worktree, &["diff", "--cached", "--name-status"]).unwrap(),
+            "D\toutside.txt"
+        );
     }
 
     #[test]
