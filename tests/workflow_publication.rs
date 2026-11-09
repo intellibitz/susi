@@ -86,11 +86,7 @@ else
 fi
 "#;
     let mut command = Command::new(bash);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
+    susi_paths::console::without_window(&mut command);
     let output = command
         .args(["-c", script, "fixture", &publisher, existing_branch])
         .current_dir(&fixture.0)

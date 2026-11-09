@@ -51,7 +51,7 @@ impl AccelPool {
 /// be observed.
 #[must_use]
 pub fn probe_vram_free_mb() -> Option<u64> {
-    let out = std::process::Command::new("nvidia-smi")
+    let out = susi_paths::console::background_command("nvidia-smi")
         .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
         .output()
         .ok()?;

@@ -440,10 +440,10 @@ fn terminate_process_group(child: &mut Child, child_id: u32) {
     }
     #[cfg(windows)]
     {
+        use susi_paths::console::background_command;
         let _ = child.kill();
-        // taskkill /T kills the whole process tree — the Windows analogue
-        // of the negative-pid group kill above.
-        let _ = Command::new("taskkill")
+        // taskkill /T kills the whole process tree (the group kill above, on Windows).
+        let _ = background_command("taskkill")
             .args(["/PID", &child_id.to_string(), "/T", "/F"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -453,7 +453,7 @@ fn terminate_process_group(child: &mut Child, child_id: u32) {
         // chain before `taskkill /T` runs. Reap any MSYS2 child whose MSYS2
         // PPID was just terminated by `taskkill` (PPID > 1 and no longer in
         // `ps`) in a single `kill -9` call.
-        if let Ok(out) = Command::new("ps").stderr(Stdio::null()).output() {
+        if let Ok(out) = background_command("ps").stderr(Stdio::null()).output() {
             let text = String::from_utf8_lossy(&out.stdout);
             let rows: Vec<(u32, u32)> = text
                 .lines()

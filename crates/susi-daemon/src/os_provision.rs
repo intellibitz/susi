@@ -7,7 +7,8 @@
 
 use serde_json::{Value, json};
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
+use susi_paths::console::background_command;
 
 /// One cloud/local substrate this plane can inventory or mutate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,7 +107,7 @@ pub struct CloudInventory {
 }
 
 fn run_cli(bin: &str, args: &[&str]) -> Result<String, String> {
-    let out = Command::new(bin)
+    let out = background_command(bin)
         .args(args)
         .output()
         .map_err(|e| format!("{bin}: {e}"))?;
@@ -161,7 +162,7 @@ pub fn list_nodes(kind: CloudKind) -> Result<String, String> {
 pub fn apply_manifest(kind: CloudKind, manifest: &str) -> Result<String, String> {
     match kind {
         CloudKind::Kubernetes => {
-            let mut child = Command::new("kubectl")
+            let mut child = background_command("kubectl")
                 .args(["apply", "-f", "-"])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())

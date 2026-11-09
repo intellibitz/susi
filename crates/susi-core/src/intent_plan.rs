@@ -624,7 +624,9 @@ fn exec_leaf(
         "exec_command" => {
             let command = inputs.get("command").map(String::as_str).unwrap_or("");
             let argv = command_argv(command).map_err(EaiError::process)?;
-            let output = std::process::Command::new(&argv[0])
+            // Unattended (output captured; the daemon runs intents too): no
+            // console window.
+            let output = susi_paths::console::background_command(&argv[0])
                 .args(&argv[1..])
                 .current_dir(workspace)
                 .output()
