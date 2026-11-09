@@ -734,16 +734,15 @@ pub fn scan_source_in(
     test_only: bool,
 ) {
     let modules = scan_test_modules(source);
-    scan_source_with_modules(workspace, member, file, source, test_only, &modules);
+    scan_source_with_modules(workspace, member, file, (source, &modules), test_only);
 }
 
 fn scan_source_with_modules(
     workspace: &mut Workspace,
     member: &Member,
     file: &str,
-    source: &str,
+    (source, modules): (&str, &TestModules),
     test_only: bool,
-    modules: &TestModules,
 ) {
     let package = member.name.as_str();
     let crate_dir = member.dir.as_str();
@@ -1057,7 +1056,7 @@ pub fn load(root: &Path) -> Result<Workspace> {
             continue;
         };
         let only_tests = test_only.contains(file);
-        scan_source_with_modules(&mut workspace, member, file, source, only_tests, modules);
+        scan_source_with_modules(&mut workspace, member, file, (source, modules), only_tests);
     }
     Ok(workspace)
 }
@@ -1508,7 +1507,11 @@ const AFTER: &str = include_str!("../after.md");
         assert!(!reused_only.contains("crates/config/examples/nested/src/lib.rs"));
         let members = original.members.clone();
         for ((file, source), modules) in sources.iter().zip(&modules) {
-            let member = owner(&members, file).unwrap();
+            let member = owner(&members, file);
+            assert!(member.is_some(), "fixture must have an owner: {file}");
+            let Some(member) = member else {
+                continue;
+            };
             scan_source_in(
                 &mut original,
                 member,
@@ -1520,9 +1523,8 @@ const AFTER: &str = include_str!("../after.md");
                 &mut reused,
                 member,
                 file,
-                source,
+                (source, modules),
                 reused_only.contains(*file),
-                modules,
             );
         }
         assert_eq!(format!("{original:?}"), format!("{reused:?}"));

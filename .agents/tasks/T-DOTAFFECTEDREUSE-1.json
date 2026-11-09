@@ -26,11 +26,11 @@
       "affected::tests::"
     ]
   },
-  "checkpoint": "Local parser-reuse candidate: private rustc harness passed all 19 affected tests; three alternating paired full loads have exact Workspace equality and explained-selection equality for 4,678 tracked single-path inputs plus empty input. Median paired warm saving 0.777s (0.550-0.867s). Cold baseline 24.018s was dominated by 18.958s source-read/owner loop; no 24s or under-60s claim. Native Cargo acceptance, strict lint, independent review and combined gate remain pending. Parent owns integration/publication. No persistent cache or concurrent production reads.",
+  "checkpoint": "Native focused acceptance passes on final source: 19 passed, 0 failed/ignored, 144 unrelated filtered. Strict Clippy for xtask local-workflow and tests plus workspace fmt check pass. Two strict-lint defects were corrected without suppression: group source text/lexical facts to obey five-argument limit, and explicitly check fixture ownership instead of unwrap. Both failures are retained. Prior differential/timing evidence belongs to predecessor d7588e614; no retroactive claim for final source. Refreshed independent review and combined gate remain pending; parent owns integration/publication.",
   "validation": {
     "base_commit": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
     "original_source_sha256": "C2BAE59C0ED26FE622DDC82CAB272658D9FA67BEE63B39CEA0F9D8F6E2CC90D2",
-    "source_sha256": "E2C3C5BC41CBB6C1AA37BC2DA6FEF018DC284A4CC39C7BD9071DA188564F984D",
+    "source_sha256": "1F0FDBAC3C9241C2E38CF81D84BA8DEEEBB69E35A9A7B86591C0AF244B6A8538",
     "private_harness_root": "C:/Users/muthu/susi-private/affected-select-profile",
     "unit_test_command": "private rustc --test unit-tests.rs, then unit-tests.exe --nocapture",
     "unit_passed": 19,
@@ -69,13 +69,181 @@
     "source_bytes": 21965515,
     "original_references": 615,
     "fixture_note": "Added unit-test path literals increase actual source inventory to634 references under both old and new implementations; every ordered reference is equal on identical input.",
-    "production_net_lines": 23,
-    "cfg_test_net_lines": 185,
+    "production_net_lines": 22,
+    "cfg_test_net_lines": 188,
     "format_exit": 0,
     "diff_check_exit": 0,
-    "cargo_acceptance": "pending",
-    "clippy": "pending",
+    "cargo_acceptance": "passed, 19 tests, 144 unrelated filtered",
+    "clippy": "passed with -D warnings for xtask local-workflow and tests",
     "full_gate": "pending",
-    "isolation": "Allowlisted process environment, fresh private HOME/USERPROFILE/APPDATA/SUSI_HOME/TEMP and private target; SUSI_NO_REGISTRY_ENV=1; no inherited credentials."
+    "isolation": "Allowlisted process environment, fresh private HOME/USERPROFILE/APPDATA/SUSI_HOME/TEMP and private target; SUSI_NO_REGISTRY_ENV=1; no inherited credentials.",
+    "private_harness_source_sha256": "E2C3C5BC41CBB6C1AA37BC2DA6FEF018DC284A4CC39C7BD9071DA188564F984D",
+    "timing_candidate_commit": "d7588e6147daf0873dcff576f8fb52754de6c0eb",
+    "final_candidate_timing": "not rerun after lint-only structural corrections",
+    "native_evidence": [
+      {
+        "stage": "native-build-1",
+        "manifest": "C:/Users/muthu/susi-private/affected-select-profile/native-build-1/manifest-after.json",
+        "command": [
+          "test",
+          "--no-run",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--bin",
+          "local-workflow",
+          "--message-format=json"
+        ],
+        "source_sha256": "E2C3C5BC41CBB6C1AA37BC2DA6FEF018DC284A4CC39C7BD9071DA188564F984D",
+        "duration_ms": 74829,
+        "exit": 0,
+        "manifest_sha256": "3088EDEBDB94520E8894B36167C21E84A7706E2213B0D7102D532A754A40EED0"
+      },
+      {
+        "stage": "native-acceptance-1",
+        "manifest": "C:/Users/muthu/susi-private/affected-select-profile/native-acceptance-1/manifest-after.json",
+        "command": [
+          "test",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--bin",
+          "local-workflow",
+          "affected::tests::",
+          "--",
+          "--nocapture"
+        ],
+        "source_sha256": "E2C3C5BC41CBB6C1AA37BC2DA6FEF018DC284A4CC39C7BD9071DA188564F984D",
+        "duration_ms": 5584,
+        "exit": 0,
+        "manifest_sha256": "162902A8AE455C17EB10C7ACFF308E68693F66CE8CDBE8BF04D1AFDD4F7646D6"
+      },
+      {
+        "stage": "native-clippy-1",
+        "manifest": "C:/Users/muthu/susi-private/affected-select-profile/native-clippy-1/manifest-after.json",
+        "command": [
+          "clippy",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--bin",
+          "local-workflow",
+          "--tests",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "source_sha256": "E2C3C5BC41CBB6C1AA37BC2DA6FEF018DC284A4CC39C7BD9071DA188564F984D",
+        "duration_ms": 24181,
+        "exit": 101,
+        "manifest_sha256": "9A37F9801AEF4DAFF8A3F2753AE0DF19C3F9DE670AE184DB85809A272F135B38"
+      },
+      {
+        "stage": "native-acceptance-2",
+        "manifest": "C:/Users/muthu/susi-private/affected-select-profile/native-acceptance-2/manifest-after.json",
+        "command": [
+          "test",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--bin",
+          "local-workflow",
+          "--message-format=json",
+          "affected::tests::",
+          "--",
+          "--nocapture"
+        ],
+        "source_sha256": "6DEC9AD84B03A5335E0EEF8EE760DB04B44F3E707952ABF000420A8694D61E8A",
+        "duration_ms": 9163,
+        "exit": 0,
+        "manifest_sha256": "04B498E96298F25A1180C1E8AE92F7CA09970B58844ADDCB86E9BD49BAF787E8"
+      },
+      {
+        "stage": "native-clippy-2",
+        "manifest": "C:/Users/muthu/susi-private/affected-select-profile/native-clippy-2/manifest-after.json",
+        "command": [
+          "clippy",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--bin",
+          "local-workflow",
+          "--tests",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "source_sha256": "6DEC9AD84B03A5335E0EEF8EE760DB04B44F3E707952ABF000420A8694D61E8A",
+        "duration_ms": 5004,
+        "exit": 101,
+        "manifest_sha256": "B6869AADCCE74EA85302F7DAD128679B7D3A74C1A877C3338B087AF20DBD6F04"
+      },
+      {
+        "stage": "native-format-check-1",
+        "manifest": "C:/Users/muthu/susi-private/affected-select-profile/native-format-check-1/manifest-after.json",
+        "command": [
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "source_sha256": "1F0FDBAC3C9241C2E38CF81D84BA8DEEEBB69E35A9A7B86591C0AF244B6A8538",
+        "duration_ms": 8879,
+        "exit": 0,
+        "manifest_sha256": "CFA7722A29B8819C68E98647B96DC4124CC2231377A6DB04DED9AD054CC09155"
+      },
+      {
+        "stage": "native-acceptance-3",
+        "manifest": "C:/Users/muthu/susi-private/affected-select-profile/native-acceptance-3/manifest-after.json",
+        "command": [
+          "test",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--bin",
+          "local-workflow",
+          "--message-format=json",
+          "affected::tests::",
+          "--",
+          "--nocapture"
+        ],
+        "source_sha256": "1F0FDBAC3C9241C2E38CF81D84BA8DEEEBB69E35A9A7B86591C0AF244B6A8538",
+        "duration_ms": 9627,
+        "exit": 0,
+        "manifest_sha256": "F00083CD87F86E1280F6E5F82F822064115866967F183CB4B4F053CA817A684E"
+      },
+      {
+        "stage": "native-clippy-3",
+        "manifest": "C:/Users/muthu/susi-private/affected-select-profile/native-clippy-3/manifest-after.json",
+        "command": [
+          "clippy",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--bin",
+          "local-workflow",
+          "--tests",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "source_sha256": "1F0FDBAC3C9241C2E38CF81D84BA8DEEEBB69E35A9A7B86591C0AF244B6A8538",
+        "duration_ms": 6784,
+        "exit": 0,
+        "manifest_sha256": "E5A46E4289D9B76A6CA5481B4D9CE022BF8B7868E1A2E9A28186C20D6A84B6DF"
+      }
+    ],
+    "final_binary_sha256": "2A90FAC523E017E8E49CE9EA5D20D9B91A55D3083C5DFE28105989AC2B0F45DE",
+    "final_native_test_seconds": 4.1,
+    "final_native_test_outer_ms": 9627,
+    "final_native_test_filtered": 144,
+    "final_lint_outer_ms": 6784,
+    "native_manifest_note": "Recorded immediately before/after each new Cargo command. Final build/test source hashes are unchanged across command, and Cargo artifact JSON identifies the hashed test executable. These records do not retroactively attest prior private rustc runs."
   }
 }
