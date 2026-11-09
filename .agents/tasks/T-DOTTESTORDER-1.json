@@ -1,0 +1,70 @@
+{
+  "id": "T-DOTTESTORDER-1",
+  "deps": [],
+  "checkpoint": "Name/comment-only change moves unchanged real qualification fixture earlier in sorted libtest queue. Four controlled valid full launcher suite samples each passed 158 tests, no failures/ignored. Baseline outer109.240/105.027s, candidate97.413/94.945s; observed9.6–10.8% pair reduction, not a production or overall gate claim. All assertions and test selection retained. One baseline2 attempt invalid because wrapper derived Rustup path from previously isolated USERPROFILE; retained failure logs, fixed wrapper to immutable original toolchain paths, reran successfully. Independent review found no active exact-name callers; substring preserved. Artifacts/logs retained F:/st/testorder. Native gate pending. Focused Clippy -D warnings, cargo fmt --all --check, and git diff --check passed. No production code changed.",
+  "status": "in_progress",
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-DOTTESTORDER-1.json"
+  ],
+  "native_worker": "dot-testorder",
+  "claimed_by": "dot-testorder",
+  "state": "in_progress",
+  "created_by": "dot-testorder",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow"
+    ]
+  },
+  "goal": "Measure complete launcher suite scheduling with the real native cargo fixture queued earlier; retain only a measured improvement without removing assertions, tests, isolation or checks.",
+  "title": "Start unchanged critical-path qualification test earlier",
+  "measurements": [
+    {
+      "failed": 0,
+      "passed": 158,
+      "suite_seconds": 108.5413064,
+      "ignored": 0,
+      "outer_ms": 109240,
+      "log_sha256": "D1E72B4AB5FC2FFF5423795B54A2F9D03987F784779A1A8831CA92E11E676312",
+      "label": "baseline1",
+      "binary_sha256": "2206AB7978969EA5DE366DFA7E09E5570D345221579A4C4D76AD65528C53B711"
+    },
+    {
+      "failed": 0,
+      "passed": 158,
+      "suite_seconds": 95.3820814,
+      "ignored": 0,
+      "outer_ms": 97413,
+      "log_sha256": "CC99B8023A895BCC9D3EC9DAE3238E7B4F463B92EEB803885872A1B0EAEFABF9",
+      "label": "candidate1",
+      "binary_sha256": "3EC4933E77E5975A238ED2D202CFEFB1778658FBA4D32B4AA32AD1BFF910F98D"
+    },
+    {
+      "failed": 0,
+      "passed": 158,
+      "suite_seconds": 94.8962891,
+      "ignored": 0,
+      "outer_ms": 94945,
+      "log_sha256": "B2ED4D2EE84C0C7B847F2AF1C32A1989940B693B6CE249638490BA96260B6E94",
+      "label": "candidate2",
+      "binary_sha256": "3EC4933E77E5975A238ED2D202CFEFB1778658FBA4D32B4AA32AD1BFF910F98D"
+    },
+    {
+      "failed": 0,
+      "passed": 158,
+      "suite_seconds": 104.9648531,
+      "ignored": 0,
+      "outer_ms": 105027,
+      "log_sha256": "01F4C918803B992819D462EC1785D22C8E6B94ABDF88302FA6A6F039F601A5D5",
+      "label": "baseline2-corrected",
+      "binary_sha256": "2206AB7978969EA5DE366DFA7E09E5570D345221579A4C4D76AD65528C53B711"
+    }
+  ]
+}
