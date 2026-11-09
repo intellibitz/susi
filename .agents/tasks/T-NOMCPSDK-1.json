@@ -22,7 +22,9 @@
     "docs/evidence.md",
     "docs/gmcp/contract-203-002.md",
     "docs/gmcp/contract-203-008.md",
-    "tests/architecture_tests.rs"
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
   ],
   "scopes": [
     ".agents/build-time.jsonl",
@@ -36,7 +38,9 @@
     "docs/evidence.md",
     "docs/gmcp/contract-203-002.md",
     "docs/gmcp/contract-203-008.md",
-    "tests/architecture_tests.rs"
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
   ],
   "acceptance": "cargo test -p susi --test gmcp_requirements --test mcp_call_cli_tests --offline --locked passes (every GMCP requirement and mastery check on the committed evidence, and the MCP command-line suite against the served stdio and HTTP surfaces).",
   "accept": {
@@ -53,5 +57,5 @@
       "--locked"
     ]
   },
-  "updated_unix": 1794187847
+  "updated_unix": 1794189067
 }
