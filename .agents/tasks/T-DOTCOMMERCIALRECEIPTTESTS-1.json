@@ -1,0 +1,36 @@
+{
+  "deps": [],
+  "title": "Verify receipt evidence and isolate replay registry environment",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "gate_receipt",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "claimed_by": "dot-commercial-receipt-tests",
+  "native_worker": "dot-commercial-receipt-tests",
+  "scope": [
+    ".agents/tasks/T-DOTCOMMERCIALRECEIPTTESTS-1.json",
+    "xtask/src/gate_receipt.rs"
+  ],
+  "goal": "Preserve the native receipt count, harness, log digest, selection and corrupt-log regressions. Explicitly disable persistent Windows environment fallback for receipt replay with SUSI_NO_REGISTRY_ENV=1 after environment scrubbing, and pin it with a command-environment regression. Preserve launcher, native_provenance and reuse semantics. This does not qualify a production release.",
+  "scopes": [
+    ".agents/tasks/T-DOTCOMMERCIALRECEIPTTESTS-1.json",
+    "xtask/src/gate_receipt.rs"
+  ],
+  "size": "S",
+  "created_unix": 1794235751,
+  "id": "T-DOTCOMMERCIALRECEIPTTESTS-1",
+  "state": "in_progress",
+  "updated_unix": 1794250289,
+  "created_by": "dot-commercial-receipt-tests",
+  "acceptance": "cargo test -p xtask --bin local-workflow gate_receipt --offline --locked; cargo local-workflow check; combined-tree native integration remains required",
+  "status": "in_progress"
+}

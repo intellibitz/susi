@@ -1271,6 +1271,7 @@ fn isolated_env(command: &mut Command, home: &Path) {
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env("SUSI_HOME", home.join("susi"))
+        .env("SUSI_NO_REGISTRY_ENV", "1")
         .env("XDG_CONFIG_HOME", home.join("config"))
         .env("XDG_DATA_HOME", home.join("data"))
         .env("XDG_CACHE_HOME", home.join("cache"))
@@ -2447,6 +2448,12 @@ mod tests {
         };
         let receipt = build(&landing).unwrap();
         check_digest(&receipt).unwrap();
+        assert_eq!(receipt["integration"]["commit"], head);
+        assert_eq!(receipt["selection"], "packages:x");
+        assert_eq!(
+            receipt["gates"][1]["log_sha256"],
+            sha256_hex(RUNNER_LOG.as_bytes())
+        );
         let gates: Vec<GateRecord> = receipt["gates"]
             .as_array()
             .unwrap()
@@ -2465,6 +2472,10 @@ mod tests {
             })
         );
         assert_eq!(gates[1].binaries.len(), 3);
+        assert_eq!(
+            gates[1].log_sha256.as_deref(),
+            Some(sha256_hex(RUNNER_LOG.as_bytes()).as_str())
+        );
         assert!(gates[1].isolated_target_dir);
         assert!(!gates[1].argv.iter().any(|a| a.contains("F:/ops")));
         let mut strings = Vec::new();
@@ -2490,6 +2501,49 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("does not match its digest"));
+
+        // A digest-valid but different log blob is also rejected; the
+        // receipt must describe bytes captured for this candidate gate.
+        let other_blob = String::from_utf8(
+            git_output(
+                &repo,
+                &["hash-object", "-w", "--stdin"],
+                Some(b"other run\n"),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+        .trim()
+        .to_owned();
+        let mut wrong_log = native.clone();
+        wrong_log["gates"][1]["log_blob"] = json!(other_blob);
+        let landing = Landing {
+            root: &repo,
+            head: &head,
+            origin_main: &base,
+            sources: vec![],
+            native_gates: Some(&wrong_log),
+            evidence: &evidence(),
+        };
+        assert!(build(&landing)
+            .unwrap_err()
+            .to_string()
+            .contains("does not match its digest"));
+
+        let mut invalid_blob = native.clone();
+        invalid_blob["gates"][1]["log_blob"] = json!("not-an-object-id");
+        let landing = Landing {
+            root: &repo,
+            head: &head,
+            origin_main: &base,
+            sources: vec![],
+            native_gates: Some(&invalid_blob),
+            evidence: &evidence(),
+        };
+        assert!(build(&landing)
+            .unwrap_err()
+            .to_string()
+            .contains("invalid log blob"));
     }
 
     #[test]
@@ -2850,6 +2904,24 @@ mod tests {
         assert!(checks
             .iter()
             .any(|c| c.name.ends_with("harnesses") && c.outcome == Outcome::Mismatch));
+    }
+
+    #[test]
+    fn receipt_rerun_env_disables_registry_fallback() {
+        let home = Path::new("isolated-receipt-home");
+        let mut command = Command::new("cargo");
+        // Override any caller-supplied setting without mutating process state.
+        command.env("SUSI_NO_REGISTRY_ENV", "0");
+        isolated_env(&mut command, home);
+        let environment: BTreeMap<_, _> = command.get_envs().collect();
+        assert_eq!(
+            environment.get(std::ffi::OsStr::new("SUSI_NO_REGISTRY_ENV")),
+            Some(&Some(std::ffi::OsStr::new("1")))
+        );
+        assert_eq!(
+            environment.get(std::ffi::OsStr::new("SUSI_HOME")),
+            Some(&Some(home.join("susi").as_os_str()))
+        );
     }
 
     #[test]
