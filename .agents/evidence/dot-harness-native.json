@@ -49,5 +49,36 @@
     "No provider requests or credentials accessed.",
     "No installation, production mutation or global configuration changes."
   ],
-  "recorded_by": "Codex"
+  "recorded_by": "Codex",
+  "optimized_diagnostic": {
+    "diagnostic_only": true,
+    "production_qualified": false,
+    "source_commit": "e03ddfb538e0d52aa1b19d0cedd4eb65724527f0",
+    "artifact_sha256": "6d097cff66a8c053ee59b9c75f242a990ea66c6cb2dc776bc4911cf6ca1cf5ad",
+    "bytes": 3328000,
+    "map_sha256": "5bde8fdb95b3acd119a08640489965152ba48483d492508856460d13a9c28c20",
+    "build_command": "cargo build -p susi-harness --bin susi-harness --release --offline --locked",
+    "profile": "release defaults; stock sysroot; not full production qualification",
+    "native_link": "PASS unchanged PE/link-map inspector including original Rust entry and forbidden CRT origins",
+    "historical_pe_inspector": "PE-PASS",
+    "smoke_checks": [
+      {
+        "scratch_file_count": 0,
+        "elapsed_ms": 59.2196,
+        "stdout_characters": 21,
+        "argument": "--version",
+        "stderr_characters": 0,
+        "exit_code": 0
+      },
+      {
+        "scratch_file_count": 0,
+        "elapsed_ms": 40.0341,
+        "stdout_characters": 1145,
+        "argument": "--help",
+        "stderr_characters": 0,
+        "exit_code": 0
+      }
+    ],
+    "initial_script_issue": "An initial smoke script used reserved PowerShell HOME variable; corrected and both required isolated scratch checks rerun."
+  }
 }

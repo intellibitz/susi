@@ -40,6 +40,7 @@ fn standalone_harness_startup_answers_before_loading_credentials() {
     for argument in ["--version", "--help"] {
         let output = Command::new(env!("CARGO_BIN_EXE_susi-harness"))
             .env_clear()
+            .env("SUSI_NO_REGISTRY_ENV", "1")
             .env("SUSI_HOME", home.path())
             .current_dir(home.path())
             .arg(argument)
