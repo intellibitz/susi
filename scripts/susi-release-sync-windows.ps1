@@ -12,8 +12,12 @@ $Legacy = Join-Path $BinDir 'susi-engine.exe'
 $Previous = Join-Path $BinDir 'susi.prev.exe'
 function Owned-Processes {
     $Candidates = @(Get-CimInstance Win32_Process -Filter "Name='susi.exe' OR Name='susi-engine.exe'")
-    if ($Candidates | Where-Object { -not $_.ExecutablePath }) {
-        throw 'Cannot establish executable ownership for a running Susi process.'
+    foreach ($Process in $Candidates) {
+        # CIM enumeration can retain an exited process with no image path.
+        # Ignore only a proven exit/PID reuse, never an inaccessible live image.
+        if (-not $Process.ExecutablePath -and -not (Is-Gone $Process)) {
+            throw 'Cannot establish executable ownership for a running Susi process.'
+        }
     }
     @($Candidates | Where-Object { $_.ExecutablePath -eq $Bin -or $_.ExecutablePath -eq $Legacy })
 }
@@ -29,7 +33,7 @@ function Is-Daemon($Process) {
 # process that held it has exited and every handle to it is closed.
 function Is-Gone($Process) {
     $Now = @(Get-CimInstance Win32_Process -Filter "ProcessId=$($Process.ProcessId)")
-    $Now.Count -eq 0 -or $Now[0].CreationDate -ne $Process.CreationDate
+    $Now.Count -eq 0 -or ($Process.CreationDate -and $Now[0].CreationDate -and $Now[0].CreationDate -ne $Process.CreationDate)
 }
 # Stops one process listed by Owned-Processes and waits, bounded, for it to
 # exit. Each leaf service runs in the daemon's kill-on-close job, so stopping

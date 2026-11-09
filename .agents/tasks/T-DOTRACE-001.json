@@ -1,0 +1,30 @@
+{
+  "id": "T-DOTRACE-001",
+  "title": "Handle exited CIM rows without weakening release ownership",
+  "goal": "Ignore only proven exited/reused process identities when image path is absent; refuse live or ambiguous identities.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "created_by": "dot-release-race",
+  "created_unix": 1794221021,
+  "claimed_by": "dot-release-race",
+  "native_worker": "dot-release-race",
+  "deps": [],
+  "scopes": [
+    "scripts/susi-release-sync-windows.ps1",
+    "tests/release_process_identity.rs",
+    ".agents/tasks/T-DOTRACE-001.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "release_process_identity",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "verification": "Identity regression 1 passed (7 cases); real Windows promotion 1 passed; original helper fails deterministic regression; format passed. Full combined gate remains required."
+}
