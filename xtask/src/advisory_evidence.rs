@@ -351,13 +351,80 @@ pub fn fixture_source_for(directory: &Path, package: &str) -> Source {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    const SCRATCH_CREATE_ATTEMPTS: usize = 32;
+    static SCRATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    fn create_scratch_at(
+        base: &Path,
+        stamp: &str,
+        sequence: &AtomicU64,
+    ) -> std::io::Result<PathBuf> {
+        for _ in 0..SCRATCH_CREATE_ATTEMPTS {
+            let id = sequence.fetch_add(1, Ordering::Relaxed);
+            let path = base.join(format!("susi-advisory-test-{stamp}-{id}"));
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(path),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "could not reserve a unique advisory test directory after bounded retries",
+        ))
+    }
+
     fn scratch() -> PathBuf {
-        let path = env::temp_dir().join(format!(
-            "susi-advisory-test-{}",
+        create_scratch_at(
+            &env::temp_dir(),
+            &super::super::stamp().unwrap(),
+            &SCRATCH_SEQUENCE,
+        )
+        .expect("reserve a unique advisory test directory")
+    }
+
+    #[test]
+    fn scratch_skips_preexisting_directories_without_touching_them() {
+        let base = env::temp_dir().join(format!(
+            "susi-advisory-scratch-regression-{}-{}",
+            std::process::id(),
             super::super::stamp().unwrap()
         ));
-        fs::create_dir(&path).unwrap();
-        path
+        fs::create_dir(&base).unwrap();
+        let sequence = AtomicU64::new(0);
+        let existing = base.join("susi-advisory-test-collision-0");
+        fs::create_dir(&existing).unwrap();
+        fs::write(existing.join("preserve.txt"), b"keep").unwrap();
+
+        let created = create_scratch_at(&base, "collision", &sequence).unwrap();
+        assert_eq!(created, base.join("susi-advisory-test-collision-1"));
+        assert_eq!(fs::read(existing.join("preserve.txt")).unwrap(), b"keep");
+        assert!(created.is_dir());
+    }
+
+    #[test]
+    fn scratch_allocations_are_unique_under_parallel_calls() {
+        let base = env::temp_dir().join(format!(
+            "susi-advisory-scratch-parallel-{}-{}",
+            std::process::id(),
+            super::super::stamp().unwrap()
+        ));
+        fs::create_dir(&base).unwrap();
+        let sequence = AtomicU64::new(0);
+        let paths = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..32)
+                .map(|_| scope.spawn(|| create_scratch_at(&base, "parallel", &sequence).unwrap()))
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        let unique: std::collections::BTreeSet<_> = paths.iter().collect();
+        assert_eq!(unique.len(), paths.len());
+        assert!(paths.iter().all(|path| path.is_dir()));
     }
 
     #[test]

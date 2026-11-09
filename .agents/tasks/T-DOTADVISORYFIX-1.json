@@ -1,0 +1,32 @@
+{
+  "id": "T-DOTADVISORYFIX-1",
+  "title": "Make advisory test scratch directories collision-safe",
+  "goal": "Prevent concurrent advisory_evidence tests from failing when timestamp-derived temp paths collide, without deleting preexisting data or changing production advisory policy.",
+  "created_by": "dot-advisoryfix",
+  "created_unix": 1794250000,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-advisoryfix",
+  "claimed_by": "dot-advisoryfix",
+  "deps": [],
+  "scopes": [
+    "xtask/src/advisory_evidence.rs",
+    ".agents/tasks/T-DOTADVISORYFIX-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-release",
+      "--features",
+      "release-tooling",
+      "advisory_evidence::tests"
+    ]
+  },
+  "checkpoint": "Focused advisory_evidence tests passed 5/5; focused Clippy with -D warnings, cargo check for local-release/release-tooling, fmt --all --check, and diff --check passed. No production policy changes. Ready for local commit; no ship yet."
+}
