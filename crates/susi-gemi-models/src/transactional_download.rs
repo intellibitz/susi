@@ -10,6 +10,22 @@ use crate::resumable_downloads::{self, DownloadPlan, RangeRequest, RangeResponse
 use crate::susi_error::{EaiError, EaiResult};
 use std::path::{Path, PathBuf};
 
+enum Producer {
+    Range { verified: bool },
+    Streaming,
+}
+
+fn remove_if_present(path: &Path) -> EaiResult<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(EaiError::io(format!(
+            "invalidate {}: {error}",
+            path.display()
+        ))),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Store {
     pub root: PathBuf,
@@ -91,28 +107,14 @@ impl Store {
                 verified: false,
             });
         }
-        // Atomic publish: rename into the store, then write the manifest
-        // last so a crash between them never leaves a ready-looking
-        // artifact without provenance.
-        let final_path = self.final_path(name);
-        if let Some(parent) = final_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| EaiError::io(e.to_string()))?;
-        }
-        std::fs::rename(&staged, &final_path).map_err(|e| EaiError::io(e.to_string()))?;
-        let manifest = serde_json::json!({
-            "name": name,
-            "sha256": plan.sha256,
-            "size": std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0),
-        });
-        let manifest_path = self.manifest(name);
-        std::fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)
-            .map_err(|e| EaiError::io(e.to_string()))?;
-        Ok(PublishReport {
-            published: true,
-            path: Some(final_path),
+        self.promote(
+            name,
+            plan,
             resumed_from,
-            verified: report.verified,
-        })
+            Producer::Range {
+                verified: report.verified,
+            },
+        )
     }
 
     /// Promote an artifact downloaded by a streaming producer.
@@ -159,6 +161,28 @@ impl Store {
             )));
         }
 
+        self.promote(name, plan, resumed_from, Producer::Streaming)
+    }
+
+    /// Both producers use the same commit point: readiness is invalidated
+    /// before replacing bytes, and published atomically only after provenance.
+    fn promote(
+        &self,
+        name: &str,
+        plan: &DownloadPlan,
+        resumed_from: u64,
+        producer: Producer,
+    ) -> EaiResult<PublishReport> {
+        let (streamed, verified) = match producer {
+            Producer::Range { verified } => (false, verified),
+            Producer::Streaming => (true, plan.sha256.is_some()),
+        };
+        let staged = if streamed {
+            self.staging_target(name)
+        } else {
+            self.staging(name)
+        };
+        let size = std::fs::metadata(&staged)?.len();
         let final_path = self.final_path(name);
         if let Some(parent) = final_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| EaiError::io(e.to_string()))?;
@@ -167,34 +191,43 @@ impl Store {
         // crash after this point is unready and recoverable, never a ready
         // artifact paired with an old manifest.
         let manifest_path = self.manifest(name);
-        let _ = std::fs::remove_file(&manifest_path);
+        remove_if_present(&manifest_path)?;
         let final_provenance = final_path.with_extension("provenance.json");
         let staged_provenance = staged.with_extension("provenance.json");
-        let _ = std::fs::remove_file(&final_provenance);
+        remove_if_present(&final_provenance)?;
         std::fs::rename(&staged, &final_path)
             .map_err(|e| EaiError::io(format!("publish staged model: {e}")))?;
-        if staged_provenance.is_file() {
-            std::fs::rename(&staged_provenance, &final_provenance)
-                .map_err(|e| EaiError::io(format!("publish model provenance: {e}")))?;
+        if streamed && staged_provenance.is_file() {
+            if let Err(error) = std::fs::rename(&staged_provenance, &final_provenance) {
+                let _ = std::fs::rename(&final_path, &staged);
+                return Err(EaiError::io(format!("publish model provenance: {error}")));
+            }
         }
-        let manifest = serde_json::json!({
+        let mut manifest = serde_json::json!({
             "name": name,
-            "source_url": plan.url,
             "sha256": plan.sha256,
             "size": size,
         });
+        // Preserve the established streaming schema. Range downloads neither
+        // produce provenance nor previously persisted potentially signed URLs.
+        if streamed {
+            manifest["source_url"] = plan.url.clone().into();
+        }
         let bytes = serde_json::to_vec_pretty(&manifest)?;
         if let Err(error) = crate::susi_config::atomic_write_bytes(&manifest_path, &bytes) {
-            // Keep a failed manifest write recoverable instead of leaving an
-            // untracked payload outside `recover`.
+            // Best-effort rollback: range staging is visible to `recover`;
+            // streaming staging is retryable through `commit_staged`.
             let _ = std::fs::rename(&final_path, &staged);
+            if final_provenance.is_file() {
+                let _ = std::fs::rename(&final_provenance, &staged_provenance);
+            }
             return Err(EaiError::io(error.to_string()));
         }
         Ok(PublishReport {
             published: true,
             path: Some(final_path),
             resumed_from,
-            verified: plan.sha256.is_some(),
+            verified,
         })
     }
 
