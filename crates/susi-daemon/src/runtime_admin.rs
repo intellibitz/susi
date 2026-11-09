@@ -373,29 +373,50 @@ impl SusiRuntimeAdmin {
                 {
                     continue;
                 }
-                if let Some(listing) = Self::windows_acl_listing(&path) {
-                    if Self::windows_acl_is_overly_permissive(&listing) {
-                        findings.push(path.display().to_string());
-                    }
+                if let Some(finding) = Self::acl_finding(&path, Self::windows_acl_listing(&path)) {
+                    findings.push(finding);
                 }
             }
         }
         findings
     }
 
+    /// The readiness finding for one credential file, from its access-list
+    /// `reading`: `Some` when the list grants broad access or cannot be
+    /// trusted, `None` only for a list that was read in full and is
+    /// restrictive (or for a file that vanished mid-scan). An unreadable list
+    /// is a finding, not a clean result: a scan that treated "could not read"
+    /// as "nothing exposed" would pass a file whose DACL holds an entry this
+    /// reader does not understand.
+    #[cfg(any(not(unix), test))]
+    fn acl_finding(path: &Path, reading: std::io::Result<String>) -> Option<String> {
+        match reading {
+            Ok(listing) if Self::windows_acl_is_overly_permissive(&listing) => {
+                Some(path.display().to_string())
+            }
+            Ok(_) => None,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => Some(format!(
+                "{} (access list unverifiable: {error})",
+                path.display()
+            )),
+        }
+    }
+
     /// `path`'s access list in `icacls` notation (one `principal:(flags)(rights)`
     /// line per allow or deny entry), read natively. This scan used to run
     /// `icacls <path>` once per credential file; from the windowless daemon
     /// each run opened a console window (a test home's `node.key` did so on
-    /// 2026-11-09). `None` when the list cannot be read, as a failed `icacls`
-    /// run reported nothing before.
+    /// 2026-11-09). An error means the list could not be read in full
+    /// (including an entry type the reader does not understand); the caller
+    /// reports that rather than treating the file as safe.
     #[cfg(windows)]
-    fn windows_acl_listing(path: &Path) -> Option<String> {
-        let entries = match winapi::acl::read_dacl(path).ok()? {
+    fn windows_acl_listing(path: &Path) -> std::io::Result<String> {
+        let entries = match winapi::acl::read_dacl(path)? {
             Some(entries) => entries,
             // A NULL DACL grants everyone full access.
             None => {
-                return Some(Self::icacls_entry_line(
+                return Ok(Self::icacls_entry_line(
                     "S-1-1-0",
                     false,
                     false,
@@ -403,18 +424,23 @@ impl SusiRuntimeAdmin {
                 ));
             }
         };
-        Some(
-            entries
-                .iter()
-                .map(|e| Self::icacls_entry_line(&e.sid, e.deny, e.inherited, e.mask))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
+        Ok(entries
+            .iter()
+            .map(|e| Self::icacls_entry_line(&e.sid, e.deny, e.inherited, e.mask))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            ))
     }
 
+    /// Off Windows and Unix there is no reader: report that, not a clean list.
     #[cfg(not(any(unix, windows)))]
-    fn windows_acl_listing(_path: &Path) -> Option<String> {
-        None
+    fn windows_acl_listing(_path: &Path) -> std::io::Result<String> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "no access-list reader on this platform",
+        ))
     }
 
     /// One access-list entry the way `icacls` prints it, so
@@ -1097,6 +1123,166 @@ mod tests {
         assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Plant a DACL whose second entry is an `ACCESS_ALLOWED_CALLBACK_ACE`
+    /// (type 9) for Everyone, which the native reader cannot list. The first
+    /// entry is the ordinary owner-only grant, so a reader that skipped the
+    /// callback entry would see exactly what `restrict_to_current_user` makes.
+    #[cfg(windows)]
+    #[allow(unsafe_code)] // test fixture: a DACL entry type the safe facade cannot write
+    fn plant_callback_ace_for_everyone(path: &Path) {
+        use winapi::shared::minwindef::DWORD;
+        use winapi::um::accctrl::SE_FILE_OBJECT;
+        use winapi::um::aclapi::SetNamedSecurityInfoW;
+        use winapi::um::securitybaseapi::{AddAce, InitializeAcl};
+        // ACL_REVISION_DS: callback entries need it.
+        const ACL_REVISION_DS: DWORD = 4;
+        use winapi::um::winnt::{
+            ACL, DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+        };
+
+        // Owner-only first, so the file is protected and readable; then the
+        // callback entry is added to a rebuilt list below.
+        let user_ace = |ace_type: u8, mask: u32, sid: &[u8]| {
+            let size = (8 + sid.len() + 3) & !3;
+            let mut ace = vec![ace_type, 0];
+            ace.extend_from_slice(&(size as u16).to_le_bytes());
+            ace.extend_from_slice(&mask.to_le_bytes());
+            ace.extend_from_slice(sid);
+            ace.resize(size, 0);
+            ace
+        };
+        // S-1-1-0 (Everyone): revision 1, one sub-authority, authority 1, id 0.
+        let everyone = [1u8, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0];
+        let owner = winapi::acl::current_user_sid().unwrap();
+        let owner_sid = {
+            let mut parts = owner.split('-').skip(1);
+            let revision: u8 = parts.next().unwrap().parse().unwrap();
+            let authority: u64 = parts.next().unwrap().parse().unwrap();
+            let subs: Vec<u32> = parts.map(|p| p.parse().unwrap()).collect();
+            let mut bytes = vec![revision, subs.len() as u8];
+            bytes.extend_from_slice(&authority.to_be_bytes()[2..]);
+            for sub in subs {
+                bytes.extend_from_slice(&sub.to_le_bytes());
+            }
+            bytes
+        };
+        let aces = [
+            user_ace(0, winapi::acl::FILE_ALL_ACCESS, &owner_sid),
+            user_ace(9, 0x0012_0089, &everyone),
+        ];
+        let size = (std::mem::size_of::<ACL>() + aces.iter().map(Vec::len).sum::<usize>() + 3) & !3;
+        let mut acl_buf = vec![0u32; size / 4];
+        let acl = acl_buf.as_mut_ptr().cast::<ACL>();
+        let mut name: Vec<u16> = std::os::windows::ffi::OsStrExt::encode_wide(path.as_os_str())
+            .chain(Some(0))
+            .collect();
+        // SAFETY: `acl_buf` is a DWORD-aligned writable buffer of `size`
+        // bytes living past every call; each entry is a complete ACE owned by
+        // `aces` that AddAce copies; `name` is a NUL-terminated UTF-16 path;
+        // only the DACL is set, the other security pointers are null.
+        let status = unsafe {
+            assert_ne!(InitializeAcl(acl, size as DWORD, ACL_REVISION_DS), 0);
+            for ace in &aces {
+                assert_ne!(
+                    AddAce(
+                        acl,
+                        ACL_REVISION_DS,
+                        DWORD::MAX,
+                        ace.as_ptr().cast_mut().cast(),
+                        ace.len() as DWORD,
+                    ),
+                    0
+                );
+            }
+            SetNamedSecurityInfoW(
+                name.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                acl,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(status, 0, "SetNamedSecurityInfoW failed");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn readiness_scan_flags_a_key_file_whose_access_list_cannot_be_read_in_full() {
+        let dir =
+            std::env::temp_dir().join(format!("susi_win_unverifiable_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key_path = dir.join("cluster.key");
+        std::fs::write(&key_path, b"secret").unwrap();
+
+        // Control: owner-only reads clean.
+        winapi::acl::restrict_to_current_user(&key_path).unwrap();
+        assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
+
+        // The same file with a callback entry the reader cannot list is a
+        // finding, never a clean scan, and says why.
+        plant_callback_ace_for_everyone(&key_path);
+        let error =
+            winapi::acl::read_dacl(&key_path).expect_err("callback entry must fail the read");
+        assert_eq!(
+            winapi::acl::unsupported_ace(&error),
+            Some(&winapi::acl::UnsupportedAce {
+                index: 1,
+                ace_type: 9
+            })
+        );
+        let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].contains("cluster.key"), "{findings:?}");
+        assert!(findings[0].contains("unverifiable"), "{findings:?}");
+        assert!(
+            findings[0].contains("unsupported type 0x09"),
+            "{findings:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_access_list_is_a_finding_and_only_a_vanished_file_is_not() {
+        let path = Path::new("home/cluster.key");
+        // Read in full and restrictive: clean.
+        assert_eq!(
+            SusiRuntimeAdmin::acl_finding(path, Ok("*S-1-5-18:(F)".to_string())),
+            None
+        );
+        // Read in full and broad: the path alone.
+        assert_eq!(
+            SusiRuntimeAdmin::acl_finding(path, Ok("Everyone:(F)".to_string())),
+            Some(path.display().to_string())
+        );
+        // Not read in full: reported with the reason, whatever the reason.
+        for kind in [
+            std::io::ErrorKind::Unsupported,
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::InvalidData,
+            std::io::ErrorKind::Other,
+        ] {
+            let finding = SusiRuntimeAdmin::acl_finding(
+                path,
+                Err(std::io::Error::new(kind, "entry 1 is unreadable")),
+            )
+            .expect("an unreadable list must not read as clean");
+            assert!(finding.starts_with("home"), "{finding}");
+            assert!(finding.contains("access list unverifiable"), "{finding}");
+            assert!(finding.contains("entry 1 is unreadable"), "{finding}");
+        }
+        // A file deleted between listing and reading has nothing to expose.
+        assert_eq!(
+            SusiRuntimeAdmin::acl_finding(
+                path,
+                Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+            ),
+            None
+        );
     }
 
     #[test]

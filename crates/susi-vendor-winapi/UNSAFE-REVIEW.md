@@ -53,12 +53,28 @@ process token user.
 - No raw pointer, handle or descriptor crosses out of the module. Errors are
   `io::Error` from the Win32 status; a failure to restrict a secret is
   reported, not ignored, by callers that require it.
+- Fail-closed reads: `read_dacl` lists only allow and deny entries. Entry
+  types that never carry access (audit, alarm, mandatory label, resource
+  attribute, scoped policy, trust label, access filter) are left out; every
+  other type (compound, object, callback, and any type newer than this
+  module) fails the read with the typed `UnsupportedAce` error (index and
+  type byte, an `io::Error` of kind `Unsupported`), so a list that omitted an
+  entry able to grant access never reads as restrictive. The readiness scan in
+  `susi-daemon` reports such a file as an unverifiable credential finding
+  rather than a clean one. This change adds no `unsafe` expression to
+  production code (the classification is safe code), so the geiger counts
+  below are unchanged; the new tests use per-function test-only allowances
+  that cargo-geiger does not count.
 - Tests (real files, real Win32): the DACL after `restrict_to_current_user` is
   exactly one non-inherited `FILE_ALL_ACCESS` entry for the token user (the
   owner can still rewrite and delete the file); `set_protected_dacl` holds the
   requested grants in order; SID strings round-trip through the binary form
   and malformed strings are refused; a missing path and an embedded NUL are
-  errors, not panics.
+  errors, not panics; real files whose DACL holds an object allow, a callback
+  allow or a callback deny entry (planted with `AddAce` at `ACL_REVISION_DS`)
+  fail `read_dacl` with `UnsupportedAce { index, ace_type }`; every one of the
+  256 entry types is classified and none that can carry access is skipped; a
+  raw allow/deny pair still lists exactly.
 
 ## Executed evidence
 
@@ -94,4 +110,4 @@ Reviewed SHA-256 (UTF-8, LF):
 - `src/detached.rs`: `08ad0c1994c531ad00a111abb48a0c3e257dfcfa892614eedcd344467aa37140`
   (the previously recorded `3aa44740...` was stale: `detached.rs` changed in
   582d887c9 after that review)
-- `src/acl.rs`: `c17b32f4358afdd6fc347707f25a82cfb18489fa7d7259246414a3534a751bc8`
+- `src/acl.rs`: `28e938d7b12c0e623af4a98ea5419f5288586cfbf51cd3014c80b84b0e00a67c`

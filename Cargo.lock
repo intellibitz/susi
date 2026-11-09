@@ -4297,6 +4297,7 @@ dependencies = [
  "susi-build-os-ucrt",
  "susi-build-policy",
  "susi-config",
+ "susi-paths",
  "susi-vendor-serde-json",
  "susi-vendor-sha1",
  "susi-vendor-sha2",

@@ -211,7 +211,7 @@ fn main() {
             }
         }
     };
-    let _ = Command::new("taskkill")
+    let _ = susi_paths::console::background_command("taskkill")
         .args(["/F", "/PID", pid.trim()])
         .output();
     assert!(

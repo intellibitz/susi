@@ -55,6 +55,74 @@ pub struct Ace {
     pub mask: u32,
 }
 
+/// A DACL entry [`read_dacl`] cannot represent as an [`Ace`]. It carries an
+/// access right (an object or callback allow or deny entry, or a type this
+/// module does not know), so the list is not a complete account of who may
+/// open the file. [`read_dacl`] fails with this error (wrapped in an
+/// [`io::Error`] of kind `Unsupported`; see [`unsupported_ace`]) instead of
+/// listing the entries it understands and hiding the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnsupportedAce {
+    /// Position of the entry in the DACL.
+    pub index: u16,
+    /// The entry's `AceType` byte.
+    pub ace_type: u8,
+}
+
+impl std::fmt::Display for UnsupportedAce {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DACL entry {} has unsupported type {:#04x} that may carry access rights",
+            self.index, self.ace_type
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedAce {}
+
+/// The [`UnsupportedAce`] behind an error from [`read_dacl`], if that is what
+/// it reports.
+#[must_use]
+pub fn unsupported_ace(error: &io::Error) -> Option<&UnsupportedAce> {
+    error.get_ref()?.downcast_ref::<UnsupportedAce>()
+}
+
+/// What a DACL entry type means for who may open the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AceClass {
+    /// `ACCESS_ALLOWED_ACE_TYPE`: grants the mask to the trustee.
+    Allow,
+    /// `ACCESS_DENIED_ACE_TYPE`: denies the mask to the trustee.
+    Deny,
+    /// Audit, alarm, label and policy entries: they never grant or deny
+    /// access, so omitting them from the list loses no permission.
+    NoAccess,
+    /// Anything else (compound, object, callback and unknown types): it may
+    /// grant or deny access and cannot be listed here.
+    Unsupported,
+}
+
+fn classify_ace_type(ace_type: u8) -> AceClass {
+    match ace_type {
+        ACCESS_ALLOWED_ACE_TYPE => AceClass::Allow,
+        ACCESS_DENIED_ACE_TYPE => AceClass::Deny,
+        // SYSTEM_AUDIT, SYSTEM_ALARM, SYSTEM_AUDIT_OBJECT, SYSTEM_ALARM_OBJECT.
+        0x02 | 0x03 | 0x07 | 0x08 => AceClass::NoAccess,
+        // SYSTEM_AUDIT/ALARM_CALLBACK and their object forms.
+        0x0D..=0x10 => AceClass::NoAccess,
+        // MANDATORY_LABEL, RESOURCE_ATTRIBUTE, SCOPED_POLICY_ID,
+        // PROCESS_TRUST_LABEL, ACCESS_FILTER.
+        0x11..=0x15 => AceClass::NoAccess,
+        // ACCESS_ALLOWED_COMPOUND (4), ACCESS_ALLOWED_OBJECT (5),
+        // ACCESS_DENIED_OBJECT (6), ACCESS_ALLOWED_CALLBACK (9),
+        // ACCESS_DENIED_CALLBACK (0xA), ACCESS_ALLOWED_CALLBACK_OBJECT (0xB),
+        // ACCESS_DENIED_CALLBACK_OBJECT (0xC), and types newer than this
+        // module.
+        _ => AceClass::Unsupported,
+    }
+}
+
 /// Restrict `path` to the current user: a protected DACL with a single
 /// entry granting the process token's user `FILE_ALL_ACCESS`.
 pub fn restrict_to_current_user(path: &Path) -> io::Result<()> {
@@ -114,8 +182,10 @@ pub fn set_protected_dacl(path: &Path, grants: &[(&str, u32)]) -> io::Result<()>
 }
 
 /// `path`'s DACL entries in order; `None` for a NULL DACL, which grants
-/// everyone full access. Entry types other than allow and deny (object,
-/// callback, audit) are not listed.
+/// everyone full access. Only allow and deny entries are listed. Entries that
+/// never carry access (audit, alarm, label, policy) are left out; any other
+/// type (object, callback, compound, unknown) fails the read with an
+/// [`UnsupportedAce`] error rather than yielding a list that looks complete.
 #[allow(unsafe_code)]
 pub fn read_dacl(path: &Path) -> io::Result<Option<Vec<Ace>>> {
     let name = wide_path(path)?;
@@ -209,10 +279,21 @@ fn dacl_entries(dacl: PACL) -> io::Result<Vec<Ace>> {
         // SAFETY: GetAce succeeded, so `ace` points at an entry inside the
         // DACL that starts with an ACE_HEADER.
         let header = unsafe { *ace.cast::<ACE_HEADER>() };
-        let deny = match header.AceType {
-            ACCESS_ALLOWED_ACE_TYPE => false,
-            ACCESS_DENIED_ACE_TYPE => true,
-            _ => continue,
+        let deny = match classify_ace_type(header.AceType) {
+            AceClass::Allow => false,
+            AceClass::Deny => true,
+            AceClass::NoAccess => continue,
+            // Fail closed: a listing that omitted an entry able to grant
+            // access would read as a clean, restrictive list.
+            AceClass::Unsupported => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    UnsupportedAce {
+                        index,
+                        ace_type: header.AceType,
+                    },
+                ));
+            }
         };
         let fixed = std::mem::size_of::<ACCESS_ALLOWED_ACE>() - std::mem::size_of::<DWORD>();
         let Some(room) = usize::from(header.AceSize).checked_sub(fixed) else {
@@ -277,8 +358,8 @@ fn sid_to_string(bytes: &[u8]) -> Option<String> {
     } else {
         format!("S-{revision}-0x{authority:012X}")
     };
-    for sub in subs.chunks_exact(4) {
-        let value = u32::from_le_bytes([sub[0], sub[1], sub[2], sub[3]]);
+    for sub in subs.as_chunks::<4>().0 {
+        let value = u32::from_le_bytes(*sub);
         text.push_str(&format!("-{value}"));
     }
     Some(text)
@@ -333,8 +414,10 @@ impl SidBuf {
         let len = bytes.len();
         bytes.resize(len.div_ceil(4) * 4, 0);
         let words = bytes
-            .chunks_exact(4)
-            .map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|w| u32::from_ne_bytes(*w))
             .collect();
         let sid = Self { words, len };
         if sid_string_at(sid.as_psid(), sid.len).is_none() {
@@ -375,6 +458,9 @@ fn win32_status(status: DWORD) -> io::Result<()> {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod inline_tests {
     use super::*;
+
+    /// `ACL_REVISION_DS`: object and callback entries need it.
+    const ACL_REVISION_DS: DWORD = 4;
 
     fn scratch_file(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!(
@@ -451,6 +537,139 @@ mod inline_tests {
                 ("S-1-1-0", false, false, 0x0012_0089),
             ]
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Write `path`'s DACL as the given raw entries (header, mask, SID, ...
+    /// exactly as stored), protected, with no validation of their types, so
+    /// a test can plant an entry type `set_protected_dacl` cannot produce.
+    #[allow(unsafe_code)]
+    fn set_raw_dacl(path: &Path, aces: &[Vec<u8>]) {
+        let size = (std::mem::size_of::<ACL>() + aces.iter().map(Vec::len).sum::<usize>() + 3) & !3;
+        let mut acl_buf = vec![0u32; size / 4];
+        let acl = acl_buf.as_mut_ptr().cast::<ACL>();
+        // SAFETY: `acl_buf` is a writable DWORD-aligned buffer of `size`
+        // bytes that outlives the calls; each raw entry is a complete ACE
+        // owned by `aces` and copied into the list by AddAce.
+        unsafe {
+            assert_ne!(InitializeAcl(acl, size as DWORD, ACL_REVISION_DS), 0);
+            for ace in aces {
+                assert_ne!(
+                    winapi::um::securitybaseapi::AddAce(
+                        acl,
+                        ACL_REVISION_DS,
+                        DWORD::MAX,
+                        ace.as_ptr().cast_mut().cast(),
+                        ace.len() as DWORD,
+                    ),
+                    0,
+                    "AddAce refused type {:#04x}: {}",
+                    ace[0],
+                    io::Error::last_os_error()
+                );
+            }
+        }
+        let mut name = wide_path(path).unwrap();
+        // SAFETY: as in `set_protected_dacl`: only the DACL is set, from the
+        // valid list built above and a NUL-terminated path owned for the call.
+        let status = unsafe {
+            SetNamedSecurityInfoW(
+                name.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                acl,
+                std::ptr::null_mut(),
+            )
+        };
+        win32_status(status).unwrap();
+    }
+
+    /// A raw entry: header (type, flags 0, total size), mask, `body` words
+    /// (for object entries), then the SID.
+    fn raw_ace(ace_type: u8, mask: u32, body: &[u8], sid: &str) -> Vec<u8> {
+        let sid = SidBuf::parse(sid).unwrap();
+        let sid_bytes: Vec<u8> = sid
+            .words
+            .iter()
+            .flat_map(|w| w.to_ne_bytes())
+            .take(sid.len)
+            .collect();
+        let size = (8 + body.len() + sid_bytes.len() + 3) & !3;
+        let mut ace = vec![ace_type, 0];
+        ace.extend_from_slice(&(size as u16).to_le_bytes());
+        ace.extend_from_slice(&mask.to_le_bytes());
+        ace.extend_from_slice(body);
+        ace.extend_from_slice(&sid_bytes);
+        ace.resize(size, 0);
+        ace
+    }
+
+    #[test]
+    fn only_allow_and_deny_are_listed_and_only_non_access_types_are_skipped() {
+        const NO_ACCESS: [u8; 11] = [
+            0x02, 0x03, 0x07, 0x08, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13,
+        ];
+        for ace_type in 0..=u8::MAX {
+            let class = classify_ace_type(ace_type);
+            let expected = match ace_type {
+                0 => AceClass::Allow,
+                1 => AceClass::Deny,
+                0x14 | 0x15 => AceClass::NoAccess,
+                t if NO_ACCESS.contains(&t) => AceClass::NoAccess,
+                _ => AceClass::Unsupported,
+            };
+            assert_eq!(class, expected, "ace type {ace_type:#04x}");
+        }
+        // Every type that can carry a right is unsupported, never skipped.
+        for carrying in [0x04, 0x05, 0x06, 0x09, 0x0A, 0x0B, 0x0C, 0x16, 0xFF] {
+            assert_eq!(classify_ace_type(carrying), AceClass::Unsupported);
+        }
+    }
+
+    #[test]
+    fn a_callback_or_object_entry_fails_the_read_instead_of_hiding() {
+        let user = current_user_sid().unwrap();
+        // ACCESS_ALLOWED_OBJECT_ACE with no object GUIDs (flags 0).
+        let object = raw_ace(0x05, 0x0012_0089, &0u32.to_le_bytes(), "S-1-1-0");
+        // ACCESS_ALLOWED_CALLBACK_ACE: header, mask, SID (no condition).
+        let callback = raw_ace(0x09, 0x0012_0089, &[], "S-1-1-0");
+        // ACCESS_DENIED_CALLBACK_ACE.
+        let denied_callback = raw_ace(0x0A, 0x0012_0089, &[], "S-1-1-0");
+        for (ace_type, planted) in [(0x05, object), (0x09, callback), (0x0A, denied_callback)] {
+            let (dir, file) = scratch_file("unsupported");
+            set_raw_dacl(
+                &file,
+                &[raw_ace(0x00, FILE_ALL_ACCESS, &[], &user), planted],
+            );
+            let error = read_dacl(&file).expect_err("an unsupported entry must fail the read");
+            assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+            assert_eq!(
+                unsupported_ace(&error),
+                Some(&UnsupportedAce { index: 1, ace_type })
+            );
+            assert!(error.to_string().contains("unsupported type"), "{error}");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_raw_allow_and_deny_pair_still_lists_exactly() {
+        let (dir, file) = scratch_file("raw-pair");
+        let user = current_user_sid().unwrap();
+        set_raw_dacl(
+            &file,
+            &[
+                raw_ace(0x01, 0x0000_0002, &[], "S-1-1-0"),
+                raw_ace(0x00, FILE_ALL_ACCESS, &[], &user),
+            ],
+        );
+        let aces = read_dacl(&file).unwrap().unwrap();
+        assert_eq!(aces.len(), 2);
+        assert!(aces[0].deny && aces[0].sid == "S-1-1-0");
+        assert!(!aces[1].deny && aces[1].sid == user);
+        assert!(unsupported_ace(&io::Error::other("unrelated")).is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

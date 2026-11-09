@@ -4,7 +4,6 @@
 use super::package::{id, Result};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
-use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -27,16 +26,17 @@ fn xml_path(path: &Path) -> Result<String> {
 fn scheduler(args: &[&std::ffi::OsStr]) -> Result<()> {
     let root = susi_harness::channel_bindings::windows_root()?;
     let system = root.join("System32");
-    let output = Command::new(system.join("schtasks.exe"))
+    let mut command = Command::new(system.join("schtasks.exe"));
+    command
         .current_dir(&system)
         .env_clear()
         .env("SystemRoot", &root)
         .env("WINDIR", &root)
         .env("PATH", &system)
         .args(args)
-        .stdin(Stdio::null())
-        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-        .output()?;
+        .stdin(Stdio::null());
+    susi_paths::console::without_window(&mut command);
+    let output = command.output()?;
     if !output.status.success() {
         return Err(format!(
             "Windows Task Scheduler {}: {}",
