@@ -150,7 +150,7 @@ origin/main `4e8a4eec3`); the CEO decides the exceptions.
 | crate | lines | stays (protocol, state machine, socket) | leaves (product) |
 |-------|------:|------------------------------------------|------------------|
 | susi-gawd | 32,042 | plane_handler, worker_identity, kernel_loader, reflex_verify/reflex_intent (Tier 0 loading), lib | `admin` 15,383, cloud_rsi 1,914, intent_ladder, reflex_trainer, reflex_synth, patch_cycle, eval_*, bloat_audit, repo_gate, rsi_corpus, experiment_*, evolution, genome_distiller, release_qualify, scorecard, dev_canary, telemetry |
-| susi-gawd-swarm | 26,710 | dag, parallel_admission, parallel_dispatch, task_lease, quorum_durable, anti_entropy, peer_registry, deliberation, mission_persist/resume, cancel_propagate, worker_recovery, writer_isolation, fair_queue, role_select, resource_schedule, side_effects, capacity_admission, independent_verify, identity_revoke | `ama` 2,921, amas 2,554, roadmap_agents 1,220, cloud_recovery/failover/lockout 3,159, agent_integration 1,096 |
+| susi-gawd-swarm | 26,710 | dag, parallel_admission, parallel_dispatch, task_lease, quorum_durable, anti_entropy, peer_registry, deliberation, mission_persist/resume, cancel_propagate, worker_recovery, writer_isolation, fair_queue, role_select, resource_schedule, side_effects, capacity_admission, independent_verify, identity_revoke | left (T-SWARMMOVE-1, to Susi Frontier Lab): roadmap_agents 1,220, agent_integration 1,096. Kept after review: amas 2,554 (cluster protocol: discovery, attested peer dispatch, leader election, lock broadcast), cloud_failover/lockout (parallel_dispatch is built on them), `ama` 2,921 with cloud_recovery (the mission engine behind `gawd.solve`; moving it is an open CEO decision) |
 | susi-gawd-agents | 11,480 | agents_plane_handler, scheduler, safety | everything else: `agents` 3,433, `external` 1,279, external_peers, cloud_intent, cloud_budget, system_observe, admin_hooks, pkb, brain, self_core, goal_shape, axiom, live_search, test_plane, agent_meta_registry, adapter_upgrade |
 | susi-gawd-a2a | 2,349 | all | mastery_tests |
 | susi-gemi | 32,938 | plane_handler, provider_contract, worker, consensus_mode, primary_election, seat_provider, capability_matrix, key_arbitration, context_assembly, usage_accounting, local_tool_calls | `engines` 16,399 (engine implementations behind the contract), credential_scout, scout_*, benchmark, engine_benchmark, operator_report, pulse, model_preload, spend_tracker, orchestration, brain_explain, the *_ext catalogs |
@@ -384,3 +384,21 @@ table once the clean baseline is recorded.
   critical path in every run since peerchan is windows-sys -> tokio -> rmcp -> susi-gmcp ->
   susi-daemon -> bin (93.6-95.1 s of units), which is what stands between the build and 60 s
   next, together with the serial gawd chain behind it.
+- 2026-11-09 T-SWARMMOVE-1 (swarm product modules, destination first): the parallel roadmap
+  agents (`roadmap_agents`: task queue, claims, private worktrees, fenced leases, `run_round`)
+  and their integration gate (`agent_integration`: acceptance, independent verification,
+  verified closure, merge without silent overwrite) leave susi-gawd-swarm with their suites
+  `parallel_roadmap_e2e` and `swarm_gap_verified_closure`; the implementation section of
+  susi-gawd's `cloud_rsi` (`CloudImplExec`, `ImplModel`, `Delegator`,
+  `delegate_capability_gaps`) leaves with them. No binary called any of it. The destination
+  landed first: commercial `029b5e0` (gated merge `b9a23c4`, receipt `a2d40ae`; 67 test
+  binaries, 1,718 passed, 0 failed) declares them in susi-frontier-lab, where the 54 tests of
+  the moved files pass unchanged; the executor applies plans through core's own GMCP
+  `apply_patch_cycle` tool over the socket, checked live against an isolated core (offset 700),
+  so the patch cycle stays here. The rest of the swarm row stays for now, on evidence: `amas`
+  is cluster protocol (peer_registry, deliberation and the daemon build on it), `cloud_failover`
+  and `cloud_lockout` carry parallel_dispatch's `Runner`, `FailoverBudget` and `LockoutTracker`,
+  and `ama` with `cloud_recovery` is the mission engine behind `gawd.solve`, the daemon and the
+  CLI, which stays in core until the CEO decides. Roadmap vectors VC-201-027 and VC-201-028
+  record where their evidence now runs. Lines: susi-gawd-swarm 23,002 -> 20,673, susi-gawd
+  13,288 -> 12,653; pillar reach unchanged (47 workspace, 231 third-party, 22 facade edges).
