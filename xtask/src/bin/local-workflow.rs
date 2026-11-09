@@ -1610,6 +1610,7 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         })
         .collect();
     let mut native_gates = Vec::new();
+    let mut pending_workspace_proof: Option<(String, Command)> = None;
     let mut sysroot = None;
     let mut evidence = Vec::new();
     for (index, args) in gates.iter().enumerate() {
@@ -1649,20 +1650,23 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
         apply_gate_share(&mut command, share);
         print_gate_share(args.first().map_or("?", String::as_str), share);
         let measure = |cmd: &Command| {
-            sysroot.as_ref().filter(|_| index == 3).and_then(|s| {
-                workspace_test_proof::fingerprint(
-                    candidate,
-                    args,
-                    workspace_test_proof::Toolchain {
-                        compiler: &compiler,
-                        host,
-                        sysroot: &s.evidence,
-                    },
-                    cmd,
-                    &home,
-                )
-                .ok()
-            })
+            sysroot
+                .as_ref()
+                .filter(|_| index == 3 && !parallel_tests)
+                .and_then(|s| {
+                    workspace_test_proof::fingerprint(
+                        candidate,
+                        args,
+                        workspace_test_proof::Toolchain {
+                            compiler: &compiler,
+                            host,
+                            sysroot: &s.evidence,
+                        },
+                        cmd,
+                        &home,
+                    )
+                    .ok()
+                })
         };
         let test_key = measure(&command);
         let binaries_gate = parallel_tests
@@ -1758,8 +1762,13 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             )
             .into());
         }
-        if let Some(key) = test_key.filter(|key| measure(&command).as_ref() == Some(key)) {
-            evidence.push(workspace_test_proof::record(&key));
+        // A serial proof cannot attest to a substituted binary runner. Keep the
+        // command that actually ran, but publish nothing until every planned
+        // gate (including any companion doctests) and the final recheck pass.
+        if !binaries_gate {
+            if let Some(key) = test_key.filter(|key| measure(&command).as_ref() == Some(key)) {
+                pending_workspace_proof = Some((key, command));
+            }
         }
         let argv: Vec<_> = std::iter::once("cargo".to_owned())
             .chain(args.iter().cloned())
@@ -1786,6 +1795,25 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
             serde_json::to_string(&sysroot.evidence)?
         ));
     }
+    if let (Some((key, command)), Some(sysroot)) = (pending_workspace_proof, sysroot.as_ref()) {
+        let remeasured = workspace_test_proof::fingerprint(
+            candidate,
+            &gates[3],
+            workspace_test_proof::Toolchain {
+                compiler: &compiler,
+                host,
+                sysroot: &sysroot.evidence,
+            },
+            &command,
+            &home,
+        )
+        .ok();
+        if let Some(record) =
+            completed_workspace_proof(&key, remeasured.as_deref(), native_gates.len(), plan.len())
+        {
+            evidence.push(record);
+        }
+    }
     evidence.push(match &selection {
         affected::Selection::Packages(packages) => format!(
             "gate-selection=packages:{}",
@@ -1796,6 +1824,17 @@ fn verify_candidate(candidate: &Path, attempt: &Path) -> Result<Vec<String>> {
     Ok(evidence)
 }
 
+// Completion is deliberately independent of test counts: every planned gate
+// must succeed, and the exact execution inputs must still match at publication.
+fn completed_workspace_proof(
+    key: &str,
+    remeasured: Option<&str>,
+    completed: usize,
+    planned: usize,
+) -> Option<String> {
+    (planned > 0 && completed == planned && remeasured == Some(key))
+        .then(|| workspace_test_proof::record(key))
+}
 /// Which packages the clippy and test gates cover: those the change since the
 /// recorded integration base can affect. Without a recorded base, or with
 /// `SUSI_LOCAL_GATE=full`, the whole workspace. Production qualification
@@ -4519,6 +4558,24 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    #[test]
+    fn workspace_proof_waits_for_every_planned_gate() {
+        assert!(completed_workspace_proof("key", Some("key"), 0, 0).is_none());
+        for completed in 0..6 {
+            assert!(completed_workspace_proof("key", Some("key"), completed, 6).is_none());
+        }
+        assert!(completed_workspace_proof("key", Some("key"), 7, 6).is_none());
+        assert_eq!(
+            completed_workspace_proof("key", Some("key"), 6, 6),
+            Some(workspace_test_proof::record("key"))
+        );
+    }
+
+    #[test]
+    fn workspace_proof_rechecks_inputs_after_companion_gates() {
+        assert!(completed_workspace_proof("before", Some("after"), 6, 6).is_none());
+        assert!(completed_workspace_proof("before", None, 6, 6).is_none());
+    }
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     struct Scratch(PathBuf);
     impl Scratch {

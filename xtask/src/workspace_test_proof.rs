@@ -176,7 +176,7 @@ pub(crate) fn fingerprint(
     if !cargo.status.success() {
         return Err("cannot identify cargo".into());
     }
-    let inputs = json!({"policy":"exact-workspace-tests-v1","verifier-sources":[hash(include_bytes!("workspace_test_proof.rs")),hash(include_bytes!("bin/local-workflow.rs")),hash(include_bytes!("bin/local-release.rs")),hash(include_bytes!("compiler_env.rs")),hash(include_bytes!("trusted_sysroot.rs")),hash(include_bytes!("../../crates/susi-build-policy/src/lib.rs"))],"commit":git(root,&["rev-parse","HEAD"])?,"tree":git(root,&["rev-parse","HEAD^{tree}"])?,"argv":argv,"lock":hash(&fs::read(root.join("Cargo.lock"))?),"host":host,"compiler":compiler,"toolchain-files":compiler_files(root)?,"cargo":hash(&cargo.stdout),"sysroot":verified,"environment":environment,"cargo-config":config});
+    let inputs = json!({"policy":"exact-workspace-tests-v1","verifier-sources":[hash(include_bytes!("workspace_test_proof.rs")),hash(include_bytes!("test_runner.rs")),hash(include_bytes!("bin/local-workflow.rs")),hash(include_bytes!("bin/local-release.rs")),hash(include_bytes!("compiler_env.rs")),hash(include_bytes!("trusted_sysroot.rs")),hash(include_bytes!("../../crates/susi-build-policy/src/lib.rs"))],"commit":git(root,&["rev-parse","HEAD"])?,"tree":git(root,&["rev-parse","HEAD^{tree}"])?,"argv":argv,"lock":hash(&fs::read(root.join("Cargo.lock"))?),"host":host,"compiler":compiler,"toolchain-files":compiler_files(root)?,"cargo":hash(&cargo.stdout),"sysroot":verified,"environment":environment,"cargo-config":config});
     Ok(hash(&serde_json::to_vec(&inputs)?))
 }
 

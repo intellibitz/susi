@@ -1,0 +1,42 @@
+{
+  "native_worker": "dot-proof",
+  "acceptance": "Focused proof-completion tests pass; existing local-release proof tests remain valid. Full gate, production qualification and speed improvement are not claimed.",
+  "deps": [],
+  "created_by": "dot-proof",
+  "status": "in_progress",
+  "title": "Fail-closed workspace proof completion before parallel-gate expansion",
+  "id": "T-DOTPROOF-1",
+  "claimed_by": "dot-proof",
+  "scopes": [
+    ".agents/tasks/t-dotproof-1.json",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/workspace_test_proof.rs"
+  ],
+  "state": "in_progress",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--package",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "workspace_proof_"
+    ]
+  },
+  "goal": "Bind runner implementation into the proof identity, forbid serial proof for substituted execution, and publish proof only after all gates and final input remeasurement. Foundation only: workspace parallel mode remains disabled, pending compositional inventory/doctest proof and consumer verification.",
+  "checkpoint": "Local foundation only; no workspace parallel mode, integration, push, release qualification or under-60s result. Existing attestation signing was already after the full gate; this change hardens proof-record timing and final input identity, not a claim that prior failed gates produced signed attestations.",
+  "verification": [
+    "cargo test --offline --locked --package xtask --bin local-workflow workspace_proof_ --target-dir target: 2 passed, 0 failed; compile 30.61 s",
+    "cargo test --offline --locked --package xtask --features release-tooling --bin local-release workspace_test_proof_ --target-dir target: 3 passed, 0 failed, 1 ignored (explicit disposable signing key required); 11.28 s tests",
+    "cargo clippy --offline --locked --package xtask --features release-tooling --bin local-workflow --bin local-release --tests --target-dir target -- -D warnings: passed, 15.89 s"
+  ],
+  "remaining": [
+    "Version composite execution schema and release/native provenance consumers together before enabling workspace parallel mode.",
+    "Bind exact Cargo selection, successful no-run build, executable inventory and artifact digests, cwd/environment, runner policy/source, complete unique results, and same-selection companion doctest result/log.",
+    "Fail closed for duplicate/missing/empty/partial inventory, build/spawn/test/doc failure, interruption and changed source/binaries/runner. Keep serial and parallel proofs distinct.",
+    "Test successful composite receipt replay and tampering/failure cases, then full exact-tree gate and comparative measurements; no coverage loss."
+  ]
+}
