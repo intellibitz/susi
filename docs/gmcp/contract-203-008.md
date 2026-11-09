@@ -20,7 +20,7 @@ caching/pagination documents for both revisions, and one published
 baseline claim (CLAIM-03). GMCP represents every primitive — tools,
 resources, resource templates, prompts, completions, content blocks,
 annotations, icons, capabilities — through one canonical data model
-(`rmcp::model`, vendored under `susi-vendor-mcp-server`) and guarantees:
+(`susi_gmcp::mcp::model`, also reachable as `susi_gmcp::rmcp::model`) and guarantees:
 
 - **Lossless representation**: every content variant (`text`, `image`,
   `audio`, `resource_link`, `resource` embedded contents) and every
@@ -62,8 +62,8 @@ can diverge unobserved.
 
 ## Canonical data model
 
-The canonical owner is `crates/susi-gmcp` consuming `rmcp::model`
-through the `susi-vendor-mcp-server` facade — never re-declared per
+The canonical owner is `crates/susi-gmcp`, whose own MCP model
+(`crates/susi-gmcp/src/mcp/model.rs`) every surface uses — never re-declared per
 surface:
 
 | Primitive | Canonical type | Notes |

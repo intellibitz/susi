@@ -1,6 +1,6 @@
 //! Canonical JSON-RPC wire gate for the GMCP stdio transport.
 //!
-//! rmcp's own codec drops whole classes of malformed input before a typed
+//! A plain newline-delimited JSON codec drops whole classes of malformed input before a typed
 //! answer can be produced — an unparseable line is ignored, an `id: null`
 //! request deserializes into a notification and vanishes, and the
 //! `2026-07-28` per-request `_meta` protocol fields are only enforced
@@ -20,19 +20,18 @@
 //!   does not already carry one (absent means `complete`).
 //!
 //! Everything else — typed dispatch, negotiation, correlation, typed
-//! notifications — remains rmcp's: the gate forwards valid lines so one
+//! notifications — remains the session layer's (`crate::mcp`): the gate forwards valid lines so one
 //! implementation still serves every caller.
 
 use serde_json::Value;
 use std::future::Future;
 use std::sync::Arc;
-use susi_vendor_mcp_server as rmcp;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-use rmcp::service::{RoleServer, RxJsonRpcMessage, TxJsonRpcMessage};
-use rmcp::transport::Transport;
+use crate::mcp::message::{ClientJsonRpcMessage, ServerJsonRpcMessage};
+use crate::mcp::transport::Transport;
 
 /// Protocol revisions the wire contract accepts on the modern path — the
 /// `data.supported` list a `-32022` answer must carry. Canonical registry
@@ -89,9 +88,9 @@ fn reject(code: i64, message: &'static str, data: Option<Value>, id: Option<Valu
 
 /// Notifications the compatibility rules ignore outright — anything the
 /// peer emits without an `id` that is not a standard MCP notification is
-/// dropped rather than answered, matching rmcp's transport codec.
+/// dropped rather than answered, matching the raw transport codec.
 /// Methods a bare no-id message may name and still be ignored — the
-/// same list rmcp's codec uses, so non-MCP notifications (LSP and
+/// same list the raw codec uses, so non-MCP notifications (LSP and
 /// friends) stay compatibility-dropped rather than erroring.
 fn is_standard_method(method: &str) -> bool {
     matches!(
@@ -182,7 +181,7 @@ pub fn classify_envelope(line: &[u8]) -> GateVerdict {
         return reject(-32600, "Invalid request", None, id);
     }
     // Compatibility: non-standard notifications are ignored, never
-    // answered (rmcp's codec parity).
+    // answered (raw codec parity).
     if id.is_none() && is_ignorable_notification(&value) {
         return GateVerdict::Drop;
     }
@@ -373,7 +372,7 @@ impl EraState {
 }
 
 /// One shared writer for both service answers and gate rejections, so a
-/// typed error the gate produces lands in the same byte stream rmcp
+/// typed error the gate produces lands in the same byte stream the session
 /// writes to — one newline-delimited JSON message per write call.
 type SharedWriter<W> = Arc<Mutex<W>>;
 
@@ -388,7 +387,7 @@ pub struct StdioGate<R, W> {
     /// Inside an oversized line's tail — the `-32600` answer is emitted
     /// once per dead line, not once per consumed chunk.
     oversized: bool,
-    /// The last rejection's write, on a task of its own. rmcp polls
+    /// The last rejection's write, on a task of its own. The session polls
     /// `receive` inside an unbiased `select!` and drops it whenever another
     /// branch wins; a rejection written inline died with it while it
     /// waited for the writer an answer still held, and the client waited
@@ -455,10 +454,7 @@ where
     /// field is not defined — the historical wire shape keeps it absent
     /// (the SDK already strips it; this is the belt-and-suspenders for
     /// custom results it cannot see).
-    fn encode_outbound(
-        item: &TxJsonRpcMessage<RoleServer>,
-        modern: bool,
-    ) -> std::io::Result<Vec<u8>> {
+    fn encode_outbound(item: &ServerJsonRpcMessage, modern: bool) -> std::io::Result<Vec<u8>> {
         let mut value = serde_json::to_value(item)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         if let Some(result) = value.get_mut("result").and_then(Value::as_object_mut) {
@@ -480,17 +476,15 @@ where
     }
 }
 
-impl<R, W> Transport<RoleServer> for StdioGate<R, W>
+impl<R, W> Transport for StdioGate<R, W>
 where
-    R: AsyncRead + Unpin + Send,
+    R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    type Error = std::io::Error;
-
     fn send(
         &mut self,
-        item: TxJsonRpcMessage<RoleServer>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
+        item: ServerJsonRpcMessage,
+    ) -> impl Future<Output = std::io::Result<()>> + Send + 'static {
         let write = Arc::clone(&self.write);
         let modern = self.era.is_modern();
         async move {
@@ -501,7 +495,7 @@ where
         }
     }
 
-    async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleServer>> {
+    async fn receive(&mut self) -> Option<ClientJsonRpcMessage> {
         loop {
             if !self.settle_rejection().await {
                 return None;
@@ -544,7 +538,7 @@ where
             }
             match classify_line(&line, &mut self.era) {
                 GateVerdict::Forward => {
-                    match serde_json::from_slice::<RxJsonRpcMessage<RoleServer>>(&line) {
+                    match serde_json::from_slice::<ClientJsonRpcMessage>(&line) {
                         Ok(message) => return Some(message),
                         Err(_) => self.emit_rejection(-32600, "Invalid request", None, None),
                     }
@@ -560,8 +554,8 @@ where
         }
     }
 
-    async fn close(&mut self) -> Result<(), Self::Error> {
-        // rmcp drains its in-flight answers before closing; the gate's own
+    async fn close(&mut self) -> std::io::Result<()> {
+        // The session drains its in-flight answers before closing; the gate's own
         // last rejection gets the same courtesy.
         self.settle_rejection().await;
         Ok(())
@@ -571,10 +565,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rmcp::model::{NumberOrString, ServerJsonRpcMessage, ServerResult};
+    use crate::mcp::message::{ServerJsonRpcMessage, ServerResult};
+    use crate::mcp::model::NumberOrString;
     use std::time::Duration;
 
-    /// GMCP-203-004-04 on a loaded runner: rmcp dropped `receive` (another
+    /// GMCP-203-004-04 on a loaded runner: the session dropped `receive` (another
     /// `select!` branch won) while its rejection waited for the writer an
     /// answer still held, and the client never got its typed error. The
     /// pipe here holds eight bytes, so the answer keeps the writer until
@@ -585,8 +580,7 @@ mod tests {
         let (server_out, client_out) = tokio::io::duplex(8);
         let mut gate = StdioGate::new(server_in, server_out);
 
-        let answer =
-            ServerJsonRpcMessage::response(ServerResult::empty(()), NumberOrString::Number(1));
+        let answer = ServerJsonRpcMessage::response(ServerResult::Empty, NumberOrString::Number(1));
         let answering = tokio::spawn(gate.send(answer));
         while gate.write.try_lock().is_ok() {
             tokio::task::yield_now().await;

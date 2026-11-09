@@ -12,9 +12,7 @@
 //! Secrets never cross: setting keys and verifying audit evidence against
 //! signing secrets stay local to the CLI (see `tests/socket_parity.rs`).
 
-use rmcp::tool;
 use std::path::{Path, PathBuf};
-use susi_vendor_mcp_server as rmcp;
 
 use crate::susi_core::broker::{IpcBroker, PermissionScope};
 use crate::susi_core::mac_policy::{MacPolicy, PrivacyMode};
@@ -94,22 +92,22 @@ fn audit_log(workspace: &Path) -> PathBuf {
 impl CoreTools {
     // ── 8. Context and IPC ─────────────────────────────────────────────
 
-    #[tool(
-        name = "ipc_pending",
-        description = "Pending inter-app permission requests, as `susi broker pending`. Args: optional grantor",
-        input_schema = args::typed::<args::IpcPending>()
-    )]
+    crate::tool_def!(ipc_pending_tool_attr {
+        name: "ipc_pending",
+        description: "Pending inter-app permission requests, as `susi broker pending`. Args: optional grantor",
+        input_schema: args::typed::<args::IpcPending>(),
+    });
     pub fn ipc_pending(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let grantor = optional_str(arg, "grantor")?;
         let pending = IpcBroker::global().pending_requests(grantor);
         encode(&serde_json::json!({ "pending": pending }))
     }
 
-    #[tool(
-        name = "ipc_check",
-        description = "Whether an identity holds an inter-app permission scope, as `susi broker check`. Args: grantee, resource, action",
-        input_schema = args::typed::<args::IpcScope>()
-    )]
+    crate::tool_def!(ipc_check_tool_attr {
+        name: "ipc_check",
+        description: "Whether an identity holds an inter-app permission scope, as `susi broker check`. Args: grantee, resource, action",
+        input_schema: args::typed::<args::IpcScope>(),
+    });
     pub fn ipc_check(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let grantee = required_str(arg, "grantee")?;
         let scope =
@@ -123,11 +121,11 @@ impl CoreTools {
         }))
     }
 
-    #[tool(
-        name = "ipc_revoke",
-        description = "Revoke an inter-app permission scope from an identity, as `susi broker revoke`. Args: grantee, resource, action",
-        input_schema = args::typed::<args::IpcScope>()
-    )]
+    crate::tool_def!(ipc_revoke_tool_attr {
+        name: "ipc_revoke",
+        description: "Revoke an inter-app permission scope from an identity, as `susi broker revoke`. Args: grantee, resource, action",
+        input_schema: args::typed::<args::IpcScope>(),
+    });
     pub fn ipc_revoke(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let grantee = required_str(arg, "grantee")?;
         let scope =
@@ -136,22 +134,23 @@ impl CoreTools {
         pretty(&serde_json::json!({ "revoked": removed.is_some() }))
     }
 
-    #[tool(
-        name = "ipc_list",
-        description = "Inter-app permission grants held by an identity, as `susi broker list`. Args: grantee",
-        input_schema = args::typed::<args::IpcList>()
-    )]
+    crate::tool_def!(ipc_list_tool_attr {
+        name: "ipc_list",
+        description:
+            "Inter-app permission grants held by an identity, as `susi broker list`. Args: grantee",
+        input_schema: args::typed::<args::IpcList>(),
+    });
     pub fn ipc_list(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let grantee = required_str(arg, "grantee")?;
         let grants = IpcBroker::global().grants_for(grantee);
         encode(&serde_json::json!({ "grantee": grantee, "grants": grants }))
     }
 
-    #[tool(
-        name = "privacy_mode",
-        description = "Set the privacy mode (persisted; local_only keeps traffic on this machine and its local network, host_only on this machine alone (loopback; no LAN, discovery, gossip or off-host peers); both pin inference routing to local), as `susi privacy mode`. Args: mode (balanced, local_only, host_only, open)",
-        input_schema = args::typed::<args::PrivacyMode>()
-    )]
+    crate::tool_def!(privacy_mode_tool_attr {
+        name: "privacy_mode",
+        description: "Set the privacy mode (persisted; local_only keeps traffic on this machine and its local network, host_only on this machine alone (loopback; no LAN, discovery, gossip or off-host peers); both pin inference routing to local), as `susi privacy mode`. Args: mode (balanced, local_only, host_only, open)",
+        input_schema: args::typed::<args::PrivacyMode>(),
+    });
     pub fn privacy_mode(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let mode = required_str(arg, "mode")?;
         // `PrivacyMode::parse` maps anything unknown to balanced; over the
@@ -165,11 +164,11 @@ impl CoreTools {
         pretty(&report)
     }
 
-    #[tool(
-        name = "privacy_grant",
-        description = "Grant a cryptographic capability token, as `susi privacy grant`. Args: action, optional subject (default susi), resource (default *), ttl_secs",
-        input_schema = args::typed::<args::PrivacyGrant>()
-    )]
+    crate::tool_def!(privacy_grant_tool_attr {
+        name: "privacy_grant",
+        description: "Grant a cryptographic capability token, as `susi privacy grant`. Args: action, optional subject (default susi), resource (default *), ttl_secs",
+        input_schema: args::typed::<args::PrivacyGrant>(),
+    });
     pub fn privacy_grant(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let subject = optional_str(arg, "subject")?.unwrap_or("susi");
         let action = required_str(arg, "action")?;
@@ -179,11 +178,11 @@ impl CoreTools {
         encode(&token)
     }
 
-    #[tool(
-        name = "privacy_revoke",
-        description = "Revoke a capability grant, as `susi privacy revoke`. Args: action, optional subject (default susi), resource (default *)",
-        input_schema = args::typed::<args::PrivacyRevoke>()
-    )]
+    crate::tool_def!(privacy_revoke_tool_attr {
+        name: "privacy_revoke",
+        description: "Revoke a capability grant, as `susi privacy revoke`. Args: action, optional subject (default susi), resource (default *)",
+        input_schema: args::typed::<args::PrivacyRevoke>(),
+    });
     pub fn privacy_revoke(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let subject = optional_str(arg, "subject")?.unwrap_or("susi");
         let action = required_str(arg, "action")?;
@@ -192,11 +191,11 @@ impl CoreTools {
         pretty(&serde_json::json!({ "revoked": revoked }))
     }
 
-    #[tool(
-        name = "intent_list",
-        description = "Active intent-bus providers and needs, as `susi intent list`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(intent_list_tool_attr {
+        name: "intent_list",
+        description: "Active intent-bus providers and needs, as `susi intent list`",
+        input_schema: args::no_args(),
+    });
     pub fn intent_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let bus = crate::susi_core::intent_bus::IntentBus::global();
         encode(&serde_json::json!({
@@ -205,11 +204,11 @@ impl CoreTools {
         }))
     }
 
-    #[tool(
-        name = "ambient_start",
-        description = "Start the background ambient indexer for the server workspace, as `susi ambient start`; reports started, already_running or refused_internal_path. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema = args::typed::<args::WorkspaceView>()
-    )]
+    crate::tool_def!(ambient_start_tool_attr {
+        name: "ambient_start",
+        description: "Start the background ambient indexer for the server workspace, as `susi ambient start`; reports started, already_running or refused_internal_path. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema: args::typed::<args::WorkspaceView>(),
+    });
     pub fn ambient_start(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -218,11 +217,11 @@ impl CoreTools {
         pretty(&report)
     }
 
-    #[tool(
-        name = "tx_list",
-        description = "Open multi-agent transactions in the server workspace, as `susi tx list`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema = args::typed::<args::WorkspaceView>()
-    )]
+    crate::tool_def!(tx_list_tool_attr {
+        name: "tx_list",
+        description: "Open multi-agent transactions in the server workspace, as `susi tx list`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema: args::typed::<args::WorkspaceView>(),
+    });
     pub fn tx_list(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -234,11 +233,11 @@ impl CoreTools {
         encode(&serde_json::json!({ "open": txm.list_open() }))
     }
 
-    #[tool(
-        name = "context_graph_sample_os",
-        description = "Sample OS context (process names; active window on Linux) into the Universal Context Graph, as `susi context-graph sample-os`. Args: optional user, optional absolute workspace to tag the records with (default: the server workspace)",
-        input_schema = args::typed::<args::ContextSampleOs>()
-    )]
+    crate::tool_def!(context_graph_sample_os_tool_attr {
+        name: "context_graph_sample_os",
+        description: "Sample OS context (process names; active window on Linux) into the Universal Context Graph, as `susi context-graph sample-os`. Args: optional user, optional absolute workspace to tag the records with (default: the server workspace)",
+        input_schema: args::typed::<args::ContextSampleOs>(),
+    });
     pub fn context_graph_sample_os(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let user = optional_str(arg, "user")?;
         // The graph is the one substrate-home log the CLI and daemon share;
@@ -253,11 +252,11 @@ impl CoreTools {
 
     // ── 5. Assurance ───────────────────────────────────────────────────
 
-    #[tool(
-        name = "audit_verify",
-        description = "Verify every record of the server workspace's tamper-evident audit chain, as `susi audit verify`. Args: optional since (Unix seconds; counts entries at or after it, the full chain is checked). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema = args::typed::<args::AuditVerify>()
-    )]
+    crate::tool_def!(audit_verify_tool_attr {
+        name: "audit_verify",
+        description: "Verify every record of the server workspace's tamper-evident audit chain, as `susi audit verify`. Args: optional since (Unix seconds; counts entries at or after it, the full chain is checked). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema: args::typed::<args::AuditVerify>(),
+    });
     pub fn audit_verify(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -274,11 +273,11 @@ impl CoreTools {
         }))
     }
 
-    #[tool(
-        name = "audit_query",
-        description = "Redacted action history from the server workspace's audit chain, as `susi audit query --json`. Args: optional actor, mission, kind, since, until. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema = args::typed::<args::AuditQuery>()
-    )]
+    crate::tool_def!(audit_query_tool_attr {
+        name: "audit_query",
+        description: "Redacted action history from the server workspace's audit chain, as `susi audit query --json`. Args: optional actor, mission, kind, since, until. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema: args::typed::<args::AuditQuery>(),
+    });
     pub fn audit_query(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -296,11 +295,11 @@ impl CoreTools {
         encode(&records)
     }
 
-    #[tool(
-        name = "compliance_audit",
-        description = "The deterministic compliance audit of the server workspace, as `susi audit` and `susi admin audit`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema = args::typed::<args::WorkspaceView>()
-    )]
+    crate::tool_def!(compliance_audit_tool_attr {
+        name: "compliance_audit",
+        description: "The deterministic compliance audit of the server workspace, as `susi audit` and `susi admin audit`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema: args::typed::<args::WorkspaceView>(),
+    });
     pub fn compliance_audit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -308,11 +307,11 @@ impl CoreTools {
         gawd::audit_compliance(workspace).map_err(EaiError::governance)
     }
 
-    #[tool(
-        name = "audit_evidence_export",
-        description = "Wrap redacted audit segments in the independently verifiable export format, as `susi admin audit-evidence export`. Args: input, output (absolute paths)",
-        input_schema = args::typed::<args::AuditEvidenceExport>()
-    )]
+    crate::tool_def!(audit_evidence_export_tool_attr {
+        name: "audit_evidence_export",
+        description: "Wrap redacted audit segments in the independently verifiable export format, as `susi admin audit-evidence export`. Args: input, output (absolute paths)",
+        input_schema: args::typed::<args::AuditEvidenceExport>(),
+    });
     pub fn audit_evidence_export(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let input = absolute_path(arg, "input")?;
         let output = absolute_path(arg, "output")?;
@@ -320,11 +319,11 @@ impl CoreTools {
         pretty(&report)
     }
 
-    #[tool(
-        name = "substrate_report",
-        description = "The compiled-constants substrate report (version, model, axioms, topology), as `susi substrate-report`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema = args::typed::<args::WorkspaceView>()
-    )]
+    crate::tool_def!(substrate_report_tool_attr {
+        name: "substrate_report",
+        description: "The compiled-constants substrate report (version, model, axioms, topology), as `susi substrate-report`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema: args::typed::<args::WorkspaceView>(),
+    });
     pub fn substrate_report(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -332,11 +331,11 @@ impl CoreTools {
         gawd::substrate_report(workspace).map_err(EaiError::internal)
     }
 
-    #[tool(
-        name = "substrate_status",
-        description = "Pluggable / Sandbox / Governance / Host-contract / Reflexes status: the same document as `susi substrate status`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema = args::typed::<args::WorkspaceView>()
-    )]
+    crate::tool_def!(substrate_status_tool_attr {
+        name: "substrate_status",
+        description: "Pluggable / Sandbox / Governance / Host-contract / Reflexes status: the same document as `susi substrate status`. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema: args::typed::<args::WorkspaceView>(),
+    });
     pub fn substrate_status(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -345,11 +344,11 @@ impl CoreTools {
         pretty(&report)
     }
 
-    #[tool(
-        name = "crown_verify",
-        description = "Verify every Tier S USP: the same document as `susi crown verify|status` (all_critical_hold says whether verify would pass). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema = args::typed::<args::WorkspaceView>()
-    )]
+    crate::tool_def!(crown_verify_tool_attr {
+        name: "crown_verify",
+        description: "Verify every Tier S USP: the same document as `susi crown verify|status` (all_critical_hold says whether verify would pass). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema: args::typed::<args::WorkspaceView>(),
+    });
     pub fn crown_verify(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -358,22 +357,22 @@ impl CoreTools {
         pretty(&report)
     }
 
-    #[tool(
-        name = "clean",
-        description = "Remove SUSI-owned residue (never host or other apps' caches) and report bytes freed, as `susi os clean` / `susi os-clean`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(clean_tool_attr {
+        name: "clean",
+        description: "Remove SUSI-owned residue (never host or other apps' caches) and report bytes freed, as `susi os clean` / `susi os-clean`",
+        input_schema: args::no_args(),
+    });
     pub fn clean(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         encode(&crate::susi_core::substrate_hygiene::clean())
     }
 
     // ── 4. Onboarding ──────────────────────────────────────────────────
 
-    #[tool(
-        name = "setup_plan",
-        description = "Detect hardware, engines, key presence (names only) and agents, and return the zero-config setup plan: the same document as `susi setup plan --json`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(setup_plan_tool_attr {
+        name: "setup_plan",
+        description: "Detect hardware, engines, key presence (names only) and agents, and return the zero-config setup plan: the same document as `susi setup plan --json`",
+        input_schema: args::no_args(),
+    });
     pub fn setup_plan(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let home = susi_paths::SusiDirs::config_dir();
         encode(&crate::susi_config::setup_workflow::SetupPlan::detect(
@@ -381,11 +380,11 @@ impl CoreTools {
         ))
     }
 
-    #[tool(
-        name = "setup_apply",
-        description = "Apply the zero-config setup plan (existing settings preserved): the same document as `susi setup apply --json`. Args: optional cloud (grant cloud API key consent)",
-        input_schema = args::typed::<args::SetupApply>()
-    )]
+    crate::tool_def!(setup_apply_tool_attr {
+        name: "setup_apply",
+        description: "Apply the zero-config setup plan (existing settings preserved): the same document as `susi setup apply --json`. Args: optional cloud (grant cloud API key consent)",
+        input_schema: args::typed::<args::SetupApply>(),
+    });
     pub fn setup_apply(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         use crate::susi_config::setup_workflow::{ConsentKind, SetupPlan};
         let cloud = optional_bool(arg, "cloud")?;
@@ -404,33 +403,33 @@ impl CoreTools {
         }))
     }
 
-    #[tool(
-        name = "ecosystem_scan",
-        description = "Scan hardware and installed local AI engines, runtimes and model stores now, as `susi ecosystem scan`; with cached=true return the last persisted scan, as `susi ecosystem status`. Args: optional cached",
-        input_schema = args::typed::<args::EcosystemScan>()
-    )]
+    crate::tool_def!(ecosystem_scan_tool_attr {
+        name: "ecosystem_scan",
+        description: "Scan hardware and installed local AI engines, runtimes and model stores now, as `susi ecosystem scan`; with cached=true return the last persisted scan, as `susi ecosystem status`. Args: optional cached",
+        input_schema: args::typed::<args::EcosystemScan>(),
+    });
     pub fn ecosystem_scan(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let cached = optional_bool(arg, "cached")?;
         let report = daemon::ecosystem_scan(cached).map_err(EaiError::config)?;
         pretty(&report)
     }
 
-    #[tool(
-        name = "ecosystem_start",
-        description = "Start an installed local AI engine that needs no further input (e.g. ollama, local-ai), as `susi ecosystem start`. Args: id",
-        input_schema = args::typed::<args::EcosystemStart>()
-    )]
+    crate::tool_def!(ecosystem_start_tool_attr {
+        name: "ecosystem_start",
+        description: "Start an installed local AI engine that needs no further input (e.g. ollama, local-ai), as `susi ecosystem start`. Args: id",
+        input_schema: args::typed::<args::EcosystemStart>(),
+    });
     pub fn ecosystem_start(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let id = required_str(arg, "id")?;
         let message = gemi::ecosystem_start(id).map_err(EaiError::config)?;
         pretty(&serde_json::json!({ "id": id, "message": message }))
     }
 
-    #[tool(
-        name = "ecosystem_kb",
-        description = "Query the cloud-AI-ecosystem knowledge base, as `susi ecosystem kb list|show|search|check`. Args: optional action (default list), id, query, kind, capability, vendor, dir (absolute)",
-        input_schema = args::typed::<args::EcosystemKb>()
-    )]
+    crate::tool_def!(ecosystem_kb_tool_attr {
+        name: "ecosystem_kb",
+        description: "Query the cloud-AI-ecosystem knowledge base, as `susi ecosystem kb list|show|search|check`. Args: optional action (default list), id, query, kind, capability, vendor, dir (absolute)",
+        input_schema: args::typed::<args::EcosystemKb>(),
+    });
     pub fn ecosystem_kb(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let mut query = serde_json::Map::new();
         for key in [
@@ -451,11 +450,11 @@ impl CoreTools {
         pretty(&report)
     }
 
-    #[tool(
-        name = "ecosystem_explain",
-        description = "Explain a component, standard or protocol end to end (versions, implementers, capabilities, susi profile), as `susi ecosystem explain`. Args: id, optional dir (absolute)",
-        input_schema = args::typed::<args::EcosystemExplain>()
-    )]
+    crate::tool_def!(ecosystem_explain_tool_attr {
+        name: "ecosystem_explain",
+        description: "Explain a component, standard or protocol end to end (versions, implementers, capabilities, susi profile), as `susi ecosystem explain`. Args: id, optional dir (absolute)",
+        input_schema: args::typed::<args::EcosystemExplain>(),
+    });
     pub fn ecosystem_explain(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let id = required_str(arg, "id")?;
         let dir = match optional_str(arg, "dir")? {
@@ -468,11 +467,11 @@ impl CoreTools {
 
     // ── 9. OS ──────────────────────────────────────────────────────────
 
-    #[tool(
-        name = "os_provision",
-        description = "Explicit cloud provisioning, as `susi os provision probe|list|apply --json`. Args: optional action (default probe), kind (list/apply), manifest (apply; absolute path)",
-        input_schema = args::typed::<args::OsProvision>()
-    )]
+    crate::tool_def!(os_provision_tool_attr {
+        name: "os_provision",
+        description: "Explicit cloud provisioning, as `susi os provision probe|list|apply --json`. Args: optional action (default probe), kind (list/apply), manifest (apply; absolute path)",
+        input_schema: args::typed::<args::OsProvision>(),
+    });
     pub fn os_provision(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let action = optional_str(arg, "action")?.unwrap_or("probe");
         let mut payload = serde_json::json!({ "action": action });
@@ -486,11 +485,11 @@ impl CoreTools {
         pretty(&report)
     }
 
-    #[tool(
-        name = "os_capabilities",
-        description = "The typed capability bus, as `susi os capabilities discover|invoke --json`. Args: optional action (default discover); invoke: id, permission, optional subject (default operator), args, timeout_ms (default 30000), budget_micros (default unlimited). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
-        input_schema = args::typed::<args::OsCapabilities>()
-    )]
+    crate::tool_def!(os_capabilities_tool_attr {
+        name: "os_capabilities",
+        description: "The typed capability bus, as `susi os capabilities discover|invoke --json`. Args: optional action (default discover); invoke: id, permission, optional subject (default operator), args, timeout_ms (default 30000), budget_micros (default unlimited). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        input_schema: args::typed::<args::OsCapabilities>(),
+    });
     pub fn os_capabilities(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
@@ -527,93 +526,93 @@ impl CoreTools {
         }
     }
 
-    #[tool(
-        name = "services_start",
-        description = "Clear an operator stop so the supervisor brings a leaf service back up, as `susi services start`. Args: name",
-        input_schema = args::typed::<args::ServiceName>()
-    )]
+    crate::tool_def!(services_start_tool_attr {
+        name: "services_start",
+        description: "Clear an operator stop so the supervisor brings a leaf service back up, as `susi services start`. Args: name",
+        input_schema: args::typed::<args::ServiceName>(),
+    });
     pub fn services_start(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let report = daemon::services_control("start", required_str(arg, "name")?)
             .map_err(EaiError::config)?;
         pretty(&report)
     }
 
-    #[tool(
-        name = "services_stop",
-        description = "Stop a supervised leaf service and hold it down until services_start, as `susi services stop`. Args: name",
-        input_schema = args::typed::<args::ServiceName>()
-    )]
+    crate::tool_def!(services_stop_tool_attr {
+        name: "services_stop",
+        description: "Stop a supervised leaf service and hold it down until services_start, as `susi services stop`. Args: name",
+        input_schema: args::typed::<args::ServiceName>(),
+    });
     pub fn services_stop(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let report = daemon::services_control("stop", required_str(arg, "name")?)
             .map_err(EaiError::config)?;
         pretty(&report)
     }
 
-    #[tool(
-        name = "services_restart",
-        description = "Terminate a supervised leaf service so the daemon respawns it (works on Windows and Unix), as `susi services restart`. Args: name",
-        input_schema = args::typed::<args::ServiceName>()
-    )]
+    crate::tool_def!(services_restart_tool_attr {
+        name: "services_restart",
+        description: "Terminate a supervised leaf service so the daemon respawns it (works on Windows and Unix), as `susi services restart`. Args: name",
+        input_schema: args::typed::<args::ServiceName>(),
+    });
     pub fn services_restart(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let report = daemon::services_control("restart", required_str(arg, "name")?)
             .map_err(EaiError::config)?;
         pretty(&report)
     }
 
-    #[tool(
-        name = "commits_audit",
-        description = "Whole-ledger consistency check of the replicated commit log (signatures, gaps, equivocation, non-leader commits): the same document as `susi commits audit --json`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(commits_audit_tool_attr {
+        name: "commits_audit",
+        description: "Whole-ledger consistency check of the replicated commit log (signatures, gaps, equivocation, non-leader commits): the same document as `susi commits audit --json`",
+        input_schema: args::no_args(),
+    });
     pub fn commits_audit(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         pretty(&crate::susi_core::commit_log_report::audit_report())
     }
 
-    #[tool(
-        name = "commits_replay",
-        description = "The consensus view the commit ledger replays to (term, leader, roster, high-water marks): the same document as `susi commits replay --json`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(commits_replay_tool_attr {
+        name: "commits_replay",
+        description: "The consensus view the commit ledger replays to (term, leader, roster, high-water marks): the same document as `susi commits replay --json`",
+        input_schema: args::no_args(),
+    });
     pub fn commits_replay(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         pretty(&crate::susi_core::commit_log_report::replay_report())
     }
 
-    #[tool(
-        name = "commits_show",
-        description = "One commit record (live or archived) by unique epoch prefix, with its signature verdicts: the same document as `susi commits show --json`. Args: epoch",
-        input_schema = args::typed::<args::CommitsShow>()
-    )]
+    crate::tool_def!(commits_show_tool_attr {
+        name: "commits_show",
+        description: "One commit record (live or archived) by unique epoch prefix, with its signature verdicts: the same document as `susi commits show --json`. Args: epoch",
+        input_schema: args::typed::<args::CommitsShow>(),
+    });
     pub fn commits_show(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let report = crate::susi_core::commit_log_report::show_report(required_str(arg, "epoch")?)
             .map_err(EaiError::config)?;
         pretty(&report)
     }
 
-    #[tool(
-        name = "commits_sync",
-        description = "Bidirectional commit-ledger anti-entropy with every verified remote peer, as `susi commits sync`; returns per-peer and total counts",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(commits_sync_tool_attr {
+        name: "commits_sync",
+        description: "Bidirectional commit-ledger anti-entropy with every verified remote peer, as `susi commits sync`; returns per-peer and total counts",
+        input_schema: args::no_args(),
+    });
     pub fn commits_sync(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         pretty(&crate::susi_core::commit_log_report::sync_report())
     }
 
-    #[tool(
-        name = "commits_compact",
-        description = "Fold the commit ledger into a snapshot and archive pre-snapshot records, as `susi commits compact`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(commits_compact_tool_attr {
+        name: "commits_compact",
+        description: "Fold the commit ledger into a snapshot and archive pre-snapshot records, as `susi commits compact`",
+        input_schema: args::no_args(),
+    });
     pub fn commits_compact(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let report =
             crate::susi_core::commit_log_report::compact_report().map_err(EaiError::internal)?;
         pretty(&report)
     }
 
-    #[tool(
-        name = "peers_probe",
-        description = "Verify a host cryptographically (signed ping/pong, then its MCP endpoint) without admitting it, as `susi peers probe`. Args: host (optionally host:port), optional port",
-        input_schema = args::typed::<args::PeersProbe>()
-    )]
+    crate::tool_def!(peers_probe_tool_attr {
+        name: "peers_probe",
+        description: "Verify a host cryptographically (signed ping/pong, then its MCP endpoint) without admitting it, as `susi peers probe`. Args: host (optionally host:port), optional port",
+        input_schema: args::typed::<args::PeersProbe>(),
+    });
     pub fn peers_probe(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let host = required_str(arg, "host")?;
         let port = match optional_u64(arg, "port")? {
@@ -627,21 +626,21 @@ impl CoreTools {
         pretty(&report)
     }
 
-    #[tool(
-        name = "peers_list",
-        description = "This node's identity, eviction state, elected leader, and every rostered and banned cluster member: the same document as `susi peers list --json`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(peers_list_tool_attr {
+        name: "peers_list",
+        description: "This node's identity, eviction state, elected leader, and every rostered and banned cluster member: the same document as `susi peers list --json`",
+        input_schema: args::no_args(),
+    });
     pub fn peers_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let report = crate::susi_core::peer_roster::list_report().map_err(EaiError::config)?;
         pretty(&report)
     }
 
-    #[tool(
-        name = "peers_status",
-        description = "Every rostered member's cluster_status (unreachable members as error rows) plus this node's own, sorted by node: the same rows as `susi peers status --json`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(peers_status_tool_attr {
+        name: "peers_status",
+        description: "Every rostered member's cluster_status (unreachable members as error rows) plus this node's own, sorted by node: the same rows as `susi peers status --json`",
+        input_schema: args::no_args(),
+    });
     pub fn peers_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let rows = crate::susi_core::peer_roster::status_rows().map_err(EaiError::config)?;
         encode(&rows)

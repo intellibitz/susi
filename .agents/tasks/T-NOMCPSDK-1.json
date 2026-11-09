@@ -1,0 +1,57 @@
+{
+  "id": "T-NOMCPSDK-1",
+  "title": "Compile budget: GMCP serves MCP without the rmcp SDK",
+  "goal": "Take the rmcp MCP server SDK (and its macro, schemars and sse-stream crates) out of the core build by serving GMCP's MCP protocol with GMCP's own implementation in crates/susi-gmcp/src/mcp: the wire model, JSON-RPC 2.0 envelopes with the same parse strictness, the initialize and 2026-07-28 per-request lifecycles (server/discover), tools/list pagination, tools/call with progress, cancellation, tasks and multi-round-trip input, resources, prompts, completion, logging and subscriptions, over the existing stdio gate and Streamable HTTP (sessions, SSE with priming events and keep-alive, stateless 2026-07-28 requests, Mcp-* header checks, Host and Origin validation) on the tokio/hyper transport GMCP already runs. Built-in tool definitions come from a declarative tool_def! macro and input_schema! struct declarations that reproduce the previous inputSchema JSON exactly. susi-vendor-mcp-server is deleted; behaviour on the wire is unchanged (stdio and HTTP transcripts recorded before and after are identical).",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "nomcpsdk",
+  "native_worker": "nomcpsdk",
+  "created_by": "nomcpsdk",
+  "created_unix": 1794187847,
+  "size": "L",
+  "deps": [],
+  "scope": [
+    ".agents/build-time.jsonl",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-nomcpsdk-1.json",
+    "architecture.md",
+    "cargo.lock",
+    "cargo.toml",
+    "crates/susi-gmcp",
+    "crates/susi-vendor-mcp-server",
+    "docs/evidence.md",
+    "docs/gmcp/contract-203-002.md",
+    "docs/gmcp/contract-203-008.md",
+    "tests/architecture_tests.rs"
+  ],
+  "scopes": [
+    ".agents/build-time.jsonl",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-nomcpsdk-1.json",
+    "architecture.md",
+    "cargo.lock",
+    "cargo.toml",
+    "crates/susi-gmcp",
+    "crates/susi-vendor-mcp-server",
+    "docs/evidence.md",
+    "docs/gmcp/contract-203-002.md",
+    "docs/gmcp/contract-203-008.md",
+    "tests/architecture_tests.rs"
+  ],
+  "acceptance": "cargo test -p susi --test gmcp_requirements --test mcp_call_cli_tests --offline --locked passes (every GMCP requirement and mastery check on the committed evidence, and the MCP command-line suite against the served stdio and HTTP surfaces).",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "gmcp_requirements",
+      "--test",
+      "mcp_call_cli_tests",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "updated_unix": 1794187847
+}

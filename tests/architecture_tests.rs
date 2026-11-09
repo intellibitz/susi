@@ -115,7 +115,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-core", 3),
     ("susi-sandbox-client", 3),
     ("susi-vendor-wasmtime", 2),
-    ("susi-vendor-mcp-server", 0),
     ("susi-vendor-syn", 0),
     // Measurement uses the rank-0 parser implementation, not a pure facade.
     // Rank 1 is the lowest valid layer; all non-facade edges still point down.
@@ -661,8 +660,8 @@ fn susi_core_must_not_depend_on_infra_or_features() {
 
 /// No workspace crate may declare a third-party HTTP client crate except the
 /// transport and the vendor/adapter crates: outbound JSON HTTP lives in
-/// `susi-http-transport`; vendor SDKs (e.g. rmcp's reqwest transport in
-/// `susi-vendor-mcp`) live in `susi-vendor-*` / `susi-adapters-*`. An
+/// `susi-http-transport`; vendor SDKs live in `susi-vendor-*` /
+/// `susi-adapters-*`. An
 /// allow-list, so a new crate is covered without editing this test.
 #[test]
 fn core_os_crates_must_not_declare_http_clients() {
@@ -710,44 +709,50 @@ fn core_os_crates_must_not_declare_http_clients() {
     }
 }
 
-/// Only `susi-vendor-mcp-server` (server)
-/// may declare the `rmcp` SDK. Feature planes depend on that crate.
+/// No crate links an MCP SDK: GMCP serves MCP with its own implementation
+/// (`crates/susi-gmcp/src/mcp`) and the MCP client is the std JSON-RPC
+/// client in `susi-tools`. Neither `rmcp` nor its macro or schema crates may
+/// return as a dependency of any workspace crate.
 #[test]
-fn mcp_sdk_stays_in_vendor_crates() {
+fn no_crate_links_an_mcp_sdk() {
     let root = workspace_root();
-    let mut forbidden_in: Vec<String> = std::fs::read_dir(root.join("crates"))
+    let mut crates: Vec<String> = std::fs::read_dir(root.join("crates"))
         .expect("crates dir")
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|name| name != "susi-vendor-mcp-server")
         .collect();
-    forbidden_in.sort();
-    for crate_name in forbidden_in {
-        let Ok(text) =
-            std::fs::read_to_string(root.join(format!("crates/{crate_name}/Cargo.toml")))
-        else {
+    crates.sort();
+    let mut manifests: Vec<(String, std::path::PathBuf)> = crates
+        .into_iter()
+        .map(|name| {
+            let path = root.join(format!("crates/{name}/Cargo.toml"));
+            (name, path)
+        })
+        .collect();
+    manifests.push(("susi".to_string(), root.join("Cargo.toml")));
+    for (crate_name, path) in manifests {
+        let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let mut in_deps = false;
         for line in text.lines() {
             let trimmed = line.trim();
-            if trimmed.starts_with('[') {
-                in_deps = trimmed == "[dependencies]"
-                    || trimmed.starts_with("[dependencies.")
-                    || (trimmed.starts_with("[target.")
-                        && trimmed.contains("dependencies]")
-                        && !trimmed.contains("dev-dependencies]"));
-                continue;
+            for sdk in ["rmcp", "rmcp-macros", "schemars"] {
+                let declared = trimmed.starts_with(&format!("{sdk} "))
+                    || trimmed.starts_with(&format!("{sdk}="))
+                    || trimmed.contains(&format!("package = \"{sdk}\""));
+                assert!(
+                    !declared,
+                    "{crate_name} must not declare `{sdk}` (GMCP serves MCP itself: crates/susi-gmcp/src/mcp)"
+                );
             }
-            if !in_deps {
-                continue;
-            }
-            let declared = trimmed.starts_with("rmcp ") || trimmed.starts_with("rmcp=");
-            assert!(
-                !declared,
-                "{crate_name} must not declare `rmcp` (MCP SDK belongs in susi-vendor-mcp-server)"
-            );
         }
+    }
+    let lock = std::fs::read_to_string(root.join("Cargo.lock")).expect("Cargo.lock");
+    for sdk in ["rmcp", "rmcp-macros"] {
+        assert!(
+            !lock.contains(&format!("name = \"{sdk}\"")),
+            "Cargo.lock must not resolve `{sdk}`"
+        );
     }
 }
 

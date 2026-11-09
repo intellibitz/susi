@@ -9,10 +9,8 @@
 //! and `harness_status` (with the run's `state`) report progress. Serving
 //! the harness API and the gateway stays with the CLI (process entry points).
 
-use rmcp::tool;
 use serde_json::{json, Value};
 use std::path::Path;
-use susi_vendor_mcp_server as rmcp;
 
 use crate::susi_core::plane_bus::daemon;
 use crate::susi_error::{EaiError, EaiResult};
@@ -41,11 +39,11 @@ fn harness(action: &str, arg: &Value, keys: &[(&str, Kind)], extra: Value) -> Ea
 }
 
 impl CoreTools {
-    #[tool(
-        name = "harness_status",
-        description = "The harness API snapshot (spend, tasks, workers, warnings) for a ledger, with a run's state and plan when given, as `susi harness status`. Args: ledger, optional events, state, plan (absolute paths)",
-        input_schema = args::typed::<args::HarnessStatus>()
-    )]
+    crate::tool_def!(harness_status_tool_attr {
+        name: "harness_status",
+        description: "The harness API snapshot (spend, tasks, workers, warnings) for a ledger, with a run's state and plan when given, as `susi harness status`. Args: ledger, optional events, state, plan (absolute paths)",
+        input_schema: args::typed::<args::HarnessStatus>(),
+    });
     pub fn harness_status(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         harness(
             "status",
@@ -68,11 +66,11 @@ impl CoreTools {
         )
     }
 
-    #[tool(
-        name = "harness_budget",
-        description = "The one-line harness budget report and any top-up alerts, as `susi harness budget`. Args: optional ledger, repo (absolute)",
-        input_schema = args::typed::<args::HarnessBudget>()
-    )]
+    crate::tool_def!(harness_budget_tool_attr {
+        name: "harness_budget",
+        description: "The one-line harness budget report and any top-up alerts, as `susi harness budget`. Args: optional ledger, repo (absolute)",
+        input_schema: args::typed::<args::HarnessBudget>(),
+    });
     pub fn harness_budget(arg: &Value, workspace: &Path) -> EaiResult<String> {
         harness(
             "budget",
@@ -85,11 +83,11 @@ impl CoreTools {
         )
     }
 
-    #[tool(
-        name = "harness_models",
-        description = "The harness provider registry (registry, no network), its live drift check (verify), the models keyed providers add (discover) or the keyed models by cost (available), as `susi harness models`. Args: optional mode, provider, repo",
-        input_schema = args::typed::<args::HarnessModels>()
-    )]
+    crate::tool_def!(harness_models_tool_attr {
+        name: "harness_models",
+        description: "The harness provider registry (registry, no network), its live drift check (verify), the models keyed providers add (discover) or the keyed models by cost (available), as `susi harness models`. Args: optional mode, provider, repo",
+        input_schema: args::typed::<args::HarnessModels>(),
+    });
     pub fn harness_models(arg: &Value, workspace: &Path) -> EaiResult<String> {
         harness(
             "models",
@@ -99,11 +97,11 @@ impl CoreTools {
         )
     }
 
-    #[tool(
-        name = "harness_plan",
-        description = "Plan a batch of dependency-ready queue tasks and write the plan, as `susi harness plan`. Args: repo, out (absolute), optional mission, limit, workers, roadmap, gateway",
-        input_schema = args::typed::<args::HarnessPlan>()
-    )]
+    crate::tool_def!(harness_plan_tool_attr {
+        name: "harness_plan",
+        description: "Plan a batch of dependency-ready queue tasks and write the plan, as `susi harness plan`. Args: repo, out (absolute), optional mission, limit, workers, roadmap, gateway",
+        input_schema: args::typed::<args::HarnessPlan>(),
+    });
     pub fn harness_plan(arg: &Value, workspace: &Path) -> EaiResult<String> {
         harness(
             "plan",
@@ -123,11 +121,11 @@ impl CoreTools {
         )
     }
 
-    #[tool(
-        name = "harness_author",
-        description = "Author a plan for a roadmap vector through the metered gateway, validate it and write it, as `susi harness author`. Args: repo, gateway, vector, out, optional model, roadmap, max_tasks, workers",
-        input_schema = args::typed::<args::HarnessAuthor>()
-    )]
+    crate::tool_def!(harness_author_tool_attr {
+        name: "harness_author",
+        description: "Author a plan for a roadmap vector through the metered gateway, validate it and write it, as `susi harness author`. Args: repo, gateway, vector, out, optional model, roadmap, max_tasks, workers",
+        input_schema: args::typed::<args::HarnessAuthor>(),
+    });
     pub fn harness_author(arg: &Value, workspace: &Path) -> EaiResult<String> {
         harness(
             "author",
@@ -148,11 +146,11 @@ impl CoreTools {
         )
     }
 
-    #[tool(
-        name = "harness_run",
-        description = "Start running a plan under the budget gate on a daemon thread (prepare in parallel, land in order); returns the mission and its state file, as `susi harness run`. Needs process.exec: the run drives this daemon's own susi binary (the CLI's --susi stays local). Args: repo, plan, gateway, and the CLI's other optional flags",
-        input_schema = args::typed::<args::HarnessRun>()
-    )]
+    crate::tool_def!(harness_run_tool_attr {
+        name: "harness_run",
+        description: "Start running a plan under the budget gate on a daemon thread (prepare in parallel, land in order); returns the mission and its state file, as `susi harness run`. Needs process.exec: the run drives this daemon's own susi binary (the CLI's --susi stays local). Args: repo, plan, gateway, and the CLI's other optional flags",
+        input_schema: args::typed::<args::HarnessRun>(),
+    });
     pub fn harness_run(arg: &Value, workspace: &Path) -> EaiResult<String> {
         if arg.get("susi").is_some_and(|v| !v.is_null()) {
             return Err(EaiError::config(
@@ -198,11 +196,11 @@ impl CoreTools {
         )
     }
 
-    #[tool(
-        name = "harness_runs",
-        description = "The harness missions this daemon started: running or finished, with notes, the report and the budget line",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(harness_runs_tool_attr {
+        name: "harness_runs",
+        description: "The harness missions this daemon started: running or finished, with notes, the report and the budget line",
+        input_schema: args::no_args(),
+    });
     pub fn harness_runs(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         harness("runs", arg, &[], json!({}))
     }

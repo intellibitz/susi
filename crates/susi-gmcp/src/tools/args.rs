@@ -21,12 +21,11 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
-use susi_vendor_mcp_server as rmcp;
 
 use super::CoreTools;
 
-use rmcp::model::JsonObject;
-use rmcp::schemars::JsonSchema;
+use crate::mcp::model::JsonObject;
+use crate::mcp::schema::StructSchema;
 
 /// Marker key on a schema whose arguments are forwarded unchanged to a
 /// backing server (external `server:tool` proxies, Wasm reflexes). Built-in
@@ -38,12 +37,8 @@ pub const PASSTHROUGH_KEY: &str = "x-susi-passthrough";
 /// A type whose schema is not a root object (a build bug, caught by the
 /// schema tests) yields an open `{type: object}` schema rather than a
 /// panic; the `tools/list` invariant test rejects that shape.
-pub fn typed<T: JsonSchema + std::any::Any>() -> Arc<JsonObject> {
-    rmcp::handler::server::common::schema_for_input::<T>().unwrap_or_else(|_| {
-        let mut open = JsonObject::new();
-        open.insert("type".into(), serde_json::json!("object"));
-        Arc::new(open)
-    })
+pub fn typed<T: StructSchema>() -> Arc<JsonObject> {
+    Arc::new(crate::mcp::schema::root::<T>())
 }
 
 /// Explicit "takes no arguments": an empty `properties` object that admits
@@ -77,7 +72,7 @@ pub fn passthrough() -> Arc<JsonObject> {
 
 /// Every `CoreTools` handler's generated `#[tool]` definition (name,
 /// description and typed `inputSchema`), in handler order.
-pub fn core_tool_definitions() -> Vec<rmcp::model::Tool> {
+pub fn core_tool_definitions() -> Vec<crate::mcp::model::Tool> {
     vec![
         CoreTools::status_tool_attr(),
         CoreTools::ledger_verify_tool_attr(),
@@ -309,8 +304,7 @@ pub fn core_input_schema(name: &str) -> Option<Arc<JsonObject>> {
 
 // ── Models and inference ───────────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct InferencePlacement {
     /// Capability the request needs (for example "vision" or "tools").
     pub requires: Option<String>,
@@ -319,25 +313,25 @@ pub struct InferencePlacement {
     /// Whether cloud placement is allowed (default true).
     pub allow_cloud: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct InferenceResetProvider {
     /// Exact provider id to re-admit after routing quarantine.
     pub provider: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct CodingModelsPrefer {
     /// Coding/agent model id to prefer for subsequent routing.
     pub model: String,
 }
+}
 
 // ── Workspace I/O ──────────────────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ReadFile {
     /// Workspace-relative path to read. One of path, file or filename is required.
     pub path: Option<String>,
@@ -346,18 +340,18 @@ pub struct ReadFile {
     /// Alias of path.
     pub filename: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct WriteFile {
     /// Workspace-relative destination path; missing parent directories are created.
     pub path: String,
     /// Full file content; the file is replaced atomically.
     pub content: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ExecCommand {
     /// Command line to run in the workspace (shell-split, not run through a shell).
     /// One of command, cmd or input is required.
@@ -369,9 +363,9 @@ pub struct ExecCommand {
     /// Cancellation scope the task is registered under.
     pub cancel_scope: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ApplyPatchFile {
     /// Workspace-relative file path.
     pub path: String,
@@ -380,9 +374,9 @@ pub struct ApplyPatchFile {
     /// Replacement text.
     pub new: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ApplyPatchCycle {
     /// Patches to apply (at least one).
     pub files: Vec<ApplyPatchFile>,
@@ -400,80 +394,80 @@ pub struct ApplyPatchCycle {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct AstAnalyze {
     /// Workspace-relative source file. One of path or code is required.
     pub path: Option<String>,
     /// Inline source text (analysed as Rust unless path names another extension).
     pub code: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct Query {
     /// Search query text.
     pub query: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct SandboxExec {
     /// Command to run inside the Docker sandbox.
     pub cmd: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct BrowserAutomate {
     /// External http(s) URL to capture; internal and loopback hosts are refused.
     pub url: String,
 }
+}
 
 // ── OS view ────────────────────────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct OsServices {
     /// "status" (default), "list", or "restart".
     pub action: Option<String>,
     /// Leaf service name; required when action is "restart".
     pub name: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct OsPs {
     /// Maximum rows (default 50, max 500).
     pub limit: Option<u64>,
     /// Substring filter on the process name.
     pub filter: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct OsKill {
     /// Supervised service pid.
     pub pid: u64,
     /// "term" (default) or "kill"; "TERM", "KILL", "15" and "9" are accepted.
     pub signal: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct OsLogs {
     /// Leaf service name.
     pub name: String,
     /// Lines to tail (default 50, max 500).
     pub lines: Option<u64>,
 }
+}
 
 // ── Quorum commit ledger and cluster ───────────────────────────────────
 
+crate::input_schema! {
 /// Wire shape of `susi_core::commit_log::CommitRecord`.
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
 pub struct CommitRecord {
     /// Round identifier (hex digest of electorate and commit time).
     pub epoch: String,
@@ -521,32 +515,32 @@ pub struct CommitRecord {
     #[serde(default)]
     pub endorsements: Vec<MemberEndorsement>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct MemberEndorsement {
     /// Endorsing member node_id.
     pub node: String,
     /// Ed25519 signature (hex) over susi-endorse-v1:{record.signature}.
     pub sig: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct CommitRecords {
     /// Commit records to ingest (max 1000).
     pub records: Vec<CommitRecord>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct CommitLog {
     /// Records to list, newest first (default 20, max 500).
     pub limit: Option<u64>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct CommitLogFetch {
     /// Only records from this coordinator (default: all).
     pub coordinator: Option<String>,
@@ -557,25 +551,25 @@ pub struct CommitLogFetch {
     /// Matches to skip, for pagination (default 0).
     pub offset: Option<u64>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ClusterRekeyStage {
     /// The committed cluster_rekey record.
     pub record: CommitRecord,
     /// Next-epoch cluster key, 64 hex characters.
     pub key_hex: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct RecordOnly {
     /// The commit record.
     pub record: CommitRecord,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct MemberPropose {
     /// Subject as "node_id@address".
     pub member: String,
@@ -586,29 +580,29 @@ pub struct MemberPropose {
     /// Subject's signature over susi-bind-v1:{id}:{pubkey}; required with member_pubkey.
     pub subject_sig: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct A2aDelegate {
     /// "self", a member node_id, an ip, or http://ip[:port].
     pub peer: String,
     /// Task text sent to the remote agent.
     pub message: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct DelegateToIde {
     /// Goal for the IDE agent.
     pub goal: String,
     /// Supporting context.
     pub context: Option<String>,
 }
+}
 
 // ── External agents, frameworks and swarm tasks ───────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct AgentsRun {
     /// Execution agent id (see agents_list).
     pub agent: String,
@@ -618,9 +612,9 @@ pub struct AgentsRun {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct FrameworksRun {
     /// Framework engine id (see frameworks_list).
     pub engine: String,
@@ -630,9 +624,9 @@ pub struct FrameworksRun {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ExternalTaskStatus {
     /// Durable task id returned by the run tool.
     pub task_id: String,
@@ -642,9 +636,9 @@ pub struct ExternalTaskStatus {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ExternalTaskId {
     /// Durable task id returned by the run tool.
     pub task_id: String,
@@ -652,9 +646,9 @@ pub struct ExternalTaskId {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ExternalTaskLogs {
     /// Durable task id returned by the run tool.
     pub task_id: String,
@@ -664,9 +658,9 @@ pub struct ExternalTaskLogs {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ExternalTaskSend {
     /// Durable task id returned by agents_run.
     pub task_id: String,
@@ -676,34 +670,34 @@ pub struct ExternalTaskSend {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct SwarmTaskId {
     /// Swarm task id (see tasks_list).
     pub task_id: String,
 }
+}
 
 // ── MCP servers and agent registry ─────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct McpConfigure {
     /// MCP server name.
     pub name: String,
     /// Package to configure (defaults to name).
     pub package: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct LeadingMcpServer {
     /// Leading MCP server id (see leading_mcp_list).
     pub server: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct AgentRegister {
     /// Agent name.
     pub name: String,
@@ -712,18 +706,18 @@ pub struct AgentRegister {
     /// Comma-separated capability categories.
     pub categories: String,
 }
+}
 
 // ── Reasoning ──────────────────────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ReasonPrompt {
     /// Reasoning request. The complete arguments object is serialized into the prompt.
     pub intent: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct SusiSolve {
     /// Natural-language intent. intent, input and prompt are read in that order.
     pub intent: Option<String>,
@@ -735,9 +729,9 @@ pub struct SusiSolve {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct MissionRun {
     /// The goal, as typed after `susi`.
     pub goal: String,
@@ -747,20 +741,20 @@ pub struct MissionRun {
     /// Advisory model hint; it never bypasses governance.
     pub model: Option<String>,
 }
+}
 
 // ── Context graph ──────────────────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ContextGraphQuery {
     /// Node id whose subgraph to return; omit for the current workspace view.
     pub node_id: Option<String>,
     /// Subgraph depth around node_id (default 2).
     pub depth: Option<u64>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ContextGraphIngest {
     /// Event source (default "unknown").
     pub source: Option<String>,
@@ -773,9 +767,9 @@ pub struct ContextGraphIngest {
     /// Acting user.
     pub user: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ContextGraphShow {
     /// Maximum events to return (default 20), as `susi context-graph show --limit`.
     pub limit: Option<u64>,
@@ -783,30 +777,30 @@ pub struct ContextGraphShow {
     /// workspace). Only a filter on the shared graph; nothing under the path is read.
     pub workspace: Option<String>,
 }
+}
 
 // ── Extension packs (plan B4 group 11) ─────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ExtensionPackId {
     /// Installed pack id: the directory name under the host extensions root,
     /// `<config_dir>/extensions/<id>` (e.g. `commercial-default`).
     pub id: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ExtensionsValidate {
     /// Path of the pack directory to check (it holds manifest.json): absolute,
     /// or relative to the server workspace (the socket has no caller working
     /// directory).
     pub path: String,
 }
+}
 
 // ── Missions (plan B4 group 6) ─────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PlanRun {
     /// Natural-language goal to solve via iterative planning.
     pub goal: String,
@@ -816,9 +810,9 @@ pub struct PlanRun {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IntentIngest {
     /// Natural-language intent to record in the evidence ledger, as `susi pulse <intent…>`.
     pub intent: String,
@@ -826,27 +820,27 @@ pub struct IntentIngest {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
 // ── Runtime models and placement (plan B4 group 12) ────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct RuntimeModel {
     /// Model id to load into, or evict from, the inference cache.
     pub model: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PlacementDecision {
     /// Decision id, `placement-<pid>-<unix>-<seq>`, from a placement response.
     pub decision_id: String,
 }
+}
 
 // ── Inter-app broker, privacy, intents ─────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IpcGrant {
     /// Granting identity (default "susi").
     pub grantor: Option<String>,
@@ -859,9 +853,9 @@ pub struct IpcGrant {
     /// Grant lifetime in seconds.
     pub ttl_secs: Option<u64>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IpcRequest {
     /// Requesting identity.
     pub requester: String,
@@ -874,9 +868,9 @@ pub struct IpcRequest {
     /// Requested lifetime in seconds.
     pub ttl_secs: Option<u64>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IpcNegotiate {
     /// Pending request id.
     pub request_id: String,
@@ -885,9 +879,9 @@ pub struct IpcNegotiate {
     /// Approve (true) or deny (false, default).
     pub approve: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IpcSend {
     /// Sender identity; needs a dispatch grant unless "susi".
     pub from: String,
@@ -898,27 +892,27 @@ pub struct IpcSend {
     /// Message payload (any JSON).
     pub payload: Option<serde_json::Value>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IpcReceive {
     /// Identity whose messages to receive.
     pub recipient: String,
     /// Maximum messages (default 10).
     pub limit: Option<u64>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PrivacyConsentEgress {
     /// Subject receiving the egress grant (default "susi").
     pub subject: Option<String>,
     /// Grant lifetime in seconds (default 3600).
     pub ttl_secs: Option<u64>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IntentAdvertise {
     /// Provider identity (default "agent").
     pub from: Option<String>,
@@ -927,9 +921,9 @@ pub struct IntentAdvertise {
     /// Extra payload (any JSON).
     pub payload: Option<serde_json::Value>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IntentNeed {
     /// Requesting identity (default "planner").
     pub from: Option<String>,
@@ -942,11 +936,11 @@ pub struct IntentNeed {
     /// Extra payload (any JSON).
     pub payload: Option<serde_json::Value>,
 }
+}
 
 // ── Transactions ───────────────────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct TxBegin {
     /// Transaction description (default "agent tx").
     pub description: Option<String>,
@@ -956,25 +950,25 @@ pub struct TxBegin {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct TxId {
     /// Transaction id returned by tx_begin.
     pub id: String,
 }
+}
 
 // ── Context and IPC (plan B4 group 8) ──────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IpcPending {
     /// Only requests addressed to this grantor (default: every pending request).
     pub grantor: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IpcScope {
     /// Identity holding (or losing) the scope.
     pub grantee: String,
@@ -983,24 +977,24 @@ pub struct IpcScope {
     /// Action on the resource.
     pub action: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IpcList {
     /// Identity whose grants to list.
     pub grantee: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PrivacyMode {
     /// `balanced`, `local_only` (this machine and its local network; aliases `local-only`,
     /// `edge`, `strict`), `host_only` (this machine alone: loopback; aliases `host-only`, `host`) or `open` (`permissive`); else refused.
     pub mode: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PrivacyGrant {
     /// Subject receiving the capability (default "susi").
     pub subject: Option<String>,
@@ -1011,9 +1005,9 @@ pub struct PrivacyGrant {
     /// Lifetime in seconds (default: the policy's default lifetime).
     pub ttl_secs: Option<u64>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PrivacyRevoke {
     /// Subject holding the capability (default "susi").
     pub subject: Option<String>,
@@ -1022,9 +1016,9 @@ pub struct PrivacyRevoke {
     /// Resource the capability covers (default "*").
     pub resource: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ContextSampleOs {
     /// Optional user name to associate with the sample.
     pub user: Option<String>,
@@ -1032,11 +1026,11 @@ pub struct ContextSampleOs {
     /// workspace). Only a tag on the shared graph; nothing under it is read.
     pub workspace: Option<String>,
 }
+}
 
 // ── Assurance (plan B4 group 5) ────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct AuditVerify {
     /// Only count verified entries at or after this Unix timestamp; the full
     /// chain is always checked.
@@ -1045,9 +1039,9 @@ pub struct AuditVerify {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct AuditQuery {
     /// Only records by this actor.
     pub actor: Option<String>,
@@ -1063,9 +1057,9 @@ pub struct AuditQuery {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct AuditEvidenceExport {
     /// Absolute path of a JSON array of redacted audit segments (or an
     /// existing export).
@@ -1073,34 +1067,34 @@ pub struct AuditEvidenceExport {
     /// Absolute destination path for the independently verifiable export.
     pub output: String,
 }
+}
 
 // ── Onboarding (plan B4 group 4) ───────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct SetupApply {
     /// Grant cloud API key consent in this apply (default false), as
     /// `susi setup apply --cloud`.
     pub cloud: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct EcosystemScan {
     /// Return the last persisted scan instead of scanning now (default
     /// false): `susi ecosystem status` rather than `susi ecosystem scan`.
     pub cached: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct EcosystemStart {
     /// Engine id from `ecosystem_scan` (e.g. "ollama").
     pub id: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct EcosystemKb {
     /// `list` (default), `show`, `search` or `check`.
     pub action: Option<String>,
@@ -1118,20 +1112,20 @@ pub struct EcosystemKb {
     /// Absolute path of a single store dir instead of the layered store.
     pub dir: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct EcosystemExplain {
     /// Entity id (e.g. "openai-chat-completions", "mcp", "a2a").
     pub id: String,
     /// Absolute path of a single store dir instead of the layered store.
     pub dir: Option<String>,
 }
+}
 
 // ── OS (plan B4 group 9) ───────────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct OsProvision {
     /// `probe` (default: version-only probe of each cloud CLI), `list` or `apply`.
     pub action: Option<String>,
@@ -1140,9 +1134,9 @@ pub struct OsProvision {
     /// `apply`: absolute path of the manifest to apply.
     pub manifest: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct OsCapabilities {
     /// `discover` (default) or `invoke`.
     pub action: Option<String>,
@@ -1162,42 +1156,42 @@ pub struct OsCapabilities {
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ServiceName {
     /// Leaf service name: susi-paths, susi-error, susi-config, susi-sandbox
     /// or susi-native.
     pub name: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct CommitsShow {
     /// Epoch hex prefix (unique), e.g. the first 12 characters `commit_log` shows.
     pub epoch: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PeersProbe {
     /// Peer host, optionally `host:port`.
     pub host: String,
     /// UDP discovery port (default: this node's effective discovery port).
     pub port: Option<u16>,
 }
+}
 
 // ── B4 group 3: providers, keys (presence only) and the brain ──────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ProviderVendor {
     /// Provider control plane: openweight, frontier or openrouter.
     pub vendor: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ProviderDoctor {
     /// Provider control plane: openweight, frontier or openrouter.
     pub vendor: String,
@@ -1206,18 +1200,18 @@ pub struct ProviderDoctor {
     /// openrouter only: also list a sample of live model ids (proves the key).
     pub live: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ProviderSetup {
     /// Provider control plane: openweight, frontier or openrouter.
     pub vendor: String,
     /// Model id (required for openweight and frontier).
     pub model: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ProviderConfigure {
     /// Provider control plane: openweight or frontier.
     pub vendor: String,
@@ -1230,25 +1224,25 @@ pub struct ProviderConfigure {
     /// Absolute path to the override JSON file (the CLI's file argument).
     pub file: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ProviderModel {
     /// Provider control plane: openweight or frontier.
     pub vendor: String,
     /// Model id.
     pub model: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ProviderPull {
     /// Open-weight model id whose weights `ollama pull` fetches.
     pub model: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ProviderPrefer {
     /// Provider control plane: openweight, frontier or openrouter.
     pub vendor: String,
@@ -1257,9 +1251,9 @@ pub struct ProviderPrefer {
     /// Clear the pin (openrouter: clear the pinned model, keep the cloud preference).
     pub clear: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ProviderProbe {
     /// openweight, frontier, openrouter, or coding (`susi models probe`).
     pub vendor: String,
@@ -1268,50 +1262,50 @@ pub struct ProviderProbe {
     /// Prompt (default "Reply with exactly: ok"). Cloud probes are paid.
     pub prompt: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ProviderModels {
     /// List the live model ids the OpenRouter key reaches instead of the curated routes.
     pub live: Option<bool>,
     /// Most live ids to return (default 50).
     pub limit: Option<u64>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct KeysPrefer {
     /// Cloud vendor to prefer (omit, without clear, to report the preference).
     pub vendor: Option<String>,
     /// Clear the preferred cloud vendor.
     pub clear: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct KeysCheck {
     /// One vendor (default: every vendor with a key).
     pub vendor: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct KeysModels {
     /// Vendor whose model list the key reaches.
     pub vendor: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct BrainStatus {
     /// Top ranked providers per task class (default 5).
     pub top: Option<u64>,
     /// Only this task class (e.g. reflex, chat, code, reasoning, estate_ops).
     pub class: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct BrainBudget {
     /// Budget dial: low, balanced or max.
     pub level: Option<String>,
@@ -1330,80 +1324,80 @@ pub struct BrainBudget {
     /// Start a new accounting window.
     pub new_window: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct BrainPrompt {
     /// Prompt to classify or explain.
     pub prompt: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct BrainExport {
     /// Absolute path to write the bundle to (default: return the bundle).
     pub out: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct BrainImport {
     /// Absolute path to the evidence bundle to merge.
     pub file: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct BrainBench {
     /// Absolute path for the JSONL evidence (default ~/.susi/brain_bench.jsonl).
     pub out: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct BrainProbe {
     /// Registered provider name (see brain_status).
     pub provider: String,
     /// Do not record the outcomes as brain evidence.
     pub no_record: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct SelectModel {
     /// Model name or id to select as the active substrate.
     pub model: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ScoutModel {
     /// HTTPS URL of the model artifact to download, license-admit and verify.
     pub url: String,
 }
+}
 
 // ── B4 group 7: adapters ───────────────────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct AdapterDoctor {
     /// Adapter family: agents, frameworks, models or mcp.
     pub kind: String,
     /// One adapter id (default: every adapter in the catalog).
     pub id: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct AdapterId {
     /// Adapter family: agents, frameworks, models or mcp.
     pub kind: String,
     /// Adapter id (agent, framework engine, coding model or MCP server).
     pub id: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct AdapterConfigure {
     /// Adapter family: agents, frameworks, models or mcp.
     pub kind: String,
@@ -1414,9 +1408,9 @@ pub struct AdapterConfigure {
     /// Absolute path to the adapter JSON file (the CLI's file argument).
     pub file: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct TaskRetry {
     /// Durable id of a finished task to run again with its original prompt.
     pub task_id: String,
@@ -1424,9 +1418,9 @@ pub struct TaskRetry {
     /// workspace); admitted only where the MAC policy grants filesystem.write.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct McpAdd {
     /// Registry name for the server.
     pub name: String,
@@ -1435,11 +1429,11 @@ pub struct McpAdd {
     /// Extra argv for a stdio server.
     pub args: Option<Vec<String>>,
 }
+}
 
 // ── B4 group 1: the self-build harness ─────────────────────────────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct HarnessStatus {
     /// Absolute path to the ledger the gateway writes.
     pub ledger: String,
@@ -1450,9 +1444,9 @@ pub struct HarnessStatus {
     /// Absolute path to the plan the supervisor runs.
     pub plan: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct HarnessBudget {
     /// Absolute path to the ledger (default: the repository's default ledger).
     pub ledger: Option<String>,
@@ -1460,9 +1454,9 @@ pub struct HarnessBudget {
     /// the substrate home).
     pub repo: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct HarnessModels {
     /// registry (default, no network), verify, discover or available.
     pub mode: Option<String>,
@@ -1471,9 +1465,9 @@ pub struct HarnessModels {
     /// Absolute repository path (available: its catalogue and ledger).
     pub repo: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct HarnessPlan {
     /// Absolute path to the susi target repository.
     pub repo: String,
@@ -1490,9 +1484,9 @@ pub struct HarnessPlan {
     /// Gateway the plan will run through.
     pub gateway: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct HarnessAuthor {
     /// Absolute path to the susi target repository.
     pub repo: String,
@@ -1511,9 +1505,9 @@ pub struct HarnessAuthor {
     /// Worker models, comma-separated (default auto).
     pub workers: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct HarnessRun {
     /// Absolute path to the susi target repository.
     pub repo: String,
@@ -1550,20 +1544,20 @@ pub struct HarnessRun {
     /// Absolute adapter state directory (default: harness-state in the repository).
     pub adapter_state: Option<String>,
 }
+}
 
 // ── B4 groups 2, 4, 9, 10 and 13: host views and maintenance ───────────
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct WorkspaceView {
     /// Absolute workspace to report on (the CLI's working directory;
     /// default: the server workspace). Admitted only where the MAC policy
     /// grants filesystem.read.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct OperatorStatus {
     /// Absolute workspace to report on (the CLI's working directory;
     /// default: the server workspace). Admitted only where the MAC policy
@@ -1574,16 +1568,16 @@ pub struct OperatorStatus {
     /// routing, spend, approvals) instead of the `--json` identity summary.
     pub detail: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct ModelUninstall {
     /// One SUSI-managed `.gguf` filename (not a path).
     pub name: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct IntentLadderArgs {
     /// scorecard (default), run, slice, gaps, verify or adopt_gap.
     pub mode: Option<String>,
@@ -1593,33 +1587,33 @@ pub struct IntentLadderArgs {
     /// default: the server workspace), admitted by the MAC policy.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PeersAdd {
     /// IP or hostname of the peer daemon to join (may include `:port`).
     pub host: String,
     /// UDP discovery port (default: the host-contract port plus port_offset).
     pub port: Option<u16>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PeerName {
     /// node_id or address (prefix) of the peer.
     pub peer: String,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct PeersRekey {
     /// Rotate even when some members fail to stage (they are stranded and
     /// must be re-provisioned with the new key).
     pub force: Option<bool>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct LedgerVerify {
     /// Refetch every pinned upstream and fail closed on drift (network)
     /// instead of verifying the local corpus.
@@ -1631,12 +1625,13 @@ pub struct LedgerVerify {
     /// server workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,
 }
+}
 
-#[derive(JsonSchema)]
-#[schemars(crate = "susi_vendor_mcp_server::schemars")]
+crate::input_schema! {
 pub struct BrainPareto {
     /// Optional task class filter (e.g. reflex, chat, code, reasoning, estate_ops). Defaults to `code`.
     pub class: Option<String>,
+}
 }
 
 #[cfg(test)]
