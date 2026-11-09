@@ -1,7 +1,7 @@
 {
   "id": "T-DOTREUSE-1",
-  "title": "Remove legacy process spawn and bound commercial process-heavy test fan-out",
-  "goal": "Bind compositional same-attempt task coverage to exact source, artifacts, invocation and runtime identity before reuse; measure actual critical path and preserve fail-closed fallback.",
+  "title": "Preserve truthful native gate provenance and bounded Windows execution",
+  "goal": "Bind receipts to the observed publication base, retain exact merge-parent and source ancestry checks and legacy verification, and keep native process execution bounded without skipping checks.",
   "created_by": "dot-reuse",
   "created_unix": 1794222774,
   "state": "in_progress",
@@ -10,11 +10,12 @@
   "claimed_by": "dot-reuse",
   "deps": [],
   "scopes": [
+    ".agents/tasks/T-DOTREUSE-1.json",
     "xtask/src/bin/local-workflow.rs",
-    "xtask/src/test_runner.rs",
+    "xtask/src/gate_receipt.rs",
     "xtask/src/native_provenance.rs",
     "xtask/src/task_test_reuse.rs",
-    ".agents/tasks/T-DOTREUSE-1.json"
+    "xtask/src/test_runner.rs"
   ],
   "accept": {
     "cmd": [
@@ -26,10 +27,10 @@
       "xtask",
       "--bin",
       "local-workflow",
-      "commercial_"
+      "ship_"
     ]
   },
-  "checkpoint": "Native PID probe plus Windows commercial cargo-test fan-out capped at8 only for workspace/dev-workflow/ecosystem-hub selections. Compiler jobs, core runner, Linux, all tests and deadlines unchanged. Proof reuse remains disabled.",
+  "checkpoint": "Receipt v2 implemented and independently reviewed; ship regressions18/18 and verifier19/19 passed, Clippy passed. Ready for full native combined-tree gate. Commercial cap and PID fixes retained; no proof reuse enabled.",
   "reuse_design": [
     "Only exact-candidate/same-attempt completed whole binaries; filters/docs/custom harness/unknown flags run fresh.",
     "Resolve acceptance with successful Cargo no-run JSON; require complete unambiguous artifact inventory and exact features/profile/package ID/target/triple/executable hash plus dependent product and dynamic artifact closure.",
@@ -48,6 +49,8 @@
     "Independent process API semantic review approved; unknown identity remains live. No proof reuse or concurrency behavior enabled.",
     "Commercial selection/concurrency tests3passed0failed0.01s; Luna independently approved exact scope and negativecases.",
     "Matched dev-workflow samples:8threads179pass87.56s;28threads178pass1deadlinefail70.85s. One sample each,not reliability guarantee.",
-    "Failure stage evidence:EOF4.111s,parent326ms,PowerShellspawn3.772s,no child-start/completion marker atEOF. Original4s assertion retained."
+    "Failure stage evidence:EOF4.111s,parent326ms,PowerShellspawn3.772s,no child-start/completion marker atEOF. Original4s assertion retained.",
+    "Receipt v2 independently reviewed: final locked-fetch observation, moved-main re-gating, exact first-parent and source ancestry, explicit legacy semantics; no bypass or old-receipt rewrite.",
+    "Final receipt change: ship_18passed0failed72.69s; gate_receipt19passed0failed16.80s; Clippy -D warnings passed. Regressions include main advancing mid-gate, two-source batch and concurrent ten-agent shipping."
   ]
 }

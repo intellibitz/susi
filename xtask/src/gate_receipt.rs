@@ -27,7 +27,12 @@ use std::time::Instant;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// Schema identifier of every receipt this module writes.
-pub const SCHEMA: &str = "susi-gate-receipt-v1";
+pub const SCHEMA: &str = "susi-gate-receipt-v2";
+const LEGACY_SCHEMA: &str = "susi-gate-receipt-v1";
+
+fn supported_schema(schema: &str) -> bool {
+    matches!(schema, SCHEMA | LEGACY_SCHEMA)
+}
 /// Repository directory the receipts live in. Spelled in two pieces because
 /// `affected.rs` reads a `.agents/...` literal as a test-time read of the
 /// tree; the verifier reads receipts only when a user runs it against a
@@ -159,8 +164,14 @@ pub fn digest_of(receipt: &Value) -> Result<String> {
 
 /// Error unless `receipt` carries the schema and the digest of its own body.
 pub fn check_digest(receipt: &Value) -> Result<()> {
-    if receipt.get("schema").and_then(Value::as_str) != Some(SCHEMA) {
-        return Err(format!("receipt schema is not {SCHEMA}").into());
+    if !receipt
+        .get("schema")
+        .and_then(Value::as_str)
+        .is_some_and(supported_schema)
+    {
+        return Err(
+            format!("receipt schema is neither {SCHEMA} nor legacy {LEGACY_SCHEMA}").into(),
+        );
     }
     let recorded = receipt
         .get("digest")
@@ -721,7 +732,9 @@ pub struct Landing<'a> {
     pub root: &'a Path,
     /// The verified integration head `H`.
     pub head: &'a str,
-    /// The `origin/main` the landing merged onto (`H^1`).
+    /// Exact origin/main observed by the producer's final fetch under the publish lock.
+    /// It can precede H^1 when a batch creates multiple local merge commits.
+    /// Offline verification proves ancestry, not the historical remote observation.
     pub origin_main: &'a str,
     /// Agents and sources of the landing: `[{agent, commit, claim_base, task}]`.
     pub sources: Vec<Value>,
@@ -729,6 +742,29 @@ pub struct Landing<'a> {
     pub native_gates: Option<&'a Value>,
     /// The gate's evidence lines (always present).
     pub evidence: &'a [String],
+}
+
+fn ancestor(root: &Path, base: &str, head: &str) -> bool {
+    valid_oid(base)
+        && valid_oid(head)
+        && git(root, &["merge-base", "--is-ancestor", base, head]).is_ok()
+}
+
+fn validate_sources(root: &Path, head: &str, sources: &[Value]) -> Result<()> {
+    for source in sources {
+        let commit = source
+            .get("commit")
+            .and_then(Value::as_str)
+            .ok_or("source has no commit")?;
+        let base = source
+            .get("claim_base")
+            .and_then(Value::as_str)
+            .ok_or("source has no claim base")?;
+        if !ancestor(root, commit, head) || !ancestor(root, base, commit) {
+            return Err("source or claim base ancestry does not match integration".into());
+        }
+    }
+    Ok(())
 }
 
 /// Build the receipt of `landing`. Fails, so the landing is not published,
@@ -746,6 +782,11 @@ pub fn build(landing: &Landing<'_>) -> Result<Value> {
     if !valid_oid(head) || !valid_oid(origin_main) {
         return Err("receipt needs full commit ids".into());
     }
+    let first_parent = git(root, &["rev-parse", "--verify", &format!("{head}^1")])?;
+    if *origin_main != *head && !ancestor(root, origin_main, &first_parent) {
+        return Err("observed origin/main is not an ancestor of integration first parent".into());
+    }
+    validate_sources(root, head, sources)?;
     let tree = git(root, &["rev-parse", &format!("{head}^{{tree}}")])?;
     let cargo_lock_sha256 = match tree_blob(root, head, "Cargo.lock")? {
         Some(lock) => Value::String(sha256_hex(&lock)),
@@ -776,7 +817,7 @@ pub fn build(landing: &Landing<'_>) -> Result<Value> {
         .unwrap_or(0);
     let mut receipt = json!({
         "schema": SCHEMA,
-        "integration": {"commit": head, "tree": tree, "origin_main": origin_main},
+        "integration": {"commit": head, "tree": tree, "origin_main": origin_main, "merge_first_parent": first_parent},
         "sources": sources,
         "toolchain": {
             "host": host,
@@ -1472,9 +1513,12 @@ pub fn verify(root: &Path, commit: &str, options: &Options) -> Result<Report> {
         true,
     ));
     let schema = receipt.get("schema").and_then(Value::as_str).unwrap_or("");
-    report
-        .checks
-        .push(Check::new("schema", SCHEMA, schema, schema == SCHEMA));
+    report.checks.push(Check::new(
+        "schema",
+        format!("{SCHEMA} or explicit legacy {LEGACY_SCHEMA}"),
+        schema,
+        supported_schema(schema),
+    ));
     match check_digest(&receipt) {
         Ok(()) => report.checks.push(Check::new(
             "digest",
@@ -1505,19 +1549,45 @@ pub fn verify(root: &Path, commit: &str, options: &Options) -> Result<Report> {
         recorded_tree == tree,
     ));
     let recorded_main = string_at(&receipt, &["integration", "origin_main"]).unwrap_or("");
-    match git(root, &["rev-parse", "--verify", &format!("{head}^1")]) {
-        Ok(first_parent) => report.checks.push(Check::new(
-            "origin/main merged onto (first parent)",
+    let first_parent =
+        git(root, &["rev-parse", "--verify", &format!("{head}^1")]).unwrap_or_default();
+    if schema == LEGACY_SCHEMA {
+        report.checks.push(Check::new(
+            "legacy origin/main field (first-parent semantics, not a verified fetch)",
             recorded_main,
             &first_parent,
-            recorded_main == first_parent,
-        )),
-        Err(_) => report.checks.push(Check::new(
-            "origin/main merged onto (first parent)",
+            valid_oid(recorded_main) && recorded_main == first_parent,
+        ));
+    } else if schema == SCHEMA {
+        let recorded_parent =
+            string_at(&receipt, &["integration", "merge_first_parent"]).unwrap_or("");
+        report.checks.push(Check::new(
+            "merge first parent",
+            recorded_parent,
+            &first_parent,
+            valid_oid(recorded_parent) && recorded_parent == first_parent,
+        ));
+        report.checks.push(Check::new(
+            "observed origin/main ancestry (historical fetch not independently verified)",
             recorded_main,
-            "verified head has no parent",
-            false,
-        )),
+            &first_parent,
+            valid_oid(recorded_main)
+                && (recorded_main == head || ancestor(root, recorded_main, &first_parent)),
+        ));
+        let sources = receipt.get("sources").and_then(Value::as_array);
+        let validation = sources
+            .ok_or_else(|| "missing sources".into())
+            .and_then(|sources| validate_sources(root, &head, sources));
+        report.checks.push(Check::new(
+            "source ancestry",
+            "sources in integration; claim bases in sources",
+            validation
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+            validation.is_ok(),
+        ));
     }
     let recorded_lock = receipt
         .get("toolchain")
@@ -2468,6 +2538,162 @@ mod tests {
         assert_eq!(receipt_commit(&repo, &head).unwrap(), Some(commit.clone()));
         git(&repo, &["update-ref", &ref_for(&head), &extra]).unwrap();
         assert!(receipt_commit(&repo, &head).is_err());
+    }
+
+    #[test]
+    fn v2_batch_preserves_observed_base_and_checks_first_parent_and_sources() {
+        let (scratch, repo, base, first) = landing_repo();
+        git(&repo, &["checkout", "-q", "-b", "second", &base]).unwrap();
+        let second = commit_file(&repo, "second.rs", "second", "second worker");
+        git(&repo, &["checkout", "-q", "--detach", &first]).unwrap();
+        git(
+            &repo,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                "-q",
+                "second",
+            ],
+        )
+        .unwrap();
+        let head = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let sources = vec![json!({"commit":second,"claim_base":base})];
+        let receipt = build(&Landing {
+            root: &repo,
+            head: &head,
+            origin_main: &base,
+            sources: sources.clone(),
+            native_gates: None,
+            evidence: &evidence(),
+        })
+        .unwrap();
+        assert_eq!(receipt["integration"]["origin_main"], base);
+        assert_eq!(receipt["integration"]["merge_first_parent"], first);
+        let published = commit_receipt(
+            &repo,
+            &head,
+            &receipt,
+            "fixture receipt",
+            &scratch.0.join("receipt-index"),
+        )
+        .unwrap();
+        git(&repo, &["reset", "-q", "--hard", &published]).unwrap();
+        let path = scratch.0.join("receipt.json");
+        let check = |mut value: Value| {
+            value["digest"] = json!(digest_of(&value).unwrap());
+            fs::write(&path, render(&value).unwrap()).unwrap();
+            verify(
+                &repo,
+                &head,
+                &Options {
+                    static_only: true,
+                    receipt_path: Some(path.clone()),
+                    ..Options::default()
+                },
+            )
+            .unwrap()
+        };
+        assert!(check(receipt.clone()).all_match());
+        // An already-integrated batch can leave HEAD at the observed fetch.
+        let no_op = build(&Landing {
+            root: &repo,
+            head: &head,
+            origin_main: &head,
+            sources: sources.clone(),
+            native_gates: None,
+            evidence: &evidence(),
+        })
+        .unwrap();
+        assert!(check(no_op).all_match());
+        let mut wrong_parent = receipt.clone();
+        wrong_parent["integration"]["merge_first_parent"] = json!(base);
+        assert!(!check(wrong_parent).all_match());
+        // A second-parent source is not the observed integration base.
+        let mut wrong_base = receipt.clone();
+        wrong_base["integration"]["origin_main"] = json!(second);
+        assert!(!check(wrong_base).all_match());
+        let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let unrelated = git(&repo, &["commit-tree", &tree, "-m", "unrelated root"]).unwrap();
+        let mut unrelated_receipt = receipt.clone();
+        unrelated_receipt["integration"]["origin_main"] = json!(unrelated);
+        assert!(!check(unrelated_receipt).all_match());
+        assert!(build(&Landing {
+            root: &repo,
+            head: &head,
+            origin_main: &unrelated,
+            sources,
+            native_gates: None,
+            evidence: &evidence(),
+        })
+        .is_err());
+        let mut wrong_source = receipt.clone();
+        wrong_source["sources"][0]["commit"] = json!(unrelated);
+        assert!(!check(wrong_source).all_match());
+        let mut wrong_claim = receipt.clone();
+        wrong_claim["sources"][0]["claim_base"] = json!(unrelated);
+        assert!(!check(wrong_claim).all_match());
+        let mut missing_parent = receipt.clone();
+        missing_parent["integration"]
+            .as_object_mut()
+            .unwrap()
+            .remove("merge_first_parent");
+        assert!(!check(missing_parent).all_match());
+        let mut unknown = receipt;
+        unknown["schema"] = json!("susi-gate-receipt-v999");
+        assert!(!check(unknown).all_match());
+    }
+
+    #[test]
+    fn legacy_v1_retains_explicit_first_parent_semantics() {
+        let (scratch, repo, base, head) = landing_repo();
+        let mut receipt = build(&Landing {
+            root: &repo,
+            head: &head,
+            origin_main: &base,
+            sources: vec![],
+            native_gates: None,
+            evidence: &evidence(),
+        })
+        .unwrap();
+        receipt["schema"] = json!(LEGACY_SCHEMA);
+        receipt["integration"]
+            .as_object_mut()
+            .unwrap()
+            .remove("merge_first_parent");
+        receipt["digest"] = json!(digest_of(&receipt).unwrap());
+        let published = commit_receipt(
+            &repo,
+            &head,
+            &receipt,
+            "fixture receipt",
+            &scratch.0.join("receipt-index"),
+        )
+        .unwrap();
+        git(&repo, &["reset", "-q", "--hard", &published]).unwrap();
+        let path = scratch.0.join("legacy.json");
+        let check = |mut value: Value| {
+            value["digest"] = json!(digest_of(&value).unwrap());
+            check_digest(&value).unwrap();
+            fs::write(&path, render(&value).unwrap()).unwrap();
+            verify(
+                &repo,
+                &head,
+                &Options {
+                    static_only: true,
+                    receipt_path: Some(path.clone()),
+                    ..Options::default()
+                },
+            )
+            .unwrap()
+        };
+        let report = check(receipt.clone());
+        assert!(report.all_match(), "{}", report.render());
+        assert!(report.render().contains("legacy origin/main"));
+        receipt["integration"]["origin_main"] = json!(head);
+        assert!(!check(receipt).all_match());
     }
 
     #[test]

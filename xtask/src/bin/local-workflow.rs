@@ -3408,13 +3408,27 @@ fn merge_onto(root: &Path, candidate: &Path, base: &str, inputs: &[SourceInput])
     Ok(())
 }
 
+struct PublicationHead<'a> {
+    head: &'a str,
+    observed_base: &'a str,
+}
+
 fn record_acceptance(
     root: &Path,
     attempt: &Path,
     inputs: &[SourceInput],
-    head: &str,
+    publication: PublicationHead<'_>,
     evidence: &[String],
 ) -> Result<()> {
+    let PublicationHead {
+        head,
+        observed_base: publish_base,
+    } = publication;
+    // This is the exact final fetch checked under the publication lock, not
+    // HEAD^1: after a multi-source batch that parent is an intermediate merge.
+    if !valid_oid(publish_base) || !is_ancestor(root, publish_base, head)? {
+        return Err("fetched publication base is not contained in the verified head".into());
+    }
     let native_gates = if attempt.join("native-gates.json").is_file() {
         Some(serde_json::from_slice::<serde_json::Value>(&fs::read(
             attempt.join("native-gates.json"),
@@ -3422,7 +3436,6 @@ fn record_acceptance(
     } else {
         None
     };
-    let publish_base = git(root, &["rev-parse", &format!("{head}^1")])?;
     let tree = git(root, &["rev-parse", &format!("{head}^{{tree}}")])?;
     let previous = integration_head(root)?;
     // The receipt's `previous` names the accepted history this integration
@@ -3440,13 +3453,13 @@ fn record_acceptance(
             eprintln!(
                 "preserved unrelated integration ref {previous} at refs/susi/integration/displaced"
             );
-            chain_previous = Some(publish_base.clone());
-        } else if previous != &publish_base && is_ancestor(root, previous, &publish_base)? {
+            chain_previous = Some(publish_base.to_owned());
+        } else if previous.as_str() != publish_base && is_ancestor(root, previous, publish_base)? {
             // The local ref is behind origin/main (main advanced through ships
             // made elsewhere). The history this integration builds on is the
             // publish base it was merged onto, not the stale ref, which can be
             // older than the claim base and would make the receipt unverifiable.
-            chain_previous = Some(publish_base.clone());
+            chain_previous = Some(publish_base.to_owned());
         }
     }
     let zero = "0".repeat(head.len());
@@ -3471,7 +3484,7 @@ fn record_acceptance(
         transaction.push_str(&format!("create {receipt_ref} {oid}\n"));
         if let Some(gates) = &native_gates {
             let scope_base = timed("acceptance: scope base", || {
-                ship_scope_base(root, &input.claim, &input.source, &publish_base)
+                ship_scope_base(root, &input.claim, &input.source, publish_base)
             })?;
             let native = timed("acceptance: provenance receipt", || {
                 native_provenance::receipt(
@@ -3524,7 +3537,7 @@ fn record_acceptance(
         gate_receipt::build(&gate_receipt::Landing {
             root,
             head,
-            origin_main: &publish_base,
+            origin_main: publish_base,
             sources: sources.clone(),
             native_gates: native_gates.as_ref(),
             evidence,
@@ -3771,7 +3784,16 @@ where
                     }
                 }
                 timed("record acceptance", || {
-                    record_acceptance(root, &slot.attempt, &inputs, &head, &evidence)
+                    record_acceptance(
+                        root,
+                        &slot.attempt,
+                        &inputs,
+                        PublicationHead {
+                            head: &head,
+                            observed_base: &base,
+                        },
+                        &evidence,
+                    )
                 })?;
             }
             let report = timed("publish", || publish_head(root, &head, &evidence, remote));
@@ -6423,6 +6445,56 @@ mod tests {
         })
         .unwrap();
         assert_eq!(seen, b"one\ntwo\n");
+    }
+
+    #[test]
+    fn ship_batch_receipt_records_the_final_fetched_remote_not_an_intermediate_merge() {
+        for moved_during_gate in [false, true] {
+            let (_scratch, repo, base) = ship_fixture("one");
+            worker(&repo, "two", "second.rs", "second");
+            let expected = if moved_during_gate {
+                commit_on(&repo, "remote-change.rs", "remote change")
+            } else {
+                base.clone()
+            };
+            let mut remote = FakeRemote::single(base.clone());
+            if moved_during_gate {
+                remote.mains = vec![base, expected.clone(), expected.clone()];
+            }
+            let runs = std::cell::Cell::new(0);
+            let report = ship(
+                &repo,
+                &["one", "two"],
+                &mut remote,
+                |_candidate, _attempt| {
+                    runs.set(runs.get() + 1);
+                    Ok(local_gate_evidence())
+                },
+            )
+            .unwrap();
+            assert_eq!(runs.get(), if moved_during_gate { 2 } else { 1 });
+            assert_eq!(remote.pushes.len(), 1);
+            let parent = git(&repo, &["rev-parse", &format!("{}^1", report.merge)]).unwrap();
+            assert_ne!(
+                parent, expected,
+                "the second source creates an intermediate merge"
+            );
+            let receipt: serde_json::Value = serde_json::from_str(
+                &git(
+                    &repo,
+                    &[
+                        "show",
+                        &format!("{}:{}", report.head, gate_receipt::path_for(&report.merge)),
+                    ],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(receipt["integration"]["origin_main"], expected);
+            assert_eq!(receipt["integration"]["merge_first_parent"], parent);
+            assert!(is_ancestor(&repo, &expected, &report.merge).unwrap());
+            gate_receipt::check_digest(&receipt).unwrap();
+        }
     }
 
     #[test]
