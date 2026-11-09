@@ -51,6 +51,8 @@
     "Shared private-home and hermetic intent child paths now force registry isolation. Ordinary setup, MCP and installed-delivery children preserve an existing caller opt-out without changing normal credential discovery. Additional focused verification is pending.",
     "Followup: cargo test -p susi-paths --offline --locked passed 79 tests, including no-registry opt-out inheritance with absent/empty/0/1 modes, forced private child mode, and scoped state restoration. Full combined-tree tests still pending.",
     "Followup paths/config/xtask all-target Clippy with release-tooling passed; launcher contract2 passed. Final two isolated callers require a clean-worktree scope extension before adding their explicit switch.",
-    "Final scope extension acquired from clean checkpoint. Native self-patch cargo gate and installed-version scratch probe now explicitly block persistent registry environment; current full-workspace acceptance remains required before publication."
+    "Final scope extension acquired from clean checkpoint. Native self-patch cargo gate and installed-version scratch probe now explicitly block persistent registry environment; current full-workspace acceptance remains required before publication.",
+    "Four-claim gate reached 403 passed / 2 failed / 3 ignored before lean-core stopped it: GAWD source +3 lines and native-harness dependency reach 48 vs 46. Failed evidence blob b2cc7cf6657fe40f391631c8accac08dd51ddb60 retained; no source publication.",
+    "Replaced duplicated private HOME/USERPROFILE/registry setters in GAWD with shared isolate_home. Source is 12653 lines, matching unchanged 12653 ceiling. cargo test -p susi-gawd --lib --offline --locked: 284 passed, 3 ignored. Strict gawd all-target Clippy, 3 launcher wiring tests and full fmt pass. Native-link architecture fix and complete combined gate remain pending."
   ]
 }

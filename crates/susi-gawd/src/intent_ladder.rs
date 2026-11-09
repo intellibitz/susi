@@ -536,8 +536,8 @@ pub fn schedule_secs() -> u64 {
 /// The production runner: spawn the susi binary itself with the intent
 /// as the request — the same `susi <intent>` path a user hits — inside
 /// a scrubbed environment. `env_clear` + an explicit minimal env means
-/// no inherited key survives; `SUSI_NO_REGISTRY_ENV` blocks persistent keys;
-/// `SUSI_OFFLINE` keeps
+/// no inherited key survives. Shared home isolation blocks persistent keys.
+/// Every platform home is private, and `SUSI_OFFLINE` keeps
 /// even a configured-path fetch off; the scratch `SUSI_HOME` has no
 /// consent grants, so egress is triple-gated.
 pub struct ProcessRunner {
@@ -585,13 +585,12 @@ impl Runner for ProcessRunner {
             // SUSI_HOME pointed at the scratch, OFFLINE as the third
             // egress gate.
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-            .env("HOME", &env.home)
             .env("SUSI_HOME", &env.home)
             .env("SUSI_OFFLINE", "1")
-            .env("SUSI_NO_REGISTRY_ENV", "1")
             .env("SUSI_HERMETIC_FORBIDDEN", &env.home)
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
+        susi_paths::test_env::isolate_home(&mut cmd, &env.home);
         if let Ok(f) = std::fs::File::create(&out_file) {
             cmd.stdout(std::process::Stdio::from(f));
         } else {

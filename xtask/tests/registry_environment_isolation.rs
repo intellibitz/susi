@@ -45,7 +45,7 @@ fn scrubbed_grandchildren_preserve_the_callers_registry_opt_out() {
     }
     let hermetic = std::fs::read_to_string(root.join("crates/susi-gawd/src/intent_ladder.rs"))
         .expect("hermetic runner");
-    assert!(hermetic.contains(".env(\"SUSI_NO_REGISTRY_ENV\", \"1\")"));
+    assert!(hermetic.contains("susi_paths::test_env::isolate_home(&mut cmd, &env.home)"));
 }
 
 #[test]
@@ -59,7 +59,8 @@ fn nested_native_gates_and_installed_health_probes_disable_registry() {
     ] {
         let source = std::fs::read_to_string(root.join(file)).expect("isolated launcher source");
         assert!(
-            source.contains(".env(\"SUSI_NO_REGISTRY_ENV\", \"1\")"),
+            source.contains(".env(\"SUSI_NO_REGISTRY_ENV\", \"1\")")
+                || source.contains("susi_paths::test_env::isolate_home(&mut command, &home)"),
             "{file}"
         );
     }
