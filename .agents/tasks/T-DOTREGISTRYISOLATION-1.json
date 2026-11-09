@@ -53,6 +53,9 @@
     "Followup paths/config/xtask all-target Clippy with release-tooling passed; launcher contract2 passed. Final two isolated callers require a clean-worktree scope extension before adding their explicit switch.",
     "Final scope extension acquired from clean checkpoint. Native self-patch cargo gate and installed-version scratch probe now explicitly block persistent registry environment; current full-workspace acceptance remains required before publication.",
     "Four-claim gate reached 403 passed / 2 failed / 3 ignored before lean-core stopped it: GAWD source +3 lines and native-harness dependency reach 48 vs 46. Failed evidence blob b2cc7cf6657fe40f391631c8accac08dd51ddb60 retained; no source publication.",
-    "Replaced duplicated private HOME/USERPROFILE/registry setters in GAWD with shared isolate_home. Source is 12653 lines, matching unchanged 12653 ceiling. cargo test -p susi-gawd --lib --offline --locked: 284 passed, 3 ignored. Strict gawd all-target Clippy, 3 launcher wiring tests and full fmt pass. Native-link architecture fix and complete combined gate remain pending."
-  ]
+    "Replaced duplicated private HOME/USERPROFILE/registry setters in GAWD with shared isolate_home. Source is 12653 lines, matching unchanged 12653 ceiling. cargo test -p susi-gawd --lib --offline --locked: 284 passed, 3 ignored. Strict gawd all-target Clippy, 3 launcher wiring tests and full fmt pass. Native-link architecture fix and complete combined gate remain pending.",
+    "Narrowed three-claim gate reached 91 of 143 binaries; harness 531 passed and lean-core/bootstrap passed, then task_records rejected this record missing created_unix. Failed log blob 534ca1b215ce75276f6f0f9cc759851185fa86ea, outer 415.8 seconds, retained without publication. Repaired creation provenance using original task commit timestamp; all-record schema preflight and full gate retry pending."
+  ],
+  "created_unix": 1794250548,
+  "creation_provenance": "created_unix is the recorded commit time of initial task-record commit 6b430852ebac9a145cd14994a605d4c4966ccbc3; the exact earlier filesystem creation time was not recorded."
 }
