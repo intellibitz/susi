@@ -377,6 +377,19 @@ impl Lanes {
         Ok(())
     }
 
+    fn take_unless_stopped(
+        &self,
+        weight: usize,
+        stop: &std::sync::atomic::AtomicBool,
+    ) -> Result<bool> {
+        self.take(weight)?;
+        if stop.load(std::sync::atomic::Ordering::SeqCst) {
+            self.give(weight);
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     fn give(&self, weight: usize) {
         if let Ok(mut free) = self.free.lock() {
             *free += weight;
@@ -565,7 +578,14 @@ pub fn run(
                     // it keeps the CPU its deadlines assume. The lane count
                     // stays the limit on what runs at once.
                     let acquired_weight = weight(&binary, shared.settings.heavy).min(lanes);
-                    if shared.lanes.take(acquired_weight).is_err() {
+                    // A worker may have waited for lanes while another binary
+                    // failed. Do not launch its already-dequeued binary after
+                    // that failure, and return every acquired lane on stop.
+                    if !shared
+                        .lanes
+                        .take_unless_stopped(acquired_weight, &shared.stop)
+                        .unwrap_or(false)
+                    {
                         break;
                     }
                     let assigned_threads = threads_for_binary(
@@ -862,6 +882,47 @@ mod tests {
         pool.give(ordinary_weight);
         pool.give(waiter_weight);
         assert_eq!(*pool.free.lock().unwrap(), lanes);
+    }
+
+    #[test]
+    fn failure_cancels_a_dequeued_binary_waiting_for_weighted_lanes() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let pool = Lanes {
+            free: Mutex::new(2),
+            changed: Condvar::new(),
+        };
+        let stop = AtomicBool::new(false);
+        pool.take(2).unwrap();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                entered_tx.send(()).unwrap();
+                let acquired = pool.take_unless_stopped(2, &stop).unwrap();
+                result_tx.send(acquired).unwrap();
+            });
+            let entered = entered_rx.recv_timeout(Duration::from_secs(1));
+            let premature = result_rx.recv_timeout(Duration::from_millis(25)).ok();
+            // Release before assertions so a failing regression never strands
+            // a worker inside the scoped thread join.
+            stop.store(true, Ordering::SeqCst);
+            pool.give(2);
+            let acquired = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(entered.is_ok());
+            assert!(premature.is_none());
+            assert!(
+                !acquired,
+                "a binary must not launch after a waiting gate fails"
+            );
+        });
+        assert_eq!(*pool.free.lock().unwrap(), 2);
+        stop.store(false, Ordering::SeqCst);
+        assert!(pool.take_unless_stopped(2, &stop).unwrap());
+        assert_eq!(*pool.free.lock().unwrap(), 0);
+        pool.give(2);
     }
 
     #[test]
