@@ -12,10 +12,8 @@
   "deps": [],
   "scope": [
     ".agents/tasks/t-wintests-1.json",
-    ".agents/gmcp/evidence",
     "tests/agent_bootstrap.rs",
     "tests/common/mod.rs",
-    "tests/gmcp_requirements.rs",
     "tests/hermetic_scope.rs",
     "tests/hook_enforcement.rs",
     "tests/installer_contract.rs",
@@ -25,10 +23,8 @@
   ],
   "scopes": [
     ".agents/tasks/t-wintests-1.json",
-    ".agents/gmcp/evidence",
     "tests/agent_bootstrap.rs",
     "tests/common/mod.rs",
-    "tests/gmcp_requirements.rs",
     "tests/hermetic_scope.rs",
     "tests/hook_enforcement.rs",
     "tests/installer_contract.rs",
@@ -60,5 +56,5 @@
     ]
   },
   "updated_unix": 1794207119,
-  "successor_handoff": "2026-11-09: Dot-designated Codex successor; previous worker absent from supported session inventory, clean checkpoint 8b1fcfbfd preserved. Replace five GMCP fixture taskkill launches with existing susi_core::bounded_cmd::output_within, preserving /PID /T /F and adding a 10-second bound. Base-safe Windows helper owns CREATE_NO_WINDOW; no unmerged dependency. Targeted tests and both GMCP evidence phases remain pending. No qualification claimed."
+  "successor_handoff": "2026-11-09: Broader Windows test proposal remains blocked: requires Bash and has unbounded helpers. Not qualified or ready to merge. Immutable local checkpoint checkpoint/wintests-20261109 at d527dac487c457e3e89367aa1c8fccd020967001 preserves source and successful 54-check plus 9-mastery evidence. GMCP test/evidence delta retired reversibly to claim base for native scoped handoff to independent cleanup task; no history deleted."
 }
