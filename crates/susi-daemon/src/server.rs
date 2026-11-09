@@ -1697,8 +1697,8 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         // covers unbound/standalone callers, and everything else fails
         // closed. The verifier closure receives the buffered body so v2
         // (body-bound) signatures verify, not just v1.
-        let a2a_verifier: susi_gawd::a2a::server::Verifier =
-            std::sync::Arc::new(|ctx: &susi_gawd::a2a::server::VerifierContext| {
+        let a2a_verifier: susi_gawd_a2a::server::Verifier =
+            std::sync::Arc::new(|ctx: &susi_gawd_a2a::server::VerifierContext| {
                 let header = |name: &str| ctx.headers.get(name).and_then(|v| v.to_str().ok());
                 let signed = susi_gawd::net_guard::SignedRequest {
                     node: header("x-susi-node"),
@@ -1736,7 +1736,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                     return;
                 }
                 if let Err(e) =
-                    susi_gawd::a2a::server::serve(listeners, verifier, tls, require_tls_a2a)
+                    susi_gawd_a2a::server::serve(listeners, verifier, tls, require_tls_a2a)
                 {
                     eprintln!("[A2A] Server exited: {e}");
                 }
