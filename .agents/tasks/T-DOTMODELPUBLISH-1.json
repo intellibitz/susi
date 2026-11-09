@@ -24,5 +24,7 @@
   },
   "status": "in_progress",
   "claimed_by": "dot-model-publish",
-  "native_worker": "dot-model-publish"
+  "native_worker": "dot-model-publish",
+  "created_by": "dot-model-publish",
+  "created_unix": 1794238682
 }
