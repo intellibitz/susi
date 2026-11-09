@@ -7,37 +7,54 @@
 //! window for every call (2026-11-09: a test run popped "error 0x800700e8
 //! when launching `icacls` ... node.key"). These calls start no process.
 //!
-//! - [`restrict_to_current_user`] gives a file the access list that
+//! - [`open_owner_only_append`] and [`create_new_owner_only`] open a file
+//!   that, when the call creates it, is born with the owner-only list below:
+//!   the list is part of the `CreateFileW` call itself (`SECURITY_ATTRIBUTES`),
+//!   so no other handle can ever be opened against a wider list, and a failure
+//!   creates nothing (there is nothing to restrict or delete afterwards).
+//! - [`restrict_to_current_user`] gives an existing file the access list that
 //!   `icacls <path> /inheritance:r /grant:r <user>:F` gave a newly created
 //!   file: a protected DACL (no inherited entries) with one explicit entry
 //!   granting the current user full control (`FILE_ALL_ACCESS`). The user is
-//!   the process token's user, not the `USERNAME` environment variable.
+//!   the process token's user, not the `USERNAME` environment variable. It
+//!   resolves `path` by name, so it does not revoke a handle opened before it;
+//!   a file that must never be readable by anyone else is created with one of
+//!   the two functions above instead.
 //! - [`read_dacl`] lists a file's allow and deny entries in order.
 //!
 //! References: [SetNamedSecurityInfoW](https://learn.microsoft.com/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow),
 //! [GetNamedSecurityInfoW](https://learn.microsoft.com/windows/win32/api/aclapi/nf-aclapi-getnamedsecurityinfow),
+//! [CreateFileW](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-createfilew),
+//! [SECURITY_ATTRIBUTES](https://learn.microsoft.com/windows/win32/api/wtypesbase/ns-wtypesbase-security_attributes),
 //! [SID string format](https://learn.microsoft.com/windows/win32/secauthz/sid-components).
-//! No raw pointer crosses out of this module.
+//! No raw pointer crosses out of this module; a handle leaves it only as an
+//! owned `std::fs::File`.
 
 use std::ffi::OsStr;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 
-use winapi::shared::minwindef::{DWORD, LPVOID};
+use winapi::shared::minwindef::{DWORD, FALSE, LPVOID, TRUE};
 use winapi::shared::ntdef::HANDLE;
 use winapi::um::accctrl::SE_FILE_OBJECT;
 use winapi::um::aclapi::{GetNamedSecurityInfoW, SetNamedSecurityInfoW};
-use winapi::um::handleapi::CloseHandle;
+use winapi::um::fileapi::{CreateFileW, CREATE_NEW, OPEN_ALWAYS};
+use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
+use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
 use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcessToken};
 use winapi::um::securitybaseapi::{
-    AddAccessAllowedAce, GetAce, GetLengthSid, GetTokenInformation, InitializeAcl, IsValidSid,
+    AddAccessAllowedAce, GetAce, GetLengthSid, GetTokenInformation, InitializeAcl,
+    InitializeSecurityDescriptor, IsValidSid, SetSecurityDescriptorControl,
+    SetSecurityDescriptorDacl,
 };
 use winapi::um::winbase::LocalFree;
 use winapi::um::winnt::{
     TokenUser, ACCESS_ALLOWED_ACE, ACCESS_ALLOWED_ACE_TYPE, ACCESS_DENIED_ACE_TYPE, ACE_HEADER,
-    ACL, ACL_REVISION, ACL_REVISION_DS, DACL_SECURITY_INFORMATION, INHERITED_ACE, PACL,
-    PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER,
+    ACL, ACL_REVISION, ACL_REVISION_DS, DACL_SECURITY_INFORMATION, FILE_ATTRIBUTE_NORMAL,
+    FILE_GENERIC_WRITE, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_DATA,
+    INHERITED_ACE, PACL, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    SECURITY_DESCRIPTOR, SECURITY_DESCRIPTOR_REVISION, SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER,
 };
 
 pub use winapi::um::winnt::FILE_ALL_ACCESS;
@@ -95,10 +112,149 @@ pub fn restrict_to_current_user(path: &Path) -> io::Result<()> {
     set_protected_dacl(path, &[(user.as_str(), FILE_ALL_ACCESS)])
 }
 
+/// Open `path` for appending, creating it if it does not exist. A file this
+/// call creates is born with the owner-only list [`restrict_to_current_user`]
+/// sets (a protected DACL with one `FILE_ALL_ACCESS` entry for the process
+/// token's user), applied inside `CreateFileW`, so it is never visible with
+/// its parent's inherited entries and no other handle can be opened against
+/// a wider list. One call, `OPEN_ALWAYS`: concurrent callers each either
+/// create the file or open the one another created; none sees it half made.
+/// An existing file is opened as it is (its list is not changed).
+///
+/// The handle requests what `OpenOptions::new().append(true)` requests
+/// (`FILE_GENERIC_WRITE` without `FILE_WRITE_DATA`, so every write lands at
+/// the end of the file), shares read, write and delete like `std::fs` does
+/// (readers, other appenders and a rotating rename keep working), and is not
+/// inheritable. When the list cannot be built nothing is created.
+pub fn open_owner_only_append(path: &Path) -> io::Result<std::fs::File> {
+    let user = current_user_sid()?;
+    open_with_protected_dacl(
+        path,
+        FILE_GENERIC_WRITE & !FILE_WRITE_DATA,
+        OPEN_ALWAYS,
+        &[(user.as_str(), FILE_ALL_ACCESS)],
+    )
+}
+
+/// Create `path` for writing, failing with `AlreadyExists` if it exists
+/// (`CREATE_NEW`), born with the owner-only list of
+/// [`open_owner_only_append`], applied inside `CreateFileW`. Nothing written
+/// to the file is ever readable through a handle opened against a wider list.
+/// When the list cannot be built nothing is created.
+pub fn create_new_owner_only(path: &Path) -> io::Result<std::fs::File> {
+    let user = current_user_sid()?;
+    open_with_protected_dacl(
+        path,
+        FILE_GENERIC_WRITE,
+        CREATE_NEW,
+        &[(user.as_str(), FILE_ALL_ACCESS)],
+    )
+}
+
+/// `CreateFileW(path, access, share read/write/delete, disposition)` with a
+/// security descriptor whose DACL is `grants`, protected (`SE_DACL_PROTECTED`:
+/// the parent's inheritable entries are not merged in). The descriptor only
+/// applies when the call creates the file; Windows ignores it when opening
+/// an existing one.
+#[allow(unsafe_code)]
+fn open_with_protected_dacl(
+    path: &Path,
+    access: DWORD,
+    disposition: DWORD,
+    grants: &[(&str, u32)],
+) -> io::Result<std::fs::File> {
+    use std::os::windows::io::{FromRawHandle, RawHandle};
+    let name = wide_path(path)?;
+    let mut acl_buf = build_acl(grants)?;
+    let mut descriptor = SECURITY_DESCRIPTOR {
+        Revision: 0,
+        Sbz1: 0,
+        Control: 0,
+        Owner: std::ptr::null_mut(),
+        Group: std::ptr::null_mut(),
+        Sacl: std::ptr::null_mut(),
+        Dacl: std::ptr::null_mut(),
+    };
+    let sd: PSECURITY_DESCRIPTOR = std::ptr::addr_of_mut!(descriptor).cast();
+    // SAFETY: `sd` points at the writable, correctly sized and aligned
+    // absolute SECURITY_DESCRIPTOR above, which is not moved or otherwise
+    // accessed until CreateFileW has returned.
+    if unsafe { InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `sd` was initialised above; the DACL pointer is the valid ACL
+    // `build_acl` made in `acl_buf`, which outlives CreateFileW (an absolute
+    // descriptor stores the pointer, it does not copy the list).
+    if unsafe { SetSecurityDescriptorDacl(sd, TRUE, acl_buf.as_mut_ptr().cast::<ACL>(), FALSE) }
+        == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `sd` is the initialised descriptor; only the protected bit is
+    // changed.
+    if unsafe { SetSecurityDescriptorControl(sd, SE_DACL_PROTECTED, SE_DACL_PROTECTED) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut attributes = SECURITY_ATTRIBUTES {
+        nLength: DWORD::try_from(std::mem::size_of::<SECURITY_ATTRIBUTES>())
+            .map_err(|_| io::Error::other("SECURITY_ATTRIBUTES size"))?,
+        lpSecurityDescriptor: sd.cast(),
+        bInheritHandle: FALSE,
+    };
+    // SAFETY: `name` is a NUL-terminated UTF-16 path owned for the call;
+    // `attributes`, the descriptor it points at and the ACL that points into
+    // `acl_buf` all live until this synchronous call returns; no template
+    // handle is passed. `bInheritHandle` is FALSE, so no child inherits the
+    // handle.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            access,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            &mut attributes,
+            disposition,
+            FILE_ATTRIBUTE_NORMAL,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: CreateFileW succeeded, so `handle` is a valid file handle that
+    // nothing else owns; ownership moves into the File exactly once, which
+    // closes it on drop.
+    Ok(unsafe { std::fs::File::from_raw_handle(handle as RawHandle) })
+}
+
 /// Replace `path`'s DACL with a protected list (inherited entries removed)
 /// of allow entries, one per `(SID string, access mask)` pair, in order.
 #[allow(unsafe_code)]
 pub fn set_protected_dacl(path: &Path, grants: &[(&str, u32)]) -> io::Result<()> {
+    let mut acl_buf = build_acl(grants)?;
+    let mut name = wide_path(path)?;
+    // SAFETY: `name` is a NUL-terminated UTF-16 path owned for the call;
+    // only the DACL is set (owner, group and SACL pointers are null, as the
+    // security-information flags say), and the ACL is the valid list
+    // `build_acl` made in `acl_buf`, alive for the call.
+    let status = unsafe {
+        SetNamedSecurityInfoW(
+            name.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            acl_buf.as_mut_ptr().cast::<ACL>(),
+            std::ptr::null_mut(),
+        )
+    };
+    win32_status(status)
+}
+
+/// A DWORD-aligned buffer holding an ACL of allow entries, one per
+/// `(SID string, access mask)` pair, in order. Every SID is parsed and
+/// validated before any buffer is built.
+#[allow(unsafe_code)]
+fn build_acl(grants: &[(&str, u32)]) -> io::Result<Vec<u32>> {
     let sids = grants
         .iter()
         .map(|(sid, _)| SidBuf::parse(sid))
@@ -128,22 +284,7 @@ pub fn set_protected_dacl(path: &Path, grants: &[(&str, u32)]) -> io::Result<()>
             return Err(io::Error::last_os_error());
         }
     }
-    let mut name = wide_path(path)?;
-    // SAFETY: `name` is a NUL-terminated UTF-16 path owned for the call;
-    // only the DACL is set (owner, group and SACL pointers are null, as the
-    // security-information flags say), and `acl` is the valid ACL above.
-    let status = unsafe {
-        SetNamedSecurityInfoW(
-            name.as_mut_ptr(),
-            SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            acl,
-            std::ptr::null_mut(),
-        )
-    };
-    win32_status(status)
+    Ok(acl_buf)
 }
 
 /// `path`'s DACL entries in order; `None` for a NULL DACL, which grants
@@ -718,6 +859,229 @@ mod inline_tests {
         assert!(aces[0].deny && aces[0].sid == "S-1-1-0");
         assert!(!aces[1].deny && aces[1].sid == user);
         assert!(unsupported_ace(&io::Error::other("unrelated")).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn scratch_dir(tag: &str) -> std::path::PathBuf {
+        let (dir, file) = scratch_file(tag);
+        std::fs::remove_file(file).unwrap();
+        dir
+    }
+
+    fn owner_only() -> Vec<Ace> {
+        vec![Ace {
+            sid: current_user_sid().unwrap(),
+            deny: false,
+            inherited: false,
+            mask: FILE_ALL_ACCESS,
+        }]
+    }
+
+    #[test]
+    fn a_created_file_is_born_owner_only_before_anything_is_written() {
+        use std::io::Write;
+        let dir = scratch_dir("born");
+        // The directory hands inheritable entries to a file made the plain
+        // way, so an owner-only list below is not an accident of the parent.
+        let plain = dir.join("plain");
+        std::fs::File::create(&plain).unwrap();
+        let inherited = read_dacl(&plain).unwrap().unwrap();
+        assert!(inherited.iter().any(|a| a.inherited), "{inherited:?}");
+
+        for (name, open) in [
+            (
+                "append",
+                open_owner_only_append as fn(&Path) -> io::Result<std::fs::File>,
+            ),
+            ("create", create_new_owner_only),
+        ] {
+            let path = dir.join(name);
+            let mut file = open(&path).unwrap();
+            // Still open, nothing written: the list is already exact.
+            assert_eq!(read_dacl(&path).unwrap().unwrap(), owner_only(), "{name}");
+            file.write_all(b"secret").unwrap();
+            drop(file);
+            assert_eq!(std::fs::read(&path).unwrap(), b"secret");
+            assert_eq!(read_dacl(&path).unwrap().unwrap(), owner_only(), "{name}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The persisted descriptor's control bits (`SECURITY_DESCRIPTOR_CONTROL`).
+    #[allow(unsafe_code)]
+    fn descriptor_control(path: &Path) -> u16 {
+        let name = wide_path(path).unwrap();
+        let mut dacl: PACL = std::ptr::null_mut();
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        let mut control = 0u16;
+        let mut revision: DWORD = 0;
+        // SAFETY: as in `read_dacl`; the descriptor is read for its control
+        // word and freed with LocalFree.
+        unsafe {
+            let status = GetNamedSecurityInfoW(
+                name.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut dacl,
+                std::ptr::null_mut(),
+                &mut descriptor,
+            );
+            win32_status(status).unwrap();
+            assert_ne!(
+                winapi::um::securitybaseapi::GetSecurityDescriptorControl(
+                    descriptor,
+                    &mut control,
+                    &mut revision
+                ),
+                0
+            );
+            LocalFree(descriptor);
+        }
+        control
+    }
+
+    #[test]
+    fn a_created_file_has_a_protected_list() {
+        let dir = scratch_dir("protected");
+        let born = dir.join("born");
+        drop(open_owner_only_append(&born).unwrap());
+        let made = dir.join("made");
+        drop(create_new_owner_only(&made).unwrap());
+        let plain = dir.join("plain");
+        std::fs::File::create(&plain).unwrap();
+        assert_eq!(
+            descriptor_control(&born) & SE_DACL_PROTECTED,
+            SE_DACL_PROTECTED
+        );
+        assert_eq!(
+            descriptor_control(&made) & SE_DACL_PROTECTED,
+            SE_DACL_PROTECTED
+        );
+        assert_eq!(descriptor_control(&plain) & SE_DACL_PROTECTED, 0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// When the parent directory later gains an inheritable entry (granting
+    /// Everyone read here) and Windows propagates it to the children, a plain
+    /// file picks it up and a file this module created does not.
+    #[test]
+    fn a_created_file_keeps_its_list_when_the_parent_propagates_a_new_entry() {
+        let dir = scratch_dir("propagate");
+        let born = dir.join("born");
+        drop(open_owner_only_append(&born).unwrap());
+        let plain = dir.join("plain");
+        std::fs::File::create(&plain).unwrap();
+        let user = current_user_sid().unwrap();
+        let mut everyone_read = raw_ace(0x00, 0x0012_0089, &[], "S-1-1-0");
+        everyone_read[1] = 0x03; // OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
+        let mut owner_full = raw_ace(0x00, FILE_ALL_ACCESS, &[], &user);
+        owner_full[1] = 0x03;
+        // SetNamedSecurityInfoW on the directory propagates its inheritable
+        // entries to every child whose list is not protected.
+        set_raw_dacl(&dir, &[owner_full, everyone_read]);
+        let plain_list = read_dacl(&plain).unwrap().unwrap();
+        assert!(
+            plain_list.iter().any(|a| a.sid == "S-1-1-0" && a.inherited),
+            "propagation did not reach the plain file: {plain_list:?}"
+        );
+        assert_eq!(read_dacl(&born).unwrap().unwrap(), owner_only());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The interleaving that exposed the old create-then-restrict sink: a
+    /// second writer opens the file while the creator still holds it, before
+    /// the creator wrote. Its view is already owner-only; both lines land.
+    #[test]
+    fn a_second_writer_never_sees_the_file_before_it_is_owner_only() {
+        use std::io::Write;
+        let dir = scratch_dir("interleave");
+        let path = dir.join("metrics.jsonl");
+        let mut creator = open_owner_only_append(&path).unwrap();
+        let mut second = open_owner_only_append(&path).unwrap();
+        assert_eq!(read_dacl(&path).unwrap().unwrap(), owner_only());
+        second.write_all(b"second\n").unwrap();
+        creator.write_all(b"first\n").unwrap();
+        // A reader shares with both open appenders.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second\nfirst\n");
+
+        // Rotation renames the file while both handles are open (they share
+        // delete); the next open makes an owner-only replacement, and the
+        // open handles keep writing to the rotated file.
+        let rotated = dir.join("metrics.jsonl.1");
+        std::fs::rename(&path, &rotated).unwrap();
+        let mut replacement = open_owner_only_append(&path).unwrap();
+        assert_eq!(read_dacl(&path).unwrap().unwrap(), owner_only());
+        replacement.write_all(b"new\n").unwrap();
+        creator.write_all(b"late\n").unwrap();
+        drop((creator, second, replacement));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\n");
+        assert_eq!(
+            std::fs::read_to_string(&rotated).unwrap(),
+            "second\nfirst\nlate\n"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_existing_file_is_opened_as_it_is_and_create_new_refuses_it() {
+        use std::io::Write;
+        let dir = scratch_dir("existing");
+        let path = dir.join("existing");
+        std::fs::write(&path, b"kept\n").unwrap();
+        let before = read_dacl(&path).unwrap().unwrap();
+        let error = create_new_owner_only(&path).expect_err("CREATE_NEW on an existing file");
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&path).unwrap(), b"kept\n");
+        // OPEN_ALWAYS appends without changing the existing list: only a
+        // file this module creates is guaranteed owner-only.
+        open_owner_only_append(&path)
+            .unwrap()
+            .write_all(b"more\n")
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"kept\nmore\n");
+        assert_eq!(read_dacl(&path).unwrap().unwrap(), before);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Failure injection: a list that cannot be built creates nothing and
+    /// never touches what is already at the path (the old sink deleted the
+    /// path by name after a failed restriction, which could remove a
+    /// replacement another writer had made there).
+    #[test]
+    fn a_failure_creates_nothing_and_leaves_an_existing_file_alone() {
+        let dir = scratch_dir("fail");
+        let missing = dir.join("missing");
+        for disposition in [OPEN_ALWAYS, CREATE_NEW] {
+            let bad = [("not-a-sid", FILE_ALL_ACCESS)];
+            assert!(
+                open_with_protected_dacl(&missing, FILE_GENERIC_WRITE, disposition, &bad).is_err()
+            );
+            assert!(!missing.exists(), "a failed open created the file");
+        }
+        let replacement = dir.join("replacement");
+        std::fs::write(&replacement, b"another writer's line\n").unwrap();
+        let before = read_dacl(&replacement).unwrap().unwrap();
+        let bad = [("S-1-x", FILE_ALL_ACCESS)];
+        assert!(
+            open_with_protected_dacl(&replacement, FILE_GENERIC_WRITE, OPEN_ALWAYS, &bad).is_err()
+        );
+        assert_eq!(
+            std::fs::read(&replacement).unwrap(),
+            b"another writer's line\n"
+        );
+        assert_eq!(read_dacl(&replacement).unwrap().unwrap(), before);
+        // An embedded NUL and a directory at the path are errors; the
+        // directory is left as it was.
+        assert!(open_owner_only_append(Path::new("a\0b")).is_err());
+        assert!(create_new_owner_only(Path::new("a\0b")).is_err());
+        assert!(open_owner_only_append(&dir).is_err());
+        assert!(create_new_owner_only(&dir).is_err());
+        assert!(dir.is_dir());
+        // A missing parent directory is an error, not a created tree.
+        assert!(open_owner_only_append(&dir.join("no/such/dir/file")).is_err());
+        assert!(!dir.join("no").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

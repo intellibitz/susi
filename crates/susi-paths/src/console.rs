@@ -42,6 +42,7 @@ pub fn without_window(command: &mut Command) -> &mut Command {
 }
 
 #[cfg(test)]
+// Test-only assertions: a failed spawn or read must fail the test loudly.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;

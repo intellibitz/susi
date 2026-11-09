@@ -23,11 +23,26 @@
 //! One wrapper is accepted. `susi_core::bounded_cmd::output_within` applies
 //! `without_window` to the command before it spawns (proved below from the
 //! helper's own source), so a guarded `Command::new` is no launch when it is
-//! the whole first argument of a call written with the full path
-//! `susi_core::bounded_cmd::output_within(Command::new(..)<builder calls>, ..)`.
-//! Anything else, a terminal call such as `.output()` inside the argument, a
-//! command that is not the first argument, a shorter path, or another
-//! function of the same name, is a direct launch.
+//! the whole first argument of a call written with the full path rooted at
+//! the crate, `susi_core::bounded_cmd::output_within(Command::new(..)<builder
+//! calls>, ..)` (or `::susi_core::..`). Anything else, a terminal call such
+//! as `.output()` inside the argument, a command that is not the first
+//! argument, a shorter path, a path that continues another one
+//! (`crate::susi_core::..`, `m::susi_core::..`), or another function of the
+//! same name, is a direct launch.
+//!
+//! The helper and the wrapper are accepted by spelling, so each spelling must
+//! reach the real item. No first-party source may bind `susi_core`,
+//! `susi_paths`, `bounded_cmd`, `output_within`, `background_command` or
+//! `without_window` to anything else: each may be declared only at the top
+//! level of its one file, imported only from its real module, and appear
+//! otherwise only as a path segment or a call. A `mod`, `struct`, `type`,
+//! `let`, alias (`as`), field, method, macro argument or import from another
+//! module of one of those names is a violation (an independent review
+//! reproduced the bypass with a local `mod susi_core { pub mod bounded_cmd
+//! { .. } }`). A `#[path]` or `include!` must name a file the scan reads, and
+//! no `Cargo.toml` may give either crate name to another package (a `package`
+//! rename, a path elsewhere, a `[lib]` or `[package]` of that name).
 //!
 //! Two launches sit in files reserved by other native workers; this task may
 //! not edit them. They are named in [`HELD_BY_OTHER_CLAIMS`] with their exact
@@ -39,7 +54,11 @@
 //! combined tree and must be empty there.
 //!
 //! Not judged: a program name held in a constant or built at run time
-//! (`Command::new(PROGRAM)`).
+//! (`Command::new(PROGRAM)`); code a procedural macro generates; and code
+//! generated at build time and included with a computed path, whose one
+//! existing site is recorded exactly in [`GENERATED_INCLUDES`] (a new one
+//! fails the guard). The manifest check reads dependency lines, not a
+//! resolved graph.
 
 // Test code: a missing source file must fail the test loudly.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -334,7 +353,7 @@ fn guarded_in(tokens: &[Token]) -> Vec<&'static str> {
         .iter()
         .filter_map(|t| match &t.tok {
             Tok::Str(text) => GUARDED.iter().copied().find(|g| *g == normalized(text)),
-            _ => None,
+            Tok::Id(_) | Tok::P(_) => None,
         })
         .collect()
 }
@@ -366,13 +385,23 @@ fn wrapped_by_bounded_cmd(tokens: &[Token], at: usize, close: usize) -> bool {
     if k < callee.len() {
         return false;
     }
-    let before = &tokens[k - callee.len()..k];
+    let root = k - callee.len();
+    let before = &tokens[root..k];
     let spelled = before.iter().zip(callee).all(|(t, want)| match &t.tok {
         Tok::Id(name) => name == want,
         Tok::P(p) => want.len() == 1 && want.starts_with(*p),
         Tok::Str(_) => false,
     });
-    if !spelled || (k > callee.len() && is_p(tokens.get(k - callee.len() - 1), '.')) {
+    // `susi_core` must be the root of the path: a method call
+    // (`x.susi_core::..`) or a continuation (`crate::susi_core::..`,
+    // `m::susi_core::..`) names some other item. A leading `::` (the extern
+    // crate itself) is the one prefix allowed.
+    let continued = root >= 2
+        && is_p(tokens.get(root - 1), ':')
+        && is_p(tokens.get(root - 2), ':')
+        && root >= 3
+        && matches!(&tokens[root - 3].tok, Tok::Id(_) | Tok::P('>' | ')' | ']'));
+    if !spelled || continued || (root > 0 && is_p(tokens.get(root - 1), '.')) {
         return false;
     }
     let mut next = close + 1;
@@ -463,15 +492,426 @@ fn scan_source(source: &str) -> Result<Vec<(usize, String)>, String> {
     Ok(found)
 }
 
+/// The names the two sanctioned forms resolve through. The guard accepts
+/// `susi_paths::console::background_command(..)` (or the bare name imported
+/// from there) and `susi_core::bounded_cmd::output_within(..)` by spelling,
+/// so each spelling must reach the real item: no first-party source may bind
+/// one of these names to anything else. A local `mod susi_core` with its own
+/// `output_within`, `use x as susi_core`, `extern crate x as susi_core`, a
+/// local `fn background_command`, `let background_command = ..`, a macro
+/// argument or a field of that name would otherwise turn a direct launch
+/// into one the guard accepts.
+const BOUND: [&str; 6] = [
+    "susi_core",
+    "susi_paths",
+    "bounded_cmd",
+    "output_within",
+    "background_command",
+    "without_window",
+];
+
+/// The only declarations of a bound name: `(name, keyword, file)`, each at
+/// the top level of its file.
+const DEFINITIONS: [(&str, &str, &str); 4] = [
+    ("output_within", "fn", "crates/susi-core/src/bounded_cmd.rs"),
+    (
+        "background_command",
+        "fn",
+        "crates/susi-paths/src/console.rs",
+    ),
+    ("without_window", "fn", "crates/susi-paths/src/console.rs"),
+    ("bounded_cmd", "mod", "crates/susi-core/src/lib.rs"),
+];
+
+/// The only imports of a bound name as a leaf (`use <parent>::<name>;`, in a
+/// group too): `(name, parent, file prefix)`. An empty parent is the crate
+/// itself (`use susi_core;`, `extern crate susi_core;`).
+const IMPORTS: [(&str, &str, &str); 10] = [
+    ("susi_core", "", ""),
+    ("susi_paths", "", ""),
+    ("bounded_cmd", "susi_core", ""),
+    ("output_within", "susi_core::bounded_cmd", ""),
+    ("background_command", "susi_paths::console", ""),
+    ("without_window", "susi_paths::console", ""),
+    ("bounded_cmd", "crate", "crates/susi-core/src/"),
+    (
+        "output_within",
+        "crate::bounded_cmd",
+        "crates/susi-core/src/",
+    ),
+    (
+        "background_command",
+        "crate::console",
+        "crates/susi-paths/src/",
+    ),
+    ("without_window", "crate::console", "crates/susi-paths/src/"),
+];
+
+/// The one alias of a bound name: susi-core names itself for code shared
+/// with crates that reach it as `crate::susi_core`.
+const SELF_ALIAS: (&str, &str) = ("crates/susi-core/src/lib.rs", "susi_core");
+
+/// `include!` with a computed path reads code no scan can see. The exact
+/// recorded sites: `(file, count, what it includes)`. A new one fails.
+const GENERATED_INCLUDES: [(&str, usize, &str); 1] = [(
+    "crates/susi-gawd-agents/src/self_core.rs",
+    1,
+    "OUT_DIR/generated_axioms.rs, written by crates/susi-gawd-agents/build.rs (scanned)",
+)];
+
+/// For each token, whether it is inside a `use` or `extern crate` item.
+fn import_items(tokens: &[Token]) -> Vec<Option<usize>> {
+    let mut inside = vec![None; tokens.len()];
+    let mut at = 0;
+    while at < tokens.len() {
+        let starts = is_id(tokens.get(at), "use")
+            || (is_id(tokens.get(at), "extern") && is_id(tokens.get(at + 1), "crate"));
+        if starts {
+            let end = tokens[at..]
+                .iter()
+                .position(|t| t.tok == Tok::P(';'))
+                .map_or(tokens.len(), |n| at + n);
+            for slot in &mut inside[at..end] {
+                *slot = Some(at);
+            }
+            at = end;
+        }
+        at += 1;
+    }
+    inside
+}
+
+/// The path a `use` tree imports the leaf at `at` from (`a::b` for
+/// `use a::b::{c, leaf}`), walking back to the item start `start`.
+fn import_parent(tokens: &[Token], start: usize, at: usize) -> String {
+    let mut segments = Vec::new();
+    let mut k = at;
+    loop {
+        let sep = k >= 2 && is_p(tokens.get(k - 1), ':') && is_p(tokens.get(k - 2), ':');
+        if sep && k >= 3 && k - 3 > start {
+            if let Tok::Id(segment) = &tokens[k - 3].tok {
+                segments.push(segment.clone());
+                k -= 3;
+                continue;
+            }
+        }
+        if !sep && k > start + 1 && matches!(tokens[k - 1].tok, Tok::P('{' | ',')) {
+            // Back to the `{` opening this group.
+            let mut depth = 0usize;
+            let mut j = k - 1;
+            while j > start {
+                match tokens[j].tok {
+                    Tok::P('}') => depth += 1,
+                    Tok::P('{') if depth == 0 => break,
+                    Tok::P('{') => depth -= 1,
+                    Tok::P(_) | Tok::Id(_) | Tok::Str(_) => {}
+                }
+                j -= 1;
+            }
+            if j == start {
+                return "<unbalanced>".into();
+            }
+            k = j;
+            continue;
+        }
+        break;
+    }
+    segments.reverse();
+    segments.join("::")
+}
+
+/// Where a repository-relative `target` written in `file` resolves, as a
+/// repository-relative path (lexically: `.` and `..` are applied).
+fn resolve_beside(file: &str, target: &str) -> String {
+    let mut parts: Vec<&str> = file.split('/').collect();
+    parts.pop();
+    for piece in target.split(['/', '\\']) {
+        match piece {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return format!("<outside the repository>/{target}");
+                }
+            }
+            other => parts.push(other),
+        }
+    }
+    parts.join("/")
+}
+
+/// Bindings of [`BOUND`] names other than the canonical ones, `#[path]`
+/// attributes and `include!` calls that read a file the scan does not see,
+/// in one source: `(line, what)`.
+fn binding_findings(file: &str, tokens: &[Token], scanned: &[String]) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    let mut flag = |line: usize, what: String| found.push((line, format!("unsupported: {what}")));
+    let imports = import_items(tokens);
+    let mut depth = 0usize;
+    for (at, token) in tokens.iter().enumerate() {
+        match token.tok {
+            Tok::P('{') => depth += 1,
+            Tok::P('}') => depth = depth.saturating_sub(1),
+            Tok::P(_) | Tok::Id(_) | Tok::Str(_) => {}
+        }
+        let Tok::Id(name) = &token.tok else {
+            continue;
+        };
+        let line = token.line;
+        // `#[path = ".."]`, also inside `cfg_attr`: the module's file must be
+        // a scanned first-party source.
+        if name == "path" && is_p(tokens.get(at + 1), '=') && in_attribute(tokens, at) {
+            match tokens.get(at + 2).map(|t| &t.tok) {
+                Some(Tok::Str(target)) => {
+                    let resolved = resolve_beside(file, target);
+                    if !scanned.contains(&resolved) {
+                        flag(
+                            line,
+                            format!("#[path] to {resolved}, which the scan does not read"),
+                        );
+                    }
+                }
+                _ => flag(line, "#[path] that is not a string literal".into()),
+            }
+        }
+        if name == "include" && is_p(tokens.get(at + 1), '!') {
+            match (
+                tokens.get(at + 2).map(|t| &t.tok),
+                tokens.get(at + 3).map(|t| &t.tok),
+            ) {
+                (Some(Tok::P('(')), Some(Tok::Str(target))) if is_p(tokens.get(at + 4), ')') => {
+                    let resolved = resolve_beside(file, target);
+                    if !scanned.contains(&resolved) {
+                        flag(
+                            line,
+                            format!("include! of {resolved}, which the scan does not read"),
+                        );
+                    }
+                }
+                _ => flag(line, "include! of a computed path".into()),
+            }
+        }
+        if !BOUND.contains(&name.as_str()) {
+            continue;
+        }
+        let prev = at.checked_sub(1).map(|p| &tokens[p].tok);
+        let next = tokens.get(at + 1).map(|t| &t.tok);
+        let path_next = is_p(tokens.get(at + 1), ':') && is_p(tokens.get(at + 2), ':');
+        let path_prev = at >= 2 && is_p(tokens.get(at - 1), ':') && is_p(tokens.get(at - 2), ':');
+        if let Some(start) = imports[at] {
+            if path_next {
+                continue; // a segment of the imported path
+            }
+            if is_id(at.checked_sub(1).and_then(|p| tokens.get(p)), "as") {
+                let self_alias = (file, name.as_str()) == SELF_ALIAS
+                    && at >= 2
+                    && is_id(tokens.get(at - 2), "self");
+                if !self_alias {
+                    flag(line, format!("`{name}` bound by an alias"));
+                }
+                continue;
+            }
+            let parent = import_parent(tokens, start, at);
+            let canonical = IMPORTS
+                .iter()
+                .any(|(n, p, prefix)| n == name && *p == parent && file.starts_with(prefix));
+            if !canonical {
+                flag(line, format!("`{name}` imported from `{parent}`"));
+            }
+            continue;
+        }
+        match prev {
+            Some(Tok::Id(keyword)) if keyword == "fn" || keyword == "mod" => {
+                let canonical = DEFINITIONS
+                    .iter()
+                    .any(|(n, k, f)| n == name && k == keyword && *f == file && depth == 0);
+                if !canonical {
+                    flag(
+                        line,
+                        format!("`{keyword} {name}` outside its one definition"),
+                    );
+                }
+            }
+            // A path segment or root, or a call of the name in scope.
+            _ if path_next || path_prev => {}
+            Some(Tok::P('.')) => flag(line, format!("`.{name}` method or field")),
+            _ if next == Some(&Tok::P('(')) => {}
+            _ => flag(
+                line,
+                format!("`{name}` bound or used other than as a path or call"),
+            ),
+        }
+    }
+    found
+}
+
+/// Whether the token at `at` is inside a `#[..]` or `#![..]` attribute.
+fn in_attribute(tokens: &[Token], at: usize) -> bool {
+    let mut depth = 0usize;
+    for j in (0..at).rev() {
+        match tokens[j].tok {
+            Tok::P(']') => depth += 1,
+            Tok::P('[') if depth == 0 => {
+                return is_p(j.checked_sub(1).and_then(|p| tokens.get(p)), '#')
+                    || (is_p(j.checked_sub(1).and_then(|p| tokens.get(p)), '!')
+                        && is_p(j.checked_sub(2).and_then(|p| tokens.get(p)), '#'));
+            }
+            Tok::P('[') => depth -= 1,
+            Tok::P(';' | '{' | '}') => return false,
+            Tok::P(_) | Tok::Id(_) | Tok::Str(_) => {}
+        }
+    }
+    false
+}
+
+/// Every first-party `Cargo.toml` with its repository-relative path.
+fn all_manifests() -> Vec<(String, String)> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let entries = fs::read_dir(dir).unwrap_or_else(|e| panic!("cannot list {dir:?}: {e}"));
+        for entry in entries {
+            let entry = entry.unwrap_or_else(|e| panic!("cannot read an entry of {dir:?}: {e}"));
+            let path = entry.path();
+            let kind = entry
+                .file_type()
+                .unwrap_or_else(|e| panic!("cannot stat {path:?}: {e}"));
+            if kind.is_dir() {
+                if !matches!(
+                    entry.file_name().to_str(),
+                    Some("target" | "vendor" | ".git")
+                ) {
+                    walk(&path, out);
+                }
+            } else if entry.file_name() == "Cargo.toml" {
+                out.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&root(), &mut files);
+    files
+        .iter()
+        .map(|file| {
+            let text = fs::read_to_string(file)
+                .unwrap_or_else(|e| panic!("cannot read {file:?} for the guard: {e}"));
+            (relative(file), text)
+        })
+        .collect()
+}
+
+/// Manifest lines that would make `susi_core` or `susi_paths` name another
+/// package: `(line, what)`. A dependency under either key must be the
+/// workspace crate (a `path` to it or `workspace = true`, no `package`
+/// rename), no other package or library may take either name, and a
+/// dependency table header for either (`[dependencies.susi-core]`) is not
+/// judged and so refused.
+fn manifest_findings(file: &str, text: &str) -> Vec<(usize, String)> {
+    let crates = [
+        ("susi_core", "crates/susi-core"),
+        ("susi_paths", "crates/susi-paths"),
+    ];
+    let mut found = Vec::new();
+    let mut section = String::new();
+    for (n, raw) in text.lines().enumerate() {
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if line.starts_with('[') {
+            section = line.trim_matches(['[', ']']).trim().to_string();
+            let header = section.replace('-', "_");
+            if crates.iter().any(|(name, _)| {
+                header.ends_with(&format!(".{name}")) || header.contains(&format!(".{name}."))
+            }) {
+                found.push((n + 1, format!("unsupported: table [{section}]")));
+            }
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim().trim_matches('"').replace('-', "_");
+        let value = value.trim();
+        // `{ a = "x", b = true }` as `[("a", "\"x\""), ("b", "true")]`.
+        let fields: Vec<(String, String)> = value
+            .trim_matches(['{', '}'])
+            .split(',')
+            .filter_map(|field| field.split_once('='))
+            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+            .collect();
+        let field = |name: &str| {
+            fields
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.as_str())
+        };
+        let in_dependencies = section.ends_with("dependencies");
+        for (name, dir) in crates {
+            if in_dependencies && key == name {
+                let path = field("path").map(|p| resolve_beside(file, p.trim_matches('"')));
+                let canonical = field("package").is_none()
+                    && match path {
+                        Some(path) => path == dir,
+                        None => field("workspace") == Some("true"),
+                    };
+                if !canonical {
+                    found.push((n + 1, format!("unsupported: dependency {line}")));
+                }
+            }
+            // Only a package or library name binds a crate name (a binary
+            // named after it does not).
+            let names_a_crate = section == "package" || section == "lib";
+            if names_a_crate
+                && key == "name"
+                && value.trim_matches('"').replace('-', "_") == name
+                && file != format!("{dir}/Cargo.toml")
+            {
+                found.push((n + 1, format!("unsupported: [{section}] named {value}")));
+            }
+        }
+    }
+    found
+}
+
+/// Launches and binding violations in one file, given the scanned set.
+fn scan_file(file: &str, source: &str, scanned: &[String]) -> Result<Vec<(usize, String)>, String> {
+    let mut found = scan_source(source)?;
+    found.extend(binding_findings(file, &tokenize(source)?, scanned));
+    found.sort_unstable();
+    Ok(found)
+}
+
 /// Every violation in the repository: `(file, line, what)`.
 fn all_findings() -> Vec<(String, usize, String)> {
+    let sources = all_sources();
+    let scanned: Vec<String> = sources.iter().map(|(file, _)| file.clone()).collect();
     let mut found = Vec::new();
-    for (file, source) in all_sources() {
-        let hits = scan_source(&source).unwrap_or_else(|e| panic!("{file}: {e}"));
+    for (file, source) in &sources {
+        let hits = scan_file(file, source, &scanned).unwrap_or_else(|e| panic!("{file}: {e}"));
         found.extend(
             hits.into_iter()
                 .map(|(line, what)| (file.clone(), line, what)),
         );
+    }
+    for (file, text) in all_manifests() {
+        found.extend(
+            manifest_findings(&file, &text)
+                .into_iter()
+                .map(|(line, what)| (file.clone(), line, what)),
+        );
+    }
+    // The recorded computed includes, exactly.
+    for (file, count, _) in GENERATED_INCLUDES {
+        let computed = found
+            .iter()
+            .filter(|(f, _, what)| f == file && what == "unsupported: include! of a computed path")
+            .count();
+        if computed == count {
+            found.retain(|(f, _, what)| {
+                !(f == file && what == "unsupported: include! of a computed path")
+            });
+        } else {
+            found.push((
+                file.to_string(),
+                0,
+                format!("recorded {count} computed include!(s), found {computed}"),
+            ));
+        }
     }
     found
 }
@@ -758,8 +1198,8 @@ fn only_the_bounded_cmd_wrapper_around_the_whole_command_is_accepted() {
         "susi_core::bounded_cmd::output_within(Command::new(\"taskkill\").args([\"/PID\", &pid, \"/T\", \"/F\"]), Duration::from_secs(10))",
         "susi_core::bounded_cmd::output_within(std::process::Command::new(\"taskkill\"), d)",
         "susi_core::bounded_cmd::output_within(\n    Command::new(\"netstat\")\n        .arg(\"-ano\") // all\n        .stderr(Stdio::null()),\n    d,\n)",
-        "crate::susi_core::bounded_cmd::output_within(Command::new(\"nvidia-smi\").args([\"-L\"]), d)",
         "::susi_core::bounded_cmd::output_within(Command::new(\"tasklist\").env_clear().env(\"A\", \"b\"), d)",
+        "(::susi_core::bounded_cmd::output_within(Command::new(\"tasklist\"), d))",
     ] {
         let found = launches(&wrap(sanctioned));
         assert!(found.is_empty(), "must be accepted: {sanctioned} -> {found:?}");
@@ -784,6 +1224,12 @@ fn only_the_bounded_cmd_wrapper_around_the_whole_command_is_accepted() {
         "susi_core::bounded_cmd::status_within(Command::new(\"taskkill\"), d)",
         "susi_core::bounded_cmd::output_within_x(Command::new(\"taskkill\"), d)",
         "thing.susi_core::bounded_cmd::output_within(Command::new(\"taskkill\"), d)",
+        // `susi_core` not at the root of the path names another item.
+        "crate::susi_core::bounded_cmd::output_within(Command::new(\"nvidia-smi\").args([\"-L\"]), d)",
+        "self::susi_core::bounded_cmd::output_within(Command::new(\"taskkill\"), d)",
+        "super::susi_core::bounded_cmd::output_within(Command::new(\"taskkill\"), d)",
+        "evil::susi_core::bounded_cmd::output_within(Command::new(\"taskkill\"), d)",
+        "<T>::susi_core::bounded_cmd::output_within(Command::new(\"taskkill\"), d)",
         // Not a plain builder chain, or never closed.
         "susi_core::bounded_cmd::output_within(Command::new(\"taskkill\").unwrap(), d)",
         "susi_core::bounded_cmd::output_within(Command::new(\"taskkill\") + 1, d)",
@@ -803,4 +1249,278 @@ fn only_the_bounded_cmd_wrapper_around_the_whole_command_is_accepted() {
         launches(&wrap("susi_core::bounded_cmd::output_within(Command::new(\"taskkill\").arg({ Command::new(\"tasklist\").status(); \"x\" }), d)")),
         ["tasklist"]
     );
+}
+
+/// Findings for `source` as if it were the repository file `file`, with
+/// `extra` (and `file` itself) as the scanned set.
+fn findings_in(file: &str, source: &str, extra: &[&str]) -> Vec<String> {
+    let mut scanned: Vec<String> = extra.iter().map(|s| (*s).to_string()).collect();
+    scanned.push(file.to_string());
+    scan_file(file, source, &scanned)
+        .unwrap()
+        .into_iter()
+        .map(|(_, what)| what)
+        .collect()
+}
+
+/// The independent review's bypass: a local `susi_core::bounded_cmd` whose
+/// `output_within` launches directly. The wrapped call is spelled exactly as
+/// the sanctioned form, so the launch scan alone accepts it; the binding
+/// check must not.
+#[test]
+fn a_local_module_shadowing_the_wrapper_path_is_refused() {
+    let repro = "use std::process::{Command, Output};\n\
+                 use std::time::Duration;\n\
+                 mod susi_core {\n\
+                     pub mod bounded_cmd {\n\
+                         use std::process::{Command, Output};\n\
+                         pub fn output_within(cmd: &mut Command, _d: std::time::Duration) -> std::io::Result<Output> {\n\
+                             let _ = cmd.status();\n\
+                             cmd.output()\n\
+                         }\n\
+                     }\n\
+                 }\n\
+                 fn kill(pid: &str) -> std::io::Result<Output> {\n\
+                     susi_core::bounded_cmd::output_within(Command::new(\"taskkill\").args([\"/PID\", pid]), Duration::from_secs(1))\n\
+                 }\n";
+    // The launch scan alone is fooled: that is why bindings are checked.
+    assert!(launches(repro).is_empty());
+    let found = findings_in("tests/evil.rs", repro, &[]);
+    for expected in [
+        "unsupported: `mod susi_core` outside its one definition",
+        "unsupported: `mod bounded_cmd` outside its one definition",
+        "unsupported: `fn output_within` outside its one definition",
+    ] {
+        assert!(
+            found.iter().any(|w| w == expected),
+            "missing {expected:?} in {found:?}"
+        );
+    }
+}
+
+#[test]
+fn every_other_way_to_rebind_a_sanctioned_name_is_refused() {
+    let wrapped =
+        "fn k() { let _ = susi_core::bounded_cmd::output_within(Command::new(\"taskkill\"), d); }\n";
+    let helper = "fn k() { let _ = background_command(\"taskkill\").status(); }\n";
+    // Alone, both are clean, so each case below is refused for what it adds.
+    assert_eq!(
+        findings_in("crates/x/src/lib.rs", wrapped, &[]),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        findings_in("crates/x/src/lib.rs", helper, &[]),
+        Vec::<String>::new()
+    );
+    for (case, source) in [
+        ("use alias", format!("use evil as susi_core;\n{wrapped}")),
+        (
+            "use alias in a group",
+            format!("use x::{{a, evil as susi_core}};\n{wrapped}"),
+        ),
+        (
+            "extern crate alias",
+            format!("extern crate evil as susi_core;\n{wrapped}"),
+        ),
+        (
+            "imported from elsewhere",
+            format!("use evil::susi_core;\n{wrapped}"),
+        ),
+        (
+            "path module",
+            format!("#[path = \"evil.rs\"]\nmod susi_core;\n{wrapped}"),
+        ),
+        (
+            "raw identifier module",
+            format!("mod r#susi_core {{}}\n{wrapped}"),
+        ),
+        ("module made by a macro", format!("m!(susi_core);\n{wrapped}")),
+        ("struct of the name", format!("struct susi_core;\n{wrapped}")),
+        ("type of the name", format!("type susi_core = u8;\n{wrapped}")),
+        (
+            "submodule renamed",
+            format!("use susi_core::other as bounded_cmd;\n{wrapped}"),
+        ),
+        (
+            "local helper",
+            format!("fn background_command(p: &str) -> Command {{ Command::new(p) }}\n{helper}"),
+        ),
+        (
+            "helper in a closure",
+            "fn k() { let background_command = |p: &str| Command::new(p); background_command(\"taskkill\").status(); }\n".to_string(),
+        ),
+        (
+            "helper imported from elsewhere",
+            format!("use evil::background_command;\n{helper}"),
+        ),
+        (
+            "helper alias",
+            format!("use evil::spawn as background_command;\n{helper}"),
+        ),
+        (
+            "helper in a group from elsewhere",
+            format!("use evil::{{background_command, x}};\n{helper}"),
+        ),
+        (
+            "helper as a method",
+            "fn k() { let _ = x.background_command(\"taskkill\").status(); }\n".to_string(),
+        ),
+        (
+            "helper as a field",
+            "struct S { background_command: fn(&str) -> Command }\n".to_string(),
+        ),
+        (
+            "helper by a macro",
+            format!("macro_rules! background_command {{ () => {{}} }}\n{helper}"),
+        ),
+        (
+            "without_window redefined",
+            "pub fn without_window(c: &mut Command) -> &mut Command { c }\n".to_string(),
+        ),
+        (
+            "include of an unscanned file",
+            format!("include!(\"../target/evil.rs\");\n{wrapped}"),
+        ),
+        (
+            "include of a computed path",
+            format!("include!(concat!(env!(\"OUT_DIR\"), \"/x.rs\"));\n{wrapped}"),
+        ),
+        (
+            "path attribute behind cfg_attr",
+            format!("#[cfg_attr(windows, path = \"../target/x.rs\")]\nmod m;\n{wrapped}"),
+        ),
+    ] {
+        let found = findings_in("crates/x/src/lib.rs", &source, &[]);
+        assert!(
+            found.iter().any(|w| w.starts_with("unsupported:")),
+            "{case} must be refused: {source} -> {found:?}"
+        );
+    }
+}
+
+#[test]
+fn the_canonical_bindings_stay_accepted() {
+    // The dot-gmcp-cleanup fix, unchanged, in a root integration test.
+    let gmcp = "fn stop(child: &std::process::Child) {\n\
+                    let pid = child.id().to_string();\n\
+                    let _ = susi_core::bounded_cmd::output_within(\n\
+                        Command::new(\"taskkill\").args([\"/PID\", &pid, \"/T\", \"/F\"]),\n\
+                        std::time::Duration::from_secs(10),\n\
+                    );\n\
+                }\n";
+    assert_eq!(
+        findings_in("tests/gmcp_requirements.rs", gmcp, &[]),
+        Vec::<String>::new()
+    );
+    for (file, source, extra) in [
+        (
+            "crates/a/src/os.rs",
+            "use susi_paths::console::background_command;\nfn f() { background_command(\"taskkill\").status(); }\n",
+            &[][..],
+        ),
+        (
+            "crates/a/src/os.rs",
+            "use susi_paths::console::{self, background_command};\n",
+            &[][..],
+        ),
+        (
+            "crates/a/src/lib.rs",
+            "pub use susi_core;\nfn f() { crate::susi_core::bounded_cmd::output_within(&mut c, d); }\n",
+            &[][..],
+        ),
+        ("crates/a/src/lib.rs", "extern crate susi_core;\n", &[][..]),
+        (
+            "crates/susi-core/src/lib.rs",
+            "pub use self as susi_core;\npub mod bounded_cmd;\n",
+            &[][..],
+        ),
+        (
+            "crates/susi-core/src/verification.rs",
+            "use crate::bounded_cmd::output_within;\nfn f() { output_within(&mut c, d); }\n",
+            &[][..],
+        ),
+        (
+            "crates/susi-paths/src/console.rs",
+            "pub fn background_command(p: &str) -> Command { let mut c = Command::new(p); without_window(&mut c); c }\npub fn without_window(c: &mut Command) -> &mut Command { c }\n",
+            &[][..],
+        ),
+        (
+            "build.rs",
+            "#[path = \"crates/susi-paths/src/console.rs\"]\nmod console;\nfn f() { console::background_command(\"nvidia-smi\"); }\n",
+            &["crates/susi-paths/src/console.rs"][..],
+        ),
+        (
+            "src/a/package.rs",
+            "const P: &str = include!(\"policy.rs\");\n",
+            &["src/a/policy.rs"][..],
+        ),
+    ] {
+        assert_eq!(
+            findings_in(file, source, extra),
+            Vec::<String>::new(),
+            "{file}: {source}"
+        );
+    }
+    // The self alias is susi-core's alone.
+    assert!(!findings_in("crates/a/src/lib.rs", "pub use self as susi_core;\n", &[]).is_empty());
+    // A definition is canonical only at the top level of its file.
+    assert!(!findings_in(
+        "crates/susi-paths/src/console.rs",
+        "mod inner { pub fn background_command() {} }\n",
+        &[]
+    )
+    .is_empty());
+}
+
+#[test]
+fn a_manifest_cannot_rebind_the_crate_names() {
+    let refused = [
+        (
+            "crates/x/Cargo.toml",
+            "[dependencies]\nsusi_core = { package = \"evil\", path = \"../evil\" }\n",
+        ),
+        (
+            "crates/x/Cargo.toml",
+            "[dependencies]\nsusi-core = { path = \"../evil\" }\n",
+        ),
+        (
+            "crates/x/Cargo.toml",
+            "[dev-dependencies]\nsusi-paths = { package = \"evil\", workspace = true }\n",
+        ),
+        (
+            "crates/x/Cargo.toml",
+            "[dependencies.susi-core]\npath = \"../susi-core\"\n",
+        ),
+        ("crates/x/Cargo.toml", "[lib]\nname = \"susi_core\"\n"),
+        ("crates/x/Cargo.toml", "[package]\nname = \"susi-paths\"\n"),
+        (
+            "Cargo.toml",
+            "[workspace.dependencies]\nsusi-core = { path = \"crates/evil\" }\n",
+        ),
+    ];
+    for (file, text) in refused {
+        assert!(!manifest_findings(file, text).is_empty(), "{file}: {text}");
+    }
+    let accepted = [
+        (
+            "crates/x/Cargo.toml",
+            "[dependencies]\nsusi-core = { path = \"../susi-core\" }\nsusi-paths = { workspace = true }\n",
+        ),
+        (
+            "Cargo.toml",
+            "[workspace.dependencies]\nsusi-paths = { path = \"crates/susi-paths\" } # comment\n",
+        ),
+        ("crates/susi-core/Cargo.toml", "[package]\nname = \"susi-core\"\n"),
+        (
+            "crates/x/Cargo.toml",
+            "[[bin]]\nname = \"susi-paths\"\npath = \"src/main.rs\"\n",
+        ),
+        (
+            "crates/x/Cargo.toml",
+            "[dependencies]\nother = { package = \"susi-core\", path = \"../susi-core\" }\n",
+        ),
+    ];
+    for (file, text) in accepted {
+        assert_eq!(manifest_findings(file, text), Vec::new(), "{file}: {text}");
+    }
 }
