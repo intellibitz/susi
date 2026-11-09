@@ -402,6 +402,18 @@ table once the clean baseline is recorded.
   CLI, which stays in core until the CEO decides. Roadmap vectors VC-201-027 and VC-201-028
   record where their evidence now runs. Lines: susi-gawd-swarm 23,002 -> 20,673, susi-gawd
   13,288 -> 12,653; pillar reach unchanged (47 workspace, 231 third-party, 22 facade edges).
+  Measured idle on F: after the landing (07:56-08:30; each run started only after 120 s with no
+  rustc, cargo or link process on the machine and was kept only if no other agent's rustc ran
+  during it; four contaminated runs were discarded), main before `f0a182b92` against after
+  `51ca610b9`, alternated with "before" first three times, then "after" first twice: before
+  70.9 / 74.1 / 76.1 / 78.2 / 77.1 s, after 78.5 / 75.4 / 78.6 / 79.1 / 91.8 s, all 417 units.
+  No gain is measurable: the extra CPU in the "after" runs falls on third-party crates that are
+  byte-identical in both trees (tokio, wasmparser, wasmi), and the susi-gawd-swarm unit reads
+  8.9-10.2 CPU-s before against 9.4-11.5 after, so run-to-run noise of about 8 s hides a cut
+  whose expected size is under a second (2,324 lines at about 0.37 ms per line). The idle check
+  watched compilers only, not test binaries other agents ran, which is the likeliest source of
+  that noise. The 60 s budget needs the larger moves still open: the mission engine (`ama`,
+  CEO decision) and the rmcp/tokio chain that now leads the critical path.
 - 2026-11-09 T-NOMCPSDK-1 (the MCP server SDK leaves core): GMCP serves MCP with its own
   implementation in `crates/susi-gmcp/src/mcp` (wire model, JSON-RPC envelopes with rmcp's parse
   strictness, the `initialize` and 2026-07-28 per-request lifecycles, tools/list paging,
