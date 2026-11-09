@@ -24,12 +24,14 @@
       "--offline",
       "--locked",
       "--test",
+      "gmcp_requirements",
+      "--test",
       "gmcp_roadmap",
       "--test",
       "task_records"
     ]
   },
-  "checkpoint": "Native Rust validator and CLI implemented with unchanged legacy semantic checks and 13 positive/negative parity fixtures. Independently source-reviewed; local acceptance and native CLI/linkage checks passed. Combined native integration gate and publication remain pending; no product qualification claimed.",
+  "checkpoint": "Initial scoped checks passed, but the combined gate exposed that the optional roadmap documentation edit invalidated its pinned source and every GMCP evidence digest (46 passed, 41 failed). The pinned document is restored byte-for-byte and tooling/parity notes moved into the existing native module documentation. Full GMCP, roadmap and task-record acceptance on this correction is pending. No ledger/evidence records, digest checks, or protocol behavior changed; no publication or product qualification claimed.",
   "validation": {
     "base_source": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
     "legacy_script_blob": "dd1ca01d697e37f9ce8a95a41ac4771fb9a61e89",
@@ -138,6 +140,20 @@
       "missing_roadmap_exit": 1
     },
     "isolation": "Cleared process environment, private HOME/USERPROFILE/APPDATA/SUSI_HOME/TEMP per invocation, SUSI_NO_REGISTRY_ENV=1, no inherited credentials; unique private target C:/Users/muthu/susi-private/gmcp-roadmap-target-01.",
-    "review": "Independent read-through plus Argon High source-only review 9579a522-7d7e-4f25-9d98-e292ed45f72c found no remaining ordinary-JSON semantic parity defect. Review is not executed-test evidence."
+    "review": "Independent read-through plus Argon High source-only review 9579a522-7d7e-4f25-9d98-e292ed45f72c found no remaining ordinary-JSON semantic parity defect. Review is not executed-test evidence.",
+    "scope": "Initial f1c3517e scoped verification only; the later combined GMCP requirement gate failed as recorded below. These earlier passes are not final-source or combined-gate approval."
+  },
+  "remediation": {
+    "cause": "Optional edit to the pinned docs/gmcp-roadmap.md was outside the structural preflight but inside ledger source hashes and every GMCP evidence digest.",
+    "failed_combined_tree": "b009032541b6161bb2e013973d164e382950946e",
+    "gmcp_requirements_passed": 46,
+    "gmcp_requirements_failed": 41,
+    "failed_gate_log": "C:/Users/muthu/susi-private/desktop-opus-backfill/ship-3-combined/native-evidence/gate-3.log",
+    "restored_from": "956332c4de6d30acb560ffb615d8b611a7c8a45b:docs/gmcp-roadmap.md",
+    "restored_bytes": 24508,
+    "restored_sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "artifact_comparison": "Compared every shared path and every ledger trace.production_path between the baseline and combined tree; docs/gmcp-roadmap.md was the sole changed evidence artifact. Restoring it restores the prior artifact set without new evidence claims.",
+    "instructions": "Native usage, parity matrix and pre-existing limitations are now documented in xtask/src/gmcp_roadmap.rs; the integration test points there.",
+    "acceptance": "Pending: all 87 gmcp_requirements, 18 gmcp_roadmap and 3 task_records tests on corrected committed source before another ship."
   }
 }

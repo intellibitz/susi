@@ -2,6 +2,41 @@
 //!
 //! Keep the shell source as a parity reference. In particular it counts matching
 //! task records, not unique requirements, and does not detect indirect cycles.
+//!
+//! Native usage (the optional final argument selects another repository root):
+//! `cargo run --offline --locked -p xtask --bin check-gmcp-roadmap -- [root]`.
+//! The `gmcp_roadmap` integration test calls this same validator directly.
+//! It launches no shell, jq, Python, or other subprocess. Validation, JSON, and
+//! I/O failures produce a nonzero CLI exit status.
+//!
+//! Source-backed parity coverage:
+//! - `vectors`, `from_entries`, `range(1; 49)`: an array containing all 48 IDs;
+//!   the last duplicate object wins; other vectors may satisfy dependencies.
+//! - `depends_on`, `index($vid)`, `$by_id[.]`: arrays, no direct self-reference,
+//!   and no unknown dependency. Indirect cycles remain outside these checks.
+//! - Priority comparisons, `length`, `startswith`: P0/P1/P2, nonempty type/name,
+//!   mastery length at least 160, and explicit progress prefixes. Unicode scalar
+//!   lengths and jq's accepted numeric/collection lengths are preserved.
+//! - `unique | sort` on VC-203-048: all preceding 47 vectors directly, ignoring
+//!   dependency order and duplicates.
+//! - Immediate open/done task JSON streams, `scan`, count: exactly one matching
+//!   Requirement token per counted record, total 336. Preserve case, ASCII
+//!   digits, suffixes, prefix matching, and the legacy glob/find dotfile rules.
+//! - Document substring loops and `grep -Fq`: every vector, all six completion
+//!   tokens, and the README link are required.
+//!
+//! The legacy checker does not enforce unique requirement IDs, a 001-048 range
+//! on task tokens, indirect acyclicity, task dependency ordering, acceptance
+//! command content, or verdict contents. Its success text claimed acyclicity
+//! without checking it; the native success text omits that unsupported claim.
+//! Inputs are UTF-8 JSON and documentation. The existing serde_json parser is
+//! reused; malformed encodings, unsupported JSON numbers, and extra top-level
+//! roadmap values fail closed. Diagnostics are not byte-for-byte jq output.
+//!
+//! `docs/gmcp-roadmap.md` is a pinned claim source in the requirements ledger
+//! and every GMCP evidence digest. Preserve its bytes during this tooling-only
+//! migration. Updating that document requires repinning its source references
+//! and genuine requirement/mastery evidence, separately from structural parity.
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;

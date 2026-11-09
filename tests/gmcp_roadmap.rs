@@ -10,7 +10,7 @@
 //!
 //! Capability delivery is proved by the future requirement and mastery tests;
 //! this test preserves the legacy structural checks without requiring a shell.
-//! See docs/gmcp-roadmap.md for their scope and known limitations.
+//! See the shared validator's module documentation for scope and limitations.
 
 use std::path::Path;
 
