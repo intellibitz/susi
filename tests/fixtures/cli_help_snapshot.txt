@@ -20,9 +20,8 @@ Commands:
   extensions             Manage extension packs (auto-seeded vendor opinions under ~/.susi/extensions) [alias: ext]
   auto                   Zero-config auto substrate: packs, MCP, models, peers readiness
   setup                  One end-to-end ecosystem setup: detect, consent, apply (safe to rerun)
-  workflow               Check that this checkout follows the susi workflow — run this first
   harness                Harness orchestration: author a plan, run a mission, serve the harness API
-  tasks                  The shared task queue: add, claim (atomic), close (only when the check passes)
+  tasks                  RSI eval-corpus runs (the task queue is `susi-commercial tasks`)
   brain                  The brain: which model susi trusts for which kind of work (evidence-ranked)
   ecosystem              Local AI ecosystem: installed engines/runtimes, GPU backends, explicit start [alias: eco]
   blackboard             Inspect the last mission blackboard (swarm shared state) [alias: bb]
@@ -739,141 +738,12 @@ Options:
   -h, --help   Print help
 
 === susi workflow ===
-Check that this checkout follows the susi workflow — run this first
+Moved to Susi Commercial Apps (`susi-commercial workflow`); refuses naming that command
 
-Usage: susi workflow <COMMAND>
-
-Commands:
-  sync          Fetch and merge origin/main into a clean agent worktree
-  finish        Verify, close, push, publish the close receipt and release ownership. finish returns once the close receipt is published; the branch reaches main through `cargo local-workflow ship`, not a hosted run
-  watch         Keep the clean primary checkout current with remote main (local process)
-  start         Create your own worktree on a fresh branch off origin/main, ready to work in (hooks installed, primary checkout parked). Prints `cd <path>`
-  prune         Give this worktree an identity of its own: <TOOL><WORKTREE-ID> as claim token and git author, never the shared git login or `PRIMARY`. `check` and `start` do this for you; run it to fix a borrowed identity by hand. Reclaim finished agent worktrees that have merged into origin/main
-  own-identity  
-  guard         Mandates 49/50 at the git hooks (`.githooks/workflow-guard` execs this): refuse commits in the primary checkout or on main, and a push that deletes, rewrites or is behind origin/main. `push` reads the refs git hands the pre-push hook on stdin. Needs git only: no shell or coreutils
-  fetch-refs    Fetch branch tips, task claims and close receipts from the remote in one round trip: the snapshot the push guard and CI's compliance job judge from (`scripts/fetch-workflow-refs.sh` is CI's copy of it)
-  seed-target   Give a worktree a cargo target of its own, warm from the clone's snapshot of origin/main (`scripts/seed-target.sh` execs this): a link to the old shared target is replaced (the link only), a missing or empty target is copied from the snapshot and stripped to registry and git crates, a target that holds a build is left alone. Never fails
-  park-primary  Keep the primary checkout parked at origin/main so nobody works in it (`scripts/park-primary.sh` execs this): on `main`, fast-forwarded; detached there only when another worktree holds `main`. Refuses, and says why, when parking would lose uncommitted or unmerged work
-  check         Check that this checkout follows the susi workflow (Mandates 49-51)
-  help          Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help  Print help
-
-=== susi workflow sync ===
-Fetch and merge origin/main into a clean agent worktree
-
-Usage: susi workflow sync
-
-Options:
-  -h, --help  Print help
-
-=== susi workflow finish ===
-Verify, close, push, publish the close receipt and release ownership. finish returns once the close receipt is published; the branch reaches main through `cargo local-workflow ship`, not a hosted run
-
-Usage: susi workflow finish [OPTIONS] <ID>
+Usage: susi workflow [ARGS]...
 
 Arguments:
-  <ID>  
-
-Options:
-      --wait     Poll the branch run in-line instead: stop on a red run, hand off on green or at the SUSI_FINISH_WAIT_MAX budget (the old default)
-      --no-wait  Hand off at the push (the default; kept for scripts that pass it)
-  -h, --help     Print help
-
-=== susi workflow watch ===
-Keep the clean primary checkout current with remote main (local process)
-
-Usage: susi workflow watch
-
-Options:
-  -h, --help  Print help
-
-=== susi workflow start ===
-Create your own worktree on a fresh branch off origin/main, ready to work in (hooks installed, primary checkout parked). Prints `cd <path>`
-
-Usage: susi workflow start [OPTIONS] [NAME] [BASE]
-
-Arguments:
-  [NAME]  Branch/worktree name (default: <agent>-<yyyymmdd>-<hhmmss>-<pid>)
-  [BASE]  The commit to branch from (default: origin/main)
-
-Options:
-      --agent <AGENT>  Who you are (default: $SUSI_AGENT, else the agent tool you run inside — never your git login)
-  -h, --help           Print help
-
-=== susi workflow prune ===
-Give this worktree an identity of its own: <TOOL><WORKTREE-ID> as claim token and git author, never the shared git login or `PRIMARY`. `check` and `start` do this for you; run it to fix a borrowed identity by hand. Reclaim finished agent worktrees that have merged into origin/main
-
-Usage: susi workflow prune [OPTIONS]
-
-Options:
-      --apply  Actually remove the worktrees (default: report only)
-      --all    Remove finished worktrees of all agents, not just yours
-  -h, --help   Print help
-
-=== susi workflow own-identity ===
-Usage: susi workflow own-identity
-
-Options:
-  -h, --help  Print help
-
-=== susi workflow guard ===
-Mandates 49/50 at the git hooks (`.githooks/workflow-guard` execs this): refuse commits in the primary checkout or on main, and a push that deletes, rewrites or is behind origin/main. `push` reads the refs git hands the pre-push hook on stdin. Needs git only: no shell or coreutils
-
-Usage: susi workflow guard <STAGE>
-
-Arguments:
-  <STAGE>  The hook that is running [possible values: commit, merge, push]
-
-Options:
-  -h, --help  Print help (see more with '--help')
-
-=== susi workflow fetch-refs ===
-Fetch branch tips, task claims and close receipts from the remote in one round trip: the snapshot the push guard and CI's compliance job judge from (`scripts/fetch-workflow-refs.sh` is CI's copy of it)
-
-Usage: susi workflow fetch-refs [REMOTE]
-
-Arguments:
-  [REMOTE]  The remote to fetch from [default: origin]
-
-Options:
-  -h, --help  Print help
-
-=== susi workflow seed-target ===
-Give a worktree a cargo target of its own, warm from the clone's snapshot of origin/main (`scripts/seed-target.sh` execs this): a link to the old shared target is replaced (the link only), a missing or empty target is copied from the snapshot and stripped to registry and git crates, a target that holds a build is left alone. Never fails
-
-Usage: susi workflow seed-target [OPTIONS] [DIR]
-
-Arguments:
-  [DIR]  The worktree to seed (default: the one this runs in)
-
-Options:
-      --background    Replace a link now and copy in a detached process (the hooks)
-      --refresh       Rebuild origin/main in a clone of its own and republish the snapshot (the primary watcher runs this)
-      --force         With --refresh: refresh a snapshot younger than SUSI_SEED_REFRESH_SECS too
-      --export <DIR>  Export this checkout's target as a snapshot at DIR: copied, stripped to registry and git crates, and marked (the cloud target seed workflow publishes it; scripts/cloud-target-seed.sh unpacks it)
-      --log <FILE>    With --refresh: write the refresh's report and build output here. Otherwise: append the seeding's report here instead of stderr (the background copy, which may hold no caller's output)
-  -h, --help          Print help
-
-=== susi workflow park-primary ===
-Keep the primary checkout parked at origin/main so nobody works in it (`scripts/park-primary.sh` execs this): on `main`, fast-forwarded; detached there only when another worktree holds `main`. Refuses, and says why, when parking would lose uncommitted or unmerged work
-
-Usage: susi workflow park-primary [OPTIONS]
-
-Options:
-      --sync-only  Only fast-forward an already-parked `main`, silently or not at all: never switch a branch or touch a dirty tree (every workflow check and hook runs this)
-  -h, --help       Print help
-
-=== susi workflow check ===
-Check that this checkout follows the susi workflow (Mandates 49-51)
-
-Usage: susi workflow check [OPTIONS]
-
-Options:
-      --json           Machine-readable output
-      --agent <AGENT>  Who you are (default: $SUSI_AGENT, your worktree branch, or your git user)
-  -h, --help           Print help
+  [ARGS]...
 
 === susi harness ===
 Harness orchestration: author a plan, run a mission, serve the harness API
@@ -1034,72 +904,13 @@ Options:
   -h, --help                   Print help
 
 === susi tasks ===
-The shared task queue: add, claim (atomic), close (only when the check passes)
+RSI eval-corpus runs (the task queue is `susi-commercial tasks`)
 
 Usage: susi tasks [COMMAND]
 
 Commands:
-  list         List open tasks with who holds each claim (default)
-  add          Add a task; it needs an acceptance command that decides "done"
-  author       Author backlog artifacts from a spec file: vectors into .agents/roadmap.json and tasks into .agents/tasks/, both through the same gates a human's edits meet. The spec is {"rationale","vectors":[{"id","priority","vector","mastery_target","type","depends_on"}], "tasks":[{"title","goal","size","deps","accept","roadmap"}]}. The path is rate-bound: an agent may hold AUTHORED_OPEN_MAX open authored tasks. With --unqueued and no file, susi's own coverage audit drafts a "Verify mastery" task for every unqueued vector through the same path. With --from-failures and no file, a mission that did not succeed drafts its own repair task, deduplicated by failure kind
-  authored     List open machine-authored tasks — the review surface for the author path
   eval-corpus  Load the versioned RSI corpus, judge one candidate run against its held-out suite, and durably record the contamination/promotion evidence (VC-201-001). `--input` is a JSON file shaped {"candidate":{"id","actual_output","expected_results"}, "candidate_can_write","training_access","memory_access"}
-  roadmap      Roadmap coverage and mastery: which vectors have tasks, and which of them claim delivery in their own narrative
-  claim        Claim a task (atomic; fails if someone else holds a live claim)
-  renew        Renew an owned live task lease, retaining its scopes
-  release      Give up a claim
-  close        Run the acceptance check and, only if it passes, close the task
-  audit        Reconcile what agents accepted against what actually reached origin/main
   help         Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help  Print help
-
-=== susi tasks list ===
-List open tasks with who holds each claim (default)
-
-Usage: susi tasks list [OPTIONS]
-
-Options:
-      --done  Also show closed tasks
-      --json  Emit machine-readable JSON (this is already the default; accepted so scripts can be explicit, matching `susi tasks audit --json`)
-  -h, --help  Print help
-
-=== susi tasks add ===
-Add a task; it needs an acceptance command that decides "done"
-
-Usage: susi tasks add [OPTIONS] --accept <ACCEPT> <TITLE>
-
-Arguments:
-  <TITLE>  
-
-Options:
-      --goal <GOAL>        [default: ""]
-      --size <SIZE>        s | m | l [default: m]
-      --dep <DEPS>         Task ids that must close first (repeatable)
-      --accept <ACCEPT>    Acceptance command, split on spaces, e.g. "cargo test -p susi-gemi brain"
-      --roadmap <ROADMAP>  Roadmap vector this delivers (VC-<n>-<n>, from .agents/roadmap.json)
-      --agent <AGENT>      Who is adding it (default: $SUSI_AGENT, your worktree branch, or your git user)
-  -h, --help               Print help
-
-=== susi tasks author ===
-Author backlog artifacts from a spec file: vectors into .agents/roadmap.json and tasks into .agents/tasks/, both through the same gates a human's edits meet. The spec is {"rationale","vectors":[{"id","priority","vector","mastery_target","type","depends_on"}], "tasks":[{"title","goal","size","deps","accept","roadmap"}]}. The path is rate-bound: an agent may hold AUTHORED_OPEN_MAX open authored tasks. With --unqueued and no file, susi's own coverage audit drafts a "Verify mastery" task for every unqueued vector through the same path. With --from-failures and no file, a mission that did not succeed drafts its own repair task, deduplicated by failure kind
-
-Usage: susi tasks author [OPTIONS] [FILE]
-
-Arguments:
-  [FILE]  Spec JSON file (omit with --unqueued / --from-failures)
-
-Options:
-      --unqueued       Author verification tasks for every unqueued roadmap vector
-      --from-failures  Author repair tasks from recorded mission failures
-      --agent <AGENT>  
-  -h, --help           Print help
-
-=== susi tasks authored ===
-List open machine-authored tasks — the review surface for the author path
-
-Usage: susi tasks authored
 
 Options:
   -h, --help  Print help
@@ -1113,90 +924,6 @@ Options:
       --corpus <FILE>  Path to the corpus JSON document
       --input <FILE>   Path to the JSON-encoded eval run (candidate + access sets)
   -h, --help           Print help
-
-=== susi tasks roadmap ===
-Roadmap coverage and mastery: which vectors have tasks, and which of them claim delivery in their own narrative
-
-Usage: susi tasks roadmap [OPTIONS]
-
-Options:
-      --uncovered  Only vectors no task is linked to
-      --unqueued   Only vectors that do not claim delivery and have nothing queued
-  -h, --help       Print help
-
-=== susi tasks claim ===
-Claim a task (atomic; fails if someone else holds a live claim)
-
-Usage: susi tasks claim [OPTIONS] <ID>
-
-Arguments:
-  <ID>  
-
-Options:
-      --scope <SCOPES>  Reserve a repo-relative file/directory (repeatable); overlapping claims fail
-      --unscoped        Claim with no reservation at all (deliberate: the commit hook and CI then refuse any code under it)
-      --agent <AGENT>   
-      --hours <HOURS>   Lease length; an expired claim can be taken over. Defaults to 4h, or 12h for a size-l task, which will not finish inside a shorter one
-  -h, --help            Print help
-
-=== susi tasks renew ===
-Renew an owned live task lease, retaining its scopes
-
-Usage: susi tasks renew [OPTIONS] <ID>
-
-Arguments:
-  <ID>  
-
-Options:
-      --agent <AGENT>  
-      --hours <HOURS>  Lease length. Defaults to the claim's own: 4h, or 12h for a size-l task
-  -h, --help           Print help
-
-=== susi tasks release ===
-Give up a claim
-
-Usage: susi tasks release [OPTIONS] <ID>
-
-Arguments:
-  <ID>  
-
-Options:
-      --agent <AGENT>      
-      --force              Release a claim held by someone else
-      --abandon <ABANDON>  Give up an accepted task whose work is not merged yet, recording why. Without it a close that is not on origin/main is held, not dropped
-  -h, --help               Print help
-
-=== susi tasks close ===
-Run the acceptance check and, only if it passes, close the task
-
-Usage: susi tasks close [OPTIONS] <ID>
-
-Arguments:
-  <ID>  
-
-Options:
-      --agent <AGENT>  
-  -h, --help           Print help
-
-=== susi tasks audit ===
-Reconcile what agents accepted against what actually reached origin/main
-
-Usage: susi tasks audit [OPTIONS]
-
-Options:
-      --json    Machine-readable report — the per-agent ranking input (Mandate 56)
-      --strict  Exit non-zero when any accepted task is still unpublished
-  -h, --help    Print help
-
-=== susi tasks verify-merged ===
-Re-run the acceptance of merged tasks against this tree (CI, main only)
-
-Usage: susi tasks verify-merged [OPTIONS]
-
-Options:
-      --limit <LIMIT>              How many unverified merges one run may check [default: 5]
-      --budget-secs <BUDGET_SECS>  Wall-clock budget for the whole sweep, seconds; what does not fit is deferred to the next run rather than holding the job [default: 1200]
-  -h, --help                       Print help
 
 === susi brain ===
 The brain: which model susi trusts for which kind of work (evidence-ranked)
@@ -3427,26 +3154,15 @@ Administrative commands
 Usage: susi admin <COMMAND>
 
 Commands:
-  sync               Synchronize version consistency
   pulse              Ingest pulse via admin
   audit              Compliance audit
   audit-evidence     Export and independently verify redacted audit evidence [alias: evidence]
-  verify             Verify version alignment
-  release            Full release orchestration: the local gate (type check, compliance audit, workspace tests, clippy, smoke and e2e checks). With --cut, also bumps the engine version, commits it and pushes the release branch; land it with `cargo local-workflow ship`, then tag, qualify and publish locally with `cargo local-release`
   lint               Run clippy
   audit-deps         Run cargo audit
   reload             Dynamic configuration hot-reload
   provider-contract  Provider contract checks: fixture-backed checks always; credentialed live probes when SUSI_PROVIDER_PROBE=1
-  intent-ladder      The graded user-intent ladder: print the last scorecard (default), run the full ladder hermetically (--run), or just the bounded start-up slice (--slice). The daemon records failing rungs in the host outbox (--gaps); an agent adopts one as a repair task in its own checkout (--adopt-gap)
+  intent-ladder      The graded user-intent ladder: print the last scorecard (default), run the full ladder hermetically (--run), or just the bounded start-up slice (--slice). The daemon records failing rungs in the host outbox (--gaps); an agent adopts one as a repair task in its own checkout with `susi-commercial admin intent-ladder --adopt-gap`
   help               Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help  Print help
-
-=== susi admin sync ===
-Synchronize version consistency
-
-Usage: susi admin sync
 
 Options:
   -h, --help  Print help
@@ -3503,23 +3219,6 @@ Options:
       --key <KEY=SECRET>  Signing key in key-id=secret form; repeat for multiple keys [alias: --keys]
   -h, --help              Print help
 
-=== susi admin verify ===
-Verify version alignment
-
-Usage: susi admin verify
-
-Options:
-  -h, --help  Print help
-
-=== susi admin release ===
-Full release orchestration: the local gate (type check, compliance audit, workspace tests, clippy, smoke and e2e checks). With --cut, also bumps the engine version, commits it and pushes the release branch; land it with `cargo local-workflow ship`, then tag, qualify and publish locally with `cargo local-release`
-
-Usage: susi admin release [OPTIONS]
-
-Options:
-      --cut <CUT>  
-  -h, --help       Print help
-
 === susi admin lint ===
 Run clippy
 
@@ -3553,17 +3252,16 @@ Options:
   -h, --help  Print help
 
 === susi admin intent-ladder ===
-The graded user-intent ladder: print the last scorecard (default), run the full ladder hermetically (--run), or just the bounded start-up slice (--slice). The daemon records failing rungs in the host outbox (--gaps); an agent adopts one as a repair task in its own checkout (--adopt-gap)
+The graded user-intent ladder: print the last scorecard (default), run the full ladder hermetically (--run), or just the bounded start-up slice (--slice). The daemon records failing rungs in the host outbox (--gaps); an agent adopts one as a repair task in its own checkout with `susi-commercial admin intent-ladder --adopt-gap`
 
 Usage: susi admin intent-ladder [OPTIONS]
 
 Options:
-      --run             Run every rung now — hermetic, wall-clock bounded
-      --slice           Run only the start-up slice
-      --verify <ID>     Re-check one intent id hermetically — the acceptance a repair task's close runs; exits nonzero unless the intent passes
-      --gaps            Print the host outbox of failing rungs (`<home>/intent-gaps.json`)
-      --adopt-gap <ID>  Author the outbox gap for this intent id as a repair task in the current checkout, and mark it adopted
-  -h, --help            Print help
+      --run          Run every rung now — hermetic, wall-clock bounded
+      --slice        Run only the start-up slice
+      --verify <ID>  Re-check one intent id hermetically — the acceptance a repair task's close runs; exits nonzero unless the intent passes
+      --gaps         Print the host outbox of failing rungs (`<home>/intent-gaps.json`)
+  -h, --help         Print help
 
 === susi clean ===
 Clean workspace build artifacts

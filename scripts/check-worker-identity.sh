@@ -88,7 +88,7 @@ token_of "$here"
 mine=$worker_token
 here_gitdir=$resolved_gitdir
 if [ -z "$mine" ] && [ "$worker_token_present" = 1 ]; then
-    echo '❌ invalid worker token — run: susi workflow own-identity' >&2
+    echo '❌ invalid worker token — run: susi-commercial workflow own-identity' >&2
     exit 1
 fi
 [ -n "$mine" ] || exit 0
@@ -126,14 +126,14 @@ if [ ! "$here_gitdir" -ef "$(git rev-parse --path-format=absolute --git-common-d
         cat >&2 <<'EOF'
    Every agent on this machine shares that name, so task ids and claims minted
    under it collide with the next agent's. Give this worktree its own:
-     susi workflow own-identity
+     susi-commercial workflow own-identity
    (an installed susi older than that command: pick <TOOL><WORKTREE-ID>, e.g.
    CLAUDESWEETKHORANA5D3FC4, and set it for the token and the author)
      git config extensions.worktreeConfig true
      git config --worktree susi.agent <UNIQUE-NAME>
      git config --worktree user.name  <UNIQUE-NAME>
      git config --worktree user.email <unique-name>@localhost
-   A claim travels with its token: `susi tasks release <task>` first if you hold one.
+   A claim travels with its token: `susi-commercial tasks release <task>` first if you hold one.
 EOF
         exit 1
     fi
@@ -156,9 +156,9 @@ if [ -n "$others" ]; then
     cat >&2 <<'EOF'
    Two worktrees with one identity can renew, close and release each other's
    claims. Give this one its own token, in this order:
-     susi tasks release <your task>        # a claim travels with its token
+     susi-commercial tasks release <your task>        # a claim travels with its token
      git config --worktree susi.agent <UNIQUE-NAME>
-     susi tasks claim <your task> --scope <paths>
+     susi-commercial tasks claim <your task> --scope <paths>
 EOF
     exit 1
 fi

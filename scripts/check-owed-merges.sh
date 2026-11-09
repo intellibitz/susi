@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Did every agent publish what it accepted? `susi workflow check` answers only
+# Did every agent publish what it accepted? `susi-commercial workflow check` answers only
 # for *you*; this asks the swarm-wide question by reconciling the close
 # receipts, abandonments and merge attestations on the shared remote against
-# `origin/main` — the per-agent tally behind `susi tasks audit`.
+# `origin/main` — the per-agent tally behind `susi-commercial tasks audit`.
 #
 #   scripts/check-owed-merges.sh     # 0 = every accepted task reached main
 #
@@ -11,7 +11,7 @@
 set -uo pipefail
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$root" || exit 0
-susi_bin=${SUSI_WORKFLOW_BIN:-susi}
+susi_bin=${SUSI_WORKFLOW_BIN:-susi-commercial}
 command -v "$susi_bin" >/dev/null 2>&1 || {
     echo "⏭️  owed merges: no $susi_bin on PATH"
     exit 0
@@ -40,5 +40,5 @@ fi
 count=$(printf '%s\n' "$owed" | grep -c .)
 printf '%s\n' "$owed" | head -5
 [ "$count" -le 5 ] || echo "  … and $((count - 5)) more"
-echo "❌ owed merges: $count accepted task(s) are not on origin/main — whoever accepted them owes the merge (susi workflow finish <id>, or: susi tasks release <id> --abandon <reason>)"
+echo "❌ owed merges: $count accepted task(s) are not on origin/main — whoever accepted them owes the merge (susi-commercial workflow finish <id>, or: susi-commercial tasks release <id> --abandon <reason>)"
 exit 1

@@ -4,11 +4,70 @@
 //! Prevent newly malformed task records without laundering historical debt.
 //! The legacy snapshot permits only known invalid content (ignoring CRLF vs LF).
 //! It is not acceptance evidence: the post-merge Task parser remains strict.
+//!
+//! The record schema is the task queue's (`susi-commercial tasks`, Susi
+//! Commercial Apps' dev workflow, which moved out of core in the lean-core
+//! program). This repository's records are still read by that queue and by
+//! the gate (`cargo local-workflow`), so the schema is pinned here as the
+//! shape a record must have: required `id`, `title`, `accept.cmd`,
+//! `created_by`, `created_unix`; optional fields as the queue defaults them.
 
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use susi_gawd::admin::tasks::{accept_allowed, Task};
+
+/// A task record as the queue deserializes it (unknown fields are allowed).
+#[derive(Deserialize)]
+#[allow(dead_code)] // the fields are the schema; deserializing them is the check
+struct Task {
+    id: String,
+    title: String,
+    #[serde(default)]
+    goal: String,
+    #[serde(default)]
+    size: Option<String>,
+    #[serde(default)]
+    deps: Vec<String>,
+    accept: Accept,
+    #[serde(default)]
+    roadmap: Option<String>,
+    created_by: String,
+    created_unix: u64,
+    #[serde(default)]
+    authored: bool,
+    #[serde(default)]
+    closed: Option<Closed>,
+}
+
+#[derive(Deserialize)]
+struct Accept {
+    cmd: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)] // the fields are the schema; deserializing them is the check
+struct Closed {
+    at_unix: u64,
+    commit: String,
+    by: String,
+}
+
+/// The queue's acceptance rule: a cargo, susi or `scripts/<file>` argv.
+fn accept_allowed(cmd: &[String]) -> bool {
+    let Some(program) = cmd.first() else {
+        return false;
+    };
+    let ok_program = program == "cargo"
+        || program == "susi"
+        || program == "./target/debug/susi"
+        || (program.starts_with("scripts/")
+            && !program.contains("..")
+            && program
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"/._-".contains(&b)));
+    ok_program && cmd.iter().all(|a| !a.contains('\0'))
+}
 
 fn validation_error(bytes: &[u8]) -> Option<String> {
     match serde_json::from_slice::<Task>(bytes) {

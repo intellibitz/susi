@@ -13,9 +13,9 @@
 
 //! GAWD **A2A** tier: Agent2Agent wire protocol (`ra2a`).
 //!
-//! Depends on [`susi_gawd_agents`] only (`GawdAgentFleet`). Must not depend on
-//! swarm or the host `susi-gawd` crate. `handler.rs` is kept on disk but left
-//! out of the module tree (broken / unused).
+//! Depends on [`susi_gawd_agents`] (`GawdAgentFleet`), never on swarm or the
+//! host `susi-gawd` crate. `susi-daemon` serves it on the A2A port; `susi-gawd`
+//! does not depend on it, so the gawd chain never waits on the HTTP stack.
 
 pub use susi_config;
 pub use susi_core;

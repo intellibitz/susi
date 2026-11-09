@@ -82,10 +82,8 @@ pub(crate) fn dispatch(
     if let Some(Commands::Setup { action }) = command {
         return Ok(run_plane(PlanePrep::None, || setup_cli::execute(action)));
     }
-    if let Some(Commands::Workflow { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            workflow_cli::execute(action, cwd)
-        }));
+    if let Some(Commands::Workflow { args }) = command {
+        return Ok(run_plane(PlanePrep::None, || workflow_cli::execute(&args)));
     }
     if let Some(Commands::Harness { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
@@ -94,7 +92,7 @@ pub(crate) fn dispatch(
     }
     if let Some(Commands::Tasks { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            tasks_cli::execute(action.map(|a| *a), cwd)
+            tasks_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Brain { action }) = command {

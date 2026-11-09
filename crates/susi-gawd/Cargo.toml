@@ -6,12 +6,11 @@ edition = "2021"
 
 [dependencies]
 susi-build-policy = { workspace = true }
-susi-abi = { workspace = true, features = ["cell-server"] }
+susi-abi = { workspace = true }
 susi-core = { workspace = true }
 susi-adapters-llm = { workspace = true }
 susi-gawd-agents = { workspace = true }
 susi-gawd-swarm = { workspace = true }
-susi-gawd-a2a = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
@@ -23,9 +22,6 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
-
-[target.'cfg(windows)'.dependencies]
-winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
 
 [dev-dependencies]
 susi-unsafe-ratchet = { workspace = true }

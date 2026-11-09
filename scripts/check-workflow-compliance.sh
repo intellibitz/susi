@@ -13,7 +13,7 @@
 # receipt is published, so a commit re-judged after that release is legitimate
 # whenever the receipt exists (creating one required the live owned claim).
 # A closed task is
-# judged the same way: `susi tasks close` keeps the lease until the closing
+# judged the same way: `susi-commercial tasks close` keeps the lease until the closing
 # commit reaches main, so work -> close -> push passes, while a task file
 # hand-moved into done/ (never claimed) does not. A commit citing a task
 # already closed at that commit is refused. Exempt: merge commits,
@@ -36,7 +36,7 @@
 #       a verification verdict commits under the claim that produced it. A
 #       verdict-only commit is still work: it keeps its `Task:` trailer.
 #
-# It also refuses an agent piling up accepted-but-unmerged work: `susi tasks
+# It also refuses an agent piling up accepted-but-unmerged work: `susi-commercial tasks
 # close` publishes a receipt (`refs/closed/<id>`) for that state, and the
 # client allows exactly one merge in flight — the pipeline, so nobody idles on
 # a merge queue — while refusing the second. That client is the agent's own
@@ -47,7 +47,7 @@
 # close -> merge -> next-task path never trips it.
 #
 # For the same reason it refuses an agent holding two live claims at once:
-# `susi tasks claim` never creates that, but a hand-pushed claim ref can, and
+# `susi-commercial tasks claim` never creates that, but a hand-pushed claim ref can, and
 # two live claims are two branches sharing one worker. Expired claims do not
 # count — letting a lease lapse and claiming something else is the takeover
 # path, not a second task.
@@ -115,7 +115,7 @@ claim_blob() {
 
 closed_fetched=0
 
-# Close receipts (`susi tasks close` pushes `refs/closed/<id>`) and a fresh
+# Close receipts (`susi-commercial tasks close` pushes `refs/closed/<id>`) and a fresh
 # `origin/main`: the two facts the owed-merge rule reasons over. Fetched once
 # per run, and only when a live claim is actually examined.
 fetch_closed() {
@@ -153,7 +153,7 @@ unmerged_closes_of() {
 }
 
 owed_reported=" "
-# The server-side half of the claim gate in `susi tasks claim`: one owed merge
+# The server-side half of the claim gate in `susi-commercial tasks claim`: one owed merge
 # is the pipeline — the agent's next task may proceed while the merge queue
 # lands it — so only the SECOND outstanding close is refused here.
 check_no_owed_merge() {
@@ -172,7 +172,7 @@ check_no_owed_merge() {
         [ -n "$id" ] || continue
         case "$owed_reported" in *" $agent:$id "*) continue ;; esac
         owed_reported="$owed_reported$agent:$id "
-        err "commit $short works on $task while $agent still owes the merge of $id and another task — an accepted task is not done until its close is on origin/main, and SUSI_MERGES_IN_FLIGHT (default 4) merges in flight is the bound. Publish one (susi workflow finish $id) or give it up deliberately (susi tasks release $id --abandon <reason>) before starting another"
+        err "commit $short works on $task while $agent still owes the merge of $id and another task — an accepted task is not done until its close is on origin/main, and SUSI_MERGES_IN_FLIGHT (default 4) merges in flight is the bound. Publish one (susi-commercial workflow finish $id) or give it up deliberately (susi-commercial tasks release $id --abandon <reason>) before starting another"
     done
 }
 
@@ -203,7 +203,7 @@ load_live_claim_index() {
             reduce (inputs | split("\t") | select(length == 2) | .[0] as $t | (.[1] | fromjson? // null) | select(type == "object" and (.agent | type == "string") and (.agent | length > 0) and ((.lease_until_unix // 0) > $now)) | {agent: .agent, task: $t}) as $item ({}; .[$item.agent] += [$item.task])
         ') || { err 'cannot read live claim snapshot'; return 1; }
 }
-# One task at a time, per agent. `susi tasks claim` refuses to create a second
+# One task at a time, per agent. `susi-commercial tasks claim` refuses to create a second
 # live claim for one agent (an atomic `refs/claim-agents/<AGENT>` lease plus the
 # live-claim scan), but a hand-pushed `refs/claims/<id>` can, and then two
 # branches believe they own the same worker — the duplicate work the queue
@@ -219,7 +219,7 @@ check_one_live_claim() {
     held=$(jq -r --arg agent "$agent" '.[$agent] // [] | join(" ")' <<<"$live_claim_index")
     n=0
     for _ in $held; do n=$((n + 1)); done
-    [ "$n" -gt 1 ] && err "commit $short works on $task, but $agent holds $n live claims:$held — one task at a time: finish each with susi workflow finish <id> (or give it up with susi tasks release <id> --abandon <reason>) before claiming another"
+    [ "$n" -gt 1 ] && err "commit $short works on $task, but $agent holds $n live claims:$held — one task at a time: finish each with susi-commercial workflow finish <id> (or give it up with susi-commercial tasks release <id> --abandon <reason>) before claiming another"
     return 0
 }
 
@@ -241,7 +241,7 @@ check_claim_owner() {
     owner_branch=$(jq -r '.branch // ""' <<<"$body" 2>/dev/null || true)
     owner_agent=$(jq -r '.agent // ""' <<<"$body" 2>/dev/null || true)
     if [ -n "$owner_branch" ] && [ -n "$branch" ] && [ "$owner_branch" != "$branch" ]; then
-        err "commit $short works on $id, which $owner_agent holds on branch '$owner_branch', not '$branch' — one task belongs to one branch. Move it deliberately (release refuses a claim taken on another branch): susi tasks release $id --force, then susi tasks claim $id --scope <path> from your own branch"
+        err "commit $short works on $id, which $owner_agent holds on branch '$owner_branch', not '$branch' — one task belongs to one branch. Move it deliberately (release refuses a claim taken on another branch): susi-commercial tasks release $id --force, then susi-commercial tasks claim $id --scope <path> from your own branch"
         return
     fi
     scopes=$(jq -r '.scopes[]?' <<<"$body" 2>/dev/null || true)
@@ -257,7 +257,7 @@ check_claim_owner() {
             case "$uf" in .agents/tasks/* | .agents/roadmap-verdicts/* | .agents/roadmap.json) continue ;; esac
             unreserved="$unreserved $uf"
         done < <(git diff-tree --no-commit-id --name-only -r "$commit")
-        [ -z "$unreserved" ] || err "commit $short works on $id, whose claim reserves no paths:$unreserved — re-claim it with a scope that covers this change (susi tasks release $id --force, then susi tasks claim $id --scope <path>)"
+        [ -z "$unreserved" ] || err "commit $short works on $id, whose claim reserves no paths:$unreserved — re-claim it with a scope that covers this change (susi-commercial tasks release $id --force, then susi-commercial tasks claim $id --scope <path>)"
         return
     fi
     local outside="" f s ok
@@ -276,7 +276,7 @@ check_claim_owner() {
         done <<<"$scopes"
         [ "$ok" = 1 ] || outside="$outside $f"
     done < <(git diff-tree --no-commit-id --name-only -r "$commit")
-    [ -z "$outside" ] || err "commit $short touches files outside $id's claimed scopes:$outside — re-claim with a scope that covers them (susi tasks release $id --force, then susi tasks claim $id --scope <path>), or split the work into a task per area"
+    [ -z "$outside" ] || err "commit $short touches files outside $id's claimed scopes:$outside — re-claim with a scope that covers them (susi-commercial tasks release $id --force, then susi-commercial tasks claim $id --scope <path>), or split the work into a task per area"
 }
 
 # The rule binds commits made after it was introduced: history that predates
@@ -379,16 +379,16 @@ while read -r c; do
 
     task=$(git log -1 --format=%B "$c" | sed -n 's/^Task: \(T-[A-Z0-9][A-Z0-9]*-[0-9][0-9]*\)[[:space:]]*$/\1/p' | head -1)
     if [ -z "$task" ]; then
-        err "commit $short \"$subject\" has no 'Task: T-<AGENT>-<n>' trailer (Mandate 50: work comes from the queue — susi tasks add/claim)"
+        err "commit $short \"$subject\" has no 'Task: T-<AGENT>-<n>' trailer (Mandate 50: work comes from the queue — susi-commercial tasks add/claim)"
         continue
     fi
     # Judge the commit against its own tree: it must be work on a task that
     # was still open there. Citing an already-closed task would let unrelated
     # work ride on it.
     if git cat-file -e "$c:.agents/tasks/done/$task.json" 2>/dev/null; then
-        err "commit $short cites $task, which was already closed at that commit — add a new task (susi tasks add) instead"
+        err "commit $short cites $task, which was already closed at that commit — add a new task (susi-commercial tasks add) instead"
     elif git cat-file -e "$c:.agents/tasks/$task.json" 2>/dev/null; then
-        # A closed task still has to be CLAIMED. `susi tasks close` keeps the
+        # A closed task still has to be CLAIMED. `susi-commercial tasks close` keeps the
         # lease until the closing commit reaches main (tasks.rs:818), so the
         # normal work -> close -> push path satisfies this. Skipping the claim
         # check for a branch that merely ends with done/<id>.json accepted two
@@ -409,7 +409,7 @@ while read -r c; do
             # the close receipt is on refs/closed/, so a branch that is
             # re-judged after the release — a repush, an intervening merge —
             # finds no claim. The receipt is the stronger fact anyway:
-            # `susi tasks close` needed a live owned claim to write it, and
+            # `susi-commercial tasks close` needed a live owned claim to write it, and
             # only commits made before that close still see the task open in
             # their trees — anything citing it later is refused by the
             # done-file check above, before this branch runs.
@@ -418,9 +418,9 @@ while read -r c; do
                 agent=$(jq -r '.agent // ""' <<<"$(git cat-file -p "refs/closed/$task" 2>/dev/null || true)" 2>/dev/null || true)
                 check_no_owed_merge "$task" "$short" "$agent"
             elif [ "$(claim_state_of "$claim")" = expired ]; then
-                err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task --scope <the paths this commit changes>)"
+                err "commit $short works on $task but its claim lease has expired — re-claim it (susi-commercial tasks claim $task --scope <the paths this commit changes>)"
             else
-                err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task --scope <path> first (Mandate 50)"
+                err "commit $short works on $task but nobody holds a claim on it — susi-commercial tasks claim $task --scope <path> first (Mandate 50)"
             fi ;;
         esac
     else
@@ -444,7 +444,7 @@ while read -r c; do
         id=${id%.json}
         cmd=$(git show "$c:$file" 2>/dev/null | jq -r '.accept.cmd // [] | join(" ")' 2>/dev/null || true)
         if [ -z "$cmd" ]; then
-            err "commit $short declares $id with no acceptance command — a task is not done without one (susi tasks add --accept \"<cmd>\")"
+            err "commit $short declares $id with no acceptance command — a task is not done without one (susi-commercial tasks add --accept \"<cmd>\")"
             continue
         fi
         case "$cmd" in

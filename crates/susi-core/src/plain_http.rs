@@ -154,6 +154,53 @@ impl Response {
     }
 }
 
+/// A byte stream one request runs over: a TCP connection, or a sealed
+/// peer-channel session (`susi_config::peer_channel_link`), whose bytes are
+/// the same HTTP/1.1 exchange carried end to end inside the channel.
+pub trait Stream: Read + Write + Send {
+    /// Bound the next read to `left`.
+    fn read_within(&mut self, left: Duration) -> io::Result<()>;
+    /// Bound the next write to `left`.
+    fn write_within(&mut self, left: Duration) -> io::Result<()>;
+}
+
+impl Stream for TcpStream {
+    fn read_within(&mut self, left: Duration) -> io::Result<()> {
+        self.set_read_timeout(Some(left))
+    }
+
+    fn write_within(&mut self, left: Duration) -> io::Result<()> {
+        self.set_write_timeout(Some(left))
+    }
+}
+
+impl Stream for crate::susi_config::peer_channel_link::ChannelStream {
+    fn read_within(&mut self, left: Duration) -> io::Result<()> {
+        self.set_read_timeout(Some(left));
+        Ok(())
+    }
+
+    /// A channel write is bounded by its link's socket write timeout.
+    fn write_within(&mut self, _left: Duration) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Validate the method, URL and headers of a request.
+fn check_request(method: &str, url: &str, headers: &[(&str, &str)]) -> Result<Target, String> {
+    if method.is_empty() || !method.bytes().all(|b| b.is_ascii_uppercase()) {
+        return Err(format!("unsupported HTTP method `{method}`"));
+    }
+    let target = parse_url(url)?;
+    for (name, value) in headers {
+        let bad = |s: &str| s.bytes().any(|b| b == b'\r' || b == b'\n');
+        if name.is_empty() || bad(name) || name.contains(':') || bad(value) {
+            return Err(format!("invalid request header `{name}`"));
+        }
+    }
+    Ok(target)
+}
+
 /// Send `method url` with `headers` and an optional `body`, and return once
 /// the response head has arrived. `timeout_secs` (at least one) bounds the
 /// whole exchange, body reads included. See the module notes for scheme,
@@ -165,18 +212,39 @@ pub fn call(
     body: Option<&[u8]>,
     timeout_secs: u64,
 ) -> Result<Response, String> {
-    if method.is_empty() || !method.bytes().all(|b| b.is_ascii_uppercase()) {
-        return Err(format!("unsupported HTTP method `{method}`"));
-    }
-    let target = parse_url(url)?;
-    for (name, value) in headers {
-        let bad = |s: &str| s.bytes().any(|b| b == b'\r' || b == b'\n');
-        if name.is_empty() || bad(name) || name.contains(':') || bad(value) {
-            return Err(format!("invalid request header `{name}`"));
-        }
-    }
+    let target = check_request(method, url, headers)?;
     let deadline = Instant::now() + Duration::from_secs(timeout_secs.max(1));
     let stream = connect(&target, deadline)?;
+    exchange(Box::new(stream), &target, method, headers, body, deadline)
+}
+
+/// [`call`] over an already open `stream` instead of a new TCP connection
+/// to the URL's host: the URL supplies the request target and `Host`, and
+/// the same budget bounds the exchange.
+#[allow(clippy::too_many_arguments)] // `call`'s flat request parts plus the stream
+pub fn call_over(
+    stream: Box<dyn Stream>,
+    method: &str,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: Option<&[u8]>,
+    timeout_secs: u64,
+) -> Result<Response, String> {
+    let target = check_request(method, url, headers)?;
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs.max(1));
+    exchange(stream, &target, method, headers, body, deadline)
+}
+
+/// Write one request on `stream` and read the response head.
+#[allow(clippy::too_many_arguments)] // the request's flat parts, its stream and deadline
+fn exchange(
+    stream: Box<dyn Stream>,
+    target: &Target,
+    method: &str,
+    headers: &[(&str, &str)],
+    body: Option<&[u8]>,
+    deadline: Instant,
+) -> Result<Response, String> {
     let mut conn = Conn { stream, deadline };
 
     let mut head = format!(
@@ -228,7 +296,7 @@ fn connect(target: &Target, deadline: Instant) -> Result<TcpStream, String> {
 /// The socket a request uses: every read and write waits at most until the
 /// request deadline.
 struct Conn {
-    stream: TcpStream,
+    stream: Box<dyn Stream>,
     deadline: Instant,
 }
 
@@ -261,7 +329,7 @@ impl Conn {
 impl Read for Conn {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let left = self.left()?;
-        self.stream.set_read_timeout(Some(left))?;
+        self.stream.read_within(left)?;
         self.stream.read(buf).map_err(|e| self.budget_error(e))
     }
 }
@@ -269,7 +337,7 @@ impl Read for Conn {
 impl Write for Conn {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let left = self.left()?;
-        self.stream.set_write_timeout(Some(left))?;
+        self.stream.write_within(left)?;
         self.stream.write(buf).map_err(|e| self.budget_error(e))
     }
 

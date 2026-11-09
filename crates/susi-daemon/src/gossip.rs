@@ -8,6 +8,9 @@
 //! store `gossip_caps.json` is HMAC-sealed (`susi-gossip-store-v1`); unsigned
 //! files are ignored.
 //!
+//! The daemon binds gossip on its configured `bind_address`, like every
+//! host-contract listener ([`GossipManager::bind_host`]).
+//!
 //! Under the `host_only` privacy posture gossip serves this machine alone:
 //! the socket is bound to loopback (re-scoped by the recv loop within
 //! [`SCOPE_RECHECK`] of a mode switch, no restart), a datagram from another
@@ -281,6 +284,26 @@ impl GossipManager {
         Ok(())
     }
 
+    /// Binds gossip the way the daemon does: on its configured
+    /// `bind_address` at `port`, or at an ephemeral port on that same
+    /// address when `port` is taken. Never wider than `bind_address`, so a
+    /// loopback bind address keeps gossip off every other interface;
+    /// `host_only` narrows a wider one to loopback as [`bind`](Self::bind)
+    /// does.
+    pub fn bind_host(
+        &mut self,
+        bind_address: &str,
+        port: u16,
+        host_only: bool,
+    ) -> std::io::Result<()> {
+        let at = |port: u16| match bind_address.parse::<IpAddr>() {
+            Ok(ip) => SocketAddr::new(ip, port).to_string(),
+            Err(_) => format!("{bind_address}:{port}"),
+        };
+        self.bind_scoped(&at(port), host_only)
+            .or_else(|_| self.bind_scoped(&at(0), host_only))
+    }
+
     /// Re-scope the bound socket to the posture: loopback while
     /// `host_only`, the requested address otherwise. `Ok(true)` when it
     /// re-bound. The old socket closes before the new one binds (a wildcard
@@ -362,7 +385,7 @@ impl GossipManager {
 
     /// One non-blocking recv. `Ok(true)` means a datagram was consumed:
     /// ingested, or dropped unread because it came from another host while
-    /// `host_only` is in force.
+    /// `host_only` is in force, or from a public (non-LAN) address.
     pub fn poll_recv(&self) -> std::io::Result<bool> {
         let mut buf = [0u8; 2048];
         let received = {
@@ -377,6 +400,13 @@ impl GossipManager {
                 if !src.ip().to_canonical().is_loopback()
                     && susi_core::mac_policy::host_only_in_force()
                 {
+                    return Ok(true);
+                }
+                // Gossip is a local-network convenience: a datagram from a
+                // public address is dropped unread, whatever the bind.
+                // Machines on other networks talk over the sealed peer
+                // channel (`docs/peer-channel.md`).
+                if !crate::peer_channel_host::is_lan_source(src.ip()) {
                     return Ok(true);
                 }
                 let _ = self.ingest(&buf[..n], Some(&src.to_string()));
@@ -633,6 +663,47 @@ mod tests {
         boot.bind_scoped("0.0.0.0:0", true).unwrap();
         let addr: SocketAddr = boot.local_addr().unwrap().parse().unwrap();
         assert!(addr.ip().is_loopback(), "{addr}");
+    }
+
+    /// Real sockets, outside `host_only`: the configured bind address alone
+    /// scopes gossip. The bound address is read back from the socket.
+    #[test]
+    fn gossip_binds_the_configured_bind_address_and_never_the_wildcard() {
+        let port = UdpSocket::bind("127.0.0.1:0")
+            .and_then(|s| s.local_addr())
+            .unwrap()
+            .port();
+        let mut manager = GossipManager::new();
+        manager.bind_host("127.0.0.1", port, false).unwrap();
+        let bound: SocketAddr = manager.local_addr().unwrap().parse().unwrap();
+        assert_eq!(bound, SocketAddr::from(([127, 0, 0, 1], port)));
+        // A datagram to this host's routed address on the gossip port finds
+        // no gossip socket there (a wildcard bind would receive it).
+        match routed_ipv4() {
+            Some(ip) => {
+                let sender = UdpSocket::bind((ip, 0)).unwrap();
+                let _ = sender.send_to(b"from-the-lan", (ip, port));
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                assert!(
+                    !manager.poll_recv().unwrap(),
+                    "an off-host datagram arrived"
+                );
+            }
+            None => eprintln!("no routed non-loopback IPv4 on this host: off-host leg skipped"),
+        }
+
+        // A taken port falls back to an ephemeral port on the same address.
+        let mut second = GossipManager::new();
+        second.bind_host("127.0.0.1", port, false).unwrap();
+        let fallback: SocketAddr = second.local_addr().unwrap().parse().unwrap();
+        assert!(fallback.ip().is_loopback(), "{fallback}");
+        assert_ne!(fallback.port(), port);
+
+        // A wildcard bind address is honoured as configured.
+        let mut wide = GossipManager::new();
+        wide.bind_host("0.0.0.0", 0, false).unwrap();
+        let addr: SocketAddr = wide.local_addr().unwrap().parse().unwrap();
+        assert!(addr.ip().is_unspecified(), "{addr}");
     }
 
     #[test]

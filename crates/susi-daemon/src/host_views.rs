@@ -299,8 +299,9 @@ pub enum IntentLadder {
     Verify(String),
     /// The host outbox of failing rungs.
     Gaps,
-    /// Author the outbox gap for this intent as a repair task in the
-    /// checkout containing the workspace, and mark it adopted.
+    /// Adopting an outbox gap as a repair task: refused, naming
+    /// `susi-commercial admin intent-ladder --adopt-gap` (the task queue
+    /// moved to Susi Commercial Apps).
     AdoptGap(String),
 }
 
@@ -309,31 +310,13 @@ pub fn intent_ladder(action: &IntentLadder, cwd: &Path) -> R<Value> {
     use susi_gawd::intent_ladder as ladder;
     let home = susi_paths::SusiDirs::substrate_home();
     match action {
-        IntentLadder::AdoptGap(id) => {
-            let root = repo_root(cwd);
-            // Authored under the daemon's token: the evidence is the
-            // substrate's, and the per-author bound on open authored tasks
-            // keeps applying to it.
-            let adoption = ladder::adopt_gap(&root, &home, id, "SUSI")
-                .map_err(|e| format!("intent gap adoption failed: {e}"))?;
-            if adoption.task.is_none() {
-                return Err(format!(
-                    "intent gap `{}` authored nothing in {}: it needs a checkout with \
-                     .agents/roadmap.json and .agents/tasks, and no roadmap vector may \
-                     already name the intent",
-                    adoption.gap.intent,
-                    root.display()
-                ));
-            }
-            Ok(json!({
-                "adopted": adoption.gap.intent,
-                "task": adoption.task,
-                // Empty when an open task here already named the intent and
-                // the gap was linked to it.
-                "authored": adoption.authored.tasks,
-                "accept": format!("susi admin intent-ladder --verify {}", adoption.gap.intent),
-            }))
-        }
+        // Adopting a gap authors a task-queue record; the queue moved to
+        // Susi Commercial Apps' dev workflow with the rest of `susi tasks`.
+        IntentLadder::AdoptGap(id) => Err(format!(
+            "adopting an intent gap authors a task-queue record, which moved to Susi \
+             Commercial Apps: run `susi-commercial admin intent-ladder --adopt-gap {id}` in \
+             the checkout"
+        )),
         IntentLadder::Gaps => {
             let outbox = ladder::read_gaps(&home);
             let pending: Vec<Value> = outbox

@@ -43,6 +43,7 @@ pub mod nat;
 pub mod orchestrator;
 pub mod os_provision;
 pub mod os_status;
+pub mod peer_channel_host;
 pub mod plane_handler;
 pub mod port_fallback;
 pub mod privacy;

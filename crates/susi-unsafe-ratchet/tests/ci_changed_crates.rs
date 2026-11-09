@@ -569,17 +569,10 @@ mod hosted_scripts {
             assert!(helper_text.contains(refspec), "missing refspec {refspec}");
         }
 
-        // The push guard is Rust (`susi workflow guard`, which the hook stub
-        // execs): its one fetch is the same snapshot the helper takes for CI, and
-        // the compliance script is told to read it rather than fetch again.
-        let guard =
-            std::fs::read_to_string(repo.join("crates/susi-gawd/src/admin/guard.rs")).unwrap();
-        assert!(guard.contains("fetch-workflow-refs.sh"));
-        assert!(guard.contains("fn fetch_workflow_refs("));
-        for refspec in ["refs/heads/*", "refs/claims/*", "refs/closed/*"] {
-            assert!(guard.contains(refspec), "the guard must fetch {refspec}");
-        }
-        assert!(guard.contains(".env(\"SUSI_WORKFLOW_REFS_FETCHED\", \"1\")"));
+        // The push guard (`workflow guard`, which the hook stub execs through
+        // `run-susi`) is Susi Commercial Apps' dev workflow since the
+        // lean-core move; its fetch is tested there. The stub and the
+        // compliance script stay here.
         let stub = std::fs::read_to_string(repo.join(".githooks/workflow-guard")).unwrap();
         assert!(stub.contains("run-susi\" workflow guard"));
         let compliance =

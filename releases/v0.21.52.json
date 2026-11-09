@@ -1,0 +1,39 @@
+{
+  "schema": "susi-release-record/v1",
+  "product": "susi",
+  "version": "0.21.52",
+  "tag": "v0.21.52",
+  "commit": "92f7ee498ac9103ee2e4bd2a86f0a646a20443ad",
+  "tagged": "2026-11-08T20:38:17+05:30",
+  "build": {
+    "toolchain": "1.99.0",
+    "host": "x86_64-pc-windows-msvc",
+    "source": "fresh clone of the tag, Cargo.lock unchanged",
+    "profile": "dist",
+    "features": "susi/local-engine",
+    "env": ["CARGO_PROFILE_DIST_LTO=false", "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"],
+    "command": "cargo build --locked --profile dist -p susi-harness -p susi --features susi/local-engine"
+  },
+  "reproducible": false,
+  "assets": [
+    { "file": "susi-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi", "bin": "susi", "sha256": "ebc2f9fe1347864a63fb96437a623e85bdc6cb788ce032d492a893f6912b16c2" },
+    { "file": "susi-harness-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi-harness", "bin": "susi-harness", "sha256": "07822d17d88d587d8c8ab8881d55ac2d7828a44bb4f16c65a5f6a5b8451b1609" }
+  ],
+  "missing_targets": [
+    { "target": "x86_64-unknown-linux-gnu", "reason": "no Linux host was available when the release was cut; the Linux reference build is owed" }
+  ],
+  "checks": {
+    "offline_artifact_checks": { "run": 14, "passed": 13 },
+    "not_run": [
+      { "check": "harness no-key onboarding", "reason": "live provider keys are set in this host's registry environment, so the no-key first run cannot be observed here" }
+    ],
+    "locally_qualified": false,
+    "qualification_note": "not locally qualified: one of the 14 offline checks did not run on the build host, and no Linux build exists"
+  },
+  "provenance": [
+    "commit and tagged time: the annotated tag v0.21.52 (git cat-file -p v0.21.52)",
+    "sha256: the two files in target/dist of the release checkout, hashed on 2026-11-09 and matching the published checksums",
+    "features: cargo fingerprint of the susi binary in that target (default, local-engine); susi-harness built with no features",
+    "profile, LTO and codegen units, checks: coordination board item 61 (2026-11-08 20:38 IST)"
+  ]
+}

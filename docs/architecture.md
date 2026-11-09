@@ -579,11 +579,13 @@ a certificate is configured). The contract:
 - **Sniffing, not separate ports** — `https://host:9091` and
   `http://host:9091` coexist, so TLS-terminating reverse proxies and
   mixed-version peers keep working.
-- **Remote plaintext is refused by default**; loopback is always exempt so
-  internal `http://127.0.0.1` callers never break. Only
-  `allow_remote_plaintext: true` opens it (the retired `https_only` key is
-  ignored). Core's peer client never sends a bearer off-host: remote members
-  authenticate by member signature, and only members whose keys are bound.
+- **Remote plaintext is always refused**; loopback is always exempt so
+  internal `http://127.0.0.1` callers never break. The retired keys
+  `https_only` and `allow_remote_plaintext` are ignored (a leftover
+  `https_only`, or `allow_remote_plaintext: true`, logs a one-time notice). Susi machines never talk to each other on these ports:
+  every call between machines travels inside the sealed peer channel on its
+  own port (`peer_channel_listen`, default 29090; `docs/peer-channel.md`),
+  authenticated by the node keys, and no bearer ever leaves the host.
 - **Auto self-signed**: a non-loopback `bind_address` with no configured cert
   generates `~/.susi/tls/cert.pem` on start — remote clients use `curl -k`
   or pin the cert. For browser-trusted HTTPS, supply a real cert via
@@ -597,7 +599,7 @@ a certificate is configured). The contract:
   "bind_address": "0.0.0.0",         // listen beyond loopback (default 127.0.0.1)
   "tls_cert_path": "/path/cert.pem", // optional: real cert (e.g. Let's Encrypt)
   "tls_key_path": "/path/key.pem",
-  "allow_remote_plaintext": false    // true: also accept plaintext from remote peers
+  "peer_channel_listen": "0.0.0.0:29090" // a hub: accept sealed peer-channel links here
 }
 ```
 

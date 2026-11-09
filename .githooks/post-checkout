@@ -8,7 +8,7 @@
 #     sibling's build can stand in for this branch's;
 #   - `git worktree add` has just made this checkout ($1, the previous HEAD,
 #     is the null id). The real, empty target/ this makes at once is what
-#     keeps v0.21.23's `susi workflow start`, which links a target/ that does
+#     keeps v0.21.23's `susi-commercial workflow start`, which links a target/ that does
 #     not exist yet right after this hook, from linking the shared one.
 # For `git worktree add`, Git runs the hook of the checkout it was started
 # from, in the new checkout; the seeding script run is the new checkout's own.

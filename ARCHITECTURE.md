@@ -73,7 +73,7 @@ never consume an unterminated source tail.
 
 | Crate | Responsibility | Public API (shape) | May import | Must not import | Replaceable at runtime | Owns state | I/O |
 |-------|----------------|--------------------|------------|-----------------|------------------------|------------|-----|
-| `susi-abi` | Swarm OS ABI: AI syscalls, stigmergic pheromones, evidence receipts, wire framing; optional `cell-server` TCP loop | `SyscallOp`, `SwarmPheromone`, `ToolReceipt`, `WireFrame`, `cell_server` (feature) | std, serde, serde_json; tokio behind `cell-server` | all workspace crates | no | no | cell TCP when featured |
+| `susi-abi` | Swarm OS ABI: AI syscalls, stigmergic pheromones, evidence receipts, wire framing; the std-only cell TCP loop | `SyscallOp`, `SwarmPheromone`, `ToolReceipt`, `WireFrame`, `cell_server` | std, serde, serde_json | all workspace crates | no | no | cell TCP when a cell binary serves |
 | `susi-paths` | Host path/port contract and its service-backed client (served on `:18080` by `susi-leaf-services`); XDG / substrate paths + host-contract ports, both host bearer policies | `SusiDirs` (service with local fallback), `ports` (host contract 9090–9094, gossip 9095, and the leaf-service defaults `PATHS_SERVICE`…`NATIVE_SERVICE` 18080–18084), `loopback` (the one std-only loopback HTTP/1.0 client every leaf-service client uses: `Endpoint`, `request`, `service_port`, `local_env_override`), `local_paths_json`/`ports_json`, `host_token`/`with_bearer`/`bearer_authorized`/`supervisor_bearer_authorized` | std, serde_json (per-OS user dirs are a std-only `xdg` module) | everything else | no | no | reads env for XDG |
 | `susi-error` | Stable error model + metrics sink (served on `:18081` by `susi-leaf-services`) | `EaiError`, `EaiResult`, `rewrap`, `ResultExt` (`context`/`with_context`, kind-preserving), `eai_err!`/`eai_bail!`, metrics sink, offset-aware service-backed event reporter (`service_port`), `append_posted_event`/`recent_error_entries` | `susi-paths`, std, serde, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
 | `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; std, serde, concurrency libs (no async runtime: the peer MCP session client runs on `plain_http`, a std `http://` HTTP/1.1 module, and provider futures are runtime-agnostic) | feature planes; HTTP client crates; `susi-adapters-llm`, `susi-http-transport`, tokio | providers/tools via registry | process registry | receipt archive paths |
@@ -152,8 +152,8 @@ the old `#[path]` mount a hard failure.
 
 **`susi-abi` is a Cargo dependency, not a mount.** Planes and cell binaries
 declare `susi-abi = { workspace = true }` and re-export it
-(`pub use susi_abi;`); the cell binaries enable the `cell-server`
-feature for the shared TCP loop. `susi_abi_is_never_source_mounted_into_a_consumer`
+(`pub use susi_abi;`); the cell binaries serve through its std-only
+`cell_server` loop (one thread per connection, no async runtime). `susi_abi_is_never_source_mounted_into_a_consumer`
 makes a regression of the old `#[path]` / `embedded.rs` mounts a hard failure.
 
 **`susi-gawd-agents` is a Cargo dependency, not a mount.** The swarm, A2A
@@ -1066,13 +1066,16 @@ operation log, and there is no cross-coordinator term ordering.
    declared vocabulary reserved for Wasm/exec surfaces.
 5. **CI** — reject layer violations (architecture tests already fail the build).
 
-## Release retention
+## Releases
 
-Semver GitHub Releases keep the newest **two** `vX.Y.Z` entries (assets).
-The rolling `dev` pre-release is never pruned. Older GitHub Release objects are
-deleted by `scripts/prune-old-github-releases.sh` (run with `gh` auth; the
-`release.yml`/`dev-release.yml` workflows that ran it were removed, CEO decision
-2026-11-06); **git tags are retained**.
+A release is an annotated `vX.Y.Z` tag plus its committed record
+`releases/<tag>.json` (reference-build sha256 per asset, build settings,
+checks); installers and the upgrade script build the tag from source and gate
+on its version ([docs/releases.md](docs/releases.md)). No git host's release
+page is the record (CEO mandate 2026-11-09: GitHub is storage only), so the
+script that pruned GitHub Release objects was deleted; **git tags are
+retained**. GitHub Releases published before the mandate stay until the CEO
+decides on them.
 
 ## RSI OS isolation iterations (2026-09-28)
 

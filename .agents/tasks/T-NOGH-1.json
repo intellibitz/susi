@@ -1,0 +1,50 @@
+{
+  "id": "T-NOGH-1",
+  "title": "GitHub is storage only: release records in git, installers and release sync build tags from source, gate tool posts no commit statuses",
+  "goal": "CEO mandate 2026-11-09 00:15 (GitHub is storage only) and decision 00:22 (binaries are built from git tags; no artifact store). A release is a tag plus its committed record releases/<tag>.json (schema susi-release-record/v1: commit, build toolchain/profile/features/env/command, reference-build sha256 per asset, missing targets, checks), documented in docs/releases.md, with the v0.21.52 record from facts. install.sh, install.ps1 and scripts/susi-release-sync.sh resolve the newest tag with git ls-remote --tags against a configured remote, check it out, build it natively with the recorded settings under the rust-toolchain.toml pin, and install only a binary that reports the tag's version; no download, no gh, no hard-coded host, no auto-installed software. The gate tool stops posting commit statuses and drops its GitHub ruleset and Actions commands; GitHub-only scripts are deleted with their references; a guard test refuses new GitHub couplings.",
+  "status": "in_progress",
+  "state": "in_progress",
+  "native_worker": "nogh",
+  "claimed_by": "nogh",
+  "created_by": "nogh",
+  "created_unix": 1794165673,
+  "size": "L",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-nogh-1.json",
+    "agents.md",
+    "architecture.md",
+    "docs/releases.md",
+    "docs/workflow-speed.md",
+    "readme.md",
+    "scripts/check-owed-runs.sh",
+    "scripts/cloud-onnxruntime.sh",
+    "scripts/cloud-target-seed.sh",
+    "scripts/github-enforce.sh",
+    "scripts/parallel-workflow.sh",
+    "scripts/prune-old-github-releases.sh",
+    "scripts/susi-release-sync.sh",
+    "scripts/test-release-sync-windows.ps1",
+    "scripts/workflow-session-start.sh",
+    "tests/architecture_tests.rs",
+    "tests/core_docs_promise_no_ui_or_plugins.rs",
+    "tests/github_enforce.rs",
+    "tests/no_github_coupling.rs",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/tests/ci_workflow_perf.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "release_records",
+      "--test",
+      "architecture_tests",
+      "--offline",
+      "--locked"
+    ]
+  }
+}

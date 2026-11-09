@@ -43,6 +43,8 @@ pub mod host_metrics;
 mod json_util;
 pub mod key_rotation;
 pub mod key_scope;
+pub mod peer_channel;
+pub mod peer_channel_link;
 pub mod process_probe;
 pub mod secret_ref;
 pub mod setting_registry;

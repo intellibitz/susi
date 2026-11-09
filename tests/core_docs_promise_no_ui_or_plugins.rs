@@ -249,11 +249,6 @@ const ALLOWED: &[(&str, &str)] = &[
         "docs/gmcp/contract-203-001.md",
         "so a dashboard or operator sees one canonical shape",
     ),
-    // Legacy install scripts: the sentence disowns their past behaviour.
-    (
-        "README.md",
-        "their historical download, autostart and build behavior must not be treated as current",
-    ),
     // The `auto-install` helper module of `susi-sandbox-client`.
     (
         "ARCHITECTURE.md",

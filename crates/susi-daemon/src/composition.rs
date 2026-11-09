@@ -71,11 +71,18 @@ fn os_planes_report_path() -> std::path::PathBuf {
     susi_paths::SusiDirs::substrate_home().join("os_planes.json")
 }
 
+/// Gossip binds the configured `bind_address`, as every host-contract
+/// listener does: a loopback bind address keeps gossip off every other
+/// interface. It used to bind the wildcard whatever the configuration said.
 fn bind_swarm_gossip(gossip: &mut crate::gossip::GossipManager) {
-    let port = gossip_port();
-    let bind = format!("0.0.0.0:{port}");
-    if gossip.bind(&bind).is_err() {
-        let _ = gossip.bind("0.0.0.0:0");
+    let cfg = susi_config::SusiConfig::load_global().ok();
+    let port = cfg.as_ref().map_or_else(gossip_port, |c| c.gossip_port());
+    let bind_address = cfg
+        .and_then(|c| c.get::<String>("bind_address"))
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let host_only = susi_core::mac_policy::host_only_in_force();
+    if let Err(error) = gossip.bind_host(&bind_address, port, host_only) {
+        eprintln!("[gossip] could not bind on {bind_address}: {error}");
     }
 }
 

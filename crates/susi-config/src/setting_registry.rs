@@ -49,10 +49,6 @@ pub const SETTING_REGISTRY: &[SettingEntry] = &[
         derivation: SettingDerivation::Constant,
     },
     SettingEntry {
-        key: "allow_remote_plaintext",
-        derivation: SettingDerivation::Constant,
-    },
-    SettingEntry {
         key: "alpha_weights_filename",
         derivation: SettingDerivation::Constant,
     },

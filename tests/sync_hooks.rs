@@ -8,8 +8,9 @@
 )]
 #![allow(missing_docs)] // integration test crate: no public API to document
 
-//! Mandate 49: any agent's git activity in a worktree keeps the primary
-//! checkout's `main` current, through `.githooks/sync-primary`; and every
+//! Mandate 49: any agent's git activity in a worktree runs
+//! `.githooks/sync-primary` (primary parking, `susi-commercial workflow
+//! park-primary`, tested in Susi Commercial Apps); and every
 //! commit on a feature branch brings that branch up to date with
 //! `origin/main` when the merge is clean, through `.githooks/sync-branch`
 //! (sync after every feature, so a conflict is found one commit after it
@@ -25,8 +26,11 @@ fn run(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
     cmd.args(args)
         .current_dir(dir)
         .env_remove("SUSI_PRIMARY_SYNC_ACTIVE")
-        // The sync hooks run `scripts/park-primary.sh`, the stub that execs
-        // `susi workflow park-primary`: the binary under test.
+        // The sync hooks run `scripts/park-primary.sh`, which execs the first
+        // binary with `workflow park-primary` (Susi Commercial Apps' dev
+        // workflow since the lean-core move). This binary is not one, so a
+        // `--sync-only` park is a quiet no-op here: these tests judge the
+        // hooks' wiring and the branch sync, not primary parking.
         .env("SUSI_WORKFLOW_BIN", env!("CARGO_BIN_EXE_susi"))
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
@@ -221,32 +225,8 @@ impl World {
             .0 != 0
     }
 
-    fn primary_head(&self) -> String {
-        git(&self.primary, &["rev-parse", "HEAD"])
-    }
-
     fn server_main(&self) -> String {
         git(&self.other, &["rev-parse", "origin/main"])
-    }
-
-    /// Keep wall-clock throttling deterministic even when the test host is
-    /// under enough load for a test to be descheduled past the 30-second
-    /// default between hook invocations.
-    fn fixed_clock_path(&self) -> String {
-        let bin = self.root.join("fixed-clock-bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        let date = bin.join("date");
-        std::fs::write(&date, "#!/bin/sh\necho 1000\n").unwrap();
-        make_executable(&date);
-        let paths = std::iter::once(bin)
-            .chain(std::env::split_paths(
-                &std::env::var_os("PATH").unwrap_or_default(),
-            ))
-            .collect::<Vec<_>>();
-        std::env::join_paths(paths)
-            .unwrap()
-            .into_string()
-            .expect("PATH must be valid Unicode for the test command")
     }
 }
 
@@ -257,66 +237,6 @@ impl Drop for World {
 }
 
 const FG: (&str, &str) = ("SUSI_SYNC_FOREGROUND", "1");
-
-#[test]
-// Executes a legacy POSIX script/hook; native coverage remains enabled.
-#[cfg(unix)]
-fn hooks_sync_primary_after_a_commit_in_any_worktree() {
-    let w = World::new("commit");
-    w.origin_advances();
-    let before = w.primary_head();
-    assert_eq!(w.commit_in_worktree(&[FG]), 0);
-    assert_ne!(w.primary_head(), before, "primary main should have moved");
-    assert_eq!(
-        w.primary_head(),
-        git(&w.primary, &["rev-parse", "origin/main"])
-    );
-    assert_eq!(w.primary_head(), w.server_main());
-    assert_eq!(
-        git(&w.primary, &["symbolic-ref", "--short", "HEAD"]),
-        "main"
-    );
-}
-
-#[test]
-// Executes a legacy POSIX script/hook; native coverage remains enabled.
-#[cfg(unix)]
-fn hooks_sync_primary_is_throttled_and_the_interval_is_configurable() {
-    let w = World::new("throttle");
-    let fixed_path = w.fixed_clock_path();
-    let clock = ("PATH", fixed_path.as_str());
-    w.origin_advances();
-    assert_eq!(w.commit_in_worktree(&[FG, clock]), 0);
-    let synced = w.primary_head();
-    w.origin_advances();
-    // Within the default 30s window the second commit does not fetch again.
-    assert_eq!(w.commit_in_worktree(&[FG, clock]), 0);
-    assert_eq!(w.primary_head(), synced, "throttled: no second sync");
-    assert_eq!(
-        w.commit_in_worktree(&[FG, clock, ("SUSI_SYNC_INTERVAL", "0")]),
-        0
-    );
-    assert_eq!(w.primary_head(), w.server_main(), "interval 0 syncs again");
-}
-
-#[test]
-// Executes a legacy POSIX script/hook; native coverage remains enabled.
-#[cfg(unix)]
-fn hooks_sync_primary_never_fails_or_moves_unsafe_state() {
-    let w = World::new("safe");
-    w.origin_advances();
-    // Dirty primary: no move, and the commit still succeeds.
-    std::fs::write(w.primary.join("scratch.txt"), "wip").unwrap();
-    git(&w.primary, &["add", "scratch.txt"]);
-    let before = w.primary_head();
-    assert_eq!(w.commit_in_worktree(&[FG]), 0);
-    assert_eq!(w.primary_head(), before);
-    // Server unreachable: the commit still succeeds.
-    git(&w.primary, &["reset", "--quiet"]);
-    std::fs::remove_file(w.primary.join("scratch.txt")).unwrap();
-    std::fs::remove_dir_all(w.root.join("server.git")).unwrap();
-    assert_eq!(w.commit_in_worktree(&[FG, ("SUSI_SYNC_INTERVAL", "0")]), 0);
-}
 
 #[test]
 fn hooks_sync_primary_is_wired_into_every_git_activity_hook() {

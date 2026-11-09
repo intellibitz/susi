@@ -16,16 +16,16 @@
 
 //! GAWD — Swarm Master Authority.
 //!
-//! # Four-crate layout
+//! # Crate layout
 //!
 //! | Tier | Crate | Responsibility |
 //! |------|-------|----------------|
 //! | **Agents** | [`susi_gawd_agents`] | Fleet, peers, detectors, identity tables |
 //! | **Swarm** | [`susi_gawd_swarm`] | AMA / AMAS / DAG / cloud recovery |
-//! | **A2A** | [`susi_gawd_a2a`] | `ra2a` wire protocol |
-//! | **Host** | this crate (`0.5.0`) | Admin (incl. compliance audit), evolution, facade re-exports |
+//! | **Host** | this crate (`0.5.0`) | Compliance audit, evolution, facade re-exports |
 //!
-//! DAG: agents ← swarm, agents ← a2a, all three ← gawd. No cycles.
+//! DAG: agents ← swarm, both ← gawd. No cycles. The A2A tier (`susi-gawd-a2a`)
+//! is served by `susi-daemon` directly, so this crate never waits on its HTTP stack.
 //! Flat paths (`agents`, `ama`, `amas`, …) remain as compatibility re-exports.
 
 pub use susi_abi;
@@ -34,10 +34,6 @@ use crate::admin_hooks::AdminHooks;
 use crate::host_hooks::HostHooks;
 use std::path::Path;
 use std::sync::Once;
-
-pub mod a2a {
-    pub use crate::{capabilities, executor, server, task_store};
-}
 
 pub mod swarm {
     pub use crate::{amas, dag, host_hooks, peer_registry};
@@ -66,14 +62,12 @@ pub use susi_gawd_agents::{
     safety, scheduler, security, self_core, system_observe,
 };
 
-pub use susi_gawd_a2a::{capabilities, executor, server, task_store};
 pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
-pub mod admin;
 pub mod audit_evidence;
 pub mod bloat_audit;
 pub mod cloud_rsi;
-pub mod cloud_session;
+pub mod compliance;
 pub mod cross_platform_service;
 pub mod dev_canary;
 pub mod eval_contamination;
@@ -99,8 +93,6 @@ pub mod rsi_promotion;
 pub mod scorecard;
 pub mod self_validation;
 pub mod telemetry;
-pub mod worker_identity;
-pub mod zc_agent_identity;
 
 #[cfg(test)]
 #[path = "tests/native_verifier.rs"]
@@ -191,28 +183,40 @@ pub use crate::self_core::AlphaSelf;
 pub use ama::SusiMasterAgent;
 
 struct GawdAdminHooks;
+
+/// The refusal the admin agent's version and release actions answer with:
+/// version sync and the release gate are Susi Commercial Apps' dev workflow.
+fn moved_to_commercial(action: &str) -> susi_gawd_agents::susi_error::EaiError {
+    susi_gawd_agents::susi_error::EaiError::governance(format!(
+        "`{action}` is part of Susi Commercial Apps' dev workflow: run \
+         `susi-commercial admin {action}` in the checkout"
+    ))
+}
+
 impl AdminHooks for GawdAdminHooks {
     fn enforce_version_consistency(
         &self,
-        workspace: &Path,
+        _workspace: &Path,
     ) -> susi_gawd_agents::susi_error::EaiResult<String> {
-        admin::SusiAdmin::enforce_version_consistency(workspace)
+        Err(moved_to_commercial("sync"))
     }
     fn audit_compliance(
         &self,
         workspace: &Path,
     ) -> susi_gawd_agents::susi_error::EaiResult<String> {
-        admin::SusiAdmin::audit_compliance(workspace, None)
+        compliance::SusiAdmin::audit_compliance(workspace, None)
     }
     fn verify_version_alignment(
         &self,
-        workspace: &Path,
+        _workspace: &Path,
     ) -> susi_gawd_agents::susi_error::EaiResult<String> {
-        admin::SusiAdmin::verify_version_alignment(workspace)
-            .map(|_| "Version alignment verified.".to_string())
+        Err(moved_to_commercial("verify"))
     }
-    fn execute_release(&self, workspace: &Path) -> susi_gawd_agents::susi_error::EaiResult<String> {
-        admin::SusiAdmin::execute_release(workspace, None)
+    fn execute_release(
+        &self,
+        _workspace: &Path,
+    ) -> susi_gawd_agents::susi_error::EaiResult<String> {
+        Err(moved_to_commercial("release"))
     }
     fn bloat_audit_workspace(
         &self,
