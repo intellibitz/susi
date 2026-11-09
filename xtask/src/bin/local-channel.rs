@@ -256,6 +256,7 @@ fn configure_isolated_env(cmd: &mut Command, scratch: &Path) {
         cmd.env(key, scratch);
     }
     cmd.env("SUSI_HOME", scratch.join("home"))
+        .env("SUSI_NO_REGISTRY_ENV", "1")
         .env("SUSI_PORT_OFFSET", "400")
         .env("SUSI_OFFLINE", "1")
         .env("RUST_LOG", "warn")
@@ -763,6 +764,7 @@ fn run_owner_tests(repo: &Path, scratch: &Path, owners: &[PackageTargets]) -> Re
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("SUSI_HOME", home.join("susi"))
+            .env("SUSI_NO_REGISTRY_ENV", "1")
             .env("XDG_CONFIG_HOME", home.join("config"))
             .env("XDG_DATA_HOME", home.join("data"))
             .env("XDG_CACHE_HOME", home.join("cache"))
@@ -1286,6 +1288,16 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn isolated_children_disable_registry_environment() {
+        let mut command = Command::new("unused");
+        configure_isolated_env(&mut command, Path::new("private"));
+        assert!(command
+            .get_envs()
+            .any(|(key, value)| key == "SUSI_NO_REGISTRY_ENV"
+                && value == Some(std::ffi::OsStr::new("1"))));
+    }
 
     fn write_mock_susi_binary(path: &Path, version: &str) -> Result<()> {
         if let Some(parent) = path.parent() {

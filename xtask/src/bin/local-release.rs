@@ -294,6 +294,7 @@ fn isolated_command(program: &Path, home: &Path) -> Result<Command> {
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env("SUSI_HOME", home.join("susi"))
+        .env("SUSI_NO_REGISTRY_ENV", "1")
         .env("XDG_CONFIG_HOME", home.join("config"))
         .env("XDG_DATA_HOME", home.join("data"))
         .env("XDG_CACHE_HOME", home.join("cache"))
@@ -1280,6 +1281,7 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
     command
         .current_dir(&workspace)
         .env("SUSI_PORT_OFFSET", ports.to_string())
+        .env("SUSI_NO_REGISTRY_ENV", "1")
         .env("RAYON_NUM_THREADS", "4")
         .env("CANDLE_NUM_THREADS", "4");
     if cached {
@@ -2250,6 +2252,10 @@ mod tests {
         let home = fixture.0.join("home");
         let target = root.join("target");
         let mut command = isolated_command(Path::new("cargo"), &home).unwrap();
+        assert!(command
+            .get_envs()
+            .any(|(key, value)| key == "SUSI_NO_REGISTRY_ENV"
+                && value == Some(std::ffi::OsStr::new("1"))));
         let args: Vec<String> = [
             "test",
             "--workspace",

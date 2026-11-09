@@ -1,0 +1,43 @@
+{
+  "id": "T-DOTREGISTRYISOLATION-1",
+  "native_worker": "dot-registry-isolation",
+  "title": "Isolate native qualification from persistent Windows credentials",
+  "created_by": "Codex",
+  "status": "implemented_pending_integration",
+  "dependencies": [],
+  "scopes": [
+    ".agents/tasks/t-dotregistryisolation-1.json",
+    "crates/susi-harness/src/secrets.rs",
+    "xtask/src/bin/local-channel.rs",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/bin/startup-gate.rs",
+    "xtask/tests/registry_environment_isolation.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "--offline",
+      "--locked",
+      "secrets::tests"
+    ],
+    "criteria": [
+      "SUSI_NO_REGISTRY_ENV presence is checked only in the child process environment before registry lookup, including previously cached credentials and snapshots.",
+      "Isolated keys, settings and home discovery never consult persistent Windows environment; synthetic child-process regression preserves normal user/machine and process/file behavior without reading real registry environment.",
+      "Native qualification, local workflow gates, local channel tests and startup gates explicitly set the switch on child commands after inherited settings are removed.",
+      "Disjoint gate_receipt.rs wiring belongs to its existing claimant; this change does not alter live production launch or user configuration."
+    ]
+  },
+  "verification": [
+    "cargo test -p susi-harness --lib --offline --locked: 531 passed, including 21 secrets tests and the synthetic isolated child regression.",
+    "Targeted xtask launcher/source-contract checks: 6 relevant tests passed (channel, startup, integration gate, check environment, release proof environment, wiring contract).",
+    "cargo clippy -p susi-harness -p xtask --all-targets --features xtask/release-tooling --offline --locked -- -D warnings: passed.",
+    "cargo fmt --all --check and git diff --check: passed.",
+    "Tests used a private target/runtime/home and process SUSI_NO_REGISTRY_ENV=1. Existing native registry test created and removed only its unique synthetic HKCU Software test key; no actual Environment or credentials inspected.",
+    "Combined integration with native-link and receipt replay isolation is pending; no production deployment or qualification claimed."
+  ]
+}
