@@ -16,6 +16,8 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+mod common;
 use std::sync::Mutex;
 use susi_paths::test_env::{isolate_home, EnvGuard};
 
@@ -513,15 +515,14 @@ fn gmcp_req_203_001_01_contract() {
     let native = susi_gmcp::requirements_ledger::verify_pinned_ledger(root)
         .expect("native production verifier must accept the pinned ledger");
     assert!(native.rows > 0);
-    // POSIX authoring-tool parity is optional; native verification above is mandatory.
-    #[cfg(unix)]
+    // The POSIX authoring checker must agree with the native verifier on every
+    // host; on Windows it runs under Git for Windows bash (never WSL's launcher).
     {
-        let bash = PathBuf::from("bash");
-        let output = Command::new(bash)
+        let mut checker = Command::new(common::posix_shell());
+        checker
             .arg("scripts/check-gmcp-ledger.sh")
-            .current_dir(root)
-            .output()
-            .expect("bash must run the GMCP ledger checker");
+            .current_dir(root);
+        let output = common::output_within(&mut checker, b"", common::SCRIPT_BOUND);
 
         assert!(
             output.status.success(),

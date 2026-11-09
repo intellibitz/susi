@@ -1,0 +1,61 @@
+{
+  "id": "T-WINTESTS-1",
+  "title": "Run the repository's script and hook suites natively on Windows",
+  "goal": "Since b6276f0b4 (2026-11-01) about twenty integration test files were compiled for unix only, so the Windows gate ran none of their script, hook, installer, publication and release-tag checks for eight days; that is how the release-sync helper defect shipped in v0.21.53. The surviving files (the rest moved to Susi Commercial Apps) run natively on Windows again: hermetic_scope, hook_enforcement, installer_contract, release_tag_provenance and workflow_publication lose their crate-level cfg(unix); agent_bootstrap and sync_hooks lose their per-test cfg(unix). Scripts and hooks run as git runs them: under Git for Windows bash, located from `git --exec-path` (bash.exe on PATH can be the WSL launcher), through one shared tests/common helper instead of four copies that called `sh` or a hard-coded Program Files path. Every script, hook and git invocation of these fixtures is bounded (120 s, both pipes drained with a deadline) so a prompt, held lock or leftover child fails the test instead of hanging the gate. Hook executability is checked where it matters on every host, the committed git mode 100755, plus the exec bit on Unix. The GMCP ledger authoring checker's parity with the native verifier runs on Windows too.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "wintests",
+  "native_worker": "wintests",
+  "created_by": "wintests",
+  "created_unix": 1794207119,
+  "size": "S",
+  "deps": [],
+  "scope": [
+    ".agents/tasks/t-wintests-1.json",
+    "tests/agent_bootstrap.rs",
+    "tests/common/mod.rs",
+    "tests/gmcp_requirements.rs",
+    "tests/hermetic_scope.rs",
+    "tests/hook_enforcement.rs",
+    "tests/installer_contract.rs",
+    "tests/release_tag_provenance.rs",
+    "tests/sync_hooks.rs",
+    "tests/workflow_publication.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-wintests-1.json",
+    "tests/agent_bootstrap.rs",
+    "tests/common/mod.rs",
+    "tests/gmcp_requirements.rs",
+    "tests/hermetic_scope.rs",
+    "tests/hook_enforcement.rs",
+    "tests/installer_contract.rs",
+    "tests/release_tag_provenance.rs",
+    "tests/sync_hooks.rs",
+    "tests/workflow_publication.rs"
+  ],
+  "acceptance": "On Windows, `cargo test --offline --locked` of agent_bootstrap, hermetic_scope, hook_enforcement, installer_contract, release_tag_provenance, sync_hooks and workflow_publication runs and passes their script and hook tests (before this change five of those binaries ran 0 tests on Windows); gmcp_req_203_001_01_contract runs the ledger checker under Git for Windows bash and agrees with the native verifier.",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "agent_bootstrap",
+      "--test",
+      "hermetic_scope",
+      "--test",
+      "hook_enforcement",
+      "--test",
+      "installer_contract",
+      "--test",
+      "release_tag_provenance",
+      "--test",
+      "sync_hooks",
+      "--test",
+      "workflow_publication"
+    ]
+  },
+  "updated_unix": 1794207119
+}
