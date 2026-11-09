@@ -236,14 +236,15 @@ pub fn concurrency(jobs: usize) -> usize {
     (jobs / 4).clamp(2, 6)
 }
 
-/// Test threads for each binary when `concurrency` of them run at once.
+/// Legacy per-binary estimate retained for callers migrating to raw budgets.
 pub fn threads_per_binary(test_threads: usize, concurrency: usize) -> usize {
     (test_threads / concurrency.max(1)).max(2)
 }
 
 pub struct Settings<'a> {
     pub concurrency: usize,
-    pub test_threads: usize,
+    /// Raw aggregate libtest-thread budget shared by concurrent binaries.
+    pub total_test_threads: usize,
     /// `CARGO_BUILD_JOBS` for the cargo invocations some suites run
     /// themselves (xtask's tests build scratch workspaces): the gate's jobs
     /// divided among the lanes, so six lanes do not each claim every core.
@@ -273,7 +274,12 @@ pub struct Outcome {
 /// The variables Cargo sets when it runs a test binary (the compile-time
 /// `env!` ones are already inside the executable), plus the target
 /// directories on `PATH` for any dynamic library beside the binaries.
-fn cargo_runtime_env(command: &mut Command, binary: &Binary, settings: &Settings<'_>) {
+fn cargo_runtime_env(
+    command: &mut Command,
+    binary: &Binary,
+    settings: &Settings<'_>,
+    test_threads: usize,
+) {
     let profile_dir = match settings.triple {
         Some(triple) => settings.target_dir.join(triple).join("debug"),
         None => settings.target_dir.join("debug"),
@@ -310,7 +316,7 @@ fn cargo_runtime_env(command: &mut Command, binary: &Binary, settings: &Settings
         .env("CARGO_CRATE_NAME", binary.target_name.replace('-', "_"))
         .env("CARGO_PRIMARY_PACKAGE", "1")
         .env("CARGO_BUILD_JOBS", settings.build_jobs.to_string())
-        .env("RUST_TEST_THREADS", settings.test_threads.to_string());
+        .env("RUST_TEST_THREADS", test_threads.to_string());
     if binary.kind == "bin" {
         command.env("CARGO_BIN_NAME", &binary.target_name);
     }
@@ -392,19 +398,50 @@ struct Shared<'a> {
 }
 
 fn weight(binary: &Binary, heavy: &[String]) -> usize {
-    if heavy.contains(&binary.target_name) {
+    if is_local_workflow(binary) || heavy.contains(&binary.target_name) {
         2
     } else {
         1
     }
 }
 
+fn is_local_workflow(binary: &Binary) -> bool {
+    binary.package == "xtask" && binary.kind == "bin" && binary.target_name == "local-workflow"
+}
+
+/// Effective test threads for a binary holding `weight` scheduler lanes.
+/// The workflow runner is the one exact target assigned two proportional
+/// units. Other binaries (including unrelated targets with the same name)
+/// stay at one unit even if nextest marks them heavy. Since units per binary
+/// never exceed the acquired lane weight, total assignment is bounded by the
+/// aggregate raw budget whenever active weights fit within the lane pool.
+fn threads_for_binary(
+    binary: &Binary,
+    budget: usize,
+    lanes: usize,
+    acquired_weight: usize,
+) -> usize {
+    let per_lane = (budget.max(1) / lanes.max(1)).max(1);
+    let units = if is_local_workflow(binary) {
+        acquired_weight.max(1)
+    } else {
+        1
+    };
+    per_lane.saturating_mul(units)
+}
+
+fn effective_lanes(concurrency: usize, total_test_threads: usize) -> usize {
+    concurrency.max(1).min(total_test_threads.max(1))
+}
+
 fn run_one(
     shared: &Shared<'_>,
     index: usize,
     binary: &Binary,
+    resources: (usize, usize),
     launch: &(dyn Fn(&Binary, &Path) -> Result<Command> + Sync),
 ) -> Result<()> {
+    let (acquired_weight, effective_lanes) = resources;
     let settings = shared.settings;
     let home = settings
         .home_root
@@ -416,7 +453,15 @@ fn run_one(
         .join(format!("{index}-{}.log", binary.target_name));
     let capture = fs::File::create(&capture_path)?;
     let mut command = launch(binary, &home)?;
-    cargo_runtime_env(&mut command, binary, settings);
+    let test_threads = threads_for_binary(
+        binary,
+        settings.total_test_threads,
+        effective_lanes,
+        acquired_weight,
+    );
+    // Keep Cargo's nested-build budget unchanged. Only the actual libtest
+    // thread allocation follows the scheduler lanes acquired by this binary.
+    cargo_runtime_env(&mut command, binary, settings, test_threads);
     command
         .stdout(Stdio::from(capture.try_clone()?))
         .stderr(Stdio::from(capture));
@@ -465,7 +510,7 @@ fn run_one(
     Ok(())
 }
 
-/// Run `binaries` with up to `settings.concurrency` lanes busy at once.
+/// Run `binaries` with up to the effective test-thread budget's lanes busy.
 /// `launch(binary, home)` returns the command for one binary with the gate's
 /// environment and its private `home`; the runner adds Cargo's runtime
 /// variables, the working directory and the output capture. After the first
@@ -482,10 +527,12 @@ pub fn run(
         .append(true)
         .create(true)
         .open(settings.log)?;
+    let total_test_threads = settings.total_test_threads.max(1);
+    let lanes = effective_lanes(settings.concurrency, total_test_threads);
     let shared = Shared {
         queue: Mutex::new(schedule(binaries, &durations)),
         lanes: Lanes {
-            free: Mutex::new(settings.concurrency.max(1)),
+            free: Mutex::new(lanes),
             changed: Condvar::new(),
         },
         stop: std::sync::atomic::AtomicBool::new(false),
@@ -494,7 +541,6 @@ pub fn run(
         settings,
     };
     let started = Instant::now();
-    let lanes = settings.concurrency.max(1);
     let workers = lanes.min(binaries.len().max(1));
     let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
     std::thread::scope(|scope| {
@@ -518,17 +564,38 @@ pub fn run(
                     // Every binary holds one lane; a heavy one holds two so
                     // it keeps the CPU its deadlines assume. The lane count
                     // stays the limit on what runs at once.
-                    let weight = weight(&binary, shared.settings.heavy).min(lanes);
-                    if shared.lanes.take(weight).is_err() {
+                    let acquired_weight = weight(&binary, shared.settings.heavy).min(lanes);
+                    if shared.lanes.take(acquired_weight).is_err() {
                         break;
                     }
-                    if let Err(error) = run_one(shared, index, &binary, launch) {
+                    let assigned_threads = threads_for_binary(
+                        &binary,
+                        shared.settings.total_test_threads,
+                        lanes,
+                        acquired_weight,
+                    );
+                    if let Err(error) = run_one(
+                        shared,
+                        index,
+                        &binary,
+                        (acquired_weight, lanes),
+                        launch,
+                    ) {
                         if let Ok(mut errors) = errors.lock() {
                             errors.push(format!("{}: {error}", binary.id()));
                         }
                         shared.stop.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
-                    shared.lanes.give(weight);
+                    shared.lanes.give(acquired_weight);
+                    if let Ok(mut log) = shared.log.lock() {
+                        let _ = writeln!(
+                            log,
+                            "runner: {} assigned {acquired_weight}/{lanes} lanes and {assigned_threads}/{} test threads",
+                            binary.id(),
+                            shared.settings.total_test_threads.max(1)
+                        );
+                        let _ = log.flush();
+                    }
                     index += workers;
                 }
             });
@@ -568,7 +635,7 @@ pub fn run(
         "runner: {} of {} binaries ran on {} lanes in {:.1} s; {} failed{}",
         outcome.ran,
         binaries.len(),
-        settings.concurrency,
+        lanes,
         elapsed_ms as f64 / 1000.0,
         outcome.failed.len(),
         if outcome.ran < binaries.len() {
@@ -724,6 +791,169 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_thread_allocations_follow_exact_identity_and_small_budgets() {
+        let workflow = binary("xtask", "bin", "local-workflow");
+        let same_name_other_package = binary("other", "bin", "local-workflow");
+        assert_eq!(weight(&workflow, &[]), 2);
+        assert_eq!(weight(&same_name_other_package, &[]), 1);
+
+        assert_eq!(effective_lanes(6, 3), 3);
+        assert_eq!(threads_for_binary(&workflow, 3, 3, 2), 2);
+        assert_eq!(threads_for_binary(&binary("a", "lib", "a"), 3, 3, 1), 1);
+        assert_eq!(threads_for_binary(&same_name_other_package, 3, 3, 1), 1);
+
+        assert_eq!(effective_lanes(6, 1), 1);
+        assert_eq!(threads_for_binary(&workflow, 1, 1, 1), 1);
+        assert_eq!(threads_for_binary(&binary("a", "lib", "a"), 1, 1, 1), 1);
+
+        // For any active set whose acquired weights fit within the pool,
+        // allocated test-thread units are no greater than total lane weight.
+        for budget in 1..=12 {
+            let lanes = effective_lanes(6, budget);
+            let workflow_weight = weight(&workflow, &[]).min(lanes);
+            let ordinary = binary("ordinary", "lib", "ordinary");
+            let ordinary_weight = weight(&ordinary, &[]).min(lanes);
+            let mut used_lanes = workflow_weight;
+            let mut assigned = threads_for_binary(&workflow, budget, lanes, workflow_weight);
+            while used_lanes + ordinary_weight <= lanes {
+                used_lanes += ordinary_weight;
+                assigned += threads_for_binary(&ordinary, budget, lanes, ordinary_weight);
+            }
+            assert!(
+                assigned <= budget,
+                "budget={budget}, lanes={lanes}, assigned={assigned}"
+            );
+        }
+    }
+
+    #[test]
+    fn effective_lane_pool_bounds_mixed_weights() {
+        use std::sync::{mpsc, Arc};
+        use std::time::Duration;
+
+        let workflow = binary("xtask", "bin", "local-workflow");
+        let ordinary = binary("ordinary", "lib", "ordinary");
+        let budget = 3;
+        let lanes = effective_lanes(6, budget);
+        let pool = Arc::new(Lanes {
+            free: Mutex::new(lanes),
+            changed: Condvar::new(),
+        });
+        let workflow_weight = weight(&workflow, &[]).min(lanes);
+        let ordinary_weight = weight(&ordinary, &[]).min(lanes);
+        pool.take(workflow_weight).unwrap();
+        pool.take(ordinary_weight).unwrap();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let waiter_pool = Arc::clone(&pool);
+        let waiter_weight = weight(&binary("third", "lib", "third"), &[]).min(lanes);
+        let waiter = std::thread::spawn(move || {
+            waiter_pool.take(waiter_weight).unwrap();
+            acquired_tx.send(()).unwrap();
+        });
+        assert!(acquired_rx.recv_timeout(Duration::from_millis(25)).is_err());
+
+        let assigned = threads_for_binary(&workflow, budget, lanes, workflow_weight)
+            + threads_for_binary(&ordinary, budget, lanes, ordinary_weight);
+        assert_eq!(assigned, budget);
+
+        pool.give(workflow_weight);
+        acquired_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        waiter.join().unwrap();
+        pool.give(ordinary_weight);
+        pool.give(waiter_weight);
+        assert_eq!(*pool.free.lock().unwrap(), lanes);
+    }
+
+    #[test]
+    fn run_enforces_the_raw_budget_with_mixed_binary_weights() {
+        use std::sync::{mpsc, Arc};
+        use std::time::Duration;
+
+        let exe = std::env::current_exe().unwrap();
+        let dir = std::env::temp_dir().join(format!("susi-runner-budget-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let make = |name: &str| Binary {
+            package: "xtask".into(),
+            version: "0.1.0".into(),
+            manifest_path: manifest.clone(),
+            target_name: name.into(),
+            kind: "bin".into(),
+            src_path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/bin/local-workflow.rs"),
+            executable: exe.clone(),
+        };
+        let binaries = vec![
+            make("local-workflow"),
+            make("ordinary-one"),
+            make("ordinary-two"),
+        ];
+        let settings = Settings {
+            concurrency: 6,
+            total_test_threads: 3,
+            build_jobs: 6,
+            home_root: &dir.join("homes"),
+            target_dir: &dir.join("target"),
+            triple: None,
+            durations: &dir.join("durations.json"),
+            heavy: &[],
+            log: &dir.join("gate.log"),
+        };
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let launch_release = Arc::clone(&release);
+        let launch = move |binary: &Binary, _home: &Path| -> Result<Command> {
+            entered_tx.send(binary.id()).unwrap();
+            let (lock, changed) = &*launch_release;
+            let mut ready = lock.lock().unwrap();
+            while !*ready {
+                ready = changed.wait(ready).unwrap();
+            }
+            let mut command = Command::new(&exe);
+            command.arg("--list");
+            Ok(command)
+        };
+
+        std::thread::scope(|scope| {
+            let running =
+                scope.spawn(|| run(&binaries, &settings, &launch).map_err(|e| e.to_string()));
+            let mut entered = Vec::new();
+            if let Ok(first) = entered_rx.recv_timeout(Duration::from_secs(1)) {
+                entered.push(first);
+            }
+            if let Ok(second) = entered_rx.recv_timeout(Duration::from_secs(1)) {
+                entered.push(second);
+            }
+            let excess_before_release = entered_rx.recv_timeout(Duration::from_millis(25)).ok();
+
+            // Always release workers before asserting, so a regression has
+            // a failing test rather than leaving runner threads stranded.
+            let (lock, changed) = &*release;
+            *lock.lock().unwrap() = true;
+            changed.notify_all();
+            let outcome = running.join().unwrap().unwrap();
+
+            assert_eq!(outcome.failed.len(), 0, "{outcome:?}");
+            assert_eq!(outcome.ran, 3, "{outcome:?}");
+            assert_eq!(
+                entered.len(),
+                2,
+                "callbacks that acquired lanes: {entered:?}"
+            );
+            assert!(
+                excess_before_release.is_none(),
+                "a third binary entered the callback before any lane was released: {excess_before_release:?}"
+            );
+        });
+        let log = fs::read_to_string(settings.log).unwrap();
+        assert!(
+            log.contains("runner: 3 of 3 binaries ran on 3 lanes"),
+            "{log}"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn schedule_runs_unmeasured_then_longest_first() {
         let binaries = vec![
             binary("a", "lib", "short"),
@@ -764,7 +994,7 @@ mod tests {
         let durations = dir.join("durations.json");
         let settings = Settings {
             concurrency: 2,
-            test_threads: 2,
+            total_test_threads: 2,
             build_jobs: 2,
             home_root: &dir.join("homes"),
             target_dir: &dir.join("target"),
@@ -830,6 +1060,70 @@ mod tests {
         )
         .unwrap();
         assert_eq!(outcome.ran, 1, "{outcome:?}");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn runner_releases_weighted_lanes_after_spawn_failure() {
+        let exe = std::env::current_exe().unwrap();
+        let dir = std::env::temp_dir().join(format!("susi-runner-spawn-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let make = |name: &str| Binary {
+            package: "xtask".into(),
+            version: "0.1.0".into(),
+            manifest_path: manifest.clone(),
+            target_name: name.into(),
+            kind: "bin".into(),
+            src_path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/bin/local-workflow.rs"),
+            executable: exe.clone(),
+        };
+        let missing = exe.with_file_name(format!("missing-spawn-{}.exe", std::process::id()));
+        assert!(!missing.exists());
+        let settings = Settings {
+            concurrency: 6,
+            total_test_threads: 3,
+            build_jobs: 6,
+            home_root: &dir.join("homes"),
+            target_dir: &dir.join("target"),
+            triple: None,
+            durations: &dir.join("durations.json"),
+            heavy: &[],
+            log: &dir.join("gate.log"),
+        };
+        let launch = |binary: &Binary, _home: &Path| -> Result<Command> {
+            let mut command = if binary.target_name == "local-workflow" {
+                Command::new(&missing)
+            } else {
+                Command::new(&exe)
+            };
+            if binary.target_name != "local-workflow" {
+                command.arg("--list");
+            }
+            Ok(command)
+        };
+        let binaries = vec![
+            make("local-workflow"),
+            make("ordinary-one"),
+            make("ordinary-two"),
+        ];
+        let outcome = run(&binaries, &settings, &launch).unwrap();
+        assert!(
+            outcome
+                .failed
+                .iter()
+                .any(|(id, code)| id == "xtask/bin/local-workflow" && code.is_none()),
+            "{outcome:?}"
+        );
+        let log = fs::read_to_string(settings.log).unwrap();
+        assert!(log.contains("could not start"), "{log}");
+        assert!(
+            log.contains(
+                "runner: xtask/bin/local-workflow assigned 2/3 lanes and 2/3 test threads"
+            ),
+            "{log}"
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 }
