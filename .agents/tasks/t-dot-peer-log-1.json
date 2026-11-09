@@ -14,7 +14,7 @@
     ]
   },
   "acceptance": "Both peer_channel_hub tests pass in isolated native Windows state; no full gate or publication in this task.",
-  "scope": [
+  "scopes": [
     "tests/peer_channel_hub.rs",
     ".agents/tasks/t-dot-peer-log-1.json"
   ],
