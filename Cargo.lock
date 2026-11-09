@@ -2782,6 +2782,7 @@ name = "susi-harness"
 version = "0.21.53"
 dependencies = [
  "susi-adapters-llm",
+ "susi-build-os-ucrt",
  "susi-error",
  "susi-http-transport",
  "susi-paths",
@@ -2794,6 +2795,7 @@ dependencies = [
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
  "susi-vendor-windows-registry",
+ "susi-windows-runtime",
 ]
 
 [[package]]

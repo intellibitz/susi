@@ -1,0 +1,32 @@
+{
+  "native_worker": "dot-harness-native",
+  "deps": [],
+  "created_unix": 1794250196,
+  "title": "Qualify standalone harness native Windows entry",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--test",
+      "native_link",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "scopes": [
+    ".agents/evidence/dot-harness-native.json",
+    ".agents/tasks/t-dotharnessnative-1.json",
+    "cargo.lock",
+    "crates/susi-harness/build.rs",
+    "crates/susi-harness/cargo.toml",
+    "crates/susi-harness/src/bin/susi-harness.rs",
+    "crates/susi-harness/tests/native_link.rs"
+  ],
+  "size": "m",
+  "goal": "Remove foreign CRT dependency using the existing original Rust entry and OS-UCRT boundary; bind regression tests to the actual standalone executable.",
+  "created_by": "Codex",
+  "status": "in_progress",
+  "id": "T-DOTHARNESSNATIVE-1"
+}

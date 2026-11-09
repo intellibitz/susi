@@ -25,7 +25,11 @@ hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 [lints]
 workspace = true
 
+[build-dependencies]
+susi-build-os-ucrt = { workspace = true }
+
 [target.'cfg(windows)'.dependencies]
+susi-windows-runtime = { workspace = true }
 windows-registry = { package = "susi-vendor-windows-registry", path = "../susi-vendor-windows-registry" }
 
 [dev-dependencies]

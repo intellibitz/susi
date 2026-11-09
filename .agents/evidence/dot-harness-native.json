@@ -1,0 +1,53 @@
+{
+  "schema": "susi/diagnostic-native-link/v1",
+  "task": "T-DOTHARNESSNATIVE-1",
+  "source_base": "93889365b6987b90dc0a22068c0e06be81661668",
+  "platform": "x86_64-pc-windows-msvc",
+  "toolchain": "1.99.0",
+  "diagnostic_only": true,
+  "production_qualified": false,
+  "change": "Reuse existing original Rust process entry, TLS and OS-UCRT import boundary for the standalone harness. No CRT implementation bundled.",
+  "artifact": {
+    "path": "F:/tmp/dot-harness-native/target/debug/susi-harness.exe",
+    "bytes": 8398848,
+    "profile": "dev",
+    "map_sha256": "0bfbd8af8d703d6a933940c1f6ce4a0e402a21480dcd4d648c3bc0081c0bb39d",
+    "sha256": "fb72bcdd4cdbe9e0c9e88fff479a8e11fc3a021c8eaa4bca782cc66af9fb4098"
+  },
+  "historical_artifact": {
+    "verdict": "Still unqualified; vcruntime140.dll import remains in unchanged historical bytes.",
+    "sha256": "23c96223dfc88c674d5aedb08619e9529c36435f92cf11180e68f1acdb139ba1"
+  },
+  "checks": [
+    {
+      "result": "passed",
+      "command": "cargo fmt --all --check"
+    },
+    {
+      "result": "passed",
+      "command": "git diff --check"
+    },
+    {
+      "result": "passed",
+      "command": "cargo clippy -p susi-harness --all-targets --offline --locked -- -D warnings"
+    },
+    {
+      "result": "9 passed; 0 failed; includes actual PE imports, original Rust entry and linker-origin proof plus version/help in an empty cleared-environment scratch profile.",
+      "command": "cargo test -p susi-harness --test native_link --offline --locked"
+    },
+    {
+      "result": "PE-PASS; native AMD64; only OS imports.",
+      "inspector_source_sha256": "304fc2484a8908d054f1e45e75738a7415dd50cc87dfff1c76be3bbc89645f9b",
+      "command": "Exact release-source standalone inspect_exact.exe against new diagnostic artifact"
+    }
+  ],
+  "remaining": [
+    "Combined-tree local workflow check and serialized integration/ship after the registry-isolation lane is available.",
+    "Rebuild optimized artifacts from the accepted source and run full release/sysroot/license/native provenance qualification; this diagnostic does not qualify or deploy production."
+  ],
+  "restrictions": [
+    "No provider requests or credentials accessed.",
+    "No installation, production mutation or global configuration changes."
+  ],
+  "recorded_by": "Codex"
+}
