@@ -20,13 +20,18 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// 259 -> 231 when susi-gawd stopped depending on the A2A tier (ra2a, its
 /// reqwest/rustls client side and tower-http); susi-daemon serves A2A and
 /// still compiles them, so the host binary's unit count did not move.
-const THIRD_PARTY_CEILING: usize = 231;
+/// 2026-11-09: 231 -> 198 when GMCP began serving MCP itself (rmcp,
+/// rmcp-macros, schemars, schemars_derive, sse-stream, pastey, darling and
+/// the rest of the SDK's tail left the build).
+const THIRD_PARTY_CEILING: usize = 198;
 /// Workspace crates the four pillars compile (themselves included).
-/// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower).
-const WORKSPACE_CEILING: usize = 47;
+/// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower),
+/// then 47 -> 46 (susi-vendor-mcp-server deleted).
+const WORKSPACE_CEILING: usize = 46;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
-const DIRECT_FACADE_EDGES_CEILING: usize = 22;
+/// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
+const DIRECT_FACADE_EDGES_CEILING: usize = 21;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
 /// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
@@ -39,7 +44,11 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 22;
 /// or from a plug port that replaces a stub (mandate rule 4); the change that
 /// moves them re-pins every crate here at its measured value and says so in
 /// the wave log. A new security capability's boundary checks (2026-11-08:
-/// the `host_only` privacy mode) are re-pinned the same way.
+/// the `host_only` privacy mode) are re-pinned the same way. 2026-11-09:
+/// susi-gmcp 19,469 -> 25,900 when the MCP SDK facade (susi-vendor-mcp-server
+/// over rmcp) left core and GMCP took its protocol in (`src/mcp`, 6,433
+/// lines in place of the rmcp crate's 55,000 source lines across its
+/// features); 28 fewer units in the host build (T-NOMCPSDK-1, wave log).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
     ("susi-gawd-swarm", 20_673),
@@ -47,7 +56,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd-a2a", 2_113),
     ("susi-gemi", 21_290),
     ("susi-gemi-models", 16_797),
-    ("susi-gmcp", 19_469),
+    ("susi-gmcp", 25_900),
     ("susi-harness", 40_790),
 ];
 

@@ -1,4 +1,9 @@
-//! MCP stdio and Streamable HTTP entry points backed by the official Rust SDK.
+//! MCP stdio and Streamable HTTP entry points, served by GMCP's own MCP
+//! implementation (`crate::mcp`).
+use crate::mcp::{
+    http::{LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService},
+    ServiceExt,
+};
 use crate::protocol::GmcpService;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -9,18 +14,11 @@ use hyper::{
     Method, Request, Response, StatusCode,
 };
 use hyper_util::rt::TokioIo;
-use rmcp::{
-    transport::streamable_http_server::{
-        session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
-    },
-    ServiceExt,
-};
 use std::{
     convert::Infallible,
     path::{Path, PathBuf},
     sync::Arc,
 };
-use susi_vendor_mcp_server as rmcp;
 use tokio_rustls::TlsAcceptor;
 use tower_service::Service;
 
@@ -314,7 +312,7 @@ pub fn http_service(service: GmcpService) -> HttpService {
 /// model load` (a large model can take minutes to read and place).
 pub const MAX_TOOL_CALL_SECS: u64 = 1800;
 
-/// rmcp closes a session after `keep_alive` with no session event (its
+/// A session closes after `keep_alive` with no session event (the
 /// default is 300s), and a running tool call produces none. The window must
 /// outlast the longest tool call, or a long model load fails on the client
 /// while the daemon keeps loading.
@@ -456,7 +454,7 @@ async fn handle_request(
                 match crate::susi_config::cluster_key::member_open(pk, nonce, &body_bytes) {
                     Some(pt) => {
                         seal_key = Some(pk.to_string());
-                        // rmcp requires application/json — the sealed wire
+                        // The MCP endpoint requires application/json — the sealed wire
                         // body travelled as octet-stream.
                         parts.headers.insert(
                             hyper::header::CONTENT_TYPE,

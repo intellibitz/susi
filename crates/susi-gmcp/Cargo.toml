@@ -13,7 +13,6 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
-susi-vendor-mcp-server = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }

@@ -12,10 +12,8 @@
 //! view modules it dispatches to). A workspace the caller names stands in
 //! for the CLI's working directory and is admitted by the MAC policy.
 
-use rmcp::tool;
 use serde_json::{json, Value};
 use std::path::Path;
-use susi_vendor_mcp_server as rmcp;
 
 use crate::susi_config::extensions;
 use crate::susi_core::peer_admin;
@@ -75,69 +73,70 @@ fn membership(run: impl FnOnce(peer_admin::Out<'_>) -> Result<(), String>) -> Ea
 impl CoreTools {
     // ── 2. Operator view ───────────────────────────────────────────────
 
-    #[tool(
-        name = "operator_status",
-        description = "The executable's measured identity (sha256), daemon, local model, missions in flight, resumable missions, approvals and the scheduled queue, as `susi status --json`; with detail true, the whole `susi status` view (missions with prompts, resumable DAG nodes, rollback snapshots, brain leaders and unfit providers, routing, spend, approvals). Args: optional workspace, detail",
-        input_schema = args::typed::<args::OperatorStatus>()
-    )]
+    crate::tool_def!(operator_status_tool_attr {
+        name: "operator_status",
+        description: "The executable's measured identity (sha256), daemon, local model, missions in flight, resumable missions, approvals and the scheduled queue, as `susi status --json`; with detail true, the whole `susi status` view (missions with prompts, resumable DAG nodes, rollback snapshots, brain leaders and unfit providers, routing, spend, approvals). Args: optional workspace, detail",
+        input_schema: args::typed::<args::OperatorStatus>(),
+    });
     pub fn operator_status(arg: &Value, workspace: &Path) -> EaiResult<String> {
         host_in("status", arg, workspace, &[("detail", Kind::Bool)])
     }
 
-    #[tool(
-        name = "operator_review",
-        description = "Daemon liveness and reclaimable OS cache, as `susi review`. Args: optional workspace",
-        input_schema = args::typed::<args::WorkspaceView>()
-    )]
+    crate::tool_def!(operator_review_tool_attr {
+        name: "operator_review",
+        description:
+            "Daemon liveness and reclaimable OS cache, as `susi review`. Args: optional workspace",
+        input_schema: args::typed::<args::WorkspaceView>(),
+    });
     pub fn operator_review(arg: &Value, workspace: &Path) -> EaiResult<String> {
         host_in("review", arg, workspace, &[])
     }
 
     // ── 4. Onboarding ──────────────────────────────────────────────────
 
-    #[tool(
-        name = "os_ecosystem",
-        description = "The local AI ecosystem: hardware, runtimes, models, agent and framework readiness, MCP servers and running AI processes, as `susi os ecosystem --json`. Args: optional workspace",
-        input_schema = args::typed::<args::WorkspaceView>()
-    )]
+    crate::tool_def!(os_ecosystem_tool_attr {
+        name: "os_ecosystem",
+        description: "The local AI ecosystem: hardware, runtimes, models, agent and framework readiness, MCP servers and running AI processes, as `susi os ecosystem --json`. Args: optional workspace",
+        input_schema: args::typed::<args::WorkspaceView>(),
+    });
     pub fn os_ecosystem(arg: &Value, workspace: &Path) -> EaiResult<String> {
         host_in("os_ecosystem", arg, workspace, &[])
     }
 
     // ── 9. OS ──────────────────────────────────────────────────────────
 
-    #[tool(
-        name = "os_status",
-        description = "Substrate status: consensus, ledger, services, peers, endpoints, storage and warnings, as `susi os status --json`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(os_status_tool_attr {
+        name: "os_status",
+        description: "Substrate status: consensus, ledger, services, peers, endpoints, storage and warnings, as `susi os status --json`",
+        input_schema: args::no_args(),
+    });
     pub fn os_status(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         host("os_status", arg, &[])
     }
 
-    #[tool(
-        name = "os_runtime",
-        description = "Live AI processes by owner (SUSI or external), managed models with daemon residency, and per-process GPU memory, as `susi os runtime --json`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(os_runtime_tool_attr {
+        name: "os_runtime",
+        description: "Live AI processes by owner (SUSI or external), managed models with daemon residency, and per-process GPU memory, as `susi os runtime --json`",
+        input_schema: args::no_args(),
+    });
     pub fn os_runtime(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         host("os_runtime", arg, &[])
     }
 
-    #[tool(
-        name = "model_uninstall",
-        description = "Remove one SUSI-managed .gguf model (refused while loaded or selected), as `susi os manage model uninstall`. Args: name",
-        input_schema = args::typed::<args::ModelUninstall>()
-    )]
+    crate::tool_def!(model_uninstall_tool_attr {
+        name: "model_uninstall",
+        description: "Remove one SUSI-managed .gguf model (refused while loaded or selected), as `susi os manage model uninstall`. Args: name",
+        input_schema: args::typed::<args::ModelUninstall>(),
+    });
     pub fn model_uninstall(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         host("model_uninstall", arg, &[("name", Kind::Str)])
     }
 
-    #[tool(
-        name = "peers_add",
-        description = "Join a peer by signed handshake and commit its admission to the replicated ledger, as `susi peers add`. Args: host, optional port",
-        input_schema = args::typed::<args::PeersAdd>()
-    )]
+    crate::tool_def!(peers_add_tool_attr {
+        name: "peers_add",
+        description: "Join a peer by signed handshake and commit its admission to the replicated ledger, as `susi peers add`. Args: host, optional port",
+        input_schema: args::typed::<args::PeersAdd>(),
+    });
     pub fn peers_add(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         let host = required_str(arg, "host")?.to_string();
         let port = match arg.get("port") {
@@ -152,31 +151,31 @@ impl CoreTools {
         membership(|out| peer_admin::add(out, &host, port))
     }
 
-    #[tool(
-        name = "peers_remove",
-        description = "Evict a verified peer (revoke trust and ban re-verification), committed cluster-wide, as `susi peers remove`. Args: peer",
-        input_schema = args::typed::<args::PeerName>()
-    )]
+    crate::tool_def!(peers_remove_tool_attr {
+        name: "peers_remove",
+        description: "Evict a verified peer (revoke trust and ban re-verification), committed cluster-wide, as `susi peers remove`. Args: peer",
+        input_schema: args::typed::<args::PeerName>(),
+    });
     pub fn peers_remove(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         let peer = required_str(arg, "peer")?.to_string();
         membership(|out| peer_admin::remove(out, &peer))
     }
 
-    #[tool(
-        name = "peers_unban",
-        description = "Lift a ban so an evicted peer can re-verify, committed cluster-wide, as `susi peers unban`. Args: peer",
-        input_schema = args::typed::<args::PeerName>()
-    )]
+    crate::tool_def!(peers_unban_tool_attr {
+        name: "peers_unban",
+        description: "Lift a ban so an evicted peer can re-verify, committed cluster-wide, as `susi peers unban`. Args: peer",
+        input_schema: args::typed::<args::PeerName>(),
+    });
     pub fn peers_unban(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         let peer = required_str(arg, "peer")?.to_string();
         membership(|out| peer_admin::unban(out, &peer))
     }
 
-    #[tool(
-        name = "peers_rekey",
-        description = "Rotate the cluster key across every verified member, two-phase (no key material is returned), as `susi peers rekey`. Args: optional force",
-        input_schema = args::typed::<args::PeersRekey>()
-    )]
+    crate::tool_def!(peers_rekey_tool_attr {
+        name: "peers_rekey",
+        description: "Rotate the cluster key across every verified member, two-phase (no key material is returned), as `susi peers rekey`. Args: optional force",
+        input_schema: args::typed::<args::PeersRekey>(),
+    });
     pub fn peers_rekey(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         let force = match arg.get("force") {
             None | Some(Value::Null) => false,
@@ -189,22 +188,22 @@ impl CoreTools {
 
     // ── 10. Lifecycle ──────────────────────────────────────────────────
 
-    #[tool(
-        name = "daemon_shutdown",
-        description = "Stop this daemon instance after replying (the call `susi stop` makes); starting it again stays with the CLI",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(daemon_shutdown_tool_attr {
+        name: "daemon_shutdown",
+        description: "Stop this daemon instance after replying (the call `susi stop` makes); starting it again stays with the CLI",
+        input_schema: args::no_args(),
+    });
     pub fn daemon_shutdown(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         host("daemon_shutdown", arg, &[])
     }
 
     // ── 13. Maintenance ────────────────────────────────────────────────
 
-    #[tool(
-        name = "extensions_create",
-        description = "Create an empty extension pack shell under the host extensions root (not activated), as `susi extensions create`. Args: id",
-        input_schema = args::typed::<args::ExtensionPackId>()
-    )]
+    crate::tool_def!(extensions_create_tool_attr {
+        name: "extensions_create",
+        description: "Create an empty extension pack shell under the host extensions root (not activated), as `susi extensions create`. Args: id",
+        input_schema: args::typed::<args::ExtensionPackId>(),
+    });
     pub fn extensions_create(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         let status = extensions::create_pack(required_str(arg, "id")?).map_err(EaiError::config)?;
         let doc = serde_json::to_value(status)
@@ -212,29 +211,30 @@ impl CoreTools {
         pretty(&doc)
     }
 
-    #[tool(
-        name = "auto_status",
-        description = "Zero-config substrate readiness: packs, leading MCP, preferred coding model, agent and framework readiness, last prime, as `susi auto status`. Args: optional workspace",
-        input_schema = args::typed::<args::WorkspaceView>()
-    )]
+    crate::tool_def!(auto_status_tool_attr {
+        name: "auto_status",
+        description: "Zero-config substrate readiness: packs, leading MCP, preferred coding model, agent and framework readiness, last prime, as `susi auto status`. Args: optional workspace",
+        input_schema: args::typed::<args::WorkspaceView>(),
+    });
     pub fn auto_status(arg: &Value, workspace: &Path) -> EaiResult<String> {
         host_in("auto_status", arg, workspace, &[])
     }
 
-    #[tool(
-        name = "auto_prime",
-        description = "Re-run auto-prime now (models and installed peers; never enables MCP), as `susi auto prime`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(auto_prime_tool_attr {
+        name: "auto_prime",
+        description: "Re-run auto-prime now (models and installed peers; never enables MCP), as `susi auto prime`",
+        input_schema: args::no_args(),
+    });
     pub fn auto_prime(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         host("auto_prime", arg, &[])
     }
 
-    #[tool(
-        name = "deep_scan",
-        description = "Scan the home directory for model files and register them, as `susi deep-scan`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(deep_scan_tool_attr {
+        name: "deep_scan",
+        description:
+            "Scan the home directory for model files and register them, as `susi deep-scan`",
+        input_schema: args::no_args(),
+    });
     pub fn deep_scan(_arg: &Value, _workspace: &Path) -> EaiResult<String> {
         let reply =
             gemi::ModelManager::deep_scan_home_and_register(&susi_paths::SusiDirs::config_dir());
@@ -248,29 +248,29 @@ impl CoreTools {
             .to_string())
     }
 
-    #[tool(
-        name = "config_reload",
-        description = "Reload config.json and report the engine, model, model-ladder steps and MCP bootstrap servers in effect, as `susi admin reload`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(config_reload_tool_attr {
+        name: "config_reload",
+        description: "Reload config.json and report the engine, model, model-ladder steps and MCP bootstrap servers in effect, as `susi admin reload`",
+        input_schema: args::no_args(),
+    });
     pub fn config_reload(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         host("config_reload", arg, &[])
     }
 
-    #[tool(
-        name = "provider_contract",
-        description = "Provider contract fixture checks, plus the read-only credentialed claims when SUSI_PROVIDER_PROBE=1, as `susi admin provider-contract`",
-        input_schema = args::no_args()
-    )]
+    crate::tool_def!(provider_contract_tool_attr {
+        name: "provider_contract",
+        description: "Provider contract fixture checks, plus the read-only credentialed claims when SUSI_PROVIDER_PROBE=1, as `susi admin provider-contract`",
+        input_schema: args::no_args(),
+    });
     pub fn provider_contract(arg: &Value, _workspace: &Path) -> EaiResult<String> {
         host("provider_contract", arg, &[])
     }
 
-    #[tool(
-        name = "intent_ladder",
-        description = "The intent ladder: last scorecard, a full or start-up-slice run, one intent's verification, the failing-rung outbox, or adopting a gap as a repair task, as `susi admin intent-ladder`. Args: optional mode, id, workspace",
-        input_schema = args::typed::<args::IntentLadderArgs>()
-    )]
+    crate::tool_def!(intent_ladder_tool_attr {
+        name: "intent_ladder",
+        description: "The intent ladder: last scorecard, a full or start-up-slice run, one intent's verification, the failing-rung outbox, or adopting a gap as a repair task, as `susi admin intent-ladder`. Args: optional mode, id, workspace",
+        input_schema: args::typed::<args::IntentLadderArgs>(),
+    });
     pub fn intent_ladder(arg: &Value, workspace: &Path) -> EaiResult<String> {
         // `adopt_gap` authors a task in the checkout: it needs write.
         let write = arg.get("mode").and_then(Value::as_str) == Some("adopt_gap");

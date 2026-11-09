@@ -1,9 +1,8 @@
 //! Wire-level tests exercise the same rmcp service used by both entry points.
+use crate::mcp::{model::*, ServiceExt};
 use crate::protocol::GmcpService;
-use rmcp::{model::*, ServiceExt};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
-use susi_vendor_mcp_server as rmcp;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
 /// Serializes every test in this crate that replaces the process-global
@@ -229,7 +228,7 @@ async fn task_poll_update_and_cooperative_cancellation() {
     let task = service.tasks.spawn(Default::default(), |context| {
         Box::pin(async move {
             context.cancelled().await;
-            Err(rmcp::task_manager::TaskExit::Cancelled)
+            Err(crate::mcp::task_manager::TaskExit::Cancelled)
         })
     });
     let mut wire = wire(service).await;

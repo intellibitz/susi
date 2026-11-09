@@ -62,7 +62,7 @@ entry point.
 
 | Concept | Canonical owner |
 |---|---|
-| Wire types (`jsonrpc`, `id`, `method`, `params`, `result`, `error`) | `susi_vendor_mcp_server` (rmcp) `JsonRpcMessage` / `Request` / `Notification` / `Response` / `ErrorData` |
+| Wire types (`jsonrpc`, `id`, `method`, `params`, `result`, `error`) | `susi_gmcp::mcp::message` (`ClientJsonRpcMessage` / `JsonRpcRequest` / `ClientNotification` / `ServerJsonRpcMessage`) and `susi_gmcp::mcp::model::ErrorData` |
 | Server role (dispatch, negotiation, tool routing) | `susi_gmcp::protocol::GmcpService` (`serve`, `session`) |
 | Stdio transport bound | `susi_gmcp::stdio::BoundedLines` — one JSON value per line, line bytes ≤ `max_rpc_body_bytes` |
 | Streamable HTTP transport | `susi_gmcp::server::http_service` — `max_request_body_bytes`, allowed-hosts, Origin validation |

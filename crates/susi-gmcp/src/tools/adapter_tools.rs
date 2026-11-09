@@ -13,10 +13,8 @@
 //! A2A agent (`MacPolicy::authorize_tool`, re-checked by the daemon on the
 //! document it reads from `file`). A stdio `mcp_add` needs process.exec.
 
-use rmcp::tool;
 use serde_json::{json, Value};
 use std::path::Path;
-use susi_vendor_mcp_server as rmcp;
 
 use crate::susi_core::plane_bus::daemon;
 use crate::susi_error::EaiResult;
@@ -55,29 +53,29 @@ fn retry(kind: &str, arg: &Value, workspace: &Path) -> EaiResult<String> {
 }
 
 impl CoreTools {
-    #[tool(
-        name = "adapter_doctor",
-        description = "Readiness rows for agent, framework, coding-model or MCP adapters (nothing installed, no paid call), as `susi <agents|frameworks|models|mcp> doctor`. Args: kind, optional id",
-        input_schema = args::typed::<args::AdapterDoctor>()
-    )]
+    crate::tool_def!(adapter_doctor_tool_attr {
+        name: "adapter_doctor",
+        description: "Readiness rows for agent, framework, coding-model or MCP adapters (nothing installed, no paid call), as `susi <agents|frameworks|models|mcp> doctor`. Args: kind, optional id",
+        input_schema: args::typed::<args::AdapterDoctor>(),
+    });
     pub fn adapter_doctor(arg: &Value, workspace: &Path) -> EaiResult<String> {
         adapters("doctor", arg, &[KIND, ID], workspace)
     }
 
-    #[tool(
-        name = "adapter_setup",
-        description = "Setup instructions and the effective adapter, as `susi <agents|frameworks|models|mcp> setup`. Args: kind, id",
-        input_schema = args::typed::<args::AdapterId>()
-    )]
+    crate::tool_def!(adapter_setup_tool_attr {
+        name: "adapter_setup",
+        description: "Setup instructions and the effective adapter, as `susi <agents|frameworks|models|mcp> setup`. Args: kind, id",
+        input_schema: args::typed::<args::AdapterId>(),
+    });
     pub fn adapter_setup(arg: &Value, workspace: &Path) -> EaiResult<String> {
         adapters("setup", arg, &[KIND, ID], workspace)
     }
 
-    #[tool(
-        name = "adapter_configure",
-        description = "Store a host adapter override (agent and framework adapters pass the verified upgrade), as `susi <agents|frameworks|models|mcp> configure`. Args: kind, id, and adapter (object) or file (absolute path)",
-        input_schema = args::typed::<args::AdapterConfigure>()
-    )]
+    crate::tool_def!(adapter_configure_tool_attr {
+        name: "adapter_configure",
+        description: "Store a host adapter override (agent and framework adapters pass the verified upgrade), as `susi <agents|frameworks|models|mcp> configure`. Args: kind, id, and adapter (object) or file (absolute path)",
+        input_schema: args::typed::<args::AdapterConfigure>(),
+    });
     pub fn adapter_configure(arg: &Value, workspace: &Path) -> EaiResult<String> {
         forward(
             daemon::adapters,
@@ -91,38 +89,38 @@ impl CoreTools {
         )
     }
 
-    #[tool(
-        name = "adapter_reset",
-        description = "Drop a host adapter override and return the bundled adapter, as `susi <agents|frameworks|models|mcp> reset`. Args: kind, id",
-        input_schema = args::typed::<args::AdapterId>()
-    )]
+    crate::tool_def!(adapter_reset_tool_attr {
+        name: "adapter_reset",
+        description: "Drop a host adapter override and return the bundled adapter, as `susi <agents|frameworks|models|mcp> reset`. Args: kind, id",
+        input_schema: args::typed::<args::AdapterId>(),
+    });
     pub fn adapter_reset(arg: &Value, workspace: &Path) -> EaiResult<String> {
         adapters("reset", arg, &[KIND, ID], workspace)
     }
 
-    #[tool(
-        name = "agents_retry",
-        description = "Run a finished external agent task again with its original prompt (refused while it is active or unknown), as `susi agents retry`. Args: task_id, optional workspace",
-        input_schema = args::typed::<args::TaskRetry>()
-    )]
+    crate::tool_def!(agents_retry_tool_attr {
+        name: "agents_retry",
+        description: "Run a finished external agent task again with its original prompt (refused while it is active or unknown), as `susi agents retry`. Args: task_id, optional workspace",
+        input_schema: args::typed::<args::TaskRetry>(),
+    });
     pub fn agents_retry(arg: &Value, workspace: &Path) -> EaiResult<String> {
         retry("agents", arg, workspace)
     }
 
-    #[tool(
-        name = "frameworks_retry",
-        description = "Run a finished agent-framework task again with its original prompt, as `susi frameworks retry`. Args: task_id, optional workspace",
-        input_schema = args::typed::<args::TaskRetry>()
-    )]
+    crate::tool_def!(frameworks_retry_tool_attr {
+        name: "frameworks_retry",
+        description: "Run a finished agent-framework task again with its original prompt, as `susi frameworks retry`. Args: task_id, optional workspace",
+        input_schema: args::typed::<args::TaskRetry>(),
+    });
     pub fn frameworks_retry(arg: &Value, workspace: &Path) -> EaiResult<String> {
         retry("frameworks", arg, workspace)
     }
 
-    #[tool(
-        name = "mcp_add",
-        description = "Admit an MCP server (stdio command or streamable HTTP URL) into the registry and hot-plug it, as `susi mcp-add`. Args: name, command_or_url, optional args",
-        input_schema = args::typed::<args::McpAdd>()
-    )]
+    crate::tool_def!(mcp_add_tool_attr {
+        name: "mcp_add",
+        description: "Admit an MCP server (stdio command or streamable HTTP URL) into the registry and hot-plug it, as `susi mcp-add`. Args: name, command_or_url, optional args",
+        input_schema: args::typed::<args::McpAdd>(),
+    });
     pub fn mcp_add(arg: &Value, workspace: &Path) -> EaiResult<String> {
         adapters(
             "mcp_add",

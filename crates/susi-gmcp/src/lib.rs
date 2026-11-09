@@ -10,10 +10,13 @@
     )
 )]
 
-/// The vendored MCP SDK this crate's public handler signatures expose —
-/// consumers name `susi_gmcp::rmcp::model::*` for the typed-API form the
-/// canonical content model adapts into (`content::CanonicalContentBlock::to_rmcp`).
-pub extern crate susi_vendor_mcp_server as rmcp;
+/// GMCP's own MCP server (wire model, sessions, stdio and Streamable HTTP).
+pub mod mcp;
+/// The path the typed MCP API has always had: consumers name
+/// `susi_gmcp::rmcp::model::*` for the typed form the canonical content
+/// model adapts into (`content::CanonicalContentBlock::to_rmcp`). It is
+/// GMCP's own implementation in [`mcp`]; no MCP SDK is linked.
+pub use self::mcp as rmcp;
 
 pub use susi_abi;
 

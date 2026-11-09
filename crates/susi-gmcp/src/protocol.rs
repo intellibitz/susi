@@ -1,15 +1,15 @@
 //! MCP application handlers. Wire validation, negotiation, framing, cancellation,
-//! request correlation and version-specific serialization belong to rmcp.
+//! request correlation and version-specific serialization belong to `crate::mcp`.
 #![allow(deprecated)] // Legacy MCP compatibility during the protocol deprecation window.
-use crate::tools::ToolRegistry;
-use parking_lot::RwLock;
-use rmcp::{
+use crate::mcp::{
     model::*,
     service::{
         NotificationContext, RequestContext, RoleServer, SubscriptionContext, SubscriptionSendError,
     },
     ErrorData, ServerHandler,
 };
+use crate::tools::ToolRegistry;
+use parking_lot::RwLock;
 use serde_json::{json, Value};
 use std::{
     borrow::Cow,
@@ -19,7 +19,6 @@ use std::{
     pin::Pin,
     sync::Arc,
 };
-use susi_vendor_mcp_server as rmcp;
 use tokio::sync::broadcast;
 
 pub type ProtocolFuture<T> = Pin<Box<dyn Future<Output = Result<T, ErrorData>> + Send>>;
@@ -44,7 +43,10 @@ pub type PromptHandler = Arc<
         + Sync,
 >;
 pub type TaskToolHandler = Arc<
-    dyn Fn(CallToolRequestParams, rmcp::task_manager::TaskContext) -> rmcp::task_manager::TaskFuture
+    dyn Fn(
+            CallToolRequestParams,
+            crate::mcp::task_manager::TaskContext,
+        ) -> crate::mcp::task_manager::TaskFuture
         + Send
         + Sync,
 >;
@@ -115,7 +117,7 @@ pub struct GmcpService {
     workspace: PathBuf,
     catalog: Arc<RwLock<Catalog>>,
     changes: broadcast::Sender<Change>,
-    pub tasks: rmcp::task_manager::TaskManager,
+    pub tasks: crate::mcp::task_manager::TaskManager,
     legacy_subscriptions: Arc<RwLock<BTreeSet<String>>>,
     log_level: Arc<RwLock<Option<LoggingLevel>>>,
     extensions: Arc<RwLock<crate::extensions::ExtensionRegistry>>,
@@ -372,8 +374,10 @@ impl ServerHandler for GmcpService {
         Ok(self.discover_result())
     }
     fn get_info(&self) -> ServerConfig {
-        let mut info = ServerConfig::default();
-        info.server_info = Self::server_identity();
+        let mut info = ServerConfig {
+            server_info: Self::server_identity(),
+            ..ServerConfig::default()
+        };
         info.capabilities = ServerCapabilities::builder()
             .enable_tools()
             .enable_tool_list_changed()
@@ -520,12 +524,12 @@ impl ServerHandler for GmcpService {
                 .protocol_version()
                 .is_some_and(|v| v >= ProtocolVersion::V_2026_07_28)
         {
-            let task = self
-                .tasks
-                .spawn(rmcp::task_manager::TaskOptions::default(), move |task| {
+            let task = self.tasks.spawn(
+                crate::mcp::task_manager::TaskOptions::default(),
+                move |task| {
                     Box::pin(async move {
                         if task.is_cancel_requested() {
-                            return Err(rmcp::task_manager::TaskExit::Cancelled);
+                            return Err(crate::mcp::task_manager::TaskExit::Cancelled);
                         }
                         // Synchronous registry tools other than `mission_run` cannot be
                         // interrupted after entry. A late cancellation remains a request,
@@ -548,13 +552,14 @@ impl ServerHandler for GmcpService {
                         if let Some(watch) = cancel_watch {
                             watch.abort();
                         }
-                        let result = result.map_err(rmcp::task_manager::TaskExit::from)?;
+                        let result = result.map_err(crate::mcp::task_manager::TaskExit::from)?;
                         if task.is_cancel_requested() {
-                            return Err(rmcp::task_manager::TaskExit::Cancelled);
+                            return Err(crate::mcp::task_manager::TaskExit::Cancelled);
                         }
                         Ok(result)
                     })
-                });
+                },
+            );
             return Ok(CallToolResponse::Task(CreateTaskResult::new(task)));
         }
         let token = context.meta.get_progress_token();
@@ -772,7 +777,6 @@ impl ServerHandler for GmcpService {
         let key = match &request.r#ref {
             Reference::Prompt(p) => &p.name,
             Reference::Resource(r) => &r.uri,
-            _ => return Err(invalid("Unknown completion reference")),
         };
         let handler = self
             .catalog
@@ -864,7 +868,7 @@ const PROGRESS_GAP: std::time::Duration = std::time::Duration::from_millis(100);
 /// rising with each line, coalesced to [`PROGRESS_GAP`]. Ends when the
 /// tool's sink is dropped, after sending the last pending line.
 async fn relay_progress(
-    peer: rmcp::service::Peer<RoleServer>,
+    peer: crate::mcp::service::Peer,
     token: ProgressToken,
     mut lines: tokio::sync::mpsc::UnboundedReceiver<String>,
 ) {

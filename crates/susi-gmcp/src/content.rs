@@ -511,7 +511,7 @@ impl CanonicalContentBlock {
     /// field maps exactly; extension keys live only on the canonical side
     /// (the typed model does not carry them, which is precisely why the
     /// canonical form exists).
-    pub fn to_rmcp(&self) -> Result<susi_vendor_mcp_server::model::ContentBlock, ContentError> {
+    pub fn to_rmcp(&self) -> Result<crate::mcp::model::ContentBlock, ContentError> {
         serde_json::from_value(self.to_wire()).map_err(|_| ContentError::UnknownVariant)
     }
 }

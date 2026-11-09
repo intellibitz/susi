@@ -86,14 +86,14 @@ threads). Baseline measured 2026-11-07 22:53 at origin/main `fc3f5a861`,
 **under load** (a test gate was running on the same machine; a clean re-run
 follows once the gate is idle):
 
-| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | 06:15 idle, landed `66d3ca6d8` | 09:01 idle, landed `240ee4dfb` (iteration 362) | 21:21-21:30 idle, T-CORENET-1 `437ccf597` (three runs alternating with main `92f7ee498`) | 06:18-06:26, no other build or gate at each run's start, T-A2ASTD-1 `3acbb47b3` (two runs alternating with main `aae59f4c2`) | budget |
-| --------- | ---------- | ---------- | ---------- | ---------- | ---------- | ---------- | ---------- | -------- |
-| wall clock | 196 s | 165 s | 104.5 s | 107.7 s (88.9 s in a second idle run) | 81.7 s | 70.1, 70.2, 70.6 s (main: 74.2, 73.3, 76.9 s) | 83.1, 86.2 s (main: 83.8, 82.8 s; 78.3 s at `c70d17be1` 05:56) | 60 s |
-| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | 990.5 s (427 units) | 822.7 s (417 units) | 775.8-784.7 s (417 units; main 745.8-774.9 s) | 893.3, 896.8 s (417 units; main 955.3, 909.1 s, 417 units) | under 1,200 s |
-| of which workspace crates | 393 s | 359 s | 184 s | 219 s | 148.4 s | 157.9-161.5 s (main 153.4-162.3 s) | 186.5, 190.4 s (main 203.5, 191.9 s) | under 150 s |
-| of which third-party | 1,916 s | 1,513 s | 899 s | 772 s | 674.2 s | 617.7-624.0 s (main 592.4-612.7 s) | 706.8, 706.3 s (main 751.7, 717.2 s) | under 1,000 s, then towards 0 |
-| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | 15 units, 125 s: windows-sys 27, tokio 13, h2/hyper/reqwest 17, rmcp 25, gmcp 15, daemon 11, bin 12 | 17 units, 95.1 s: windows-sys 19 s -> tokio 15.5 -> h2/hyper/hyper-util 8.8 -> susi-core 10.6 -> gawd-agents 4.4 -> gawd-swarm 7.6 -> gawd 8.1 -> daemon 6.0 -> bin 7.5 | 15 units, 81.5-82.1 s: windows-sys 19 -> tokio 9.5 -> h2/hyper/hyper-util 9.7 -> axum 5.7 -> ra2a 7.7 -> gawd-a2a 2.7 -> gawd 8.9 -> daemon 6.0 -> bin 7.4; susi-core starts at 29.7-30.2 s (main 36.8-38.7 s) and is off the path (main: 17 units, 88.5-92.7 s, through susi-http-transport -> susi-adapters-llm -> susi-core) | 10 units, 93.6-94.6 s: windows-sys 22 -> tokio 11-13 -> tokio-util 1 -> rmcp 21-23 -> gmcp 16 -> daemon 8-9 -> bin 8-9, the same path as main (main 95.1 s; one main run read 103.9 s through the serde/config/core/gawd chain); susi-gawd no longer waits on susi-gawd-a2a | under 55 s |
-| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | 40 s | 29.9 s | 17.8-18.1 s (main 24.1-25.1 s) | 18.0, 20.3 s (main 18.0, 16.9 s) | under 15 s |
+| measure | 22:53 under load, `fc3f5a861` | 23:59 idle, `0710edf64` (iteration 350) | 03:28 idle, landed `b814235c4` | 06:15 idle, landed `66d3ca6d8` | 09:01 idle, landed `240ee4dfb` (iteration 362) | 21:21-21:30 idle, T-CORENET-1 `437ccf597` (three runs alternating with main `92f7ee498`) | 06:18-06:26, no other build or gate at each run's start, T-A2ASTD-1 `3acbb47b3` (two runs alternating with main `aae59f4c2`) | 07:12-07:18 idle (nothing else building at each start), T-NOMCPSDK-1 `47e7a8137` (two runs alternating with main `5f23245e0`) | budget |
+| --------- | ---------- | ---------- | ---------- | ---------- | ---------- | ---------- | ---------- | ---------- | -------- |
+| wall clock | 196 s | 165 s | 104.5 s | 107.7 s (88.9 s in a second idle run) | 81.7 s | 70.1, 70.2, 70.6 s (main: 74.2, 73.3, 76.9 s) | 83.1, 86.2 s (main: 83.8, 82.8 s; 78.3 s at `c70d17be1` 05:56) | 74.7, 74.6 s (main: 80.4, 84.7 s) | 60 s |
+| rustc CPU-seconds, all units | 2,309 s (478 units) | 1,872 s (471 units) | 1,083 s (462 units) | 990.5 s (427 units) | 822.7 s (417 units) | 775.8-784.7 s (417 units; main 745.8-774.9 s) | 893.3, 896.8 s (417 units; main 955.3, 909.1 s, 417 units) | 813.1, 788.0 s (389 units; main 845.5, 895.9 s, 417 units) | under 1,200 s |
+| of which workspace crates | 393 s | 359 s | 184 s | 219 s | 148.4 s | 157.9-161.5 s (main 153.4-162.3 s) | 186.5, 190.4 s (main 203.5, 191.9 s) | 181.6, 181.5 s (main 174.3, 190.3 s) | under 150 s |
+| of which third-party | 1,916 s | 1,513 s | 899 s | 772 s | 674.2 s | 617.7-624.0 s (main 592.4-612.7 s) | 706.8, 706.3 s (main 751.7, 717.2 s) | 631.5, 606.5 s (main 671.2, 705.6 s) | under 1,000 s, then towards 0 |
+| critical path | 18 units, 196 s | 18 units, 165 s: syn 18 s, `windows` 64 s, then config 10, core 19, gawd-agents 11, gawd-swarm 20, gawd 21, daemon 14, bin 17.5 | 15 units, 124 s: windows-sys 29, tokio 13, h2/hyper/reqwest 18, rmcp 28, gmcp 14, daemon 10, bin 9 | 15 units, 125 s: windows-sys 27, tokio 13, h2/hyper/reqwest 17, rmcp 25, gmcp 15, daemon 11, bin 12 | 17 units, 95.1 s: windows-sys 19 s -> tokio 15.5 -> h2/hyper/hyper-util 8.8 -> susi-core 10.6 -> gawd-agents 4.4 -> gawd-swarm 7.6 -> gawd 8.1 -> daemon 6.0 -> bin 7.5 | 15 units, 81.5-82.1 s: windows-sys 19 -> tokio 9.5 -> h2/hyper/hyper-util 9.7 -> axum 5.7 -> ra2a 7.7 -> gawd-a2a 2.7 -> gawd 8.9 -> daemon 6.0 -> bin 7.4; susi-core starts at 29.7-30.2 s (main 36.8-38.7 s) and is off the path (main: 17 units, 88.5-92.7 s, through susi-http-transport -> susi-adapters-llm -> susi-core) | 10 units, 93.6-94.6 s: windows-sys 22 -> tokio 11-13 -> tokio-util 1 -> rmcp 21-23 -> gmcp 16 -> daemon 8-9 -> bin 8-9, the same path as main (main 95.1 s; one main run read 103.9 s through the serde/config/core/gawd chain); susi-gawd no longer waits on susi-gawd-a2a | 14-16 units, 91.3, 88.1 s: syn 12 -> serde_derive 7 -> config 9.5 -> core 14.5 -> gmcp 19.7 -> daemon 8.7 -> bin 7 (rmcp gone; main 10 units, 86.9, 95.3 s: windows-sys 21 -> mio/tokio/tokio-util 15 -> rmcp 19.6 -> gmcp 15.8 -> daemon 7.8 -> bin 7.2) | under 55 s |
+| wall seconds with fewer than 4 units compiling (the serial tail) | 77 s | not measured | 29 s | 40 s | 29.9 s | 17.8-18.1 s (main 24.1-25.1 s) | 18.0, 20.3 s (main 18.0, 16.9 s) | 16.8, 17.5 s (main 20.0, 16.7 s) | under 15 s |
 
 The idle number is the baseline the budget counts from. Between the two
 measurements Antigravity's iterations 341-350 removed candle, bollard and the
@@ -134,7 +134,7 @@ Two independent constraints, both binding:
 | tokio runtime | 106 | no | rung 2 |
 | json schema: jsonschema, referencing, fancy-regex | 101 | no | Claude, wave 2A (std validator, landed in gmcp; daemon next) |
 | serde + serde_json | 91 | no | rung 3 |
-| MCP vendor: rmcp, ra2a | 74 | no | Claude, rung 2 |
+| MCP vendor: rmcp, ra2a | 74 (rmcp 0 since T-NOMCPSDK-1: GMCP serves MCP itself) | rmcp was, 2026-11-09 | Claude, rung 2; ra2a remains in the daemon |
 | docker: bollard (+ its time/icu tail) | 74 | no | Antigravity: susi-sandbox leaves |
 | regex | 63 | no | audit users; most are product |
 | wasm text format: wast, wat | 0 (was 21.4 s for `wast` at `b814235c4`) | no | done, T-DEEPSEEK-1: the host accepts binary `.wasm` only |
@@ -402,3 +402,29 @@ table once the clean baseline is recorded.
   CLI, which stays in core until the CEO decides. Roadmap vectors VC-201-027 and VC-201-028
   record where their evidence now runs. Lines: susi-gawd-swarm 23,002 -> 20,673, susi-gawd
   13,288 -> 12,653; pillar reach unchanged (47 workspace, 231 third-party, 22 facade edges).
+- 2026-11-09 T-NOMCPSDK-1 (the MCP server SDK leaves core): GMCP serves MCP with its own
+  implementation in `crates/susi-gmcp/src/mcp` (wire model, JSON-RPC envelopes with rmcp's parse
+  strictness, the `initialize` and 2026-07-28 per-request lifecycles, tools/list paging,
+  tools/call with progress, cancellation, tasks and multi-round-trip input, resources, prompts,
+  completion, logging, subscriptions; the stdio gate and Streamable HTTP with sessions, SSE
+  priming events and keep-alive, stateless 2026-07-28 requests, `Mcp-*` header checks, Host and
+  Origin validation) on the tokio/hyper transport GMCP already ran. The 200 built-in tool
+  definitions come from `tool_def!` and their 119 argument shapes from `input_schema!`, which
+  reproduce every previous `inputSchema` exactly. `susi-vendor-mcp-server` is deleted; rmcp,
+  rmcp-macros, schemars, schemars_derive, sse-stream, pastey, darling and 11 more lock entries
+  leave the build. No crate or third-party dependency is added. Behaviour, recorded before and
+  after on isolated homes: 23 stdio scenarios (both eras, malformed input, pre-initialize
+  traffic, tasks, subscriptions) and 48 HTTP exchanges (status, headers, SSE event ids and
+  bodies) are identical byte for byte, the 195/200 tool definitions (default/`tools-rich`) and
+  `server/discover` are identical, the host-contract conformance run gives the same 24 outcomes,
+  and the commercial live contract test passes 24/25 against a daemon built from the branch
+  (the one failure is the certified-release pin, which names a published binary). Pillar reach:
+  231 -> 198 third-party, 47 -> 46 workspace, 22 -> 21 facade edges. Lines: susi-gmcp
+  19,469 -> 25,900 (+6,431, the protocol that rmcp's 55,000 source lines used to carry); this is
+  a re-pin upward under the "crate leaving core, contract moving in" rule and is the trade the
+  CEO should see. Measured 07:12-07:18, nothing else building at each run's start, alternating
+  branch `47e7a8137` and main `5f23245e0`: wall 74.7 / 74.6 s against 80.4 / 84.7 s, CPU-s
+  813.1 / 788.0 against 845.5 / 895.9, 389 units against 417. The critical path no longer
+  passes rmcp; it now runs syn -> serde_derive -> susi-config -> susi-core -> susi-gmcp (19.7 s,
+  from 15.8 s) -> susi-daemon -> bin. Next levers for 60 s: the proc-macro/serde chain gating
+  susi-config, susi-core and susi-gmcp's own compile time, windows-sys, and tokio/hyper (rung 2).
