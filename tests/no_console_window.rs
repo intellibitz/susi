@@ -44,14 +44,9 @@
 //! no `Cargo.toml` may give either crate name to another package (a `package`
 //! rename, a path elsewhere, a `[lib]` or `[package]` of that name).
 //!
-//! Two launches sit in files reserved by other native workers; this task may
-//! not edit them. They are named in [`HELD_BY_OTHER_CLAIMS`] with their exact
-//! count: the guard fails if either grows or any new one appears, and it also
-//! fails once a holder fixes theirs, so the entry must then be deleted. The
-//! list may only shrink. Both fixes are written and independently verified on
-//! other branches (the `bounded_cmd` wrapper for `taskkill`, a pid probe for
-//! `tasklist`); this branch cannot carry them, so the entries stay until the
-//! combined tree and must be empty there.
+//! No held launch or flag exceptions remain. This checkpoint requires the
+//! accepted tasklist removal and the dot-gmcp-cleanup taskkill wrappers in
+//! its native combined batch; running it alone fails closed.
 //!
 //! Not judged: a program name held in a constant or built at run time
 //! (`Command::new(PROGRAM)`); code a procedural macro generates; and code
@@ -90,24 +85,7 @@ const BUILDERS: [&str; 10] = [
 
 /// Known direct launches in files another native worker holds:
 /// `(file, program, count, holder)`.
-const HELD_BY_OTHER_CLAIMS: [(&str, &str, usize, &str); 2] = [
-    // Five `taskkill` calls in test teardown, reserved by the dot-gmcp-cleanup claim
-    // (its independent fix wraps each in `bounded_cmd::output_within`).
-    (
-        "tests/gmcp_requirements.rs",
-        "taskkill",
-        5,
-        "dot-gmcp-cleanup",
-    ),
-    // The `tasklist` liveness probe, reserved by the dot-reuse claim (the
-    // independent fix replaces it with the pid probe).
-    (
-        "xtask/src/bin/local-workflow.rs",
-        "tasklist",
-        1,
-        "dot-reuse",
-    ),
-];
+const HELD_BY_OTHER_CLAIMS: [(&str, &str, usize, &str); 0] = [];
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -954,8 +932,7 @@ fn the_launches_held_by_other_claims_are_exactly_the_recorded_ones() {
 
 /// Files other claims hold that write the flag's value instead of calling
 /// the helper: `(file, count, holder)`. Exact, like [`HELD_BY_OTHER_CLAIMS`].
-const HELD_FLAG_LITERALS: [(&str, usize, &str); 1] =
-    [("tests/workflow_publication.rs", 1, "wintests")];
+const HELD_FLAG_LITERALS: [(&str, usize, &str); 0] = [];
 
 /// Whether a token is the numeric literal for `CREATE_NO_WINDOW`.
 fn is_create_no_window(token: &Token) -> bool {
