@@ -835,6 +835,18 @@ impl AdaptiveRunner<NativeWorker, CliSubRunner> {
     }
 }
 
+impl<P: Runner> AdaptiveRunner<P, CliSubRunner> {
+    /// Enable Argon-only routing and CLI validation together. This builder is
+    /// intentionally limited to the concrete CLI runner: a generic runner may
+    /// ignore model selection or execute an unrelated command override.
+    #[must_use]
+    pub fn with_antigravity_argon_only(mut self) -> Self {
+        self.antigravity_argon_only = true;
+        self.cli_runner.antigravity_argon_only = true;
+        self
+    }
+}
+
 impl<P: Runner, C: Runner> AdaptiveRunner<P, C> {
     /// A runner over the two planes with no fallback models.
     pub fn new(payg_runner: P, cli_runner: C, strategy: AdaptiveStrategy) -> Self {
@@ -846,14 +858,6 @@ impl<P: Runner, C: Runner> AdaptiveRunner<P, C> {
             fallback_payg_model: None,
             antigravity_argon_only: false,
         }
-    }
-
-    /// Restrict this runner's Antigravity routes without changing other users'
-    /// defaults. Missing submodels pin Argon High; conflicting ones fail closed.
-    #[must_use]
-    pub fn with_antigravity_argon_only(mut self) -> Self {
-        self.antigravity_argon_only = true;
-        self
     }
 
     /// Set the CLI spec PAYG fails over to.
@@ -1323,6 +1327,34 @@ mod tests {
         assert!(!args.iter().any(|arg| arg == "--model"));
     }
 
+    // Scripted runners test outer routing only; real CLI enforcement is tested
+    // separately through the production builder below.
+    impl AdaptiveRunner<Scripted, Scripted> {
+        fn with_scripted_argon_policy(mut self) -> Self {
+            self.antigravity_argon_only = true;
+            self
+        }
+    }
+
+    #[test]
+    fn argon_builder_enforces_cli_policy_before_an_override_can_launch() {
+        let runner = AdaptiveRunner::new(
+            Scripted::ok("PAYG must not run"),
+            CliSubRunner::with_command(sort_command()),
+            AdaptiveStrategy::PreferCliSubThenPayg,
+        )
+        .with_fallback_payg_model("paid-model")
+        .with_antigravity_argon_only();
+        assert!(runner.antigravity_argon_only);
+        assert!(runner.cli_runner.antigravity_argon_only);
+        // sort would succeed if spawned, so only this exact refusal proves the
+        // builder propagated policy into CLI resolution before process launch.
+        let outcome = runner.run(&config("cli:agy")).unwrap();
+        assert!(matches!(outcome, RunOutcome::Failed { ref message }
+            if message.contains("refuses an unverified command override")));
+        assert!(runner.payg_runner.seen().is_empty());
+    }
+
     #[test]
     fn argon_policy_pins_missing_model_and_refuses_conflicts_before_launch() {
         let installed = tempfile::tempdir().unwrap();
@@ -1373,7 +1405,7 @@ mod tests {
                     strategy,
                 )
                 .with_fallback_payg_model("paid-model")
-                .with_antigravity_argon_only();
+                .with_scripted_argon_policy();
                 assert!(runner.plan("cli:agy").failover.is_none());
                 assert_eq!(runner.run(&config("cli:agy")).unwrap(), outcome);
                 assert!(runner.payg_runner.seen().is_empty());
@@ -1388,7 +1420,7 @@ mod tests {
                 strategy,
             )
             .with_fallback_payg_model("paid-model")
-            .with_antigravity_argon_only();
+            .with_scripted_argon_policy();
             assert!(matches!(
                 runner.run(&config("cli:agy:other")).unwrap(),
                 RunOutcome::Failed { .. }
@@ -1427,7 +1459,7 @@ mod tests {
             Scripted::ok("cli"),
             AdaptiveStrategy::Auto,
         )
-        .with_antigravity_argon_only();
+        .with_scripted_argon_policy();
         restricted.run(&config("cli:claude:opus")).unwrap();
         restricted.run(&config("paid-model")).unwrap();
         assert_eq!(restricted.cli_runner.seen(), ["cli:claude:opus"]);

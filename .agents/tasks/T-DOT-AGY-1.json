@@ -28,7 +28,8 @@
     "Set --print-timeout 0 and discover LOCALAPPDATA/agy/bin.",
     "Retain existing ExecutorConfig.timeout as a true task deadline, not a status polling timeout.",
     "Opt-in process policy SUSI_HARNESS_ANTIGRAVITY_ARGON_ONLY pins explicit Antigravity requests without submodel to gemini-4-argon-high, rejects conflicting models before launch, and prohibits PAYG rerouting/fallback for these requests across all strategies.",
-    "Unrelated users retain existing model freedom; production from_env wires policy into both adaptive and CLI resolution layers. Exact command overrides are refused under policy."
+    "Unrelated users retain existing model freedom; production from_env wires policy into both adaptive and CLI resolution layers. Exact command overrides are refused under policy.",
+    "Review correction: policy builder is specialized to AdaptiveRunner<P, CliSubRunner> and sets both flags atomically; an unverified command override cannot bypass the composed builder."
   ],
   "verification": [
     "cargo test -p susi-harness --lib --offline --locked adaptive:: : 28 passed, 0 failed; compile 48.72s, tests 2.07s.",
@@ -38,12 +39,14 @@
     "Argon read-only design review completed SUCCESS after 196.66s, no caller timeout, conversation 758cb915-0558-4a6a-9a73-d179aa039e00.",
     "After policy change: cargo test -q -p susi-harness --lib --offline --locked: 529 passed, 0 failed, 2.51s.",
     "Enabled policy only in a disposable test process: argon_policy_from_env_wires_both_production_layers passed (1 test).",
-    "After policy change: scoped clippy -D warnings and cargo fmt --all --check passed."
+    "After policy change: scoped clippy -D warnings and cargo fmt --all --check passed.",
+    "After builder correction: 530 library tests passed (2.34s), scoped clippy -D warnings and workspace formatting passed. The new composed real CliSubRunner override regression proves pre-launch refusal and no PAYG fallback."
   ],
   "remaining": [
     "No integration, push, merge or production qualification performed.",
     "Unbounded mission execution needs explicit supervisor cancellation wired through typed outcomes; current Failed/TimedOut would trigger configured PAYG fallback. No unsafe infinite-wait policy added.",
     "Real agy launched for design review; adapter stdin end-to-end with real model not separately qualified.",
-    "Opt-in policy is not enabled in live launch environments; awaiting independent review and integration before activation."
+    "Opt-in policy is not enabled in live launch environments; awaiting independent review and integration before activation.",
+    "Policy no-PAYG guarantee is for explicit cli:agy / cli:antigravity specs. Always use explicit CEO route; implicit discovery/default-kind selection is not covered by that outer route guarantee."
   ]
 }
