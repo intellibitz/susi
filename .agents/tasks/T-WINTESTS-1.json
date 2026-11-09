@@ -59,5 +59,6 @@
       "workflow_publication"
     ]
   },
-  "updated_unix": 1794207119
+  "updated_unix": 1794207119,
+  "successor_handoff": "2026-11-09: Dot-designated Codex successor; previous worker absent from supported session inventory, clean checkpoint 8b1fcfbfd preserved. Replace five GMCP fixture taskkill launches with existing susi_core::bounded_cmd::output_within, preserving /PID /T /F and adding a 10-second bound. Base-safe Windows helper owns CREATE_NO_WINDOW; no unmerged dependency. Targeted tests and both GMCP evidence phases remain pending. No qualification claimed."
 }

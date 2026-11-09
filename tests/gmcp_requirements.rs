@@ -881,11 +881,10 @@ fn stop_test_server(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
         let pid = child.id().to_string();
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid, "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        let _ = susi_core::bounded_cmd::output_within(
+            Command::new("taskkill").args(["/PID", &pid, "/T", "/F"]),
+            std::time::Duration::from_secs(10),
+        );
     }
     // The stdio peer can still hold its input pipe open if tree cleanup failed.
     // Only wait after the exact child has exited or its own kill succeeded.
@@ -7932,11 +7931,10 @@ fn gmcp_req_203_005_03_integration() {
         if !pid.is_empty() {
             #[cfg(windows)]
             {
-                let _ = Command::new("taskkill")
-                    .args(["/PID", &pid, "/T", "/F"])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
+                let _ = susi_core::bounded_cmd::output_within(
+                    Command::new("taskkill").args(["/PID", &pid, "/T", "/F"]),
+                    std::time::Duration::from_secs(10),
+                );
             }
             #[cfg(not(windows))]
             {
@@ -8131,11 +8129,10 @@ fn gmcp_req_203_005_04_adversarial() {
         if !pid.is_empty() {
             #[cfg(windows)]
             {
-                let _ = Command::new("taskkill")
-                    .args(["/PID", &pid, "/T", "/F"])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
+                let _ = susi_core::bounded_cmd::output_within(
+                    Command::new("taskkill").args(["/PID", &pid, "/T", "/F"]),
+                    std::time::Duration::from_secs(10),
+                );
             }
             #[cfg(not(windows))]
             {
@@ -8276,11 +8273,10 @@ fn gmcp_req_203_005_05_interop() {
         if !pid.is_empty() {
             #[cfg(windows)]
             {
-                let _ = Command::new("taskkill")
-                    .args(["/PID", &pid, "/T", "/F"])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
+                let _ = susi_core::bounded_cmd::output_within(
+                    Command::new("taskkill").args(["/PID", &pid, "/T", "/F"]),
+                    std::time::Duration::from_secs(10),
+                );
             }
             #[cfg(not(windows))]
             {
@@ -8374,11 +8370,10 @@ fn gmcp_req_203_005_06_operations() {
         if !pid.is_empty() {
             #[cfg(windows)]
             {
-                let _ = Command::new("taskkill")
-                    .args(["/PID", &pid, "/T", "/F"])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
+                let _ = susi_core::bounded_cmd::output_within(
+                    Command::new("taskkill").args(["/PID", &pid, "/T", "/F"]),
+                    std::time::Duration::from_secs(10),
+                );
             }
             #[cfg(not(windows))]
             {
