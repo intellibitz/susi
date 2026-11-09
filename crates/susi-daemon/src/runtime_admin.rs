@@ -1064,6 +1064,22 @@ mod tests {
         ));
     }
 
+    /// Give `path` the access list `icacls <path> /grant *S-1-1-0:F` gave: the
+    /// current user and Everyone, both with full control, set natively (no
+    /// `icacls` process, which would open a console window).
+    #[cfg(windows)]
+    fn grant_everyone_full_control(path: &Path) {
+        let user = winapi::acl::current_user_sid().unwrap();
+        winapi::acl::set_protected_dacl(
+            path,
+            &[
+                (user.as_str(), winapi::acl::FILE_ALL_ACCESS),
+                ("S-1-1-0", winapi::acl::FILE_ALL_ACCESS),
+            ],
+        )
+        .unwrap();
+    }
+
     #[test]
     #[cfg(windows)]
     fn readiness_scan_flags_overly_permissive_windows_key_files() {
@@ -1073,34 +1089,56 @@ mod tests {
         let key_path = dir.join("cluster.key");
         std::fs::write(&key_path, b"secret").unwrap();
 
-        let granted = std::process::Command::new("icacls")
-            .args([key_path.to_str().unwrap(), "/grant", "*S-1-1-0:F"])
-            .output()
-            .is_ok_and(|o| o.status.success());
-        if granted {
-            let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir);
-            assert_eq!(findings.len(), 1);
-        }
+        grant_everyone_full_control(&key_path);
+        let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir);
+        assert_eq!(findings.len(), 1);
 
-        let user = std::env::var("USERNAME").unwrap_or_default();
-        if !user.is_empty() {
-            let restricted = std::process::Command::new("icacls")
-                .args([
-                    key_path.to_str().unwrap(),
-                    "/inheritance:r",
-                    "/remove",
-                    "*S-1-1-0",
-                    "/grant:r",
-                    &format!("{user}:F"),
-                ])
-                .output()
-                .is_ok_and(|o| o.status.success());
-            if restricted {
-                assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
-            }
-        }
+        winapi::acl::restrict_to_current_user(&key_path).unwrap();
+        assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn native_access_masks_print_in_icacls_notation() {
+        for (mask, expected) in [
+            (0x001F_01FF, "F"),
+            (0x1000_0000, "F"),
+            (0x0013_01BF, "M"),
+            (0x0012_00A9, "RX"),
+            (0x0012_0089, "R"),
+            (0x8000_0000, "R"),
+            (0x0010_0116, "W"),
+            (0x0000_0001, "RD"),
+            (0x0000_0000, "N"),
+        ] {
+            assert_eq!(SusiRuntimeAdmin::icacls_rights(mask), expected, "{mask:#x}");
+        }
+    }
+
+    #[test]
+    fn native_entries_print_as_icacls_lines_the_parser_judges() {
+        let everyone = SusiRuntimeAdmin::icacls_entry_line("S-1-1-0", false, false, 0x001F_01FF);
+        assert_eq!(everyone, "Everyone:(F)");
+        assert!(SusiRuntimeAdmin::windows_acl_is_overly_permissive(
+            &everyone
+        ));
+        assert_eq!(
+            SusiRuntimeAdmin::icacls_entry_line("S-1-5-32-545", false, true, 0x0012_00A9),
+            r"BUILTIN\Users:(I)(RX)"
+        );
+        assert_eq!(
+            SusiRuntimeAdmin::icacls_entry_line("S-1-5-21-1-2-3-501", false, false, 0x0012_0089),
+            "Guest:(R)"
+        );
+        // An unnamed trustee prints as `*<SID>` and is never a broad principal.
+        let system = SusiRuntimeAdmin::icacls_entry_line("S-1-5-18", false, false, 0x001F_01FF);
+        assert_eq!(system, "*S-1-5-18:(F)");
+        assert!(!SusiRuntimeAdmin::windows_acl_is_overly_permissive(&system));
+        assert_eq!(
+            SusiRuntimeAdmin::icacls_entry_line("S-1-5-21-1-2-3-1001", true, true, 0x0010_0116),
+            "*S-1-5-21-1-2-3-1001:(I)(DENY)(W)"
+        );
     }
 
     #[test]
@@ -1200,10 +1238,8 @@ mod tests {
     fn readiness_scan_skips_bus_endpoint_metadata_but_not_the_bus_key() {
         let (home, bus_key, key) = home_with_bus_metadata("win");
         let grant_everyone = |path: &Path| {
-            std::process::Command::new("icacls")
-                .args([path.to_str().unwrap(), "/grant", "*S-1-1-0:F"])
-                .output()
-                .is_ok_and(|o| o.status.success())
+            grant_everyone_full_control(path);
+            true
         };
         let topic = home
             .join("bus")

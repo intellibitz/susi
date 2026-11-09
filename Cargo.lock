@@ -2784,6 +2784,7 @@ dependencies = [
  "susi-adapters-llm",
  "susi-error",
  "susi-http-transport",
+ "susi-paths",
  "susi-vendor-axum",
  "susi-vendor-futures",
  "susi-vendor-hex",

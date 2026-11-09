@@ -1,7 +1,9 @@
 # Native detached process boundary
 
-The original Apache-2.0 `detached::spawn` safe wrapper is the only first-party
-unsafe allowance in this facade. The crate denies unsafe code by default.
+The original Apache-2.0 `detached::spawn` safe wrapper and the `acl` module
+(native owner-only file ACLs, added 2026-11-09) are the first-party unsafe
+allowances reviewed here; `host` and `environment` are also in the scan below.
+Every allowance is per-function with a `// SAFETY:` justification. The crate denies unsafe code by default.
 The caller in `susi-gawd` retains `forbid(unsafe_code)`.
 
 The wrapper uses the installed Windows operating system. It bundles no process
@@ -30,6 +32,34 @@ launcher, shell, executable, or foreign runtime implementation. References:
 - Seed callers remove all three inherited Cargo output-directory variables
   case-insensitively, retaining compiler, rustdoc and verified-sysroot context.
 
+## Native owner-only ACLs (`acl`)
+
+`acl` replaces launching `icacls.exe`: from the windowless detached daemon each
+launch opened a visible console window (CEO report, 2026-11-09, `node.key`).
+It calls only the installed OS: `SetNamedSecurityInfoW` /
+`GetNamedSecurityInfoW` (file object DACL), `InitializeAcl` /
+`AddAccessAllowedAce`, and `OpenProcessToken` / `GetTokenInformation` for the
+process token user.
+
+- The DACL is protected (`PROTECTED_DACL_SECURITY_INFORMATION`) with one
+  explicit `FILE_ALL_ACCESS` entry for the token user, the access list
+  `icacls <path> /inheritance:r /grant:r <user>:F` produced. It never widens
+  access and never uses the `USERNAME` variable.
+- The ACL buffer is a sized `u32`-aligned owned allocation that outlives the
+  call; the security descriptor returned by `GetNamedSecurityInfoW` is copied
+  into owned `Ace` values and released with `LocalFree`; the token handle is
+  closed on every path. SIDs are validated (`IsValidSid`, `GetLengthSid`)
+  and bounds-checked against the ACE size before they are read.
+- No raw pointer, handle or descriptor crosses out of the module. Errors are
+  `io::Error` from the Win32 status; a failure to restrict a secret is
+  reported, not ignored, by callers that require it.
+- Tests (real files, real Win32): the DACL after `restrict_to_current_user` is
+  exactly one non-inherited `FILE_ALL_ACCESS` entry for the token user (the
+  owner can still rewrite and delete the file); `set_protected_dacl` holds the
+  requested grants in order; SID strings round-trip through the binary form
+  and malformed strings are refused; a missing path and an embedded NUL are
+  errors, not panics.
+
 ## Executed evidence
 
 `cargo test -p susi-vendor-winapi --offline --lib` passed all three tests, including
@@ -40,8 +70,10 @@ owned child before checking the EOF timing assertion.
 `cargo clippy -p susi-vendor-winapi -p susi-gawd --offline --lib --tests -- -D warnings`
 passed. The integrated seed fixture regression remains a separate required gate.
 
-`unsafe-review.json` is actual cargo-geiger output for a byte-identical standalone
-copy of this facade, with the same winapi dependency and features. Only workspace
+`unsafe-review.json` is actual cargo-geiger (0.14.0) output, regenerated
+2026-11-09 after the `acl` module, for a byte-identical standalone copy of this
+facade (all five modules: acl, detached, environment, host, lib), with the
+same winapi dependency and features. Only workspace
 lint inheritance was replaced by an empty `[workspace]` to isolate the scan from
 unrelated prototype trees. Invocation:
 
@@ -49,10 +81,17 @@ unrelated prototype trees. Invocation:
 cargo geiger --manifest-path <isolated-copy>/Cargo.toml --target x86_64-pc-windows-msvc --all-dependencies --offline --output-format Json
 ```
 
-First-party counts: **0 unsafe functions, 38 unsafe expressions, 0 unsafe impls,
-0 unsafe traits, 0 unsafe methods**. There are two explicitly justified unsafe
-blocks within the one safe wrapper. The count includes expressions inside those
-blocks, not just the seven Windows/POD operations. No ratchet baseline changed.
+First-party counts (whole facade): **0 unsafe functions, 170 unsafe expressions,
+0 unsafe impls, 0 unsafe traits, 0 unsafe methods** (30 safe functions, 2 safe
+impls, 3 safe methods). The previous file (38 unsafe expressions) predated the
+`acl`, `host` and `environment` modules and was stale; the count includes
+expressions inside justified blocks. The `winapi` dependency itself reports 87
+used unsafe expressions and 9 used unsafe functions. No ratchet baseline
+changed.
 
-Reviewed `src/detached.rs` SHA-256 (UTF-8, LF):
-`3aa44740bf998a5b7191a3b4169881407e38df6e0c4b7a6987705a7f0c7a4f6e`.
+Reviewed SHA-256 (UTF-8, LF):
+
+- `src/detached.rs`: `08ad0c1994c531ad00a111abb48a0c3e257dfcfa892614eedcd344467aa37140`
+  (the previously recorded `3aa44740...` was stale: `detached.rs` changed in
+  582d887c9 after that review)
+- `src/acl.rs`: `c17b32f4358afdd6fc347707f25a82cfb18489fa7d7259246414a3534a751bc8`

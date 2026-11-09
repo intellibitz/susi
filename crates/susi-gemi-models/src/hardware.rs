@@ -467,7 +467,7 @@ impl HardwareProfiler {
     fn determine_gpu_vram_free_bytes() -> Option<u64> {
         // Bounded: nvidia-smi can hang indefinitely on a wedged driver.
         let output = crate::susi_core::bounded_cmd::output_within(
-            std::process::Command::new("nvidia-smi")
+            susi_paths::console::background_command("nvidia-smi")
                 .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"]),
             std::time::Duration::from_secs(5),
         )
@@ -948,7 +948,7 @@ pub struct ModelLadderStep {
 /// start.
 fn nvidia_smi_total_probe() -> Option<usize> {
     nvidia_smi_total_from(crate::susi_core::bounded_cmd::output_within(
-        std::process::Command::new("nvidia-smi")
+        susi_paths::console::background_command("nvidia-smi")
             .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"]),
         std::time::Duration::from_secs(5),
     ))

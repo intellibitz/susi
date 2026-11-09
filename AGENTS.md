@@ -199,6 +199,11 @@ self-improvement claims require persisted and retrievable outcome evidence.
     ordinal environment comparison, and closing returned handles. No module-wide
     allowances, shell fallback, or process-global handle mutation. Preserve the
     measured unsafe-exposure ratchet and actual argument/pipe-EOF regressions.
+    Its `acl` module is the only other first-party allowance: per-function FFI
+    for setting and reading a file's owner-only DACL and the process-token
+    user SID, so no console helper such as `icacls` is launched. The same
+    rules apply (no module-wide allowance, `// SAFETY:` evidence, no raw
+    pointer out of the module); the callers stay `forbid(unsafe_code)`.
 - **No panic-path macros in production code.** Workspace clippy denies:
   `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`,
   `unreachable`. Every crate has
