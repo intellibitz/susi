@@ -1,0 +1,36 @@
+{
+  "deps": [],
+  "title": "Assert candidate native receipt evidence round-trips",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "native_gates_carry_counts_and_harnesses_from_the_retained_log",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "claimed_by": "dot-commercial-receipt-tests",
+  "native_worker": "dot-commercial-receipt-tests",
+  "scope": [
+    ".agents/tasks/T-DOTCOMMERCIALRECEIPTTESTS-1.json",
+    "xtask/src/gate_receipt.rs"
+  ],
+  "goal": "Extend only the existing native gate receipt regression fixture to assert count, binaries, log digest and exact selection round-trip, and rejection of a corrupt log digest/blob. Do not change production behavior, launcher, native_provenance, or reuse evidence. Document unsupported candidate-path binding.",
+  "scopes": [
+    ".agents/tasks/T-DOTCOMMERCIALRECEIPTTESTS-1.json",
+    "xtask/src/gate_receipt.rs"
+  ],
+  "size": "S",
+  "created_unix": 1794235751,
+  "id": "T-DOTCOMMERCIALRECEIPTTESTS-1",
+  "state": "in_progress",
+  "updated_unix": 1794235751,
+  "created_by": "dot-commercial-receipt-tests",
+  "acceptance": "cargo test -p xtask --bin local-workflow native_gates_carry_counts_and_harnesses_from_the_retained_log --offline --locked",
+  "status": "in_progress"
+}
