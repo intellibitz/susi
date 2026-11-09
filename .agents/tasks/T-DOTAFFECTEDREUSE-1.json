@@ -1,0 +1,81 @@
+{
+  "id": "T-DOTAFFECTEDREUSE-1",
+  "title": "Reuse affected source parse results",
+  "goal": "Measure affected-selection cost and reuse per-file lexer results within one invocation only when justified, preserving exact workspace facts and selected packages.",
+  "created_by": "dot-affected-reuse",
+  "created_unix": 1794264131,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-affected-reuse",
+  "claimed_by": "dot-affected-reuse",
+  "deps": [],
+  "scopes": [
+    "xtask/src/affected.rs",
+    ".agents/tasks/T-DOTAFFECTEDREUSE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "affected::tests::"
+    ]
+  },
+  "checkpoint": "Local parser-reuse candidate: private rustc harness passed all 19 affected tests; three alternating paired full loads have exact Workspace equality and explained-selection equality for 4,678 tracked single-path inputs plus empty input. Median paired warm saving 0.777s (0.550-0.867s). Cold baseline 24.018s was dominated by 18.958s source-read/owner loop; no 24s or under-60s claim. Native Cargo acceptance, strict lint, independent review and combined gate remain pending. Parent owns integration/publication. No persistent cache or concurrent production reads.",
+  "validation": {
+    "base_commit": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "original_source_sha256": "C2BAE59C0ED26FE622DDC82CAB272658D9FA67BEE63B39CEA0F9D8F6E2CC90D2",
+    "source_sha256": "E2C3C5BC41CBB6C1AA37BC2DA6FEF018DC284A4CC39C7BD9071DA188564F984D",
+    "private_harness_root": "C:/Users/muthu/susi-private/affected-select-profile",
+    "unit_test_command": "private rustc --test unit-tests.rs, then unit-tests.exe --nocapture",
+    "unit_passed": 19,
+    "unit_failed": 0,
+    "unit_ignored": 0,
+    "unit_filtered": 0,
+    "unit_elapsed_seconds": 4.07,
+    "unit_outer_ms": 4336,
+    "unit_log": "C:/Users/muthu/susi-private/affected-select-profile/tests-1/stdout.log",
+    "differential_log": "C:/Users/muthu/susi-private/affected-select-profile/compare-runs-1/stdout.log",
+    "differential_outer_ms": 29242,
+    "differential_single_paths": 4678,
+    "differential_empty_input": true,
+    "workspace_fields_equal": true,
+    "members": 74,
+    "dependencies": 74,
+    "ordered_references": 634,
+    "root_readers": 0,
+    "libraries": 73,
+    "baseline_ms": [
+      4736.3462,
+      4740.2052,
+      4446.0332
+    ],
+    "candidate_ms": [
+      3869.5284,
+      3963.5008,
+      3896.0832
+    ],
+    "paired_median_saved_ms": 776.7044,
+    "timing_scope": "All affected::load work, including Cargo metadata/JSON, Git listing, source reads, parsing, allocations and source destruction. Alternating order; uncontrolled warm OS caches. Private rustc debug executable linked to immutable trusted bootstrap dependencies. Not a native ship or deployment time.",
+    "original_attribution_log": "C:/Users/muthu/susi-private/affected-select-profile/baseline-runs-1/stderr.log",
+    "cold_load_ms": 24017.5074,
+    "cold_source_read_owner_loop_ms": 18958.2372,
+    "source_files": 1278,
+    "source_bytes": 21965515,
+    "original_references": 615,
+    "fixture_note": "Added unit-test path literals increase actual source inventory to634 references under both old and new implementations; every ordered reference is equal on identical input.",
+    "production_net_lines": 23,
+    "cfg_test_net_lines": 185,
+    "format_exit": 0,
+    "diff_check_exit": 0,
+    "cargo_acceptance": "pending",
+    "clippy": "pending",
+    "full_gate": "pending",
+    "isolation": "Allowlisted process environment, fresh private HOME/USERPROFILE/APPDATA/SUSI_HOME/TEMP and private target; SUSI_NO_REGISTRY_ENV=1; no inherited credentials."
+  }
+}
