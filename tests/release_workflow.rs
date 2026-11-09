@@ -28,9 +28,17 @@ fn root() -> PathBuf {
 fn windows_release_promotion() {
     use std::io::Read;
     use std::process::{Command, Stdio};
+    use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
     const BOUND: Duration = Duration::from_secs(300);
+    // Windows PowerShell writes its module analysis cache under the known
+    // LocalAppData folder; with the gate's isolated USERPROFILE that folder
+    // does not exist and the cache lands in the working directory. Give the
+    // run its own working directory and cache path so it never writes the tree.
+    let scratch =
+        std::env::temp_dir().join(format!("susi-release-promotion-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("create the regression's scratch directory");
     let mut child = Command::new("powershell.exe")
         .args([
             "-NoProfile",
@@ -40,25 +48,30 @@ fn windows_release_promotion() {
             "-File",
         ])
         .arg(root().join("scripts").join("test-release-sync-windows.ps1"))
-        .current_dir(root())
+        .current_dir(&scratch)
+        .env(
+            "PSModuleAnalysisCachePath",
+            scratch.join("ModuleAnalysisCache"),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("start the Windows release promotion regression");
-    // Drain both pipes on their own threads so a full pipe cannot stall the run.
-    let mut out = child.stdout.take().expect("stdout pipe");
-    let mut err = child.stderr.take().expect("stderr pipe");
-    let out = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = out.read_to_string(&mut text);
-        text
-    });
-    let err = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = err.read_to_string(&mut text);
-        text
-    });
+    // Drain both pipes on their own threads so a full pipe cannot stall the
+    // run, and read them with a deadline: a leftover grandchild may still hold
+    // a pipe after the run itself was killed.
+    let drain = |mut pipe: Box<dyn Read + Send>| {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = pipe.read_to_string(&mut text);
+            let _ = sender.send(text);
+        });
+        receiver
+    };
+    let out = drain(Box::new(child.stdout.take().expect("stdout pipe")));
+    let err = drain(Box::new(child.stderr.take().expect("stderr pipe")));
     let started = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().expect("poll the regression") {
@@ -71,8 +84,13 @@ fn windows_release_promotion() {
         }
         std::thread::sleep(Duration::from_millis(100));
     };
-    let out = out.join().expect("stdout reader");
-    let err = err.join().expect("stderr reader");
+    let read = |pipe: mpsc::Receiver<String>| {
+        pipe.recv_timeout(Duration::from_secs(30))
+            .unwrap_or_else(|_| String::from("<output still held open after 30 s>"))
+    };
+    let out = read(out);
+    let err = read(err);
+    let _ = std::fs::remove_dir_all(&scratch);
     let status = status.unwrap_or_else(|| {
         panic!("release promotion regression did not finish within {BOUND:?}\n{out}\n{err}")
     });
