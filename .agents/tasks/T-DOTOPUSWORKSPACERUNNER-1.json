@@ -1,0 +1,57 @@
+{
+  "id": "T-DOTOPUSWORKSPACERUNNER-1",
+  "title": "Evidence whole-workspace concurrent test execution",
+  "goal": "Execute complete Cargo workspace binary inventory concurrently with exact immutable artifact/input accounting and mandatory matching doctests, preserving legacy serial evidence and fresh production qualification.",
+  "created_by": "dot-opus-workspace-runner",
+  "created_unix": 1794254980,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-opus-workspace-runner",
+  "claimed_by": "dot-opus-workspace-runner",
+  "deps": [],
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/native_provenance.rs",
+    "xtask/src/test_binary_evidence.rs",
+    ".agents/tasks/T-DOTOPUSWORKSPACERUNNER-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-workflow"
+    ]
+  },
+  "checkpoint": "Unfinished native implementation checkpoint only. Strict Cargo inventory, retained metadata, artifact pins, input/runner binding helpers exist. Launcher/native-receipt/public-replay wiring and real fixtures are pending. New execution mode is not enabled. No full acceptance or publication claim.",
+  "recovery": {
+    "method": "Original-source recovery; exact bytes verified before continuing. Library materialization failed on Windows metadata support.",
+    "original_task_sha256": "F08D1B41B98194920F78D357CB8CCDDADCB803BB9C726A0CFE1505FFEAF4DF1A"
+  },
+  "validation": {
+    "notes": "Focused unit tests only. Unused helper warnings are expected until production wiring; no Clippy/full-gate success claimed.",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-workflow",
+      "test_binary_evidence::tests::"
+    ],
+    "passed": 4,
+    "failed": 0,
+    "outer_ms": 6834,
+    "filtered": 161
+  }
+}

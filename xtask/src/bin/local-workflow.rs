@@ -27,6 +27,8 @@ mod gate_receipt;
 mod native_provenance;
 #[path = "../sysroot_sources.rs"]
 mod sysroot_sources;
+#[path = "../test_binary_evidence.rs"]
+mod test_binary_evidence;
 #[path = "../test_runner.rs"]
 mod test_runner;
 #[path = "../trusted_sysroot.rs"]
