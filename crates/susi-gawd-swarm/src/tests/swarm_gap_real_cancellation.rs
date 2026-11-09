@@ -140,14 +140,23 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
     let address = listener.local_addr().unwrap().to_string();
     // Readiness handshake: the peer signals the instant it accepts the
     // connection, so the test cancels only once the request is in flight.
-    // Before connecting, the dispatch loads cluster state and credentials
-    // from the private home, which takes as long as the host needs under
-    // load; the wait is event-driven, and its bound only fails a dispatch
-    // that never reaches the peer.
-    let (accepted_tx, accepted_rx) = std::sync::mpsc::channel::<()>();
+    // Before connecting, the dispatch checks eviction, the roster and the
+    // credential release, and any of those can return without connecting
+    // (an evicted node, a refused credential). The dispatch therefore
+    // signals its own return on the same channel: whichever happens first
+    // decides, so a dispatch that gave up before the peer fails at once
+    // with its real outcome instead of waiting out the bound. The bound
+    // only fails a dispatch that neither connects nor returns.
+    enum Event {
+        PeerAccepted,
+        DispatchReturned,
+    }
+    let (events_tx, events_rx) = std::sync::mpsc::channel::<Event>();
+    let accepted_tx = events_tx.clone();
     let server = std::thread::spawn(move || {
         let (_stream, _) = listener.accept().unwrap();
-        accepted_tx.send(()).unwrap();
+        // The receiver is gone only when the test already failed.
+        let _ = accepted_tx.send(Event::PeerAccepted);
         std::thread::sleep(Duration::from_millis(500));
     });
 
@@ -156,17 +165,23 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
     let worker_handle = handle.clone();
     let worker_address = address.clone();
     let worker = std::thread::spawn(move || {
-        SusiSupervisor::dispatch_peer_task_cancellable(
+        let outcome = SusiSupervisor::dispatch_peer_task_cancellable(
             &worker_address,
             "reason",
             r#"{"goal":"hang"}"#,
             &worker_handle,
-        )
+        );
+        let _ = events_tx.send(Event::DispatchReturned);
+        outcome
     });
-    assert!(
-        accepted_rx.recv_timeout(Duration::from_secs(60)).is_ok(),
-        "peer request did not start"
-    );
+    match events_rx.recv_timeout(Duration::from_secs(60)) {
+        Ok(Event::PeerAccepted) => {}
+        Ok(Event::DispatchReturned) => panic!(
+            "dispatch returned before connecting to the peer: {:?}",
+            worker.join().unwrap()
+        ),
+        Err(error) => panic!("peer request neither started nor returned: {error}"),
+    }
     let cancelled_at = Instant::now();
     handle.cancel();
     let result = worker.join().unwrap();
