@@ -11,6 +11,7 @@ categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 susi-error = { workspace = true }
+susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
 susi-adapters-llm = { workspace = true }
 axum = { package = "susi-vendor-axum", path = "../susi-vendor-axum" }

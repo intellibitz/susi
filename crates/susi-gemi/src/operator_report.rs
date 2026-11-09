@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -388,7 +387,7 @@ fn sample_snapshot(repo_root: &Path) -> TopSnapshot {
 
 /// Sample GPU utilization using nvidia-smi if available.
 fn sample_gpu() -> Option<GpuRow> {
-    let output = Command::new("nvidia-smi")
+    let output = susi_paths::console::background_command("nvidia-smi")
         .args([
             "--query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total",
             "--format=csv,noheader,nounits",
@@ -517,7 +516,7 @@ fn sample_federation(repo_root: &Path) -> Option<FederationStateRow> {
     let mut agents = Vec::new();
     let mut peer_count = 1;
 
-    let output = Command::new("git")
+    let output = susi_paths::console::background_command("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(repo_root)
         .output()

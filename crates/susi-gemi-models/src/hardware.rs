@@ -4,66 +4,25 @@ use crate::device::Device;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
-/// Direct Win32 hardware probes (`kernel32.dll`) so Windows builds measure
-/// real physical/available RAM, pagefile swap, disk capacity/free space, and
-/// system uptime in microseconds without spawning PowerShell or returning
-/// hardcoded stubs.
+/// Direct Win32 disk probe (`kernel32.dll`) so Windows builds measure real
+/// disk capacity/free space without spawning PowerShell or returning
+/// hardcoded stubs. Memory, swap and uptime come from
+/// `susi_config::host_metrics`, which reads the same Win32 counters.
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod win32_hw {
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
 
-    #[repr(C)]
-    struct MemoryStatusEx {
-        dw_length: u32,
-        dw_memory_load: u32,
-        ull_total_phys: u64,
-        ull_avail_phys: u64,
-        ull_total_page_file: u64,
-        ull_avail_page_file: u64,
-        ull_total_virtual: u64,
-        ull_avail_virtual: u64,
-        ull_avail_extended_virtual: u64,
-    }
-
     #[allow(non_snake_case)] // the Win32 spellings are the API contract
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn GlobalMemoryStatusEx(buffer: *mut MemoryStatusEx) -> i32;
         fn GetDiskFreeSpaceExW(
             directory_name: *const u16,
             free_bytes_available_to_caller: *mut u64,
             total_number_of_bytes: *mut u64,
             total_number_of_free_bytes: *mut u64,
         ) -> i32;
-        fn GetTickCount64() -> u64;
-    }
-
-    /// Returns `(total_phys_bytes, avail_phys_bytes, total_page_file_bytes)`.
-    pub(super) fn memory_status() -> Option<(u64, u64, u64)> {
-        let mut status = MemoryStatusEx {
-            dw_length: std::mem::size_of::<MemoryStatusEx>() as u32,
-            dw_memory_load: 0,
-            ull_total_phys: 0,
-            ull_avail_phys: 0,
-            ull_total_page_file: 0,
-            ull_avail_page_file: 0,
-            ull_total_virtual: 0,
-            ull_avail_virtual: 0,
-            ull_avail_extended_virtual: 0,
-        };
-        // SAFETY: `status` is a live, writable `MemoryStatusEx` with `dw_length`
-        // initialized to its exact struct size as required by Win32.
-        if unsafe { GlobalMemoryStatusEx(&mut status) } != 0 {
-            Some((
-                status.ull_total_phys,
-                status.ull_avail_phys,
-                status.ull_total_page_file,
-            ))
-        } else {
-            None
-        }
     }
 
     /// Returns `(free_bytes_available, total_bytes)` for the volume containing
@@ -98,11 +57,6 @@ mod win32_hw {
         } else {
             None
         }
-    }
-
-    pub(super) fn uptime_secs() -> u64 {
-        // SAFETY: `GetTickCount64` takes no arguments and has no preconditions.
-        unsafe { GetTickCount64() / 1000 }
     }
 }
 
@@ -305,7 +259,8 @@ impl HardwareProfiler {
         }
         #[cfg(windows)]
         {
-            let secs = win32_hw::uptime_secs();
+            // `GetTickCount64` seconds; it is never zero on a running host.
+            let secs = susi_config::host_metrics::uptime_secs().unwrap_or(0);
             let hours = secs / 3600;
             let mins = (secs % 3600) / 60;
             format!("up {} hours, {} minutes", hours, mins)
@@ -467,7 +422,7 @@ impl HardwareProfiler {
     fn determine_gpu_vram_free_bytes() -> Option<u64> {
         // Bounded: nvidia-smi can hang indefinitely on a wedged driver.
         let output = crate::susi_core::bounded_cmd::output_within(
-            std::process::Command::new("nvidia-smi")
+            susi_paths::console::background_command("nvidia-smi")
                 .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"]),
             std::time::Duration::from_secs(5),
         )
@@ -607,11 +562,8 @@ impl HardwareProfiler {
                 }
             }
         }
-        #[cfg(windows)]
-        if let Some((total_phys, _, total_page)) = win32_hw::memory_status() {
-            return (total_page.saturating_sub(total_phys) / (1024 * 1024 * 1024)) as usize;
-        }
-        if cfg!(target_os = "macos") {
+        // Windows: page file beyond physical memory; macOS: swap total.
+        if cfg!(any(windows, target_os = "macos")) {
             if let Some(mem) = susi_config::host_metrics::memory() {
                 return (mem.total_swap_bytes / (1024 * 1024 * 1024)) as usize;
             }
@@ -667,9 +619,8 @@ impl HardwareProfiler {
             }
             return 16;
         } else if cfg!(target_os = "windows") {
-            #[cfg(windows)]
-            if let Some((total_phys, _, _)) = win32_hw::memory_status() {
-                let gb = (total_phys / (1024 * 1024 * 1024)) as usize;
+            if let Some(mem) = susi_config::host_metrics::memory() {
+                let gb = (mem.total_bytes / (1024 * 1024 * 1024)) as usize;
                 if gb > 0 {
                     return gb;
                 }
@@ -734,10 +685,8 @@ impl HardwareProfiler {
                 return pages.saturating_mul(page_size);
             }
         }
-        #[cfg(windows)]
-        if let Some((_, avail_phys, _)) = win32_hw::memory_status() {
-            return avail_phys;
-        }
+        // Windows (`GlobalMemoryStatusEx` available physical) and any other
+        // host the shared reader covers.
         if let Some(mem) = susi_config::host_metrics::memory() {
             if mem.available_bytes > 0 {
                 return mem.available_bytes;
@@ -948,7 +897,7 @@ pub struct ModelLadderStep {
 /// start.
 fn nvidia_smi_total_probe() -> Option<usize> {
     nvidia_smi_total_from(crate::susi_core::bounded_cmd::output_within(
-        std::process::Command::new("nvidia-smi")
+        susi_paths::console::background_command("nvidia-smi")
             .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"]),
         std::time::Duration::from_secs(5),
     ))

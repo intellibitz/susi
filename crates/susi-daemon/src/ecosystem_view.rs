@@ -14,7 +14,7 @@ fn command_path(name: &str) -> Option<std::path::PathBuf> {
 }
 
 fn command_version(path: &Path) -> Option<String> {
-    std::process::Command::new(path)
+    susi_paths::console::background_command(path)
         .arg("--version")
         .output()
         .ok()

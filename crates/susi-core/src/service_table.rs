@@ -441,7 +441,7 @@ pub fn pid_for_port(port: u16) -> Option<u32> {
 /// Windows: the owner of the LISTENING row for `port` in `netstat -ano`.
 #[cfg(windows)]
 pub fn pid_for_port(port: u16) -> Option<u32> {
-    let mut cmd = std::process::Command::new("netstat");
+    let mut cmd = susi_paths::console::background_command("netstat");
     cmd.args(["-ano", "-p", "tcp"]);
     let out = crate::bounded_cmd::output_within(&mut cmd, PORT_OWNER_TIMEOUT).ok()?;
     parse_netstat_owners(&out.stdout, &[port], false)
@@ -631,6 +631,26 @@ pub fn status() -> Vec<ServiceStatus> {
 mod tests {
     use super::*;
 
+    /// Port resolution reads process env and the instance's `ports.json`
+    /// (`SUSI_PORT_OFFSET`, `SUSI_HOME`, `HOME`). Tests that resolve a leaf
+    /// port hold the shared env lock and run under a private empty home, so
+    /// no concurrent test (nor a live daemon on the machine) can change the
+    /// answer between two reads.
+    fn isolated_ports() -> (
+        std::sync::MutexGuard<'static, ()>,
+        susi_paths::test_env::EnvGuard,
+        PathBuf,
+    ) {
+        let lock = crate::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("susi_svc_ports_{}", std::process::id()));
+        fs::create_dir_all(&home).unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", &home);
+        (lock, env, home)
+    }
+
     #[test]
     fn table_round_trip_and_upsert() {
         let dir = std::env::temp_dir().join(format!("susi_svc_table_{}", std::process::id()));
@@ -662,6 +682,7 @@ mod tests {
         // With no per-service env override, every leaf port is
         // default + the resolved instance offset — what the daemon probes
         // and what the spawned child binds must be the same number.
+        let (_lock, _env, home) = isolated_ports();
         let offset = crate::susi_config::SusiConfig::load_global()
             .map(|c| c.port_offset())
             .unwrap_or_else(|_| susi_paths::ports::env_port_offset());
@@ -676,6 +697,7 @@ mod tests {
                 svc.name
             );
         }
+        let _ = fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -715,7 +737,7 @@ mod tests {
         // every listener with owner 0; then no owner may be invented.
         #[cfg(windows)]
         {
-            let table = std::process::Command::new("netstat")
+            let table = susi_paths::console::background_command("netstat")
                 .args(["-ano", "-p", "tcp"])
                 .output()
                 .unwrap();
@@ -786,10 +808,12 @@ Active Connections
         assert!(leaf_service("nope").is_none());
         // 18084 shifted by the instance offset (`SUSI_PORT_OFFSET`, set on a
         // dev/second instance and inherited by `cargo test`).
+        let (_lock, _env, home) = isolated_ports();
         assert_eq!(
             leaf_service("susi-native").map(|s| s.port()),
             Some(susi_paths::ports::effective(18084))
         );
+        let _ = fs::remove_dir_all(&home);
     }
 
     #[test]

@@ -264,70 +264,15 @@ impl SusiRuntimeAdmin {
                 .is_some_and(|name| name == "bus")
     }
 
-    /// Best-effort local scan of `substrate_home` for exfiltration risk:
-    /// known credential/key files whose permissions grant group or other
-    /// any access. This is the substrate-safety scan `perform_host_readiness`
-    /// promises — no LLM-driven analysis, but a real, bounded, permission-based
-    /// check rather than an inert placeholder. A `*.key`/`*token*` file
-    /// existing under `~/.susi` is expected (cluster/node identity); the
-    /// risk is exposure via permissive bits, not mere existence.
-    #[cfg(unix)]
-    fn scan_for_exfiltration_risks(substrate_home: &Path) -> Vec<String> {
-        use std::os::unix::fs::PermissionsExt;
-
-        const SENSITIVE_NAME_FRAGMENTS: &[&str] = &[
-            "key",
-            "token",
-            "secret",
-            "credential",
-            "id_rsa",
-            "id_ed25519",
-            ".pem",
-        ];
-        const MAX_ENTRIES: usize = 4096;
-
-        let mut findings = Vec::new();
-        let mut stack = vec![substrate_home.to_path_buf()];
-        let mut visited = 0usize;
-
-        while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                visited += 1;
-                if visited > MAX_ENTRIES {
-                    return findings;
-                }
-                let path = entry.path();
-                let Ok(metadata) = entry.metadata() else {
-                    continue;
-                };
-                if metadata.is_dir() {
-                    if !Self::is_bus_endpoint_metadata(&path) {
-                        stack.push(path);
-                    }
-                    continue;
-                }
-                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                    continue;
-                };
-                let lower = name.to_ascii_lowercase();
-                if !SENSITIVE_NAME_FRAGMENTS
-                    .iter()
-                    .any(|frag| lower.contains(frag))
-                {
-                    continue;
-                }
-                if metadata.permissions().mode() & 0o077 != 0 {
-                    findings.push(path.display().to_string());
-                }
-            }
-        }
-        findings
-    }
-
-    #[cfg(not(unix))]
+    /// Local scan of `substrate_home` for exfiltration risk: known
+    /// credential/key files whose permissions grant group or other any access.
+    /// This is the substrate-safety scan `perform_host_readiness` promises: no
+    /// LLM-driven analysis, a real, bounded, permission-based check. A
+    /// `*.key`/`*token*` file existing under `~/.susi` is expected
+    /// (cluster/node identity); the risk is exposure via permissive access,
+    /// not mere existence. Whatever the scan cannot see (a directory it cannot
+    /// list, an entry it cannot stat, the entry budget running out) is a
+    /// finding too: only a path that vanished mid-scan is skipped.
     fn scan_for_exfiltration_risks(substrate_home: &Path) -> Vec<String> {
         const SENSITIVE_NAME_FRAGMENTS: &[&str] = &[
             "key",
@@ -339,23 +284,48 @@ impl SusiRuntimeAdmin {
             ".pem",
         ];
         const MAX_ENTRIES: usize = 4096;
+        let unverifiable = |path: &Path, what: &str, error: &std::io::Error| {
+            format!("{} ({what} unverifiable: {error})", path.display())
+        };
 
         let mut findings = Vec::new();
         let mut stack = vec![substrate_home.to_path_buf()];
         let mut visited = 0usize;
 
         while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
+            let entries = match std::fs::read_dir(&dir) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    findings.push(unverifiable(&dir, "directory", &error));
+                    continue;
+                }
             };
-            for entry in entries.flatten() {
+            for entry in entries {
                 visited += 1;
                 if visited > MAX_ENTRIES {
+                    findings.push(format!(
+                        "{} (scan stopped after {MAX_ENTRIES} entries; the rest is unverified)",
+                        substrate_home.display()
+                    ));
                     return findings;
                 }
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        findings.push(unverifiable(&dir, "directory entry", &error));
+                        continue;
+                    }
+                };
                 let path = entry.path();
-                let Ok(metadata) = entry.metadata() else {
-                    continue;
+                let metadata = match entry.metadata() {
+                    Ok(metadata) => metadata,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    // Without metadata this may be a directory or a credential.
+                    Err(error) => {
+                        findings.push(unverifiable(&path, "metadata", &error));
+                        continue;
+                    }
                 };
                 if metadata.is_dir() {
                     if !Self::is_bus_endpoint_metadata(&path) {
@@ -363,55 +333,233 @@ impl SusiRuntimeAdmin {
                     }
                     continue;
                 }
-                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                    continue;
-                };
-                let lower = name.to_ascii_lowercase();
+                let lower = entry.file_name().to_string_lossy().to_ascii_lowercase();
                 if !SENSITIVE_NAME_FRAGMENTS
                     .iter()
                     .any(|frag| lower.contains(frag))
                 {
                     continue;
                 }
-                if let Ok(out) = std::process::Command::new("icacls").arg(&path).output() {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    if Self::windows_acl_is_overly_permissive(&stdout) {
-                        findings.push(path.display().to_string());
-                    }
-                }
+                #[cfg(unix)]
+                let finding = {
+                    use std::os::unix::fs::PermissionsExt;
+                    (metadata.permissions().mode() & 0o077 != 0).then(|| path.display().to_string())
+                };
+                #[cfg(not(unix))]
+                let finding = Self::acl_finding(&path, Self::windows_acl_listing(&path));
+                findings.extend(finding);
             }
         }
         findings
     }
 
-    /// Inspect `icacls` output and return `true` when broad non-owner principals
-    /// (`Everyone`, `BUILTIN\Users`, `Authenticated Users`, `Guests`) are granted
-    /// write, modify, or full-access permissions (`(F)`, `(M)`, `(W)`), or when
-    /// `Everyone` is granted read access on a credential file.
+    /// The readiness finding for one credential file, from its access-list
+    /// `reading`: `Some` when the list grants broad access or cannot be
+    /// trusted, `None` only for a list that was read in full and is
+    /// restrictive (or for a file that vanished mid-scan). An unreadable list
+    /// is a finding, not a clean result: a scan that treated "could not read"
+    /// as "nothing exposed" would pass a file whose DACL holds an entry this
+    /// reader does not understand.
+    #[cfg(any(not(unix), test))]
+    fn acl_finding(path: &Path, reading: std::io::Result<String>) -> Option<String> {
+        match reading {
+            Ok(listing) if Self::windows_acl_is_overly_permissive(&listing) => {
+                Some(path.display().to_string())
+            }
+            Ok(_) => None,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => Some(format!(
+                "{} (access list unverifiable: {error})",
+                path.display()
+            )),
+        }
+    }
+
+    /// `path`'s access list in `icacls` notation (one `principal:(flags)(rights)`
+    /// line per allow or deny entry), read natively. This scan used to run
+    /// `icacls <path>` once per credential file; from the windowless daemon
+    /// each run opened a console window (a test home's `node.key` did so on
+    /// 2026-11-09). An error means the list could not be read in full
+    /// (including an entry type the reader does not understand); the caller
+    /// reports that rather than treating the file as safe.
+    #[cfg(windows)]
+    fn windows_acl_listing(path: &Path) -> std::io::Result<String> {
+        let entries = match winapi::acl::read_dacl(path)? {
+            Some(entries) => entries,
+            // A NULL DACL grants everyone full access.
+            None => {
+                return Ok(Self::icacls_entry_line(
+                    "S-1-1-0",
+                    false,
+                    false,
+                    0x001F_01FF,
+                ));
+            }
+        };
+        Ok(entries
+            .iter()
+            .map(|e| Self::icacls_entry_line(&e.sid, e.deny, e.inherited, e.mask))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            ))
+    }
+
+    /// Off Windows and Unix there is no reader: report that, not a clean list.
+    #[cfg(not(any(unix, windows)))]
+    fn windows_acl_listing(_path: &Path) -> std::io::Result<String> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "no access-list reader on this platform",
+        ))
+    }
+
+    /// One access-list entry the way `icacls` prints it, so
+    /// [`Self::windows_acl_is_overly_permissive`] judges native readings and
+    /// `icacls` output alike. Well-known broad principals carry the names
+    /// `icacls` prints on an English host; every other trustee prints as
+    /// `*<SID>`, which matches no broad principal (and, unlike a localized or
+    /// user-chosen account name, cannot match one by accident).
+    #[cfg(any(windows, test))]
+    pub(crate) fn icacls_entry_line(sid: &str, deny: bool, inherited: bool, mask: u32) -> String {
+        let principal = match sid {
+            "S-1-1-0" => "Everyone".to_string(),
+            "S-1-5-11" => "NT AUTHORITY\\Authenticated Users".to_string(),
+            "S-1-5-32-545" => "BUILTIN\\Users".to_string(),
+            "S-1-5-32-546" => "BUILTIN\\Guests".to_string(),
+            "S-1-5-7" => "NT AUTHORITY\\ANONYMOUS LOGON".to_string(),
+            // The built-in Guest account: relative id 501 of a machine or
+            // domain (`S-1-5-21-<three ids>-501`).
+            guest if guest.starts_with("S-1-5-21-") && guest.ends_with("-501") => {
+                "Guest".to_string()
+            }
+            other => format!("*{other}"),
+        };
+        format!(
+            "{principal}:{}{}({})",
+            if inherited { "(I)" } else { "" },
+            if deny { "(DENY)" } else { "" },
+            Self::icacls_rights(mask)
+        )
+    }
+
+    /// An access mask in `icacls` rights notation: generic bits mapped to
+    /// their file rights (as the access check maps them), then the simple
+    /// rights `F`, `M`, `RX`/`R`, `W`, `D` that the mask contains, then each
+    /// remaining specific right, in `icacls`'s order. Matches `icacls` on
+    /// Windows 11 for every combination checked (see the unit test).
+    #[cfg(any(windows, test))]
+    pub(crate) fn icacls_rights(mask: u32) -> String {
+        const FILE_GENERIC_READ: u32 = 0x0012_0089;
+        const FILE_GENERIC_WRITE: u32 = 0x0012_0116;
+        const FILE_GENERIC_EXECUTE: u32 = 0x0012_00A0;
+        const FILE_ALL_ACCESS: u32 = 0x001F_01FF;
+        const SIMPLE: [(&str, u32); 6] = [
+            ("F", FILE_ALL_ACCESS),
+            ("M", 0x0013_01BF),
+            ("RX", 0x0012_00A9),
+            ("R", 0x0012_0089),
+            ("W", 0x0010_0116),
+            ("D", 0x0011_0000),
+        ];
+        const SPECIFIC: [(&str, u32); 16] = [
+            ("DE", 0x0001_0000),
+            ("Rc", 0x0002_0000),
+            ("WDAC", 0x0004_0000),
+            ("WO", 0x0008_0000),
+            ("S", 0x0010_0000),
+            ("AS", 0x0100_0000),
+            ("MA", 0x0200_0000),
+            ("RD", 0x0000_0001),
+            ("WD", 0x0000_0002),
+            ("AD", 0x0000_0004),
+            ("REA", 0x0000_0008),
+            ("WEA", 0x0000_0010),
+            ("X", 0x0000_0020),
+            ("DC", 0x0000_0040),
+            ("RA", 0x0000_0080),
+            ("WA", 0x0000_0100),
+        ];
+        let mut mask = mask;
+        for (generic, rights) in [
+            (0x1000_0000, FILE_ALL_ACCESS),
+            (0x8000_0000, FILE_GENERIC_READ),
+            (0x4000_0000, FILE_GENERIC_WRITE),
+            (0x2000_0000, FILE_GENERIC_EXECUTE),
+        ] {
+            if mask & generic != 0 {
+                mask = (mask & !generic) | rights;
+            }
+        }
+        let mut rest = mask;
+        let mut parts = Vec::new();
+        for (name, bits) in SIMPLE {
+            // `RX` covers `R`; a right whose bits are all taken adds nothing.
+            if mask & bits == bits && rest & bits != 0 && !(name == "R" && parts.contains(&"RX")) {
+                parts.push(name);
+                rest &= !bits;
+            }
+        }
+        for (name, bits) in SPECIFIC {
+            if rest & bits == bits {
+                parts.push(name);
+                rest &= !bits;
+            }
+        }
+        // A bit this notation has no name for is shown, never dropped: the
+        // parser treats the `U` token as unknown rights.
+        let mut text = parts.join(",");
+        if rest != 0 {
+            text.push_str(&format!(
+                "{}U{rest:X}",
+                if text.is_empty() { "" } else { "," }
+            ));
+        }
+        if text.is_empty() {
+            "N".to_string()
+        } else {
+            text
+        }
+    }
+
+    /// Inspect `icacls`-notation output and return `true` when a broad
+    /// non-owner principal holds more than it may. `Everyone`, `Guests` and
+    /// `Anonymous` may hold nothing; `BUILTIN\Users` and `Authenticated Users`
+    /// may hold read rights only. Every parenthesized group is split into its
+    /// comma-separated tokens and each token is judged, so `(R,W)`, `(WDAC)`,
+    /// `(DE)` and `(DENY)(W)` are caught as `(F)`, `(M)` and `(W)` are. Fail
+    /// closed: a token that is not a known inheritance flag or read right, or
+    /// a broad-principal entry whose rights do not parse, is overly permissive.
     #[cfg(any(not(unix), test))]
     #[must_use]
     pub(crate) fn windows_acl_is_overly_permissive(icacls_output: &str) -> bool {
-        const BROAD_PRINCIPALS: &[&str] = &[
-            "everyone:",
-            "builtin\\users:",
-            "nt authority\\authenticated users:",
-            "authenticated users:",
-            "builtin\\guests:",
-            "guest:",
+        // (principal as `icacls` prints it, may it hold read rights)
+        const BROAD_PRINCIPALS: &[(&str, bool)] = &[
+            ("everyone:", false),
+            ("builtin\\users:", true),
+            ("nt authority\\authenticated users:", true),
+            ("authenticated users:", true),
+            ("builtin\\guests:", false),
+            ("guest:", false),
+            ("anonymous logon:", false),
         ];
+        const INHERITANCE: &[&str] = &["i", "oi", "ci", "io", "np", "n"];
+        const READ: &[&str] = &["r", "rx", "rd", "rea", "ra", "rc", "x", "s"];
         for raw_line in icacls_output.lines() {
             let line = raw_line.trim().to_ascii_lowercase();
             if line.is_empty() || line.starts_with("successfully processed") {
                 continue;
             }
-            for principal in BROAD_PRINCIPALS {
-                if let Some(idx) = line.find(principal) {
-                    let perms = &line[idx + principal.len()..];
-                    if *principal == "everyone:"
-                        || perms.contains("(f)")
-                        || perms.contains("(m)")
-                        || perms.contains("(w)")
-                        || perms.contains("(rx,w)")
+            for (principal, may_read) in BROAD_PRINCIPALS {
+                for (idx, _) in line.match_indices(principal) {
+                    let Some(tokens) = Self::acl_rights_tokens(&line[idx + principal.len()..])
+                    else {
+                        return true;
+                    };
+                    if tokens
+                        .iter()
+                        .any(|t| !INHERITANCE.contains(t) && !(*may_read && READ.contains(t)))
                     {
                         return true;
                     }
@@ -419,6 +567,23 @@ impl SusiRuntimeAdmin {
             }
         }
         false
+    }
+
+    /// The tokens of `(a,b)(c)...` (a clean run of groups, nothing else), or
+    /// `None` when the text is not exactly that or holds no token at all.
+    #[cfg(any(not(unix), test))]
+    fn acl_rights_tokens(mut text: &str) -> Option<Vec<&str>> {
+        let mut tokens = Vec::new();
+        text = text.trim();
+        while !text.is_empty() {
+            let (group, tail) = text.strip_prefix('(')?.split_once(')')?;
+            if group.contains('(') {
+                return None;
+            }
+            tokens.extend(group.split(',').map(str::trim));
+            text = tail.trim_start();
+        }
+        (!tokens.is_empty()).then_some(tokens)
     }
 
     /// Host-only readiness (models, substrate safety). Never treats
@@ -933,6 +1098,144 @@ mod tests {
         ));
     }
 
+    /// Adversarial: every right the formatter can print for a broad principal
+    /// must be judged, composite groups and specific bits included.
+    #[test]
+    fn windows_acl_parser_fails_closed_on_composite_specific_and_malformed_rights() {
+        let judge = SusiRuntimeAdmin::windows_acl_is_overly_permissive;
+        for exposed in [
+            r"BUILTIN\Users:(R,W)",
+            r"BUILTIN\Users:(W,D)",
+            r"BUILTIN\Users:(R,W,D)",
+            r"BUILTIN\Users:(I)(R,W)",
+            r"BUILTIN\Users:(WD)",
+            r"BUILTIN\Users:(AD)",
+            r"BUILTIN\Users:(WEA)",
+            r"BUILTIN\Users:(DC)",
+            r"BUILTIN\Users:(DE)",
+            r"BUILTIN\Users:(WDAC)",
+            r"BUILTIN\Users:(WO)",
+            r"BUILTIN\Users:(R,WDAC)",
+            r"BUILTIN\Users:(R)(WO)",
+            r"BUILTIN\Users:(R,U200)",
+            r"BUILTIN\Users:(DENY)(W)",
+            r"BUILTIN\Users:(I)(OI)(CI)(M)",
+            r"NT AUTHORITY\Authenticated Users:(R,W)",
+            r"NT AUTHORITY\Authenticated Users:(WDAC)",
+            r"Everyone:(R)",
+            r"Everyone:(I)(RX)",
+            r"BUILTIN\Guests:(R)",
+            r"Guest:(R)",
+            r"NT AUTHORITY\ANONYMOUS LOGON:(R)",
+            // Not a clean run of groups, or no rights at all: unparseable.
+            r"Everyone:",
+            r"Everyone:(",
+            r"Everyone:(N",
+            r"BUILTIN\Users:",
+            r"BUILTIN\Users:()",
+            r"BUILTIN\Users:(R",
+            r"BUILTIN\Users:(R)junk",
+            r"BUILTIN\Users:((R))",
+            r"BUILTIN\Users:(R,)",
+            // Upper case, padding and a second broad entry on the line.
+            r"  builtin\USERS:(r,w)  ",
+            "C:\\susi\\cluster.key BUILTIN\\Users:(R) BUILTIN\\Users:(W)",
+        ] {
+            assert!(judge(exposed), "must be flagged: {exposed}");
+        }
+        for restrictive in [
+            r"BUILTIN\Users:(R)",
+            r"BUILTIN\Users:(I)(RX)",
+            r"BUILTIN\Users:(OI)(CI)(RX)",
+            r"BUILTIN\Users:(R,RC,REA,RA,S)",
+            r"NT AUTHORITY\Authenticated Users:(I)(R)",
+            r"Everyone:(N)",
+            r"*S-1-5-18:(F)",
+            r"*S-1-5-21-1-2-3-1001:(M)",
+            r"BUILTIN\Administrators:(I)(F)",
+        ] {
+            assert!(!judge(restrictive), "must not be flagged: {restrictive}");
+        }
+    }
+
+    /// The formatter and the parser agree on every mask: for any combination
+    /// of two access bits, `BUILTIN\Users` is flagged exactly when the mask
+    /// holds a bit beyond read/execute, and `Everyone` for any right at all.
+    #[test]
+    fn every_mask_the_formatter_prints_is_judged_by_what_it_grants() {
+        const READ_ONLY: u32 = 0x0012_00A9 | 0x8000_0000 | 0x2000_0000;
+        let mut masks = vec![0u32, 0x001F_01FF, 0x0013_01BF, 0x0012_0089, 0x0012_0116];
+        for a in 0..32 {
+            masks.push(1u32 << a);
+            for b in a + 1..32 {
+                masks.push((1u32 << a) | (1u32 << b));
+            }
+        }
+        for mask in masks {
+            let users = SusiRuntimeAdmin::icacls_entry_line("S-1-5-32-545", false, false, mask);
+            assert_eq!(
+                SusiRuntimeAdmin::windows_acl_is_overly_permissive(&users),
+                mask & !READ_ONLY != 0,
+                "{mask:#x} printed as {users}"
+            );
+            let everyone = SusiRuntimeAdmin::icacls_entry_line("S-1-1-0", false, false, mask);
+            assert_eq!(
+                SusiRuntimeAdmin::windows_acl_is_overly_permissive(&everyone),
+                mask != 0,
+                "{mask:#x} printed as {everyone}"
+            );
+        }
+        assert_eq!(SusiRuntimeAdmin::icacls_rights(0x0012_019F), "R,W");
+        assert_eq!(SusiRuntimeAdmin::icacls_rights(0x0000_8000), "U8000");
+    }
+
+    #[test]
+    fn the_scan_reports_what_it_cannot_list_or_finish() {
+        let root = std::env::temp_dir().join(format!("susi_scan_blind_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        // A home that is not a directory cannot be listed: a finding.
+        let not_a_directory = root.join("home");
+        std::fs::write(&not_a_directory, b"x").unwrap();
+        let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&not_a_directory);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(
+            findings[0].contains("directory unverifiable"),
+            "{findings:?}"
+        );
+        // A home that does not exist yet has nothing to expose.
+        assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&root.join("absent")).is_empty());
+
+        // Past the entry budget the rest is unverified, and says so.
+        let big = root.join("big");
+        std::fs::create_dir_all(&big).unwrap();
+        for index in 0..4097 {
+            std::fs::File::create(big.join(format!("f{index}"))).unwrap();
+        }
+        let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&big);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].contains("scan stopped"), "{findings:?}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Give `path` the access list `icacls <path> /grant *S-1-1-0:F` gave: the
+    /// current user and Everyone, both with full control, set natively (no
+    /// `icacls` process, which would open a console window).
+    #[cfg(windows)]
+    fn grant_everyone_full_control(path: &Path) {
+        let user = winapi::acl::current_user_sid().unwrap();
+        winapi::acl::set_protected_dacl(
+            path,
+            &[
+                (user.as_str(), winapi::acl::FILE_ALL_ACCESS),
+                ("S-1-1-0", winapi::acl::FILE_ALL_ACCESS),
+            ],
+        )
+        .unwrap();
+    }
+
     #[test]
     #[cfg(windows)]
     fn readiness_scan_flags_overly_permissive_windows_key_files() {
@@ -942,34 +1245,216 @@ mod tests {
         let key_path = dir.join("cluster.key");
         std::fs::write(&key_path, b"secret").unwrap();
 
-        let granted = std::process::Command::new("icacls")
-            .args([key_path.to_str().unwrap(), "/grant", "*S-1-1-0:F"])
-            .output()
-            .is_ok_and(|o| o.status.success());
-        if granted {
-            let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir);
-            assert_eq!(findings.len(), 1);
-        }
+        grant_everyone_full_control(&key_path);
+        let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir);
+        assert_eq!(findings.len(), 1);
 
-        let user = std::env::var("USERNAME").unwrap_or_default();
-        if !user.is_empty() {
-            let restricted = std::process::Command::new("icacls")
-                .args([
-                    key_path.to_str().unwrap(),
-                    "/inheritance:r",
-                    "/remove",
-                    "*S-1-1-0",
-                    "/grant:r",
-                    &format!("{user}:F"),
-                ])
-                .output()
-                .is_ok_and(|o| o.status.success());
-            if restricted {
-                assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
-            }
-        }
+        winapi::acl::restrict_to_current_user(&key_path).unwrap();
+        assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Plant a DACL whose second entry is an `ACCESS_ALLOWED_CALLBACK_ACE`
+    /// (type 9) for Everyone, which the native reader cannot list. The first
+    /// entry is the ordinary owner-only grant, so a reader that skipped the
+    /// callback entry would see exactly what `restrict_to_current_user` makes.
+    #[cfg(windows)]
+    #[allow(unsafe_code)] // test fixture: a DACL entry type the safe facade cannot write
+    fn plant_callback_ace_for_everyone(path: &Path) {
+        use winapi::shared::minwindef::DWORD;
+        use winapi::um::accctrl::SE_FILE_OBJECT;
+        use winapi::um::aclapi::SetNamedSecurityInfoW;
+        use winapi::um::securitybaseapi::{AddAce, InitializeAcl};
+        // ACL_REVISION_DS: callback entries need it.
+        const ACL_REVISION_DS: DWORD = 4;
+        use winapi::um::winnt::{
+            ACL, DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+        };
+
+        // Owner-only first, so the file is protected and readable; then the
+        // callback entry is added to a rebuilt list below.
+        let user_ace = |ace_type: u8, mask: u32, sid: &[u8]| {
+            let size = (8 + sid.len() + 3) & !3;
+            let mut ace = vec![ace_type, 0];
+            ace.extend_from_slice(&(size as u16).to_le_bytes());
+            ace.extend_from_slice(&mask.to_le_bytes());
+            ace.extend_from_slice(sid);
+            ace.resize(size, 0);
+            ace
+        };
+        // S-1-1-0 (Everyone): revision 1, one sub-authority, authority 1, id 0.
+        let everyone = [1u8, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0];
+        let owner = winapi::acl::current_user_sid().unwrap();
+        let owner_sid = {
+            let mut parts = owner.split('-').skip(1);
+            let revision: u8 = parts.next().unwrap().parse().unwrap();
+            let authority: u64 = parts.next().unwrap().parse().unwrap();
+            let subs: Vec<u32> = parts.map(|p| p.parse().unwrap()).collect();
+            let mut bytes = vec![revision, subs.len() as u8];
+            bytes.extend_from_slice(&authority.to_be_bytes()[2..]);
+            for sub in subs {
+                bytes.extend_from_slice(&sub.to_le_bytes());
+            }
+            bytes
+        };
+        let aces = [
+            user_ace(0, winapi::acl::FILE_ALL_ACCESS, &owner_sid),
+            user_ace(9, 0x0012_0089, &everyone),
+        ];
+        let size = (std::mem::size_of::<ACL>() + aces.iter().map(Vec::len).sum::<usize>() + 3) & !3;
+        let mut acl_buf = vec![0u32; size / 4];
+        let acl = acl_buf.as_mut_ptr().cast::<ACL>();
+        let mut name: Vec<u16> = std::os::windows::ffi::OsStrExt::encode_wide(path.as_os_str())
+            .chain(Some(0))
+            .collect();
+        // SAFETY: `acl_buf` is a DWORD-aligned writable buffer of `size`
+        // bytes living past every call; each entry is a complete ACE owned by
+        // `aces` that AddAce copies; `name` is a NUL-terminated UTF-16 path;
+        // only the DACL is set, the other security pointers are null.
+        let status = unsafe {
+            assert_ne!(InitializeAcl(acl, size as DWORD, ACL_REVISION_DS), 0);
+            for ace in &aces {
+                assert_ne!(
+                    AddAce(
+                        acl,
+                        ACL_REVISION_DS,
+                        DWORD::MAX,
+                        ace.as_ptr().cast_mut().cast(),
+                        ace.len() as DWORD,
+                    ),
+                    0
+                );
+            }
+            SetNamedSecurityInfoW(
+                name.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                acl,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(status, 0, "SetNamedSecurityInfoW failed");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn readiness_scan_flags_a_key_file_whose_access_list_cannot_be_read_in_full() {
+        let dir =
+            std::env::temp_dir().join(format!("susi_win_unverifiable_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key_path = dir.join("cluster.key");
+        std::fs::write(&key_path, b"secret").unwrap();
+
+        // Control: owner-only reads clean.
+        winapi::acl::restrict_to_current_user(&key_path).unwrap();
+        assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
+
+        // The same file with a callback entry the reader cannot list is a
+        // finding, never a clean scan, and says why.
+        plant_callback_ace_for_everyone(&key_path);
+        let error =
+            winapi::acl::read_dacl(&key_path).expect_err("callback entry must fail the read");
+        assert_eq!(
+            winapi::acl::unsupported_ace(&error),
+            Some(&winapi::acl::UnsupportedAce {
+                index: 1,
+                ace_type: 9
+            })
+        );
+        let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].contains("cluster.key"), "{findings:?}");
+        assert!(findings[0].contains("unverifiable"), "{findings:?}");
+        assert!(
+            findings[0].contains("unsupported type 0x09"),
+            "{findings:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_access_list_is_a_finding_and_only_a_vanished_file_is_not() {
+        let path = Path::new("home/cluster.key");
+        // Read in full and restrictive: clean.
+        assert_eq!(
+            SusiRuntimeAdmin::acl_finding(path, Ok("*S-1-5-18:(F)".to_string())),
+            None
+        );
+        // Read in full and broad: the path alone.
+        assert_eq!(
+            SusiRuntimeAdmin::acl_finding(path, Ok("Everyone:(F)".to_string())),
+            Some(path.display().to_string())
+        );
+        // Not read in full: reported with the reason, whatever the reason.
+        for kind in [
+            std::io::ErrorKind::Unsupported,
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::InvalidData,
+            std::io::ErrorKind::Other,
+        ] {
+            let finding = SusiRuntimeAdmin::acl_finding(
+                path,
+                Err(std::io::Error::new(kind, "entry 1 is unreadable")),
+            )
+            .expect("an unreadable list must not read as clean");
+            assert!(finding.starts_with("home"), "{finding}");
+            assert!(finding.contains("access list unverifiable"), "{finding}");
+            assert!(finding.contains("entry 1 is unreadable"), "{finding}");
+        }
+        // A file deleted between listing and reading has nothing to expose.
+        assert_eq!(
+            SusiRuntimeAdmin::acl_finding(
+                path,
+                Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn native_access_masks_print_in_icacls_notation() {
+        for (mask, expected) in [
+            (0x001F_01FF, "F"),
+            (0x1000_0000, "F"),
+            (0x0013_01BF, "M"),
+            (0x0012_00A9, "RX"),
+            (0x0012_0089, "R"),
+            (0x8000_0000, "R"),
+            (0x0010_0116, "W"),
+            (0x0000_0001, "RD"),
+            (0x0000_0000, "N"),
+        ] {
+            assert_eq!(SusiRuntimeAdmin::icacls_rights(mask), expected, "{mask:#x}");
+        }
+    }
+
+    #[test]
+    fn native_entries_print_as_icacls_lines_the_parser_judges() {
+        let everyone = SusiRuntimeAdmin::icacls_entry_line("S-1-1-0", false, false, 0x001F_01FF);
+        assert_eq!(everyone, "Everyone:(F)");
+        assert!(SusiRuntimeAdmin::windows_acl_is_overly_permissive(
+            &everyone
+        ));
+        assert_eq!(
+            SusiRuntimeAdmin::icacls_entry_line("S-1-5-32-545", false, true, 0x0012_00A9),
+            r"BUILTIN\Users:(I)(RX)"
+        );
+        assert_eq!(
+            SusiRuntimeAdmin::icacls_entry_line("S-1-5-21-1-2-3-501", false, false, 0x0012_0089),
+            "Guest:(R)"
+        );
+        // An unnamed trustee prints as `*<SID>` and is never a broad principal.
+        let system = SusiRuntimeAdmin::icacls_entry_line("S-1-5-18", false, false, 0x001F_01FF);
+        assert_eq!(system, "*S-1-5-18:(F)");
+        assert!(!SusiRuntimeAdmin::windows_acl_is_overly_permissive(&system));
+        assert_eq!(
+            SusiRuntimeAdmin::icacls_entry_line("S-1-5-21-1-2-3-1001", true, true, 0x0010_0116),
+            "*S-1-5-21-1-2-3-1001:(I)(DENY)(W)"
+        );
     }
 
     #[test]
@@ -1069,10 +1554,8 @@ mod tests {
     fn readiness_scan_skips_bus_endpoint_metadata_but_not_the_bus_key() {
         let (home, bus_key, key) = home_with_bus_metadata("win");
         let grant_everyone = |path: &Path| {
-            std::process::Command::new("icacls")
-                .args([path.to_str().unwrap(), "/grant", "*S-1-1-0:F"])
-                .output()
-                .is_ok_and(|o| o.status.success())
+            grant_everyone_full_control(path);
+            true
         };
         let topic = home
             .join("bus")

@@ -8,6 +8,14 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+// The one `CREATE_NO_WINDOW` owner, compiled here from its single source: a
+// build script run by a windowless supervisor must not open a console window
+// for `nvidia-smi` (and a build dependency on `susi-paths` would put the whole
+// crate in every build graph for one probe).
+#[allow(dead_code)] // only `background_command` is used by this script
+#[path = "crates/susi-paths/src/console.rs"]
+mod console;
+
 fn main() {
     susi_build_os_ucrt::configure_all_bins()
         .expect("Windows OS-UCRT boundary configuration failed");
@@ -100,7 +108,7 @@ fn warn_if_gpu_available_but_unused() {
         return;
     }
 
-    let has_nvidia_gpu = std::process::Command::new("nvidia-smi")
+    let has_nvidia_gpu = console::background_command("nvidia-smi")
         .args(["--query-gpu=name", "--format=csv,noheader"])
         .output()
         .map(|o| o.status.success() && !o.stdout.is_empty())

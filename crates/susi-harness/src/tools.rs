@@ -609,7 +609,7 @@ fn run_with_limit(mut command: Command, limit: Duration) -> Result<std::process:
 fn kill_tree(pid: u32) {
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
+        let _ = susi_paths::console::background_command("taskkill")
             .args(["/T", "/F", "/PID", &pid.to_string()])
             .output();
     }

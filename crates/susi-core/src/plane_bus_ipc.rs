@@ -481,22 +481,37 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
     let Some(candidate) = fresh() else {
         return read().unwrap_or_default();
     };
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    if let Ok(mut f) = opts.open(&path) {
-        if f.write_all(candidate.as_bytes()).is_ok() {
-            drop(f);
-            #[cfg(windows)]
-            {
-                let _ = restrict_windows_secret_acl(&path);
-            }
-            return candidate;
+    // Owner-only from birth: `0600` on Unix; on Windows a protected DACL for
+    // the process token's user applied inside the exclusive create itself
+    // (no `icacls` process, which opened a console window from the
+    // windowless daemon). No other handle can be opened against a wider
+    // list before the key is written, and a failure creates nothing.
+    #[cfg(windows)]
+    let created = winapi::acl::create_new_owner_only(&path);
+    #[cfg(not(windows))]
+    let created = {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
         }
+        opts.open(&path)
+    };
+    match created {
+        Ok(mut f) => {
+            if f.write_all(candidate.as_bytes()).is_ok() {
+                return candidate;
+            }
+        }
+        // Windows: the owner-only file could not be made (no token user, no
+        // list, or the create itself failed). The key is withheld: an empty
+        // key matches no presented key, so the bus refuses every client
+        // rather than run on a key it could not store owner-only.
+        #[cfg(windows)]
+        Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => return String::new(),
+        Err(_) => {}
     }
     // Lost the create race (or a partial write is being completed): the
     // winner's value is authoritative once it lands.
@@ -507,36 +522,6 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
         std::thread::sleep(Duration::from_millis(10));
     }
     candidate
-}
-
-/// Build the `icacls` arguments that restrict `path` exclusively to `username`
-/// (owner-only access parity with Unix `0600`).
-#[cfg(any(windows, test))]
-#[must_use]
-pub(crate) fn windows_secret_icacls_args(path: &Path, username: &str) -> Vec<String> {
-    vec![
-        path.display().to_string(),
-        "/inheritance:r".to_string(),
-        "/grant:r".to_string(),
-        format!("{username}:F"),
-    ]
-}
-
-/// Restrict a newly written Windows secret file's ACL to the current user via `icacls`
-/// (best-effort, non-blocking if `icacls` is unavailable).
-#[cfg(windows)]
-fn restrict_windows_secret_acl(path: &Path) -> bool {
-    let user = std::env::var("USERNAME")
-        .or_else(|_| std::env::var("USER"))
-        .unwrap_or_default();
-    let trimmed = user.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    std::process::Command::new("icacls")
-        .args(windows_secret_icacls_args(path, trimmed))
-        .output()
-        .is_ok_and(|out| out.status.success())
 }
 
 /// Constant-time comparison of a presented bus key; empty never matches.
@@ -835,7 +820,7 @@ impl LiveProcesses {
 /// `pid → image name` for every process, from one `tasklist` call.
 #[cfg(windows)]
 fn windows_process_images() -> std::collections::HashMap<u32, String> {
-    let Ok(out) = std::process::Command::new("tasklist")
+    let Ok(out) = susi_paths::console::background_command("tasklist")
         .args(["/FO", "CSV", "/NH"])
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -1415,18 +1400,65 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A freshly minted bus secret grants only the current user, full
+    /// control, with no inherited entries (the Windows twin of `0600`).
+    #[cfg(windows)]
     #[test]
-    fn windows_secret_icacls_args_grants_only_owner() {
-        let p = Path::new("C:\\Users\\alice\\.susi\\bus\\secret");
-        let args = windows_secret_icacls_args(p, "alice");
+    fn a_new_bus_secret_grants_only_the_current_user() {
+        let dir = tempdir("secret-acl");
+        let secret = bus_secret(Some(&dir));
+        assert_eq!(secret.len(), 64);
+        let aces = winapi::acl::read_dacl(&dir.join("secret"))
+            .unwrap()
+            .unwrap();
         assert_eq!(
-            args,
-            vec![
-                "C:\\Users\\alice\\.susi\\bus\\secret",
-                "/inheritance:r",
-                "/grant:r",
-                "alice:F"
-            ]
+            aces,
+            vec![winapi::acl::Ace {
+                sid: winapi::acl::current_user_sid().unwrap(),
+                deny: false,
+                inherited: false,
+                mask: winapi::acl::FILE_ALL_ACCESS,
+            }]
         );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("secret")).unwrap(),
+            secret,
+            "the stored key is the returned key"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Failure injection: when the owner-only secret file cannot be created
+    /// (here its directory cannot exist, because a file sits where a parent
+    /// directory must be), the key is withheld (empty, matching no presented
+    /// key) and nothing is left behind.
+    #[cfg(windows)]
+    #[test]
+    fn a_bus_secret_that_cannot_be_stored_owner_only_is_withheld() {
+        let dir = tempdir("secret-fail");
+        std::fs::create_dir_all(&dir).unwrap();
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, b"not a directory").unwrap();
+        let bus = blocker.join("bus");
+        assert_eq!(bus_secret(Some(&bus)), "");
+        assert!(!key_matches("", ""), "an empty key matches nothing");
+        assert_eq!(std::fs::read(&blocker).unwrap(), b"not a directory");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A process that loses the exclusive create adopts the winner's key; it
+    /// never rewrites or deletes the existing secret file.
+    #[test]
+    fn a_bus_secret_that_already_exists_is_adopted_unchanged() {
+        let dir = tempdir("secret-existing");
+        std::fs::create_dir_all(&dir).unwrap();
+        let existing = "ab".repeat(32);
+        std::fs::write(dir.join("secret"), &existing).unwrap();
+        assert_eq!(bus_secret(Some(&dir)), existing);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("secret")).unwrap(),
+            existing
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

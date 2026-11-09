@@ -138,33 +138,50 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
     env.set("XDG_CONFIG_HOME", config_dir.join("config"));
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap().to_string();
-    let accepted = Arc::new(AtomicBool::new(false));
-    let server_accepted = Arc::clone(&accepted);
+    // Readiness handshake: the peer signals the instant it accepts the
+    // connection, so the test cancels only once the request is in flight.
+    // Before connecting, the dispatch checks eviction, the roster and the
+    // credential release, and any of those can return without connecting
+    // (an evicted node, a refused credential). The dispatch therefore
+    // signals its own return on the same channel: whichever happens first
+    // decides, so a dispatch that gave up before the peer fails at once
+    // with its real outcome instead of waiting out the bound. The bound
+    // only fails a dispatch that neither connects nor returns.
+    enum Event {
+        PeerAccepted,
+        DispatchReturned,
+    }
+    let (events_tx, events_rx) = std::sync::mpsc::channel::<Event>();
+    let accepted_tx = events_tx.clone();
     let server = std::thread::spawn(move || {
         let (_stream, _) = listener.accept().unwrap();
-        server_accepted.store(true, Ordering::Release);
+        // The receiver is gone only when the test already failed.
+        let _ = accepted_tx.send(Event::PeerAccepted);
         std::thread::sleep(Duration::from_millis(500));
     });
 
-    let handle = CancellationHandle::with_deadline_after(Duration::from_secs(10));
+    // Backstop only: the test cancels explicitly, long before this expires.
+    let handle = CancellationHandle::with_deadline_after(Duration::from_secs(120));
     let worker_handle = handle.clone();
     let worker_address = address.clone();
     let worker = std::thread::spawn(move || {
-        SusiSupervisor::dispatch_peer_task_cancellable(
+        let outcome = SusiSupervisor::dispatch_peer_task_cancellable(
             &worker_address,
             "reason",
             r#"{"goal":"hang"}"#,
             &worker_handle,
-        )
+        );
+        let _ = events_tx.send(Event::DispatchReturned);
+        outcome
     });
-    let accept_deadline = Instant::now() + Duration::from_secs(1);
-    while !accepted.load(Ordering::Acquire) && Instant::now() < accept_deadline {
-        std::thread::sleep(Duration::from_millis(5));
+    match events_rx.recv_timeout(Duration::from_secs(60)) {
+        Ok(Event::PeerAccepted) => {}
+        Ok(Event::DispatchReturned) => panic!(
+            "dispatch returned before connecting to the peer: {:?}",
+            worker.join().unwrap()
+        ),
+        Err(error) => panic!("peer request neither started nor returned: {error}"),
     }
-    assert!(
-        accepted.load(Ordering::Acquire),
-        "peer request did not start"
-    );
     let cancelled_at = Instant::now();
     handle.cancel();
     let result = worker.join().unwrap();

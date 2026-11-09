@@ -1,0 +1,1095 @@
+//! Owner-only file ACLs through Win32, owned by the facade so `susi-core`,
+//! `susi-error` and `susi-daemon` stay free of `unsafe` and never launch
+//! `icacls.exe` to set or read a file's access list.
+//!
+//! Launching `icacls` from a process without a console (the detached daemon,
+//! a test binary under the gate) made Windows allocate a new, visible console
+//! window for every call (2026-11-09: a test run popped "error 0x800700e8
+//! when launching `icacls` ... node.key"). These calls start no process.
+//!
+//! - [`open_owner_only_append`] and [`create_new_owner_only`] open a file
+//!   that, when the call creates it, is born with the owner-only list below:
+//!   the list is part of the `CreateFileW` call itself (`SECURITY_ATTRIBUTES`),
+//!   so no other handle can ever be opened against a wider list, and a failure
+//!   creates nothing (there is nothing to restrict or delete afterwards).
+//! - [`restrict_to_current_user`] gives an existing file the access list that
+//!   `icacls <path> /inheritance:r /grant:r <user>:F` gave a newly created
+//!   file: a protected DACL (no inherited entries) with one explicit entry
+//!   granting the current user full control (`FILE_ALL_ACCESS`). The user is
+//!   the process token's user, not the `USERNAME` environment variable. It
+//!   resolves `path` by name, so it does not revoke a handle opened before it;
+//!   a file that must never be readable by anyone else is created with one of
+//!   the two functions above instead.
+//! - [`read_dacl`] lists a file's allow and deny entries in order.
+//!
+//! References: [SetNamedSecurityInfoW](https://learn.microsoft.com/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow),
+//! [GetNamedSecurityInfoW](https://learn.microsoft.com/windows/win32/api/aclapi/nf-aclapi-getnamedsecurityinfow),
+//! [CreateFileW](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-createfilew),
+//! [SECURITY_ATTRIBUTES](https://learn.microsoft.com/windows/win32/api/wtypesbase/ns-wtypesbase-security_attributes),
+//! [SID string format](https://learn.microsoft.com/windows/win32/secauthz/sid-components).
+//! No raw pointer crosses out of this module; a handle leaves it only as an
+//! owned `std::fs::File`.
+
+use std::ffi::OsStr;
+use std::io;
+use std::os::windows::ffi::OsStrExt;
+use std::path::Path;
+
+use winapi::shared::minwindef::{DWORD, FALSE, LPVOID, TRUE};
+use winapi::shared::ntdef::HANDLE;
+use winapi::um::accctrl::SE_FILE_OBJECT;
+use winapi::um::aclapi::{GetNamedSecurityInfoW, SetNamedSecurityInfoW};
+use winapi::um::fileapi::{CreateFileW, CREATE_NEW, OPEN_ALWAYS};
+use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
+use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
+use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcessToken};
+use winapi::um::securitybaseapi::{
+    AddAccessAllowedAce, GetAce, GetLengthSid, GetTokenInformation, InitializeAcl,
+    InitializeSecurityDescriptor, IsValidSid, SetSecurityDescriptorControl,
+    SetSecurityDescriptorDacl,
+};
+use winapi::um::winbase::LocalFree;
+use winapi::um::winnt::{
+    TokenUser, ACCESS_ALLOWED_ACE, ACCESS_ALLOWED_ACE_TYPE, ACCESS_DENIED_ACE_TYPE, ACE_HEADER,
+    ACL, ACL_REVISION, ACL_REVISION_DS, DACL_SECURITY_INFORMATION, FILE_ATTRIBUTE_NORMAL,
+    FILE_GENERIC_WRITE, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_DATA,
+    INHERITED_ACE, PACL, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    SECURITY_DESCRIPTOR, SECURITY_DESCRIPTOR_REVISION, SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER,
+};
+
+pub use winapi::um::winnt::FILE_ALL_ACCESS;
+
+/// One allow or deny entry of a file's DACL, in list order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ace {
+    /// The trustee in SID string form (`S-1-1-0` is Everyone).
+    pub sid: String,
+    /// A deny entry; otherwise an allow entry.
+    pub deny: bool,
+    /// Inherited from the parent (`INHERITED_ACE`), not set on the file.
+    pub inherited: bool,
+    /// The access mask exactly as stored (generic bits are not mapped).
+    pub mask: u32,
+}
+
+/// A DACL entry [`read_dacl`] cannot represent as an [`Ace`]. It carries an
+/// access right (an object or callback allow or deny entry, or a type this
+/// module does not know), so the list is not a complete account of who may
+/// open the file. [`read_dacl`] fails with this error (wrapped in an
+/// [`io::Error`] of kind `Unsupported`; see [`unsupported_ace`]) instead of
+/// listing the entries it understands and hiding the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnsupportedAce {
+    /// Position of the entry in the DACL.
+    pub index: u16,
+    /// The entry's `AceType` byte.
+    pub ace_type: u8,
+}
+
+impl std::fmt::Display for UnsupportedAce {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DACL entry {} has unsupported type {:#04x} that may carry access rights",
+            self.index, self.ace_type
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedAce {}
+
+/// The [`UnsupportedAce`] behind an error from [`read_dacl`], if that is what
+/// it reports.
+#[must_use]
+pub fn unsupported_ace(error: &io::Error) -> Option<&UnsupportedAce> {
+    error.get_ref()?.downcast_ref::<UnsupportedAce>()
+}
+
+/// Restrict `path` to the current user: a protected DACL with a single
+/// entry granting the process token's user `FILE_ALL_ACCESS`.
+pub fn restrict_to_current_user(path: &Path) -> io::Result<()> {
+    let user = current_user_sid()?;
+    set_protected_dacl(path, &[(user.as_str(), FILE_ALL_ACCESS)])
+}
+
+/// Open `path` for appending, creating it if it does not exist. A file this
+/// call creates is born with the owner-only list [`restrict_to_current_user`]
+/// sets (a protected DACL with one `FILE_ALL_ACCESS` entry for the process
+/// token's user), applied inside `CreateFileW`, so it is never visible with
+/// its parent's inherited entries and no other handle can be opened against
+/// a wider list. One call, `OPEN_ALWAYS`: concurrent callers each either
+/// create the file or open the one another created; none sees it half made.
+/// An existing file is opened as it is (its list is not changed).
+///
+/// The handle requests what `OpenOptions::new().append(true)` requests
+/// (`FILE_GENERIC_WRITE` without `FILE_WRITE_DATA`, so every write lands at
+/// the end of the file), shares read, write and delete like `std::fs` does
+/// (readers, other appenders and a rotating rename keep working), and is not
+/// inheritable. When the list cannot be built nothing is created.
+pub fn open_owner_only_append(path: &Path) -> io::Result<std::fs::File> {
+    let user = current_user_sid()?;
+    open_with_protected_dacl(
+        path,
+        FILE_GENERIC_WRITE & !FILE_WRITE_DATA,
+        OPEN_ALWAYS,
+        &[(user.as_str(), FILE_ALL_ACCESS)],
+    )
+}
+
+/// Create `path` for writing, failing with `AlreadyExists` if it exists
+/// (`CREATE_NEW`), born with the owner-only list of
+/// [`open_owner_only_append`], applied inside `CreateFileW`. Nothing written
+/// to the file is ever readable through a handle opened against a wider list.
+/// When the list cannot be built nothing is created.
+pub fn create_new_owner_only(path: &Path) -> io::Result<std::fs::File> {
+    let user = current_user_sid()?;
+    open_with_protected_dacl(
+        path,
+        FILE_GENERIC_WRITE,
+        CREATE_NEW,
+        &[(user.as_str(), FILE_ALL_ACCESS)],
+    )
+}
+
+/// `CreateFileW(path, access, share read/write/delete, disposition)` with a
+/// security descriptor whose DACL is `grants`, protected (`SE_DACL_PROTECTED`:
+/// the parent's inheritable entries are not merged in). The descriptor only
+/// applies when the call creates the file; Windows ignores it when opening
+/// an existing one.
+#[allow(unsafe_code)]
+fn open_with_protected_dacl(
+    path: &Path,
+    access: DWORD,
+    disposition: DWORD,
+    grants: &[(&str, u32)],
+) -> io::Result<std::fs::File> {
+    use std::os::windows::io::{FromRawHandle, RawHandle};
+    let name = wide_path(path)?;
+    let mut acl_buf = build_acl(grants)?;
+    let mut descriptor = SECURITY_DESCRIPTOR {
+        Revision: 0,
+        Sbz1: 0,
+        Control: 0,
+        Owner: std::ptr::null_mut(),
+        Group: std::ptr::null_mut(),
+        Sacl: std::ptr::null_mut(),
+        Dacl: std::ptr::null_mut(),
+    };
+    let sd: PSECURITY_DESCRIPTOR = std::ptr::addr_of_mut!(descriptor).cast();
+    // SAFETY: `sd` points at the writable, correctly sized and aligned
+    // absolute SECURITY_DESCRIPTOR above, which is not moved or otherwise
+    // accessed until CreateFileW has returned.
+    if unsafe { InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `sd` was initialised above; the DACL pointer is the valid ACL
+    // `build_acl` made in `acl_buf`, which outlives CreateFileW (an absolute
+    // descriptor stores the pointer, it does not copy the list).
+    if unsafe { SetSecurityDescriptorDacl(sd, TRUE, acl_buf.as_mut_ptr().cast::<ACL>(), FALSE) }
+        == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `sd` is the initialised descriptor; only the protected bit is
+    // changed.
+    if unsafe { SetSecurityDescriptorControl(sd, SE_DACL_PROTECTED, SE_DACL_PROTECTED) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut attributes = SECURITY_ATTRIBUTES {
+        nLength: DWORD::try_from(std::mem::size_of::<SECURITY_ATTRIBUTES>())
+            .map_err(|_| io::Error::other("SECURITY_ATTRIBUTES size"))?,
+        lpSecurityDescriptor: sd.cast(),
+        bInheritHandle: FALSE,
+    };
+    // SAFETY: `name` is a NUL-terminated UTF-16 path owned for the call;
+    // `attributes`, the descriptor it points at and the ACL that points into
+    // `acl_buf` all live until this synchronous call returns; no template
+    // handle is passed. `bInheritHandle` is FALSE, so no child inherits the
+    // handle.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            access,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            &mut attributes,
+            disposition,
+            FILE_ATTRIBUTE_NORMAL,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: CreateFileW succeeded, so `handle` is a valid file handle that
+    // nothing else owns; ownership moves into the File exactly once, which
+    // closes it on drop.
+    Ok(unsafe { std::fs::File::from_raw_handle(handle as RawHandle) })
+}
+
+/// Replace `path`'s DACL with a protected list (inherited entries removed)
+/// of allow entries, one per `(SID string, access mask)` pair, in order.
+#[allow(unsafe_code)]
+pub fn set_protected_dacl(path: &Path, grants: &[(&str, u32)]) -> io::Result<()> {
+    let mut acl_buf = build_acl(grants)?;
+    let mut name = wide_path(path)?;
+    // SAFETY: `name` is a NUL-terminated UTF-16 path owned for the call;
+    // only the DACL is set (owner, group and SACL pointers are null, as the
+    // security-information flags say), and the ACL is the valid list
+    // `build_acl` made in `acl_buf`, alive for the call.
+    let status = unsafe {
+        SetNamedSecurityInfoW(
+            name.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            acl_buf.as_mut_ptr().cast::<ACL>(),
+            std::ptr::null_mut(),
+        )
+    };
+    win32_status(status)
+}
+
+/// A DWORD-aligned buffer holding an ACL of allow entries, one per
+/// `(SID string, access mask)` pair, in order. Every SID is parsed and
+/// validated before any buffer is built.
+#[allow(unsafe_code)]
+fn build_acl(grants: &[(&str, u32)]) -> io::Result<Vec<u32>> {
+    let sids = grants
+        .iter()
+        .map(|(sid, _)| SidBuf::parse(sid))
+        .collect::<io::Result<Vec<_>>>()?;
+    // ACL header, then per entry an ACCESS_ALLOWED_ACE whose trailing
+    // `SidStart` DWORD is the first word of the SID itself.
+    let entry_fixed = std::mem::size_of::<ACCESS_ALLOWED_ACE>() - std::mem::size_of::<DWORD>();
+    let size = sids.iter().fold(std::mem::size_of::<ACL>(), |total, sid| {
+        total + entry_fixed + sid.len
+    });
+    let size = (size + 3) & !3;
+    let size_dword = DWORD::try_from(size)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "access list too large"))?;
+    let mut acl_buf = vec![0u32; size / 4];
+    let acl = acl_buf.as_mut_ptr().cast::<ACL>();
+    // SAFETY: `acl_buf` is a writable, DWORD-aligned buffer of exactly
+    // `size_dword` bytes that outlives every call below, as InitializeAcl
+    // requires.
+    if unsafe { InitializeAcl(acl, size_dword, ACL_REVISION as DWORD) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    for (sid, (_, mask)) in sids.iter().zip(grants) {
+        // SAFETY: `acl` was initialised above with room for every entry;
+        // `sid.as_psid()` points at a valid, DWORD-aligned SID of `sid.len`
+        // bytes owned by `sids`, alive for the call. The ACL copies the SID.
+        if unsafe { AddAccessAllowedAce(acl, ACL_REVISION as DWORD, *mask, sid.as_psid()) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(acl_buf)
+}
+
+/// `path`'s DACL entries in order; `None` for a NULL DACL, which grants
+/// everyone full access. Only allow and deny entries are listed, each exactly
+/// as stored (an inherit-only entry is listed like any other, so the reader
+/// can only over-report). Any other entry type (object, callback, compound,
+/// and the audit, alarm, label and policy types that belong to a SACL, not a
+/// DACL), and any ACL revision other than `ACL_REVISION` or `ACL_REVISION_DS`,
+/// fails the read: with an [`UnsupportedAce`] error for an entry, with
+/// `InvalidData` for the revision. A listing never hides what it cannot read.
+#[allow(unsafe_code)]
+pub fn read_dacl(path: &Path) -> io::Result<Option<Vec<Ace>>> {
+    let name = wide_path(path)?;
+    let mut dacl: PACL = std::ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: `name` is a NUL-terminated UTF-16 path owned for the call;
+    // `dacl` and `descriptor` are writable out-pointers; the owner, group
+    // and SACL out-pointers are null because only the DACL is requested.
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            name.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    win32_status(status)?;
+    let entries = if dacl.is_null() {
+        Ok(None)
+    } else {
+        dacl_entries(dacl).map(Some)
+    };
+    // SAFETY: on success GetNamedSecurityInfoW returned `descriptor` from
+    // LocalAlloc and the caller frees it with LocalFree; `dacl` points into
+    // it and is not used after this line.
+    unsafe { LocalFree(descriptor) };
+    entries
+}
+
+/// The process token's user as a SID string (`S-1-5-21-...`).
+#[allow(unsafe_code)]
+pub fn current_user_sid() -> io::Result<String> {
+    let mut token: HANDLE = std::ptr::null_mut();
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no
+    // closing; `token` is a writable out-pointer.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let result = token_user_sid(token);
+    // SAFETY: `token` was opened above and is closed exactly once.
+    unsafe { CloseHandle(token) };
+    result
+}
+
+#[allow(unsafe_code)]
+fn token_user_sid(token: HANDLE) -> io::Result<String> {
+    let mut needed: DWORD = 0;
+    // SAFETY: a size query: no buffer (null, length 0), `needed` writable.
+    // It fails with ERROR_INSUFFICIENT_BUFFER and reports the size.
+    unsafe { GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed) };
+    if (needed as usize) < std::mem::size_of::<TOKEN_USER>() {
+        return Err(io::Error::last_os_error());
+    }
+    // u64 storage keeps TOKEN_USER's pointer field aligned.
+    let mut buf = vec![0u64; (needed as usize).div_ceil(8)];
+    // SAFETY: `buf` is writable, 8-byte aligned and at least `needed` bytes.
+    let ok = unsafe {
+        GetTokenInformation(
+            token,
+            TokenUser,
+            buf.as_mut_ptr().cast(),
+            needed,
+            &mut needed,
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: on success `buf` holds a TOKEN_USER whose `User.Sid` points
+    // into `buf`, which stays alive while the SID is copied out.
+    let sid = unsafe { (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid };
+    sid_string_at(sid, usize::MAX).ok_or_else(|| io::Error::other("token user SID is invalid"))
+}
+
+#[allow(unsafe_code)]
+fn dacl_entries(dacl: PACL) -> io::Result<Vec<Ace>> {
+    // SAFETY: `dacl` is the non-null DACL GetNamedSecurityInfoW returned,
+    // valid while its descriptor lives (the caller frees it afterwards).
+    let (revision, count) = unsafe { ((*dacl).AclRevision, (*dacl).AceCount) };
+    // An ACL header this module does not know may lay its entries out
+    // differently; do not walk it.
+    if ![ACL_REVISION, ACL_REVISION_DS].contains(&revision) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("DACL has unsupported ACL revision {revision}"),
+        ));
+    }
+    let mut entries = Vec::with_capacity(usize::from(count));
+    for index in 0..count {
+        let mut ace: LPVOID = std::ptr::null_mut();
+        // SAFETY: `index` is below the list's AceCount; `ace` is writable.
+        if unsafe { GetAce(dacl, DWORD::from(index), &mut ace) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: GetAce succeeded, so `ace` points at an entry inside the
+        // DACL that starts with an ACE_HEADER.
+        let header = unsafe { *ace.cast::<ACE_HEADER>() };
+        let deny = match header.AceType {
+            ACCESS_ALLOWED_ACE_TYPE => false,
+            ACCESS_DENIED_ACE_TYPE => true,
+            // Fail closed: a listing that omitted an entry able to grant
+            // access would read as a clean, restrictive list.
+            ace_type => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    UnsupportedAce { index, ace_type },
+                ));
+            }
+        };
+        let fixed = std::mem::size_of::<ACCESS_ALLOWED_ACE>() - std::mem::size_of::<DWORD>();
+        let Some(room) = usize::from(header.AceSize).checked_sub(fixed) else {
+            return Err(io::Error::other("DACL entry shorter than its header"));
+        };
+        // Allow and deny entries share ACCESS_ALLOWED_ACE's layout: header,
+        // mask, then the SID starting at `SidStart`.
+        let entry = ace.cast::<ACCESS_ALLOWED_ACE>();
+        // SAFETY: the entry is an allow or deny ACE of at least `fixed`
+        // bytes (checked above), so `Mask` and the `SidStart` address are
+        // inside it.
+        let (mask, sid) = unsafe {
+            (
+                (*entry).Mask,
+                std::ptr::addr_of!((*entry).SidStart).cast_mut().cast(),
+            )
+        };
+        let sid = sid_string_at(sid, room)
+            .ok_or_else(|| io::Error::other("DACL entry holds an invalid SID"))?;
+        entries.push(Ace {
+            sid,
+            deny,
+            inherited: header.AceFlags & INHERITED_ACE != 0,
+            mask,
+        });
+    }
+    Ok(entries)
+}
+
+/// Copy the SID at `sid` (at most `room` bytes long) into its string form.
+#[allow(unsafe_code)]
+fn sid_string_at(sid: PSID, room: usize) -> Option<String> {
+    // SAFETY: callers pass a SID pointer from the token or a DACL entry;
+    // IsValidSid checks its structure before its length is read.
+    if sid.is_null() || unsafe { IsValidSid(sid) } == 0 {
+        return None;
+    }
+    // SAFETY: the SID is valid (checked above).
+    let len = unsafe { GetLengthSid(sid) } as usize;
+    if len > room {
+        return None;
+    }
+    // SAFETY: a valid SID occupies exactly `len` readable bytes, which fit
+    // inside its containing buffer (`room`).
+    let bytes = unsafe { std::slice::from_raw_parts(sid.cast::<u8>(), len) };
+    sid_to_string(bytes)
+}
+
+/// `S-<revision>-<authority>-<sub>...` from a SID's binary form.
+fn sid_to_string(bytes: &[u8]) -> Option<String> {
+    let (&revision, rest) = bytes.split_first()?;
+    let (&count, rest) = rest.split_first()?;
+    let (authority, subs) = rest.split_at_checked(6)?;
+    if subs.len() != usize::from(count) * 4 {
+        return None;
+    }
+    let authority = authority
+        .iter()
+        .fold(0u64, |value, byte| (value << 8) | u64::from(*byte));
+    let mut text = if authority >> 32 == 0 {
+        format!("S-{revision}-{authority}")
+    } else {
+        format!("S-{revision}-0x{authority:012X}")
+    };
+    for sub in subs.as_chunks::<4>().0 {
+        let value = u32::from_le_bytes(*sub);
+        text.push_str(&format!("-{value}"));
+    }
+    Some(text)
+}
+
+/// A SID in its binary form, DWORD-aligned for Win32.
+struct SidBuf {
+    words: Vec<u32>,
+    len: usize,
+}
+
+impl SidBuf {
+    /// Parse `S-1-<authority>-<sub>...` (decimal or `0x` hex authority,
+    /// at most 15 sub-authorities).
+    fn parse(text: &str) -> io::Result<Self> {
+        let invalid = || {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("not a SID string: {text}"),
+            )
+        };
+        let mut parts = text.split('-');
+        if !parts.next().is_some_and(|s| s.eq_ignore_ascii_case("S")) {
+            return Err(invalid());
+        }
+        let revision: u8 = parts
+            .next()
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(invalid)?;
+        let authority_text = parts.next().ok_or_else(invalid)?;
+        let authority = match authority_text
+            .strip_prefix("0x")
+            .or_else(|| authority_text.strip_prefix("0X"))
+        {
+            Some(hex) => u64::from_str_radix(hex, 16).ok(),
+            None => authority_text.parse().ok(),
+        }
+        .filter(|value| value >> 48 == 0)
+        .ok_or_else(invalid)?;
+        let subs = parts
+            .map(|s| s.parse::<u32>().map_err(|_| invalid()))
+            .collect::<io::Result<Vec<_>>>()?;
+        let count = u8::try_from(subs.len())
+            .ok()
+            .filter(|count| *count <= 15)
+            .ok_or_else(invalid)?;
+        let mut bytes = vec![revision, count];
+        bytes.extend_from_slice(&authority.to_be_bytes()[2..]);
+        for sub in subs {
+            bytes.extend_from_slice(&sub.to_le_bytes());
+        }
+        let len = bytes.len();
+        bytes.resize(len.div_ceil(4) * 4, 0);
+        let words = bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|w| u32::from_ne_bytes(*w))
+            .collect();
+        let sid = Self { words, len };
+        if sid_string_at(sid.as_psid(), sid.len).is_none() {
+            return Err(invalid());
+        }
+        Ok(sid)
+    }
+
+    fn as_psid(&self) -> PSID {
+        self.words.as_ptr().cast_mut().cast()
+    }
+}
+
+fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
+    let mut wide: Vec<u16> = OsStr::new(path).encode_wide().collect();
+    if wide.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path contains NUL",
+        ));
+    }
+    wide.push(0);
+    Ok(wide)
+}
+
+fn win32_status(status: DWORD) -> io::Result<()> {
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::from_raw_os_error(
+            i32::try_from(status).unwrap_or(i32::MAX),
+        ))
+    }
+}
+
+#[cfg(test)]
+// Test-only assertions in inline unit tests.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inline_tests {
+    use super::*;
+
+    fn scratch_file(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-acl-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("secret.key");
+        std::fs::write(&file, b"secret").unwrap();
+        (dir, file)
+    }
+
+    #[test]
+    fn sid_strings_round_trip_through_the_binary_form() {
+        for text in [
+            "S-1-1-0",
+            "S-1-5-11",
+            "S-1-5-18",
+            "S-1-5-32-545",
+            "S-1-5-21-1004336348-1177238915-682003330-1001",
+        ] {
+            let sid = SidBuf::parse(text).unwrap();
+            assert_eq!(sid_string_at(sid.as_psid(), sid.len).unwrap(), text);
+        }
+        for bad in ["", "S-1", "X-1-1-0", "S-1-1-x", "S-1-281474976710656-0"] {
+            assert!(SidBuf::parse(bad).is_err(), "{bad:?} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_restricted_file_grants_only_the_current_user_full_control() {
+        let (dir, file) = scratch_file("restrict");
+        // A file in the temp directory starts with inherited entries.
+        let before = read_dacl(&file).unwrap().unwrap();
+        assert!(before.iter().any(|ace| ace.inherited), "{before:?}");
+
+        restrict_to_current_user(&file).unwrap();
+        let after = read_dacl(&file).unwrap().unwrap();
+        assert_eq!(
+            after,
+            vec![Ace {
+                sid: current_user_sid().unwrap(),
+                deny: false,
+                inherited: false,
+                mask: FILE_ALL_ACCESS,
+            }]
+        );
+        // The owner can still read, rewrite and delete it.
+        assert_eq!(std::fs::read(&file).unwrap(), b"secret");
+        std::fs::write(&file, b"rotated").unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_protected_list_holds_exactly_the_requested_grants_in_order() {
+        let (dir, file) = scratch_file("grants");
+        let user = current_user_sid().unwrap();
+        set_protected_dacl(
+            &file,
+            &[(user.as_str(), FILE_ALL_ACCESS), ("S-1-1-0", 0x0012_0089)],
+        )
+        .unwrap();
+        let aces = read_dacl(&file).unwrap().unwrap();
+        assert_eq!(
+            aces.iter()
+                .map(|a| (a.sid.as_str(), a.deny, a.inherited, a.mask))
+                .collect::<Vec<_>>(),
+            vec![
+                (user.as_str(), false, false, FILE_ALL_ACCESS),
+                ("S-1-1-0", false, false, 0x0012_0089),
+            ]
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An in-memory ACL (`ACL_REVISION_DS`, which object and callback entries
+    /// need) of the given raw entries (header, mask, SID, ... exactly as
+    /// stored), with no validation of their types, as DWORDs.
+    #[allow(unsafe_code)]
+    fn memory_acl(aces: &[Vec<u8>]) -> Vec<u32> {
+        let size = (std::mem::size_of::<ACL>() + aces.iter().map(Vec::len).sum::<usize>() + 3) & !3;
+        let mut acl_buf = vec![0u32; size / 4];
+        let acl = acl_buf.as_mut_ptr().cast::<ACL>();
+        // SAFETY: `acl_buf` is a writable DWORD-aligned buffer of `size`
+        // bytes that outlives the calls; each raw entry is a complete ACE
+        // owned by `aces` and copied into the list by AddAce.
+        unsafe {
+            assert_ne!(
+                InitializeAcl(acl, size as DWORD, DWORD::from(ACL_REVISION_DS)),
+                0
+            );
+            for ace in aces {
+                assert_ne!(
+                    winapi::um::securitybaseapi::AddAce(
+                        acl,
+                        DWORD::from(ACL_REVISION_DS),
+                        DWORD::MAX,
+                        ace.as_ptr().cast_mut().cast(),
+                        ace.len() as DWORD,
+                    ),
+                    0,
+                    "AddAce refused type {:#04x}: {}",
+                    ace[0],
+                    io::Error::last_os_error()
+                );
+            }
+        }
+        acl_buf
+    }
+
+    /// Write `path`'s DACL as the given raw entries, protected.
+    #[allow(unsafe_code)]
+    fn set_raw_dacl(path: &Path, aces: &[Vec<u8>]) {
+        let mut acl_buf = memory_acl(aces);
+        let mut name = wide_path(path).unwrap();
+        // SAFETY: as in `set_protected_dacl`: only the DACL is set, from the
+        // valid list built above and a NUL-terminated path owned for the call.
+        let status = unsafe {
+            SetNamedSecurityInfoW(
+                name.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                acl_buf.as_mut_ptr().cast::<ACL>(),
+                std::ptr::null_mut(),
+            )
+        };
+        win32_status(status).unwrap();
+    }
+
+    /// A raw entry: header (type, flags 0, total size), mask, `body` words
+    /// (for object entries), then the SID.
+    fn raw_ace(ace_type: u8, mask: u32, body: &[u8], sid: &str) -> Vec<u8> {
+        let sid = SidBuf::parse(sid).unwrap();
+        let sid_bytes: Vec<u8> = sid
+            .words
+            .iter()
+            .flat_map(|w| w.to_ne_bytes())
+            .take(sid.len)
+            .collect();
+        let size = (8 + body.len() + sid_bytes.len() + 3) & !3;
+        let mut ace = vec![ace_type, 0];
+        ace.extend_from_slice(&(size as u16).to_le_bytes());
+        ace.extend_from_slice(&mask.to_le_bytes());
+        ace.extend_from_slice(body);
+        ace.extend_from_slice(&sid_bytes);
+        ace.resize(size, 0);
+        ace
+    }
+
+    /// Walk an in-memory ACL the way `read_dacl` walks a file's.
+    #[allow(unsafe_code)]
+    fn walk(acl_buf: &mut [u32]) -> io::Result<Vec<Ace>> {
+        dacl_entries(acl_buf.as_mut_ptr().cast::<ACL>())
+    }
+
+    #[test]
+    fn only_allow_and_deny_are_listed_and_every_other_type_fails_the_read() {
+        let user = current_user_sid().unwrap();
+        let mut ordinary = memory_acl(&[raw_ace(0x00, FILE_ALL_ACCESS, &[], &user)]);
+        assert_eq!(walk(&mut ordinary).unwrap().len(), 1);
+        // Every other byte, the SACL-only audit, alarm, label, attribute,
+        // policy and filter types included: a DACL holding one is not a list
+        // this module can vouch for.
+        let mut refused = 0;
+        for ace_type in (0..=u8::MAX).filter(|t| !matches!(t, 0 | 1)) {
+            let planted = raw_ace(ace_type, 0x0012_0089, &[], "S-1-1-0");
+            let mut acl_buf = vec![0u32; 64];
+            // SAFETY: a scratch ACL header of 256 bytes, initialised before
+            // the raw entry is appended behind the allow entry.
+            #[allow(unsafe_code)]
+            let added = unsafe {
+                let acl = acl_buf.as_mut_ptr().cast::<ACL>();
+                assert_ne!(InitializeAcl(acl, 256, DWORD::from(ACL_REVISION_DS)), 0);
+                let allow = raw_ace(0x00, FILE_ALL_ACCESS, &[], &user);
+                assert_ne!(
+                    winapi::um::securitybaseapi::AddAce(
+                        acl,
+                        DWORD::from(ACL_REVISION_DS),
+                        DWORD::MAX,
+                        allow.as_ptr().cast_mut().cast(),
+                        allow.len() as DWORD
+                    ),
+                    0
+                );
+                winapi::um::securitybaseapi::AddAce(
+                    acl,
+                    DWORD::from(ACL_REVISION_DS),
+                    DWORD::MAX,
+                    planted.as_ptr().cast_mut().cast(),
+                    planted.len() as DWORD,
+                )
+            };
+            if added == 0 {
+                continue; // Windows itself refuses this byte as an entry type.
+            }
+            refused += 1;
+            let error = walk(&mut acl_buf).expect_err("a non-allow, non-deny entry must fail");
+            assert_eq!(
+                unsupported_ace(&error),
+                Some(&UnsupportedAce { index: 1, ace_type }),
+                "ace type {ace_type:#04x}"
+            );
+        }
+        // At least the documented types (4..=0x15) reach the reader.
+        assert!(refused >= 0x14, "only {refused} types could be planted");
+    }
+
+    #[test]
+    fn an_unknown_acl_revision_fails_the_read_and_flags_are_not_dropped() {
+        let user = current_user_sid().unwrap();
+        let mut inherit_only = raw_ace(0x00, 0x0012_0089, &[], "S-1-1-0");
+        inherit_only[1] = 0x08; // INHERIT_ONLY_ACE
+        let mut acl_buf = memory_acl(&[raw_ace(0x00, FILE_ALL_ACCESS, &[], &user), inherit_only]);
+        let listed = walk(&mut acl_buf).unwrap();
+        assert_eq!(
+            listed.len(),
+            2,
+            "an inherit-only entry is listed, not dropped"
+        );
+        assert_eq!(listed[1].sid, "S-1-1-0");
+        for revision in [0u8, 1, 3, 5, 0xFF] {
+            // SAFETY: the header byte of an ACL buffer owned by this test.
+            #[allow(unsafe_code)]
+            unsafe {
+                (*acl_buf.as_mut_ptr().cast::<ACL>()).AclRevision = revision;
+            }
+            let error = walk(&mut acl_buf).expect_err("an unknown revision must fail");
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains("revision"), "{error}");
+        }
+        for revision in [ACL_REVISION, ACL_REVISION_DS] {
+            #[allow(unsafe_code)]
+            // SAFETY: as above.
+            unsafe {
+                (*acl_buf.as_mut_ptr().cast::<ACL>()).AclRevision = revision;
+            }
+            assert_eq!(walk(&mut acl_buf).unwrap().len(), 2);
+        }
+    }
+
+    #[test]
+    fn a_callback_or_object_entry_fails_the_read_instead_of_hiding() {
+        let user = current_user_sid().unwrap();
+        // ACCESS_ALLOWED_OBJECT_ACE with no object GUIDs (flags 0).
+        let object = raw_ace(0x05, 0x0012_0089, &0u32.to_le_bytes(), "S-1-1-0");
+        // ACCESS_ALLOWED_CALLBACK_ACE: header, mask, SID (no condition).
+        let callback = raw_ace(0x09, 0x0012_0089, &[], "S-1-1-0");
+        // ACCESS_DENIED_CALLBACK_ACE.
+        let denied_callback = raw_ace(0x0A, 0x0012_0089, &[], "S-1-1-0");
+        for (ace_type, planted) in [(0x05, object), (0x09, callback), (0x0A, denied_callback)] {
+            let (dir, file) = scratch_file("unsupported");
+            set_raw_dacl(
+                &file,
+                &[raw_ace(0x00, FILE_ALL_ACCESS, &[], &user), planted],
+            );
+            let error = read_dacl(&file).expect_err("an unsupported entry must fail the read");
+            assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+            assert_eq!(
+                unsupported_ace(&error),
+                Some(&UnsupportedAce { index: 1, ace_type })
+            );
+            assert!(error.to_string().contains("unsupported type"), "{error}");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_raw_allow_and_deny_pair_still_lists_exactly() {
+        let (dir, file) = scratch_file("raw-pair");
+        let user = current_user_sid().unwrap();
+        set_raw_dacl(
+            &file,
+            &[
+                raw_ace(0x01, 0x0000_0002, &[], "S-1-1-0"),
+                raw_ace(0x00, FILE_ALL_ACCESS, &[], &user),
+            ],
+        );
+        let aces = read_dacl(&file).unwrap().unwrap();
+        assert_eq!(aces.len(), 2);
+        assert!(aces[0].deny && aces[0].sid == "S-1-1-0");
+        assert!(!aces[1].deny && aces[1].sid == user);
+        assert!(unsupported_ace(&io::Error::other("unrelated")).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn scratch_dir(tag: &str) -> std::path::PathBuf {
+        let (dir, file) = scratch_file(tag);
+        std::fs::remove_file(file).unwrap();
+        dir
+    }
+
+    fn owner_only() -> Vec<Ace> {
+        vec![Ace {
+            sid: current_user_sid().unwrap(),
+            deny: false,
+            inherited: false,
+            mask: FILE_ALL_ACCESS,
+        }]
+    }
+
+    #[test]
+    fn a_created_file_is_born_owner_only_before_anything_is_written() {
+        use std::io::Write;
+        let dir = scratch_dir("born");
+        // The directory hands inheritable entries to a file made the plain
+        // way, so an owner-only list below is not an accident of the parent.
+        let plain = dir.join("plain");
+        std::fs::File::create(&plain).unwrap();
+        let inherited = read_dacl(&plain).unwrap().unwrap();
+        assert!(inherited.iter().any(|a| a.inherited), "{inherited:?}");
+
+        for (name, open) in [
+            (
+                "append",
+                open_owner_only_append as fn(&Path) -> io::Result<std::fs::File>,
+            ),
+            ("create", create_new_owner_only),
+        ] {
+            let path = dir.join(name);
+            let mut file = open(&path).unwrap();
+            // Still open, nothing written: the list is already exact.
+            assert_eq!(read_dacl(&path).unwrap().unwrap(), owner_only(), "{name}");
+            file.write_all(b"secret").unwrap();
+            drop(file);
+            assert_eq!(std::fs::read(&path).unwrap(), b"secret");
+            assert_eq!(read_dacl(&path).unwrap().unwrap(), owner_only(), "{name}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The persisted descriptor's control bits (`SECURITY_DESCRIPTOR_CONTROL`).
+    #[allow(unsafe_code)]
+    fn descriptor_control(path: &Path) -> u16 {
+        let name = wide_path(path).unwrap();
+        let mut dacl: PACL = std::ptr::null_mut();
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        let mut control = 0u16;
+        let mut revision: DWORD = 0;
+        // SAFETY: as in `read_dacl`; the descriptor is read for its control
+        // word and freed with LocalFree.
+        unsafe {
+            let status = GetNamedSecurityInfoW(
+                name.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut dacl,
+                std::ptr::null_mut(),
+                &mut descriptor,
+            );
+            win32_status(status).unwrap();
+            assert_ne!(
+                winapi::um::securitybaseapi::GetSecurityDescriptorControl(
+                    descriptor,
+                    &mut control,
+                    &mut revision
+                ),
+                0
+            );
+            LocalFree(descriptor);
+        }
+        control
+    }
+
+    #[test]
+    fn a_created_file_has_a_protected_list() {
+        let dir = scratch_dir("protected");
+        let born = dir.join("born");
+        drop(open_owner_only_append(&born).unwrap());
+        let made = dir.join("made");
+        drop(create_new_owner_only(&made).unwrap());
+        let plain = dir.join("plain");
+        std::fs::File::create(&plain).unwrap();
+        assert_eq!(
+            descriptor_control(&born) & SE_DACL_PROTECTED,
+            SE_DACL_PROTECTED
+        );
+        assert_eq!(
+            descriptor_control(&made) & SE_DACL_PROTECTED,
+            SE_DACL_PROTECTED
+        );
+        assert_eq!(descriptor_control(&plain) & SE_DACL_PROTECTED, 0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// When the parent directory later gains an inheritable entry (granting
+    /// Everyone read here) and Windows propagates it to the children, a plain
+    /// file picks it up and a file this module created does not.
+    #[test]
+    fn a_created_file_keeps_its_list_when_the_parent_propagates_a_new_entry() {
+        let dir = scratch_dir("propagate");
+        let born = dir.join("born");
+        drop(open_owner_only_append(&born).unwrap());
+        let plain = dir.join("plain");
+        std::fs::File::create(&plain).unwrap();
+        let user = current_user_sid().unwrap();
+        let mut everyone_read = raw_ace(0x00, 0x0012_0089, &[], "S-1-1-0");
+        everyone_read[1] = 0x03; // OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
+        let mut owner_full = raw_ace(0x00, FILE_ALL_ACCESS, &[], &user);
+        owner_full[1] = 0x03;
+        // SetNamedSecurityInfoW on the directory propagates its inheritable
+        // entries to every child whose list is not protected.
+        set_raw_dacl(&dir, &[owner_full, everyone_read]);
+        let plain_list = read_dacl(&plain).unwrap().unwrap();
+        assert!(
+            plain_list.iter().any(|a| a.sid == "S-1-1-0" && a.inherited),
+            "propagation did not reach the plain file: {plain_list:?}"
+        );
+        assert_eq!(read_dacl(&born).unwrap().unwrap(), owner_only());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The interleaving that exposed the old create-then-restrict sink: a
+    /// second writer opens the file while the creator still holds it, before
+    /// the creator wrote. Its view is already owner-only; both lines land.
+    #[test]
+    fn a_second_writer_never_sees_the_file_before_it_is_owner_only() {
+        use std::io::Write;
+        let dir = scratch_dir("interleave");
+        let path = dir.join("metrics.jsonl");
+        let mut creator = open_owner_only_append(&path).unwrap();
+        let mut second = open_owner_only_append(&path).unwrap();
+        assert_eq!(read_dacl(&path).unwrap().unwrap(), owner_only());
+        second.write_all(b"second\n").unwrap();
+        creator.write_all(b"first\n").unwrap();
+        // A reader shares with both open appenders.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second\nfirst\n");
+
+        // Rotation renames the file while both handles are open (they share
+        // delete); the next open makes an owner-only replacement, and the
+        // open handles keep writing to the rotated file.
+        let rotated = dir.join("metrics.jsonl.1");
+        std::fs::rename(&path, &rotated).unwrap();
+        let mut replacement = open_owner_only_append(&path).unwrap();
+        assert_eq!(read_dacl(&path).unwrap().unwrap(), owner_only());
+        replacement.write_all(b"new\n").unwrap();
+        creator.write_all(b"late\n").unwrap();
+        drop((creator, second, replacement));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\n");
+        assert_eq!(
+            std::fs::read_to_string(&rotated).unwrap(),
+            "second\nfirst\nlate\n"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_existing_file_is_opened_as_it_is_and_create_new_refuses_it() {
+        use std::io::Write;
+        let dir = scratch_dir("existing");
+        let path = dir.join("existing");
+        std::fs::write(&path, b"kept\n").unwrap();
+        let before = read_dacl(&path).unwrap().unwrap();
+        let error = create_new_owner_only(&path).expect_err("CREATE_NEW on an existing file");
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&path).unwrap(), b"kept\n");
+        // OPEN_ALWAYS appends without changing the existing list: only a
+        // file this module creates is guaranteed owner-only.
+        open_owner_only_append(&path)
+            .unwrap()
+            .write_all(b"more\n")
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"kept\nmore\n");
+        assert_eq!(read_dacl(&path).unwrap().unwrap(), before);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Failure injection: a list that cannot be built creates nothing and
+    /// never touches what is already at the path (the old sink deleted the
+    /// path by name after a failed restriction, which could remove a
+    /// replacement another writer had made there).
+    #[test]
+    fn a_failure_creates_nothing_and_leaves_an_existing_file_alone() {
+        let dir = scratch_dir("fail");
+        let missing = dir.join("missing");
+        for disposition in [OPEN_ALWAYS, CREATE_NEW] {
+            let bad = [("not-a-sid", FILE_ALL_ACCESS)];
+            assert!(
+                open_with_protected_dacl(&missing, FILE_GENERIC_WRITE, disposition, &bad).is_err()
+            );
+            assert!(!missing.exists(), "a failed open created the file");
+        }
+        let replacement = dir.join("replacement");
+        std::fs::write(&replacement, b"another writer's line\n").unwrap();
+        let before = read_dacl(&replacement).unwrap().unwrap();
+        let bad = [("S-1-x", FILE_ALL_ACCESS)];
+        assert!(
+            open_with_protected_dacl(&replacement, FILE_GENERIC_WRITE, OPEN_ALWAYS, &bad).is_err()
+        );
+        assert_eq!(
+            std::fs::read(&replacement).unwrap(),
+            b"another writer's line\n"
+        );
+        assert_eq!(read_dacl(&replacement).unwrap().unwrap(), before);
+        // An embedded NUL and a directory at the path are errors; the
+        // directory is left as it was.
+        assert!(open_owner_only_append(Path::new("a\0b")).is_err());
+        assert!(create_new_owner_only(Path::new("a\0b")).is_err());
+        assert!(open_owner_only_append(&dir).is_err());
+        assert!(create_new_owner_only(&dir).is_err());
+        assert!(dir.is_dir());
+        // A missing parent directory is an error, not a created tree.
+        assert!(open_owner_only_append(&dir.join("no/such/dir/file")).is_err());
+        assert!(!dir.join("no").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_file_is_an_error_not_a_panic() {
+        let missing = std::env::temp_dir().join(format!("susi-acl-missing-{}", std::process::id()));
+        assert!(read_dacl(&missing).is_err());
+        assert!(restrict_to_current_user(&missing).is_err());
+        assert!(set_protected_dacl(Path::new("a\0b"), &[]).is_err());
+    }
+}

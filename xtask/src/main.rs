@@ -126,7 +126,7 @@ pub fn warn_if_gpu_available_but_unused(os: &str, features_include_metal: bool) 
     if features_include_metal || os == "macos" {
         return;
     }
-    let has_nvidia_gpu = Command::new("nvidia-smi")
+    let has_nvidia_gpu = susi_paths::console::background_command("nvidia-smi")
         .args(["--query-gpu=name", "--format=csv,noheader"])
         .output()
         .is_ok_and(|o| o.status.success() && !o.stdout.is_empty());
