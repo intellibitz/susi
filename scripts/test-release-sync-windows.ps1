@@ -6,8 +6,26 @@ $Helper = Join-Path $PSScriptRoot 'susi-release-sync-windows.ps1'
 $OwnedBin = Join-Path $Scratch 'owned\susi.exe'
 $OtherBin = Join-Path $Scratch 'other\susi.exe'
 $Candidate = Join-Path $Scratch 'candidate.exe'
+$Ready = Join-Path $Scratch 'ready'
 $Processes = @()
 function Check($Condition, $Message) { if (-not $Condition) { throw $Message } }
+# Waits, bounded, until a daemon fixture has put its leaf service in its job,
+# and returns that leaf: a `service-run` copy of the daemon's own image.
+function Wait-Leaf($Daemon) {
+    $Marker = Join-Path $Ready "$($Daemon.Id).leaf"
+    $Deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while (-not (Test-Path -LiteralPath $Marker)) {
+        $Daemon.Refresh()
+        Check (-not $Daemon.HasExited) "Daemon fixture $($Daemon.Id) exited with code $($Daemon.ExitCode) before its leaf joined the job"
+        Check ([DateTime]::UtcNow -lt $Deadline) "Daemon fixture $($Daemon.Id) did not report its leaf within 30 s"
+        Start-Sleep -Milliseconds 50
+    }
+    $LeafId = [int](Get-Content -LiteralPath $Marker -Raw)
+    $Leaf = Get-CimInstance Win32_Process -Filter "ProcessId=$LeafId"
+    Check ($Leaf -and $Leaf.ParentProcessId -eq $Daemon.Id -and $Leaf.CommandLine -match '\sservice-run$') "Leaf $LeafId is not the daemon fixture's service-run child"
+    Check ($Leaf.ExecutablePath -eq $Daemon.Path) "Leaf $LeafId runs $($Leaf.ExecutablePath), not the daemon's image"
+    Get-Process -Id $LeafId
+}
 function Run-Helper($Action, $Built='') {
     $Arguments = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$Helper,'-Action',$Action,'-Bin',$OwnedBin)
     if ($Built) { $Arguments += @('-Built',$Built) }
@@ -18,17 +36,86 @@ function Run-Helper($Action, $Built='') {
 }
 try {
     New-Item -ItemType Directory -Force -Path (Split-Path $OwnedBin),(Split-Path $OtherBin) | Out-Null
-    Add-Type -TypeDefinition 'public class SusiPromotionFixture { public static void Main(string[] args) { if (args.Length > 0 && args[0] == "--version") { string home = System.Environment.GetEnvironmentVariable("SUSI_HOME"); if (!string.IsNullOrEmpty(home)) System.IO.File.WriteAllText(System.IO.Path.Combine(home, "fixture-runtime-home.txt"), home); System.Console.WriteLine("susi 0.0.1"); return; } System.Threading.Thread.Sleep(120000); } }' -OutputAssembly $Candidate -OutputType ConsoleApplication
+    # The fixture stands in for susi.exe. As `daemon-start` it does what the
+    # real daemon's supervisor does since sockfix2: it puts its leaf service in
+    # a kill-on-close Job Object, so stopping the daemon takes the leaf down
+    # with it. Every Win32 call is checked; a fixture that could not build the
+    # job exits nonzero instead of silently leaving an ordinary child behind.
+    Add-Type -OutputAssembly $Candidate -OutputType ConsoleApplication -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+public class SusiPromotionFixture {
+    [StructLayout(LayoutKind.Sequential)]
+    struct BasicLimits {
+        public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit;
+        public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct IoCounters {
+        public ulong ReadOperationCount; public ulong WriteOperationCount; public ulong OtherOperationCount;
+        public ulong ReadTransferCount; public ulong WriteTransferCount; public ulong OtherTransferCount;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct ExtendedLimits {
+        public BasicLimits BasicLimitInformation; public IoCounters IoInfo;
+        public UIntPtr ProcessMemoryLimit; public UIntPtr JobMemoryLimit; public UIntPtr PeakProcessMemoryUsed; public UIntPtr PeakJobMemoryUsed;
+    }
+    const int JobObjectExtendedLimitInformation = 9;
+    const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref ExtendedLimits info, uint length);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    // Held for the life of the process: the job closes, and kills its leaf, only when this process ends.
+    static IntPtr Job;
+    public static int Main(string[] args) {
+        if (args.Length > 0 && args[0] == "--version") {
+            string home = Environment.GetEnvironmentVariable("SUSI_HOME");
+            if (!string.IsNullOrEmpty(home)) File.WriteAllText(Path.Combine(home, "fixture-runtime-home.txt"), home);
+            Console.WriteLine("susi 0.0.1");
+            return 0;
+        }
+        if (args.Length > 0 && args[0] == "daemon-start") {
+            // A non-inheritable handle, so only this process's end closes the job.
+            Job = CreateJobObject(IntPtr.Zero, null);
+            if (Job == IntPtr.Zero) return 3;
+            ExtendedLimits limits = new ExtendedLimits();
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if (!SetInformationJobObject(Job, JobObjectExtendedLimitInformation, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits)))) return 4;
+            ProcessStartInfo leaf = new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName, "service-run");
+            leaf.UseShellExecute = false;
+            leaf.CreateNoWindow = true;
+            Process child = Process.Start(leaf);
+            if (!AssignProcessToJobObject(Job, child.Handle)) { child.Kill(); return 5; }
+            string ready = Environment.GetEnvironmentVariable("SUSI_FIXTURE_READY");
+            if (!string.IsNullOrEmpty(ready)) File.WriteAllText(Path.Combine(ready, Process.GetCurrentProcess().Id + ".leaf"), child.Id.ToString());
+        }
+        System.Threading.Thread.Sleep(120000);
+        return 0;
+    }
+}
+'@
     Copy-Item $Candidate $OwnedBin
     Copy-Item $Candidate $OtherBin
     $OriginalHash = (Get-FileHash $OwnedBin).Hash
     # A changed image proves replacement, not just a successful no-op.
     [IO.File]::AppendAllText($Candidate, 'new-release')
     $NewHash = (Get-FileHash $Candidate).Hash
+    New-Item -ItemType Directory -Force -Path $Ready | Out-Null
+    $env:SUSI_FIXTURE_READY = $Ready
     $Other = Start-Process $OtherBin -ArgumentList 'daemon-start' -WindowStyle Hidden -PassThru
     $Daemon = Start-Process $OwnedBin -ArgumentList 'daemon-start' -WindowStyle Hidden -PassThru
     $Client = Start-Process $OwnedBin -ArgumentList 'mission daemon-start' -WindowStyle Hidden -PassThru
     $Processes += $Other,$Daemon,$Client
+    $OtherLeaf = Wait-Leaf $Other
+    $Processes += $OtherLeaf
+    $Leaf = Wait-Leaf $Daemon
+    $Processes += $Leaf
     $Busy = Run-Helper 'busy'
     Check ($Busy.Code -eq 0 -and $Busy.Text -match "$($Client.Id)" -and $Busy.Text -notmatch "$($Other.Id)") 'Exact-owned client detection failed'
     Check ((Run-Helper 'running').Text -match 'running') 'Owned daemon not detected'
@@ -44,9 +131,11 @@ try {
     Check ((Get-FileHash $OwnedBin).Hash -eq $NewHash) 'Canonical executable not replaced'
     Check ((Get-FileHash (Join-Path (Split-Path $OwnedBin) 'susi.prev.exe')).Hash -eq $OriginalHash) 'Previous executable not preserved'
     Check (-not (Test-Path (Join-Path (Split-Path $OwnedBin) 'susi-engine.exe'))) 'Legacy duplicate retained'
-    $Daemon.Refresh(); $Other.Refresh()
+    $Daemon.Refresh(); $Other.Refresh(); $Leaf.Refresh(); $OtherLeaf.Refresh()
     Check $Daemon.HasExited 'Owned daemon not stopped before replacement'
+    Check $Leaf.HasExited 'Owned leaf service not stopped before replacement'
     Check (-not $Other.HasExited) 'Other installation was stopped'
+    Check (-not $OtherLeaf.HasExited) "Other installation's leaf service was stopped"
     $Rollback = Run-Helper 'rollback'
     Check ($Rollback.Code -eq 0) "Rollback failed: $($Rollback.Text)"
     Check ((Get-FileHash $OwnedBin).Hash -eq $OriginalHash) 'Rollback did not restore executable'
@@ -66,7 +155,12 @@ try {
     New-Item -ItemType Directory -Path $ShellBin -Force | Out-Null
     Copy-Item $Candidate (Join-Path $ShellBin 'susi.exe')
     Copy-Item $OwnedBin (Join-Path $ShellBin 'susi.prev.exe')
-        $Shell = (Get-Command bash.exe -ErrorAction Stop).Source
+        # The sync script runs under Git for Windows' bash. Find it from git
+        # itself: `bash.exe` on PATH can be the WSL launcher in System32.
+        $GitExecPath = (& git --exec-path).Trim()
+        Check ($LASTEXITCODE -eq 0 -and $GitExecPath) 'git --exec-path failed'
+        $Shell = Join-Path (Split-Path (Split-Path (Split-Path $GitExecPath))) 'bin\bash.exe'
+        Check (Test-Path -LiteralPath $Shell -PathType Leaf) "Git for Windows bash not found at $Shell"
         $StartInfo = New-Object Diagnostics.ProcessStartInfo
         $StartInfo.FileName = $Shell
         $StartInfo.Arguments = '"' + (Join-Path $PSScriptRoot 'susi-release-sync.sh') + '" --rollback'
@@ -135,5 +229,8 @@ report_reference "$SUSI_CHECKSUM_FIXTURE" 2>&1 | grep -q 'differs from the refer
     'PASS: owned process safety, replacement, rollback, canonical home, release record checks and reference checksums on Windows paths'
 } finally {
     foreach ($Process in $Processes) { if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -ErrorAction SilentlyContinue } }
+    # Images stay locked until their processes are gone; bound the wait.
+    foreach ($Process in $Processes) { $Process.WaitForExit(10000) | Out-Null }
+    Remove-Item Env:\SUSI_FIXTURE_READY -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $Scratch) { Remove-Item -LiteralPath $Scratch -Recurse -Force }
 }
