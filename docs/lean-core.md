@@ -653,3 +653,12 @@ config, core and the tail.
   4.8, encoding_rs 2.2, chrono 1.4, num-traits 1.2, ...) while susi-gawd-a2a
   grew 2.4 -> 3.0 s. The whole-build totals overlap across runs under this
   load, so no wall gain is claimed from them.
+- 2026-11-11 (T-CLAUDEBUILDIDLE-1, Linux x86_64, 4-thread cloud container,
+  idle: load 0.4, no other rustc): the day's cuts measured together. Cold
+  `cargo build -p susi`, base `68e83f0d8` (before T-CLAUDEWASMSTD-1 and
+  T-CLAUDENOA2ASDK-1): 63.3 s wall, 228.6 CPU-s (third-party 136.7), 374
+  units. Main `19f37fd29`+: 61.7 / 61.3 s wall, 217.7 / 217.5 CPU-s
+  (third-party 125.9 / 123.8), 342 units. About 11 CPU-seconds (5%) and 32
+  units fewer; on 4 threads the build is CPU-bound (217 CPU-s / 4 = 54 s floor),
+  so wall moves with CPU-seconds there, while on the 28-thread laptop the
+  serial path (macro front, susi-config, susi-core, daemon, binary) sets it.
