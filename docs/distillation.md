@@ -146,15 +146,13 @@ changed: its receipt and output are part of its tested contract, and a lint
 warning there would not change what it publishes. The rule is documented and
 the check is one command away instead.
 
-**Known gap: `tasks close` drops fields.** The task queue moved to Susi
-Commercial Apps (`crates/susi-dev-workflow/src/admin/tasks.rs`). Its `Task`
-struct has no catch-all field, so close re-serialises only the nine fields it
-knows (`id`, `title`, `goal`, `size`, `deps`, `accept`, `created_by`,
-`created_unix`, `closed`) and drops `scopes`, `results`, `limitations`,
-`provenance` and the rest. The fix belongs to the commercial workstream (keep
-unknown fields with a `#[serde(flatten)]` map and test a close round trip).
-Until then the full record stays in Git history, and `distill lint` falls back
-to the claim ref for scopes.
+**Fixed: `tasks close` keeps every field.** Close in Susi Commercial Apps
+(`crates/susi-dev-workflow/src/admin/tasks.rs`) used to drop `scopes`,
+`results`, `limitations`, `provenance` and every other field its `Task` struct
+did not name. Commercial commit `4d9f344` keeps them with a
+`#[serde(flatten)]` map and adds the round-trip test
+`close_keeps_every_labelling_field_of_the_record`. The claim-ref fallback for
+scopes in `distill lint` stays for older records closed before the fix.
 
 The first full report is `.agents/evidence/labels-T-GROKLABEL-1.json`: counts
 and the list of tasks whose work is on main while the record is still open,
