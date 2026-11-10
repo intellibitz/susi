@@ -1,0 +1,16 @@
+{
+  "id": "T-CLAUDEHASHDOC-1",
+  "title": "Daemon comment names the real binary.hash writer",
+  "goal": "crates/susi-daemon/src/server.rs said binary.hash is written by 'susi admin sync (src/daemon/admin.rs)'; that command moved to commercial with T-DEVWF-1. Core writes the anchor itself, trust-on-first-use, in susi-sandbox-client's verify_binary_integrity. Comment-only, line-neutral.",
+  "status": "implemented",
+  "scopes": ["crates/susi-daemon/src/server.rs", ".agents/tasks/T-CLAUDEHASHDOC-1.json"],
+  "size": "xs",
+  "deps": ["T-TRUTHDOCS-1"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "lean_core_ceilings"]},
+  "created_by": "claude",
+  "created_unix": 1794361220,
+  "owner": "claude",
+  "base": "c75ede5b96f0df92b70b55bbf7746e0678958dda",
+  "results": "Writer found by git grep: only crates/susi-sandbox-client/src/daemon_state/local.rs verify_binary_integrity writes binary.hash in core. Two comment lines in server.rs updated; line count unchanged.",
+  "limitations": "Text only; no behaviour change."
+}
