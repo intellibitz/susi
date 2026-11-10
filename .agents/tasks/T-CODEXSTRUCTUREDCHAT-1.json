@@ -1,0 +1,32 @@
+{
+  "id": "T-CODEXSTRUCTUREDCHAT-1",
+  "title": "Preserve structured assistant tool turns for local model templates",
+  "goal": "Keep assistant tool_calls, tool_call_id results, and other message fields intact when Core normalizes an OpenAI chat request for the Commercial local-engine plug, while retaining the text conversation used by provider-neutral routing.",
+  "status": "in_progress",
+  "owner": "codex",
+  "created_by": "codex",
+  "created_unix": 1794438420,
+  "size": "s",
+  "base_commit": "2fa6a027d20eb499a8f1b4409cdcae806f405f6d",
+  "deps": ["T-CODEXHISTORY-1", "T-CLAUDEGEMIFIX-2", "T-CLAUDECOMMCHATTPL-1"],
+  "scopes": [
+    "crates/susi-server/src/lib.rs",
+    ".agents/tasks/T-CODEXSTRUCTUREDCHAT-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-server",
+      "--lib",
+      "preserves_structured_tool_turns_for_local_templates"
+    ]
+  },
+  "results": {
+    "status": "implementation in progress",
+    "base": "2fa6a027d20eb499a8f1b4409cdcae806f405f6d"
+  }
+}
