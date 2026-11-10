@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Mandate 49: keep the primary checkout's main current (see sync-primary).
+# A commit returns at once: nothing here waits on the network or rewrites the
+# branch. Keeping the primary checkout's main current is a throttled background
+# fetch (sync-primary). A branch is reconciled with origin/main when it is
+# published (`local-snapshot submit` composes it with the current main), never
+# by an automatic merge after each commit: that merge cost a fetch per commit
+# and pulled unqualified main into release branches.
 "$(dirname "$0")/sync-primary"
-# Mandate 49, sync after every feature: the branch catches up with origin/main
-# now, when the merge is clean, and the agent is told to merge now when it is
-# not (see sync-branch). Fixtures that carry only some hooks skip it.
-[ ! -x "$(dirname "$0")/sync-branch" ] || "$(dirname "$0")/sync-branch"
 # A worktree whose target/ is still a link to the clone's old shared target
 # gets one of its own at once. Git runs no post-merge for a merge that stops
 # on conflicts: the commit that concludes it (`git commit`, `git merge

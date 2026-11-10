@@ -1,0 +1,202 @@
+{
+  "schema": "susi/publisher-host-evidence/v1",
+  "task": "T-GROKPUBLINUX-1",
+  "feature": "git-storage-publisher-linux-validation",
+  "owner": "grok",
+  "agent_identity": "grok (claim attempted as grok and grok-publinux)",
+  "recorded_ist": "2026-11-11 01:59 IST",
+  "scope_statement": "Linux x86_64 evidence for the T-DOTGITPUBLISHER-1 Git storage publisher (local-snapshot, push-policy). Evidence only; no publisher source changed. Not release qualification, not a full workspace gate, not production approval.",
+  "validates": [
+    "T-DOTGITPUBLISHER-1"
+  ],
+  "dependencies": [
+    {
+      "task": "T-DOTGITPUBLISHER-1",
+      "kind": "source under test",
+      "note": "publisher source as present on origin/main; that task remains open and owned by dot-git-publisher"
+    }
+  ],
+  "changed_scope": [
+    ".agents/evidence/publisher-linux-T-GROKPUBLINUX-1.json",
+    ".agents/tasks/T-GROKPUBLINUX-1.json"
+  ],
+  "source": {
+    "tested_commit": "fd6739c63c52b0b1d98788fdccbbd7e49a8732db",
+    "tested_note": "Tests, clippy, fmt and e2e ran on fd6739c63. origin/main then advanced to 992e7539d (removes .github hook files; touches no xtask publisher file) and this record is committed on top of 992e7539d.",
+    "commit_base": "992e7539d1be7069e9b182e73a2245ef3f21fbcb",
+    "mandate": {
+      "path": "docs/ceo-agent-mandate.md",
+      "revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311"
+    },
+    "sha256": {
+      "xtask/src/git_publish.rs": "fd9acdfd1d92ecf5a70da1eeb975b08d74dbc9f8ed3c4ae9a04df479fe9536e4",
+      "xtask/src/bin/local-snapshot.rs": "aa5258558d2f493691aeac9bfc9983c1e874db08a2040b1cd2393d1f2f89db5a",
+      "xtask/src/bin/push-policy.rs": "f783781b9635752643b0ba78c200c87f9c243ab65ffbf135ec16550288da3723",
+      "debug_bin/local-snapshot": "4e8aab4cfa885e88498099e491ba3c75ffe771d18a887fc11dbad2398d5e1c19",
+      "debug_bin/push-policy": "fa7ef7532961778670425b9e4e70f4307568cba2443232d59dc3c8a8a0717b06"
+    }
+  },
+  "host": {
+    "machine": "CachyOS laptop (cachyos-x8664)",
+    "kernel": "Linux 7.3.3-1-cachyos x86_64",
+    "target": "x86_64-unknown-linux-gnu",
+    "cpus": 28,
+    "rustc": "1.99.0 (b940084d7 2026-09-28), pinned by rust-toolchain.toml",
+    "cargo": "1.99.0 (5f94df478 2026-08-27)",
+    "git": "2.56.0",
+    "load_average": "~13-22 during the run (other agents active); wall times include that contention",
+    "isolation": "private worktree /mnt/shared/src/github.com/intellibitz/susi-agent-grok-publinux, private CARGO_TARGET_DIR /mnt/shared/tmp/grok-publinux-target, private HOME and TMPDIR under /tmp/grok-publinux for builds/tests/e2e, cargo -j 4; e2e fixture uses GIT_CONFIG_NOSYSTEM=1, a private GIT_CONFIG_GLOBAL and no credentials"
+  },
+  "acceptance": [
+    {
+      "cmd": "cargo build --offline --locked -j 4 -p xtask --bin local-snapshot --bin push-policy",
+      "precondition": "empty private target",
+      "result": "pass",
+      "wall_s": 36.9,
+      "cargo_reported_s": 36.38
+    },
+    {
+      "cmd": "cargo build --offline --locked -j 4 -p xtask --bin local-snapshot --bin push-policy",
+      "precondition": "warm, no change",
+      "result": "pass",
+      "wall_s": 0.405
+    },
+    {
+      "cmd": "cargo test --offline --locked -j 4 -p xtask --bin local-snapshot",
+      "result": "pass",
+      "passed": 26,
+      "failed": 0,
+      "ignored": 0,
+      "harness_s": 1.99,
+      "wall_s": 29.5,
+      "note": "includes test-profile compile 27.36s. Docs/handoff expected 24; the tree now has 26 (history-graft guard and adjacent push-policy discovery tests added since the Windows run)."
+    },
+    {
+      "cmd": "cargo test --offline --locked -j 4 -p xtask --features release-tooling --bin local-snapshot",
+      "result": "pass",
+      "passed": 26,
+      "failed": 0,
+      "ignored": 0,
+      "harness_s": 1.47,
+      "wall_s": 4.1,
+      "note": "T-DOTGITPUBLISHER-1 accept command"
+    },
+    {
+      "cmd": "cargo test --offline --locked -j 4 -p xtask --bin push-policy",
+      "result": "pass (0 tests: push-policy bin has no unit tests of its own; its validator is exercised only indirectly)",
+      "passed": 0,
+      "wall_s": 0.52
+    },
+    {
+      "cmd": "cargo clippy --offline --locked -j 4 -p xtask --bin local-snapshot -- -D warnings",
+      "result": "pass",
+      "wall_s": 16.8
+    },
+    {
+      "cmd": "cargo clippy --offline --locked -j 4 -p xtask --bin push-policy -- -D warnings",
+      "result": "pass",
+      "wall_s": 0.54
+    },
+    {
+      "cmd": "cargo fmt -p xtask --check",
+      "result": "pass",
+      "wall_s": 1.04
+    },
+    {
+      "cmd": "local-snapshot --help",
+      "result": "pass (usage printed)"
+    }
+  ],
+  "e2e": {
+    "script_sha256": "1a56b94f38243833d02258d9962f98dec1dd12afa8e591572f665ffcfff8fc7f",
+    "script_location": "/tmp/grok-publinux/e2e.sh on the CachyOS host (not committed; summarized here)",
+    "fixture": "local bare repository /tmp/grok-publinux/e2e/remote.git with core.logAllRefUpdates=always and independent clones a,b,c,d,e,fresh; never the GitHub origin",
+    "wall_s": 7.9,
+    "command_exit": 0,
+    "cases": [
+      {
+        "case": "worker A submit on current main (fast-forward)",
+        "result": "pass",
+        "detail": "source == main; status-main verified"
+      },
+      {
+        "case": "worker B submit from a stale base",
+        "result": "pass",
+        "detail": "composed merge with parents [A, B]; both A and B ancestors of main; worker checkout untouched"
+      },
+      {
+        "case": "contention: competing fast-forward from worker D lands after worker C observed main (injected once by a fixture pre-push hook in C)",
+        "result": "pass",
+        "detail": "first attempt rejected by the remote's old-ref check; publisher recomposed on the new head (2 attempt refs recorded) and published; A, B, C, D all ancestors of main; submit 1.8 s"
+      },
+      {
+        "case": "force-push audit",
+        "result": "pass",
+        "detail": "GIT_TRACE of a full run: 4 publisher main pushes + 1 tag push, all 'git push --porcelain --no-follow-tags --recurse-submodules=no -- <path> <oid>:<ref>'; 0 with --force/+refspec/--force-with-lease/--delete/--mirror. Every remote main reflog transition is a fast-forward."
+      },
+      {
+        "case": "snapshot cut/status",
+        "result": "pass",
+        "detail": "refs/tags/susi-snapshot/grok-e2e-rc1 and local release/grok-e2e-rc1 equal the observed main commit; re-cut of same name refused ('already has an intent; use retry or status')"
+      },
+      {
+        "case": "snapshot immutability",
+        "result": "pass",
+        "detail": "after main advanced, retry and status keep the original commit; plain push of a different commit to the tag rejected by Git ('already exists'); tag unchanged"
+      },
+      {
+        "case": "adopt in a fresh clone",
+        "result": "pass",
+        "detail": "fresh clone release/grok-e2e-rc1 = same commit and tree"
+      },
+      {
+        "case": "dirty working tree submit",
+        "result": "pass (refused)",
+        "detail": "'commit the scoped source first'"
+      },
+      {
+        "case": "reused submission name with different source",
+        "result": "pass (refused)",
+        "detail": "'submission name already reserved; use retry-main or status-main'"
+      },
+      {
+        "case": "content conflict with main",
+        "result": "pass (refused)",
+        "detail": "main unchanged; worker HEAD unchanged; 'resolve in the agent worktree and submit a new name'"
+      }
+    ]
+  },
+  "failures": [],
+  "issues_found": [
+    {
+      "id": "claim-blocked-by-push-policy",
+      "severity": "high",
+      "summary": "`susi tasks claim` (installed susi 0.21.20) cannot create any claim from a checkout that uses the repo .githooks/pre-push.",
+      "detail": "The claim performs one atomic push of refs/claims/<id>, refs/claim-agents/<AGENT> and refs/claim-generation/current. push-policy (xtask/src/push_policy.rs, since f9174e655) allows refs/claims/, refs/claim-agents/ and refs/closed/ but rejects refs/claim-generation/ ('unsupported ref namespace'), so the whole atomic push fails. Without push-policy on PATH the hook fails closed instead. The CLI reports both as 'claimed concurrently with another agent', which is misleading. Reproduced by feeding the hook record directly to push-policy. Hook was not bypassed; this task proceeded unclaimed with a two-file scope that no other agent holds.",
+      "owner_suggestion": "push-policy owner (T-DOTGITPUBLISHER-1 / dot) or the commercial task-queue owner; claim code moved to susi-commercial-apps in e9914677a"
+    },
+    {
+      "id": "claim-deps-gate",
+      "severity": "low",
+      "summary": "claim refuses a task whose deps are still open; the validation dependency on T-DOTGITPUBLISHER-1 is recorded under `validates` instead of `deps`."
+    },
+    {
+      "id": "push-policy-untested",
+      "severity": "medium",
+      "summary": "push-policy has 0 unit tests in its own bin; no direct Linux test of its validator exists in this tree."
+    }
+  ],
+  "limitations": [
+    "Focused publisher checks only: not a workspace test, not release qualification, no production artifact.",
+    "e2e uses file-path bare remotes; HTTPS/SSH transports and server-side policies are exercised only by this record's own publication to GitHub storage.",
+    "The publisher's `retry-main` after a real uncertain/unreadable outcome and the three-attempt contention bound were covered by unit tests, not by the e2e script.",
+    "Timings are on a shared, heavily loaded laptop.",
+    "Release distillation/orchestration is not implemented and not claimed."
+  ],
+  "provenance": {
+    "produced_by": "Grok Bot executor on the CEO's CachyOS laptop",
+    "worktree": "/mnt/shared/src/github.com/intellibitz/susi-agent-grok-publinux",
+    "branch": "local-agent/grok-publinux",
+    "logs": "/tmp/grok-publinux/*.log on the host"
+  }
+}
