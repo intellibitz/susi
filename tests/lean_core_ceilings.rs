@@ -245,13 +245,18 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// that needs tools now also reaches the local engine as a conversation with
 /// the registered tools' schemas, so the engine can render the model's own
 /// tool format. 133 lines, 35 over the ceiling this crate had this morning.
+/// 2026-11-12: susi-gemi-models 15,921 -> 15,939 (T-CLAUDETOOLCAP-1,
+/// measured; CEO direction 2026-11-12, "fix it and finish the end-to-end
+/// run"). `supports_tool_calling` answered `false` for every local model since
+/// the GGUF reader left core, so a request that needs tools was refused before
+/// it reached the engine. It now asks the engine (18 lines).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_523),
     ("susi-gawd-swarm", 20_116),
     ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_619),
     ("susi-gemi", 21_180),
-    ("susi-gemi-models", 15_921),
+    ("susi-gemi-models", 15_939),
     ("susi-gmcp", 25_860),
     ("susi-harness", 37_536),
 ];
