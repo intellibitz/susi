@@ -670,6 +670,57 @@ pub fn run_recursive(
         .map_err(|error| EaiError::internal(error.to_string()))
 }
 
+/// Automatically discover and integrate eligible pending development branches
+/// into unqualified `<remote>/main` (`susi-harness integrate` / `daemon.harness`
+/// `"integrate_pending"`).
+pub fn integrate_pending(
+    config: &crate::git_governor::AutoMergeConfig,
+    notes: Notes<'_>,
+) -> EaiResult<Value> {
+    let receipt = crate::git_governor::sweep_pending_branches(config)?;
+    notes(format!(
+        "auto-merge ({}): merged={}, already_merged={}, protected={}, retired={}, deferred_or_refused={}",
+        if receipt.dry_run { "dry-run" } else { "live" },
+        receipt.merged_count,
+        receipt.already_merged_count,
+        receipt.protected_stream_count,
+        receipt.retired_count,
+        receipt.deferred_or_refused_count,
+    ));
+    Ok(serde_json::to_value(receipt)?)
+}
+
+/// Reconcile and fast-forward a single revision onto unqualified `<remote>/main`
+/// (`susi-harness submit-main` / `daemon.harness` `"submit_main"`).
+pub fn submit_main(
+    config: &crate::git_governor::SubmitMainConfig,
+    notes: Notes<'_>,
+) -> EaiResult<Value> {
+    let receipt = crate::git_governor::submit_main(config)?;
+    notes(format!(
+        "submit-main ({}): {} -> {}",
+        receipt.mode, receipt.source_oid, receipt.final_main_oid
+    ));
+    Ok(serde_json::to_value(receipt)?)
+}
+
+/// Audit `release/*` candidates and optionally promote the latest verified
+/// distillation candidate (`susi-harness release-promote` / `daemon.harness`
+/// `"promote_release"`).
+pub fn promote_release(
+    config: &crate::git_governor::ReleasePromotionConfig,
+    notes: Notes<'_>,
+) -> EaiResult<Value> {
+    let receipt = crate::git_governor::promote_release_candidate(config)?;
+    notes(format!(
+        "release-promote ({}): latest_verified={:?}, promoted={:?}",
+        if receipt.dry_run { "dry-run" } else { "live" },
+        receipt.latest_verified_branch,
+        receipt.promoted_branch_ref,
+    ));
+    Ok(serde_json::to_value(receipt)?)
+}
+
 #[cfg(test)]
 #[path = "tests/operator.rs"]
 mod tests;

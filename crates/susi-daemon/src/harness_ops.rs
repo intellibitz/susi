@@ -100,7 +100,8 @@ fn required_action_permission(action: &str) -> Option<&'static str> {
     match action {
         "status" | "budget" | "models" | "runs" | "recursive_contracts" => Some(PERM_HARNESS_READ),
         "plan" | "author" => Some(PERM_HARNESS_PLAN),
-        "run" | "run_recursive" | "cancel_run" | "revoke_delegation" => Some(PERM_HARNESS_RUN),
+        "run" | "run_recursive" | "cancel_run" | "revoke_delegation" | "integrate_pending"
+        | "submit_main" | "promote_release" => Some(PERM_HARNESS_RUN),
         _ => None,
     }
 }
@@ -578,6 +579,17 @@ pub fn dispatch_with_authority(
     if let Some(ref tree) = parsed_tree {
         collect_tree_permissions(tree, &mut extra_perms)?;
     }
+    let dry_run_flag = payload
+        .get("dry_run")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if matches!(
+        action,
+        "integrate_pending" | "submit_main" | "promote_release"
+    ) && !dry_run_flag
+    {
+        extra_perms.insert("git:publish".to_string());
+    }
 
     let action_scope = open_action_scope(
         payload,
@@ -688,6 +700,88 @@ pub fn dispatch_with_authority(
                 "revoked": revoked,
                 "cancelled_runs": cancelled_runs,
             }))
+        }
+        "integrate_pending" => {
+            let repo = required_path(payload, "repo")?;
+            let branch_filters: Vec<String> = payload["branches"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+            let raw_adopted: Vec<String> = payload["adopt_host_commits"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+            let adopted_host_commits =
+                susi_harness::git_governor::parse_adopted_oids(&raw_adopted).map_err(msg)?;
+            let cfg = susi_harness::git_governor::AutoMergeConfig {
+                repo,
+                remote: field(payload, "remote").unwrap_or("origin").to_string(),
+                fetch_remote: payload
+                    .get("fetch_remote")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                include_local: payload
+                    .get("include_local")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                branch_filters,
+                adopted_host_commits,
+                require_task_trailer: payload
+                    .get("require_task_trailer")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                dry_run: dry_run_flag,
+                max_attempts: number(payload, "max_attempts").map_or(4, |n| n as usize),
+                receipt_out: absolute(payload, "receipt_out")?,
+            };
+            operator::integrate_pending(&cfg, &mut sink).map_err(msg)
+        }
+        "submit_main" => {
+            let repo = required_path(payload, "repo")?;
+            let raw_adopted: Vec<String> = payload["adopt_host_commits"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+            let adopted_host_commits =
+                susi_harness::git_governor::parse_adopted_oids(&raw_adopted).map_err(msg)?;
+            let cfg = susi_harness::git_governor::SubmitMainConfig {
+                repo,
+                rev: field(payload, "rev").unwrap_or("HEAD").to_string(),
+                remote: field(payload, "remote").unwrap_or("origin").to_string(),
+                require_task_trailer: payload
+                    .get("require_task_trailer")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                adopted_host_commits,
+                dry_run: dry_run_flag,
+                max_attempts: number(payload, "max_attempts").map_or(4, |n| n as usize),
+            };
+            operator::submit_main(&cfg, &mut sink).map_err(msg)
+        }
+        "promote_release" => {
+            let repo = required_path(payload, "repo")?;
+            let cfg = susi_harness::git_governor::ReleasePromotionConfig {
+                repo,
+                remote: field(payload, "remote").unwrap_or("origin").to_string(),
+                fetch_remote: payload
+                    .get("fetch_remote")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                target_release_name: field(payload, "name").map(str::to_string),
+                candidate_rev: field(payload, "candidate").map(str::to_string),
+                dry_run: dry_run_flag,
+                receipt_out: absolute(payload, "receipt_out")?,
+            };
+            operator::promote_release(&cfg, &mut sink).map_err(msg)
         }
         other => Err(format!("unknown harness action `{other}`")),
     };
@@ -1076,6 +1170,41 @@ mod tests {
         drop(tree_scope);
         // Unspent budget returned cleanly to `parent`!
         assert_eq!(parent.remaining_micros(), 500);
+
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[test]
+    fn git_governor_actions_require_git_publish_permission_when_not_dry_run() {
+        let scratch = temp_dir("git-gov-perm");
+        let authority = DelegationAuthority::from_secret(&[41u8; 32]);
+        let no_publish_scope = DelegationScope::root(
+            DelegationHop::new("agent-worker", "root").unwrap(),
+            [PERM_HARNESS_RUN.to_string()],
+            0,
+            Some(30_000),
+            DelegationLimits::default(),
+        )
+        .unwrap();
+        let no_publish_env = authority.issue(&no_publish_scope).unwrap();
+
+        for action in ["integrate_pending", "submit_main", "promote_release"] {
+            let err = dispatch_with_authority(
+                &json!({
+                    "action": action,
+                    "subject": "agent-worker",
+                    "repo": scratch,
+                    "dry_run": false,
+                    "delegation": no_publish_env,
+                }),
+                Some(&authority),
+            )
+            .unwrap_err();
+            assert!(
+                err.contains("amplify permissions") && err.contains("git:publish"),
+                "{action} must refuse live publish without git:publish, got: {err}"
+            );
+        }
 
         let _ = std::fs::remove_dir_all(&scratch);
     }

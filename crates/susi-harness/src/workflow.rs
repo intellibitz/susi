@@ -549,14 +549,105 @@ const GATE_ONLY_REFS: &[&str] = &["main", "refs/heads/main", "HEAD"];
 /// release qualification.
 const PROTECTED_RELEASE_PREFIXES: &[&str] = &[
     "release/",
+    "release-staging/",
     "refs/heads/release/",
+    "refs/heads/release-staging/",
     "refs/tags/v",
     "refs/tags/susi-release/",
 ];
 
+/// Distillation staging prefixes governed separately from unqualified `main`.
+const DISTILLATION_REF_PREFIXES: &[&str] =
+    &["distill/", "refs/heads/distill/", "refs/tags/susi-distill/"];
+
 /// Ref prefixes the native coordinator owns (claims, receipts, integration
 /// pointers).
-const COORDINATOR_REF_PREFIXES: &[&str] = &["refs/susi/"];
+const COORDINATOR_REF_PREFIXES: &[&str] = &["refs/susi/", "refs/backup/"];
+
+/// Mandate 73 Git storage stream classification.
+///
+/// Separates fast, ungated development integration onto `main` from distilled
+/// candidate staging and fully verified release promotion (`release/*`, `v*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowStreamKind {
+    /// Unqualified development integration (`main` / `refs/heads/main`).
+    UnqualifiedDevelopmentMain,
+    /// Contributor or agent development branch (`local-agent/*`, `wip/*`, etc.).
+    DevelopmentAgentBranch,
+    /// Distilled candidate branch or distillation receipt tag (`distill/*`, `susi-distill/*`).
+    DistillationStream,
+    /// Qualified release candidate branch or immutable release tag (`release/*`, `v*`).
+    QualifiedReleasePromotion,
+    /// Internal coordinator, backup, or symbolic ref (`refs/susi/*`, `HEAD`).
+    InternalCoordinationRef,
+}
+
+impl WorkflowStreamKind {
+    /// Stable machine-readable identifier recorded in Susi integration receipts.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::UnqualifiedDevelopmentMain => "unqualified_development_main",
+            Self::DevelopmentAgentBranch => "development_agent_branch",
+            Self::DistillationStream => "distillation_stream",
+            Self::QualifiedReleasePromotion => "qualified_release_promotion",
+            Self::InternalCoordinationRef => "internal_coordination_ref",
+        }
+    }
+
+    /// True iff this ref belongs to a development branch eligible for
+    /// reconciliation into unqualified development `main`.
+    #[must_use]
+    pub const fn eligible_for_unqualified_main_sweep(&self) -> bool {
+        matches!(self, Self::DevelopmentAgentBranch)
+    }
+}
+
+/// Classify a local, remote-tracking, or full Git ref under Mandate 73's
+/// stream boundary rules.
+#[must_use]
+pub fn classify_git_ref_stream(refname: &str, remote: Option<&str>) -> WorkflowStreamKind {
+    let trimmed = refname.trim();
+    if trimmed.is_empty() || trimmed == "HEAD" || trimmed.ends_with("/HEAD") {
+        return WorkflowStreamKind::InternalCoordinationRef;
+    }
+    if COORDINATOR_REF_PREFIXES
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+    {
+        return WorkflowStreamKind::InternalCoordinationRef;
+    }
+    let short = trimmed
+        .strip_prefix("refs/heads/")
+        .or_else(|| {
+            remote.and_then(|r| {
+                let r = r.trim();
+                trimmed
+                    .strip_prefix(&format!("refs/remotes/{r}/"))
+                    .or_else(|| trimmed.strip_prefix(&format!("{r}/")))
+            })
+        })
+        .unwrap_or(trimmed);
+    if PROTECTED_RELEASE_PREFIXES
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix) || short.starts_with(prefix))
+    {
+        return WorkflowStreamKind::QualifiedReleasePromotion;
+    }
+    if DISTILLATION_REF_PREFIXES
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix) || short.starts_with(prefix))
+    {
+        return WorkflowStreamKind::DistillationStream;
+    }
+    if trimmed.starts_with("refs/tags/") {
+        return WorkflowStreamKind::InternalCoordinationRef;
+    }
+    if short == "main" {
+        return WorkflowStreamKind::UnqualifiedDevelopmentMain;
+    }
+    WorkflowStreamKind::DevelopmentAgentBranch
+}
 
 /// How agents publish development contributions under [`IntegrationPolicy`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
