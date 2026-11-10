@@ -289,6 +289,18 @@ fn qualify_consumer(root: &Path, destination: &Path, host: &str, output: &Path) 
     Ok(())
 }
 
+/// Private build directory for one builder run. rustc and link.exe write
+/// import libraries about 90 characters deep inside it
+/// (`build\x86_64-pc-windows-msvc\dist\deps\rustcXXXXXX\api-ms-win-core-synch-l1-2-0.dll_imports.lib`),
+/// and link.exe does not accept paths over the 260-character Windows limit.
+/// The full 64-hex key plus the nonce put that path at 263 characters under
+/// `<checkout>\.git\susi-product-sysroots\`, so the key is shortened here.
+/// The key still names the admitted destination, and the nonce keeps
+/// concurrent builders apart.
+fn staging_name(key: &str, nonce: u128) -> String {
+    format!("{}-s{nonce}", key.get(..12).unwrap_or(key))
+}
+
 pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let started = std::time::Instant::now();
     let (compiler, installed) = compiler(root)?;
@@ -338,7 +350,7 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
-    let staging = storage.join(format!("{key}-staging-{nonce}"));
+    let staging = storage.join(staging_name(&key, nonce));
     let target = storage.join("builder-target");
     let mut command = Command::new("cargo");
     super::compiler_env::apply(&mut command);
@@ -392,6 +404,19 @@ pub(crate) fn prepare(root: &Path) -> Result<VerifiedSysroot> {
 mod tests {
     #[cfg(windows)]
     use super::*;
+    #[test]
+    fn staging_directory_name_is_short_and_unique_per_nonce() {
+        let key = "19223169d1b9a9ae6d37ce16977f96efb8f6b6f8e3cb27a8bc266af2aa3e68a5";
+        let nonce = 1_794_392_993_025_426_200_u128;
+        let name = super::staging_name(key, nonce);
+        assert_eq!(name, "19223169d1b9-s1794392993025426200");
+        // The old 92-character name gave a 263-character link path on the
+        // CEO laptop; this one is 33 characters (nanosecond nonces stay at
+        // 19 digits until 2286), so the same path is 204 characters.
+        assert!(name.len() <= 40, "{name}");
+        assert_ne!(name, super::staging_name(key, nonce + 1));
+        assert_eq!(super::staging_name("abc", 7), "abc-s7");
+    }
     #[test]
     fn native_compiler_selection_rejects_foreign_or_unknown_targets() {
         assert_eq!(
