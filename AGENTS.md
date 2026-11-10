@@ -353,7 +353,7 @@ Preserve coverage, unsafe-exposure and architecture ratchets. New production
 modules must have actual production wiring; discarded probes or type-only uses
 do not count. No stubs, fake-success paths or lowered baselines to pass a gate.
 
-`CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` point here without
+`CLAUDE.md` and `GEMINI.md` point here without
 copying a divergent workflow. `susi_core::self_build::BRIEF` carries the same
 contract into delegated tasks. Update them and governance tests together when
 requirements change. Legacy scripts and GitHub adapters may remain during
