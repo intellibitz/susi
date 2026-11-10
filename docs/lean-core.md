@@ -886,4 +886,15 @@ config, core and the tail.
   audit records (with active `span`/`spans`) to `audit_writer`, and `stderr`
   console formatting. Pillar third-party reach ratchets 141 -> 140
   (`valuable`).
+- 2026-11-11 (T-CARBONLEAN-5, Linux x86_64, CEO laptop): the
+  `susi-vendor-http-body-util` facade and `http-body-util` leave core and
+  `Cargo.lock` (-2 packages; 113 cumulative `Cargo.lock` packages removed across
+  T-CARBONLEAN-1..5; Linux host packages 202 -> 200, `-e normal` 193 -> 191,
+  host build units 263 -> 261). `susi_http_transport::http_body` provides
+  `#![forbid(unsafe_code)]` shared Hyper `Body` combinators (`BoxBody`, `Full`,
+  `Empty`, `Limited`, `LengthLimitError`, `Collected`, `BodyExt`) for
+  `susi-gmcp` and `susi-server`. All three pillar reach ceilings ratchet down
+  simultaneously: third-party 140 -> 139, workspace 37 -> 36, direct facade
+  edges 13 -> 12 (`susi-gmcp` shipped lines unchanged at 25,860). GMCP
+  requirement and `--mastery` evidence re-recorded in both phases.
 

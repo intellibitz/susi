@@ -1,0 +1,68 @@
+{
+  "id": "T-CARBONLEAN-5",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-5",
+  "title": "Lean core: delete http-body-util facade; shared susi-http-transport body combinators and triple pillar ceiling ratchet",
+  "goal": "Remove susi-vendor-http-body-util and http-body-util from Cargo.lock (-2 packages; 113 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..5), provide #![forbid(unsafe_code)] shared Hyper body combinators (BoxBody, Full, Empty, Limited, LengthLimitError, Collected, BodyExt) in susi_http_transport::http_body for susi-gmcp and susi-server, ratchet all three pillar reach ceilings down simultaneously (THIRD_PARTY_CEILING 140 -> 139, WORKSPACE_CEILING 37 -> 36, DIRECT_FACADE_EDGES_CEILING 13 -> 12), and re-record GMCP requirement and --mastery evidence.",
+  "status": "in_progress",
+  "state": "claimed",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794384214,
+  "size": "m",
+  "deps": [
+    "T-CARBONLEAN-4"
+  ],
+  "base": "71b5e96511940985a7acf7285021eccd6f1dce6c",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CARBONLEAN-5.json",
+    ".agents/tasks/done/T-CARBONLEAN-5.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-gmcp/src/mcp/http.rs",
+    "crates/susi-gmcp/src/protocol_tests.rs",
+    "crates/susi-gmcp/src/server.rs",
+    "crates/susi-http-transport/Cargo.toml",
+    "crates/susi-http-transport/src/http_body.rs",
+    "crates/susi-http-transport/src/lib.rs",
+    "crates/susi-server/Cargo.toml",
+    "crates/susi-server/src/lib.rs",
+    "crates/susi-vendor-http-body-util",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "task_records",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo clippy --offline --locked -p susi-http-transport -p susi-gmcp -p susi-server --all-targets -- -D warnings",
+    "cargo deny --offline --locked check licenses",
+    "cargo test --offline --locked -p susi-http-transport --lib",
+    "cargo test --offline --locked -p susi-gmcp --lib",
+    "cargo test --offline --locked -p susi-server --lib",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records --test gmcp_requirements"
+  ]
+}
