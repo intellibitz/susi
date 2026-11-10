@@ -128,6 +128,12 @@ impl CapabilityRegistry {
         })
     }
 
+    /// Coalesce plane-bus route and capability manifest writes across `f` into
+    /// a single atomic replace per copy when `f` completes.
+    pub fn with_batch<R>(&self, f: impl FnOnce() -> R) -> R {
+        self.ipc.with_batch(f)
+    }
+
     /// Registers a model provider with the capability registry.
     pub fn register_provider<P: Provider + 'static>(&self, provider: P) {
         self.ipc.register_provider(Arc::new(provider));

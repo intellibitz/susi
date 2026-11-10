@@ -21,7 +21,8 @@ impl ToolRegistry {
             let registry = ToolRegistry {
                 tools: ToolMap::default(),
             };
-            hooks().bootstrap_tools(&registry);
+            crate::susi_core::registry::CapabilityRegistry::global()
+                .with_batch(|| hooks().bootstrap_tools(&registry));
             registry
         })
     }

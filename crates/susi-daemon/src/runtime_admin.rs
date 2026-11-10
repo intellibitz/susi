@@ -1481,7 +1481,8 @@ mod tests {
         ));
     }
 
-    /// A home with plane-bus endpoint files named after sensitive-looking
+    /// A home with plane-bus endpoint manifests (`routes.json` / `caps.json`)
+    /// plus legacy per-topic endpoint files named after sensitive-looking
     /// topics, the bus key, and a real key file; returns (home, bus key, key).
     fn home_with_bus_metadata(
         tag: &str,
@@ -1495,6 +1496,17 @@ mod tests {
                 .unwrap_or(0)
         ));
         let pid_dir = home.join("bus").join("33832");
+        std::fs::create_dir_all(&pid_dir).unwrap();
+        std::fs::write(
+            pid_dir.join("routes.json"),
+            br#"{"endpoint":"127.0.0.1:1","topics":["capability.tool.cluster_rekey_commit"],"prefixes":["token.refresh."]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            pid_dir.join("caps.json"),
+            br#"{"endpoint":"127.0.0.1:1","tool":[{"name":"secret_rotate","description":"rotate","endpoint":"127.0.0.1:1"}],"provider":[],"agent":[]}"#,
+        )
+        .unwrap();
         for (kind, name) in [
             ("topics", "capability.tool.cluster_rekey_commit"),
             ("prefixes", "token.refresh."),

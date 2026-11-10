@@ -684,8 +684,19 @@ quiet for 100 minutes on 2026-11-06, and the CEO then directed no further
 tests. Until it is, these budgets are declared and met on a quiet host for the
 flush-fix build only.
 
-Open: about 0.2–0.4 s of a first goal is still the one-file-per-tool
-rendezvous publication; publishing one file per process would remove it.
+2026-11-12 (`T-CARBONCLOUD-2`): `IpcPlaneBus` and `IpcCapabilityRegistry` now
+consolidate per-process endpoint and capability metadata under `<cache>/bus/<pid>/`
+into single atomic manifests (`routes.json` and `caps.json`) with batched
+`ToolRegistry::global()` bootstrap (`CapabilityRegistry::with_batch`), while
+retaining legacy `topics/`, `prefixes/` and `caps/` fallback discovery and
+dead-endpoint pruning. Measured on Linux `x86_64` (`fast-release`, `startup-gate --runs 9`,
+floor `0.75 ms` before / `0.70 ms` after): per-process `<SUSI_HOME>/bus/<pid>/`
+file count dropped `440 -> 3` (`-99.3%`), `goal_first_output` down/up improved
+`71.67 / 80.79 ms -> 66.09 / 72.57 ms`, and `goal_completion` down/up improved
+`73.03 / 82.63 ms -> 67.56 / 73.92 ms`.
+
+Open: a quiet-host Windows `x86_64` confirmation of the consolidated
+`routes.json`/`caps.json` build has not yet been recorded on the Windows host.
 Production qualification does not yet run `startup-gate` or the 2000 ms
 host-contract conformance budget, so a release that misses them is not
 refused.
