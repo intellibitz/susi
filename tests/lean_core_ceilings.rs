@@ -259,12 +259,16 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// 2026-11-12: susi-gawd-a2a 3,619 -> 3,588 (T-CLAUDEACPGAWD-1, measured):
 /// ACP turns on 9094 now run as GAWD missions (`GawdAcpExecutor`) instead of
 /// core's echo executor; the ceiling ratchets down to the measured size.
+/// 2026-11-12: susi-gemi 21,172 -> 21,063 (T-CLAUDEGEMIFIX-1, measured):
+/// `/v1/embeddings` gets one 30 s budget across providers; paid for by
+/// deleting what only its own tests called (`looks_like_inference_tool`,
+/// `worker::seat_window_state`).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_523),
     ("susi-gawd-swarm", 20_116),
     ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_588),
-    ("susi-gemi", 21_172),
+    ("susi-gemi", 21_063),
     ("susi-gemi-models", 15_939),
     ("susi-gmcp", 25_860),
     ("susi-harness", 37_536),

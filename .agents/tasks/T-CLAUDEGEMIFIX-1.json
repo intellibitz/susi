@@ -1,0 +1,44 @@
+{
+  "id": "T-CLAUDEGEMIFIX-1",
+  "title": "GEMI: streamed answers carry no routing notes; embeddings answer within 30 s",
+  "goal": "CEO direction 2026-11-12 (\"Fix gemi completely\"). A live sweep of the 9091 surface (isolated daemon, starter model, plug host) found two defects among others: (1) `stream: true` chat emitted `[SUSI ROUTING] local '...' selected ...` as assistant content; the GEMI server's stream callback now withholds routing notes, as the non-streamed reply always did. (2) `/v1/embeddings` gave no answer after 300 s: `GemiEngine::embed_text` tried every registered provider with a 60 s call each and no overall bound (on the CEO laptop it reached the machine's own Ollama and made it load a chat model). One request now has a 30 s budget across all providers (`EMBED_BUDGET`, `embed_from`), after which it answers 503 with the last provider's error.",
+  "status": "done",
+  "scopes": [
+    ".agents/tasks/T-CLAUDEGEMIFIX-1.json",
+    "crates/susi-gemi/src/engines/mcp_provider.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/lib.rs",
+    "crates/susi-gemi/src/tests/embed_budget.rs",
+    "crates/susi-gemi/src/worker.rs",
+    "crates/susi-server/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "embed_budget"
+    ]
+  },
+  "created_by": "CLAUDEGEMIFIX",
+  "created_unix": 1794431168,
+  "owner": "claude",
+  "base": "a5ad2480e84ddaf753630fef69f4ef3163c074ca",
+  "host": "CEO laptop, CachyOS Linux x86_64",
+  "results": {
+    "live": "Isolated daemon in a private network namespace (so it cannot reach the machine's real engines), plug host attached, starter model: streamed chat content 'Hello! It's a pleasure to meet you. How can I assist you today?' with no routing note (before: the note was appended as content); /v1/embeddings answers 503 at once when nothing can embed. Unit test: two providers that never answer -> error within the 300 ms test budget."
+  },
+  "limitations": [
+    "A provider call cut by the budget keeps its own thread until that call's own 60 s timeout ends; the request no longer waits for it.",
+    "Embeddings still try any registered provider, including chat-only local models; a 30 s budget bounds the cost, it does not choose an embedding model.",
+    "Linux x86_64 only."
+  ]
+}

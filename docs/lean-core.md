@@ -1144,4 +1144,12 @@ config, core and the tail.
   task runs, with the same untrusted-content gate, in-flight capacity permit
   and reply redaction, and the server runs turns on a blocking thread. No
   dependency added; the `susi-gawd-a2a` ceiling ratchets `3,619 -> 3,588`.
+- 2026-11-12 (T-CLAUDEGEMIFIX-1, Linux x86_64, CEO laptop), CEO direction "Fix
+  gemi completely": `susi-gemi` `21,172 -> 21,063`. A live sweep of 9091 found
+  `/v1/embeddings` unanswered after 300 s (every provider tried, 60 s each,
+  no overall bound) and streamed chat leaking `[SUSI ROUTING] ...` notes into
+  the assistant's content. Embeddings now have one 30 s budget; the GEMI
+  server withholds routing notes from streams. The budget is paid for by
+  deleting `mcp_provider::looks_like_inference_tool` (only its tests called
+  it) and `worker::seat_window_state` (nothing called it).
 
