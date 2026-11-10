@@ -807,12 +807,63 @@ impl AcpEngine {
         self.handle_sse_stream_bytes_with_session_header(body, None)
     }
 
+    /// Validate an ACP SSE request without starting its turn.
+    pub fn validate_sse_stream_bytes(&self, body: &[u8]) -> Result<(), Vec<u8>> {
+        self.validate_sse_stream_bytes_with_session_header(body, None)
+    }
+
+    /// Validate an ACP SSE request with an optional HTTP session binding.
+    pub fn validate_sse_stream_bytes_with_session_header(
+        &self,
+        body: &[u8],
+        session_header: Option<&str>,
+    ) -> Result<(), Vec<u8>> {
+        self.parse_sse_stream_request(body, session_header)
+            .map(|_| ())
+    }
+
     /// Dispatch a raw JSON-RPC 2.0 SSE stream request with optional HTTP `acp-session-id` binding.
     pub fn handle_sse_stream_bytes_with_session_header(
         &self,
         body: &[u8],
         session_header: Option<&str>,
     ) -> Result<Vec<String>, Vec<u8>> {
+        let mut frames = Vec::new();
+        self.handle_sse_stream_bytes_with_session_header_and(body, session_header, &mut |frame| {
+            frames.push(frame);
+        })?;
+        Ok(frames)
+    }
+
+    /// Dispatch an ACP SSE request and deliver each frame as soon as it is produced.
+    pub fn handle_sse_stream_bytes_with_session_header_and(
+        &self,
+        body: &[u8],
+        session_header: Option<&str>,
+        on_frame: &mut dyn FnMut(String),
+    ) -> Result<(), Vec<u8>> {
+        let (id, params) = self.parse_sse_stream_request(body, session_header)?;
+        match self.dispatch_prompt(&params, &mut |event| {
+            if let Ok(encoded) = serde_json::to_string(&event) {
+                on_frame(format!("event: acp.turn.event\ndata: {encoded}\n\n"));
+            }
+        }) {
+            Ok(result_val) => {
+                let envelope = rpc_ok(id, result_val);
+                if let Ok(encoded) = serde_json::to_string(&envelope) {
+                    on_frame(format!("event: acp.turn.result\ndata: {encoded}\n\n"));
+                }
+                Ok(())
+            }
+            Err((code, msg)) => Err(serialize_rpc_response(&rpc_error(id, code, msg))),
+        }
+    }
+
+    fn parse_sse_stream_request(
+        &self,
+        body: &[u8],
+        session_header: Option<&str>,
+    ) -> Result<(Value, Value), Vec<u8>> {
         let mut parsed: Value = match serde_json::from_slice(body) {
             Ok(val) => val,
             Err(err) => {
@@ -837,21 +888,7 @@ impl AcpEngine {
                 format!("Method '{method}' is not supported on SSE stream endpoint"),
             )));
         }
-        let mut frames = Vec::new();
-        match self.dispatch_prompt(&params, &mut |event| {
-            if let Ok(encoded) = serde_json::to_string(&event) {
-                frames.push(format!("event: acp.turn.event\ndata: {encoded}\n\n"));
-            }
-        }) {
-            Ok(result_val) => {
-                let envelope = rpc_ok(id, result_val);
-                if let Ok(encoded) = serde_json::to_string(&envelope) {
-                    frames.push(format!("event: acp.turn.result\ndata: {encoded}\n\n"));
-                }
-                Ok(frames)
-            }
-            Err((code, msg)) => Err(serialize_rpc_response(&rpc_error(id, code, msg))),
-        }
+        Ok((id, params))
     }
 
     /// Dispatch a parsed JSON-RPC 2.0 value and return the JSON-RPC 2.0 reply object.

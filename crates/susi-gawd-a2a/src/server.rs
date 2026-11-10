@@ -16,6 +16,7 @@ use susi_http_transport::server::{
     get, header, post, Before, Body, Guard, HeaderMap, HeaderValue, MethodRouter, Negotiate, Peer,
     Request, Response, Router, StatusCode,
 };
+use tokio::sync::mpsc;
 use tokio_rustls::TlsAcceptor;
 
 use crate::executor::GawdA2AExecutor;
@@ -102,7 +103,6 @@ fn health() -> Response {
 fn acp_internal_error() -> Vec<u8> {
     br#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"ACP turn failed"}}"#.to_vec()
 }
-
 fn acp_discovery(acp: &AcpEngine) -> MethodRouter {
     let body = Arc::new(serde_json::to_string(&acp.discovery_document()).unwrap_or_default());
     get(move |_: Request| {
@@ -121,11 +121,8 @@ fn acp_discovery(acp: &AcpEngine) -> MethodRouter {
     })
 }
 
-/// The A2A and ACP routes for `executor` behind the authorization guard and the
-/// concurrency bound — the stack [`serve`] runs. Discovery documents are public
-/// metadata: their routes are mounted after the guard, so they are not
-/// behind it; every task/session-bearing route (JSON-RPC, SSE) and every unknown
-/// path is.
+/// The A2A and ACP routes for `executor`, with public discovery and guarded
+/// task/session routes, served by [`serve`].
 fn app(
     executor: Arc<dyn AgentExecutor>,
     acp_executor: Arc<dyn AcpTurnExecutor>,
@@ -163,33 +160,43 @@ fn app(
             post(move |request: Request| {
                 let engine = Arc::clone(&acp_sse);
                 async move {
-                    let streamed = tokio::task::spawn_blocking(move || {
-                        engine.handle_sse_stream_bytes(&request.body)
-                    })
-                    .await
-                    .unwrap_or_else(|_| Err(acp_internal_error()));
-                    match streamed {
-                        Ok(frames) => {
-                            let mut response = Response::new(Body::from(frames.concat()));
-                            response.headers_mut().insert(
-                                header::CONTENT_TYPE,
-                                HeaderValue::from_static("text/event-stream"),
-                            );
-                            response.headers_mut().insert(
-                                header::CACHE_CONTROL,
-                                HeaderValue::from_static("no-cache"),
-                            );
-                            response
-                        }
-                        Err(err_json) => {
-                            let mut response = Response::new(Body::from(err_json));
-                            response.headers_mut().insert(
-                                header::CONTENT_TYPE,
-                                HeaderValue::from_static("application/json"),
-                            );
-                            response
-                        }
+                    if let Err(err_json) = engine.validate_sse_stream_bytes(&request.body) {
+                        let mut response = Response::new(Body::from(err_json));
+                        response.headers_mut().insert(
+                            header::CONTENT_TYPE,
+                            HeaderValue::from_static("application/json"),
+                        );
+                        return response;
                     }
+                    let (tx, rx) = mpsc::channel(16);
+                    let body = request.body;
+                    std::mem::drop(tokio::task::spawn_blocking(move || {
+                        let mut send_frame = |frame: String| {
+                            let _ = tx.blocking_send(frame.into_bytes());
+                        };
+                        if let Err(err_json) = engine
+                            .handle_sse_stream_bytes_with_session_header_and(
+                                &body,
+                                None,
+                                &mut send_frame,
+                            )
+                        {
+                            let frame = format!(
+                                "event: acp.turn.error\ndata: {}\n\n",
+                                String::from_utf8_lossy(&err_json)
+                            );
+                            let _ = tx.blocking_send(frame.into_bytes());
+                        }
+                    }));
+                    let mut response = Response::new(Body::Stream(rx));
+                    response.headers_mut().insert(
+                        header::CONTENT_TYPE,
+                        HeaderValue::from_static("text/event-stream"),
+                    );
+                    response
+                        .headers_mut()
+                        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+                    response
                 }
             }),
         )
@@ -222,10 +229,8 @@ fn negotiate(tls: Option<TlsAcceptor>, require_tls_remote: bool) -> Negotiate {
 /// when `tls` is given, TLS on the platform stack (`native-tls`, the
 /// acceptor's identity; it should offer only `http/1.1` by ALPN, the one
 /// protocol this server speaks).
-///
-/// `verifier` decides admission for every non-card route (see above).
-///
-/// Blocks the calling thread for the life of the listeners — spawn it the
+/// `verifier` decides admission for every non-card route. Blocks the calling
+/// thread for the life of the listeners — spawn it the
 /// same way the GMCP/GEMI servers are spawned. The executor's fleet calls
 /// run on dedicated OS threads (never on the server's runtime): the fleet's
 /// provider dispatch owns a `current_thread` runtime and `block_on`s it,
