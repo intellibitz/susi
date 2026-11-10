@@ -1,7 +1,11 @@
-//! Provider-neutral Git transport safety, separate from release qualification.
+//! Provider-neutral Git transport safety. Release tags are admitted only with
+//! the exact-tree qualification record (`release_qualification.rs`).
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
+
+#[path = "release_qualification.rs"]
+mod release_qualification;
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
@@ -96,11 +100,17 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
             if deleting || !zero(old) {
                 return Err(format!("tags are immutable: {remote}"));
             }
-            // Unqualified snapshots are explicitly distinguished from production releases.
-            // No native exact-tag qualification adapter exists yet. Fail closed rather
-            // than trust a caller flag, old cache file, or hosted CI assertion.
+            // Unqualified snapshots are explicitly distinguished from production
+            // releases. A `vX.Y.Z` release tag must point at the commit that adds
+            // its qualification record to the exact qualified tree; anything
+            // else, and every other tag name, fails closed. No caller flag, cache
+            // file or hosted CI assertion is consulted.
             if !tag.starts_with("susi-snapshot/") {
-                return Err(format!("release tag {remote} requires exact native qualification; adapter not yet available"));
+                if release_qualification::release_version(tag).is_none() {
+                    return Err(format!("release tag {remote} requires exact native qualification (vX.Y.Z with its record)"));
+                }
+                release_qualification::verify_tag(root, tag, new)
+                    .map_err(|e| format!("release tag {remote} is not qualified: {e}"))?;
             }
             git(
                 root,
