@@ -7,7 +7,7 @@ publish = false
 default-run = "xtask"
 
 [dependencies]
-susi-build-os-ucrt = { workspace = true }
+susi-build-os-ucrt = { workspace = true, features = ["link-map"] }
 susi-build-policy = { workspace = true }
 sha2 = { package = "susi-vendor-sha2", path = "../crates/susi-vendor-sha2" }
 sha1 = { package = "susi-vendor-sha1", path = "../crates/susi-vendor-sha1", optional = true }

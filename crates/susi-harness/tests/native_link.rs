@@ -1,23 +1,11 @@
 //! Audit the actual standalone harness, not just its Cargo dependency graph.
 #![cfg(all(windows, target_env = "msvc", target_arch = "x86_64"))]
 #![forbid(unsafe_code)]
-// The unchanged release inspectors also carry their adversarial unit fixtures.
+// Test assertions: a failed inspection is the test's failure.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "../../../xtask/src/native_link.rs"]
-mod native_link;
-#[path = "../../../xtask/src/pe_imports.rs"]
-mod pe_imports;
-
-use sha2::{Digest, Sha256};
 use std::{fs, path::Path, process::Command};
-
-fn digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
+use susi_build_os_ucrt::{native_link, pe_imports};
 
 #[test]
 fn standalone_harness_uses_original_rust_entry_and_only_os_imports() {

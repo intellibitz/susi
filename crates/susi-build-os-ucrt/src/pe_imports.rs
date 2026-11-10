@@ -20,15 +20,14 @@ fn u32_at(data: &[u8], at: usize) -> Result<u32> {
     ))
 }
 /// COFF Machine of an x64 PE image (IMAGE_FILE_MACHINE_AMD64).
-pub(crate) const MACHINE_AMD64: u16 = 0x8664;
+pub const MACHINE_AMD64: u16 = 0x8664;
 /// COFF Machine of an ARM64 PE image (IMAGE_FILE_MACHINE_ARM64).
-pub(crate) const MACHINE_ARM64: u16 = 0xaa64;
+pub const MACHINE_ARM64: u16 = 0xaa64;
 
 /// The COFF Machine a native executable of this tool's own target must carry.
 /// Evidence is produced only on a host equal to the target, so an image built
 /// here for another architecture is never admitted as native evidence.
-#[allow(dead_code)]
-pub(crate) const fn native_machine() -> Option<u16> {
+pub const fn native_machine() -> Option<u16> {
     if cfg!(target_arch = "x86_64") {
         Some(MACHINE_AMD64)
     } else if cfg!(target_arch = "aarch64") {
@@ -39,8 +38,7 @@ pub(crate) const fn native_machine() -> Option<u16> {
 }
 
 /// The COFF Machine field of a PE image, after DOS and PE signature checks.
-#[allow(dead_code)]
-pub(crate) fn machine(data: &[u8]) -> Result<u16> {
+pub fn machine(data: &[u8]) -> Result<u16> {
     if data.get(..2) != Some(b"MZ") {
         return Err("invalid DOS image".into());
     }
@@ -52,8 +50,7 @@ pub(crate) fn machine(data: &[u8]) -> Result<u16> {
 }
 
 /// Refuse a PE image whose Machine is not this tool's native architecture.
-#[allow(dead_code)]
-pub(crate) fn require_native_machine(data: &[u8]) -> Result<u16> {
+pub fn require_native_machine(data: &[u8]) -> Result<u16> {
     let expected = native_machine().ok_or("no native PE machine for this host")?;
     let found = machine(data)?;
     if found != expected {
@@ -64,7 +61,7 @@ pub(crate) fn require_native_machine(data: &[u8]) -> Result<u16> {
     Ok(found)
 }
 
-pub(crate) fn os_dll(name: &str) -> bool {
+pub fn os_dll(name: &str) -> bool {
     name.ends_with(".dll")
         && (name.starts_with("api-ms-win-")
             || name.starts_with("ext-ms-win-")
