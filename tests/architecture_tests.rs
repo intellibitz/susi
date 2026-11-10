@@ -2139,7 +2139,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=72).collect::<Vec<_>>(),
+        (1..=73).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2154,6 +2154,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (70, "without user-written config"),
         (71, "earns its next upgrade"),
         (72, "vanilla Windows x86_64 and vanilla Linux x86_64"),
+        (73, "Three isolated laptops"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -2175,6 +2176,54 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
             "legacy remote-only prerequisite returned: {forbidden}"
         );
     }
+}
+
+#[test]
+fn ceo_independent_agents_mandate_is_discoverable_and_preserves_boundaries() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        ".github/copilot-instructions.md",
+        "crates/susi-core/src/self_build.rs",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-agent-mandate.md"),
+            "{path}: consolidated mandate must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-agent-mandate.md")).unwrap();
+    for phrase in [
+        "dot, opus, carbon and grok",
+        "available, authorized local driver",
+        "dot, duet",
+        "every Susi container component",
+        "a driver can be an engine, an engine can be a driver",
+        "cycle detection, termination/cancellation",
+        "cannot enlarge\nits authority",
+        "independently in full autonomous mode",
+        "arbitrary agent-count limit or fixed push-rate limit",
+        "serialized exact-tree integration",
+        "GitHub, when used, is\nstorage only",
+        "task manifest",
+        "Feature\nmanifests",
+        "immutable snapshot",
+        "Branches are **versioned",
+        "Branches do not create confidentiality boundaries",
+        "GAWD, GEMI, GMCP\nand the harness",
+        "Apache-2.0 and free forever",
+        "Existing privacy, security, credentials, spending, destructive",
+        "Requirements are not evidence of completed implementation",
+        "supersedes the fixed remote push cadence",
+    ] {
+        assert!(doc.contains(phrase), "mandate lost requirement: {phrase}");
+    }
+    let entry = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(!entry.contains("One push per gated cycle (about 20 minutes"));
+    assert!(!entry.contains("the gate identity is the only pusher on `main`"));
 }
 
 #[test]

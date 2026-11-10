@@ -12,3 +12,12 @@ The CEO authorizes agents to commit, push and merge without routine CEO approval
 Follow AGENTS.md automated review, required tests and serialized integration;
 this authority does not waive production gates or authorize unrelated spending,
 destructive actions or external publication.
+
+Read docs/ceo-agent-mandate.md (Mandate 73): an available authorized driver (dot, duet,
+another agent or capable Susi harness) coordinates each laptop. Cloud sessions
+are independently autonomous within user authorization. Driver/engine recursion
+applies to every container component through capability contracts and budgets;
+nested work cannot amplify permissions or bypass cycle/termination checks.
+Susi owns distillation and serialized exact-tree integration. No arbitrary
+agent-count or push-rate limit; measured hardware capacity and evidence govern.
+Published release tags are immutable. Preserve confidentiality and access controls.

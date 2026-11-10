@@ -1,0 +1,36 @@
+{
+  "id": "T-DOTCEOMANDATE-1",
+  "title": "Consolidate independent agent mandate",
+  "goal": "Record the CEO three-laptop pluggable-local-driver, recursive-adapter and independent-cloud plan with Susi distillation, fast verified main integration, portable Git storage and immutable releases, preserving prior safety and licensing mandates.",
+  "created_by": "dot-ceo-mandate",
+  "created_unix": 1794328676,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-ceo-mandate",
+  "claimed_by": "dot-ceo-mandate",
+  "deps": [],
+  "scopes": [
+    "AGENTS.md",
+    ".agents/identity.json",
+    "CLAUDE.md",
+    "GEMINI.md",
+    ".github/copilot-instructions.md",
+    "crates/susi-core/src/self_build.rs",
+    "tests/architecture_tests.rs",
+    "docs/ceo-agent-mandate.md",
+    "docs/harness-coordination.md",
+    ".agents/tasks/t-dotceomandate-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_"
+    ]
+  },
+  "checkpoint": "Mandate authored and independently reviewed with no blocking issues. JSON, 21 requirement phrase checks, LF and git diff checks passed. Compiled acceptance and normal combined-tree publication gate pending; no agent runtime, credentials, security settings, branch protection or deployment changed."
+}

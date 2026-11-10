@@ -1,5 +1,30 @@
 # Harness coordination across hosts: the repository is the shared state
 
+## Current CEO direction, 2026-11-10
+
+Read [Mandate 73](ceo-agent-mandate.md) first. Three isolated laptops run dot,
+opus, carbon and grok, with an available authorized driver on each laptop: dot,
+duet, another agent or a capability-verified Susi harness. Driver/engine recursion
+applies to every container component with explicit contracts, budgets, cycle
+detection and no delegated permission expansion. Cloud
+sessions are independent and autonomous within user authorization. Susi's master
+brain owns distillation, task/feature manifests, branch composition and exact-tree
+integration. Verified main contributions have no fixed push cadence or arbitrary
+agent-count limit; measured host capacity and serialized publication govern.
+Git is portable storage, not a GitHub API or hosted-workflow dependency. Branches
+may advance; published release tags are immutable. Access controls, private
+commercial boundaries, production gates and rollback remain unchanged.
+
+The older decisions and incident notes below describe history, design and older
+implementation. They are not proof that distributed claims, adoption or receipts
+are deployed. In particular, fixed gate-cycle cooldowns and a single-laptop-only
+publication role are superseded. Existing `IntegrationPolicy` restrictions must
+be migrated in a reviewed, tested change; never bypass them or change repository
+permissions merely because the intended workflow is broader. Keep incident
+safeguards, native exact-tree gates and honest origin evidence.
+
+## Historical design and implementation notes
+
 CEO direction, 2026-11-07: any number of agents, on any host (Windows, Linux,
 macOS; a laptop, a cloud sandbox), must coordinate through the susi harness
 workflow, and the GitHub repository is the shared medium. No shared filesystem,
