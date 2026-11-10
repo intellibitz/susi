@@ -1,0 +1,79 @@
+{
+  "id": "T-AGYCLOUD-1",
+  "native_worker": "agycloud-20261110",
+  "owner": "agycloud-20261110",
+  "title": "Repair native push-policy for susi-distill tags and Git 2.38-2.39 merge-tree composition",
+  "goal": "Diagnose and repair Susi-native Git distillation and publication on Debian 12 LTS (`git 2.39.5`): permit create-only commit-bound `refs/tags/susi-distill/<name>` candidate snapshot tags in `push-policy` alongside `susi-snapshot/*` while preserving immutability and release-tag exact-tree qualification, and add a deterministic synthetic-base `commit-tree` + `merge-tree --write-tree` fallback in `local-distill` (`xtask::distill_compose`, covering `compose`, `orchestrate`, and `submit-main`) when `git merge-tree --merge-base=` is unavailable on Git < 2.40 while distinguishing conflict exit code 1 from fatal Git invocations.",
+  "feature": "distillation-git-storage",
+  "size": "s",
+  "created_by": "agycloud-20261110",
+  "created_unix": 1794364460,
+  "state": "done",
+  "status": "done",
+  "base": "cbab13cb1a7315bdf98d2cccb2347bfc76a98cb4",
+  "mandate_revision": "286e653ab06677ef0aefee8a54bffc26455127af",
+  "deps": [
+    "T-CARBONDISTILL-1",
+    "T-CLAUDEDISTILLEVID-1"
+  ],
+  "scopes": [
+    ".agents/tasks/T-AGYCLOUD-1.json",
+    ".agents/tasks/done/T-AGYCLOUD-1.json",
+    "docs/release-distillation.md",
+    "xtask/src/distill_compose.rs",
+    "xtask/src/push_policy.rs",
+    "xtask/tests/git_publisher_native_hook.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "evidence": [
+    "xtask/src/distill_compose.rs",
+    "xtask/src/push_policy.rs",
+    "xtask/tests/git_publisher_native_hook.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "distill",
+      "--bin",
+      "local-distill",
+      "--bin",
+      "local-snapshot",
+      "--test",
+      "native_push_policy",
+      "--test",
+      "git_publisher_native_hook"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu (Debian 12, Linux 6.12.105+, git 2.39.5, rustc 1.99.0)",
+    "fmt_check": "pass (0 diffs)",
+    "clippy_xtask_all_targets": "pass (0 warnings, -D warnings, 14490 ms)",
+    "tests_passed": 76,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "xtask_bin_distill": 19,
+      "xtask_bin_local_distill": 13,
+      "xtask_bin_local_snapshot": 26,
+      "xtask_test_git_publisher_native_hook": 5,
+      "xtask_test_native_push_policy": 13
+    },
+    "timings_ms": {
+      "xtask_cold_4bin_build_ms": 21311,
+      "xtask_warm_noop_build_ms": 130,
+      "xtask_targeted_test_suite_wall_ms": 8855,
+      "xtask_clippy_all_targets_ms": 14490
+    }
+  },
+  "limitations": [
+    "Requires Git >= 2.38 (`git merge-tree --write-tree`); Git 2.38-2.39 uses deterministic object-store synthetic base commits (`git commit-tree`) when `--merge-base=` is absent, whereas Git >= 2.40 uses `--merge-base=` directly.",
+    "`refs/tags/susi-distill/<name>` snapshots remain immutable candidate snapshots, not qualified `vX.Y.Z` release tags.",
+    "Legacy `xtask --bin local-workflow` (outside this task's scope) has 2 host-environment failures in this cloud uVM: `cargo-deny` is not preinstalled and `statvfs` on `/tmp` exebox overlay reports 0 free blocks."
+  ]
+}

@@ -567,32 +567,53 @@ impl Git<'_> {
         parse_batched_commit_stream(&raw)
     }
 
-    fn merge_three_way(&self, merge_base: &str, ours: &str, theirs: &str) -> Result<String> {
+    fn merge_three_way(&self, merge_base: &str, ours: &str, theirs: &str) -> Result<ThreeWayMerge> {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static MERGE_BASE_FLAG_UNSUPPORTED: AtomicBool = AtomicBool::new(false);
+
         valid_oid(merge_base)?;
         valid_oid(ours)?;
         valid_oid(theirs)?;
-        let merge_base_arg = format!("--merge-base={merge_base}");
+
+        if !MERGE_BASE_FLAG_UNSUPPORTED.load(Ordering::Relaxed) {
+            let merge_base_arg = format!("--merge-base={merge_base}");
+            let output = self.output(
+                &["merge-tree", "--write-tree", &merge_base_arg, ours, theirs],
+                None,
+            )?;
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if output.status.code() == Some(129) && stderr.contains("merge-base") {
+                MERGE_BASE_FLAG_UNSUPPORTED.store(true, Ordering::Relaxed);
+            } else {
+                return parse_merge_tree_output(output, merge_base, theirs);
+            }
+        }
+        self.merge_three_way_synthetic_base(merge_base, ours, theirs)
+    }
+
+    /// Git 2.38–2.39 (`merge-tree --write-tree` without `--merge-base=`): bind the
+    /// exact `merge_base`, `ours` and `theirs` trees into a deterministic 3-commit
+    /// object-store DAG (`ours <- base -> theirs`) so `merge-ort` resolves against
+    /// the identical explicit base tree without touching any index or worktree.
+    fn merge_three_way_synthetic_base(
+        &self,
+        merge_base: &str,
+        ours: &str,
+        theirs: &str,
+    ) -> Result<ThreeWayMerge> {
+        let base_tree = self.tree(merge_base)?;
+        let ours_tree = self.tree(ours)?;
+        let theirs_tree = self.tree(theirs)?;
+        let synth_base = self.commit_tree_raw(&base_tree, &[], "distill-merge-base\n")?;
+        let synth_ours =
+            self.commit_tree_raw(&ours_tree, &[synth_base.as_str()], "distill-ours\n")?;
+        let synth_theirs =
+            self.commit_tree_raw(&theirs_tree, &[synth_base.as_str()], "distill-theirs\n")?;
         let output = self.output(
-            &["merge-tree", "--write-tree", &merge_base_arg, ours, theirs],
+            &["merge-tree", "--write-tree", &synth_ours, &synth_theirs],
             None,
         )?;
-        if !output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let first_line = stdout.lines().nth(1).unwrap_or("conflicting paths");
-            return Err(format!(
-                "3-way merge-tree conflict applying {theirs} (base {merge_base}): {first_line}"
-            ));
-        }
-        let stdout = String::from_utf8(output.stdout)
-            .map_err(|_| "non-UTF-8 merge-tree output".to_owned())?;
-        let tree = stdout
-            .lines()
-            .next()
-            .ok_or_else(|| "empty merge-tree output".to_owned())?
-            .trim()
-            .to_owned();
-        valid_oid(&tree)?;
-        Ok(tree)
+        parse_merge_tree_output(output, merge_base, theirs)
     }
 
     fn commit_tree(&self, tree: &str, parent: &str, message: &str) -> Result<String> {
@@ -600,10 +621,14 @@ impl Git<'_> {
     }
 
     fn commit_tree_parents(&self, tree: &str, parents: &[&str], message: &str) -> Result<String> {
-        valid_oid(tree)?;
         if parents.is_empty() {
             return Err("commit-tree requires at least one parent".to_owned());
         }
+        self.commit_tree_raw(tree, parents, message)
+    }
+
+    fn commit_tree_raw(&self, tree: &str, parents: &[&str], message: &str) -> Result<String> {
+        valid_oid(tree)?;
         let mut command = Command::new("git");
         command
             .current_dir(self.root)
@@ -669,6 +694,49 @@ impl Git<'_> {
             .to_owned();
         valid_oid(&commit)?;
         Ok(commit)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ThreeWayMerge {
+    Clean(String),
+    Conflict(String),
+}
+
+fn parse_merge_tree_output(
+    output: Output,
+    merge_base: &str,
+    theirs: &str,
+) -> Result<ThreeWayMerge> {
+    match output.status.code() {
+        Some(0) => {
+            let stdout = String::from_utf8(output.stdout)
+                .map_err(|_| "non-UTF-8 merge-tree output".to_owned())?;
+            let tree = stdout
+                .lines()
+                .next()
+                .ok_or_else(|| "empty merge-tree output".to_owned())?
+                .trim()
+                .to_owned();
+            valid_oid(&tree)?;
+            Ok(ThreeWayMerge::Clean(tree))
+        }
+        Some(1) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let first_line = stdout.lines().nth(1).unwrap_or("conflicting paths");
+            Ok(ThreeWayMerge::Conflict(format!(
+                "3-way merge-tree conflict applying {theirs} (base {merge_base}): {first_line}"
+            )))
+        }
+        Some(code) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let detail = stderr
+                .lines()
+                .next()
+                .unwrap_or("unexpected merge-tree failure");
+            Err(format!("git merge-tree failed (exit {code}): {detail}"))
+        }
+        None => Err("git merge-tree terminated by signal".to_owned()),
     }
 }
 
@@ -1649,41 +1717,37 @@ fn compose_task_onto(
     cursor: &ComposeCursor<'_>,
     task: &TaskManifest,
     commits: &[CommitInfo],
-) -> std::result::Result<ComposedStep, ReasonErr> {
+) -> Result<std::result::Result<ComposedStep, ReasonErr>> {
     let mut step_commit = cursor.current_commit.to_owned();
     let mut step_tree = cursor.current_tree.to_owned();
 
     for commit in commits {
-        let merged_tree = match git.merge_three_way(&commit.parent, &step_commit, &commit.oid) {
-            Ok(tree) => tree,
-            Err(conflict_msg) => return Err(("merge_conflict", conflict_msg)),
+        let merged_tree = match git.merge_three_way(&commit.parent, &step_commit, &commit.oid)? {
+            ThreeWayMerge::Clean(tree) => tree,
+            ThreeWayMerge::Conflict(conflict_msg) => {
+                return Ok(Err(("merge_conflict", conflict_msg)));
+            }
         };
         if merged_tree != step_tree {
-            let delta_paths = git
-                .diff_paths(&step_tree, &merged_tree)
-                .map_err(|e| ("merge_conflict", e))?;
+            let delta_paths = git.diff_paths(&step_tree, &merged_tree)?;
             for path in &delta_paths {
                 if !path_within_scopes(path, &task.scopes, &task.path) {
-                    return Err((
+                    return Ok(Err((
                         "out_of_scope_diff",
                         format!(
                             "3-way composition of {} leaked out-of-scope path '{path}'",
                             commit.oid
                         ),
-                    ));
+                    )));
                 }
             }
             let step_msg = format!("distill-step {}: {}\n", task.id, commit.subject);
-            step_commit = git
-                .commit_tree(&merged_tree, &step_commit, &step_msg)
-                .map_err(|e| ("merge_conflict", e))?;
+            step_commit = git.commit_tree(&merged_tree, &step_commit, &step_msg)?;
             step_tree = merged_tree;
         }
     }
 
-    let changed_files = git
-        .diff_paths(cursor.current_tree, &step_tree)
-        .map_err(|e| ("merge_conflict", e))?;
+    let changed_files = git.diff_paths(cursor.current_tree, &step_tree)?;
     let source_list: Vec<&str> = commits.iter().map(|c| c.oid.as_str()).collect();
     let message = format!(
         "Distill task {}: {}\n\nUnqualified distilled candidate. Full exact-tree release gates remain required.\nDistilled-Task: {}\nSource-Commits: {}\nDistill-Base: {}\n",
@@ -1693,14 +1757,12 @@ fn compose_task_onto(
         source_list.join(","),
         cursor.base_commit
     );
-    let final_task_commit = git
-        .commit_tree(&step_tree, cursor.current_commit, &message)
-        .map_err(|e| ("merge_conflict", e))?;
-    Ok(ComposedStep {
+    let final_task_commit = git.commit_tree(&step_tree, cursor.current_commit, &message)?;
+    Ok(Ok(ComposedStep {
         commit: final_task_commit,
         tree: step_tree,
         changed_files,
-    })
+    }))
 }
 
 struct DetachedVerifyWorktree<'a> {
@@ -2086,7 +2148,7 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             current_commit: &current_commit,
             current_tree: &current_tree,
         };
-        match compose_task_onto(git, &cursor, task, &attributed) {
+        match compose_task_onto(git, &cursor, task, &attributed)? {
             Ok(composed) => {
                 current_commit = composed.commit.clone();
                 current_tree = composed.tree.clone();
@@ -2678,13 +2740,14 @@ fn run_submit_main_command(root: &Path, args: &SubmitMainArgs) -> Result<String>
                 valid_oid(&merge_base)?;
                 let delta = git.non_merge_commits(&merge_base, &candidate)?;
                 let tasks = audit_candidate_commits_for_main(&delta)?;
-                let merged_tree = git
-                    .merge_three_way(&merge_base, remote_oid, &candidate)
-                    .map_err(|e| {
-                        format!(
-                            "reconcile_conflict against concurrent origin/main {remote_oid}: {e}"
-                        )
-                    })?;
+                let merged_tree = match git.merge_three_way(&merge_base, remote_oid, &candidate)? {
+                    ThreeWayMerge::Clean(tree) => tree,
+                    ThreeWayMerge::Conflict(conflict_msg) => {
+                        return Err(format!(
+                            "reconcile_conflict against concurrent origin/main {remote_oid}: {conflict_msg}"
+                        ));
+                    }
+                };
                 let mut msg = format!(
                     "Reconcile autonomous contribution {} onto development main\n\nNon-destructive object-store reconciliation preserving peer commits.\n",
                     &candidate[..12.min(candidate.len())]
@@ -3575,5 +3638,57 @@ mod tests {
             .run_args(&["submit-main", "--rev", &bad_commit])
             .unwrap_err();
         assert!(err.contains("missing_task_trailer"));
+    }
+
+    #[test]
+    fn synthetic_base_merge_three_way_handles_clean_merge_and_conflict() {
+        let fx = Fixture::new();
+        fx.write("shared.txt", "alpha\nbeta\ngamma\n");
+        fx.git().text(&["add", "-A"]).unwrap();
+        fx.git().text(&["commit", "-m", "base"]).unwrap();
+        let base = fx.git().resolve_commit("HEAD").unwrap();
+
+        fx.write("ours_only.txt", "ours\n");
+        fx.git().text(&["add", "-A"]).unwrap();
+        fx.git().text(&["commit", "-m", "ours"]).unwrap();
+        let ours = fx.git().resolve_commit("HEAD").unwrap();
+
+        fx.git().text(&["checkout", "-q", &base]).unwrap();
+        fx.write("shared.txt", "alpha\nbeta\ngamma\ndelta\n");
+        fx.git().text(&["add", "-A"]).unwrap();
+        fx.git().text(&["commit", "-m", "theirs-clean"]).unwrap();
+        let theirs_clean = fx.git().resolve_commit("HEAD").unwrap();
+
+        let clean = fx
+            .git()
+            .merge_three_way_synthetic_base(&base, &ours, &theirs_clean)
+            .unwrap();
+        let ThreeWayMerge::Clean(merged_tree) = clean else {
+            panic!("expected clean 3-way merge, got {clean:?}");
+        };
+        assert_eq!(
+            fx.git()
+                .text(&["cat-file", "-p", &format!("{merged_tree}:shared.txt")])
+                .unwrap(),
+            "alpha\nbeta\ngamma\ndelta"
+        );
+        assert_eq!(
+            fx.git()
+                .text(&["cat-file", "-p", &format!("{merged_tree}:ours_only.txt")])
+                .unwrap(),
+            "ours"
+        );
+
+        fx.git().text(&["checkout", "-q", &base]).unwrap();
+        fx.write("ours_only.txt", "conflicting-theirs\n");
+        fx.git().text(&["add", "-A"]).unwrap();
+        fx.git().text(&["commit", "-m", "theirs-conflict"]).unwrap();
+        let theirs_conflict = fx.git().resolve_commit("HEAD").unwrap();
+
+        let conflict = fx
+            .git()
+            .merge_three_way_synthetic_base(&base, &ours, &theirs_conflict)
+            .unwrap();
+        assert!(matches!(conflict, ThreeWayMerge::Conflict(_)));
     }
 }

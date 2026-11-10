@@ -250,3 +250,112 @@ fn snapshot_tag_passes_the_real_hook_and_is_adopted_by_a_fresh_clone() {
         main
     );
 }
+
+#[test]
+fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immutable() {
+    const DISTILL: &str = env!("CARGO_BIN_EXE_local-distill");
+    assert_eq!(Path::new(DISTILL).parent(), Path::new(POLICY).parent());
+
+    let f = Fixture::new();
+    let worker = f.clone_worker("distill-worker");
+    let base = f.remote_main();
+
+    std::fs::create_dir_all(worker.join(".agents/tasks")).unwrap();
+    std::fs::write(
+        worker.join(".agents/tasks/T-HOOKDISTILL-1.json"),
+        r#"{
+  "id": "T-HOOKDISTILL-1",
+  "title": "Distill candidate hook fixture",
+  "goal": "Prove local-distill publish traverses .githooks/pre-push and push-policy",
+  "created_by": "fixture",
+  "created_unix": 1794350000,
+  "status": "done",
+  "deps": [],
+  "scopes": [".agents/tasks/T-HOOKDISTILL-1.json", "distilled.txt"],
+  "accept": { "cmd": ["cargo", "--version"] }
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(worker.join("distilled.txt"), "distilled payload\n").unwrap();
+    f.git(
+        &worker,
+        &["add", ".agents/tasks/T-HOOKDISTILL-1.json", "distilled.txt"],
+    );
+    f.git(
+        &worker,
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "feat: distilled change\n\nTask: T-HOOKDISTILL-1",
+        ],
+    );
+
+    let compose = f.publish(
+        Path::new(DISTILL),
+        &worker,
+        &[
+            "compose",
+            "--name",
+            "hook-distill-rc1",
+            "--base",
+            &base,
+            "--from",
+            "HEAD",
+            "--select",
+            "T-HOOKDISTILL-1",
+            "--strict",
+            "--json",
+        ],
+    );
+    assert!(compose.status.success(), "{}", text(&compose));
+    let receipt: serde_json::Value = serde_json::from_slice(&compose.stdout).unwrap();
+    let expected_commit = receipt["final_commit"].as_str().unwrap().to_owned();
+
+    let published = f.publish(
+        Path::new(DISTILL),
+        &worker,
+        &["publish", "hook-distill-rc1", "--json"],
+    );
+    assert!(published.status.success(), "{}", text(&published));
+    assert_eq!(
+        f.git(
+            &f.remote,
+            &["rev-parse", "refs/tags/susi-distill/hook-distill-rc1"]
+        ),
+        expected_commit
+    );
+
+    let status = f.publish(
+        Path::new(DISTILL),
+        &worker,
+        &["status", "hook-distill-rc1", "--json"],
+    );
+    assert!(status.status.success(), "{}", text(&status));
+    let status_json: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status_json["remote_state"], "published_exact");
+
+    // Attempting to overwrite or delete the published distill tag through the real hook fails closed.
+    let mut path = vec![Path::new(POLICY).parent().unwrap().to_owned()];
+    path.extend(std::env::split_paths(&path_without_helper()));
+    let joined_path = std::env::join_paths(path).unwrap();
+    for bad_spec in [
+        format!("{base}:refs/tags/susi-distill/hook-distill-rc1"),
+        ":refs/tags/susi-distill/hook-distill-rc1".to_owned(),
+    ] {
+        let refusal = isolated(&mut Command::new("git"), &worker)
+            .env("PATH", &joined_path)
+            .args(["push", "--force", "origin", &bad_spec])
+            .output()
+            .unwrap();
+        assert!(!refusal.status.success(), "{}", text(&refusal));
+    }
+    assert_eq!(
+        f.git(
+            &f.remote,
+            &["rev-parse", "refs/tags/susi-distill/hook-distill-rc1"]
+        ),
+        expected_commit
+    );
+}

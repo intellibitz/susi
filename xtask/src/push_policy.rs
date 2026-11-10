@@ -100,12 +100,17 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
             if deleting || !zero(old) {
                 return Err(format!("tags are immutable: {remote}"));
             }
-            // Unqualified snapshots are explicitly distinguished from production
+            // Unqualified snapshots (`susi-snapshot/*` and distilled candidates
+            // `susi-distill/*`) are explicitly distinguished from production
             // releases. A `vX.Y.Z` release tag must point at the commit that adds
             // its qualification record to the exact qualified tree; anything
             // else, and every other tag name, fails closed. No caller flag, cache
             // file or hosted CI assertion is consulted.
-            if !tag.starts_with("susi-snapshot/") {
+            let is_unqualified_snapshot = tag
+                .strip_prefix("susi-snapshot/")
+                .or_else(|| tag.strip_prefix("susi-distill/"))
+                .is_some_and(|name| !name.is_empty());
+            if !is_unqualified_snapshot {
                 if release_qualification::release_version(tag).is_none() {
                     return Err(format!("release tag {remote} requires exact native qualification (vX.Y.Z with its record)"));
                 }
