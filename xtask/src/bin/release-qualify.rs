@@ -302,6 +302,8 @@ struct Options {
     verify_only: bool,
     /// The storage remote the version is checked and reserved on.
     remote: String,
+    /// Whether `--remote` was explicitly supplied on the command line.
+    explicit_remote: bool,
     /// Qualify without asking the remote (it cannot be reached).
     skip_remote_check: bool,
 }
@@ -327,12 +329,14 @@ fn parse(args: &[String]) -> Result<Options, String> {
             _ => return Err(USAGE.into()),
         }
     }
+    let explicit_remote = remote.is_some();
     Ok(Options {
         tag: tag.ok_or(USAGE)?,
         jobs,
         from_distill,
         verify_only,
         remote: remote.unwrap_or_else(|| "origin".to_owned()),
+        explicit_remote,
         skip_remote_check,
     })
 }
@@ -400,6 +404,7 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
         from_distill,
         verify_only,
         remote,
+        explicit_remote,
         skip_remote_check,
     } = parse(args)?;
     let version = release_version(&tag).ok_or(USAGE)?.to_owned();
@@ -471,7 +476,14 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
     let harvest_audit: Value = serde_json::from_str(&harvest_raw)
         .map_err(|e| format!("harvest audit output is not JSON: {e}"))?;
     if verify_only {
-        if !skip_remote_check {
+        let has_remote_check = if skip_remote_check {
+            false
+        } else if explicit_remote {
+            true
+        } else {
+            !git(&root, &["remote"])?.is_empty()
+        };
+        if has_remote_check {
             release_version_guard::check(&root, &remote, &tag, &commit)?;
         }
         let mut summary = format!(
