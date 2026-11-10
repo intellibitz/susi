@@ -238,6 +238,20 @@ compiled three times (2.0.119 and 3.0.9 for proc-macros, 3.0.9 again for
 `susi-vendor-syn` in susi-gawd), openssl via native-tls (Linux only, through
 reqwest in ra2a), wasmparser and wasmi.
 
+Low load (T-CORECUT-1, 2026-11-11 03:2x-03:42, same laptop, empty target
+directories, `--offline --locked`): **28.3 s** cold at load average 3.2 with no
+other rustc running, 41.1 s at 6.9, 42.0-44.5 s at 9-12, against 75.6-178.1 s
+above at 7-53 with other agents compiling. On an idle Linux laptop the 60 s
+budget holds; the misses are machine load, so CPU-seconds matter as much as
+the path. At load 7 the serial path read: macro front (syn -> serde_derive ->
+serde -> susi-error) 8.2 s -> susi-config to metadata 3.6 s -> susi-core 6.7 s
+-> three branches tied within 1 s (gawd-agents -> gawd-swarm -> susi-gawd 12.8 s;
+susi-gmcp 11.8 s; susi-gemi-models -> susi-gemi 11.8 s; susi-harness 9.5 s) ->
+susi-daemon 6.0 s -> `susi` binary 3.8 s (1.1 s of it the link). Because the
+middle branches are tied, shortening one alone saves nothing (why the swarm
+and A2A moves measured no wall gain); the serial pieces are the front,
+config, core and the tail.
+
 ## Wave log
 
 - 2026-11-07 wave 1 (T-LEAN-1): ceilings test; `susi_core::parallel` (std
@@ -563,3 +577,15 @@ reqwest in ra2a), wasmparser and wasmi.
   recompiles 49 crates in 32.6 s instead of 162 in 78.2 s; the cold build
   measured no regression (4 of 5 alternated pairs faster, within load noise).
   No dependency or ceiling changes.
+- 2026-11-11 (T-CORECUT-1, Linux x86_64, CEO laptop): the daemon's
+  pillar-free host runtime (26 modules, 8,737 lines: supervision, watchdogs,
+  NAT, TLS, port fallback, resource governor, OS provisioning, zc_* startup
+  checks) moved unchanged into the new crate `susi-daemon-runtime`, which
+  compiles beside the pillars; `susi-daemon` re-exports every module under its
+  old path. No capability, port or command left; no pillar edge or ceiling
+  moved. Three alternated cold pairs against `ed9710c17` (load 3-17): daemon
+  start to binary done 6.9/7.3/8.1 s -> 5.9/6.1/6.6 s, the daemon unit
+  3.9/4.2/4.8 s -> 2.9/3.2/3.5 s; whole-build wall 28.3/42.0/44.5 s base vs
+  36.9/39.9/50.3 s change is inside the load noise and not claimed. The same
+  runs give the first low-load Linux numbers (28.3 s at load 3), section
+  "Linux x86_64".
