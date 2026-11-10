@@ -219,7 +219,9 @@ faster in wall and 6-11% lower in CPU-seconds: within the noise of this
 machine, so it counts as "no regression", not as a cut. The deterministic gain
 is the test step: before, `[profile.test]` had 16 units (`487c36292`) and
 `[profile.dev]` 256, so every dependency had two fingerprints and the first
-`cargo test` after a `cargo build` rebuilt the graph.
+`cargo test` after a `cargo build` rebuilt the graph. A separate Linux record
+by another method (`T-GROKSTEP1LINUX-2`, `.agents/evidence/step1-linux-T-GROKSTEP1LINUX-2.json`:
+base `de22ea776`, `-j 8`, load 5-22) reads 71.8 s cold.
 
 Critical path on Linux (timings of a 256-unit run, 81.0 s): syn (host) 2-13 s
 -> serde_derive 13-22 -> serde, susi-error -> susi-config 24-35 (frontend 9.1 s)

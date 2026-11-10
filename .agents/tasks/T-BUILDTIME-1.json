@@ -22,24 +22,71 @@
       "--offline",
       "--locked",
       "--test",
+      "architecture_tests",
+      "--test",
       "orphan_sources",
       "--test",
       "lean_core_ceilings",
       "--test",
-      "core_docs_promise_no_ui_or_plugins"
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "task_records"
     ]
   },
   "results": {
     "change": "Cargo.toml [profile.dev] codegen-units 256 -> 16, equal to [profile.test] (16 since 487c36292), so build and test share every dependency artifact. No dependency, source or ceiling change.",
-    "cold_build_base_256_units_wall_s": [82.3, 99.6, 81.0, 148.6, 110.8, 80.5, 78.9, 128.5],
-    "cold_build_16_units_wall_s": [98.1, 110.7, 95.3, 76.0, 146.8, 102.5, 75.6, 178.1],
+    "cold_build_base_256_units_wall_s": [
+      82.3,
+      99.6,
+      81.0,
+      148.6,
+      110.8,
+      80.5,
+      78.9,
+      128.5
+    ],
+    "cold_build_16_units_wall_s": [
+      98.1,
+      110.7,
+      95.3,
+      76.0,
+      146.8,
+      102.5,
+      75.6,
+      178.1
+    ],
     "cold_build_units": 395,
     "alternated_pairs_256_then_16_wall_s_with_median_load1": [
-      [148.6, 43, 110.7, 44],
-      [110.8, 38, 95.3, 35],
-      [80.5, 30, 76.0, 30],
-      [78.9, 31, 75.6, 28],
-      [128.5, 32, 178.1, 48]
+      [
+        148.6,
+        43,
+        110.7,
+        44
+      ],
+      [
+        110.8,
+        38,
+        95.3,
+        35
+      ],
+      [
+        80.5,
+        30,
+        76.0,
+        30
+      ],
+      [
+        78.9,
+        31,
+        75.6,
+        28
+      ],
+      [
+        128.5,
+        32,
+        178.1,
+        48
+      ]
     ],
     "test_after_build_no_run": "cargo test -p susi-gmcp --no-run after cargo build -p susi: 256 units 78.2 s, 162 crates compiled; 16 units 32.6 s, 49 crates compiled",
     "warm_build_s": "no-op 0.22/0.23; touch susi-gmcp source 4.4-8.0 (256) vs 4.3/4.9 (16); touch src/main.rs 2.8-8.1 (256) vs 2.1/2.5 (16); touch susi-core lib.rs 6.5-8.5 (256) vs 6.2/10.4 (16)",
@@ -47,14 +94,13 @@
     "change_to_result_s": "one-line susi-gmcp edit + cargo build -p susi + cargo test -p susi-gmcp, both warm: 22.6/29.9/19.8 (256) vs 23.3/25.4/19.9 (16)",
     "startup": "target/debug/susi --version 40-61 ms; susi start to all ports listening 0.75 s (fresh isolated home, SUSI_PORT_OFFSET 3000) and 0.39 s; susi stop 0.30 s; start -> MCP initialize -> tools/list 0.52 s",
     "critical_path_linux": "syn(host) -> serde_derive -> serde -> susi-error -> susi-config -> susi-core -> {susi-gmcp | gawd-agents -> gawd-swarm -> susi-gawd | susi-gemi} -> susi-daemon -> susi bin",
-    "verification": "cargo fmt --all --check exit 0; cargo clippy -p susi --offline --locked -- -D warnings exit 0; orphan_sources 3/0, lean_core_ceilings 2/0, core_docs_promise_no_ui_or_plugins 5/0; architecture_tests 42 passed, 1 failed (cross_crate_source_mounts_only_decrease, pre-existing, crates/susi-harness/tests/native_link.rs, owned by unblock); xtask ci_workflow_perf 27/0"
+    "verification": "On the tree merged with origin/main 08d939d35: cargo fmt --all --check exit 0; cargo clippy -p susi --offline --locked -- -D warnings exit 0; architecture_tests 43/0, orphan_sources 3/0, lean_core_ceilings 2/0, core_docs_promise_no_ui_or_plugins 5/0, task_records 3/0; xtask ci_workflow_perf 27/0. Before the merge, architecture_tests had one pre-existing failure (cross_crate_source_mounts_only_decrease, crates/susi-harness/tests/native_link.rs), fixed on main by unblock."
   },
   "limitations": [
     "Every number is under real multi-agent load (load average 7-53); none is an idle baseline, and wall varies by up to 2x between runs with no source change.",
     "The cold-build effect of 16 units is within load noise (4 of 5 alternated pairs faster); it is recorded as no regression, not as a budget cut.",
     "The 60 s budget is not met on Linux: best cold run 75.6 s.",
-    "Runs with CARGO_PROFILE_DEV_CODEGEN_UNITS overriding the committed setting are kept out of .agents/build-time.jsonl because the tool records only the commit; they are in this record and in docs/lean-core.md.",
-    "architecture_tests is left out of accept.cmd because of the pre-existing native_link.rs failure that another agent owns."
+    "Runs with CARGO_PROFILE_DEV_CODEGEN_UNITS overriding the committed setting are kept out of .agents/build-time.jsonl because the tool records only the commit; they are in this record and in docs/lean-core.md."
   ],
   "provenance": {
     "agent": "buildtime",
