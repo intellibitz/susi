@@ -123,7 +123,7 @@ GitHub Actions is disabled and its workflow files were removed (CEO decision
 2026-11-06); it is not a merge gate.
 `susi local release qualify` independently qualifies the integrated source.
 
-`CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md` are identical
+`CLAUDE.md` and `GEMINI.md` are identical
 pointers to the canonical contract. Automatic shell-based SessionStart hooks
 have been removed. Optional remote publishing adapters remain historical
 compatibility tooling and cannot govern local engineering. See

@@ -156,6 +156,50 @@ fn nothing_tracked_depends_on_a_github_feature() {
     );
 }
 
+/// GitHub-only integration files: the `.github/` directory (issue, pull-request
+/// and discussion templates, Copilot instructions, workflows) and the
+/// root-level files GitHub alone reads. CEO 2026-11-11: zero dependency on
+/// GitHub, no GitHub hooks.
+fn github_only_path(path: &str) -> bool {
+    path.starts_with(".github/") || matches!(path, "CODEOWNERS" | "FUNDING.yml" | "dependabot.yml")
+}
+
+#[test]
+fn no_github_hook_files_are_tracked() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let found: Vec<String> = tracked_files(root)
+        .into_iter()
+        .map(|path| path.replace('\\', "/"))
+        .filter(|path| github_only_path(path))
+        .collect();
+    assert!(
+        found.is_empty(),
+        "GitHub-only integration files are not allowed (zero GitHub dependency): {found:?}"
+    );
+}
+
+#[test]
+fn github_only_path_matches_hook_files_and_nothing_else() {
+    for hook in [
+        ".github/workflows/test.yml",
+        ".github/ISSUE_TEMPLATE/bug_report.md",
+        ".github/copilot-instructions.md",
+        "CODEOWNERS",
+    ] {
+        assert!(github_only_path(hook), "{hook} must be refused");
+    }
+    for ordinary in [
+        ".githooks/pre-push",
+        "docs/github.md",
+        "vendor/x/.github-like",
+    ] {
+        assert!(
+            !github_only_path(ordinary),
+            "{ordinary} is not a GitHub hook"
+        );
+    }
+}
+
 #[test]
 fn every_allow_list_entry_is_tracked_and_explained() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
