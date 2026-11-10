@@ -194,7 +194,15 @@ grow disconnected catalogs.
 
 - Define versioned conformance contracts for providers, MCP servers, agents,
   and extension packs.
-- Prefer protocol admission over new vendor-specific core branches.
+- Prefer protocol admission and **Pure `Apache-2.0` ONLY** cloud raw-source
+  feature pickup ([CEO Mandate 75](docs/ceo-mandate-75.md),
+  [`docs/harvest.md`](docs/harvest.md)) over new vendor-specific core branches
+  or external crate bloat: both `intellibitz/susi` and
+  `intellibitz/susi-commercial-apps` operate on **Raw Source (`main`) ->
+  Distill (`release`)**, routing lean 5-pillar socket primitives to Core and
+  routing innovative product features, enterprise packs, and visual interfaces
+  (all UIs and visual views live in Susi Commercial Apps) to the commercial
+  suite.
 - Publish compatibility status from executable probes, not static marketing
   counts.
 - Keep optional foreign runtimes behind Rust-owned adapters and policy gates.

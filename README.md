@@ -172,13 +172,19 @@ and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms)
 ### Developing susi
 
 The CEO never inspects code; agents own development, verification, integration
-and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–74) and
-[`docs/ceo-mandate-74.md`](docs/ceo-mandate-74.md). Work happens in isolated
+and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–75),
+[`docs/ceo-mandate-74.md`](docs/ceo-mandate-74.md) and
+[`docs/ceo-mandate-75.md`](docs/ceo-mandate-75.md). Work happens in isolated
 worktrees with disjoint scopes (`cargo local-workflow start <agent> --scope <path>`,
 `cargo local-build debug`) and remote pull-and-merge reconciliation at every
 workflow step over portable Git storage (GitHub is storage only: zero GitHub
 Actions, zero hosted PRs). Susi core targets a `<10s` warm `build + test + release`
-pipeline budget (`docs/lean-core.md`). Each commit carries `Task: T-<AGENT>-<n>`
+pipeline budget (`docs/lean-core.md`). Both `intellibitz/susi` and
+`intellibitz/susi-commercial-apps` operate on the **Raw Source (`main`) ->
+Distill (`release`)** model, and cloud raw-source feature pickup
+([`docs/harvest.md`](docs/harvest.md)) enforces **Pure `Apache-2.0` ONLY**
+compliance while routing 5-pillar primitives to Core and commercial add-ons to
+`susi-commercial-apps`. Each commit carries `Task: T-<AGENT>-<n>`
 with its record in [`.agents/tasks/`](.agents/tasks/), features land
 continuously on `main` and are deterministically distilled by Susi into
 qualified immutable releases (`releases/<tag>.json`), and release integration

@@ -1,10 +1,12 @@
 # Harvest: `local-harvest`
 
-`local-harvest` is the tooling for [CEO Mandate 74, section 5](ceo-mandate-74.md#5-harvest-the-open-source-world-is-the-oyster).
-Use it to take Apache-2.0 code, and only Apache-2.0 code (CEO decision
-2026-11-12), from any public Git repository on any host and keep every license
-obligation. It is native Rust (`xtask/src/harvest.rs`) and depends only on the
-`git` executable. It uses no hosting API and no network beyond `git fetch`.
+`local-harvest` is the tooling for [CEO Mandate 74, section 5](ceo-mandate-74.md#5-harvest-the-open-source-world-is-the-oyster)
+and [CEO Mandate 75](ceo-mandate-75.md). Use it to discover, route, and pick up
+Apache-2.0 code, and **only** pure `Apache-2.0` code (CEO decision 2026-11-12,
+Mandate 75), from any public Git repository on any host while keeping every
+Apache-2.0 section 4 license obligation. It is native Rust (`xtask/src/harvest.rs`)
+and depends only on the `git` executable. It uses no hosting API and no network
+beyond `git fetch`.
 
 It runs in whatever Git checkout is the current directory, so
 `susi-commercial-apps` runs the same binary.
@@ -51,7 +53,52 @@ local-harvest notices --check
 
 # 5. Audit every manifest against Apache-2.0 section 4, plus commit trailers
 local-harvest audit --range origin/main..HEAD
+
+# 6. Discover raw-branch features and pure-Apache-2.0 modules from a cloud Git repo
+local-harvest raw-features --url https://codeberg.org/acme/widgets.git \
+  [--rev main] [--slug widgets] [--limit 50] [--json]
+
+# 7. Classify candidate paths/features into `core` (5 lean pillars) vs `commercial`
+local-harvest route --path crates/susi-core/src/acp/frame.rs \
+  [--map src/frame.rs=crates/susi-core/src/acp/frame.rs] [--feature F-ACP-FRAME-1] \
+  [--summary "ACP wire frame helper"] [--target auto|core|commercial] \
+  [--slug widgets --rev 3f2c...e9] [--json]
+
+# 8. One-step autonomous Cloud Raw-Source Pickup (intake -> scan -> route -> import)
+local-harvest pickup --url https://codeberg.org/acme/widgets.git --rev main \
+  --slug widgets --map src/frame.rs=crates/susi-core/src/acp/frame.rs \
+  --id H-CARBON-1 --task T-CARBON-1 [--feature F-ACP-FRAME-1] \
+  [--target auto|core|commercial] [--mode transplant|port] [--agent carbon] \
+  [--summary "adapted to EaiResult"] [--overwrite] [--json]
 ```
+
+**raw-features** quarantine-fetches `--rev` (default `main`) into
+`refs/susi/upstream/<slug>/<sha>` without checking out or executing upstream
+code, then lists distillable `Task:` / `Feature:` commits and pure-`Apache-2.0`
+Rust modules together with their classified `core` vs. `commercial` destination.
+
+**route** classifies candidate paths, mappings, and summaries into `core` vs.
+`commercial` under [CEO Mandate 75](ceo-mandate-75.md):
+
+- **`core`** (`intellibitz/susi`) is selected **only** for zero-UI,
+  zero-vendor-product protocol and runtime substrate capabilities inside Susi
+  Core's 5 lean open-socket pillars (`gawd`, `gemi`, `gmcp`, `acp`, `harness`).
+- **`commercial`** (`intellibitz/susi-commercial-apps`) is selected for all
+  add-on product features, desktop and visual interfaces (all UIs and visual
+  views live in Susi Commercial Apps), enterprise and department packs,
+  SSO/RBAC/FinOps planes, connectors, plugs, and turnkey workflows.
+- `route` emits `{ok, target, pillars, reasons, repo_kind, allowed_in_core, allowed_in_commercial}`
+  and exits non-zero when `--target core` is requested on a `commercial`-routed
+  candidate or when `--target` mismatches the current repository checkout.
+
+**pickup** combines quarantine `intake` -> pure-`Apache-2.0` per-file `scan` ->
+`route` target verification against the active checkout (`intellibitz/susi`
+hard-refuses `commercial`/UI/add-on candidates; `susi-commercial-apps` accepts
+`--target auto|commercial`) -> `import`, writing `.agents/harvest/<id>.json`
+(`"license": "Apache-2.0"`), `LICENSES/Apache-2.0.txt`, and deterministic
+`THIRD_PARTY_NOTICES`, and printing the exact Raw-Main distillable commit
+trailers (`Harvest:`, `Origin: <url>@<sha>:<path>`, `Origin-License: Apache-2.0`,
+`Task:`, `Feature:`).
 
 **scan** decides one license per file:
 
@@ -108,9 +155,9 @@ copyright lines and add a `Modified by` notice. A port is a derivative work.
 | `schema`, `id`, `task`, `feature` | `susi-harvest-manifest-v1`, `H-<AGENT>-<n>` (must match the file name), `T-<AGENT>-<n>`, feature id or `null` |
 | `source_url`, `source_commit`, `quarantine_ref` | Where the code came from and the exact pinned commit |
 | `mode` | `transplant` or `port` |
-| `license` | The chosen SPDX license. Different per-file licenses are joined with `AND` |
+| `license` | `"Apache-2.0"` (the sole allowed harvest license under Mandate 75; dual `Apache-2.0 OR ...` files elect `"Apache-2.0"` exclusively, and `AND` combinations or non-`Apache-2.0` licenses are refused) |
 | `license_evidence[]` | `{path, kind: license\|notice, spdx, blob_sha1, sha256}` for every license and NOTICE file used |
-| `license_texts[]` | `{path, spdx, text}` for MIT/BSD license files, which must be reproduced |
+| `license_texts[]` | `{path, spdx, text}` schema field retained for `susi-harvest-manifest-v1` compatibility (empty for pure `Apache-2.0` harvests, which ship `LICENSES/Apache-2.0.txt`) |
 | `notice_text` | Upstream NOTICE contents, each under a `--- <path> ---` header |
 | `copyright_lines` | Copyright lines from the harvested files and their license files, deduplicated and sorted |
 | `modifications` | Free-text summary (`--summary`) |
@@ -160,9 +207,10 @@ manifest.
   trailers. Audit only checks files listed in manifests.
 - Patent clauses, trademarks, logos and product names (Apache-2.0 section 6)
   are not reviewed automatically.
-- An MIT/BSD file that carries only an SPDX header, with no license file,
-  gets no license text in `THIRD_PARTY_NOTICES`. Add it by hand to the
-  destination if the upstream file did not include it.
+- Standalone `MIT`-only, `BSD-2-Clause`-only, and `BSD-3-Clause`-only files are
+  hard-refused by `scan`, `import`, `pickup`, and `audit` under Mandate 75
+  (`Apache-2.0` only for pure compliance). Dual-licensed files (`Apache-2.0 OR MIT`)
+  pass only by electing `Apache-2.0` and shipping `LICENSES/Apache-2.0.txt`.
 - `local-release qualify` (the installed-production package path) runs the same
   audit in-process on the exact integrated candidate, over its whole history,
   before any build. It fails closed and records `harvest-audit=` in the
