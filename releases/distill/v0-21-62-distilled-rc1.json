@@ -1,0 +1,544 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-http-transport"
+      ],
+      "exit_code": 0,
+      "output_sha256": "4e407b3b0efd3fe98fcd3bbe5879bd63e4a35af429c15569f8c560a66496c08d",
+      "passed": true,
+      "task_id": "T-CLAUDEWINSTOP-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "architecture_tests",
+        "ceo_"
+      ],
+      "exit_code": 0,
+      "output_sha256": "228b78a0215c773c16b2cf4db6b1b737dfec63dec5f0360978b73237ba1dc072",
+      "passed": true,
+      "task_id": "T-CTOMANDATES-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "xtask",
+        "--",
+        "fast-release"
+      ],
+      "exit_code": 0,
+      "output_sha256": "0f67f753c85e2c07956c4973146a951eb47b45c8fb5d26854a16e04eb9da19b9",
+      "passed": true,
+      "task_id": "T-CTO-SPEED-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "xtask",
+        "--",
+        "fast-release"
+      ],
+      "exit_code": 0,
+      "output_sha256": "85afbf9e695a5cfaae0d00a9a144563e1d50522badb471921e2fadce09521e59",
+      "passed": true,
+      "task_id": "T-CTOSPEED-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "five_pillars_workflow"
+      ],
+      "exit_code": 0,
+      "output_sha256": "e5bcbb65b8054240e7a120d8d0e2cce9e0e161fd4621fcad283155d3c4683170",
+      "passed": true,
+      "task_id": "T-CTO-PILLARS-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "five_pillars_workflow"
+      ],
+      "exit_code": 0,
+      "output_sha256": "bd5215d2264f5afd955a92105d7fe4de6ba1fb556938ae0949e50631ea628678",
+      "passed": true,
+      "task_id": "T-CTOPILLARS-1"
+    }
+  ],
+  "adopted_host_commits": {},
+  "base_commit": "fd33b84af6e4af5ef56fa1fcd93743a7eaefc7ea",
+  "base_tree": "ebb8f62f70a69029eaf3c794e35285b01881cc12",
+  "branch_ref": "refs/heads/release/v0-21-62-distilled-rc1",
+  "closure_order": [
+    "T-CLAUDEWINSTOP-1",
+    "T-CTOMANDATES-1",
+    "T-CTO-SPEED-1",
+    "T-CTOSPEED-1",
+    "T-CTO-PILLARS-1",
+    "T-CTOPILLARS-1"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "a8366f2959dae42ef0f900e9786490a551ee17da",
+  "final_tree": "2e1a00092b3ae67d8f305fdb6ec71055b864dd94",
+  "git_host_created_in_stream": [],
+  "git_host_identities": [
+    "noreply@github.com"
+  ],
+  "harvest_audit": {
+    "findings": [],
+    "harvest_commits_checked": 0,
+    "manifest_ids": [],
+    "manifests": [],
+    "manifests_verified": 0,
+    "passed": true,
+    "schema": "susi-harvest-audit-v1"
+  },
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-http-transport"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CLAUDEWINSTOP-1.json",
+        "crates/susi-http-transport/src/server.rs"
+      ],
+      "composed_commit": "bd2f5ed68e6fb63ff9a0524600a08cc7fad60c11",
+      "composed_tree": "13c3000d3098bb43edd896f2cc7cc5a47a3139b8",
+      "deps": [],
+      "goal": "On shutdown the shared HTTP transport closes idle connections by shutting their sockets down from the stopping thread. On Windows that does not wake a recv that is already blocked, so a connection waiting between requests stayed until its client closed it and serve() never returned: stopping the daemon could hang for as long as any client kept a keep-alive connection open. On Windows an idle connection now waits for its next request in 100 ms timed peeks and checks the stop flag between them. Other hosts are unchanged.",
+      "owner": "CLAUDEWINSTOP",
+      "patch_id": "fd08298dbeda6e7f70d509e44e8da425195b0ae1",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-http-transport/src/server.rs",
+        ".agents/tasks/T-CLAUDEWINSTOP-1.json"
+      ],
+      "source_commits": [
+        "fa76f3b235377eb00f5726fb0beccea970a8815e"
+      ],
+      "task_id": "T-CLAUDEWINSTOP-1",
+      "title": "The shared HTTP server stops on Windows while a client holds an idle connection"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "architecture_tests",
+        "ceo_"
+      ],
+      "changed_files": [
+        ".agents/identity.json",
+        ".agents/tasks/T-CTOMANDATES-1.json",
+        "AGENTS.md",
+        "ARCHITECTURE.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-agent-mandate.md",
+        "docs/ceo-mandate-74.md",
+        "docs/lean-core.md"
+      ],
+      "composed_commit": "71f19ac7d6436b52b48c7285866e7be1dc916e47",
+      "composed_tree": "47cca7a53e0127818a8524810823aebb806c976d",
+      "deps": [],
+      "goal": "Codify and harmonize the CEO's 10 binding 2026-11-11 directives across AGENTS.md, CLAUDE.md, GEMINI.md, VISION.md, ARCHITECTURE.md, README.md, docs/ceo-mandate-74.md, docs/ceo-agent-mandate.md, docs/lean-core.md, and .agents/identity.json: (1) <10s warm core build+test+release pipeline budget recorded and enforced alongside honest cold timings, (2) continuous development on main deterministically distilled into qualified immutable releases (releases/<tag>.json), (3) all add-on features, UIs, enterprise packs, SSO/RBAC, FinOps, and turnkey workflows exclusively in susi-commercial-apps, (4) remote pull-and-merge reconciliation at every workflow step (start, sync, commit, distill, ship, release, and parallel harness steps), (5) GitHub as portable Git storage only with zero GitHub Actions or hosted PR/API gates, (6-7) sharpened harmonization across Mandates 62-74, (8) 5 Apache-2.0 core pillars (GAWD, GEMI, GMCP, ACP in susi-core::acp, and Susi Harness with built-in parallel multi-agent workflow), (9) closed, licensed, and paid corporate boundary for susi-commercial-apps, and (10) autonomous CTO execution with strict safety and durable evidence.",
+      "owner": "mandates",
+      "patch_id": "f10b13e7a3bc6284bb3198f42ebe7ae81ea8fe02",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/identity.json",
+        ".agents/tasks/T-CTOMANDATES-1.json",
+        "AGENTS.md",
+        "ARCHITECTURE.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-agent-mandate.md",
+        "docs/ceo-mandate-74.md",
+        "docs/lean-core.md"
+      ],
+      "source_commits": [
+        "88e08e068aca28c0a4e7491e94707ad0fac2ab7f"
+      ],
+      "task_id": "T-CTOMANDATES-1",
+      "title": "CTO Mandate 74 governance harmonization: <10s warm core budget, 5 Apache-2.0 pillars, remote pull/merge on every step, distilled releases, and corporate commercial boundary"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "xtask",
+        "--",
+        "fast-release"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CTO-SPEED-1.json",
+        ".agents/tasks/T-CTOSPEED-1.json",
+        ".cargo/config.toml",
+        "Cargo.toml",
+        "xtask/src/fast_release.rs",
+        "xtask/src/local_build.rs",
+        "xtask/src/main.rs"
+      ],
+      "composed_commit": "3f72bb0f70a7e8923e29c3fe82f1727edc080ca8",
+      "composed_tree": "e1c2297022a27ec9fde9e30e034b612464ee4a69",
+      "deps": [],
+      "goal": "Deliver CEO Directive #1 (`< 10.0s` total wall-clock Susi Core build + verification test suite + distilled release artifact & SHA-256 provenance manifest) by eliminating duplicate profile compilation between `build`, `test`, and `release` via `[profile.fast-release]` (`panic = \"unwind\"`, `incremental = true`, `codegen-units = 16`, `debug = 0`, `strip = \"debuginfo\"`, `-O2` cached registry deps, `-O3` `sha2`), fixing `[profile.test.package.sha2]` symmetry, executing all core pillar test binaries (`susi-core`, `susi-gawd`, `susi-gemi`, `susi-gmcp`, `susi-harness`, plus dynamic `susi-acp` discovery + `lean_core_ceilings`) concurrently in isolated sandboxes, and staging smoke-verified `susi` + `susi-harness` candidate binaries with `release-manifest.json`, `SHA256SUMS`, and durable JSONL timing evidence.",
+      "owner": "core-speed",
+      "patch_id": "445125140491e78ccb267e367f080b5c94e0d155",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CTO-SPEED-1.json",
+        ".agents/tasks/T-CTOSPEED-1.json",
+        ".cargo/config.toml",
+        "Cargo.toml",
+        "xtask/src/fast_release.rs",
+        "xtask/src/local_build.rs",
+        "xtask/src/main.rs"
+      ],
+      "source_commits": [
+        "d79c5f79bce56c3c428fbbec464cc5d39d5fc651"
+      ],
+      "task_id": "T-CTO-SPEED-1",
+      "title": "Sub-10s Susi Core pipeline: unified fast-release profile, parallel hermetic pillar verification, and SHA-256 distilled candidate provenance (84.70s -> 2.28s–6.99s warm)"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "run",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "xtask",
+        "--",
+        "fast-release"
+      ],
+      "changed_files": [],
+      "composed_commit": "4d7843bd35f3ba6b544817d9a429d7bbe50e7ed4",
+      "composed_tree": "e1c2297022a27ec9fde9e30e034b612464ee4a69",
+      "deps": [],
+      "goal": "Deliver CEO Directive #1 (`< 10.0s` total wall-clock Susi Core build + verification test suite + distilled release artifact & SHA-256 provenance manifest) by eliminating duplicate profile compilation between `build`, `test`, and `release` via `[profile.fast-release]` (`panic = \"unwind\"`, `incremental = true`, `codegen-units = 16`, `debug = 0`, `strip = \"debuginfo\"`, `-O2` cached registry deps, `-O3` `sha2`), fixing `[profile.test.package.sha2]` symmetry, executing all core pillar test binaries (`susi-core`, `susi-gawd`, `susi-gemi`, `susi-gmcp`, `susi-harness`, plus dynamic `susi-acp` discovery + `lean_core_ceilings`) concurrently in isolated sandboxes, and staging smoke-verified `susi` + `susi-harness` candidate binaries with `release-manifest.json`, `SHA256SUMS`, and durable JSONL timing evidence.",
+      "owner": "core-speed",
+      "patch_id": null,
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CTO-SPEED-1.json",
+        ".agents/tasks/T-CTOSPEED-1.json",
+        ".cargo/config.toml",
+        "Cargo.toml",
+        "xtask/src/fast_release.rs",
+        "xtask/src/local_build.rs",
+        "xtask/src/main.rs"
+      ],
+      "source_commits": [
+        "d79c5f79bce56c3c428fbbec464cc5d39d5fc651"
+      ],
+      "task_id": "T-CTOSPEED-1",
+      "title": "Sub-10s Susi Core pipeline: unified fast-release profile, parallel hermetic pillar verification, and SHA-256 distilled candidate provenance (84.70s -> 2.28s–6.99s warm)"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "five_pillars_workflow"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CTO-PILLARS-1.json",
+        ".agents/tasks/T-CTOPILLARS-1.json",
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/server.rs",
+        "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+        "crates/susi-harness/src/fleet.rs",
+        "crates/susi-harness/src/lib.rs",
+        "crates/susi-harness/src/policy.rs",
+        "crates/susi-harness/src/tests/fleet_unit.rs",
+        "crates/susi-harness/src/tests/policy_unit.rs",
+        "crates/susi-harness/src/tests/workflow_runner.rs",
+        "crates/susi-harness/src/workflow.rs",
+        "crates/susi-harness/src/workflow_runner.rs",
+        "tests/five_pillars_workflow.rs",
+        "xtask/src/bin/local-workflow.rs",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/lint.rs",
+        "xtask/src/distill_compose.rs"
+      ],
+      "composed_commit": "485b7b24691fa3bece800b722bab939f9ce88f45",
+      "composed_tree": "2e1a00092b3ae67d8f305fdb6ec71055b864dd94",
+      "deps": [],
+      "goal": "Deliver CEO Directives #2, #4, #5, and #8 in Apache-2.0 Susi Core: (1) complete and expose all 5 core pillars (`GAWD`, `GEMI`, `GMCP`, `ACP` via `susi_core::acp` + canonical port `9094` mounting in `susi-gawd-a2a`, and `Susi Harness` via `susi_harness::workflow_runner`) with zero third-party vendor bloat; (2) enforce pure-Git remote pull & merge reconciliation (`git fetch --prune` + fast-forward or conflict-checked 3-way merge with offline fallback) across every workflow step (`start`, `sync`/`step`, `commit`, `distill`, `ship`, `release`) in both `susi-harness` and `xtask` `local-workflow`; and (3) upgrade `xtask` `distill` and `local-distill` with `--pull` reconciliation, `refs/candidates/release/<name>` CAS candidate refs, and layout-valid `releases/<tag>.json` (`susi-release-record/v1`) snapshot emission.",
+      "owner": "core-pillars",
+      "patch_id": "d8f2346d17bf0d7643ca6b3da7cfe64f94f6faf2",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CTO-PILLARS-1.json",
+        ".agents/tasks/T-CTOPILLARS-1.json",
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/server.rs",
+        "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+        "crates/susi-harness/src/fleet.rs",
+        "crates/susi-harness/src/lib.rs",
+        "crates/susi-harness/src/policy.rs",
+        "crates/susi-harness/src/tests/fleet_unit.rs",
+        "crates/susi-harness/src/tests/policy_unit.rs",
+        "crates/susi-harness/src/tests/workflow_runner.rs",
+        "crates/susi-harness/src/workflow.rs",
+        "crates/susi-harness/src/workflow_runner.rs",
+        "tests/five_pillars_workflow.rs",
+        "xtask/src/bin/local-workflow.rs",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/lint.rs",
+        "xtask/src/distill_compose.rs"
+      ],
+      "source_commits": [
+        "f02029ca5bf4b966820a052bdf79fa62dc48beb1"
+      ],
+      "task_id": "T-CTO-PILLARS-1",
+      "title": "5 Apache-2.0 Susi Core pillars (ACP open socket + parallel Susi Harness), remote pull & merge on every workflow step, and deterministic release distillation"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "five_pillars_workflow"
+      ],
+      "changed_files": [],
+      "composed_commit": "a8366f2959dae42ef0f900e9786490a551ee17da",
+      "composed_tree": "2e1a00092b3ae67d8f305fdb6ec71055b864dd94",
+      "deps": [],
+      "goal": "Deliver CEO Directives #2, #4, #5, and #8 in Apache-2.0 Susi Core: (1) complete and expose all 5 core pillars (`GAWD`, `GEMI`, `GMCP`, `ACP` via `susi_core::acp` + canonical port `9094` mounting in `susi-gawd-a2a`, and `Susi Harness` via `susi_harness::workflow_runner`) with zero third-party vendor bloat; (2) enforce pure-Git remote pull & merge reconciliation (`git fetch --prune` + fast-forward or conflict-checked 3-way merge with offline fallback) across every workflow step (`start`, `sync`/`step`, `commit`, `distill`, `ship`, `release`) in both `susi-harness` and `xtask` `local-workflow`; and (3) upgrade `xtask` `distill` and `local-distill` with `--pull` reconciliation, `refs/candidates/release/<name>` CAS candidate refs, and layout-valid `releases/<tag>.json` (`susi-release-record/v1`) snapshot emission.",
+      "owner": "core-pillars",
+      "patch_id": null,
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CTO-PILLARS-1.json",
+        ".agents/tasks/T-CTOPILLARS-1.json",
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/server.rs",
+        "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+        "crates/susi-harness/src/fleet.rs",
+        "crates/susi-harness/src/lib.rs",
+        "crates/susi-harness/src/policy.rs",
+        "crates/susi-harness/src/tests/fleet_unit.rs",
+        "crates/susi-harness/src/tests/policy_unit.rs",
+        "crates/susi-harness/src/tests/workflow_runner.rs",
+        "crates/susi-harness/src/workflow.rs",
+        "crates/susi-harness/src/workflow_runner.rs",
+        "tests/five_pillars_workflow.rs",
+        "xtask/src/bin/local-workflow.rs",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/lint.rs",
+        "xtask/src/distill_compose.rs"
+      ],
+      "source_commits": [
+        "f02029ca5bf4b966820a052bdf79fa62dc48beb1"
+      ],
+      "task_id": "T-CTOPILLARS-1",
+      "title": "5 Apache-2.0 Susi Core pillars (ACP open socket + parallel Susi Harness), remote pull & merge on every workflow step, and deterministic release distillation"
+    }
+  ],
+  "lanes": [
+    {
+      "changed_files": [
+        "crates/susi-http-transport/src/server.rs"
+      ],
+      "lane_id": "lane-01",
+      "patch_ids": {
+        "T-CLAUDEWINSTOP-1": "fd08298dbeda6e7f70d509e44e8da425195b0ae1"
+      },
+      "scopes": [
+        "crates/susi-http-transport/src/server.rs"
+      ],
+      "tasks": [
+        "T-CLAUDEWINSTOP-1"
+      ]
+    },
+    {
+      "changed_files": [
+        ".agents/identity.json",
+        "AGENTS.md",
+        "ARCHITECTURE.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-agent-mandate.md",
+        "docs/ceo-mandate-74.md",
+        "docs/lean-core.md"
+      ],
+      "lane_id": "lane-02",
+      "patch_ids": {
+        "T-CTOMANDATES-1": "f10b13e7a3bc6284bb3198f42ebe7ae81ea8fe02"
+      },
+      "scopes": [
+        ".agents/identity.json",
+        "AGENTS.md",
+        "ARCHITECTURE.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-agent-mandate.md",
+        "docs/ceo-mandate-74.md",
+        "docs/lean-core.md"
+      ],
+      "tasks": [
+        "T-CTOMANDATES-1"
+      ]
+    },
+    {
+      "changed_files": [
+        ".cargo/config.toml",
+        "Cargo.toml",
+        "xtask/src/fast_release.rs",
+        "xtask/src/local_build.rs",
+        "xtask/src/main.rs"
+      ],
+      "lane_id": "lane-03",
+      "patch_ids": {
+        "T-CTO-SPEED-1": "445125140491e78ccb267e367f080b5c94e0d155"
+      },
+      "scopes": [
+        ".cargo/config.toml",
+        "Cargo.toml",
+        "xtask/src/fast_release.rs",
+        "xtask/src/local_build.rs",
+        "xtask/src/main.rs"
+      ],
+      "tasks": [
+        "T-CTO-SPEED-1",
+        "T-CTOSPEED-1"
+      ]
+    },
+    {
+      "changed_files": [
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/server.rs",
+        "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+        "crates/susi-harness/src/fleet.rs",
+        "crates/susi-harness/src/lib.rs",
+        "crates/susi-harness/src/policy.rs",
+        "crates/susi-harness/src/tests/fleet_unit.rs",
+        "crates/susi-harness/src/tests/policy_unit.rs",
+        "crates/susi-harness/src/tests/workflow_runner.rs",
+        "crates/susi-harness/src/workflow.rs",
+        "crates/susi-harness/src/workflow_runner.rs",
+        "tests/five_pillars_workflow.rs",
+        "xtask/src/bin/local-workflow.rs",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/lint.rs",
+        "xtask/src/distill_compose.rs"
+      ],
+      "lane_id": "lane-04",
+      "patch_ids": {
+        "T-CTO-PILLARS-1": "d8f2346d17bf0d7643ca6b3da7cfe64f94f6faf2"
+      },
+      "scopes": [
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/server.rs",
+        "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+        "crates/susi-harness/src/fleet.rs",
+        "crates/susi-harness/src/lib.rs",
+        "crates/susi-harness/src/policy.rs",
+        "crates/susi-harness/src/tests/fleet_unit.rs",
+        "crates/susi-harness/src/tests/policy_unit.rs",
+        "crates/susi-harness/src/tests/workflow_runner.rs",
+        "crates/susi-harness/src/workflow.rs",
+        "crates/susi-harness/src/workflow_runner.rs",
+        "tests/five_pillars_workflow.rs",
+        "xtask/src/bin/local-workflow.rs",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/lint.rs",
+        "xtask/src/distill_compose.rs"
+      ],
+      "tasks": [
+        "T-CTO-PILLARS-1",
+        "T-CTOPILLARS-1"
+      ]
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0-21-62-distilled-rc1",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "8ca9965531128a868ee5a60bfaaab50be63c63fc4c0ba8a98bd553f7a2d5a266",
+  "rejected": [],
+  "reland_claims_not_honoured": [],
+  "relanded_host_commits_in_stream": {},
+  "requested_tasks": [
+    "T-CLAUDEWINSTOP-1",
+    "T-CTOMANDATES-1",
+    "T-CTOSPEED-1",
+    "T-CTO-SPEED-1",
+    "T-CTOPILLARS-1",
+    "T-CTO-PILLARS-1"
+  ],
+  "satisfied_in_base": [],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0-21-62-distilled-rc1",
+  "source_stream_commit": "2304f827a1fd5fe802afa2890216a75feb8a1565",
+  "source_stream_tree": "2e1a00092b3ae67d8f305fdb6ec71055b864dd94"
+}
