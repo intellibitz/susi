@@ -1,0 +1,313 @@
+{
+  "accept_verification": [],
+  "base_commit": "86abf7f2d258daf57c0f0b136a0ae47a674a3379",
+  "base_tree": "c7435e658643a468e3a846741eb622d05baf2788",
+  "branch_ref": "refs/heads/release/2026-11-11-rc4",
+  "closure_order": [
+    "T-ADOPT-1",
+    "T-BUILDTIME-1",
+    "T-CLAUDEA2AGOLDEN-1",
+    "T-CLAUDECLAIMGEN-1",
+    "T-CLAUDECLOSEDOC-1",
+    "T-CLAUDELOOP10-1",
+    "T-CLAUDENOA2ASDK-1",
+    "T-CLAUDERECURSE-1",
+    "T-CLAUDERELADAPTER-1",
+    "T-CLAUDESIGNENV-1",
+    "T-CLAUDEDISTILL-1",
+    "T-CLAUDEREL55REC-1",
+    "T-CLAUDEWASMSTD-1",
+    "T-CLAUDEBUILDIDLE-1",
+    "T-CORECUT-1",
+    "T-CORECUT-2",
+    "T-CORECUT-3",
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-AGYCLOUD-2",
+    "T-AGYCLOUD-3",
+    "T-AGYCLOUD-4",
+    "T-AGYCLOUD-5",
+    "T-AGYCLOUD-6",
+    "T-CLAUDEDISTILLEVID-1",
+    "T-AGYCLOUD-1",
+    "T-GROKLABEL-1",
+    "T-MODELPICK-1",
+    "T-CLAUDENOINBOX-1",
+    "T-RELEASE54-1",
+    "T-RELEASE54REC-1",
+    "T-SMALLFACADES-1",
+    "T-TRUTHDOCS-1",
+    "T-CLAUDEHASHDOC-1",
+    "T-UNBLOCK-3",
+    "T-UNBLOCK-4"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": {
+    "destination_branch": "release/2026-11-11-rc4",
+    "disabled_capabilities": [
+      "ui.desktop",
+      "plugin.catalog",
+      "commercial.multi-user",
+      "commercial.sso-rbac",
+      "commercial.fleet",
+      "commercial.spend-governance",
+      "commercial.executive-dashboard",
+      "commercial.turnkey-workflows",
+      "vendor-product-implementations",
+      "paid-integrations",
+      "model-catalog"
+    ],
+    "enabled_capabilities": [
+      "socket.mcp",
+      "socket.a2a",
+      "socket.openai-compatible",
+      "socket.anthropic-messages",
+      "core.gawd",
+      "core.gemi",
+      "core.gmcp",
+      "core.harness",
+      "core.recursive-driver-engine",
+      "core.wasm-host",
+      "core.local-inference-plug",
+      "tooling.native-distill"
+    ],
+    "id": "F-SUSI-CORE-FREE-LEAN-FAST-20261111-RC4",
+    "license": "Apache-2.0",
+    "title": "Susi core rc4: free, lean and fast protocol socket"
+  },
+  "final_commit": "86abf7f2d258daf57c0f0b136a0ae47a674a3379",
+  "final_tree": "c7435e658643a468e3a846741eb622d05baf2788",
+  "included": [],
+  "mode": "compose",
+  "name": "2026-11-11-rc4",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "803aeb87386fb1543d43513ccc3abbb5ce994b1f1e43ab3a23b5dfef1b72e580",
+  "rejected": [],
+  "requested_tasks": [
+    "T-BUILDTIME-1",
+    "T-UNBLOCK-3",
+    "T-GROKLABEL-1",
+    "T-CORECUT-1",
+    "T-UNBLOCK-4",
+    "T-CORECUT-2",
+    "T-CORECUT-3",
+    "T-TRUTHDOCS-1",
+    "T-ADOPT-1",
+    "T-CLAUDEHASHDOC-1",
+    "T-CLAUDERECURSE-1",
+    "T-MODELPICK-1",
+    "T-CLAUDECLOSEDOC-1",
+    "T-CLAUDENOINBOX-1",
+    "T-CLAUDESIGNENV-1",
+    "T-CLAUDEWASMSTD-1",
+    "T-CLAUDELOOP10-1",
+    "T-CLAUDENOA2ASDK-1",
+    "T-CLAUDEBUILDIDLE-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CLAUDEDISTILLEVID-1",
+    "T-AGYCLOUD-1",
+    "T-AGYCLOUD-2",
+    "T-AGYCLOUD-3",
+    "T-AGYCLOUD-4",
+    "T-AGYCLOUD-5",
+    "T-AGYCLOUD-6",
+    "T-RELEASE54REC-1",
+    "T-SMALLFACADES-1",
+    "T-CLAUDEA2AGOLDEN-1"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "task T-ADOPT-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-ADOPT-1"
+    },
+    {
+      "detail": "closed task record for T-BUILDTIME-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-BUILDTIME-1"
+    },
+    {
+      "detail": "task T-CLAUDEA2AGOLDEN-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEA2AGOLDEN-1"
+    },
+    {
+      "detail": "task T-CLAUDECLAIMGEN-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDECLAIMGEN-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDECLOSEDOC-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDECLOSEDOC-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDELOOP10-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDELOOP10-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDENOA2ASDK-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDENOA2ASDK-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDERECURSE-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDERECURSE-1"
+    },
+    {
+      "detail": "task T-CLAUDERELADAPTER-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDERELADAPTER-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDESIGNENV-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDESIGNENV-1"
+    },
+    {
+      "detail": "task T-CLAUDEDISTILL-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEDISTILL-1"
+    },
+    {
+      "detail": "task T-CLAUDEREL55REC-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEREL55REC-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDEWASMSTD-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEWASMSTD-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDEBUILDIDLE-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEBUILDIDLE-1"
+    },
+    {
+      "detail": "task T-CORECUT-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CORECUT-1"
+    },
+    {
+      "detail": "task T-CORECUT-2 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CORECUT-2"
+    },
+    {
+      "detail": "task T-CORECUT-3 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CORECUT-3"
+    },
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDRIVER-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-2 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-2"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-3 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-3"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-4 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-4"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-5 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-5"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-6 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-6"
+    },
+    {
+      "detail": "closed task record for T-CLAUDEDISTILLEVID-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEDISTILLEVID-1"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-1"
+    },
+    {
+      "detail": "closed task record for T-GROKLABEL-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKLABEL-1"
+    },
+    {
+      "detail": "task T-MODELPICK-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-MODELPICK-1"
+    },
+    {
+      "detail": "task T-CLAUDENOINBOX-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDENOINBOX-1"
+    },
+    {
+      "detail": "task T-RELEASE54-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-RELEASE54-1"
+    },
+    {
+      "detail": "closed task record for T-RELEASE54REC-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-RELEASE54REC-1"
+    },
+    {
+      "detail": "task T-SMALLFACADES-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-SMALLFACADES-1"
+    },
+    {
+      "detail": "task T-TRUTHDOCS-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-TRUTHDOCS-1"
+    },
+    {
+      "detail": "task T-CLAUDEHASHDOC-1 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEHASHDOC-1"
+    },
+    {
+      "detail": "task T-UNBLOCK-3 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-UNBLOCK-3"
+    },
+    {
+      "detail": "task T-UNBLOCK-4 is already present in base 86abf7f2d258daf57c0f0b136a0ae47a674a3379 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-UNBLOCK-4"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/2026-11-11-rc4",
+  "source_stream_commit": "86abf7f2d258daf57c0f0b136a0ae47a674a3379",
+  "source_stream_tree": "c7435e658643a468e3a846741eb622d05baf2788"
+}
