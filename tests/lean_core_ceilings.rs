@@ -60,7 +60,7 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 20;
 /// (T-DOTLATENCY-1). Test organization, not removed runtime capability.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
-    ("susi-gawd-swarm", 20_673),
+    ("susi-gawd-swarm", 20_641),
     ("susi-gawd-agents", 11_263),
     ("susi-gawd-a2a", 2_113),
     ("susi-gemi", 21_290),

@@ -4,7 +4,9 @@
   "title": "Adopt latency fixtures and worker leases on Windows",
   "status": "in_progress",
   "native_worker": "dotlatencydesk20261110",
-  "deps": [],
+  "deps": [
+    "T-DOTSWARMFIXTURES20261110-1"
+  ],
   "scopes": [
     ".agents/tasks/t-dotlatency-1.json",
     ".agents/tasks/t-dotlatencydesk20261110-1.json",
@@ -65,5 +67,15 @@
     "ceilings": "Independently counted GAWD-agents 11,263 and GEMI-models 15,938; both exact lowered ceilings preserved.",
     "preservation": "Original task records and both source checkpoints unchanged. Only docs append conflict resolved by union. No unrelated evolution changes. Full native gate/integration/publication/promotion remain pending.",
     "root_clippy": "cargo clippy -p susi --test architecture_tests --test orphan_sources --test lean_core_ceilings --test core_docs_promise_no_ui_or_plugins --test peer_channel_hub --offline --locked -- -D warnings passed."
-  }
+  },
+  "swarm_ratchet_dependency": {
+    "task": "T-DOTSWARMFIXTURES20261110-1",
+    "commit": "278b0d2504977d93d5f5e450284aa2acbf565382",
+    "tree": "0957750ac4f03f97611f61fb3a445607804585b8",
+    "ceiling_before": 20673,
+    "ceiling_after": 20641,
+    "verification": "The committed swarm source was recounted at 20,641 lines. Our standalone worktree retains 20,673 lines and cannot pass the lowered source guard. No swarm-owned paths were imported or claimed. The paired six-claim serialized combined-tree gate remains required."
+  },
+  "created_by": "dotlatencydesk20261110",
+  "created_unix": 1794290332
 }

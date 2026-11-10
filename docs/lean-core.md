@@ -478,3 +478,15 @@ table once the clean baseline is recorded.
   test organization, not a production-code reduction: the explicit-unlock lease
   guard remains unchanged, and no capability, test, or proof is removed. No build
   speed or executable-size improvement is claimed from the move.
+
+- 2026-11-10 T-DOTSWARMFIXTURES20261110-1 (native Windows cancellation):
+  lower the susi-gawd-swarm source ceiling from 20,673 to 20,641, paired with
+  swarm commit 278b0d2504977d93d5f5e450284aa2acbf565382. The repair keeps the
+  owned root alive until taskkill discovers its descendants, retains the direct
+  child fallback, and removes the unscoped MSYS orphan sweep. Unix behavior is
+  unchanged. The 32-line reduction is measured under the existing counting rules;
+  no build-time or executable-size improvement is claimed. This owner-scoped
+  ratchet depends on that swarm commit in the same serialized integration batch:
+  the standalone latency worktree still has 20,673 swarm lines and cannot pass
+  the reduced source guard until the swarm repair is composed. Combined-tree
+  verification remains required; this record is not a gate or release receipt.
