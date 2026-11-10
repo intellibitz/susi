@@ -239,12 +239,18 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// own tests since the local engine left core; the engine that wraps prompts
 /// is Susi Commercial Apps' `susi-gpu-fabric`, which now renders the model's
 /// own chat template.
+/// 2026-11-12: susi-gemi 21,047 -> 21,180 (T-CLAUDELOCALTOOLS-1, measured;
+/// CEO direction 2026-11-12, "let the local engine take full conversations
+/// and tool lists", docs/lean-core.md). New capability, not a move: a request
+/// that needs tools now also reaches the local engine as a conversation with
+/// the registered tools' schemas, so the engine can render the model's own
+/// tool format. 133 lines, 35 over the ceiling this crate had this morning.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_523),
     ("susi-gawd-swarm", 20_116),
     ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_619),
-    ("susi-gemi", 21_047),
+    ("susi-gemi", 21_180),
     ("susi-gemi-models", 15_921),
     ("susi-gmcp", 25_860),
     ("susi-harness", 37_536),

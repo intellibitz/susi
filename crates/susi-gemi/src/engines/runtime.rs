@@ -478,6 +478,12 @@ impl GemiEngine {
             }
         }
         let engine_prompt;
+        // With tools, the request also goes as a conversation with the tool
+        // schemas; an engine that renders the model's own template uses it,
+        // any other uses the prose prompt.
+        let chat = needs_tools
+            .then(|| crate::local_tool_calls::chat_request(prompt))
+            .flatten();
         let prompt = if needs_tools {
             engine_prompt = crate::local_tool_calls::prompt_with_tool_schemas(prompt);
             engine_prompt.as_str()
@@ -523,7 +529,8 @@ impl GemiEngine {
                     prompt,
                     &filtered_callback,
                     selected_model.as_deref(),
-                ),
+                )
+                .with_chat(chat),
             )
         };
         let tail = stream_filter.borrow_mut().finish();

@@ -15,6 +15,17 @@ pub trait NativeInferenceEngine: Send + Sync {
         callback: &dyn Fn(String),
         selected_model: Option<&str>,
     ) -> EaiResult<String>;
+    /// As `run_inference_stream`, with the conversation and tool schemas for
+    /// an engine that renders them itself. `prompt` is the complete fallback.
+    fn run_chat_stream(
+        &self,
+        prompt: &str,
+        _chat: &serde_json::Value,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
+    ) -> EaiResult<String> {
+        self.run_inference_stream(prompt, callback, selected_model)
+    }
 }
 
 /// Legacy registry/API spelling. This delegates to the in-process Rust Candle engine.
@@ -36,6 +47,15 @@ impl NativeInferenceEngine for LlamaCppEngine {
     ) -> EaiResult<String> {
         SusiGgufEngine.run_inference_stream(prompt, callback, selected_model)
     }
+    fn run_chat_stream(
+        &self,
+        prompt: &str,
+        chat: &serde_json::Value,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
+    ) -> EaiResult<String> {
+        SusiGgufEngine.run_chat_stream(prompt, chat, callback, selected_model)
+    }
 }
 
 pub struct SusiGgufEngine;
@@ -55,6 +75,16 @@ impl NativeInferenceEngine for SusiGgufEngine {
         callback: &dyn Fn(String),
         selected_model: Option<&str>,
     ) -> EaiResult<String> {
+        self.run_chat_stream(prompt, &serde_json::Value::Null, callback, selected_model)
+    }
+
+    fn run_chat_stream(
+        &self,
+        prompt: &str,
+        chat: &serde_json::Value,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
+    ) -> EaiResult<String> {
         let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("neural_inference", prompt);
 
@@ -71,8 +101,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         // Every early-? return must mark the task failed — otherwise the
         // record lingers as a zombie until the watchdog's idle lease expires
         // and logs a spurious LEASE_EXPIRED cancellation.
-        let result =
-            self.run_inference_stream_inner(prompt, callback, selected_model, &task_handle);
+        let result = self.run_inference_stream_inner(prompt, chat, callback, selected_model);
         if let Err(e) = &result {
             task_handle.mark_failed(&e.to_string());
         }
@@ -84,12 +113,12 @@ impl SusiGgufEngine {
     fn run_inference_stream_inner(
         &self,
         prompt: &str,
+        chat: &serde_json::Value,
         callback: &dyn Fn(String),
         selected_model: Option<&str>,
-        _task_handle: &Arc<crate::susi_core::task_manager::TaskHandle>,
     ) -> EaiResult<String> {
         if let Some(plug) = crate::engines::local_plug::local_engine_plug() {
-            return plug.run_inference_stream(prompt, callback, selected_model);
+            return plug.run_chat_stream(prompt, chat, callback, selected_model);
         }
         let eco = local_ecosystem::scan(&local_ecosystem::DetectOnlyProbe::default());
         for eng in eco.engines.iter().filter(|e| e.running) {
