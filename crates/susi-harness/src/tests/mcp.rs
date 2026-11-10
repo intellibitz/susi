@@ -348,7 +348,11 @@ fn serve(replies: Vec<String>) -> (String, std::thread::JoinHandle<Vec<Recorded>
                 assert!(read > 0, "client closed mid-body");
                 raw.extend_from_slice(&buffer[..read]);
             }
-            let body = serde_json::from_slice(&raw[head_end..head_end + length]).unwrap();
+            let body = if length == 0 {
+                Value::Null
+            } else {
+                serde_json::from_slice(&raw[head_end..head_end + length]).unwrap()
+            };
             stream.write_all(reply.as_bytes()).unwrap();
             stream.flush().unwrap();
             recorded.push(Recorded {
@@ -442,6 +446,69 @@ fn http_socket_transport_runs_the_session_handshake_over_json_rpc() {
     assert_eq!(requests[2].body["id"], 2);
     assert_eq!(requests[3].body["method"], "tools/call");
     assert_eq!(requests[3].body["params"]["name"], "susi.status");
+}
+
+#[test]
+fn http_socket_transport_closes_a_session_once_and_carries_session_headers() {
+    let init = json!({
+        "jsonrpc": "2.0", "id": 1,
+        "result": {"protocolVersion": "2025-11-25", "capabilities": {}}
+    })
+    .to_string();
+    let (url, server) = serve(vec![
+        reply(
+            "200 OK",
+            "Mcp-Session-Id: close-42\r\n",
+            "application/json",
+            &init,
+        ),
+        reply("202 Accepted", "", "application/json", ""),
+        reply("204 No Content", "", "application/json", ""),
+    ]);
+    let mut client = McpClient::new(
+        HttpSocketTransport::new(&url)
+            .with_timeout_secs(10)
+            .with_bearer("token-close"),
+    );
+    client.initialize().unwrap();
+    client.close().unwrap();
+    client.close().unwrap();
+    assert!(client.initialize().is_err());
+
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 3);
+    let delete = &requests[2];
+    assert_eq!(delete.request_line, "DELETE /mcp HTTP/1.1");
+    assert_eq!(delete.body, Value::Null);
+    assert_eq!(delete.header("mcp-session-id"), Some("close-42"));
+    assert_eq!(delete.header("mcp-protocol-version"), Some("2025-11-25"));
+    assert_eq!(delete.header("authorization"), Some("Bearer token-close"));
+}
+
+#[test]
+fn dropping_an_initialized_http_client_releases_its_session() {
+    let init = json!({
+        "jsonrpc": "2.0", "id": 1,
+        "result": {"protocolVersion": "2025-11-25", "capabilities": {}}
+    })
+    .to_string();
+    let (url, server) = serve(vec![
+        reply(
+            "200 OK",
+            "Mcp-Session-Id: drop-42\r\n",
+            "application/json",
+            &init,
+        ),
+        reply("202 Accepted", "", "application/json", ""),
+        reply("204 No Content", "", "application/json", ""),
+    ]);
+    {
+        let mut client = McpClient::new(HttpSocketTransport::new(&url).with_timeout_secs(10));
+        client.initialize().unwrap();
+    }
+    let requests = server.join().unwrap();
+    assert_eq!(requests[2].request_line, "DELETE /mcp HTTP/1.1");
+    assert_eq!(requests[2].header("mcp-session-id"), Some("drop-42"));
 }
 
 #[test]
