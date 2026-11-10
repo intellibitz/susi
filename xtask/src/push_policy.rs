@@ -6,6 +6,7 @@ use std::process::Command;
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
         .current_dir(root)
+        .arg("--no-replace-objects")
         .args(args)
         .output()
         .map_err(|e| format!("cannot run Git: {e}"))?;
@@ -27,6 +28,29 @@ fn zero(value: &str) -> bool {
 /// No network, builds, config writes, receipt fabrication or environment bypasses.
 /// The receiving Git server remains responsible for atomic compare-and-swap.
 pub fn validate(root: &Path, input: &str) -> Result<(), String> {
+    // Ancestry must describe the actual objects being sent, not a local rewrite.
+    // Git replacement refs are disabled on every command above. Legacy grafts
+    // have no supported per-command ignore option, so reject their presence.
+    let grafts = git(
+        root,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "info/grafts",
+        ],
+    )?;
+    match std::fs::symlink_metadata(&grafts) {
+        Ok(_) => {
+            return Err("legacy Git graft file present; cannot verify actual push ancestry".into())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("cannot inspect Git graft file: {error}")),
+    }
+    // Older Git versions may not incorporate the override into --git-path.
+    if std::env::var_os("GIT_GRAFT_FILE").is_some() {
+        return Err("GIT_GRAFT_FILE override prevents actual ancestry validation".into());
+    }
     let mut destinations = BTreeSet::new();
     for line in input.lines() {
         let fields: Vec<_> = line.split_whitespace().collect();

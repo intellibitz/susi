@@ -164,13 +164,15 @@ fn real_git_push_runs_native_hook_and_preserves_remote_on_rejection() {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
-    let push = |args: &[&str]| {
+    let push = |args: &[&str], legacy: &str| {
         let mut path = vec![std::path::Path::new(binary).parent().unwrap().to_owned()];
         path.extend(std::env::split_paths(
             &std::env::var_os("PATH").unwrap_or_default(),
         ));
         Command::new("git")
             .current_dir(&r.0)
+            .env("SUSI_BRANCH_CI_HANDOFF", legacy)
+            .env("SUSI_FINISH_REMOTE_GATE", legacy)
             .arg("push")
             .args(args)
             .env("PATH", std::env::join_paths(path).unwrap())
@@ -187,28 +189,111 @@ fn real_git_push_runs_native_hook_and_preserves_remote_on_rejection() {
             .unwrap()
     };
     let first = r.git(&["rev-parse", "HEAD"]);
-    assert!(push(&["fixture", "HEAD:refs/heads/main"]).status.success());
-    let second = r.commit("second");
-    assert!(push(&["fixture", "HEAD:refs/heads/main"]).status.success());
-    let refusal = push(&["--force", "fixture", &format!("{first}:refs/heads/main")]);
-    assert!(!refusal.status.success());
-    assert!(String::from_utf8_lossy(&refusal.stderr).contains("pre-push:"));
-    assert!(!push(&["fixture", ":refs/heads/main"]).status.success());
-    assert!(!push(&["fixture", "HEAD:refs/tags/v1.0.0"]).status.success());
-    assert!(push(&["fixture", "HEAD:refs/tags/susi-snapshot/fixture"])
+    assert!(push(&["fixture", "HEAD:refs/heads/main"], "0")
         .status
         .success());
-    assert!(!push(&["fixture", ":refs/tags/susi-snapshot/fixture"])
-        .status
-        .success());
-    assert_eq!(
-        r.git(&[
-            "--git-dir",
-            remote.to_str().unwrap(),
-            "rev-parse",
-            "refs/heads/main"
-        ]),
-        second
-    );
-    assert!(!remote.join("refs/tags/v1.0.0").exists());
+    for legacy in ["0", "1"] {
+        let second = r.commit(&format!("second with legacy flags {legacy}"));
+        assert!(push(&["fixture", "HEAD:refs/heads/main"], legacy)
+            .status
+            .success());
+        let refusal = push(
+            &["--force", "fixture", &format!("{first}:refs/heads/main")],
+            legacy,
+        );
+        assert!(!refusal.status.success());
+        assert!(String::from_utf8_lossy(&refusal.stderr).contains("pre-push:"));
+        assert!(!push(&["fixture", ":refs/heads/main"], legacy)
+            .status
+            .success());
+        assert!(!push(&["fixture", "HEAD:refs/tags/v1.0.0"], legacy)
+            .status
+            .success());
+        let snapshot = format!("refs/tags/susi-snapshot/fixture-{legacy}");
+        assert!(push(&["fixture", &format!("HEAD:{snapshot}")], legacy)
+            .status
+            .success());
+        assert!(!push(&["fixture", &format!(":{snapshot}")], legacy)
+            .status
+            .success());
+        assert_eq!(
+            r.git(&[
+                "--git-dir",
+                remote.to_str().unwrap(),
+                "rev-parse",
+                "refs/heads/main"
+            ]),
+            second
+        );
+        assert!(!remote.join("refs/tags/v1.0.0").exists());
+    }
+}
+
+#[test]
+fn replacement_ancestry_cannot_authorize_unrelated_branch_push() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
+    let unrelated = r.git(&["commit-tree", &tree, "-m", "unrelated root"]);
+    let fake_descendant = r.git(&["commit-tree", &tree, "-p", &old, "-m", "fake ancestry"]);
+    r.git(&["replace", &unrelated, &fake_descendant]);
+    // Demonstrate the attack: ordinary Git sees ancestry that is not in the
+    // real commit graph, but the policy must ignore that local replacement.
+    r.git(&["merge-base", "--is-ancestor", &old, &unrelated]);
+    assert!(r
+        .check(&format!("{unrelated} {unrelated} refs/heads/main {old}"))
+        .is_err());
+    let genuine = r.commit("genuine descendant");
+    assert!(r
+        .check(&format!("HEAD {genuine} refs/heads/main {old}"))
+        .is_ok());
+}
+
+#[test]
+fn legacy_grafted_ancestry_fails_closed_in_primary_and_linked_worktree() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
+    let unrelated = r.git(&["commit-tree", &tree, "-m", "unrelated root"]);
+    let linked = r.0.join("linked");
+    r.git(&[
+        "worktree",
+        "add",
+        "--detach",
+        linked.to_str().unwrap(),
+        &unrelated,
+    ]);
+    std::fs::write(r.0.join(".git/info/grafts"), format!("{unrelated} {old}\n")).unwrap();
+    r.git(&["merge-base", "--is-ancestor", &old, &unrelated]);
+    let input = format!("{unrelated} {unrelated} refs/heads/main {old}");
+    assert!(r.check(&input).unwrap_err().contains("graft"));
+    assert!(push_policy::validate(&linked, &input)
+        .unwrap_err()
+        .contains("graft"));
+}
+
+#[test]
+fn graft_environment_override_fails_closed_even_when_file_is_missing() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let r = Repo::new();
+    let head = r.git(&["rev-parse", "HEAD"]);
+    let binary = option_env!("CARGO_BIN_EXE_push-policy").unwrap();
+    let mut child = Command::new(binary)
+        .current_dir(&r.0)
+        .env("GIT_GRAFT_FILE", r.0.join("nonexistent-graft"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("HEAD {head} refs/heads/main {ZERO}\n").as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("GIT_GRAFT_FILE"));
 }
