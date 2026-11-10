@@ -11,13 +11,22 @@ GitHub account, API, Actions, webhook, status check or PR is a runtime prerequis
 
 ## Submit development source from any agent session
 
-Reserve an isolated worktree and commit scoped work normally, then run:
+Reserve an isolated worktree and commit scoped work normally. Build both native
+tools together once per source update, then submit:
 
 ```text
+cargo build --offline --locked -p xtask --bin local-snapshot --bin push-policy
 cargo run --offline --locked -p xtask --bin local-snapshot -- submit worker-unique-change
 cargo run --offline --locked -p xtask --bin local-snapshot -- status-main worker-unique-change
 cargo run --offline --locked -p xtask --bin local-snapshot -- retry-main worker-unique-change
 ```
+
+The publisher makes an adjacent `push-policy` executable discoverable to its Git
+child process only. The repository's configured pre-push hook still executes;
+no hook, global PATH or Git configuration is disabled or changed. If the helper
+is absent, the existing PATH is preserved and a hook requiring it fails closed.
+Use the normal native development bootstrap first if a clean host lacks the
+pinned toolchain or cached dependencies; `--offline` does not download them.
 
 `submit` pins the clean committed HEAD, tree and resolved destination in an
 immutable main-submission intent. It fetches current remote main. If necessary,
