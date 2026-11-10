@@ -221,6 +221,10 @@ impl<T: Transport> McpClient<T> {
     pub fn call(&mut self, name: &str, arguments: &Value) -> EaiResult<String> {
         self.initialize()?;
         let result = self.request("tools/call", json!({"name": name, "arguments": arguments}))?;
+        let is_error = result
+            .get("isError")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let mut text = String::new();
         if let Some(blocks) = result.get("content").and_then(Value::as_array) {
             for block in blocks {
@@ -244,7 +248,12 @@ impl<T: Transport> McpClient<T> {
             }
         }
         if text.is_empty() {
-            Ok(result.to_string())
+            text = result.to_string();
+        }
+        if is_error {
+            Err(EaiError::internal(format!(
+                "mcp tools/call '{name}' failed: {text}"
+            )))
         } else {
             Ok(text)
         }

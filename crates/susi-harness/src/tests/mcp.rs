@@ -127,6 +127,27 @@ fn mcp_calls_a_tool_and_joins_text_blocks() {
 }
 
 #[test]
+fn mcp_surfaces_a_tool_result_error_instead_of_returning_success_text() {
+    let transport = Scripted::new(vec![
+        initialized(),
+        response(
+            2,
+            json!({
+                "isError": true,
+                "content": [{"type": "text", "text": "permission denied"}]
+            }),
+        ),
+    ]);
+    let mut client = McpClient::new(transport);
+    let error = client
+        .call("read_file", &json!({"path": "secret.txt"}))
+        .unwrap_err();
+    let error = error.to_string();
+    assert!(error.contains("tools/call 'read_file' failed"), "{error}");
+    assert!(error.contains("permission denied"), "{error}");
+}
+
+#[test]
 fn mcp_surfaces_a_json_rpc_error() {
     let transport = Scripted::new(vec![
         initialized(),
