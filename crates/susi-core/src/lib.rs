@@ -90,8 +90,10 @@ pub mod verification;
 // Top-level exports for the fundamental susi-core types
 pub use acp::{
     AcpAdmissionPolicy, AcpCapabilities, AcpContentBlock, AcpDiscoveryDocument, AcpEngine,
+    AcpExecutorOutput, AcpHistoryBounds, AcpInferenceMessage, AcpMessageRole, AcpSessionMessage,
     AcpSessionSummary, AcpSocketClient, AcpSocketServer, AcpStdioTransport, AcpStopReason,
-    AcpTurnContext, AcpTurnEvent, AcpTurnExecutor, AcpTurnResult, ACP_PROTOCOL_VERSION,
+    AcpToolCallMeta, AcpTurnContext, AcpTurnEvent, AcpTurnExecutor, AcpTurnResult,
+    ACP_PROTOCOL_VERSION, ACP_SESSION_ID_HEADER,
 };
 pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
 pub use agent_types::{

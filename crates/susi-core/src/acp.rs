@@ -6,9 +6,10 @@
 //! - protocol version negotiation (`initialize` / `acp/initialize`),
 //! - public capability discovery (`/.well-known/acp.json` & `acp/discover`),
 //! - bounded stateful session lifecycle (`session/new`, `session/load`,
-//!   `session/list`, `session/close`),
+//!   `session/history`, `session/list`, `session/close`) with bounded
+//!   multi-turn conversation message history & cursor replay,
 //! - streaming prompt turns (`session/prompt` / `acp/turn/start`) with
-//!   deterministic SHA-256 turn receipts,
+//!   deterministic SHA-256 turn receipts and multi-turn `messages` context,
 //! - cooperative atomic turn cancellation (`session/cancel` / `acp/turn/cancel`),
 //! - Mandatory Access Control (`MacPolicy`) capability & privacy admission
 //!   before session creation or prompt execution, and
@@ -42,6 +43,8 @@ pub const ACP_STREAM_PATH: &str = "/acp/stream";
 pub const ACP_HEALTH_PATH: &str = "/health";
 /// Canonical host-contract HTTP port shared with A2A (`9094 + port_offset`).
 pub const ACP_CANONICAL_PORT: u16 = 9094;
+/// Canonical HTTP session-binding header (`acp-session-id`).
+pub const ACP_SESSION_ID_HEADER: &str = "acp-session-id";
 
 /// JSON-RPC 2.0 standard error codes and ACP domain refusal codes.
 pub const JSONRPC_PARSE_ERROR: i64 = -32700;
@@ -51,6 +54,11 @@ pub const JSONRPC_INVALID_PARAMS: i64 = -32602;
 pub const JSONRPC_INTERNAL_ERROR: i64 = -32603;
 pub const ACP_ERR_NOT_FOUND: i64 = -32001;
 pub const ACP_ERR_CAPABILITY_REFUSED: i64 = -32003;
+
+/// Default maximum retained messages per ACP session ring buffer.
+pub const DEFAULT_MAX_HISTORY_MESSAGES: usize = 64;
+/// Default maximum retained message payload bytes per ACP session.
+pub const DEFAULT_MAX_HISTORY_BYTES: usize = 512 * 1024;
 
 const DEFAULT_MAX_SESSIONS: usize = 256;
 const DEFAULT_MAX_PROMPT_BYTES: usize = 512 * 1024;
@@ -108,6 +116,10 @@ pub struct AcpAuthScheme {
     pub realm: String,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// Feature flags advertised by the ACP pillar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcpCapabilities {
@@ -116,6 +128,8 @@ pub struct AcpCapabilities {
     pub cancellation: bool,
     pub capability_admission: bool,
     pub mcp_bridge: bool,
+    #[serde(default = "default_true")]
+    pub session_history: bool,
 }
 
 impl Default for AcpCapabilities {
@@ -126,7 +140,70 @@ impl Default for AcpCapabilities {
             cancellation: true,
             capability_admission: true,
             mcp_bridge: true,
+            session_history: true,
         }
+    }
+}
+
+/// Conversation participant role for multi-turn ACP session messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AcpMessageRole {
+    System,
+    User,
+    Assistant,
+    Tool,
+}
+
+impl AcpMessageRole {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::User => "user",
+            Self::Assistant => "assistant",
+            Self::Tool => "tool",
+        }
+    }
+
+    pub fn from_wire_str(raw: &str) -> Result<Self, (i64, String)> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "system" | "developer" => Ok(Self::System),
+            "user" => Ok(Self::User),
+            "assistant" | "agent" | "model" => Ok(Self::Assistant),
+            "tool" => Ok(Self::Tool),
+            other => Err((
+                JSONRPC_INVALID_PARAMS,
+                format!("Invalid params: unsupported ACP message role '{other}'"),
+            )),
+        }
+    }
+}
+
+/// Structured tool invocation metadata attached to a multi-turn ACP message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcpToolCallMeta {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub arguments: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+impl AcpToolCallMeta {
+    #[must_use]
+    pub fn approx_byte_len(&self) -> usize {
+        let args_len = serde_json::to_vec(&self.arguments).map_or(0, |b| b.len());
+        let status_len = match &self.status {
+            Some(s) => s.len(),
+            None => 0,
+        };
+        self.id
+            .len()
+            .saturating_add(self.name.len())
+            .saturating_add(args_len)
+            .saturating_add(status_len)
     }
 }
 
@@ -170,6 +247,46 @@ impl AcpContentBlock {
     }
 }
 
+/// Bounded conversation message stored in an ACP session's multi-turn ring buffer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcpSessionMessage {
+    pub seq: u64,
+    pub turn_id: String,
+    pub role: AcpMessageRole,
+    pub content: String,
+    #[serde(default)]
+    pub blocks: Vec<AcpContentBlock>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<AcpToolCallMeta>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<AcpStopReason>,
+    pub created_unix_ms: u64,
+    pub byte_len: usize,
+}
+
+/// Compact multi-turn conversation message projection ready for downstream
+/// model inference and commercial ACP plugs (`role`, `content`, `turn_id`, `tool_calls`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcpInferenceMessage {
+    pub role: AcpMessageRole,
+    pub content: String,
+    pub turn_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<AcpToolCallMeta>,
+}
+
+/// Per-session ring-buffer bounds and live occupancy telemetry.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcpHistoryBounds {
+    pub max_messages: usize,
+    pub max_bytes: usize,
+    pub retained_messages: usize,
+    pub retained_bytes: usize,
+    pub evicted_messages: u64,
+    pub oldest_seq: Option<u64>,
+    pub newest_seq: Option<u64>,
+}
+
 /// Ordered event emitted during an ACP prompt turn (returned in JSON-RPC and
 /// streamed live as `event: acp.turn.event` SSE frames on `/acp/stream`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -191,8 +308,16 @@ pub struct AcpTurnResult {
     pub turn_id: String,
     pub stop_reason: AcpStopReason,
     pub output: Vec<AcpContentBlock>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<AcpToolCallMeta>,
     pub events: Vec<AcpTurnEvent>,
     pub receipt_sha256: String,
+    #[serde(default)]
+    pub messages: Vec<AcpSessionMessage>,
+    #[serde(default)]
+    pub inference_messages: Vec<AcpInferenceMessage>,
+    #[serde(default)]
+    pub history_bounds: AcpHistoryBounds,
 }
 
 /// Summary of an ACP session tracked by [`AcpEngine`].
@@ -204,6 +329,14 @@ pub struct AcpSessionSummary {
     pub admitted_capabilities: Vec<String>,
     pub created_unix_ms: u64,
     pub turns_completed: u64,
+    #[serde(default)]
+    pub turns_cancelled: u64,
+    #[serde(default)]
+    pub message_count: usize,
+    #[serde(default)]
+    pub history_bytes: usize,
+    #[serde(default)]
+    pub evicted_messages: u64,
     pub active_turn_id: Option<String>,
 }
 
@@ -214,24 +347,39 @@ pub struct AcpTurnContext {
     pub turn_id: String,
     pub workspace: Option<String>,
     pub admitted_capabilities: Vec<String>,
+    pub role: AcpMessageRole,
     pub prompt: Vec<AcpContentBlock>,
+    pub tool_calls: Vec<AcpToolCallMeta>,
+    pub history: Vec<AcpSessionMessage>,
 }
 
 impl AcpTurnContext {
     /// Concatenated text blocks in `prompt`, separated by newlines.
     #[must_use]
     pub fn joined_prompt_text(&self) -> String {
-        let mut out = String::new();
-        for block in &self.prompt {
-            if block.kind == "text" {
-                if !out.is_empty() {
-                    out.push('\n');
-                }
-                out.push_str(&block.text);
-            }
-        }
+        join_text_blocks(&self.prompt)
+    }
+
+    /// Multi-turn conversation context combining non-cancelled session history
+    /// with the active turn's prompt and `tool_calls` metadata.
+    #[must_use]
+    pub fn inference_messages(&self) -> Vec<AcpInferenceMessage> {
+        let mut out = project_inference_messages(&self.history);
+        out.push(AcpInferenceMessage {
+            role: self.role,
+            content: self.joined_prompt_text(),
+            turn_id: self.turn_id.clone(),
+            tool_calls: self.tool_calls.clone(),
+        });
         out
     }
+}
+
+/// Rich turn output returned by multi-turn / tool-aware [`AcpTurnExecutor`] implementations.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AcpExecutorOutput {
+    pub blocks: Vec<AcpContentBlock>,
+    pub tool_calls: Vec<AcpToolCallMeta>,
 }
 
 /// Pluggable turn execution strategy behind [`AcpEngine`].
@@ -242,6 +390,19 @@ pub trait AcpTurnExecutor: Send + Sync {
         cancelled: &AtomicBool,
         emit_delta: &mut dyn FnMut(&str),
     ) -> Result<Vec<AcpContentBlock>, String>;
+
+    fn execute_turn_with_tools(
+        &self,
+        ctx: &AcpTurnContext,
+        cancelled: &AtomicBool,
+        emit_delta: &mut dyn FnMut(&str),
+    ) -> Result<AcpExecutorOutput, String> {
+        let blocks = self.execute_turn(ctx, cancelled, emit_delta)?;
+        Ok(AcpExecutorOutput {
+            blocks,
+            tool_calls: Vec::new(),
+        })
+    }
 }
 
 /// Default zero-bloat deterministic ACP substrate executor.
@@ -272,6 +433,8 @@ pub struct AcpAdmissionPolicy {
     pub subject: String,
     pub max_sessions: usize,
     pub max_prompt_bytes: usize,
+    pub max_history_messages: usize,
+    pub max_history_bytes: usize,
 }
 
 impl Default for AcpAdmissionPolicy {
@@ -281,6 +444,8 @@ impl Default for AcpAdmissionPolicy {
             subject: "acp-client".to_owned(),
             max_sessions: DEFAULT_MAX_SESSIONS,
             max_prompt_bytes: DEFAULT_MAX_PROMPT_BYTES,
+            max_history_messages: DEFAULT_MAX_HISTORY_MESSAGES,
+            max_history_bytes: DEFAULT_MAX_HISTORY_BYTES,
         }
     }
 }
@@ -293,7 +458,16 @@ impl AcpAdmissionPolicy {
             subject: subject.into(),
             max_sessions: DEFAULT_MAX_SESSIONS,
             max_prompt_bytes: DEFAULT_MAX_PROMPT_BYTES,
+            max_history_messages: DEFAULT_MAX_HISTORY_MESSAGES,
+            max_history_bytes: DEFAULT_MAX_HISTORY_BYTES,
         }
+    }
+
+    #[must_use]
+    pub fn with_history_bounds(mut self, max_messages: usize, max_bytes: usize) -> Self {
+        self.max_history_messages = max_messages.max(1);
+        self.max_history_bytes = max_bytes.max(64);
+        self
     }
 
     fn policy(&self) -> &MacPolicy {
@@ -386,6 +560,127 @@ struct SessionEntry {
     summary: AcpSessionSummary,
     metadata: Value,
     pre_cancelled: bool,
+    next_msg_seq: u64,
+    messages: VecDeque<AcpSessionMessage>,
+}
+
+impl SessionEntry {
+    fn new(summary: AcpSessionSummary, metadata: Value) -> Self {
+        Self {
+            summary,
+            metadata,
+            pre_cancelled: false,
+            next_msg_seq: 1,
+            messages: VecDeque::new(),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_message(
+        &mut self,
+        turn_id: String,
+        role: AcpMessageRole,
+        mut blocks: Vec<AcpContentBlock>,
+        mut tool_calls: Vec<AcpToolCallMeta>,
+        stop_reason: Option<AcpStopReason>,
+        max_messages: usize,
+        max_bytes: usize,
+    ) {
+        let cap_messages = max_messages.max(1);
+        let cap_bytes = max_bytes.max(1);
+        let mut tool_bytes = measure_tool_calls_bytes(&tool_calls);
+        while tool_bytes > cap_bytes && !tool_calls.is_empty() {
+            tool_calls.pop();
+            tool_bytes = measure_tool_calls_bytes(&tool_calls);
+        }
+        let mut content = join_text_blocks(&blocks);
+        let text_budget = cap_bytes.saturating_sub(tool_bytes);
+        if content.len() > text_budget {
+            content = truncate_utf8(&content, text_budget);
+            blocks = if content.is_empty() {
+                Vec::new()
+            } else {
+                vec![AcpContentBlock::text(content.clone())]
+            };
+        }
+        let byte_len = content.len().saturating_add(tool_bytes);
+
+        while self.messages.len() >= cap_messages
+            || (!self.messages.is_empty()
+                && self.summary.history_bytes.saturating_add(byte_len) > cap_bytes)
+        {
+            let Some(evicted) = self.messages.pop_front() else {
+                break;
+            };
+            self.summary.history_bytes =
+                self.summary.history_bytes.saturating_sub(evicted.byte_len);
+            self.summary.evicted_messages = self.summary.evicted_messages.saturating_add(1);
+        }
+
+        let seq = self.next_msg_seq;
+        self.next_msg_seq = self.next_msg_seq.saturating_add(1);
+        self.messages.push_back(AcpSessionMessage {
+            seq,
+            turn_id,
+            role,
+            content,
+            blocks,
+            tool_calls,
+            stop_reason,
+            created_unix_ms: now_unix_ms(),
+            byte_len,
+        });
+        self.summary.history_bytes = self.summary.history_bytes.saturating_add(byte_len);
+        self.summary.message_count = self.messages.len();
+    }
+
+    fn bounds(&self, max_messages: usize, max_bytes: usize) -> AcpHistoryBounds {
+        AcpHistoryBounds {
+            max_messages: max_messages.max(1),
+            max_bytes: max_bytes.max(1),
+            retained_messages: self.messages.len(),
+            retained_bytes: self.summary.history_bytes,
+            evicted_messages: self.summary.evicted_messages,
+            oldest_seq: self.messages.front().map(|m| m.seq),
+            newest_seq: self.messages.back().map(|m| m.seq),
+        }
+    }
+
+    fn query_messages(
+        &self,
+        since_seq: u64,
+        limit: usize,
+        include_cancelled: bool,
+    ) -> (Vec<AcpSessionMessage>, u64, bool) {
+        let cap = limit.max(1);
+        let mut iter = self.messages.iter().filter(|msg| {
+            msg.seq > since_seq
+                && (include_cancelled || msg.stop_reason != Some(AcpStopReason::Cancelled))
+        });
+        let mut out = Vec::new();
+        for msg in iter.by_ref().take(cap) {
+            out.push(msg.clone());
+        }
+        let has_more = iter.next().is_some();
+        let next_seq = out.last().map_or(since_seq, |m| m.seq);
+        (out, next_seq, has_more)
+    }
+}
+
+type RpcErr = (i64, String);
+
+struct TurnRequestSpec {
+    session_id: String,
+    turn_id: String,
+    role: AcpMessageRole,
+    prompt_blocks: Vec<AcpContentBlock>,
+    tool_calls: Vec<AcpToolCallMeta>,
+    turn_caps: Vec<String>,
+}
+
+struct PreparedTurn {
+    ctx: AcpTurnContext,
+    cancel_flag: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -462,7 +757,17 @@ impl AcpEngine {
     /// Dispatch a raw JSON-RPC 2.0 request body and return a serialized JSON-RPC 2.0 response.
     #[must_use]
     pub fn handle_jsonrpc_bytes(&self, body: &[u8]) -> Vec<u8> {
-        let parsed: Value = match serde_json::from_slice(body) {
+        self.handle_jsonrpc_bytes_with_session_header(body, None)
+    }
+
+    /// Dispatch a raw JSON-RPC 2.0 request body with optional HTTP `acp-session-id` binding.
+    #[must_use]
+    pub fn handle_jsonrpc_bytes_with_session_header(
+        &self,
+        body: &[u8],
+        session_header: Option<&str>,
+    ) -> Vec<u8> {
+        let mut parsed: Value = match serde_json::from_slice(body) {
             Ok(val) => val,
             Err(err) => {
                 return serialize_rpc_response(&rpc_error(
@@ -472,16 +777,28 @@ impl AcpEngine {
                 ));
             }
         };
+        if let Err(err_reply) = bind_or_verify_session_header(&mut parsed, session_header) {
+            return serialize_rpc_response(&err_reply);
+        }
         let reply = self.handle_jsonrpc_value(parsed, &mut |_| {});
         serialize_rpc_response(&reply)
     }
 
-    /// Dispatch a raw JSON-RPC 2.0 request body while streaming SSE frames via `on_sse_frame`.
+    /// Dispatch a raw JSON-RPC 2.0 request body while streaming SSE frames.
     ///
     /// If the request is not a valid `session/prompt` (`acp/turn/start`), returns `Err(json_bytes)`
     /// so the HTTP route can return an immediate `application/json` JSON-RPC error response.
     pub fn handle_sse_stream_bytes(&self, body: &[u8]) -> Result<Vec<String>, Vec<u8>> {
-        let parsed: Value = match serde_json::from_slice(body) {
+        self.handle_sse_stream_bytes_with_session_header(body, None)
+    }
+
+    /// Dispatch a raw JSON-RPC 2.0 SSE stream request with optional HTTP `acp-session-id` binding.
+    pub fn handle_sse_stream_bytes_with_session_header(
+        &self,
+        body: &[u8],
+        session_header: Option<&str>,
+    ) -> Result<Vec<String>, Vec<u8>> {
+        let mut parsed: Value = match serde_json::from_slice(body) {
             Ok(val) => val,
             Err(err) => {
                 return Err(serialize_rpc_response(&rpc_error(
@@ -491,6 +808,9 @@ impl AcpEngine {
                 )));
             }
         };
+        if let Err(err_reply) = bind_or_verify_session_header(&mut parsed, session_header) {
+            return Err(serialize_rpc_response(&err_reply));
+        }
         let (id, method, params) = match validate_rpc_envelope(&parsed) {
             Ok(parts) => parts,
             Err(err_val) => return Err(serialize_rpc_response(&err_val)),
@@ -535,6 +855,7 @@ impl AcpEngine {
                 .map_err(|e| (JSONRPC_INTERNAL_ERROR, e.to_string())),
             "session/new" | "acp/session/create" => self.dispatch_session_new(&params),
             "session/load" | "acp/session/get" => self.dispatch_session_load(&params),
+            "session/history" | "acp/session/history" => self.dispatch_session_history(&params),
             "session/list" | "acp/session/list" => self.dispatch_session_list(),
             "session/close" | "acp/session/close" => self.dispatch_session_close(&params),
             "session/prompt" | "acp/turn/start" => self.dispatch_prompt(&params, on_event),
@@ -585,6 +906,7 @@ impl AcpEngine {
             .admission
             .check_capabilities(&requested_caps, resource)?;
         let metadata = params.get("metadata").cloned().unwrap_or_else(|| json!({}));
+        let seed_messages = parse_seed_messages(params, self.admission.max_prompt_bytes)?;
 
         let seq = self.next_id.fetch_add(1, Ordering::Relaxed);
         let session_id = format!("acp-sess-{seq:06}");
@@ -595,8 +917,25 @@ impl AcpEngine {
             admitted_capabilities,
             created_unix_ms: now_unix_ms(),
             turns_completed: 0,
+            turns_cancelled: 0,
+            message_count: 0,
+            history_bytes: 0,
+            evicted_messages: 0,
             active_turn_id: None,
         };
+        let mut entry = SessionEntry::new(summary, metadata);
+        for (turn_id, role, blocks, tool_calls) in seed_messages {
+            entry.push_message(
+                turn_id,
+                role,
+                blocks,
+                tool_calls,
+                None,
+                self.admission.max_history_messages,
+                self.admission.max_history_bytes,
+            );
+        }
+        let snapshot_summary = entry.summary.clone();
 
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         while guard.sessions.len() >= self.admission.max_sessions {
@@ -618,19 +957,14 @@ impl AcpEngine {
             guard.active_cancellations.remove(&oldest);
         }
         guard.order.push_back(session_id.clone());
-        guard.sessions.insert(
-            session_id,
-            SessionEntry {
-                summary: summary.clone(),
-                metadata,
-                pre_cancelled: false,
-            },
-        );
-        serde_json::to_value(summary).map_err(|e| (JSONRPC_INTERNAL_ERROR, e.to_string()))
+        guard.sessions.insert(session_id, entry);
+        serde_json::to_value(snapshot_summary).map_err(|e| (JSONRPC_INTERNAL_ERROR, e.to_string()))
     }
 
     fn dispatch_session_load(&self, params: &Value) -> Result<Value, (i64, String)> {
-        let session_id = required_str(params, "session_id")?;
+        let session_id = extract_session_id(params)?;
+        let (since_seq, limit, include_cancelled) =
+            extract_history_query(params, self.admission.max_history_messages)?;
         let guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let entry = guard.sessions.get(session_id).ok_or_else(|| {
             (
@@ -638,9 +972,49 @@ impl AcpEngine {
                 format!("ACP session not found: {session_id}"),
             )
         })?;
+        let (messages, next_seq, has_more) =
+            entry.query_messages(since_seq, limit, include_cancelled);
+        let inference_messages = project_inference_messages(&entry.messages);
+        let bounds = entry.bounds(
+            self.admission.max_history_messages,
+            self.admission.max_history_bytes,
+        );
         Ok(json!({
             "session": entry.summary,
             "metadata": entry.metadata,
+            "messages": messages,
+            "inference_messages": inference_messages,
+            "history_bounds": bounds,
+            "next_seq": next_seq,
+            "has_more": has_more,
+        }))
+    }
+
+    fn dispatch_session_history(&self, params: &Value) -> Result<Value, (i64, String)> {
+        let session_id = extract_session_id(params)?;
+        let (since_seq, limit, include_cancelled) =
+            extract_history_query(params, self.admission.max_history_messages)?;
+        let guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let entry = guard.sessions.get(session_id).ok_or_else(|| {
+            (
+                ACP_ERR_NOT_FOUND,
+                format!("ACP session not found: {session_id}"),
+            )
+        })?;
+        let (messages, next_seq, has_more) =
+            entry.query_messages(since_seq, limit, include_cancelled);
+        let inference_messages = project_inference_messages(&entry.messages);
+        let bounds = entry.bounds(
+            self.admission.max_history_messages,
+            self.admission.max_history_bytes,
+        );
+        Ok(json!({
+            "session_id": entry.summary.session_id,
+            "messages": messages,
+            "inference_messages": inference_messages,
+            "history_bounds": bounds,
+            "next_seq": next_seq,
+            "has_more": has_more,
         }))
     }
 
@@ -655,7 +1029,7 @@ impl AcpEngine {
     }
 
     fn dispatch_session_close(&self, params: &Value) -> Result<Value, (i64, String)> {
-        let session_id = required_str(params, "session_id")?;
+        let session_id = extract_session_id(params)?;
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if guard.sessions.remove(session_id).is_none() {
             return Err((
@@ -677,12 +1051,8 @@ impl AcpEngine {
     }
 
     fn dispatch_cancel(&self, params: &Value) -> Result<Value, (i64, String)> {
-        let session_id = required_str(params, "session_id")?;
-        let turn_id = params
-            .get("turn_id")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let session_id = extract_session_id(params)?;
+        let turn_id = optional_turn_id(params);
 
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !guard.sessions.contains_key(session_id) {
@@ -692,8 +1062,8 @@ impl AcpEngine {
             ));
         }
         let mut signalled = false;
-        if let Some(tid) = turn_id {
-            let key = (session_id.to_owned(), tid.to_owned());
+        if let Some(ref tid) = turn_id {
+            let key = (session_id.to_owned(), tid.clone());
             if let Some(flag) = guard.turn_cancellations.get(&key) {
                 flag.store(true, Ordering::SeqCst);
                 signalled = true;
@@ -727,18 +1097,17 @@ impl AcpEngine {
         params: &Value,
         on_event: &mut dyn FnMut(AcpTurnEvent),
     ) -> Result<Value, (i64, String)> {
-        let session_id = required_str(params, "session_id")?.to_owned();
-        let prompt_blocks =
-            parse_prompt_blocks(params.get("prompt"), self.admission.max_prompt_bytes)?;
+        let session_id = extract_session_id(params)?.to_owned();
+        let prompt_raw = params.get("prompt").or_else(|| params.get("content"));
+        let prompt_blocks = parse_prompt_blocks(prompt_raw, self.admission.max_prompt_bytes)?;
+        let role = match params.get("role").and_then(Value::as_str) {
+            Some(raw_role) => AcpMessageRole::from_wire_str(raw_role)?,
+            None => AcpMessageRole::User,
+        };
+        let prompt_tool_calls =
+            parse_tool_calls(params.get("tool_calls"), self.admission.max_prompt_bytes)?;
         let turn_caps = extract_string_list(params.get("requested_capabilities"))?;
-        let explicit_turn_id = params
-            .get("turn_id")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned);
-
-        let turn_id = match explicit_turn_id {
+        let turn_id = match optional_turn_id(params) {
             Some(tid) => tid,
             None => {
                 let n = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -746,52 +1115,16 @@ impl AcpEngine {
             }
         };
 
-        let (ctx, cancel_flag) = {
-            let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            let entry = guard.sessions.get_mut(&session_id).ok_or_else(|| {
-                (
-                    ACP_ERR_NOT_FOUND,
-                    format!("ACP session not found: {session_id}"),
-                )
-            })?;
-            let resource = entry.summary.workspace.as_deref().unwrap_or("*");
-            let mut merged_caps = entry.summary.admitted_capabilities.clone();
-            if !turn_caps.is_empty() {
-                let verified = self.admission.check_capabilities(&turn_caps, resource)?;
-                for cap in verified {
-                    if !merged_caps.contains(&cap) {
-                        merged_caps.push(cap);
-                    }
-                }
-            }
-            let was_pre_cancelled = entry.pre_cancelled;
-            entry.pre_cancelled = false;
-            entry.summary.active_turn_id = Some(turn_id.clone());
-            let ctx = AcpTurnContext {
-                session_id: session_id.clone(),
-                turn_id: turn_id.clone(),
-                workspace: entry.summary.workspace.clone(),
-                admitted_capabilities: merged_caps,
-                prompt: prompt_blocks,
-            };
-
-            let key = (session_id.clone(), turn_id.clone());
-            let flag = match guard.turn_cancellations.get(&key) {
-                Some(existing) => Arc::clone(existing),
-                None => {
-                    let fresh = Arc::new(AtomicBool::new(was_pre_cancelled));
-                    guard.turn_cancellations.insert(key, Arc::clone(&fresh));
-                    fresh
-                }
-            };
-            if was_pre_cancelled {
-                flag.store(true, Ordering::SeqCst);
-            }
-            guard
-                .active_cancellations
-                .insert(session_id.clone(), Arc::clone(&flag));
-            (ctx, flag)
-        };
+        let prepared = self.prepare_turn_context(TurnRequestSpec {
+            session_id: session_id.clone(),
+            turn_id: turn_id.clone(),
+            role,
+            prompt_blocks,
+            tool_calls: prompt_tool_calls,
+            turn_caps,
+        })?;
+        let ctx = prepared.ctx;
+        let cancel_flag = prepared.cancel_flag;
 
         let mut seq = 1_u64;
         let mut events = Vec::new();
@@ -811,25 +1144,30 @@ impl AcpEngine {
 
         record_event("turn_started", None, None);
 
-        let (stop_reason, output) = if cancel_flag.load(Ordering::SeqCst) {
+        let (stop_reason, exec_out) = if cancel_flag.load(Ordering::SeqCst) {
             record_event("turn_cancelled", None, Some(AcpStopReason::Cancelled));
-            (AcpStopReason::Cancelled, Vec::new())
+            (AcpStopReason::Cancelled, AcpExecutorOutput::default())
         } else {
-            let exec_res = self
-                .executor
-                .execute_turn(&ctx, &cancel_flag, &mut |chunk| {
-                    if !cancel_flag.load(Ordering::SeqCst) {
-                        record_event("message_delta", Some(chunk.to_owned()), None);
-                    }
-                });
+            let exec_res =
+                self.executor
+                    .execute_turn_with_tools(&ctx, &cancel_flag, &mut |chunk| {
+                        if !cancel_flag.load(Ordering::SeqCst) {
+                            record_event("message_delta", Some(chunk.to_owned()), None);
+                        }
+                    });
             if cancel_flag.load(Ordering::SeqCst) {
                 record_event("turn_cancelled", None, Some(AcpStopReason::Cancelled));
-                (AcpStopReason::Cancelled, Vec::new())
+                (AcpStopReason::Cancelled, AcpExecutorOutput::default())
             } else {
                 match exec_res {
-                    Ok(blocks) => {
+                    Ok(out) => {
+                        for tc in &out.tool_calls {
+                            if let Ok(tc_json) = serde_json::to_string(tc) {
+                                record_event("tool_call", Some(tc_json), None);
+                            }
+                        }
                         record_event("turn_completed", None, Some(AcpStopReason::EndTurn));
-                        (AcpStopReason::EndTurn, blocks)
+                        (AcpStopReason::EndTurn, out)
                     }
                     Err(err_msg) => {
                         record_event(
@@ -837,41 +1175,158 @@ impl AcpEngine {
                             Some(err_msg.clone()),
                             Some(AcpStopReason::Failed),
                         );
-                        self.finish_turn_state(&session_id, &turn_id, false);
+                        self.abort_failed_turn(&session_id, &turn_id);
                         return Err((JSONRPC_INTERNAL_ERROR, err_msg));
                     }
                 }
             }
         };
 
-        self.finish_turn_state(&session_id, &turn_id, stop_reason == AcpStopReason::EndTurn);
-
-        let receipt_sha256 = compute_turn_receipt(&ctx, stop_reason, &output);
+        let (messages, inference_messages, history_bounds) =
+            self.finalize_turn_history(&ctx, stop_reason, &exec_out);
+        let receipt_sha256 =
+            compute_turn_receipt(&ctx, stop_reason, &exec_out.blocks, &exec_out.tool_calls);
         let result = AcpTurnResult {
             session_id,
             turn_id,
             stop_reason,
-            output,
+            output: exec_out.blocks,
+            tool_calls: exec_out.tool_calls,
             events,
             receipt_sha256,
+            messages,
+            inference_messages,
+            history_bounds,
         };
         serde_json::to_value(result).map_err(|e| (JSONRPC_INTERNAL_ERROR, e.to_string()))
     }
 
-    fn finish_turn_state(&self, session_id: &str, turn_id: &str, completed: bool) {
+    fn prepare_turn_context(&self, spec: TurnRequestSpec) -> Result<PreparedTurn, RpcErr> {
+        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let entry = guard.sessions.get_mut(&spec.session_id).ok_or_else(|| {
+            (
+                ACP_ERR_NOT_FOUND,
+                format!("ACP session not found: {}", spec.session_id),
+            )
+        })?;
+        let resource = entry.summary.workspace.as_deref().unwrap_or("*");
+        let mut merged_caps = entry.summary.admitted_capabilities.clone();
+        if !spec.turn_caps.is_empty() {
+            let verified = self
+                .admission
+                .check_capabilities(&spec.turn_caps, resource)?;
+            for cap in verified {
+                if !merged_caps.contains(&cap) {
+                    merged_caps.push(cap);
+                }
+            }
+        }
+        let was_pre_cancelled = entry.pre_cancelled;
+        entry.pre_cancelled = false;
+        entry.summary.active_turn_id = Some(spec.turn_id.clone());
+        let prior_history: Vec<AcpSessionMessage> = entry.messages.iter().cloned().collect();
+        let key = (spec.session_id.clone(), spec.turn_id.clone());
+        let ctx = AcpTurnContext {
+            session_id: spec.session_id.clone(),
+            turn_id: spec.turn_id,
+            workspace: entry.summary.workspace.clone(),
+            admitted_capabilities: merged_caps,
+            role: spec.role,
+            prompt: spec.prompt_blocks,
+            tool_calls: spec.tool_calls,
+            history: prior_history,
+        };
+
+        let flag = match guard.turn_cancellations.get(&key) {
+            Some(existing) => Arc::clone(existing),
+            None => {
+                let fresh = Arc::new(AtomicBool::new(was_pre_cancelled));
+                guard.turn_cancellations.insert(key, Arc::clone(&fresh));
+                fresh
+            }
+        };
+        if was_pre_cancelled {
+            flag.store(true, Ordering::SeqCst);
+        }
+        guard
+            .active_cancellations
+            .insert(spec.session_id, Arc::clone(&flag));
+        Ok(PreparedTurn {
+            ctx,
+            cancel_flag: flag,
+        })
+    }
+
+    fn abort_failed_turn(&self, session_id: &str, turn_id: &str) {
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = guard.sessions.get_mut(session_id) {
             if entry.summary.active_turn_id.as_deref() == Some(turn_id) {
                 entry.summary.active_turn_id = None;
-            }
-            if completed {
-                entry.summary.turns_completed = entry.summary.turns_completed.saturating_add(1);
             }
         }
         guard.active_cancellations.remove(session_id);
         guard
             .turn_cancellations
             .remove(&(session_id.to_owned(), turn_id.to_owned()));
+    }
+
+    fn finalize_turn_history(
+        &self,
+        ctx: &AcpTurnContext,
+        stop_reason: AcpStopReason,
+        exec_out: &AcpExecutorOutput,
+    ) -> (
+        Vec<AcpSessionMessage>,
+        Vec<AcpInferenceMessage>,
+        AcpHistoryBounds,
+    ) {
+        let max_msgs = self.admission.max_history_messages;
+        let max_bytes = self.admission.max_history_bytes;
+        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut snapshot_msgs = Vec::new();
+        let mut bounds = AcpHistoryBounds {
+            max_messages: max_msgs.max(1),
+            max_bytes: max_bytes.max(1),
+            ..AcpHistoryBounds::default()
+        };
+        if let Some(entry) = guard.sessions.get_mut(&ctx.session_id) {
+            if entry.summary.active_turn_id.as_deref() == Some(ctx.turn_id.as_str()) {
+                entry.summary.active_turn_id = None;
+            }
+            let prompt_stop = if stop_reason == AcpStopReason::Cancelled {
+                entry.summary.turns_cancelled = entry.summary.turns_cancelled.saturating_add(1);
+                Some(AcpStopReason::Cancelled)
+            } else {
+                entry.summary.turns_completed = entry.summary.turns_completed.saturating_add(1);
+                None
+            };
+            entry.push_message(
+                ctx.turn_id.clone(),
+                ctx.role,
+                ctx.prompt.clone(),
+                ctx.tool_calls.clone(),
+                prompt_stop,
+                max_msgs,
+                max_bytes,
+            );
+            entry.push_message(
+                ctx.turn_id.clone(),
+                AcpMessageRole::Assistant,
+                exec_out.blocks.clone(),
+                exec_out.tool_calls.clone(),
+                Some(stop_reason),
+                max_msgs,
+                max_bytes,
+            );
+            snapshot_msgs = entry.messages.iter().cloned().collect();
+            bounds = entry.bounds(max_msgs, max_bytes);
+        }
+        guard.active_cancellations.remove(&ctx.session_id);
+        guard
+            .turn_cancellations
+            .remove(&(ctx.session_id.clone(), ctx.turn_id.clone()));
+        let inference = project_inference_messages(&snapshot_msgs);
+        (snapshot_msgs, inference, bounds)
     }
 }
 
@@ -1078,26 +1533,33 @@ fn serve_http_connection(
         );
     }
 
+    let session_header = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(ACP_SESSION_ID_HEADER))
+        .map(|(_, v)| v.as_str());
+
     match (method.as_str(), path.as_str()) {
         ("POST", ACP_RPC_PATH) => {
-            let reply = engine.handle_jsonrpc_bytes(&body);
+            let reply = engine.handle_jsonrpc_bytes_with_session_header(&body, session_header);
             write_http_response(&mut stream, 200, "application/json", &[], &reply)
         }
-        ("POST", ACP_STREAM_PATH) => match engine.handle_sse_stream_bytes(&body) {
-            Ok(frames) => {
-                let joined: String = frames.concat();
-                write_http_response(
-                    &mut stream,
-                    200,
-                    "text/event-stream",
-                    &[("Cache-Control", "no-cache")],
-                    joined.as_bytes(),
-                )
+        ("POST", ACP_STREAM_PATH) => {
+            match engine.handle_sse_stream_bytes_with_session_header(&body, session_header) {
+                Ok(frames) => {
+                    let joined: String = frames.concat();
+                    write_http_response(
+                        &mut stream,
+                        200,
+                        "text/event-stream",
+                        &[("Cache-Control", "no-cache")],
+                        joined.as_bytes(),
+                    )
+                }
+                Err(err_json) => {
+                    write_http_response(&mut stream, 200, "application/json", &[], &err_json)
+                }
             }
-            Err(err_json) => {
-                write_http_response(&mut stream, 200, "application/json", &[], &err_json)
-            }
-        },
+        }
         (_, ACP_RPC_PATH | ACP_STREAM_PATH) => {
             write_http_response(&mut stream, 405, "text/plain", &[("Allow", "POST")], b"")
         }
@@ -1247,6 +1709,15 @@ impl AcpSocketClient {
 
     /// Send a raw JSON-RPC 2.0 request to `POST /acp` and return `(http_status, parsed_json)`.
     pub fn raw_rpc(&self, body: &Value) -> Result<(u16, Option<Value>), String> {
+        self.raw_rpc_with_headers(body, &[])
+    }
+
+    /// Send a raw JSON-RPC 2.0 request to `POST /acp` with extra HTTP headers.
+    pub fn raw_rpc_with_headers(
+        &self,
+        body: &Value,
+        extra_headers: &[(&str, &str)],
+    ) -> Result<(u16, Option<Value>), String> {
         let url = format!("{}{ACP_RPC_PATH}", self.base_url);
         let payload = serde_json::to_vec(body).map_err(|e| e.to_string())?;
         let auth_value = self
@@ -1257,6 +1728,7 @@ impl AcpSocketClient {
         if let Some(ref auth) = auth_value {
             headers.push(("Authorization", auth.as_str()));
         }
+        headers.extend_from_slice(extra_headers);
         let resp = plain_http::call("POST", &url, &headers, Some(&payload), self.timeout_secs)?;
         let status = resp.status;
         let bytes = resp
@@ -1269,6 +1741,53 @@ impl AcpSocketClient {
         let parsed = serde_json::from_str(&text)
             .map_err(|e| format!("invalid JSON-RPC response (HTTP {status}): {e}"))?;
         Ok((status, Some(parsed)))
+    }
+
+    /// Load an ACP session snapshot and its bounded multi-turn `messages` context.
+    pub fn session_load(&self, id: u64, session_id: &str) -> Result<Value, String> {
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "session/load",
+            "params": { "session_id": session_id }
+        });
+        let (status, parsed) =
+            self.raw_rpc_with_headers(&req, &[(ACP_SESSION_ID_HEADER, session_id)])?;
+        if status != 200 {
+            return Err(format!("ACP session/load returned HTTP {status}"));
+        }
+        parsed.ok_or_else(|| "ACP session/load returned empty body".to_owned())
+    }
+
+    /// Replay bounded multi-turn conversation history via `session/history`.
+    pub fn session_history(
+        &self,
+        id: u64,
+        session_id: &str,
+        since_seq: Option<u64>,
+        limit: Option<usize>,
+    ) -> Result<Value, String> {
+        let mut params = json!({ "session_id": session_id });
+        if let Some(obj) = params.as_object_mut() {
+            if let Some(since) = since_seq {
+                obj.insert("since_seq".to_owned(), json!(since));
+            }
+            if let Some(cap) = limit {
+                obj.insert("limit".to_owned(), json!(cap));
+            }
+        }
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "session/history",
+            "params": params
+        });
+        let (status, parsed) =
+            self.raw_rpc_with_headers(&req, &[(ACP_SESSION_ID_HEADER, session_id)])?;
+        if status != 200 {
+            return Err(format!("ACP session/history returned HTTP {status}"));
+        }
+        parsed.ok_or_else(|| "ACP session/history returned empty body".to_owned())
     }
 
     /// Execute `session/prompt` over `POST /acp/stream` and return decoded SSE `(event_type, data_json)` frames.
@@ -1296,6 +1815,7 @@ impl AcpSocketClient {
         let mut headers = vec![
             ("Content-Type", "application/json"),
             ("Accept", "text/event-stream"),
+            (ACP_SESSION_ID_HEADER, session_id),
         ];
         if let Some(ref auth) = auth_value {
             headers.push(("Authorization", auth.as_str()));
@@ -1332,7 +1852,7 @@ impl AcpSocketClient {
 }
 
 // ---------------------------------------------------------------------------
-// Internal JSON-RPC & Receipt Helpers
+// Internal JSON-RPC, Multi-Turn History & Receipt Helpers
 // ---------------------------------------------------------------------------
 
 fn bearer_matches_expected(header: Option<&str>, expected_token: &str) -> bool {
@@ -1349,6 +1869,67 @@ fn bearer_matches_expected(header: Option<&str>, expected_token: &str) -> bool {
             .zip(expected)
             .fold(0_u8, |acc, (x, y)| acc | (x ^ y))
             == 0
+}
+
+fn bind_or_verify_session_header(
+    request: &mut Value,
+    session_header: Option<&str>,
+) -> Result<(), Value> {
+    let Some(hdr) = session_header.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+    let Some(obj) = request.as_object_mut() else {
+        return Ok(());
+    };
+    let id = obj.get("id").cloned().unwrap_or(Value::Null);
+    let method = obj
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let is_session_scoped = matches!(
+        method.as_str(),
+        "session/prompt"
+            | "acp/turn/start"
+            | "session/load"
+            | "acp/session/get"
+            | "session/history"
+            | "acp/session/history"
+            | "session/cancel"
+            | "acp/turn/cancel"
+            | "session/close"
+            | "acp/session/close"
+    );
+    if !is_session_scoped {
+        return Ok(());
+    }
+    if matches!(obj.get("params"), None | Some(Value::Null)) {
+        obj.insert("params".to_owned(), json!({ "session_id": hdr }));
+        return Ok(());
+    }
+    let Some(params_obj) = obj.get_mut("params").and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+    let body_sid = params_obj
+        .get("session_id")
+        .or_else(|| params_obj.get("sessionId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    match body_sid {
+        Some(existing) if existing != hdr => Err(rpc_error(
+            id,
+            JSONRPC_INVALID_PARAMS,
+            format!(
+                "Invalid params: HTTP header '{ACP_SESSION_ID_HEADER}' ('{hdr}') conflicts with JSON-RPC session_id ('{existing}')"
+            ),
+        )),
+        Some(_) => Ok(()),
+        None => {
+            params_obj.insert("session_id".to_owned(), Value::String(hdr.to_owned()));
+            Ok(())
+        }
+    }
 }
 
 fn validate_rpc_envelope(request: &Value) -> Result<(Value, String, Value), Value> {
@@ -1399,18 +1980,88 @@ fn validate_rpc_envelope(request: &Value) -> Result<(Value, String, Value), Valu
     Ok((id, method.to_owned(), params))
 }
 
-fn required_str<'a>(params: &'a Value, field: &str) -> Result<&'a str, (i64, String)> {
+fn extract_session_id(params: &Value) -> Result<&str, (i64, String)> {
     params
-        .get(field)
+        .get("session_id")
+        .or_else(|| params.get("sessionId"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| {
             (
                 JSONRPC_INVALID_PARAMS,
-                format!("Invalid params: missing non-empty field `{field}`"),
+                "Invalid params: missing non-empty field `session_id`".to_owned(),
             )
         })
+}
+
+fn optional_turn_id(params: &Value) -> Option<String> {
+    params
+        .get("turn_id")
+        .or_else(|| params.get("turnId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+fn extract_history_query(
+    params: &Value,
+    default_limit: usize,
+) -> Result<(u64, usize, bool), (i64, String)> {
+    let since_seq = match params.get("since_seq").or_else(|| params.get("sinceSeq")) {
+        None | Some(Value::Null) => 0_u64,
+        Some(Value::Number(n)) => n.as_u64().ok_or_else(|| {
+            (
+                JSONRPC_INVALID_PARAMS,
+                "Invalid params: `since_seq` must be a non-negative integer".to_owned(),
+            )
+        })?,
+        Some(Value::Bool(_) | Value::String(_) | Value::Array(_) | Value::Object(_)) => {
+            return Err((
+                JSONRPC_INVALID_PARAMS,
+                "Invalid params: `since_seq` must be an integer".to_owned(),
+            ));
+        }
+    };
+    let limit = match params.get("limit") {
+        None | Some(Value::Null) => default_limit.max(1),
+        Some(Value::Number(n)) => {
+            let raw = n.as_u64().ok_or_else(|| {
+                (
+                    JSONRPC_INVALID_PARAMS,
+                    "Invalid params: `limit` must be a positive integer".to_owned(),
+                )
+            })?;
+            if raw == 0 {
+                return Err((
+                    JSONRPC_INVALID_PARAMS,
+                    "Invalid params: `limit` must be >= 1".to_owned(),
+                ));
+            }
+            usize::try_from(raw).unwrap_or(default_limit.max(1))
+        }
+        Some(Value::Bool(_) | Value::String(_) | Value::Array(_) | Value::Object(_)) => {
+            return Err((
+                JSONRPC_INVALID_PARAMS,
+                "Invalid params: `limit` must be an integer".to_owned(),
+            ));
+        }
+    };
+    let include_cancelled = match params
+        .get("include_cancelled")
+        .or_else(|| params.get("includeCancelled"))
+    {
+        None | Some(Value::Null) => true,
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::Number(_) | Value::String(_) | Value::Array(_) | Value::Object(_)) => {
+            return Err((
+                JSONRPC_INVALID_PARAMS,
+                "Invalid params: `include_cancelled` must be a boolean".to_owned(),
+            ));
+        }
+    };
+    Ok((since_seq, limit, include_cancelled))
 }
 
 fn extract_string_list(field: Option<&Value>) -> Result<Vec<String>, (i64, String)> {
@@ -1484,10 +2135,176 @@ fn parse_prompt_blocks(
     Ok(blocks)
 }
 
+fn parse_tool_calls(
+    raw: Option<&Value>,
+    max_bytes: usize,
+) -> Result<Vec<AcpToolCallMeta>, (i64, String)> {
+    match raw {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(items)) => {
+            let mut out = Vec::with_capacity(items.len());
+            let mut total = 0usize;
+            for item in items {
+                let tc: AcpToolCallMeta = serde_json::from_value(item.clone()).map_err(|e| {
+                    (
+                        JSONRPC_INVALID_PARAMS,
+                        format!("Invalid params: malformed `tool_calls` entry: {e}"),
+                    )
+                })?;
+                if tc.id.trim().is_empty() || tc.name.trim().is_empty() {
+                    return Err((
+                        JSONRPC_INVALID_PARAMS,
+                        "Invalid params: `tool_calls` entries require non-empty `id` and `name`"
+                            .to_owned(),
+                    ));
+                }
+                total = total.saturating_add(tc.approx_byte_len());
+                if total > max_bytes {
+                    return Err((
+                        JSONRPC_INVALID_PARAMS,
+                        format!("Invalid params: `tool_calls` byte size {total} exceeds limit {max_bytes}"),
+                    ));
+                }
+                out.push(tc);
+            }
+            Ok(out)
+        }
+        Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Object(_)) => Err((
+            JSONRPC_INVALID_PARAMS,
+            "Invalid params: `tool_calls` must be an array".to_owned(),
+        )),
+    }
+}
+
+type SeedMessageTuple = (
+    String,
+    AcpMessageRole,
+    Vec<AcpContentBlock>,
+    Vec<AcpToolCallMeta>,
+);
+
+fn parse_seed_messages(
+    params: &Value,
+    max_prompt_bytes: usize,
+) -> Result<Vec<SeedMessageTuple>, (i64, String)> {
+    let mut seeds = Vec::new();
+    if let Some(sys_val) = params
+        .get("system_prompt")
+        .or_else(|| params.get("systemPrompt"))
+    {
+        match sys_val {
+            Value::Null => {}
+            Value::String(sys_text) => {
+                if sys_text.len() > max_prompt_bytes {
+                    return Err((
+                        JSONRPC_INVALID_PARAMS,
+                        format!("Invalid params: `system_prompt` exceeds limit {max_prompt_bytes}"),
+                    ));
+                }
+                if !sys_text.trim().is_empty() {
+                    seeds.push((
+                        "init".to_owned(),
+                        AcpMessageRole::System,
+                        vec![AcpContentBlock::text(sys_text.clone())],
+                        Vec::new(),
+                    ));
+                }
+            }
+            Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_) => {
+                return Err((
+                    JSONRPC_INVALID_PARAMS,
+                    "Invalid params: `system_prompt` must be a string".to_owned(),
+                ));
+            }
+        }
+    }
+    match params.get("messages") {
+        None | Some(Value::Null) => Ok(seeds),
+        Some(Value::Array(items)) => {
+            for (idx, item) in items.iter().enumerate() {
+                let Some(obj) = item.as_object() else {
+                    return Err((
+                        JSONRPC_INVALID_PARAMS,
+                        "Invalid params: seed `messages` entries must be objects".to_owned(),
+                    ));
+                };
+                let role_str = obj.get("role").and_then(Value::as_str).unwrap_or("user");
+                let role = AcpMessageRole::from_wire_str(role_str)?;
+                let content_val = obj.get("content").or_else(|| obj.get("prompt"));
+                let blocks = parse_prompt_blocks(content_val, max_prompt_bytes)?;
+                let tcs = parse_tool_calls(obj.get("tool_calls"), max_prompt_bytes)?;
+                let tid = obj
+                    .get("turn_id")
+                    .or_else(|| obj.get("turnId"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map_or_else(|| format!("seed-{}", idx + 1), str::to_owned);
+                seeds.push((tid, role, blocks, tcs));
+            }
+            Ok(seeds)
+        }
+        Some(Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Object(_)) => Err((
+            JSONRPC_INVALID_PARAMS,
+            "Invalid params: `messages` must be an array".to_owned(),
+        )),
+    }
+}
+
+fn join_text_blocks(blocks: &[AcpContentBlock]) -> String {
+    let mut out = String::new();
+    for block in blocks {
+        if block.kind == "text" {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&block.text);
+        }
+    }
+    out
+}
+
+fn project_inference_messages<'a, I>(messages: I) -> Vec<AcpInferenceMessage>
+where
+    I: IntoIterator<Item = &'a AcpSessionMessage>,
+{
+    let mut out = Vec::new();
+    for msg in messages {
+        if msg.stop_reason == Some(AcpStopReason::Cancelled) {
+            continue;
+        }
+        out.push(AcpInferenceMessage {
+            role: msg.role,
+            content: msg.content.clone(),
+            turn_id: msg.turn_id.clone(),
+            tool_calls: msg.tool_calls.clone(),
+        });
+    }
+    out
+}
+
+fn measure_tool_calls_bytes(tool_calls: &[AcpToolCallMeta]) -> usize {
+    tool_calls
+        .iter()
+        .fold(0usize, |acc, tc| acc.saturating_add(tc.approx_byte_len()))
+}
+
+fn truncate_utf8(input: &str, max_bytes: usize) -> String {
+    if input.len() <= max_bytes {
+        return input.to_owned();
+    }
+    let mut boundary = max_bytes;
+    while boundary > 0 && !input.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    input[..boundary].to_owned()
+}
+
 fn compute_turn_receipt(
     ctx: &AcpTurnContext,
     stop_reason: AcpStopReason,
     output: &[AcpContentBlock],
+    tool_calls: &[AcpToolCallMeta],
 ) -> String {
     let canonical = json!({
         "schema": "susi-acp-turn-receipt/v1",
@@ -1495,9 +2312,12 @@ fn compute_turn_receipt(
         "turn_id": ctx.turn_id,
         "workspace": ctx.workspace,
         "admitted_capabilities": ctx.admitted_capabilities,
+        "role": ctx.role.as_str(),
+        "history_seq": ctx.history.last().map(|m| m.seq),
         "prompt": ctx.prompt,
         "stop_reason": stop_reason.as_str(),
         "output": output,
+        "tool_calls": tool_calls,
     });
     let bytes = serde_json::to_vec(&canonical).unwrap_or_default();
     let digest = Sha256::digest(&bytes);
