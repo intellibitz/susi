@@ -4,7 +4,18 @@
 //! MCP, HTTP, or an adapter. The bus performs the common preflight checks and
 //! turns a successful invocation into a cost-attributed receipt; surface
 //! crates only provide the small handler closure at the boundary.
+//!
+//! Every dispatch runs inside a [`DelegationScope`] (`crate::delegation`):
+//! [`CapabilityBus::dispatch_in`] opens one child scope per invocation and
+//! hands it to the handler, so a handler that dispatches again nests a driver
+//! inside an engine under the same permission, budget, deadline, depth, cycle
+//! and cancellation checks. [`CapabilityBus::dispatch`] starts from a root
+//! scope built from the request itself.
 
+use crate::delegation::{
+    DelegationError, DelegationHop, DelegationLimits, DelegationRequest, DelegationScope,
+    ROOT_CAPABILITY,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -124,6 +135,10 @@ pub struct CapabilityReceipt {
     pub cost_micros: u64,
     /// Surface output.
     pub output: Value,
+    /// Delegation hops from the root to this invocation, root first: who
+    /// asked whom, so a nested result keeps its provenance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub delegation_path: Vec<DelegationHop>,
 }
 
 /// A typed refusal from discovery or dispatch.
@@ -141,6 +156,10 @@ pub enum CapabilityError {
     HandlerFailed(String),
     /// A catalog entry is not dispatchable.
     InvalidDescriptor(String),
+    /// The recursive delegation contract refused the invocation: cancelled,
+    /// past its deadline, too deep, a cycle, permission amplification or an
+    /// exhausted parent budget.
+    Delegation(DelegationError),
 }
 
 /// In-memory typed capability catalog and dispatch preflight.
@@ -193,7 +212,8 @@ impl CapabilityBus {
             .collect()
     }
 
-    /// Dispatch through the shared permission, timeout, and cost contract.
+    /// Dispatch through the shared permission, timeout, and cost contract,
+    /// from a root delegation scope built from the request itself.
     pub fn dispatch<F>(
         &self,
         request: &CapabilityRequest,
@@ -201,6 +221,38 @@ impl CapabilityBus {
     ) -> Result<CapabilityReceipt, CapabilityError>
     where
         F: FnOnce(&CapabilityDescriptor) -> Result<CapabilityInvocation, String>,
+    {
+        let root = Self::root_scope(request)?;
+        self.dispatch_in(&root, request, |descriptor, _scope| handler(descriptor))
+    }
+
+    /// The root scope a top-level request runs under: the subject, holding
+    /// exactly the request's permissions, budget and timeout.
+    pub fn root_scope(request: &CapabilityRequest) -> Result<DelegationScope, CapabilityError> {
+        let hop = DelegationHop::new(request.subject.clone(), ROOT_CAPABILITY)
+            .map_err(CapabilityError::Delegation)?;
+        DelegationScope::root(
+            hop,
+            request.permissions.iter().cloned(),
+            request.budget_micros,
+            Some(request.timeout_ms),
+            DelegationLimits::default(),
+        )
+        .map_err(CapabilityError::Delegation)
+    }
+
+    /// Dispatch as a child of `parent`: the request's permissions must be a
+    /// subset of the parent's, its cost ceiling is reserved from the parent's
+    /// budget, and the handler receives the child scope so it can dispatch
+    /// further capabilities nested under it.
+    pub fn dispatch_in<F>(
+        &self,
+        parent: &DelegationScope,
+        request: &CapabilityRequest,
+        handler: F,
+    ) -> Result<CapabilityReceipt, CapabilityError>
+    where
+        F: FnOnce(&CapabilityDescriptor, &DelegationScope) -> Result<CapabilityInvocation, String>,
     {
         let descriptor = self
             .descriptors
@@ -218,20 +270,45 @@ impl CapabilityBus {
                 limit_ms: timeout_limit,
             });
         }
-        let invocation = handler(descriptor).map_err(CapabilityError::HandlerFailed)?;
+        let cost_limit = request.budget_micros.min(descriptor.cost_micros);
+        let hop = DelegationHop::new(request.subject.clone(), descriptor.id.clone())
+            .map_err(CapabilityError::Delegation)?;
+        let scope = parent
+            .delegate(DelegationRequest {
+                hop,
+                permissions: request.permissions.clone(),
+                budget_micros: cost_limit,
+                timeout_ms: timeout_limit,
+            })
+            .map_err(CapabilityError::Delegation)?;
+        let invocation = handler(descriptor, &scope).map_err(CapabilityError::HandlerFailed)?;
+        // A result produced after an ancestor cancelled the work is not
+        // reported as success.
+        scope
+            .check_cancelled()
+            .map_err(CapabilityError::Delegation)?;
         if invocation.elapsed_ms > timeout_limit {
             return Err(CapabilityError::TimeoutExceeded {
                 elapsed_ms: invocation.elapsed_ms,
                 limit_ms: timeout_limit,
             });
         }
-        let cost_limit = request.budget_micros.min(descriptor.cost_micros);
         if invocation.cost_micros > cost_limit {
             return Err(CapabilityError::BudgetExceeded {
                 cost_micros: invocation.cost_micros,
                 limit_micros: cost_limit,
             });
         }
+        // Nested dispatches already spent from this scope; the handler's own
+        // cost must fit in what they left.
+        scope
+            .charge(invocation.cost_micros)
+            .map_err(|_| CapabilityError::BudgetExceeded {
+                cost_micros: invocation
+                    .cost_micros
+                    .saturating_add(cost_limit.saturating_sub(scope.remaining_micros())),
+                limit_micros: cost_limit,
+            })?;
         Ok(CapabilityReceipt {
             capability_id: descriptor.id.clone(),
             surface: descriptor.surface,
@@ -239,6 +316,7 @@ impl CapabilityBus {
             elapsed_ms: invocation.elapsed_ms,
             cost_micros: invocation.cost_micros,
             output: invocation.output,
+            delegation_path: scope.path(),
         })
     }
 }

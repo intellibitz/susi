@@ -78,14 +78,19 @@ fn capabilities(
             args,
             timeout_ms,
             budget_micros,
+            delegation,
             json,
         } => {
             let args: serde_json::Value = serde_json::from_str(&args)
                 .map_err(|e| anyhow::anyhow!("--args is not valid JSON: {e}"))?;
             let request =
                 CapabilityRequest::new(id, subject, [permission], timeout_ms, budget_micros);
+            let delegation = delegation
+                .map(|text| serde_json::from_str::<serde_json::Value>(&text))
+                .transpose()
+                .map_err(|e| anyhow::anyhow!("--delegation is not valid JSON: {e}"))?;
             let receipt = registry
-                .dispatch_capability(&request, &args, workspace)
+                .dispatch_nested(delegation.as_ref(), &request, &args, workspace)
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             if json || top_json {
                 println!("{}", serde_json::to_string_pretty(&receipt)?);
