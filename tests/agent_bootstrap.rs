@@ -1,5 +1,3 @@
-// Mixed native/static and optional POSIX compatibility checks.
-#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -16,18 +14,8 @@
 use std::path::Path;
 use std::process::Command;
 
-fn script_command(script: &Path) -> Command {
-    #[cfg(windows)]
-    {
-        let mut command = Command::new("sh");
-        command.arg(script);
-        command
-    }
-    #[cfg(not(windows))]
-    {
-        Command::new(script)
-    }
-}
+mod common;
+use common::script_command;
 
 /// Run a script in `dir` with `envs`; (code, stdout, stderr).
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
@@ -36,7 +24,7 @@ fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32,
     for (k, v) in envs {
         cmd.env(k, v);
     }
-    let out = cmd.output().unwrap();
+    let out = common::output_within(&mut cmd, b"", common::SCRIPT_BOUND);
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -86,8 +74,6 @@ fn every_agent_tool_auto_loads_the_same_first_step() {
 }
 
 #[test]
-// Executes a legacy POSIX script/hook; native coverage remains enabled.
-#[cfg(unix)]
 fn the_session_start_hook_never_blocks_a_session() {
     // Outside any repo and with no susi on PATH it still exits 0 and explains.
     let dir = std::env::temp_dir().join(format!("susi-boot-hook-{}", std::process::id()));

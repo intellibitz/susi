@@ -4,15 +4,11 @@
 //! repositories. The primary-checkout refusal and the push rules are the
 //! workflow guard (`susi-commercial workflow guard`, Susi Commercial Apps'
 //! dev workflow since the lean-core move), tested there.
-// Optional POSIX/hosted compatibility fixtures execute shell scripts.
-// Native Windows delivery is covered by the Rust coordinator, bootstrap,
-// installer and release suites; it must not require a POSIX userland.
-#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+
+mod common;
 
 fn git(dir: &Path, args: &[&str]) {
     let out = command(dir, "git", args, "", &[]);
@@ -27,34 +23,23 @@ fn command(
     stdin: &str,
     envs: &[(&str, &str)],
 ) -> (i32, String, String) {
-    #[cfg(windows)]
+    // A hook runs as git runs it: under Git for Windows bash on Windows.
     let mut cmd = if program.contains(".githooks") {
-        let mut command = Command::new("sh");
-        command.arg(program);
-        command
+        common::script_command(Path::new(program))
     } else {
-        Command::new(program)
+        std::process::Command::new(program)
     };
-    #[cfg(not(windows))]
-    let mut cmd = Command::new(program);
     cmd.args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
         .env("GIT_COMMITTER_EMAIL", "t@t")
-        .env_remove("SUSI_HOME")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .env_remove("SUSI_HOME");
     for (k, v) in envs {
         cmd.env(k, v);
     }
-    let mut child = cmd.spawn().unwrap();
-    if let Some(mut si) = child.stdin.take() {
-        let _ = si.write_all(stdin.as_bytes());
-    }
-    let out = child.wait_with_output().unwrap();
+    let out = common::output_within(&mut cmd, stdin.as_bytes(), common::SCRIPT_BOUND);
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -98,8 +83,8 @@ impl Fixture {
         let src = Path::new(env!("CARGO_MANIFEST_DIR"));
         std::fs::create_dir_all(work.join(".githooks")).unwrap();
         std::fs::copy(
-            src.join(".githooks/commit-msg"),
-            work.join(".githooks/commit-msg"),
+            src.join(".githooks").join("commit-msg"),
+            work.join(".githooks").join("commit-msg"),
         )
         .unwrap();
         std::fs::create_dir_all(work.join("scripts")).unwrap();

@@ -1,5 +1,3 @@
-// Mixed native/static and optional POSIX compatibility checks.
-#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -21,6 +19,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+
 fn run(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
     let mut cmd = Command::new("git");
     cmd.args(args)
@@ -39,7 +39,8 @@ fn run(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
     for (k, v) in envs {
         cmd.env(k, v);
     }
-    let out = cmd.output().unwrap();
+    // A commit runs the sync hooks, which fetch: bounded, so a hang fails.
+    let out = common::output_within(&mut cmd, b"", common::SCRIPT_BOUND);
     (
         out.status.code().unwrap_or(-1),
         format!(
@@ -57,12 +58,10 @@ fn make_executable(path: &Path) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
     #[cfg(windows)]
     {
-        let status = Command::new("sh")
-            .args(["-c", "chmod +x \"$1\"", "sh"])
-            .arg(path)
-            .status()
-            .expect("Git for Windows must provide chmod");
-        assert!(status.success(), "chmod +x {path:?}");
+        let mut chmod = Command::new(common::posix_shell());
+        chmod.args(["-c", "chmod +x \"$1\"", "sh"]).arg(path);
+        let out = common::output_within(&mut chmod, b"", common::SCRIPT_BOUND);
+        assert!(out.status.success(), "chmod +x {path:?}");
     }
 }
 
@@ -238,21 +237,11 @@ fn hooks_sync_primary_is_wired_into_post_activity_hooks() {
     for h in ["post-commit", "post-merge", "post-checkout"] {
         let text = std::fs::read_to_string(repo.join(h)).unwrap();
         assert!(text.contains("sync-primary"), "{h} must call sync-primary");
-        // Windows has no exec bit — Git for Windows runs hooks via sh anyway.
-        #[cfg(unix)]
-        {
-            let mode = std::fs::metadata(repo.join(h))
-                .unwrap()
-                .permissions()
-                .mode();
-            assert!(mode & 0o111 != 0, "{h} must be executable");
-        }
+        assert_hook_executable(&repo, h);
     }
 }
 
 #[test]
-// Executes a legacy POSIX script/hook; native coverage remains enabled.
-#[cfg(unix)]
 fn hooks_sync_branch_merges_origin_main_after_a_clean_commit() {
     let w = World::new("branch-clean");
     w.origin_advances_with("theirs.txt", "theirs\n");
@@ -302,8 +291,6 @@ fn hooks_sync_branch_merges_origin_main_after_a_clean_commit() {
 }
 
 #[test]
-// Executes a legacy POSIX script/hook; native coverage remains enabled.
-#[cfg(unix)]
 fn hooks_sync_branch_aborts_a_conflicting_merge_and_says_merge_now() {
     let w = World::new("branch-conflict");
     w.origin_advances_with("shared.txt", "theirs\n");
@@ -338,8 +325,6 @@ fn hooks_sync_branch_aborts_a_conflicting_merge_and_says_merge_now() {
 }
 
 #[test]
-// Executes a legacy POSIX script/hook; native coverage remains enabled.
-#[cfg(unix)]
 fn hooks_sync_branch_stays_out_of_the_way() {
     let w = World::new("branch-skip");
     w.origin_advances_with("theirs.txt", "theirs\n");
@@ -408,12 +393,40 @@ fn hooks_sync_branch_is_wired_into_post_commit() {
     ] {
         assert!(hook.contains(word), "sync-branch must handle {word}");
     }
+    assert_hook_executable(&repo, "sync-branch");
+}
+
+/// A hook is executable where it matters on every host: git records mode
+/// `100755` for it, which is what every checkout (Unix or Windows) installs;
+/// on Unix the file in this checkout carries the exec bit too.
+fn assert_hook_executable(hooks: &Path, name: &str) {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let path = format!(".githooks/{name}");
+    let mut ls = Command::new("git");
+    ls.args(["ls-files", "--stage", "--", &path])
+        .current_dir(root);
+    let out = common::output_within(&mut ls, b"", common::SCRIPT_BOUND);
+    assert!(
+        out.status.success(),
+        "git ls-files {path}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let staged = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        staged.starts_with("100755 "),
+        "{path} must be committed executable (mode 100755), git has: {staged:?}"
+    );
     #[cfg(unix)]
     {
-        let mode = std::fs::metadata(repo.join("sync-branch"))
+        let mode = std::fs::metadata(hooks.join(name))
             .unwrap()
             .permissions()
             .mode();
-        assert!(mode & 0o111 != 0, "sync-branch must be executable");
+        assert!(
+            mode & 0o111 != 0,
+            "{name} must be executable in this checkout"
+        );
     }
+    #[cfg(not(unix))]
+    let _ = hooks;
 }

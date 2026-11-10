@@ -1,26 +1,19 @@
 //! Execute the Unix installer against fake git, cargo and rustup: it builds
 //! the release tag with its recorded settings and downloads nothing.
 //! No provider, network, installed Susi, or user profile is touched.
-// Optional POSIX/hosted compatibility fixtures execute shell scripts.
-// Native Windows delivery is covered by the Rust coordinator, bootstrap,
-// installer and release suites; it must not require a POSIX userland.
 #![allow(missing_docs)]
-#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod common;
+
 const INSTALLER: &str = include_str!("../install.sh");
 
 fn run_bash(script: &str) -> std::process::Output {
-    let bash = if cfg!(windows) {
-        "C:/Program Files/Git/bin/bash.exe"
-    } else {
-        "bash"
-    };
-    let mut command = Command::new(bash);
+    let mut command = Command::new(common::posix_shell());
     command.env_clear();
     for name in ["PATH", "SystemRoot", "TMPDIR", "TEMP", "TMP"] {
         if let Some(value) = std::env::var_os(name) {
