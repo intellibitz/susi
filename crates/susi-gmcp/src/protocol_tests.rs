@@ -259,8 +259,7 @@ async fn task_poll_update_and_cooperative_cancellation() {
 async fn http_discovery_header_validation_and_origin_protection() {
     use http_body_util::{BodyExt, Full};
     use hyper::body::Bytes;
-    use tower_service::Service;
-    let mut http = crate::server::http_service(service());
+    let http = crate::server::http_service(service());
     let request = |method: &str, host: &str, origin: Option<&str>| {
         let mut builder = hyper::Request::builder()
             .method("POST")
@@ -280,31 +279,25 @@ async fn http_discovery_header_validation_and_origin_protection() {
             .unwrap()
     };
     let response = http
-        .call(request("server/discover", "localhost", None))
-        .await
-        .unwrap();
+        .handle(request("server/discover", "localhost", None))
+        .await;
     assert_eq!(response.status(), hyper::StatusCode::OK);
     assert!(response.headers().get("Mcp-Session-Id").is_none());
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert!(String::from_utf8_lossy(&body).contains("susi-gmcp"));
-    let response = http
-        .call(request("tools/list", "localhost", None))
-        .await
-        .unwrap();
+    let response = http.handle(request("tools/list", "localhost", None)).await;
     assert_eq!(response.status(), hyper::StatusCode::BAD_REQUEST);
     let response = http
-        .call(request("server/discover", "attacker.invalid", None))
-        .await
-        .unwrap();
+        .handle(request("server/discover", "attacker.invalid", None))
+        .await;
     assert_eq!(response.status(), hyper::StatusCode::FORBIDDEN);
     let response = http
-        .call(request(
+        .handle(request(
             "server/discover",
             "localhost",
             Some("https://attacker.invalid"),
         ))
-        .await
-        .unwrap();
+        .await;
     assert_eq!(response.status(), hyper::StatusCode::FORBIDDEN);
 }
 
@@ -452,7 +445,6 @@ type HttpLog = Arc<std::sync::Mutex<Vec<(hyper::Method, hyper::StatusCode)>>>;
 /// logging each request's method and response status.
 async fn logged_http_service() -> (std::net::SocketAddr, HttpLog) {
     use hyper_util::rt::{TokioExecutor, TokioIo};
-    use tower_service::Service;
     let service = service();
     echo(&service);
     let http = crate::server::http_service(service);
@@ -466,10 +458,10 @@ async fn logged_http_service() -> (std::net::SocketAddr, HttpLog) {
             let (http, log) = (http.clone(), log.clone());
             tokio::spawn(async move {
                 let svc = hyper::service::service_fn(move |req| {
-                    let (mut http, log) = (http.clone(), log.clone());
+                    let (http, log) = (http.clone(), log.clone());
                     async move {
                         let method = req.method().clone();
-                        let response = http.call(req).await?;
+                        let response = http.handle(req).await;
                         log.lock().unwrap().push((method, response.status()));
                         Ok::<_, std::convert::Infallible>(response)
                     }

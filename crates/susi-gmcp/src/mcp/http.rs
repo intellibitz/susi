@@ -1737,26 +1737,6 @@ impl<S: ServerHandler> StreamableHttpService<S, LocalSessionManager> {
     }
 }
 
-impl<B, S> tower_service::Service<Request<B>> for StreamableHttpService<S, LocalSessionManager>
-where
-    B: Body + Send + 'static,
-    B::Error: std::fmt::Display,
-    S: ServerHandler,
-{
-    type Response = BoxResponse;
-    type Error = Infallible;
-    type Future = Pin<Box<dyn Future<Output = Result<BoxResponse, Infallible>> + Send>>;
-
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Infallible>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, request: Request<B>) -> Self::Future {
-        let service = self.clone();
-        Box::pin(async move { Ok(service.handle(request).await) })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

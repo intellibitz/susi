@@ -59,7 +59,8 @@ const THIRD_PARTY_CEILING: usize = 141;
 /// T-HARNESSSTD-1).
 /// 2026-11-11: 40 -> 39 (susi-vendor-url deleted, T-SMALLFACADES-2).
 /// 2026-11-11: 39 -> 38 (susi-vendor-shlex deleted, T-CARBONLEAN-2).
-const WORKSPACE_CEILING: usize = 38;
+/// 2026-11-11: 38 -> 37 (susi-vendor-tower-service deleted, T-AGYCLOUD-8).
+const WORKSPACE_CEILING: usize = 37;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
@@ -72,7 +73,9 @@ const WORKSPACE_CEILING: usize = 38;
 /// 2026-11-11: 17 -> 16 (susi-harness -> susi-vendor-axum; T-HARNESSSTD-1).
 /// 2026-11-11: 16 -> 15 (susi-gmcp -> url, T-SMALLFACADES-2).
 /// 2026-11-11: 15 -> 14 (susi-gmcp -> shlex, T-CARBONLEAN-2).
-const DIRECT_FACADE_EDGES_CEILING: usize = 14;
+/// 2026-11-11: 14 -> 13 (susi-gmcp -> tower-service replaced by direct
+/// `StreamableHttpService::handle`, T-AGYCLOUD-8).
+const DIRECT_FACADE_EDGES_CEILING: usize = 13;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
 /// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
@@ -133,6 +136,10 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 14;
 /// shell splitting moves to `susi_paths::shlex` alongside deleting
 /// `susi-vendor-shlex` and `susi-vendor-tracing-appender` (9 packages removed
 /// from Cargo.lock; host packages 237 -> 229).
+/// 2026-11-11: susi-gmcp 25,889 -> 25,860 (T-AGYCLOUD-8, measured): delete
+/// `tower_service::Service` wrapper on `StreamableHttpService` and call
+/// `StreamableHttpService::handle` directly; delete `susi-vendor-tower-service`
+/// (host packages 229 -> 228).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
     ("susi-gawd-swarm", 20_116),
@@ -140,7 +147,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd-a2a", 3_702),
     ("susi-gemi", 21_171),
     ("susi-gemi-models", 15_945),
-    ("susi-gmcp", 25_889),
+    ("susi-gmcp", 25_860),
     ("susi-harness", 39_446),
 ];
 
