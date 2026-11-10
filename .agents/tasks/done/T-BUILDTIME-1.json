@@ -6,7 +6,7 @@
   "deps": [],
   "created_by": "buildtime",
   "created_unix": 1794345477,
-  "status": "in_progress",
+  "status": "done",
   "base": "d771008a39d6557dcdb485bf62f3642fcd0a0d31",
   "mandate_revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311",
   "scopes": [
@@ -107,5 +107,11 @@
     "host": "CEO laptop, CachyOS Linux x86_64, 13th Gen Intel Core i7-13850HX, 28 logical CPUs, 219 GiB RAM",
     "toolchain": "rustc 1.99.0 (b940084d7 2026-09-28), cargo 1.99.0",
     "worktree": "susi-agent-buildtime, branch local-agent/buildtime, own target directory"
-  }
+  },
+  "closed": {
+    "at_unix": 1794346534,
+    "commit": "bd6e60e0f4130fa1312b2761cee6e57329866007",
+    "by": "BUILDTIME"
+  },
+  "close_note": "Landed on origin/main bd6e60e0f by a normal fast-forward push (git ls-remote verified). The profile change is eca904a44; the measurements and docs are 38297d8c0 and 929c5461c."
 }
