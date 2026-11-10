@@ -418,21 +418,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam-channel"
-version = "0.5.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-utils"
-version = "0.8.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
-
-[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1615,7 +1600,6 @@ dependencies = [
  "susi-vendor-signal-hook",
  "susi-vendor-tokio",
  "susi-vendor-tracing",
- "susi-vendor-tracing-appender",
  "susi-vendor-tracing-subscriber",
  "susi-vendor-wasmtime",
  "susi-vendor-winapi",
@@ -1828,7 +1812,6 @@ dependencies = [
  "susi-sandbox-client",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
- "susi-vendor-shlex",
 ]
 
 [[package]]
@@ -1907,7 +1890,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-shlex",
  "susi-vendor-syn",
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
@@ -2159,13 +2141,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-vendor-shlex"
-version = "0.1.0"
-dependencies = [
- "shlex",
-]
-
-[[package]]
 name = "susi-vendor-signal-hook"
 version = "0.1.0"
 dependencies = [
@@ -2231,13 +2206,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-vendor-tracing-appender"
-version = "0.1.0"
-dependencies = [
- "tracing-appender",
-]
-
-[[package]]
 name = "susi-vendor-tracing-subscriber"
 version = "0.1.0"
 dependencies = [
@@ -2286,12 +2254,6 @@ version = "0.1.0"
 dependencies = [
  "susi-vendor-serde-json",
 ]
-
-[[package]]
-name = "symlink"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a"
 
 [[package]]
 name = "syn"
@@ -2356,26 +2318,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "thiserror"
-version = "2.0.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
-dependencies = [
- "thiserror-impl",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.9",
-]
-
-[[package]]
 name = "thread_local"
 version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2395,7 +2337,6 @@ dependencies = [
  "powerfmt",
  "serde_core",
  "time-core",
- "time-macros",
 ]
 
 [[package]]
@@ -2403,16 +2344,6 @@ name = "time-core"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
-
-[[package]]
-name = "time-macros"
-version = "0.2.32"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
-dependencies = [
- "num-conv",
- "time-core",
-]
 
 [[package]]
 name = "tls_codec"
@@ -2557,19 +2488,6 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-appender"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
-dependencies = [
- "crossbeam-channel",
- "symlink",
- "thiserror",
- "time",
- "tracing-subscriber",
 ]
 
 [[package]]

@@ -811,3 +811,18 @@ config, core and the tail.
   935 ns/iter signature, 668 ns/iter truth verify). Lines: `susi-gawd-swarm`
   20,635 -> 20,116 (unchanged `amas.rs` inline unit suite, 519 lines, moved to
   `src/tests/amas.rs`, not a runtime cut).
+- 2026-11-11 (T-CARBONLEAN-2, Linux x86_64, CEO laptop): two more workspace
+  facades leave core (`susi-vendor-shlex` and `susi-vendor-tracing-appender`),
+  removing 9 packages from `Cargo.lock` (`crossbeam-channel`, `crossbeam-utils`,
+  `symlink`, `thiserror`, proc-macros `thiserror-impl` and `time-macros`,
+  `tracing-appender`, `susi-vendor-shlex`, `susi-vendor-tracing-appender`) and
+  lowering `cargo tree -p susi` host packages 237 -> 229 (`-e normal`: 220).
+  `susi_paths::shlex::split` provides `#![forbid(unsafe_code)]` POSIX shell word
+  splitting verified with zero mismatches across 500,000 generated inputs
+  against `shlex` before removal (`susi-gawd-agents` `safety.rs` and `susi-gmcp`
+  `tools/core.rs` switch to it; `shlex 1.3.0` stays only in `cc`'s build edge,
+  so pillar workspace ceiling drops 39 -> 38, direct facade edges drop 15 -> 14,
+  and pillar third-party stays 141). `src/audit_writer.rs` provides a bounded
+  (4,096-record) std `sync_channel` daily UTC rolling JSON audit writer with
+  7-file retention and graceful flush-on-drop. Lines: `susi-gmcp` 25,891 ->
+  25,889. GMCP requirement and `--mastery` evidence re-recorded in both phases.
