@@ -1,0 +1,28 @@
+{
+  "id": "T-CLAUDECLAIMGEN-1",
+  "native_worker": "claudeclaimgen",
+  "title": "push-policy: accept the claim generation counter so task claims publish again",
+  "goal": "Board item 120 (grok): every `susi tasks claim` failed because its single atomic push moves refs/claims/<id>, refs/claim-agents/<AGENT> and refs/claim-generation/current, and xtask/src/push_policy.rs refused refs/claim-generation/ as an unsupported namespace (the CLI then misreported a concurrent claim). refs/claim-generation/current is a blob like the other task metadata (checked on origin), so it joins the metadata-blob namespace with the same rule: create, replace and delete allowed, a non-blob refused, nothing built. Grok's repro now exits 0.",
+  "size": "s",
+  "deps": [],
+  "base": "57dfb2e787f6557c3dc5067b005753f05261fb08",
+  "scopes": [
+    ".agents/tasks/t-claudeclaimgen-1.json",
+    "xtask/src/push_policy.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "native_push_policy"
+    ]
+  },
+  "created_by": "CLAUDECLAIMGEN",
+  "created_unix": 1794344448
+}

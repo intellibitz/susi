@@ -132,7 +132,7 @@ fn metadata_blob_create_replace_delete_do_not_require_branch_builds() {
     let r = Repo::new();
     let head = r.git(&["rev-parse", "HEAD"]);
     let blob = r.git(&["rev-parse", "HEAD:source"]);
-    for namespace in ["claims", "claim-agents", "closed"] {
+    for namespace in ["claims", "claim-agents", "claim-generation", "closed"] {
         let reference = format!("refs/{namespace}/T-FIXTURE-1");
         for old in [ZERO, &blob] {
             assert!(r.check(&format!("{blob} {blob} {reference} {old}")).is_ok());

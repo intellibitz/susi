@@ -106,12 +106,20 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
                 root,
                 &["rev-parse", "--verify", &format!("{new}^{{commit}}")],
             )?;
-        } else if ["refs/claims/", "refs/claim-agents/", "refs/closed/"]
-            .iter()
-            .any(|prefix| remote.starts_with(prefix))
+        } else if [
+            "refs/claims/",
+            "refs/claim-agents/",
+            "refs/claim-generation/",
+            "refs/closed/",
+        ]
+        .iter()
+        .any(|prefix| remote.starts_with(prefix))
         {
-            // Task leases and close receipts are blobs, not source branches. Their
-            // coordinator owns authorization and leases; transport must not build.
+            // Task leases, the claim generation counter and close receipts are
+            // blobs, not source branches. `susi tasks claim` moves
+            // refs/claim-generation/current in the same atomic push as the
+            // claim; refusing it refused every claim. Their coordinator owns
+            // authorization and leases; transport must not build.
             if !deleting && git(root, &["cat-file", "-t", new])? != "blob" {
                 return Err("task metadata must name a blob".into());
             }
