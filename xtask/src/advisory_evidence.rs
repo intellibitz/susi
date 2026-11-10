@@ -369,8 +369,11 @@ pub fn fixture_source(directory: &Path) -> Source {
 #[cfg(test)]
 pub fn fixture_source_for(directory: &Path, package: &str) -> Source {
     fs::create_dir(directory).unwrap();
-    super::git(directory, &["init", "-q"]).unwrap();
+    super::git(directory, &["-c", "core.longpaths=true", "init", "-q"]).unwrap();
     super::git(directory, &["config", "core.autocrlf", "false"]).unwrap();
+    // Test repositories live below private nested runtime homes. This setting
+    // affects only the disposable fixture, never the user's Git configuration.
+    super::git(directory, &["config", "core.longpaths", "true"]).unwrap();
     super::git(directory, &["remote", "add", "origin", DATABASE_URL]).unwrap();
     let collection = directory.join("crates").join(package);
     fs::create_dir_all(&collection).unwrap();
@@ -511,6 +514,25 @@ mod tests {
         assert!(validate_source(&source, now().unwrap()).is_err());
         source.path = path.join("missing");
         assert!(validate_source(&source, now().unwrap()).is_err());
+    }
+
+    #[test]
+    fn fixture_source_supports_advisory_paths_beyond_windows_legacy_limit() {
+        let mut path = scratch();
+        // Keep the child working directory within CreateProcess's separate
+        // limit while exercising Git's >260-character tracked-file handling.
+        while path
+            .join("db/crates/qualification-fixture/RUSTSEC-2026-0001.md")
+            .to_string_lossy()
+            .encode_utf16()
+            .count()
+            < 270
+        {
+            path = path.join("nested-fixture");
+        }
+        fs::create_dir_all(&path).unwrap();
+        let source = fixture_source(&path.join("db"));
+        validate_source(&source, now().unwrap()).unwrap();
     }
 
     #[test]
