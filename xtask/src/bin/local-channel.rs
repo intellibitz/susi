@@ -825,6 +825,20 @@ fn observe_channel(channel_root: &Path, channel: &str, susi_args: &[String]) -> 
         .env("SUSI_PORT_OFFSET", "200")
         .stdin(Stdio::null())
         .output()?;
+    // A failed command is not evidence that the delivered or restored behavior
+    // works. Apply the same requirement to all three rollback-proof observations.
+    if !out.status.success() {
+        let stderr: String = String::from_utf8_lossy(&out.stderr)
+            .chars()
+            .take(4096)
+            .collect();
+        return Err(format!(
+            "Active {channel} executable observation failed ({}): {}",
+            out.status,
+            stderr.trim()
+        )
+        .into());
+    }
     let stdout: String = String::from_utf8_lossy(&out.stdout)
         .chars()
         .take(4096)
@@ -974,7 +988,11 @@ fn deliver(channel_root: &Path, channel: &str, opts: &DeliverOptions) -> Result<
     } else {
         opts.observe.clone()
     };
-    let observed = observe_channel(channel_root, channel, &observe_args)?;
+    let observed = observe_channel(channel_root, channel, &observe_args).map_err(|error| {
+        format!(
+            "{error}; the dev channel remains at {head}. No successful delivery was recorded and no rollback was performed."
+        )
+    })?;
     clock.mark("observe");
     let change_to_live = clock.total();
 
@@ -1310,7 +1328,9 @@ mod tests {
             let src_path = path.with_extension("rs");
             fs::write(
                 &src_path,
-                format!("fn main() {{ println!(\"susi {version}\"); }}\n"),
+                format!(
+                    "fn main() {{ if std::env::args().any(|arg| arg == \"--fail-observation\") {{ eprintln!(\"fixture observation failed\"); std::process::exit(42); }} println!(\"susi {version}\"); }}\n"
+                ),
             )?;
             let status = Command::new("rustc")
                 .arg(&src_path)
@@ -1322,9 +1342,49 @@ mod tests {
         }
         #[cfg(not(windows))]
         {
-            fs::write(path, format!("#!/bin/sh\necho \"susi {version}\"\n"))?;
+            fs::write(
+                path,
+                format!("#!/bin/sh\nif [ \"$1\" = \"--fail-observation\" ]; then echo 'fixture observation failed' >&2; exit 42; fi\necho \"susi {version}\"\n"),
+            )?;
             set_executable_if_unix(path)?;
         }
+        Ok(())
+    }
+
+    #[test]
+    fn observation_requires_success_and_preserves_the_active_selection() -> Result<()> {
+        let dir = env::temp_dir().join(format!("susi-observation-status-{}", std::process::id()));
+        fs::create_dir_all(&dir)?;
+        let current = dir.join(exe_name());
+        write_mock_susi_binary(&current, "0.21.47")?;
+        let state_path = channel_state_path(&dir);
+        let state = json!({
+            "channel": "dev",
+            "current": current.to_string_lossy(),
+            "previous": null,
+            "sha256": sha256_file(&current)?,
+            "version": "susi 0.21.47",
+        });
+        write_state(&state_path, &state)?;
+
+        let observed = observe_channel(&dir, "dev", &strings(&["--version"]))?;
+        assert_eq!(observed["exit"], 0);
+        assert_eq!(
+            observed["stdout"].as_str().map(str::trim),
+            Some("susi 0.21.47")
+        );
+        let failed = observe_channel(&dir, "dev", &strings(&["--fail-observation"]));
+        let unchanged = read_state(&state_path)?;
+        fs::remove_dir_all(&dir)?;
+        let Err(error) = failed else {
+            return Err("a nonzero observation cannot verify a delivery".into());
+        };
+        assert!(error.to_string().contains("42"), "{error}");
+        assert!(
+            error.to_string().contains("fixture observation failed"),
+            "{error}"
+        );
+        assert_eq!(unchanged, Some(state));
         Ok(())
     }
 
