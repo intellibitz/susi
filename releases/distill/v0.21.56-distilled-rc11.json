@@ -1,0 +1,85 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "release_records"
+      ],
+      "exit_code": 0,
+      "output_sha256": "13c99580a96709ac8f4566fc6c1506f51333b3cbf63c3a2ee7c2b3320b678fe1",
+      "passed": true,
+      "task_id": "T-CODEXRECORDS-1"
+    }
+  ],
+  "base_commit": "de2175b9b71d3df8f90c4daebde9faf6b0bc8395",
+  "base_tree": "0ff63dab9e11b034b0d87836683768f03170798a",
+  "branch_ref": "refs/heads/release/v0.21.56-distilled-rc11",
+  "closure_order": [
+    "T-CODEXRECORDS-1"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "3edb72588b57dcb956ad032bb6d89495f539eb50",
+  "final_tree": "6f57b23ea7228d57aedc7df9461ab73291739b03",
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "release_records"
+      ],
+      "changed_files": [
+        ".agents/receipts/5fb6ad9db841371a1901cbbb11a3011c67a66d45.json",
+        ".agents/receipts/d723cc553826d586976f828563c0ec362fc8f4f3.json",
+        ".agents/tasks/T-CODEXRECORDS-1.json",
+        "tests/release_records.rs"
+      ],
+      "composed_commit": "3edb72588b57dcb956ad032bb6d89495f539eb50",
+      "composed_tree": "6f57b23ea7228d57aedc7df9461ab73291739b03",
+      "deps": [],
+      "goal": "Allow the release-record guard to ignore the host-neutral releases/distill envelope directory while continuing to validate every top-level release record and qualification record.",
+      "owner": "codex-coordinator",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CODEXRECORDS-1.json",
+        ".agents/receipts",
+        "tests/release_records.rs"
+      ],
+      "source_commits": [
+        "cc922b1f313b3441a75a52e5a6be5e070236924c",
+        "bf65aa6beb203bae058eb36c2598fa1ed94601aa",
+        "6519f8fed24a66bf1ea7ecc00c93cd6b45c18f9d",
+        "4411fe15292d54ff323095fa98af355f5bb1fe75",
+        "e77d7e367a2e46512aa42c120e241545c9f7b3b2"
+      ],
+      "task_id": "T-CODEXRECORDS-1",
+      "title": "Keep release-record guards compatible with distillation envelopes"
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0.21.56-distilled-rc11",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "982905dde5da2f976a9a38c5eccdb80e14190c5216d2004c6809c8a3fde49f48",
+  "rejected": [],
+  "requested_tasks": [
+    "T-CODEXRECORDS-1"
+  ],
+  "satisfied_in_base": [],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.56-distilled-rc11",
+  "source_stream_commit": "3950119c4adde063a2bc7c9cd5eb10455febca21",
+  "source_stream_tree": "986b69cd5330a7a01ff6bb7c7ebfa9c3b8d8178a"
+}
