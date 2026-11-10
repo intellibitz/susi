@@ -1,0 +1,157 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins"
+      ],
+      "exit_code": 0,
+      "output_sha256": "b4a8deca2442d7276c46a359df75a4ba01fd80fd07212bb759db33a25f14d2ea",
+      "passed": true,
+      "task_id": "T-CARBONLEAN-1"
+    }
+  ],
+  "base_commit": "e9767382bc87dce615a98add5f83034507c3e5c6",
+  "base_tree": "5c9970de372801ed4747efda107628ba6534fbed",
+  "branch_ref": "refs/heads/release/v0.21.56-distilled-rc3",
+  "closure_order": [
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CARBONRELBRANCH-1",
+    "T-CARBONLEAN-1"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "fc3b340328d7ea6c3a9907a870739a10832a374a",
+  "final_tree": "a302434169de6969c2d30547de6be8c896827620",
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CARBONLEAN-1.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-core/Cargo.toml",
+        "crates/susi-core/benches/evidence_verify.rs",
+        "crates/susi-daemon-runtime/Cargo.toml",
+        "crates/susi-daemon-runtime/src/nat.rs",
+        "crates/susi-gawd-swarm/src/amas.rs",
+        "crates/susi-gawd-swarm/src/tests/amas.rs",
+        "crates/susi-vendor-console-subscriber/Cargo.toml",
+        "crates/susi-vendor-console-subscriber/src/lib.rs",
+        "crates/susi-vendor-criterion/Cargo.toml",
+        "crates/susi-vendor-criterion/src/lib.rs",
+        "crates/susi-vendor-sha1/Cargo.toml",
+        "crates/susi-vendor-sha1/src/lib.rs",
+        "docs/lean-core.md",
+        "src/main.rs",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs",
+        "xtask/Cargo.toml",
+        "xtask/src/main.rs",
+        "xtask/src/upstream_notices.rs",
+        "xtask/tests/git_publisher_native_hook.rs"
+      ],
+      "composed_commit": "fc3b340328d7ea6c3a9907a870739a10832a374a",
+      "composed_tree": "a302434169de6969c2d30547de6be8c896827620",
+      "deps": [
+        "T-CARBONRELBRANCH-1"
+      ],
+      "goal": "Remove three workspace vendor facades (susi-vendor-console-subscriber, susi-vendor-criterion, susi-vendor-sha1) and 60 transitive third-party crates (63 packages total: tonic, prost, console-subscriber, criterion, rayon, plotters, ciborium, flate2, zlib-rs, wasm-bindgen, regex, sha1, etc.) from Cargo.lock and workspace builds, replace STUN HMAC-SHA1 and Git object SHA-1 with pure-std RFC 3174 SHA-1, replace Criterion with a deterministic std benchmark runner, ratchet susi-gawd-swarm line ceiling down by 519 lines, and harden git_publisher_native_hook against ambient PATH push-policy leakage.",
+      "owner": "carbon-cachyos-distill",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CARBONLEAN-1.json",
+        ".agents/tasks/done/T-CARBONLEAN-1.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-core/Cargo.toml",
+        "crates/susi-core/benches/evidence_verify.rs",
+        "crates/susi-daemon-runtime/Cargo.toml",
+        "crates/susi-daemon-runtime/src/nat.rs",
+        "crates/susi-gawd-swarm/src/amas.rs",
+        "crates/susi-gawd-swarm/src/tests/amas.rs",
+        "crates/susi-vendor-console-subscriber",
+        "crates/susi-vendor-criterion",
+        "crates/susi-vendor-sha1",
+        "docs/lean-core.md",
+        "src/main.rs",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs",
+        "xtask/Cargo.toml",
+        "xtask/src/main.rs",
+        "xtask/src/upstream_notices.rs",
+        "xtask/tests/git_publisher_native_hook.rs"
+      ],
+      "source_commits": [
+        "41fae89df2245abd25b6230a90be2a110f7fcb0e"
+      ],
+      "task_id": "T-CARBONLEAN-1",
+      "title": "Lean core: delete console-subscriber, criterion and sha1 facades; ratchet gawd-swarm ceiling and hermetic hook PATH"
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0.21.56-distilled-rc3",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "1e6350f24870edfb240c5b3fe5f92ef2541626249f5f08e85b088efd2ae574bc",
+  "rejected": [],
+  "requested_tasks": [
+    "T-CARBONLEAN-1"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base e9767382bc87dce615a98add5f83034507c3e5c6 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-1 is already present in base e9767382bc87dce615a98add5f83034507c3e5c6 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDRIVER-1 is already present in base e9767382bc87dce615a98add5f83034507c3e5c6 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONRELBRANCH-1 is already present in base e9767382bc87dce615a98add5f83034507c3e5c6 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONRELBRANCH-1"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.56-distilled-rc3",
+  "source_stream_commit": "e12bc9008dc1d2c6be8d98da7523e78664fd604b",
+  "source_stream_tree": "ffe83fb398437aeab4cfe536dcf8b09e9102ab17"
+}
