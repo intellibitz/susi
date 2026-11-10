@@ -13,13 +13,14 @@
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use susi_http_transport::server::{
-    header, Before, Body, Guard, HeaderMap, HeaderValue, Negotiate, Peer, Request, Response,
-    Router, StatusCode,
+    get, header, post, Before, Body, Guard, HeaderMap, HeaderValue, MethodRouter, Negotiate, Peer,
+    Request, Response, Router, StatusCode,
 };
 use tokio_rustls::TlsAcceptor;
 
 use crate::executor::GawdA2AExecutor;
 use crate::protocol::{AgentCard, AgentExecutor, Handler, WELL_KNOWN_AGENT_CARD_PATH};
+use crate::susi_core::acp::{AcpEngine, ACP_RPC_PATH, ACP_STREAM_PATH, WELL_KNOWN_ACP_PATH};
 use crate::task_store::TaskStore;
 
 use susi_http_transport::dual_transport::negotiate_blocking;
@@ -94,10 +95,28 @@ fn health() -> Response {
     response
 }
 
-/// The A2A routes for `executor` behind the authorization guard and the
-/// concurrency bound — the stack [`serve`] runs. The agent card is public
-/// discovery metadata: its route is mounted after the guard, so it is not
-/// behind it; every task-bearing route (JSON-RPC, SSE) and every unknown
+fn acp_discovery(acp: &AcpEngine) -> MethodRouter {
+    let body = Arc::new(serde_json::to_string(&acp.discovery_document()).unwrap_or_default());
+    get(move |_: Request| {
+        let body = Arc::clone(&body);
+        async move {
+            let mut response = Response::new(Body::from(body.as_ref().clone()));
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
+            response
+                .headers_mut()
+                .insert("access-control-allow-origin", HeaderValue::from_static("*"));
+            response
+        }
+    })
+}
+
+/// The A2A and ACP routes for `executor` behind the authorization guard and the
+/// concurrency bound — the stack [`serve`] runs. Discovery documents are public
+/// metadata: their routes are mounted after the guard, so they are not
+/// behind it; every task/session-bearing route (JSON-RPC, SSE) and every unknown
 /// path is.
 fn app(
     executor: Arc<dyn AgentExecutor>,
@@ -106,12 +125,61 @@ fn app(
     verifier: Verifier,
 ) -> Router {
     let handler = Arc::new(Handler::new(executor, card.clone(), store));
+    let acp = Arc::new(AcpEngine::default());
+    let acp_rpc = Arc::clone(&acp);
+    let acp_sse = Arc::clone(&acp);
     crate::protocol::router(handler)
+        .route(
+            ACP_RPC_PATH,
+            post(move |request: Request| {
+                let engine = Arc::clone(&acp_rpc);
+                async move {
+                    let reply = engine.handle_jsonrpc_bytes(&request.body);
+                    let mut response = Response::new(Body::from(reply));
+                    response.headers_mut().insert(
+                        header::CONTENT_TYPE,
+                        HeaderValue::from_static("application/json"),
+                    );
+                    response
+                }
+            }),
+        )
+        .route(
+            ACP_STREAM_PATH,
+            post(move |request: Request| {
+                let engine = Arc::clone(&acp_sse);
+                async move {
+                    match engine.handle_sse_stream_bytes(&request.body) {
+                        Ok(frames) => {
+                            let mut response = Response::new(Body::from(frames.concat()));
+                            response.headers_mut().insert(
+                                header::CONTENT_TYPE,
+                                HeaderValue::from_static("text/event-stream"),
+                            );
+                            response.headers_mut().insert(
+                                header::CACHE_CONTROL,
+                                HeaderValue::from_static("no-cache"),
+                            );
+                            response
+                        }
+                        Err(err_json) => {
+                            let mut response = Response::new(Body::from(err_json));
+                            response.headers_mut().insert(
+                                header::CONTENT_TYPE,
+                                HeaderValue::from_static("application/json"),
+                            );
+                            response
+                        }
+                    }
+                }
+            }),
+        )
         .guard_all(Some(MAX_AUTH_BODY_BYTES), auth_guard(verifier))
         .route_public(
             WELL_KNOWN_AGENT_CARD_PATH,
             crate::protocol::agent_card(&card),
         )
+        .route_public(WELL_KNOWN_ACP_PATH, acp_discovery(&acp))
         .before(health_first())
         .concurrency_limit(MAX_CONCURRENT_REQUESTS)
 }
@@ -230,195 +298,5 @@ mod wire_golden;
 mod handler_paths;
 
 #[cfg(test)]
-mod tests {
-    use crate::protocol::{
-        AgentExecutor, EventQueue, Message, Part, PartContent, RequestContext, Result, Task,
-        TaskState, TaskStatus,
-    };
-    use crate::susi_core::a2a_wire;
-    use std::future::Future;
-    use std::net::SocketAddr;
-    use std::pin::Pin;
-    use std::sync::Arc;
-
-    /// Replies with the received text, uppercased, as a completed task.
-    struct Shout;
-
-    impl AgentExecutor for Shout {
-        fn execute<'a>(
-            &'a self,
-            ctx: &'a RequestContext,
-            queue: &'a EventQueue,
-        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
-            Box::pin(async move {
-                let text = ctx
-                    .message
-                    .as_ref()
-                    .and_then(|m| m.parts.first())
-                    .and_then(|p| match &p.content {
-                        PartContent::Text(t) => Some(t.to_uppercase()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                let mut task = Task::new(&ctx.task_id, &ctx.context_id);
-                task.status = TaskStatus::with_message(
-                    TaskState::Completed,
-                    Message::agent(vec![Part::text(text)]),
-                );
-                queue.send(task)?;
-                Ok(())
-            })
-        }
-
-        fn cancel<'a>(
-            &'a self,
-            _ctx: &'a RequestContext,
-            _queue: &'a EventQueue,
-        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
-            Box::pin(async { Ok(()) })
-        }
-    }
-
-    /// The production stack around `Shout`, admitting every caller, on a
-    /// loopback port.
-    fn serve_shout(runtime: &tokio::runtime::Runtime) -> SocketAddr {
-        let card = crate::executor::GawdA2AExecutor::new().agent_card();
-        let app = super::app(
-            Arc::new(Shout),
-            card,
-            Arc::new(crate::task_store::TaskStore::new()),
-            Arc::new(|_: &super::VerifierContext| true),
-        );
-        super::serve_on_loopback(runtime, app)
-    }
-
-    fn post(addr: SocketAddr, path: &str, body: &serde_json::Value) -> serde_json::Value {
-        let payload = serde_json::to_vec(body).unwrap();
-        let reply = susi_http_transport::http_call_with_body(
-            "POST",
-            &format!("http://{addr}{path}"),
-            &[
-                ("Content-Type", "application/json"),
-                ("A2A-Version", a2a_wire::A2A_VERSION),
-            ],
-            Some(&payload),
-            20,
-            0,
-        )
-        .unwrap();
-        serde_json::from_str(&reply.into_utf8(1_000_000).unwrap()).unwrap()
-    }
-
-    #[test]
-    fn unauthorized_carries_bearer_challenge() {
-        let response = super::unauthorized();
-        assert_eq!(response.status(), super::StatusCode::UNAUTHORIZED);
-        assert_eq!(
-            response
-                .headers()
-                .get(super::header::WWW_AUTHENTICATE)
-                .and_then(|value| value.to_str().ok()),
-            Some("Bearer realm=\"susi-a2a\"")
-        );
-    }
-
-    /// The shared outbound `message/send` shape round-trips through the real
-    /// JSON-RPC router: the v1.0 part is decoded as text and the task
-    /// result folds back into its reply.
-    #[test]
-    fn shared_message_send_round_trips_through_the_a2a_router() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let addr = serve_shout(&runtime);
-        let reply = post(addr, "/", &a2a_wire::message_send_request("ping"));
-        assert_eq!(
-            a2a_wire::reply_summary(&reply).unwrap(),
-            "task completed: PING",
-            "{reply}"
-        );
-    }
-
-    /// The SSE route answers JSON-RPC errors with the standard codes too:
-    /// an unknown method on `/stream` is -32601 and a resubscribe to a task
-    /// that does not exist is A2A task-not-found (-32001), not a wrapped
-    /// internal error.
-    #[test]
-    fn stream_route_errors_carry_standard_codes() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let addr = serve_shout(&runtime);
-        let call = |body: serde_json::Value| post(addr, "/stream", &body);
-        let unknown =
-            call(serde_json::json!({"jsonrpc":"2.0","id":5,"method":"x/unknown","params":{}}));
-        assert_eq!(unknown["error"]["code"], -32601, "{unknown}");
-        assert_eq!(unknown["id"], 5, "{unknown}");
-        let missing = call(serde_json::json!({"jsonrpc":"2.0","id":6,
-            "method":"tasks/resubscribe","params":{"id":"no-such-task"}}));
-        assert_eq!(missing["error"]["code"], -32001, "{missing}");
-        // The A2A 1.0 name reaches the same handler.
-        let subscribe = call(serde_json::json!({"jsonrpc":"2.0","id":7,
-            "method":"SubscribeToTask","params":{"id":"no-such-task"}}));
-        assert_eq!(subscribe["error"]["code"], -32001, "{subscribe}");
-        assert_eq!(subscribe["id"], 7, "{subscribe}");
-    }
-
-    /// The card claims A2A 1.0, so the 1.0 method names (`SendMessage`, ...)
-    /// dispatch like the slash names, which stay accepted as aliases.
-    #[test]
-    fn a2a_1_0_method_names_dispatch() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let addr = serve_shout(&runtime);
-        let send = |method: &str| {
-            let mut body = a2a_wire::message_send_request("ping");
-            body["method"] = method.into();
-            post(addr, "/", &body)
-        };
-        for method in ["SendMessage", "message/send"] {
-            let reply = send(method);
-            assert_eq!(
-                a2a_wire::reply_summary(&reply).unwrap(),
-                "task completed: PING",
-                "{method}: {reply}"
-            );
-        }
-        let get = send("GetTask");
-        assert_ne!(get["error"]["code"], -32601, "GetTask must dispatch: {get}");
-    }
-
-    /// Envelope and params failures carry the standard JSON-RPC codes and
-    /// the request id; a handler refusal on `/` stays -32603.
-    #[test]
-    fn rpc_errors_carry_standard_codes_and_ids() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let addr = serve_shout(&runtime);
-        let unknown = post(
-            addr,
-            "/",
-            &serde_json::json!({"jsonrpc":"2.0","id":1,"method":"x","params":{}}),
-        );
-        assert_eq!(
-            unknown["error"],
-            serde_json::json!({"code":-32601,"message":"Method 'x' not found"})
-        );
-        assert_eq!(unknown["id"], 1);
-        let params = post(
-            addr,
-            "/",
-            &serde_json::json!({"jsonrpc":"2.0","id":9,"method":"message/send","params":{}}),
-        );
-        assert_eq!(params["error"]["code"], -32602, "{params}");
-        assert_eq!(
-            params["error"]["message"],
-            "Invalid params: missing field `message`"
-        );
-        assert_eq!(params["id"], 9);
-        let refused = post(
-            addr,
-            "/",
-            &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tasks/get","params":{"id":"t"}}),
-        );
-        assert_eq!(
-            refused,
-            serde_json::json!({"jsonrpc":"2.0","id":null,
-                "error":{"code":-32603,"message":"task not found: t"}})
-        );
-    }
-}
+#[path = "tests/server_routes.rs"]
+mod tests;

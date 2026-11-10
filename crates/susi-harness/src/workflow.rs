@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult};
 
 /// The claim record header the native coordinator writes.
-const CLAIM_HEADER: &str = "susi-local-claim-v2";
+pub(crate) const CLAIM_HEADER: &str = "susi-local-claim-v2";
 
 /// The ref the native coordinator moves on every integration.
 const INTEGRATION_REF: &str = "refs/susi/integration/current";
@@ -1087,6 +1087,12 @@ impl IntegrationPolicy {
         Ok(())
     }
 }
+
+pub use crate::workflow_runner::{
+    reconcile_worktree_with_remote, IsolatedWorkerWorkspace, ParallelAgentSpec,
+    ParallelWorkflowHarness, ParallelWorkflowReport, RemoteReconcileConfig, RemoteSyncMode,
+    WorkflowDistillSnapshot, WorkflowStep, WorkflowStepReceipt,
+};
 
 #[cfg(test)]
 #[path = "tests/workflow.rs"]
