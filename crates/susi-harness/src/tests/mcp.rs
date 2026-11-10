@@ -225,6 +225,16 @@ fn mcp_records_the_negotiated_protocol_version() {
 }
 
 #[test]
+fn mcp_rejects_initialize_without_a_protocol_version_before_ready_notification() {
+    let transport = Scripted::new(vec![response(1, json!({"capabilities": {}}))]);
+    let mut client = McpClient::new(transport);
+    let error = client.initialize().unwrap_err().to_string();
+    assert!(error.contains("no non-empty protocolVersion"), "{error}");
+    assert_eq!(client.transport.requests.len(), 1);
+    assert!(!client.initialized);
+}
+
+#[test]
 fn mcp_rejects_a_response_for_another_request_id() {
     let transport = Scripted::new(vec![json!({
         "jsonrpc": "2.0",
