@@ -1,0 +1,32 @@
+{
+  "id": "T-CLAUDEUDPFIX-1",
+  "title": "A2A UDP discovery stays up on Windows",
+  "goal": "On Windows the supervised worker a2a-udp-discovery exited within a second of every daemon start and was marked down once its restart budget of 5 ran out (supervisor.log, 2026-11-09 and 2026-11-10). The listener loop ended on any recv_from error, and Windows reports the ICMP port-unreachable drawn by an earlier send_to as WSAECONNRESET on the next recv_from of the same unconnected socket: the listener answers a verified ping with two pongs, and a pinger that closes after the first (the daemon's own readiness probe) leaves the second undeliverable. The loop now skips errors that describe one datagram (ConnectionReset, ConnectionRefused, Interrupted, and on Windows WSAEMSGSIZE and WSAENETRESET) and logs any other error before stopping.",
+  "status": "in_progress",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794441600,
+  "size": "s",
+  "deps": [],
+  "base": "67cea34c6",
+  "scopes": [
+    "crates/susi-daemon/src/server.rs",
+    ".agents/tasks/T-CLAUDEUDPFIX-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "udp_"
+    ]
+  },
+  "acceptance": [
+    "On x86_64-pc-windows-msvc: susi-daemon lib tests udp_discovery_survives_a_send_to_a_closed_port, windows_udp_recv_reports_an_undeliverable_send_as_connection_reset and udp_discovery_survives_an_oversized_datagram pass",
+    "A daemon built from this tree keeps a2a-udp-discovery in state running after start instead of exhausting its restart budget"
+  ]
+}
