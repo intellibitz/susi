@@ -78,6 +78,14 @@ impl Git<'_> {
                 )
                 .env("GIT_TERMINAL_PROMPT", "0");
         }
+        if args.first() == Some(&"push") {
+            let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+            if let Some(path) = adjacent_helper_path(&executable, std::env::var_os("PATH"))? {
+                // The configured Git hook still runs normally. Only this child
+                // process can discover the native helper built beside us.
+                command.env("PATH", path);
+            }
+        }
         let mut child = command
             .spawn()
             .map_err(|e| format!("cannot start Git: {e}"))?;
@@ -289,6 +297,33 @@ impl Git<'_> {
         }
         Ok(commit)
     }
+}
+
+fn adjacent_helper_path(
+    executable: &Path,
+    inherited: Option<std::ffi::OsString>,
+) -> Result<Option<std::ffi::OsString>> {
+    let directory = executable
+        .parent()
+        .ok_or("publisher executable has no directory")?;
+    let helper = directory.join(if cfg!(windows) {
+        "push-policy.exe"
+    } else {
+        "push-policy"
+    });
+    match helper.try_exists() {
+        Ok(false) => return Ok(None),
+        Ok(true) if helper.is_file() => {}
+        Ok(true) => return Err("adjacent push-policy is not a file".to_owned()),
+        Err(error) => return Err(format!("cannot inspect adjacent push-policy: {error}")),
+    }
+    let mut paths = vec![directory.to_path_buf()];
+    if let Some(value) = inherited {
+        paths.extend(std::env::split_paths(&value));
+    }
+    std::env::join_paths(paths)
+        .map(Some)
+        .map_err(|e| format!("cannot prepare native hook search path: {e}"))
 }
 
 fn matching_push_rewrite(rules: &str, address: &str) -> Result<bool> {
@@ -1023,6 +1058,32 @@ mod tests {
             // This unique test directory is created above; no external path is accepted.
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[test]
+    fn adjacent_native_helper_preserves_inherited_search_path() {
+        let repo = Repo::new();
+        let executable = repo.work.join("local-snapshot");
+        let inherited = std::env::join_paths([&repo.root]).unwrap();
+        assert!(adjacent_helper_path(&executable, Some(inherited.clone()))
+            .unwrap()
+            .is_none());
+        let helper = repo.work.join(if cfg!(windows) {
+            "push-policy.exe"
+        } else {
+            "push-policy"
+        });
+        fs::write(&helper, "fixture only").unwrap();
+        let path = adjacent_helper_path(&executable, Some(inherited))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            std::env::split_paths(&path).collect::<Vec<_>>(),
+            vec![repo.work.clone(), repo.root.clone()]
+        );
+        fs::remove_file(&helper).unwrap();
+        fs::create_dir(&helper).unwrap();
+        assert!(adjacent_helper_path(&executable, None).is_err());
     }
 
     #[test]
