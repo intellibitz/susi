@@ -12,8 +12,11 @@ wasmi = { version = "=1.0.9", default-features = false, features = ["std", "simd
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 # In-process cell runtime (`cell.rs`): the declared-max memory-cap rewrite of
 # the module's memory section.
-wasm-encoder = "0.259"
-wasmparser = "0.259"
+# Only the core-module reader and encoder are used (cell.rs caps the memory
+# section before Wasmi validates the module); the default validator,
+# component model and serde support are not compiled.
+wasm-encoder = { version = "0.259", default-features = false, features = ["std"] }
+wasmparser = { version = "0.259", default-features = false, features = ["std"] }
 tracing = { workspace = true }
 
 # The WebAssembly text format is a test-time convenience, never a host input:
