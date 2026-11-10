@@ -1,0 +1,32 @@
+{
+  "id": "T-DOTPROVIDERNEUTRAL-1",
+  "title": "Verify provider-neutral qualification inputs",
+  "goal": "Accept independently approved advisory mirror identities and locally verifiable upstream Git object proofs without weakening source, freshness, checksum or license checks.",
+  "created_by": "dot-provider-neutral",
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-provider-neutral",
+  "claimed_by": "dot-provider-neutral",
+  "deps": [],
+  "scopes": [
+    "xtask/src/advisory_evidence.rs",
+    "xtask/src/upstream_notices.rs",
+    "docs/provider-neutral-inputs.md",
+    ".agents/tasks/T-DOTPROVIDERNEUTRAL-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release"
+    ]
+  },
+  "checkpoint": "Windows native focused validation passed: cargo test --offline --locked -p xtask --features release-tooling --bin local-release advisory_evidence:: (8 passed, 30.72s; real cargo-deny detected synthetic advisory through non-GitHub mirror); upstream_notices:: (9 passed on final code, 0.14s); cargo clippy --offline --locked -p xtask --features release-tooling --bin local-release -- -D warnings passed. Independent source review found no new security blocker; non-UTF-8 Git sibling handling corrected. Full 97-test binary suite, combined-tree qualification and publication pending. MCP live default remains explicit migration debt. Evidence in private provider-neutral-verification runner logs; no full release claim."
+}
