@@ -53,7 +53,7 @@ means four pillars plus the host that serves them.
 | Keep: socket host | `susi` (root), `-cli-defs`, `-daemon`, `-server`, `-leaf-services` (collapse the five leaf services into the daemon: one process, no per-service HTTP), `-wire-client`, `-conformance`, `-windows-runtime`, `-build-os-ucrt`, `xtask`, `-unsafe-ratchet` (tooling) | shrink; collapse |
 | Keep: Tier 0 | `susi-vendor-wasmtime` (SUSI-Alpha Wasm reflexes are core), `-vendor-syn` (reflex validation) | review at rung 2 |
 | Move to commercial (plugs) | `susi-vendor-models`, `-vendor-agents`, `-vendor-web`, `-vendor-cloud`, `-vendor-chrome`, `-vendor-candle`, `-vendor-fastembed`, `-vendor-tantivy`, `-vendor-bollard` + `susi-sandbox` (Docker), `susi-tools` (MCP client adapters; the registry stays in core), `susi-agents` (external-agent plane), `susi-universal-cell` | Antigravity, crate by crate, gated |
-| Delete when unreferenced | pure facades nothing reaches after the moves (`anyhow`, `console-subscriber`, `tracing-appender`, `tracing-subscriber`, `md-5`, `rcgen`, `signal-hook`, `tokio-stream`, `criterion`, `proptest` ...) | after each move |
+| Delete when unreferenced | pure facades nothing reaches after the moves (`anyhow`, `console-subscriber`, `tracing-appender`, `tracing-subscriber`, `md-5`, `rcgen`, `tokio-stream`, `criterion`, `proptest` ...) | after each move |
 
 ## How work is split
 
@@ -984,5 +984,19 @@ config, core and the tail.
   cumulative `Cargo.lock` packages removed across T-CARBONLEAN-1..11) and
   lowering `THIRD_PARTY_CEILING` 117 -> 115. Also synchronize `README.md` to
   Mandates 49–74 after Mandate 74 landed in `.agents/identity.json`.
+- 2026-11-11 (T-CARBONLEAN-12, Linux x86_64, CEO laptop): delete workspace
+  facade `crates/susi-vendor-signal-hook` (`VENDOR_FACADES` 18 -> 17) by
+  replacing `signal_hook` in `crates/susi-daemon/src/server.rs` and
+  `src/cli/catalog_plane_cli.rs` with `#![forbid(unsafe_code)]` cross-platform
+  `tokio::signal` listeners (`SignalKind::{interrupt,terminate,hangup}` on Unix
+  and `tokio::signal::windows::{ctrl_c,ctrl_break,ctrl_close,ctrl_shutdown}` on
+  Windows), and set `default-features = false` on `clap` in
+  `crates/susi-vendor-clap/Cargo.toml` (`["std", "derive", "env", "help",
+  "usage", "error-context", "suggestions"]`, dropping unused terminal color
+  styling). Removes 10 packages from `Cargo.lock` and from the host `susi`
+  binary (`anstream`, `anstyle-parse`, `anstyle-query`, `anstyle-wincon`,
+  `colorchoice`, `is_terminal_polyfill`, `once_cell_polyfill`, `signal-hook`,
+  `susi-vendor-signal-hook`, `utf8parse`; `Cargo.lock` 210 -> 200 packages; 156
+  cumulative `Cargo.lock` packages removed across T-CARBONLEAN-1..12).
 
 

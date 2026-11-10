@@ -1,0 +1,52 @@
+{
+  "id": "T-CARBONLEAN-12",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-12",
+  "title": "Lean core: delete susi-vendor-signal-hook via tokio::signal and trim clap ANSI color stack (-10 Cargo.lock & host-build packages, 210 -> 200)",
+  "goal": "Delete workspace facade crates/susi-vendor-signal-hook (VENDOR_FACADES 18 -> 17) by replacing signal_hook in crates/susi-daemon/src/server.rs and src/cli/catalog_plane_cli.rs with cross-platform #![forbid(unsafe_code)] tokio::signal listeners, and set default-features = false on clap in crates/susi-vendor-clap/Cargo.toml (retaining std, derive, env, help, usage, error-context, suggestions while dropping unused terminal ANSI color styling), removing 10 packages from Cargo.lock and from the host susi binary (Cargo.lock 210 -> 200; 156 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..12).",
+  "status": "in_progress",
+  "state": "in_progress",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794396120,
+  "size": "s",
+  "deps": [
+    "T-CARBONLEAN-11",
+    "T-CARBONDISTILL-2"
+  ],
+  "base": "d5824bb9498540ebc3b12cea9d5512c9db17694f",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-12.json",
+    ".agents/tasks/done/T-CARBONLEAN-12.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-daemon/src/server.rs",
+    "crates/susi-vendor-clap/Cargo.toml",
+    "crates/susi-vendor-signal-hook/Cargo.toml",
+    "crates/susi-vendor-signal-hook/src/lib.rs",
+    "docs/lean-core.md",
+    "src/cli/catalog_plane_cli.rs",
+    "tests/architecture_tests.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo check --workspace --all-targets --keep-going --offline --locked",
+    "cargo clippy --offline --locked -p susi-vendor-clap -p susi-cli-defs -p susi-daemon -p susi --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-cli-defs -p susi-daemon --lib",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ]
+}
