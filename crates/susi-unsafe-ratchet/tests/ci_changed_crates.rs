@@ -782,8 +782,13 @@ mod hosted_scripts {
         assert!(compliance.contains("unmerged_closes_of \"$agent\""));
         let helper = repo.join("scripts/owed-task-receipts.sh");
         let source = std::fs::read_to_string(&helper).unwrap();
-        assert!(source.contains("git cat-file --batch"));
-        assert!(!source.contains("git cat-file -p \"$name\""));
+        assert!(source.contains("--bin owed-task-receipts -- \"$@\""));
+        let native = std::fs::read_to_string(
+            repo.join("crates/susi-unsafe-ratchet/src/bin/owed-task-receipts.rs"),
+        )
+        .unwrap();
+        assert!(native.contains("\"cat-file\", \"--batch\""));
+        assert!(!native.contains("\"cat-file\", \"-p\""));
 
         let ws = Workspace::new("owed-receipts");
         git(&ws.root, &["init", "--quiet"]);
