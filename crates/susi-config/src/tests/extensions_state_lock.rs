@@ -77,6 +77,17 @@ fn unlocked_interleaved_writers_drop_a_change() {
     });
 }
 
+/// Wait until a contending thread has announced `.state.lock.wait`, then hold
+/// briefly so any broken lock path has a window to write out of turn.
+fn wait_for_contender_then_hold() {
+    let wait_marker = extensions_root().join(".state.lock.wait");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
+    while !wait_marker.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(20));
+}
+
 /// Two threads each take the lock, read, derive and write, with B's attempt
 /// started while A holds the lock between its read and its write. B waits,
 /// re-reads A's result and keeps it: both changes survive.
@@ -93,8 +104,8 @@ fn locked_interleaved_writers_keep_both_changes() {
                 let lock = StateLock::acquire().unwrap();
                 let mut state = read_state().unwrap();
                 a_has_read.wait();
-                // B is now trying to take the lock; give it time to block.
-                std::thread::sleep(std::time::Duration::from_millis(200));
+                // B is now trying to take the lock; wait until it contends.
+                wait_for_contender_then_hold();
                 apply_load(&mut state, "acme");
                 write_state(&state).unwrap();
                 a_done.store(true, SeqCst);
@@ -146,7 +157,7 @@ fn a_settling_reader_never_undoes_a_concurrent_load() {
                 let lock = StateLock::acquire().unwrap();
                 let mut state = read_state().unwrap();
                 load_has_read.wait();
-                std::thread::sleep(std::time::Duration::from_millis(200));
+                wait_for_contender_then_hold();
                 assert_eq!(
                     std::fs::read(state_path()).unwrap(),
                     before,

@@ -135,9 +135,12 @@ impl ReceiptArchive {
         // The CLI and daemon can archive into the same workspace. Rotation
         // and append must be one cross-process operation or one writer can
         // append to the generation another writer is renaming.
-        let Some(_file_lock) =
-            crate::susi_core::commit_log::FileLock::acquire(parent, "receipt_archive")
-        else {
+        let lock_wait = std::time::Duration::from_millis(if cfg!(test) { 80 } else { 3_000 });
+        let Some(_file_lock) = crate::susi_core::commit_log::FileLock::acquire_within(
+            parent,
+            "receipt_archive",
+            lock_wait,
+        ) else {
             return;
         };
         Self::rotate_if_large(&path);

@@ -56,6 +56,67 @@ struct XtaskBins {
     release_qualify: PathBuf,
 }
 
+fn newest_mtime(path: &Path) -> Option<SystemTime> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    let mut newest = meta.modified().ok();
+    if meta.is_dir() {
+        let entries = fs::read_dir(path).ok()?;
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if matches!(name.to_str(), Some("target" | ".git")) {
+                continue;
+            }
+            if let Some(sub) = newest_mtime(&entry.path()) {
+                newest = Some(newest.map_or(sub, |cur| cur.max(sub)));
+            }
+        }
+    }
+    newest
+}
+
+fn bins_are_fresh(workspace_root: &Path, bins: &[&Path]) -> bool {
+    let mut oldest_bin: Option<SystemTime> = None;
+    for bin in bins {
+        let Ok(meta) = fs::metadata(bin) else {
+            return false;
+        };
+        if !meta.is_file() {
+            return false;
+        }
+        let Ok(mtime) = meta.modified() else {
+            return false;
+        };
+        oldest_bin = Some(oldest_bin.map_or(mtime, |cur| cur.min(mtime)));
+    }
+    let Some(oldest_bin) = oldest_bin else {
+        return false;
+    };
+    let watched = [
+        "Cargo.toml",
+        "Cargo.lock",
+        "xtask",
+        "crates/susi-paths",
+        "crates/susi-config",
+        "crates/susi-build-policy",
+        "crates/susi-build-os-ucrt",
+        "crates/susi-windows-runtime",
+        "crates/susi-vendor-sha2",
+        "crates/susi-vendor-serde-json",
+    ];
+    for rel in watched {
+        let path = workspace_root.join(rel);
+        if path.exists() {
+            let Some(src_mtime) = newest_mtime(&path) else {
+                return false;
+            };
+            if src_mtime > oldest_bin {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 fn xtask_bins() -> &'static XtaskBins {
     XTASK_BINS.get_or_init(|| {
         let exe = std::env::current_exe().expect("current test executable path");
@@ -70,43 +131,50 @@ fn xtask_bins() -> &'static XtaskBins {
             local_harvest: profile_dir.join(format!("local-harvest{suffix}")),
             release_qualify: profile_dir.join(format!("release-qualify{suffix}")),
         };
-        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-        let target_dir = profile_dir.parent().expect("target root directory");
+        let bin_paths = [
+            bins.distill.as_path(),
+            bins.local_distill.as_path(),
+            bins.local_harvest.as_path(),
+            bins.release_qualify.as_path(),
+        ];
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let mut build_cmd = Command::new(cargo);
-        build_cmd
-            .current_dir(&workspace_root)
-            .env("CARGO_TARGET_DIR", target_dir)
-            .args([
-                "build",
-                "--offline",
-                "--locked",
-                "-p",
-                "xtask",
-                "--bin",
-                "distill",
-                "--bin",
-                "local-distill",
-                "--bin",
-                "local-harvest",
-                "--bin",
-                "release-qualify",
-            ]);
-        if profile_dir.file_name().is_some_and(|n| n == "release") {
-            build_cmd.arg("--release");
+        if !bins_are_fresh(&workspace_root, &bin_paths) {
+            let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+            let target_dir = profile_dir.parent().expect("target root directory");
+            let mut build_cmd = Command::new(cargo);
+            build_cmd
+                .current_dir(&workspace_root)
+                .env("CARGO_TARGET_DIR", target_dir)
+                .args([
+                    "build",
+                    "--offline",
+                    "--locked",
+                    "-p",
+                    "xtask",
+                    "--bin",
+                    "distill",
+                    "--bin",
+                    "local-distill",
+                    "--bin",
+                    "local-harvest",
+                    "--bin",
+                    "release-qualify",
+                ]);
+            if let Some(profile_name) = profile_dir.file_name().and_then(|n| n.to_str()) {
+                if profile_name == "release" {
+                    build_cmd.arg("--release");
+                } else if profile_name != "debug" {
+                    build_cmd.args(["--profile", profile_name]);
+                }
+            }
+            let out = build_cmd.output().expect("build xtask binaries");
+            assert!(
+                out.status.success(),
+                "building xtask binaries failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
         }
-        let out = build_cmd.output().expect("build xtask binaries");
-        assert!(
-            out.status.success(),
-            "building xtask binaries failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        for bin in [
-            &bins.distill,
-            &bins.local_distill,
-            &bins.local_harvest,
-            &bins.release_qualify,
-        ] {
+        for bin in bin_paths {
             assert!(bin.is_file(), "missing binary {}", bin.display());
         }
         bins
@@ -151,6 +219,7 @@ impl Drop for Sandbox {
 fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::new("git");
     cmd.current_dir(cwd)
+        .args(["-c", "gc.auto=0"])
         .args(args)
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
@@ -199,6 +268,56 @@ fn git_stdin(cwd: &Path, args: &[&str], stdin_bytes: &[u8]) -> String {
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8(out.stdout).unwrap().trim().to_owned()
+}
+
+fn init_bare_tree_repo(
+    parent: &Path,
+    bare: &Path,
+    message: &str,
+    entries: &[(&str, &str, &str)],
+) -> String {
+    git(
+        parent,
+        &[
+            "init",
+            "--quiet",
+            "--bare",
+            "--initial-branch=main",
+            bare.to_str().unwrap(),
+        ],
+    );
+    let mut stream = Vec::with_capacity(4096);
+    writeln!(stream, "commit refs/heads/main").unwrap();
+    writeln!(
+        stream,
+        "author Susi Test <test@intellibitz.com> 1700000000 +0000"
+    )
+    .unwrap();
+    writeln!(
+        stream,
+        "committer Susi Test <test@intellibitz.com> 1700000000 +0000"
+    )
+    .unwrap();
+    writeln!(stream, "data {}", message.len()).unwrap();
+    stream.extend_from_slice(message.as_bytes());
+    stream.push(b'\n');
+    for (mode, path, content) in entries {
+        if *mode == "160000" {
+            writeln!(stream, "M 160000 {content} {path}").unwrap();
+        } else {
+            writeln!(stream, "M {mode} inline {path}").unwrap();
+            writeln!(stream, "data {}", content.len()).unwrap();
+            stream.extend_from_slice(content.as_bytes());
+            stream.push(b'\n');
+        }
+    }
+    stream.push(b'\n');
+    git_stdin(bare, &["fast-import", "--quiet"], &stream);
+    fs::read_to_string(bare.join("refs/heads/main"))
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| s.len() == 40)
+        .unwrap_or_else(|| git(bare, &["rev-parse", "refs/heads/main"]))
 }
 
 fn run_bin(bin: &Path, cwd: &Path, target_dir: &Path, args: &[&str]) -> Output {
@@ -337,17 +456,17 @@ fn functional_only_distills_core_commits_and_passes_lint_task_records_and_releas
         "pub fn boot_banner() -> &'static str {\n    \"demo-core\"\n}\n",
     );
 
-    // Generate deterministic Cargo.lock via offline check on the zero-dep crate.
+    // Generate deterministic Cargo.lock via offline lockfile generation on the zero-dep crate.
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let check_out = Command::new(&cargo)
         .current_dir(&work)
         .env("CARGO_TARGET_DIR", &cargo_target)
-        .args(["check", "--offline"])
+        .args(["generate-lockfile", "--offline"])
         .output()
-        .expect("generate Cargo.lock via cargo check --offline");
+        .expect("generate Cargo.lock via cargo generate-lockfile --offline");
     assert!(
         check_out.status.success(),
-        "initial cargo check failed: {}",
+        "initial cargo generate-lockfile failed: {}",
         String::from_utf8_lossy(&check_out.stderr)
     );
     assert!(work.join("Cargo.lock").is_file());
@@ -885,131 +1004,93 @@ fn harvest_resolves_confined_in_tree_symlinked_licenses_and_rejects_unsafe_symli
     fs::create_dir_all(&target).unwrap();
     fs::create_dir_all(&cargo_target).unwrap();
 
-    // Build a bare upstream repository with regular (`100644`) and symlink (`120000`)
-    // Git tree entries directly via `git hash-object` + `git update-index --cacheinfo`
-    // so the test is 100% deterministic and OS-portable (Windows & Linux).
-    git(
+    // Build a bare upstream repository with regular (`100644`), symlink (`120000`),
+    // and gitlink (`160000`) Git tree entries via `git fast-import` so the test is
+    // 100% deterministic, fast, and OS-portable (Windows & Linux).
+    let upstream_sha = init_bare_tree_repo(
         &sandbox.dir,
-        &["init", "--quiet", "--bare", upstream.to_str().unwrap()],
-    );
-    let add_entry = |mode: &str, path: &str, content: &str| {
-        let blob = git_stdin(
-            &upstream,
-            &["hash-object", "-w", "--stdin"],
-            content.as_bytes(),
-        );
-        git(
-            &upstream,
-            &[
-                "update-index",
-                "--add",
-                "--cacheinfo",
-                &format!("{mode},{blob},{path}"),
-            ],
-        );
-    };
-
-    // Root pure Apache-2.0 LICENSE and NOTICE.
-    add_entry("100644", "LICENSE", APACHE_LICENSE_TEXT);
-    add_entry(
-        "100644",
-        "NOTICE",
-        "MiniJinja Workspace Attribution Notice 2026\n",
-    );
-
-    // 1. Valid subfolder crate (`minijinja/`) with `120000` Git symlinks to `../LICENSE` & `../NOTICE`.
-    add_entry("120000", "minijinja/LICENSE", "../LICENSE");
-    add_entry("120000", "minijinja/NOTICE", "../NOTICE");
-    add_entry(
-        "100644",
-        "minijinja/src/template_parser.rs",
-        "// Copyright 2026 Armin Ronacher and contributors\n\npub fn parse_placeholder(input: &str) -> Option<&str> {\n    input.strip_prefix(\"{{\")?.strip_suffix(\"}}\").map(str::trim)\n}\n",
-    );
-
-    // 2. Valid nested crate (`nested/sub/crate_a/`) with 2-hop confined symlink chain (<= 4 hops).
-    add_entry(
-        "120000",
-        "nested/sub/crate_a/LICENSE",
-        "../../../minijinja/LICENSE",
-    );
-    add_entry(
-        "100644",
-        "nested/sub/crate_a/src/lexer.rs",
-        "// Copyright 2026 Armin Ronacher and contributors\n\npub fn is_delimiter(ch: char) -> bool {\n    matches!(ch, '{' | '}')\n}\n",
-    );
-
-    // 3. Invalid crate: symlink escaping above repository root (`../../OUTSIDE_LICENSE`).
-    add_entry("120000", "escape_crate/LICENSE", "../../OUTSIDE_LICENSE");
-    add_entry(
-        "100644",
-        "escape_crate/src/bad_escape.rs",
-        "pub fn bad_escape() -> bool { false }\n",
-    );
-
-    // 4. Invalid crate: absolute symlink target (`/etc/passwd`).
-    add_entry("120000", "abs_crate/LICENSE", "/etc/passwd");
-    add_entry(
-        "100644",
-        "abs_crate/src/bad_abs.rs",
-        "pub fn bad_abs() -> bool { false }\n",
-    );
-
-    // 5. Invalid crate: 5-hop symlink chain (> 4-hop cap).
-    add_entry("120000", "hop5_crate/L4", "../LICENSE");
-    add_entry("120000", "hop5_crate/L3", "L4");
-    add_entry("120000", "hop5_crate/L2", "L3");
-    add_entry("120000", "hop5_crate/L1", "L2");
-    add_entry("120000", "hop5_crate/LICENSE", "L1");
-    add_entry(
-        "100644",
-        "hop5_crate/src/too_many_hops.rs",
-        "pub fn too_many_hops() -> bool { false }\n",
-    );
-
-    // 6. Invalid crate: symlink pointing to a directory (`../minijinja/src`) / missing blob.
-    add_entry("120000", "dir_target_crate/LICENSE", "../minijinja/src");
-    add_entry(
-        "100644",
-        "dir_target_crate/src/bad_dir.rs",
-        "pub fn bad_dir() -> bool { false }\n",
-    );
-
-    // 6b. Invalid crate: symlink pointing to a non-regular (`160000` submodule gitlink) entry.
-    git(
         &upstream,
+        "feat: multi-crate workspace with symlinked licenses",
         &[
-            "update-index",
-            "--add",
-            "--cacheinfo",
-            "160000,1111111111111111111111111111111111111111,vendor_submod",
+            // Root pure Apache-2.0 LICENSE and NOTICE.
+            ("100644", "LICENSE", APACHE_LICENSE_TEXT),
+            (
+                "100644",
+                "NOTICE",
+                "MiniJinja Workspace Attribution Notice 2026\n",
+            ),
+            // 1. Valid subfolder crate (`minijinja/`) with `120000` Git symlinks to `../LICENSE` & `../NOTICE`.
+            ("120000", "minijinja/LICENSE", "../LICENSE"),
+            ("120000", "minijinja/NOTICE", "../NOTICE"),
+            (
+                "100644",
+                "minijinja/src/template_parser.rs",
+                "// Copyright 2026 Armin Ronacher and contributors\n\npub fn parse_placeholder(input: &str) -> Option<&str> {\n    input.strip_prefix(\"{{\")?.strip_suffix(\"}}\").map(str::trim)\n}\n",
+            ),
+            // 2. Valid nested crate (`nested/sub/crate_a/`) with 2-hop confined symlink chain (<= 4 hops).
+            (
+                "120000",
+                "nested/sub/crate_a/LICENSE",
+                "../../../minijinja/LICENSE",
+            ),
+            (
+                "100644",
+                "nested/sub/crate_a/src/lexer.rs",
+                "// Copyright 2026 Armin Ronacher and contributors\n\npub fn is_delimiter(ch: char) -> bool {\n    matches!(ch, '{' | '}')\n}\n",
+            ),
+            // 3. Invalid crate: symlink escaping above repository root (`../../OUTSIDE_LICENSE`).
+            ("120000", "escape_crate/LICENSE", "../../OUTSIDE_LICENSE"),
+            (
+                "100644",
+                "escape_crate/src/bad_escape.rs",
+                "pub fn bad_escape() -> bool { false }\n",
+            ),
+            // 4. Invalid crate: absolute symlink target (`/etc/passwd`).
+            ("120000", "abs_crate/LICENSE", "/etc/passwd"),
+            (
+                "100644",
+                "abs_crate/src/bad_abs.rs",
+                "pub fn bad_abs() -> bool { false }\n",
+            ),
+            // 5. Invalid crate: 5-hop symlink chain (> 4-hop cap).
+            ("120000", "hop5_crate/L4", "../LICENSE"),
+            ("120000", "hop5_crate/L3", "L4"),
+            ("120000", "hop5_crate/L2", "L3"),
+            ("120000", "hop5_crate/L1", "L2"),
+            ("120000", "hop5_crate/LICENSE", "L1"),
+            (
+                "100644",
+                "hop5_crate/src/too_many_hops.rs",
+                "pub fn too_many_hops() -> bool { false }\n",
+            ),
+            // 6. Invalid crate: symlink pointing to a directory (`../minijinja/src`) / missing blob.
+            ("120000", "dir_target_crate/LICENSE", "../minijinja/src"),
+            (
+                "100644",
+                "dir_target_crate/src/bad_dir.rs",
+                "pub fn bad_dir() -> bool { false }\n",
+            ),
+            // 6b. Invalid crate: symlink pointing to a non-regular (`160000` submodule gitlink) entry.
+            (
+                "160000",
+                "vendor_submod",
+                "1111111111111111111111111111111111111111",
+            ),
+            ("120000", "submod_crate/LICENSE", "../vendor_submod"),
+            (
+                "100644",
+                "submod_crate/src/bad_submod.rs",
+                "pub fn bad_submod() -> bool { false }\n",
+            ),
+            // 7. Invalid crate: valid symlinked LICENSE, but `.rs` source file itself is a `120000` symlink!
+            ("120000", "symlink_src_crate/LICENSE", "../LICENSE"),
+            (
+                "120000",
+                "symlink_src_crate/src/linked_source.rs",
+                "../../minijinja/src/template_parser.rs",
+            ),
         ],
     );
-    add_entry("120000", "submod_crate/LICENSE", "../vendor_submod");
-    add_entry(
-        "100644",
-        "submod_crate/src/bad_submod.rs",
-        "pub fn bad_submod() -> bool { false }\n",
-    );
-
-    // 7. Invalid crate: valid symlinked LICENSE, but `.rs` source file itself is a `120000` symlink!
-    add_entry("120000", "symlink_src_crate/LICENSE", "../LICENSE");
-    add_entry(
-        "120000",
-        "symlink_src_crate/src/linked_source.rs",
-        "../../minijinja/src/template_parser.rs",
-    );
-
-    let tree_oid = git(&upstream, &["write-tree"]);
-    let upstream_sha = git(
-        &upstream,
-        &[
-            "commit-tree",
-            &tree_oid,
-            "-m",
-            "feat: multi-crate workspace with symlinked licenses",
-        ],
-    );
-    git(&upstream, &["update-ref", "refs/heads/main", &upstream_sha]);
 
     // Initialize clean Susi Core target repo.
     git(&target, &["init", "--quiet", "--initial-branch=main"]);
@@ -1419,45 +1500,26 @@ fn functional_select_pulls_functional_deps_and_dual_symlink_elects_apache2() {
     // (`LICENSE-APACHE -> ../LICENSE` and `LICENSE-MIT -> ../MIT.txt`) elects
     // `"Apache-2.0"` exclusively!
     let upstream = sandbox.dir.join("dual-symlink.git");
-    git(
+    let sha = init_bare_tree_repo(
         &sandbox.dir,
-        &["init", "--quiet", "--bare", upstream.to_str().unwrap()],
-    );
-    let add_entry = |mode: &str, path: &str, content: &str| {
-        let blob = git_stdin(
-            &upstream,
-            &["hash-object", "-w", "--stdin"],
-            content.as_bytes(),
-        );
-        git(
-            &upstream,
-            &[
-                "update-index",
-                "--add",
-                "--cacheinfo",
-                &format!("{mode},{blob},{path}"),
-            ],
-        );
-    };
-    add_entry("100644", "LICENSE", APACHE_LICENSE_TEXT);
-    add_entry(
-        "100644",
-        "MIT.txt",
-        "MIT License\n\nCopyright (c) 2026 Contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction.\n",
-    );
-    add_entry("120000", "subcrate/LICENSE-APACHE", "../LICENSE");
-    add_entry("120000", "subcrate/LICENSE-MIT", "../MIT.txt");
-    add_entry(
-        "100644",
-        "subcrate/src/codec.rs",
-        "// Copyright (c) 2026 Contributors\npub fn frame_len(len: u32) -> u32 { len + 4 }\n",
-    );
-    let tree = git(&upstream, &["write-tree"]);
-    let sha = git(
         &upstream,
-        &["commit-tree", &tree, "-m", "feat: dual symlink"],
+        "feat: dual symlink",
+        &[
+            ("100644", "LICENSE", APACHE_LICENSE_TEXT),
+            (
+                "100644",
+                "MIT.txt",
+                "MIT License\n\nCopyright (c) 2026 Contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction.\n",
+            ),
+            ("120000", "subcrate/LICENSE-APACHE", "../LICENSE"),
+            ("120000", "subcrate/LICENSE-MIT", "../MIT.txt"),
+            (
+                "100644",
+                "subcrate/src/codec.rs",
+                "// Copyright (c) 2026 Contributors\npub fn frame_len(len: u32) -> u32 { len + 4 }\n",
+            ),
+        ],
     );
-    git(&upstream, &["update-ref", "refs/heads/main", &sha]);
 
     let target = sandbox.dir.join("dual-target");
     fs::create_dir_all(&target).unwrap();

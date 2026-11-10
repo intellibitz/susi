@@ -3268,6 +3268,23 @@ mod tests {
     const APACHE: &str = "\n                                 Apache License\n                           Version 2.0, January 2004\n                        http://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n   (c) You must retain all copyright, patent, trademark notices.\n\n   Copyright [yyyy] [name of copyright owner]\n";
     const WIDGET: &str = "// Copyright 2024 The Widget Authors\n//\n// Licensed under the Apache License, Version 2.0.\n\npub fn widget() -> u32 {\n    7\n}\n";
 
+    fn copy_dir_all(src: &Path, dst: &Path) {
+        fs::create_dir_all(dst).unwrap();
+        for entry in fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let ty = entry.file_type().unwrap();
+            let dst_path = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dst_path);
+            } else {
+                fs::copy(entry.path(), &dst_path).unwrap();
+                if let Ok(meta) = entry.metadata() {
+                    let _ = fs::set_permissions(&dst_path, meta.permissions());
+                }
+            }
+        }
+    }
+
     struct Fixture {
         dir: PathBuf,
         upstream: PathBuf,
@@ -3276,50 +3293,67 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
+            static FX_TPL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+            let tpl = FX_TPL.get_or_init(|| {
+                let tpl_dir = std::env::temp_dir()
+                    .join(format!("susi-harvest-fx-tpl-{}", std::process::id()));
+                let _ = fs::remove_dir_all(&tpl_dir);
+                let upstream = tpl_dir.join("upstream");
+                let work = tpl_dir.join("work");
+                fs::create_dir_all(&upstream).unwrap();
+                fs::create_dir_all(&work).unwrap();
+                let git_up = Git {
+                    root: upstream.clone(),
+                };
+                git_up.text(&["init", "--initial-branch=main"]).unwrap();
+                for (rel, text) in [
+                    ("LICENSE", APACHE),
+                    (
+                        "NOTICE",
+                        "Upstream Widgets\nCopyright 2024 The Widget Authors\n",
+                    ),
+                    ("src/widget.rs", WIDGET),
+                    (
+                        "src/mit_util.rs",
+                        "// SPDX-License-Identifier: MIT OR Apache-2.0\n// Copyright (c) 2023 Jane Example\npub fn util() {}\n",
+                    ),
+                    (
+                        "other/mit_only.rs",
+                        "// SPDX-License-Identifier: MIT\n// Copyright (c) 2022 Sam Example\npub fn only() {}\n",
+                    ),
+                    (
+                        "third_party/gpl/COPYING",
+                        "                    GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007\n",
+                    ),
+                    (
+                        "third_party/gpl/thing.c",
+                        "/* This file is part of Thing, licensed under the GNU General\n * Public License version 3. */\nint thing(void) { return 1; }\n",
+                    ),
+                ] {
+                    write(&upstream, rel, text);
+                }
+                git_up.text(&["add", "-A"]).unwrap();
+                git_up.text(&["commit", "-q", "-m", "upstream"]).unwrap();
+                let git_work = Git { root: work.clone() };
+                git_work.text(&["init", "--initial-branch=main"]).unwrap();
+                write(&work, "README.md", "work\n");
+                git_work.text(&["add", "-A"]).unwrap();
+                git_work.text(&["commit", "-q", "-m", "base"]).unwrap();
+                tpl_dir
+            });
+
             let id = SEQ.fetch_add(1, Ordering::Relaxed);
             let dir =
                 std::env::temp_dir().join(format!("susi-harvest-test-{}-{id}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
+            copy_dir_all(tpl, &dir);
             let upstream = dir.join("upstream");
             let work = dir.join("work");
-            fs::create_dir_all(&upstream).unwrap();
-            fs::create_dir_all(&work).unwrap();
-            let fx = Self {
+            Self {
                 dir,
                 upstream,
                 work,
-            };
-            fx.git_at(&fx.upstream, &["init", "--initial-branch=main"]);
-            for (rel, text) in [
-                ("LICENSE", APACHE),
-                ("NOTICE", "Upstream Widgets\nCopyright 2024 The Widget Authors\n"),
-                ("src/widget.rs", WIDGET),
-                (
-                    "src/mit_util.rs",
-                    "// SPDX-License-Identifier: MIT OR Apache-2.0\n// Copyright (c) 2023 Jane Example\npub fn util() {}\n",
-                ),
-                (
-                    "other/mit_only.rs",
-                    "// SPDX-License-Identifier: MIT\n// Copyright (c) 2022 Sam Example\npub fn only() {}\n",
-                ),
-                (
-                    "third_party/gpl/COPYING",
-                    "                    GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007\n",
-                ),
-                (
-                    "third_party/gpl/thing.c",
-                    "/* This file is part of Thing, licensed under the GNU General\n * Public License version 3. */\nint thing(void) { return 1; }\n",
-                ),
-            ] {
-                write(&fx.upstream, rel, text);
             }
-            fx.git_at(&fx.upstream, &["add", "-A"]);
-            fx.git_at(&fx.upstream, &["commit", "-q", "-m", "upstream"]);
-            fx.git_at(&fx.work, &["init", "--initial-branch=main"]);
-            write(&fx.work, "README.md", "work\n");
-            fx.git_at(&fx.work, &["add", "-A"]);
-            fx.git_at(&fx.work, &["commit", "-q", "-m", "base"]);
-            fx
         }
 
         fn git_at(&self, root: &Path, args: &[&str]) -> String {

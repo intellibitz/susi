@@ -26,6 +26,7 @@
 //! "succeeding" from the caller's perspective.
 
 use serde_json::{json, Value};
+use std::time::Duration;
 
 /// Protocol revision this client requests; matched against
 /// `crates/susi-gmcp/src/protocol_tests.rs`.
@@ -44,6 +45,7 @@ const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 /// Per-request receive window for the handshake and for calls that do not
 /// ask for a longer one.
 const DEFAULT_TIMEOUT_SECS: u64 = 20;
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(DEFAULT_TIMEOUT_SECS);
 
 /// Sealed-stream response encoding (`x-susi-enc: v1s`), offered by the
 /// client in `x-susi-enc-accept`. Instead of buffering a whole response to
@@ -120,7 +122,7 @@ struct Session {
     id: String,
     version: String,
     /// Receive window for the request the session was opened to make.
-    request_timeout_secs: u64,
+    request_timeout: Duration,
 }
 
 /// The response plus the peer's bound pubkey when the request went out
@@ -133,7 +135,7 @@ fn post(
     bearer: Option<&str>,
     session: Option<&Session>,
     body: &Value,
-    timeout_secs: u64,
+    timeout: Duration,
 ) -> Result<(crate::susi_core::plain_http::Response, Option<String>), String> {
     // The one transport for remote MCP/GMCP calls, including the daemon's
     // zero-config scouting, which never passes authorize_tool: arguments
@@ -196,7 +198,7 @@ fn post(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let call = send(route, "POST", url, &refs, Some(&wire), timeout_secs)
+    let call = send(route, "POST", url, &refs, Some(&wire), timeout)
         .map_err(|e| format!("POST {url}: {e}"))?;
     Ok((call, sealed_to))
 }
@@ -224,7 +226,7 @@ fn delete_session(route: &Route, url: &str, bearer: Option<&str>, session: &Sess
         url,
         &refs,
         None,
-        handshake_timeout_secs(session.request_timeout_secs),
+        handshake_timeout(session.request_timeout),
     );
 }
 
@@ -316,27 +318,26 @@ fn send(
     url: &str,
     headers: &[(&str, &str)],
     body: Option<&[u8]>,
-    timeout_secs: u64,
+    timeout: Duration,
 ) -> Result<crate::susi_core::plain_http::Response, String> {
     match route {
         Route::Local => {
-            crate::susi_core::plain_http::call(method, url, headers, body, timeout_secs)
+            crate::susi_core::plain_http::call_within(method, url, headers, body, timeout)
         }
         Route::Channel(target) => {
-            let open_within =
-                std::time::Duration::from_secs(timeout_secs.clamp(1, DEFAULT_TIMEOUT_SECS));
+            let open_within = timeout.clamp(Duration::from_millis(1), DEFAULT_TIMEOUT);
             let stream = crate::susi_config::peer_channel_link::open(
                 target,
                 open_within,
                 &channel_dial_policy,
             )?;
-            crate::susi_core::plain_http::call_over(
+            crate::susi_core::plain_http::call_over_within(
                 Box::new(stream),
                 method,
                 url,
                 headers,
                 body,
-                timeout_secs,
+                timeout,
             )
         }
     }
@@ -345,8 +346,8 @@ fn send(
 /// Receive window for the handshake and the closing `DELETE`: the default,
 /// or the caller's budget when that is shorter, so a short budget bounds
 /// the whole exchange and not only the request itself.
-fn handshake_timeout_secs(request_timeout_secs: u64) -> u64 {
-    request_timeout_secs.min(DEFAULT_TIMEOUT_SECS)
+fn handshake_timeout(request_timeout: Duration) -> Duration {
+    request_timeout.min(DEFAULT_TIMEOUT)
 }
 
 /// `X-Susi-*` request-signature headers over
@@ -529,6 +530,22 @@ pub fn session_call_with_timeout(
     bearer: Option<&str>,
     timeout_secs: u64,
 ) -> Result<Value, String> {
+    session_call_within(
+        addr,
+        method,
+        params,
+        bearer,
+        Duration::from_secs(timeout_secs.max(1)),
+    )
+}
+
+fn session_call_within(
+    addr: &str,
+    method: &str,
+    params: &Value,
+    bearer: Option<&str>,
+    timeout: Duration,
+) -> Result<Value, String> {
     // Host-only first: a peer on another address is refused before the
     // credential is weighed or a connection opens, attested member or not.
     if !is_loopback_target(addr) && crate::susi_core::mac_policy::host_only_in_force() {
@@ -546,7 +563,7 @@ pub fn session_call_with_timeout(
             )
         })?)
     };
-    session_exchange(&route, addr, method, params, bearer, timeout_secs).map_err(|e| {
+    session_exchange(&route, addr, method, params, bearer, timeout).map_err(|e| {
         if is_loopback_target(addr) {
             e
         } else {
@@ -577,7 +594,7 @@ pub fn session_call_to(
         method,
         params,
         None,
-        timeout_secs,
+        Duration::from_secs(timeout_secs.max(1)),
     )
     .map_err(|e| format!("{e} ({CROSS_HOST_NOTE})"))
 }
@@ -647,7 +664,7 @@ fn session_exchange(
     method: &str,
     params: &Value,
     bearer: Option<&str>,
-    timeout_secs: u64,
+    timeout: Duration,
 ) -> Result<Value, String> {
     let url = format!("http://{addr}/mcp");
 
@@ -668,7 +685,7 @@ fn session_exchange(
                 "clientInfo": {"name": "susi", "version": env!("CARGO_PKG_VERSION")}
             }
         }),
-        handshake_timeout_secs(timeout_secs),
+        handshake_timeout(timeout),
     )?;
     if !(200..300).contains(&init.status) {
         return Err(format!(
@@ -692,7 +709,7 @@ fn session_exchange(
     let session = Session {
         version: String::new(),
         id,
-        request_timeout_secs: timeout_secs,
+        request_timeout: timeout,
     };
     let version = match init_result.and_then(|result| negotiated_version(&result)) {
         Ok(version) => version,
@@ -711,7 +728,7 @@ fn session_exchange(
         bearer,
         Some(&session),
         &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
-        handshake_timeout_secs(timeout_secs),
+        handshake_timeout(timeout),
     )
     .and_then(|(response, _)| {
         if !(200..300).contains(&response.status) {
@@ -762,7 +779,7 @@ fn session_request(
             "method": method,
             "params": params
         }),
-        session.request_timeout_secs,
+        session.request_timeout,
     )?;
     if !(200..300).contains(&resp.status) {
         return Err(format!("peer request returned HTTP {}", resp.status));
@@ -778,8 +795,14 @@ mod tests {
     /// caller budget, not the 20s handshake default.
     #[test]
     fn a_short_budget_bounds_the_handshake_too() {
-        assert_eq!(handshake_timeout_secs(3), 3);
-        assert_eq!(handshake_timeout_secs(1800), DEFAULT_TIMEOUT_SECS);
+        assert_eq!(
+            handshake_timeout(Duration::from_secs(3)),
+            Duration::from_secs(3)
+        );
+        assert_eq!(
+            handshake_timeout(Duration::from_secs(1800)),
+            DEFAULT_TIMEOUT
+        );
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap().to_string();
         // Detached: if the client failed before connecting, accept() would
@@ -793,9 +816,16 @@ mod tests {
             }
         });
         let started = std::time::Instant::now();
-        assert!(call_tool_with_timeout(&addr, "runtime_models_list", &json!({}), None, 1).is_err());
+        let call = session_call_within(
+            &addr,
+            "tools/call",
+            &json!({"name": "runtime_models_list", "arguments": {}}),
+            None,
+            Duration::from_millis(120),
+        );
+        assert!(call.is_err());
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+            started.elapsed() < Duration::from_secs(2),
             "{:?}",
             started.elapsed()
         );

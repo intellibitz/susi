@@ -2867,7 +2867,10 @@ mod tests {
             let _a = FileLock::acquire(&dir, "term").expect("first acquire");
             // A second acquire while the first is held must not steal —
             // it should either time out or fail fast.
-            assert!(FileLock::acquire(&dir, "term").is_none());
+            assert!(
+                FileLock::acquire_within(&dir, "term", std::time::Duration::from_millis(30))
+                    .is_none()
+            );
             // A different lock name in the same dir is independent.
             let _b = FileLock::acquire(&dir, "commit_log").expect("independent name");
         }
@@ -2915,6 +2918,7 @@ mod tests {
                     // (susi_core::commit_log::tests::…).
                     .args([
                         "cross_process_term_claims_serialize_through_file_lock",
+                        "--test-threads=1",
                         "--nocapture",
                     ])
                     .env("SUSI_FLOCK_WORKER", format!("worker-{w}"))

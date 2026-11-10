@@ -38,7 +38,42 @@ pub struct Pattern {
     groups: usize,
     /// The char tests a match can begin with, when every match consumes a
     /// char: positions no test accepts cannot start a match and are skipped.
-    first: Option<Vec<CharTest>>,
+    first: Option<First>,
+}
+
+#[derive(Debug, Clone)]
+struct First {
+    ascii: u128,
+    tests: Vec<CharTest>,
+}
+
+impl First {
+    fn matches(&self, c: char) -> bool {
+        match u32::from(c) {
+            code if code < 128 => self.ascii & (1 << code) != 0,
+            _ => self.tests.iter().any(|test| test.matches(c)),
+        }
+    }
+
+    fn skip(&self, text: &str, mut at: usize) -> usize {
+        let bytes = text.as_bytes();
+        while let Some(&b) = bytes.get(at) {
+            if b < 128 {
+                if self.ascii & (1 << b) != 0 {
+                    return at;
+                }
+                at += 1;
+            } else if let Some(c) = text[at..].chars().next() {
+                if self.tests.iter().any(|test| test.matches(c)) {
+                    return at;
+                }
+                at += c.len_utf8();
+            } else {
+                break;
+            }
+        }
+        bytes.len()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -371,7 +406,7 @@ fn compile(node: &Node, prog: &mut Vec<Inst>) {
 
 /// Every char test reachable from the start without consuming a char,
 /// or `None` when the start can reach `Match` (an empty match is possible).
-fn first_tests(prog: &[Inst]) -> Option<Vec<CharTest>> {
+fn first_tests(prog: &[Inst]) -> Option<First> {
     let mut seen = vec![false; prog.len()];
     let mut stack = vec![0];
     let mut tests = Vec::new();
@@ -387,11 +422,33 @@ fn first_tests(prog: &[Inst]) -> Option<Vec<CharTest>> {
             Inst::Save(_) | Inst::WordBoundary | Inst::End => stack.push(pc + 1),
         }
     }
-    Some(tests)
+    let ascii = tests.iter().fold(0u128, |bits, test| match test {
+        CharTest::Any => bits | !(1u128 << b'\n'),
+        CharTest::Set { ascii, .. } => bits | ascii,
+    });
+    Some(First { ascii, tests })
 }
 
-fn is_word(c: Option<char>) -> bool {
-    c.is_some_and(|c| c.is_alphanumeric() || c == '_')
+fn is_word_after(text: &str, at: usize) -> bool {
+    match text.as_bytes().get(at) {
+        Some(&b) if b < 128 => b.is_ascii_alphanumeric() || b == b'_',
+        Some(_) => text[at..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_'),
+        None => false,
+    }
+}
+
+fn is_word_before(text: &str, at: usize) -> bool {
+    match at.checked_sub(1).and_then(|i| text.as_bytes().get(i)) {
+        Some(&b) if b < 128 => b.is_ascii_alphanumeric() || b == b'_',
+        Some(_) => text[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_'),
+        None => false,
+    }
 }
 
 type Slots = Vec<Option<usize>>;
@@ -483,9 +540,7 @@ impl Pattern {
                 slots[slot] = old;
             }
             Inst::WordBoundary => {
-                let before = text[..at].chars().next_back();
-                let after = text[at..].chars().next();
-                if is_word(before) != is_word(after) {
+                if is_word_before(text, at) != is_word_after(text, at) {
                     self.add(threads, pc + 1, (at, text), slots);
                 }
             }
@@ -500,27 +555,40 @@ impl Pattern {
 
     /// Leftmost-first match starting the search at byte offset `start`.
     fn search(&self, text: &str, start: usize) -> Option<Slots> {
+        let mut at = start;
+        if let Some(first) = &self.first {
+            at = first.skip(text, at);
+            if at == text.len() {
+                return None;
+            }
+        }
         let width = 2 * (self.groups + 1);
         let mut current = Threads::new(self.prog.len(), width);
         let mut next = Threads::new(self.prog.len(), width);
         let mut scratch: Slots = vec![None; width];
         let mut matched: Option<Slots> = None;
-        let mut at = start;
+        let bytes = text.as_bytes();
         loop {
-            if matched.is_none() {
-                scratch.iter_mut().for_each(|slot| *slot = None);
+            let c = match bytes.get(at) {
+                Some(&b) if b < 128 => Some(char::from(b)),
+                Some(_) => text[at..].chars().next(),
+                None => None,
+            };
+            if matched.is_none()
+                && self
+                    .first
+                    .as_ref()
+                    .is_none_or(|first| c.is_some_and(|c| first.matches(c)))
+            {
+                scratch.fill(None);
                 self.add(&mut current, 0, (at, text), &mut scratch);
             }
-            let c = text[at..].chars().next();
             if current.pcs.is_empty() {
                 match (c, &matched) {
                     (Some(c), None) => {
                         at += c.len_utf8();
                         if let Some(first) = &self.first {
-                            at = text[at..]
-                                .char_indices()
-                                .find(|&(_, c)| first.iter().any(|test| test.matches(c)))
-                                .map_or(text.len(), |(offset, _)| at + offset);
+                            at = first.skip(text, at);
                         }
                         current.clear();
                         continue;
@@ -988,9 +1056,10 @@ mod tests {
     #[test]
     fn case_folding_adds_only_the_kelvin_sign_and_the_long_s() {
         let pattern = Pattern::new("(?i)[a-z]").expect("class");
+        let mut buf = [0u8; 4];
         for c in (0..=0x10FFFF).filter_map(char::from_u32) {
             let expected = c.is_ascii_alphabetic() || c == '\u{212A}' || c == '\u{17F}';
-            assert_eq!(pattern.is_match(&c.to_string()), expected, "{c:?}");
+            assert_eq!(pattern.is_match(c.encode_utf8(&mut buf)), expected, "{c:?}");
         }
         let negated = Pattern::new("(?i)[^k]").expect("class");
         assert!(!negated.is_match("\u{212A}"));

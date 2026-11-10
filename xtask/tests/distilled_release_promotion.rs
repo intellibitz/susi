@@ -48,20 +48,51 @@ fn git_command(dir: &Path) -> Command {
     command
 }
 
+fn copy_dir_all(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let ty = entry.file_type().unwrap();
+        let dst_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path);
+        } else {
+            std::fs::copy(entry.path(), &dst_path).unwrap();
+            if let Ok(meta) = entry.metadata() {
+                let _ = std::fs::set_permissions(&dst_path, meta.permissions());
+            }
+        }
+    }
+}
+
 struct Repo(PathBuf);
 
 impl Repo {
-    fn new() -> Self {
+    fn alloc_dir() -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
             "susi-distill-promotion-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        std::fs::create_dir(&root).unwrap();
-        let r = Self(root);
-        r.git(&["init", "-q", "-b", "main"]);
-        r
+        let _ = std::fs::remove_dir_all(&root);
+        root
+    }
+    fn new() -> Self {
+        static REPO_TPL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        let tpl = REPO_TPL.get_or_init(|| {
+            let tpl =
+                std::env::temp_dir().join(format!("susi-distill-promo-tpl-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tpl);
+            std::fs::create_dir_all(&tpl).unwrap();
+            let r = Self(tpl.clone());
+            r.git(&["init", "-q", "-b", "main"]);
+            std::mem::forget(r);
+            tpl
+        });
+        let root = Self::alloc_dir();
+        copy_dir_all(tpl, &root);
+        Self(root)
     }
     fn git(&self, args: &[&str]) -> String {
         let out = git_command(&self.0).args(args).output().unwrap();
@@ -80,6 +111,12 @@ impl Repo {
     fn commit_all(&self, message: &str) -> String {
         self.git(&["add", "-A"]);
         self.git(&["commit", "-qm", message]);
+        if let Ok(oid) = std::fs::read_to_string(self.0.join(".git/refs/heads/main")) {
+            let trimmed = oid.trim();
+            if trimmed.len() == 40 {
+                return trimmed.to_owned();
+            }
+        }
         self.git(&["rev-parse", "HEAD"])
     }
     /// The built `push-policy` (the pre-push hook's verifier) on `input`.
@@ -140,11 +177,14 @@ fn write_tree(r: &Repo, version: &str) {
         ".agents/identity.json",
         &format!("{{\n  \"version\": \"{version}\"\n}}\n"),
     );
-    let pin = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../rust-toolchain.toml"),
-    )
-    .unwrap();
-    r.write("rust-toolchain.toml", &pin);
+    static PIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let pin = PIN.get_or_init(|| {
+        std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../rust-toolchain.toml"),
+        )
+        .unwrap()
+    });
+    r.write("rust-toolchain.toml", pin);
 }
 
 /// A distilled candidate's receipt, before its digest is sealed in.
@@ -193,14 +233,31 @@ fn candidate(
     after_seal: bool,
     edit_bump: impl FnOnce(&Repo),
 ) -> Candidate {
-    let r = Repo::new();
-    write_tree(&r, "1.1.0");
-    r.write("source", "base\n");
-    let base = r.commit_all("base");
-    r.write("source", "base\nfeature\n");
-    let composed = r.commit_all("Distill task T-FEATURE-1");
-    let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
-    let mut value = receipt(&base, &composed, &tree);
+    static CANDIDATE_TPL: std::sync::OnceLock<(PathBuf, String, String, String)> =
+        std::sync::OnceLock::new();
+    let (tpl, base, composed, tree) = CANDIDATE_TPL.get_or_init(|| {
+        let tpl = std::env::temp_dir().join(format!(
+            "susi-distill-promo-cand-tpl-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tpl);
+        std::fs::create_dir_all(&tpl).unwrap();
+        let r = Repo(tpl.clone());
+        r.git(&["init", "-q", "-b", "main"]);
+        write_tree(&r, "1.1.0");
+        r.write("source", "base\n");
+        let base = r.commit_all("base");
+        r.write("source", "base\nfeature\n");
+        let composed = r.commit_all("Distill task T-FEATURE-1");
+        let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
+        std::mem::forget(r);
+        (tpl, base, composed, tree)
+    });
+
+    let root = Repo::alloc_dir();
+    copy_dir_all(tpl, &root);
+    let r = Repo(root);
+    let mut value = receipt(base, composed, tree);
     if after_seal {
         value = seal(value);
         edit_receipt(&mut value);
@@ -218,7 +275,7 @@ fn candidate(
         &format!("refs/heads/release/{NAME}"),
         &envelope,
     ]);
-    r.git(&["tag", &format!("susi-distill/{NAME}"), &composed]);
+    r.git(&["tag", &format!("susi-distill/{NAME}"), composed]);
     write_tree(&r, "1.2.0");
     r.write(
         ".agents/tasks/T-BUMP-1.json",
@@ -228,7 +285,7 @@ fn candidate(
     r.commit_all("chore: release v1.2.0");
     Candidate {
         repo: r,
-        composed,
+        composed: composed.clone(),
         envelope,
     }
 }

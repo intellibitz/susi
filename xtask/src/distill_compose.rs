@@ -4509,6 +4509,45 @@ mod tests {
 
     static FIXTURE_SEQ: AtomicUsize = AtomicUsize::new(0);
 
+    fn copy_dir_all(src: &Path, dst: &Path) {
+        fs::create_dir_all(dst).unwrap();
+        for entry in fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let ty = entry.file_type().unwrap();
+            let dst_path = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dst_path);
+            } else {
+                fs::copy(entry.path(), &dst_path).unwrap();
+                if let Ok(meta) = entry.metadata() {
+                    let _ = fs::set_permissions(&dst_path, meta.permissions());
+                }
+            }
+        }
+    }
+
+    fn set_git_origin_url(repo: &Path, new_origin: &Path) {
+        let cfg_path = repo.join(".git/config");
+        let raw = fs::read_to_string(&cfg_path).unwrap();
+        let url_val = new_origin.to_str().unwrap().replace('\\', "/");
+        let mut in_origin = false;
+        let mut out = String::with_capacity(raw.len() + 64);
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                in_origin = trimmed == "[remote \"origin\"]";
+                out.push_str(line);
+                out.push('\n');
+            } else if in_origin && trimmed.starts_with("url =") {
+                out.push_str(&format!("\turl = {url_val}\n"));
+            } else {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        fs::write(&cfg_path, out).unwrap();
+    }
+
     struct Fixture {
         dir: PathBuf,
         remote: PathBuf,
@@ -4517,28 +4556,40 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
+            static FX_TPL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+            let tpl = FX_TPL.get_or_init(|| {
+                let tpl_dir = std::env::temp_dir()
+                    .join(format!("susi-distill-fx-tpl-{}", std::process::id()));
+                let _ = fs::remove_dir_all(&tpl_dir);
+                let tpl_remote = tpl_dir.join("origin.git");
+                let tpl_work = tpl_dir.join("work");
+                fs::create_dir_all(&tpl_work).unwrap();
+
+                let init_bare = Git { root: &tpl_dir };
+                init_bare
+                    .text(&[
+                        "init",
+                        "--bare",
+                        "--initial-branch=main",
+                        tpl_remote.to_str().unwrap(),
+                    ])
+                    .unwrap();
+
+                let git = Git { root: &tpl_work };
+                git.text(&["init", "--initial-branch=main"]).unwrap();
+                git.text(&["remote", "add", "origin", tpl_remote.to_str().unwrap()])
+                    .unwrap();
+                tpl_dir
+            });
+
             let id = FIXTURE_SEQ.fetch_add(1, Ordering::Relaxed);
             let dir =
                 std::env::temp_dir().join(format!("susi-distill-test-{}-{id}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
+            copy_dir_all(tpl, &dir);
             let remote = dir.join("origin.git");
             let work = dir.join("work");
-            fs::create_dir_all(&work).unwrap();
-
-            let init_bare = Git { root: &dir };
-            init_bare
-                .text(&[
-                    "init",
-                    "--bare",
-                    "--initial-branch=main",
-                    remote.to_str().unwrap(),
-                ])
-                .unwrap();
-
-            let git = Git { root: &work };
-            git.text(&["init", "--initial-branch=main"]).unwrap();
-            git.text(&["remote", "add", "origin", remote.to_str().unwrap()])
-                .unwrap();
+            set_git_origin_url(&work, &remote);
             Self { dir, remote, work }
         }
 

@@ -41,7 +41,8 @@ use serde_json::Value;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{exit, Command};
+use std::process::{exit, Command, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Writes a tracked repository file in place. xtask only builds and never
 /// installs (Mandate 48), so it does no rename-based placement; these files are
@@ -357,6 +358,390 @@ fn dev_setup_in(dir: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct WorkspaceTestPlan {
+    serial_args: Vec<String>,
+    passthrough_only: bool,
+    build_args: Vec<String>,
+    doc_args: Option<Vec<String>>,
+    binary_args: Vec<String>,
+    jobs: Option<usize>,
+    triple: Option<String>,
+    target_dir: Option<PathBuf>,
+    explicit_package: bool,
+}
+
+fn plan_workspace_test(extra_args: &[String]) -> WorkspaceTestPlan {
+    let sep = extra_args.iter().position(|a| a == "--");
+    let (cargo_tail, binary_args) = match sep {
+        Some(idx) => (&extra_args[..idx], extra_args[idx + 1..].to_vec()),
+        None => (extra_args, Vec::new()),
+    };
+
+    let passthrough_only = cargo_tail
+        .iter()
+        .any(|a| matches!(a.as_str(), "-h" | "--help" | "--no-run" | "--doc"));
+    let explicit_package = cargo_tail.iter().any(|a| {
+        a == "-p"
+            || a == "--package"
+            || a.starts_with("--package=")
+            || (a.starts_with("-p") && !a.starts_with("--") && a.len() > 2)
+    });
+    let has_workspace = cargo_tail
+        .iter()
+        .any(|a| a == "--workspace" || a == "--all");
+    let has_offline = cargo_tail.iter().any(|a| a == "--offline");
+    let has_lock_flag = cargo_tail
+        .iter()
+        .any(|a| matches!(a.as_str(), "--locked" | "--unlocked" | "--frozen"));
+
+    let mut jobs = None;
+    let mut triple = None;
+    let mut target_dir = None;
+    let mut i = 0;
+    while i < cargo_tail.len() {
+        let arg = cargo_tail[i].as_str();
+        if (arg == "-j" || arg == "--jobs") && i + 1 < cargo_tail.len() {
+            jobs = cargo_tail[i + 1].parse::<usize>().ok().filter(|&n| n > 0);
+            i += 2;
+            continue;
+        }
+        if let Some(val) = arg.strip_prefix("--jobs=") {
+            jobs = val.parse::<usize>().ok().filter(|&n| n > 0);
+        } else if let Some(val) = arg
+            .strip_prefix("-j")
+            .filter(|_| !arg.starts_with("--") && arg.len() > 2)
+        {
+            jobs = val.parse::<usize>().ok().filter(|&n| n > 0);
+        } else if arg == "--target" && i + 1 < cargo_tail.len() {
+            triple = Some(cargo_tail[i + 1].clone());
+            i += 2;
+            continue;
+        } else if let Some(val) = arg.strip_prefix("--target=") {
+            triple = Some(val.to_owned());
+        } else if arg == "--target-dir" && i + 1 < cargo_tail.len() {
+            target_dir = Some(PathBuf::from(&cargo_tail[i + 1]));
+            i += 2;
+            continue;
+        } else if let Some(val) = arg.strip_prefix("--target-dir=") {
+            target_dir = Some(PathBuf::from(val));
+        }
+        i += 1;
+    }
+
+    let mut base = vec!["test".to_owned()];
+    if !explicit_package && !has_workspace {
+        base.push("--workspace".to_owned());
+    }
+    if !has_offline {
+        base.push("--offline".to_owned());
+    }
+    if !has_lock_flag {
+        base.push("--locked".to_owned());
+    }
+
+    let mut serial_args = base.clone();
+    serial_args.extend(cargo_tail.iter().cloned());
+    if sep.is_some() {
+        serial_args.push("--".to_owned());
+        serial_args.extend(binary_args.iter().cloned());
+    }
+
+    let mut build_args = base.clone();
+    build_args.extend(
+        cargo_tail
+            .iter()
+            .filter(|a| a.as_str() != "--no-fail-fast")
+            .cloned(),
+    );
+    build_args.push("--no-run".to_owned());
+    if !cargo_tail
+        .iter()
+        .any(|a| a == "--message-format" || a.starts_with("--message-format="))
+    {
+        build_args.push("--message-format=json".to_owned());
+    }
+
+    let restricts_targets = cargo_tail.iter().any(|a| {
+        matches!(
+            a.as_str(),
+            "--lib"
+                | "--bins"
+                | "--bin"
+                | "--tests"
+                | "--test"
+                | "--benches"
+                | "--bench"
+                | "--examples"
+                | "--example"
+                | "--all-targets"
+        ) || a.starts_with("--bin=")
+            || a.starts_with("--test=")
+            || a.starts_with("--bench=")
+            || a.starts_with("--example=")
+    });
+    let doc_args = if passthrough_only || restricts_targets {
+        None
+    } else {
+        let mut doc = base;
+        doc.push("--doc".to_owned());
+        doc.extend(cargo_tail.iter().cloned());
+        if !doc.iter().any(|a| a == "--no-fail-fast") {
+            doc.push("--no-fail-fast".to_owned());
+        }
+        if !binary_args.is_empty() {
+            doc.push("--".to_owned());
+            doc.extend(binary_args.iter().cloned());
+        }
+        Some(doc)
+    };
+
+    WorkspaceTestPlan {
+        serial_args,
+        passthrough_only,
+        build_args,
+        doc_args,
+        binary_args,
+        jobs,
+        triple,
+        target_dir,
+        explicit_package,
+    }
+}
+
+fn json_has_lib_target(stdout: &str) -> bool {
+    for line in stdout.lines() {
+        let Ok(msg) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if msg.get("reason").and_then(Value::as_str) != Some("compiler-artifact") {
+            continue;
+        }
+        if msg
+            .get("target")
+            .and_then(|t| t.get("kind"))
+            .and_then(Value::as_array)
+            .is_some_and(|kinds| {
+                kinds.iter().filter_map(Value::as_str).any(|k| {
+                    matches!(
+                        k,
+                        "lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro"
+                    )
+                })
+            })
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn count_test_results(log: &str) -> (u64, u64, u64, u64) {
+    let (mut suites, mut passed, mut failed, mut ignored) = (0u64, 0u64, 0u64, 0u64);
+    for line in log.lines() {
+        let Some(rest) = line.strip_prefix("test result: ") else {
+            continue;
+        };
+        suites += 1;
+        for part in rest.split(';') {
+            let mut fields = part.split_whitespace().rev();
+            let (Some(label), Some(number)) = (fields.next(), fields.next()) else {
+                continue;
+            };
+            let Ok(number) = number.parse::<u64>() else {
+                continue;
+            };
+            match label {
+                "passed" => passed += number,
+                "failed" => failed += number,
+                "ignored" => ignored += number,
+                _ => {}
+            }
+        }
+    }
+    (suites, passed, failed, ignored)
+}
+
+fn run_workspace_test(root: &Path, extra_args: &[String]) -> Result<(), String> {
+    let plan = plan_workspace_test(extra_args);
+    if plan.passthrough_only || test_runner::serial_requested() {
+        let status = Command::new("cargo")
+            .current_dir(root)
+            .args(&plan.serial_args)
+            .status()
+            .map_err(|e| format!("cannot run cargo test: {e}"))?;
+        if !status.success() {
+            return Err(format!(
+                "cargo test failed (exit {})",
+                status.code().unwrap_or(1)
+            ));
+        }
+        return Ok(());
+    }
+
+    let total_started = Instant::now();
+    let build_started = Instant::now();
+    let build_out = Command::new("cargo")
+        .current_dir(root)
+        .args(&plan.build_args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("cannot run cargo test --no-run: {e}"))?;
+    let build_elapsed = build_started.elapsed();
+    let stdout_text = String::from_utf8_lossy(&build_out.stdout);
+    let stderr_text = String::from_utf8_lossy(&build_out.stderr);
+    if !stderr_text.is_empty() {
+        eprint!("{stderr_text}");
+    }
+    let (binaries, diagnostics) =
+        test_runner::parse_artifacts(&stdout_text).map_err(|e| e.to_string())?;
+    for diag in &diagnostics {
+        eprint!("{diag}");
+        if !diag.ends_with('\n') {
+            eprintln!();
+        }
+    }
+    if !build_out.status.success() {
+        return Err(format!(
+            "cargo test --no-run failed (exit {})",
+            build_out.status.code().unwrap_or(1)
+        ));
+    }
+
+    let original_home =
+        env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let cargo_home = env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| original_home.as_ref().map(|h| h.join(".cargo")));
+    let rustup_home = env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .or_else(|| original_home.as_ref().map(|h| h.join(".rustup")));
+    let target_dir = plan
+        .target_dir
+        .clone()
+        .or_else(|| env::var_os("CARGO_TARGET_DIR").map(PathBuf::from))
+        .map(|p| if p.is_absolute() { p } else { root.join(p) })
+        .unwrap_or_else(|| root.join("target"));
+
+    let avail = std::thread::available_parallelism().map_or(4, usize::from);
+    let jobs_n = plan.jobs.unwrap_or(avail).max(1);
+    let concurrency = jobs_n.clamp(2, 12);
+    let total_test_threads = (concurrency * 2).max(jobs_n);
+    let build_jobs = (jobs_n / concurrency).max(1);
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let scratch = env::temp_dir().join(format!("susi-xtask-test-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
+    let home_root = scratch.join("homes");
+    let log_path = scratch.join("tests.log");
+    let durations = target_dir.join("xtask-test-durations.json");
+    let heavy = test_runner::heavy_binaries(root);
+    let settings = test_runner::Settings {
+        concurrency,
+        total_test_threads,
+        build_jobs,
+        home_root: &home_root,
+        target_dir: &target_dir,
+        triple: plan.triple.as_deref(),
+        durations: &durations,
+        heavy: &heavy,
+        log: &log_path,
+    };
+
+    let run_started = Instant::now();
+    let outcome = test_runner::run(&binaries, &settings, &|binary, private_home| {
+        let mut child = Command::new(&binary.executable);
+        child.args(&plan.binary_args);
+        susi_paths::test_env::isolate_home(&mut child, private_home);
+        if let Some(ref ch) = cargo_home {
+            child.env("CARGO_HOME", ch);
+        }
+        if let Some(ref rh) = rustup_home {
+            child.env("RUSTUP_HOME", rh);
+        }
+        let child_target = private_home.join("target");
+        for key in [
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_TARGET_DIR",
+            "CARGO_BUILD_BUILD_DIR",
+        ] {
+            child.env(key, &child_target);
+        }
+        Ok(child)
+    })
+    .map_err(|e| {
+        let _ = fs::remove_dir_all(&scratch);
+        e.to_string()
+    })?;
+    let run_elapsed = run_started.elapsed();
+
+    let should_run_docs =
+        plan.doc_args.is_some() && (!plan.explicit_package || json_has_lib_target(&stdout_text));
+    let mut doc_elapsed = Duration::ZERO;
+    let mut doc_ok = true;
+    let mut ran_docs = false;
+    if should_run_docs {
+        if let Some(ref doc_args) = plan.doc_args {
+            ran_docs = true;
+            let doc_home = scratch.join("doc-home");
+            fs::create_dir_all(&doc_home).map_err(|e| e.to_string())?;
+            let log_append = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+                .map_err(|e| format!("{}: {e}", log_path.display()))?;
+            let err_append = log_append.try_clone().map_err(|e| e.to_string())?;
+            let mut doc_cmd = Command::new("cargo");
+            doc_cmd
+                .current_dir(root)
+                .args(doc_args)
+                .stdin(Stdio::null())
+                .stdout(log_append)
+                .stderr(err_append);
+            susi_paths::test_env::isolate_home(&mut doc_cmd, &doc_home);
+            if let Some(ref ch) = cargo_home {
+                doc_cmd.env("CARGO_HOME", ch);
+            }
+            if let Some(ref rh) = rustup_home {
+                doc_cmd.env("RUSTUP_HOME", rh);
+            }
+            let doc_started = Instant::now();
+            let status = doc_cmd
+                .status()
+                .map_err(|e| format!("cannot run cargo test --doc: {e}"))?;
+            doc_elapsed = doc_started.elapsed();
+            doc_ok = status.success();
+        }
+    }
+
+    let log_text = fs::read_to_string(&log_path).unwrap_or_default();
+    let (_suites, passed, failed, ignored) = count_test_results(&log_text);
+    let binaries_ok = outcome.failed.is_empty() && outcome.ran == binaries.len();
+    let _ = fs::remove_dir_all(&scratch);
+
+    println!(
+        "xtask test: {passed} passed; {failed} failed; {ignored} ignored across {} binaries{} in {:.2}s (build={:.2}s, run={:.2}s, doc={:.2}s, lanes={concurrency})",
+        binaries.len(),
+        if ran_docs { " + doctests" } else { "" },
+        total_started.elapsed().as_secs_f64(),
+        build_elapsed.as_secs_f64(),
+        run_elapsed.as_secs_f64(),
+        doc_elapsed.as_secs_f64(),
+    );
+
+    if !binaries_ok || !doc_ok {
+        eprint!("{log_text}");
+        let failed_ids: Vec<&str> = outcome.failed.iter().map(|(id, _)| id.as_str()).collect();
+        return Err(format!(
+            "workspace tests failed (failed binaries: [{}], doctests_ok={doc_ok})",
+            failed_ids.join(", ")
+        ));
+    }
+    Ok(())
+}
+
 fn main() {
     if env::var("SUSI_BUILD_FEATURES").is_ok_and(|features| requests_retired_backend(&features)) {
         eprintln!("SUSI_BUILD_FEATURES requests retired CUDA/MKL support; these dependencies fail product license/native-code gates.");
@@ -391,6 +776,17 @@ fn main() {
 
     if args.first().map(String::as_str) == Some("fast-release") {
         if let Err(error) = fast_release::run(&args[1..]) {
+            eprintln!("xtask: {error}");
+            exit(1);
+        }
+        return;
+    }
+
+    if matches!(
+        args.first().map(String::as_str),
+        Some("test" | "workspace-test")
+    ) {
+        if let Err(error) = run_workspace_test(Path::new("."), &args[1..]) {
             eprintln!("xtask: {error}");
             exit(1);
         }
@@ -870,5 +1266,96 @@ mod tests {
                 "--check"
             ])
         );
+    }
+
+    #[test]
+    fn workspace_test_plan_defaults_and_splits_filter_arguments() {
+        let default_plan = super::plan_workspace_test(&[]);
+        assert!(!default_plan.passthrough_only);
+        assert!(!default_plan.explicit_package);
+        assert_eq!(
+            default_plan.build_args,
+            v(&[
+                "test",
+                "--workspace",
+                "--offline",
+                "--locked",
+                "--no-run",
+                "--message-format=json"
+            ])
+        );
+        assert_eq!(
+            default_plan.doc_args,
+            Some(v(&[
+                "test",
+                "--workspace",
+                "--offline",
+                "--locked",
+                "--doc",
+                "--no-fail-fast"
+            ]))
+        );
+
+        let pkg_plan = super::plan_workspace_test(&v(&[
+            "-p",
+            "susi-core",
+            "-j",
+            "8",
+            "--no-fail-fast",
+            "--",
+            "acp",
+            "--nocapture",
+        ]));
+        assert!(pkg_plan.explicit_package);
+        assert_eq!(pkg_plan.jobs, Some(8));
+        assert_eq!(pkg_plan.binary_args, v(&["acp", "--nocapture"]));
+        assert_eq!(
+            pkg_plan.build_args,
+            v(&[
+                "test",
+                "--offline",
+                "--locked",
+                "-p",
+                "susi-core",
+                "-j",
+                "8",
+                "--no-run",
+                "--message-format=json"
+            ])
+        );
+        assert_eq!(
+            pkg_plan.doc_args,
+            Some(v(&[
+                "test",
+                "--offline",
+                "--locked",
+                "--doc",
+                "-p",
+                "susi-core",
+                "-j",
+                "8",
+                "--no-fail-fast",
+                "--",
+                "acp",
+                "--nocapture"
+            ]))
+        );
+
+        let bin_only = super::plan_workspace_test(&v(&["-p", "xtask", "--bin", "local-workflow"]));
+        assert_eq!(bin_only.doc_args, None);
+    }
+
+    #[test]
+    fn workspace_test_helpers_detect_lib_artifacts_and_sum_results() {
+        let no_lib =
+            "{\"reason\":\"compiler-artifact\",\"target\":{\"kind\":[\"bin\"]}}\n{\"reason\":\"build-finished\",\"success\":true}\n";
+        assert!(!super::json_has_lib_target(no_lib));
+        let with_lib =
+            "{\"reason\":\"compiler-artifact\",\"target\":{\"kind\":[\"rlib\"]}}\n{\"reason\":\"build-finished\",\"success\":true}\n";
+        assert!(super::json_has_lib_target(with_lib));
+
+        let log = "test result: ok. 12 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out\n\
+                   test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n";
+        assert_eq!(super::count_test_results(log), (2, 16, 0, 2));
     }
 }

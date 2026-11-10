@@ -24,6 +24,7 @@ mod hosted_scripts {
     use std::cell::Cell;
     use std::path::{Path, PathBuf};
     use std::process::Command;
+    use std::sync::OnceLock;
 
     /// A user git config that changes what porcelain commands print: line and
     /// column numbers before a `git grep` match, color around everything.
@@ -82,8 +83,151 @@ mod hosted_scripts {
         );
     }
 
+    struct Template {
+        dirs: Vec<PathBuf>,
+        files: Vec<(PathBuf, Vec<u8>)>,
+        canon_root: String,
+        metadata: serde_json::Value,
+    }
+
+    fn collect_tree(
+        base: &Path,
+        dir: &Path,
+        dirs: &mut Vec<PathBuf>,
+        files: &mut Vec<(PathBuf, Vec<u8>)>,
+    ) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let rel = path.strip_prefix(base).unwrap().to_path_buf();
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                dirs.push(rel);
+                collect_tree(base, &path, dirs, files);
+            } else if kind.is_file() {
+                files.push((rel, std::fs::read(&path).unwrap()));
+            }
+        }
+    }
+
+    fn rewrite_workspace_root(value: &mut serde_json::Value, from: &str, to: &str) {
+        match value {
+            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            }
+            serde_json::Value::String(text) => {
+                if text.contains(from) {
+                    *text = text.replace(from, to);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    rewrite_workspace_root(item, from, to);
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for entry in map.values_mut() {
+                    rewrite_workspace_root(entry, from, to);
+                }
+            }
+        }
+    }
+
+    impl Template {
+        fn get() -> &'static Self {
+            static TEMPLATE: OnceLock<Template> = OnceLock::new();
+            TEMPLATE.get_or_init(|| {
+                let root = std::env::temp_dir()
+                    .join(format!("susi-changed-crates-template-{}", std::process::id()));
+                let _ = std::fs::remove_dir_all(&root);
+                std::fs::create_dir_all(root.join("src")).unwrap();
+                let write = |rel: &str, text: &str| {
+                    let path = root.join(rel);
+                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    std::fs::write(path, text).unwrap();
+                };
+                let manifest = |name: &str, tables: &str| {
+                    write(
+                        &format!("crates/{name}/Cargo.toml"),
+                        &format!(
+                            "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n{tables}"
+                        ),
+                    );
+                    write(&format!("crates/{name}/src/lib.rs"), "pub fn f() {}\n");
+                };
+                write(
+                    "Cargo.toml",
+                    "[package]\nname = \"fixture-root\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
+                     [dependencies]\ntop = { path = \"crates/top\" }\n\n\
+                     [workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n",
+                );
+                write("src/lib.rs", "pub fn fixture() {}\n");
+                write("README.md", "fixture\n");
+                manifest("base", "[dependencies]\n\n");
+                manifest("mid", "[dependencies]\nbase = { path = \"../base\" }\n");
+                manifest("top", "[dependencies]\nmid = { path = \"../mid\" }\n");
+                manifest("devuser", "[dev-dependencies]\nbase = { path = \"../base\" }\n");
+                manifest("lone", "[dependencies]\n\n");
+                // Data outside every crate: compiled in, read at run time, read by a
+                // build script, and named by nothing at all.
+                write(
+                    "crates/mid/src/lib.rs",
+                    "pub fn f() {}\npub const DATA: &str = include_str!(\"../../../config/data.json\");\n",
+                );
+                write("config/data.json", "{}\n");
+                write(
+                    "crates/lone/src/lib.rs",
+                    "pub fn f() {}\npub fn assets() -> &'static str {\n    \"../../deploy/assets\"\n}\n",
+                );
+                write("deploy/assets/a.json", "{}\n");
+                write("deploy/helm/values.yaml", "replicas: 1\n");
+                write(
+                    "crates/top/build.rs",
+                    "fn main() {\n    let ledgers = std::path::Path::new(\"../../.agents\");\n    \
+                     println!(\"cargo:rerun-if-changed={}\", ledgers.join(\"identity.json\").display());\n}\n",
+                );
+                write(".agents/identity.json", "{}\n");
+                write(".agents/tasks/T-1.json", "{}\n");
+
+                let meta_out = Command::new("cargo")
+                    .args(["metadata", "--no-deps", "--format-version", "1"])
+                    .current_dir(&root)
+                    .output()
+                    .unwrap();
+                assert!(
+                    meta_out.status.success(),
+                    "cargo metadata: {}",
+                    String::from_utf8_lossy(&meta_out.stderr)
+                );
+                let _ = std::fs::remove_file(root.join("Cargo.lock"));
+                let metadata: serde_json::Value =
+                    serde_json::from_slice(&meta_out.stdout).unwrap();
+                let canon_root = metadata["workspace_root"].as_str().unwrap().to_owned();
+
+                git(&root, &["init", "-q", "-b", "main"]);
+                git(&root, &["config", "user.name", "test"]);
+                git(&root, &["config", "user.email", "test@example.test"]);
+                git(&root, &["add", "-A"]);
+                git(&root, &["commit", "-qm", "seed"]);
+                git(&root, &["checkout", "-q", "-b", "work"]);
+
+                let mut dirs = Vec::new();
+                let mut files = Vec::new();
+                collect_tree(&root, &root, &mut dirs, &mut files);
+                let _ = std::fs::remove_dir_all(&root);
+                Self {
+                    dirs,
+                    files,
+                    canon_root,
+                    metadata,
+                }
+            })
+        }
+    }
+
     struct Workspace {
         root: PathBuf,
+        meta_path: PathBuf,
+        manifest_dirty: Cell<bool>,
         /// Run the scripts under [`HOSTILE_GIT_CONFIG`].
         hostile: Cell<bool>,
     }
@@ -92,78 +236,39 @@ mod hosted_scripts {
         /// One workspace per test: libtest runs a binary's tests as threads of one
         /// process, so the tag, not the pid, keeps their directories apart.
         fn new(tag: &str) -> Self {
-            let root = std::env::temp_dir()
-                .join(format!("susi-changed-crates-{tag}-{}", std::process::id()));
+            let pid = std::process::id();
+            let root = std::env::temp_dir().join(format!("susi-changed-crates-{tag}-{pid}"));
+            let meta_path =
+                std::env::temp_dir().join(format!("susi-changed-crates-meta-{tag}-{pid}.json"));
             let _ = std::fs::remove_dir_all(&root);
-            std::fs::create_dir_all(root.join("src")).unwrap();
-            let ws = Self {
+            let _ = std::fs::remove_file(&meta_path);
+            let template = Template::get();
+            std::fs::create_dir_all(&root).unwrap();
+            for dir in &template.dirs {
+                std::fs::create_dir_all(root.join(dir)).unwrap();
+            }
+            for (rel, bytes) in &template.files {
+                std::fs::write(root.join(rel), bytes).unwrap();
+            }
+            let canon = std::fs::canonicalize(&root).unwrap();
+            let mut metadata = template.metadata.clone();
+            rewrite_workspace_root(&mut metadata, &template.canon_root, canon.to_str().unwrap());
+            std::fs::write(&meta_path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+            Self {
                 root,
+                meta_path,
+                manifest_dirty: Cell::new(false),
                 hostile: Cell::new(false),
-            };
-            ws.write(
-                "Cargo.toml",
-                "[package]\nname = \"fixture-root\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
-             [dependencies]\ntop = { path = \"crates/top\" }\n\n\
-             [workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n",
-            );
-            ws.write("src/lib.rs", "pub fn fixture() {}\n");
-            ws.write("README.md", "fixture\n");
-            ws.krate("base", "");
-            ws.krate("mid", "base = { path = \"../base\" }");
-            ws.krate("top", "mid = { path = \"../mid\" }");
-            ws.krate_with_dev("devuser", "base = { path = \"../base\" }");
-            ws.krate("lone", "");
-            // Data outside every crate: compiled in, read at run time, read by a
-            // build script, and named by nothing at all.
-            ws.write(
-            "crates/mid/src/lib.rs",
-            "pub fn f() {}\npub const DATA: &str = include_str!(\"../../../config/data.json\");\n",
-        );
-            ws.write("config/data.json", "{}\n");
-            ws.write(
-            "crates/lone/src/lib.rs",
-            "pub fn f() {}\npub fn assets() -> &'static str {\n    \"../../deploy/assets\"\n}\n",
-        );
-            ws.write("deploy/assets/a.json", "{}\n");
-            ws.write("deploy/helm/values.yaml", "replicas: 1\n");
-            ws.write(
-            "crates/top/build.rs",
-            "fn main() {\n    let ledgers = std::path::Path::new(\"../../.agents\");\n    \
-             println!(\"cargo:rerun-if-changed={}\", ledgers.join(\"identity.json\").display());\n}\n",
-        );
-            ws.write(".agents/identity.json", "{}\n");
-            ws.write(".agents/tasks/T-1.json", "{}\n");
-            git(&ws.root, &["init", "-q", "-b", "main"]);
-            git(&ws.root, &["config", "user.name", "test"]);
-            git(&ws.root, &["config", "user.email", "test@example.test"]);
-            git(&ws.root, &["add", "-A"]);
-            git(&ws.root, &["commit", "-qm", "seed"]);
-            git(&ws.root, &["checkout", "-q", "-b", "work"]);
-            ws
+            }
         }
 
         fn write(&self, rel: &str, text: &str) {
+            if rel == "Cargo.toml" || rel.ends_with("/Cargo.toml") {
+                self.manifest_dirty.set(true);
+            }
             let path = self.root.join(rel);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, text).unwrap();
-        }
-
-        fn krate(&self, name: &str, deps: &str) {
-            self.manifest(name, &format!("[dependencies]\n{deps}\n"));
-        }
-
-        fn krate_with_dev(&self, name: &str, dev_deps: &str) {
-            self.manifest(name, &format!("[dev-dependencies]\n{dev_deps}\n"));
-        }
-
-        fn manifest(&self, name: &str, tables: &str) {
-            self.write(
-                &format!("crates/{name}/Cargo.toml"),
-                &format!(
-                "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n{tables}"
-            ),
-            );
-            self.write(&format!("crates/{name}/src/lib.rs"), "pub fn f() {}\n");
         }
 
         /// Commit a change to `rel` on the working branch.
@@ -183,7 +288,28 @@ mod hosted_scripts {
             git(&self.root, &["commit", "-qm", "change"]);
         }
 
+        fn default_metadata_file(&self) -> Option<&Path> {
+            if self.manifest_dirty.get() {
+                let out = Command::new("cargo")
+                    .args(["metadata", "--no-deps", "--format-version", "1"])
+                    .current_dir(&self.root)
+                    .output()
+                    .unwrap();
+                if !out.status.success() {
+                    return None;
+                }
+                std::fs::write(&self.meta_path, out.stdout).unwrap();
+                self.manifest_dirty.set(false);
+            }
+            Some(&self.meta_path)
+        }
+
         fn cargo_metadata_file(&self) -> PathBuf {
+            let path = self.root.join("cargo-metadata.json");
+            if let Some(cached) = self.default_metadata_file() {
+                std::fs::copy(cached, &path).unwrap();
+                return path;
+            }
             let out = Command::new("cargo")
                 .args(["metadata", "--no-deps", "--format-version", "1"])
                 .current_dir(&self.root)
@@ -194,14 +320,13 @@ mod hosted_scripts {
                 "cargo metadata: {}",
                 String::from_utf8_lossy(&out.stderr)
             );
-            let path = self.root.join("cargo-metadata.json");
             std::fs::write(&path, out.stdout).unwrap();
             path
         }
 
         /// The script's output lines, and its exit code.
         fn run(&self, args: &[&str]) -> (i32, Vec<String>) {
-            self.run_with_metadata_file(args, None)
+            self.run_with_metadata_file(args, self.default_metadata_file())
         }
 
         fn run_with_metadata_file(
@@ -232,7 +357,7 @@ mod hosted_scripts {
         }
 
         fn pkgs(&self, args: &[&str]) -> Vec<String> {
-            self.pkgs_with_metadata_file(args, None)
+            self.pkgs_with_metadata_file(args, self.default_metadata_file())
         }
 
         fn pkgs_with_metadata_file(
@@ -247,6 +372,9 @@ mod hosted_scripts {
 
         /// Commit the deletion of `rel` on the working branch.
         fn remove(&self, rel: &str) {
+            if rel == "Cargo.toml" || rel.ends_with("/Cargo.toml") {
+                self.manifest_dirty.set(true);
+            }
             git(&self.root, &["rm", "-q", rel]);
             git(&self.root, &["commit", "-qm", "remove"]);
         }
@@ -255,6 +383,7 @@ mod hosted_scripts {
     impl Drop for Workspace {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
+            let _ = std::fs::remove_file(&self.meta_path);
         }
     }
 
@@ -262,7 +391,7 @@ mod hosted_scripts {
     fn without_the_flag_only_the_touched_crate_is_listed() {
         let ws = Workspace::new("bare");
         ws.change("crates/base/src/lib.rs");
-        assert_eq!(ws.pkgs(&[]), ["base"]);
+        assert_eq!(ws.pkgs_with_metadata_file(&[], None), ["base"]);
     }
 
     #[test]
@@ -535,8 +664,12 @@ mod hosted_scripts {
     #[test]
     fn reverse_deps_of_a_leaf_is_itself_and_reverse_deps_of_root_is_just_root() {
         let ws = Workspace::new("rev-leaf");
-        assert_eq!(revdeps(&ws.root, "lone"), ["lone"]);
-        assert_eq!(revdeps(&ws.root, "fixture-root"), ["fixture-root"]);
+        let meta = ws.default_metadata_file();
+        assert_eq!(revdeps_with_metadata_file(&ws.root, "lone", meta), ["lone"]);
+        assert_eq!(
+            revdeps_with_metadata_file(&ws.root, "fixture-root", meta),
+            ["fixture-root"]
+        );
     }
 
     #[test]

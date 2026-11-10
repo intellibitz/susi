@@ -360,12 +360,36 @@ mod tests {
             .is_err());
     }
 
+    struct GeneratedLocalhost {
+        cert_pem: String,
+        key_pem: String,
+        expired_pem: String,
+    }
+
+    fn generated_localhost() -> &'static GeneratedLocalhost {
+        static GENERATED: std::sync::OnceLock<GeneratedLocalhost> = std::sync::OnceLock::new();
+        GENERATED.get_or_init(|| {
+            let generated =
+                susi_vendor_rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+            let mut expired =
+                susi_vendor_rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
+            expired.serial_number = Some(42u64.into());
+            expired.not_before = susi_vendor_rcgen::date_time_ymd(1999, 1, 1);
+            expired.not_after = susi_vendor_rcgen::date_time_ymd(2000, 1, 1);
+            let expired_pem = expired.self_signed(&generated.signing_key).unwrap().pem();
+            GeneratedLocalhost {
+                cert_pem: generated.cert.pem(),
+                key_pem: generated.signing_key.serialize_pem(),
+                expired_pem,
+            }
+        })
+    }
+
     #[test]
     fn platform_rsa_rejects_malformed_non_rsa_and_corrupt_private_keys() {
         assert!(native_tls::RsaSigningKey::from_pkcs8(b"malformed").is_err());
-        let original = native_tls::RsaSigningKey::generate().unwrap();
-        let pem = original.private_key_pem().unwrap();
-        let (_, document) = pkcs8::SecretDocument::from_pem(&pem).unwrap();
+        let pem = &generated_localhost().key_pem;
+        let (_, document) = pkcs8::SecretDocument::from_pem(pem).unwrap();
         let info = pkcs8::PrivateKeyInfo::from_der(document.as_bytes()).unwrap();
         let private = pkcs1::RsaPrivateKey::from_der(info.private_key).unwrap();
         for field in 0..6 {
@@ -458,10 +482,9 @@ mod tests {
 
     #[test]
     fn platform_tls_validates_trust_hostname_and_key_and_serves_https() {
-        let generated =
-            susi_vendor_rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let cert = generated.cert.pem();
-        let key = generated.signing_key.serialize_pem();
+        let generated = generated_localhost();
+        let cert = &generated.cert_pem;
+        let key = &generated.key_pem;
         assert!(acceptor_from_pem(cert.as_bytes(), key.as_bytes()).is_ok());
         assert!(roundtrip(
             cert.as_bytes(),
@@ -482,33 +505,20 @@ mod tests {
             "wrong.invalid"
         ));
         assert!(acceptor_from_pem(b"malformed", key.as_bytes()).is_err());
-        let mut expired =
-            susi_vendor_rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
-        expired.serial_number = Some(42u64.into());
-        expired.not_before = susi_vendor_rcgen::date_time_ymd(1999, 1, 1);
-        expired.not_after = susi_vendor_rcgen::date_time_ymd(2000, 1, 1);
-        let expired = expired.self_signed(&generated.signing_key).unwrap().pem();
         assert!(!roundtrip(
-            expired.as_bytes(),
+            generated.expired_pem.as_bytes(),
             key.as_bytes(),
             true,
             "localhost"
         ));
 
-        let other =
-            susi_vendor_rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        assert!(acceptor_from_pem(
-            cert.as_bytes(),
-            other.signing_key.serialize_pem().as_bytes()
-        )
-        .is_err());
+        let other_key = include_bytes!("../tests/fixtures/accepted-rsa-key.pem");
+        assert!(acceptor_from_pem(cert.as_bytes(), other_key).is_err());
     }
 
     #[test]
     fn acceptor_from_pem_rejects_malformed_private_key_with_valid_certificate() {
-        let generated =
-            susi_vendor_rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let cert = generated.cert.pem();
+        let cert = &generated_localhost().cert_pem;
         assert!(acceptor_from_pem(cert.as_bytes(), b"not-a-valid-private-key-pem").is_err());
     }
 
@@ -595,13 +605,11 @@ mod tests {
     fn pem_chain_and_x509_spki_parser_enforces_strict_rfc7468_and_rfc5280_invariants() {
         let cert1 = include_bytes!("../tests/fixtures/accepted-rsa-cert.pem");
         let key1 = include_bytes!("../tests/fixtures/accepted-rsa-key.pem");
-        let generated =
-            susi_vendor_rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let mut chained = Vec::from(cert1.as_slice());
         chained.extend_from_slice(
             b"\n-----BEGIN TRUST COMMENT-----\nAQID\n-----END TRUST COMMENT-----\n",
         );
-        chained.extend_from_slice(generated.cert.pem().as_bytes());
+        chained.extend_from_slice(generated_localhost().cert_pem.as_bytes());
         let decoded = parse_certificate_pem_chain(&chained).unwrap();
         assert_eq!(decoded.len(), 2);
 

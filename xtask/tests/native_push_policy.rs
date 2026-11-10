@@ -1,24 +1,56 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Test assertions.
 #[path = "../src/push_policy.rs"]
 mod push_policy;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 const ZERO: &str = "0000000000000000000000000000000000000000";
+
+fn copy_dir_all(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let ty = entry.file_type().unwrap();
+        let dst_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path);
+        } else {
+            std::fs::copy(entry.path(), &dst_path).unwrap();
+            if let Ok(meta) = entry.metadata() {
+                let _ = std::fs::set_permissions(&dst_path, meta.permissions());
+            }
+        }
+    }
+}
+
 struct Repo(PathBuf);
 impl Repo {
-    fn new() -> Self {
+    fn alloc_dir() -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
             "susi-native-push-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        std::fs::create_dir(&root).unwrap();
-        let r = Self(root);
-        r.git(&["init", "-q", "-b", "main"]);
-        r.commit("first");
-        r
+        let _ = std::fs::remove_dir_all(&root);
+        root
+    }
+    fn new() -> Self {
+        static REPO_TPL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        let tpl = REPO_TPL.get_or_init(|| {
+            let tpl =
+                std::env::temp_dir().join(format!("susi-native-push-tpl-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tpl);
+            std::fs::create_dir_all(&tpl).unwrap();
+            let r = Self(tpl.clone());
+            r.git(&["init", "-q", "-b", "main"]);
+            r.commit("first");
+            std::mem::forget(r);
+            tpl
+        });
+        let root = Self::alloc_dir();
+        copy_dir_all(tpl, &root);
+        Self(root)
     }
     fn git(&self, args: &[&str]) -> String {
         let out = Command::new("git")
@@ -448,9 +480,25 @@ fn release_tag_verdict(
     edit: impl FnOnce(&mut serde_json::Value),
     extra_file: bool,
 ) -> Result<(), String> {
-    let r = Repo::new();
-    let (commit, tree, lock) = release_tree(&r, "1.2.3");
-    let mut record = release_record("v1.2.3", "1.2.3", &commit, &tree, &lock);
+    static RELEASE_TAG_TPL: std::sync::OnceLock<(PathBuf, String, String, String)> =
+        std::sync::OnceLock::new();
+    let (tpl, commit, tree, lock) = RELEASE_TAG_TPL.get_or_init(|| {
+        let tpl =
+            std::env::temp_dir().join(format!("susi-native-push-rel-tpl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tpl);
+        std::fs::create_dir_all(&tpl).unwrap();
+        let r = Repo(tpl.clone());
+        r.git(&["init", "-q", "-b", "main"]);
+        r.commit("first");
+        let (commit, tree, lock) = release_tree(&r, "1.2.3");
+        std::mem::forget(r);
+        (tpl, commit, tree, lock)
+    });
+
+    let root = Repo::alloc_dir();
+    copy_dir_all(tpl, &root);
+    let r = Repo(root);
+    let mut record = release_record("v1.2.3", "1.2.3", commit, tree, lock);
     edit(&mut record);
     std::fs::create_dir_all(r.0.join("releases/qualification")).unwrap();
     std::fs::write(
@@ -468,7 +516,11 @@ fn release_tag_verdict(
         "chore: release v1.2.3 qualification record",
     ]);
     r.git(&["tag", "-a", "v1.2.3", "-m", "release"]);
-    let tag = r.git(&["rev-parse", "refs/tags/v1.2.3"]);
+    let tag = std::fs::read_to_string(r.0.join(".git/refs/tags/v1.2.3"))
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| s.len() == 40)
+        .unwrap_or_else(|| r.git(&["rev-parse", "refs/tags/v1.2.3"]));
     r.check(&format!("refs/tags/v1.2.3 {tag} refs/tags/v1.2.3 {ZERO}"))
 }
 

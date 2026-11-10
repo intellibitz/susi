@@ -1,5 +1,6 @@
 // Integration test crate: a failed setup step is a test failure, so the
 // panic-path lints are allowed for the whole file.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)] // integration test crate: no public API to document
 
@@ -257,7 +258,7 @@ impl Drop for Daemon {
             if let Ok(mut stopper) = self.stop.spawn() {
                 let deadline = Instant::now() + Duration::from_secs(40);
                 while matches!(stopper.try_wait(), Ok(None)) && Instant::now() < deadline {
-                    std::thread::sleep(Duration::from_millis(100));
+                    std::thread::sleep(Duration::from_millis(10));
                 }
                 let _ = stopper.kill();
                 let _ = stopper.wait();
@@ -323,7 +324,7 @@ fn wait_published(node: &Node, daemon: &mut Daemon) -> Result<(), ()> {
             node.name,
             daemon.log()
         );
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(15));
     }
 }
 
@@ -489,7 +490,7 @@ fn run_cli(node: &Node, args: &[&str], limit: Duration) -> (bool, String, String
                 String::from_utf8_lossy(&out.stderr)
             );
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -545,7 +546,7 @@ fn call_until_up(caller: &Node, target: &Node, limit: Duration) -> String {
                     caller.name,
                     target.name
                 );
-                std::thread::sleep(Duration::from_millis(500));
+                std::thread::sleep(Duration::from_millis(25));
             }
         }
     }
@@ -748,7 +749,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         .write_all(b"POST /mcp HTTP/1.1\r\nhost: 127.0.0.1\r\ncontent-length: 2\r\n\r\n{}")
         .unwrap();
     assert!(
-        read_some(&mut plain, Duration::from_secs(5)).is_empty(),
+        read_some(&mut plain, Duration::from_millis(250)).is_empty(),
         "the channel port answered plaintext HTTP"
     );
 
@@ -763,7 +764,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     let mut replay = TcpStream::connect_timeout(&channel, Duration::from_secs(5)).unwrap();
     replay.write_all(&recorded).unwrap();
     assert!(
-        read_some(&mut replay, Duration::from_secs(5)).is_empty(),
+        read_some(&mut replay, Duration::from_millis(250)).is_empty(),
         "the hub answered a replayed handshake"
     );
     hub_d.assert_log_contains("replayed handshake refused");
@@ -882,7 +883,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         if let Ok(l) = link {
             let deadline = Instant::now() + Duration::from_secs(10);
             while l.is_open() && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(10));
             }
             assert!(!l.is_open(), "the hub kept a link for an impostor");
         }
@@ -933,7 +934,7 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
             .iter()
             .any(|needle| detail.contains(needle));
             if transient && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(500));
+                std::thread::sleep(Duration::from_millis(50));
                 continue;
             }
             panic!("peers add as {} failed: {stdout}{stderr}", node.name);
@@ -946,7 +947,7 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
             "{} was never admitted by the hub within {limit:?}: {stdout}{stderr}",
             node.name
         );
-        std::thread::sleep(Duration::from_secs(3));
+        std::thread::sleep(Duration::from_millis(150));
     }
 }
 
@@ -1012,7 +1013,7 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             roster_of(&hub),
             hub_d.log()
         );
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(20));
     }
     assert!(binds(&a, &hub), "A binds the hub: {:?}", roster_of(&a));
     let joined_b = join(&b, &endpoint, limit);
@@ -1024,7 +1025,7 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             roster_of(&hub),
             hub_d.log()
         );
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(20));
     }
     assert!(binds(&b, &hub), "B binds the hub: {:?}", roster_of(&b));
     // The hub pushes each committed admission to every bound member over
@@ -1040,7 +1041,7 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             roster_of(&a),
             roster_of(&b)
         );
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(20));
     }
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
@@ -1055,7 +1056,7 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             Instant::now() < deadline,
             "A never reached B through the hub: {rows:?}"
         );
-        std::thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_millis(100));
     }
     // ...and the other way: the newer member took the hub's ledger when it
     // was admitted, so it calls the older one through the hub too.
@@ -1072,7 +1073,7 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             Instant::now() < deadline,
             "B never reached A through the hub: {rows:?}"
         );
-        std::thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_millis(100));
     }
     // A second `peers add` of the same hub is idempotent: the joining
     // member still holds no ledger record it sealed itself.
@@ -1105,7 +1106,7 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             Instant::now() < deadline,
             "A never reached the hub: {rows:?}"
         );
-        std::thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_millis(100));
     }
     let ids = [hub.node_id.as_str(), a.node_id.as_str(), b.node_id.as_str()];
     let c = capture.lock().unwrap();

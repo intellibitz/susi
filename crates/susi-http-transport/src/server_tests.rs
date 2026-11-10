@@ -70,11 +70,17 @@ fn read_answer(stream: &mut TcpStream) -> String {
 fn shutdown_finishes_the_request_in_flight_and_closes_idle_connections() {
     let runtime = runtime();
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let in_flight = Arc::new(AtomicBool::new(false));
+    let seen_in_flight = Arc::clone(&in_flight);
     let router = Router::new().route("/fast", get(|_| async { "ok" })).route(
         "/slow",
-        get(|_| async {
-            tokio::time::sleep(Duration::from_millis(400)).await;
-            "done"
+        get(move |_| {
+            let seen_in_flight = Arc::clone(&seen_in_flight);
+            async move {
+                seen_in_flight.store(true, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(60)).await;
+                "done"
+            }
         }),
     );
     let (address, server) = runtime.block_on(async {
@@ -95,7 +101,11 @@ fn shutdown_finishes_the_request_in_flight_and_closes_idle_connections() {
     busy.set_read_timeout(timeout).unwrap();
     busy.write_all(b"GET /slow HTTP/1.1\r\nhost: x\r\n\r\n")
         .unwrap();
-    std::thread::sleep(Duration::from_millis(100));
+    let entered_deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !in_flight.load(Ordering::SeqCst) && std::time::Instant::now() < entered_deadline {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(in_flight.load(Ordering::SeqCst), "/slow handler started");
     stop.send(()).unwrap();
 
     let mut rest = [0u8; 1];
@@ -136,11 +146,15 @@ fn a_handler_whose_client_hangs_up_is_dropped() {
     let runtime = runtime();
     let dropped = Arc::new(AtomicBool::new(false));
     let seen = Arc::clone(&dropped);
+    let entered = Arc::new(AtomicBool::new(false));
+    let seen_entered = Arc::clone(&entered);
     let router = Router::new().route(
         "/wait",
         post(move |_| {
             let guard = Dropped(Arc::clone(&seen));
+            let seen_entered = Arc::clone(&seen_entered);
             async move {
+                seen_entered.store(true, Ordering::SeqCst);
                 tokio::time::sleep(Duration::from_secs(30)).await;
                 drop(guard);
                 "late"
@@ -162,7 +176,12 @@ fn a_handler_whose_client_hangs_up_is_dropped() {
     client
         .write_all(b"POST /wait HTTP/1.1\r\nhost: x\r\ncontent-length: 2\r\n\r\nhi")
         .unwrap();
-    std::thread::sleep(Duration::from_millis(200));
+    let entered_deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !entered.load(Ordering::SeqCst) && std::time::Instant::now() < entered_deadline {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(entered.load(Ordering::SeqCst), "/wait handler started");
+    std::thread::sleep(Duration::from_millis(20));
     assert!(
         !dropped.load(Ordering::SeqCst),
         "running while the client waits"
@@ -170,7 +189,7 @@ fn a_handler_whose_client_hangs_up_is_dropped() {
     drop(client);
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while !dropped.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(5));
     }
     assert!(
         dropped.load(Ordering::SeqCst),

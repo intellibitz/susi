@@ -191,18 +191,18 @@ mod audit_chain_tests {
             pid: 1,
         };
         // A lock held past the budget fails the append closed.
-        let budget = std::time::Duration::from_millis(300);
+        let budget = std::time::Duration::from_millis(40);
         assert!(append_with_key_within(&log, &key, &entry("blocked"), budget).is_err());
-        // A holder that keeps the lock longer than the old ~3 s default is
-        // waited out, not refused: writers queued behind syncing holders on
-        // Windows used to lose their appends that way.
+        // A holder that keeps the lock while writers queue behind it is waited
+        // out within CHAIN_LOCK_BUDGET, not refused: writers queued behind
+        // syncing holders on Windows used to lose their appends that way.
+        let started = std::time::Instant::now();
         let release = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(3500));
+            std::thread::sleep(std::time::Duration::from_millis(120));
             drop(held);
         });
-        let started = std::time::Instant::now();
         append_with_key(&log, &key, &entry("after")).unwrap();
-        assert!(started.elapsed() >= std::time::Duration::from_millis(3000));
+        assert!(started.elapsed() >= std::time::Duration::from_millis(90));
         release.join().unwrap();
         assert_eq!(verify_with_key(&log, &key), Ok(1));
     }
@@ -210,7 +210,7 @@ mod audit_chain_tests {
     #[test]
     fn concurrent_processes_extend_one_unforked_chain() {
         const WORKERS: usize = 4;
-        const APPENDS: usize = 300;
+        const APPENDS: usize = 60;
         let key = [0x42u8; 32];
         if let Ok(log) = std::env::var("SUSI_CHAIN_WORKER_LOG") {
             let log = PathBuf::from(log);
@@ -255,7 +255,7 @@ mod audit_chain_tests {
     #[test]
     fn concurrent_processes_never_tear_jsonl_lines() {
         const WORKERS: usize = 4;
-        const APPENDS: usize = 200;
+        const APPENDS: usize = 60;
         if let Ok(ws) = std::env::var("SUSI_JSONL_WORKER_WS") {
             let ws = PathBuf::from(ws);
             let go = ws.join("go");

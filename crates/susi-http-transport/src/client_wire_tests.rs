@@ -140,7 +140,8 @@ fn a_stalled_stream_fails_with_a_timeout_inside_the_budget() {
         let _ = stopped.recv_timeout(FIXTURE_BOUND);
     });
     let started = Instant::now();
-    let request = Request::new("GET", &url, &[], None, 1, 0).unwrap();
+    let mut request = Request::new("GET", &url, &[], None, 1, 0).unwrap();
+    request.deadline = started + Duration::from_millis(150);
     let call = execute(request, None, || None).unwrap();
     let error = call.into_bytes(1024).unwrap_err();
     let elapsed = started.elapsed();
@@ -148,7 +149,7 @@ fn a_stalled_stream_fails_with_a_timeout_inside_the_budget() {
     server.join().unwrap();
     assert!(error.to_string().contains("timeout"), "{error}");
     assert!(
-        elapsed < Duration::from_millis(2500),
+        elapsed < Duration::from_millis(1000),
         "elapsed: {elapsed:?}"
     );
 }
@@ -398,53 +399,63 @@ fn serial() -> rcgen::SerialNumber {
 
 /// A throwaway CA, a leaf for 127.0.0.1 it signs, the same leaf expired,
 /// one for another name, and one signed by an unrelated CA.
-fn pki() -> Pki {
-    let ca_key = rcgen::generate_simple_self_signed(Vec::<String>::new())
-        .unwrap()
-        .signing_key;
-    let other_key = rcgen::generate_simple_self_signed(Vec::<String>::new())
-        .unwrap()
-        .signing_key;
-    let leaf_key = rcgen::generate_simple_self_signed(Vec::<String>::new())
-        .unwrap()
-        .signing_key;
-    let ca_params = |name: &str| {
-        let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
-        params.serial_number = Some(serial());
-        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-        params.key_usages = vec![
-            rcgen::KeyUsagePurpose::KeyCertSign,
-            rcgen::KeyUsagePurpose::CrlSign,
-        ];
-        params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, name);
-        params
-    };
-    let trusted = ca_params("susi http-transport test CA");
-    let untrusted = ca_params("susi untrusted test CA");
-    let ca_pem = trusted.self_signed(&ca_key).unwrap().pem();
-    let issuer = rcgen::Issuer::from_params(&trusted, &ca_key);
-    let other_issuer = rcgen::Issuer::from_params(&untrusted, &other_key);
-    let leaf =
-        |names: Vec<String>, expired: bool, by: &rcgen::Issuer<'_, &rcgen::RsaSigningKey>| {
-            let mut params = rcgen::CertificateParams::new(names).unwrap();
+fn pki() -> &'static Pki {
+    static PKI: std::sync::OnceLock<Pki> = std::sync::OnceLock::new();
+    PKI.get_or_init(|| {
+        let (ca_key, other_key, leaf_key) = std::thread::scope(|scope| {
+            let ca = scope.spawn(|| {
+                rcgen::generate_simple_self_signed(Vec::<String>::new())
+                    .unwrap()
+                    .signing_key
+            });
+            let other = scope.spawn(|| {
+                rcgen::generate_simple_self_signed(Vec::<String>::new())
+                    .unwrap()
+                    .signing_key
+            });
+            let leaf = rcgen::generate_simple_self_signed(Vec::<String>::new())
+                .unwrap()
+                .signing_key;
+            (ca.join().unwrap(), other.join().unwrap(), leaf)
+        });
+        let ca_params = |name: &str| {
+            let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
             params.serial_number = Some(serial());
-            if expired {
-                params.not_before = rcgen::date_time_ymd(1999, 1, 1);
-                params.not_after = rcgen::date_time_ymd(2000, 1, 1);
-            }
-            params.signed_by(&leaf_key, by).unwrap().pem()
+            params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            params.key_usages = vec![
+                rcgen::KeyUsagePurpose::KeyCertSign,
+                rcgen::KeyUsagePurpose::CrlSign,
+            ];
+            params
+                .distinguished_name
+                .push(rcgen::DnType::CommonName, name);
+            params
         };
-    let ip = vec!["127.0.0.1".to_string()];
-    Pki {
-        good: leaf(ip.clone(), false, &issuer),
-        expired: leaf(ip.clone(), true, &issuer),
-        mismatched: leaf(vec!["mismatch.invalid".into()], false, &issuer),
-        foreign: leaf(ip, false, &other_issuer),
-        leaf_key_pem: leaf_key.serialize_pem(),
-        ca_pem,
-    }
+        let trusted = ca_params("susi http-transport test CA");
+        let untrusted = ca_params("susi untrusted test CA");
+        let ca_pem = trusted.self_signed(&ca_key).unwrap().pem();
+        let issuer = rcgen::Issuer::from_params(&trusted, &ca_key);
+        let other_issuer = rcgen::Issuer::from_params(&untrusted, &other_key);
+        let leaf =
+            |names: Vec<String>, expired: bool, by: &rcgen::Issuer<'_, &rcgen::RsaSigningKey>| {
+                let mut params = rcgen::CertificateParams::new(names).unwrap();
+                params.serial_number = Some(serial());
+                if expired {
+                    params.not_before = rcgen::date_time_ymd(1999, 1, 1);
+                    params.not_after = rcgen::date_time_ymd(2000, 1, 1);
+                }
+                params.signed_by(&leaf_key, by).unwrap().pem()
+            };
+        let ip = vec!["127.0.0.1".to_string()];
+        Pki {
+            good: leaf(ip.clone(), false, &issuer),
+            expired: leaf(ip.clone(), true, &issuer),
+            mismatched: leaf(vec!["mismatch.invalid".into()], false, &issuer),
+            foreign: leaf(ip, false, &other_issuer),
+            leaf_key_pem: leaf_key.serialize_pem(),
+            ca_pem,
+        }
+    })
 }
 
 /// Serve one HTTPS exchange with a chunked reply. `None` when the

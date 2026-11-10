@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -34,10 +35,54 @@ mod common;
 use common::HomeGuard;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use susi_config::cluster_key;
 use susi_daemon::tls::{self, negotiate_transport};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
+
+struct CertPair {
+    cert_pem: String,
+    key_pem: String,
+    fingerprint: String,
+}
+
+struct CertFixtures {
+    initial: CertPair,
+    rotated: CertPair,
+}
+
+fn cert_fixtures() -> &'static CertFixtures {
+    static FIXTURES: OnceLock<CertFixtures> = OnceLock::new();
+    FIXTURES.get_or_init(|| {
+        let ((cert1_pem, key1_pem), (cert2_pem, key2_pem)) = std::thread::scope(|s| {
+            let t1 = s.spawn(|| {
+                tls::generate_self_signed(&["localhost".to_string(), "127.0.0.1".to_string()])
+                    .unwrap()
+            });
+            let t2 = s.spawn(|| {
+                tls::generate_self_signed(&["localhost".to_string(), "node2.local".to_string()])
+                    .unwrap()
+            });
+            (t1.join().unwrap(), t2.join().unwrap())
+        });
+        let fp1 = tls::cert_fingerprint(&cert1_pem).unwrap();
+        let fp2 = tls::cert_fingerprint(&cert2_pem).unwrap();
+        assert_ne!(fp1, fp2);
+        CertFixtures {
+            initial: CertPair {
+                cert_pem: cert1_pem,
+                key_pem: key1_pem,
+                fingerprint: fp1,
+            },
+            rotated: CertPair {
+                cert_pem: cert2_pem,
+                key_pem: key2_pem,
+                fingerprint: fp2,
+            },
+        }
+    })
+}
 
 fn temp_tls_dir(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!(
@@ -132,24 +177,27 @@ fn vc_201_077_mastery_cluster_key_staged_expiry_and_torn_self_heal() {
 #[test]
 fn vc_201_077_mastery_transport_cert_rotation_bounded_overlap() {
     let tls_dir = temp_tls_dir("overlap");
+    let certs = cert_fixtures();
 
-    // Generate initial certificate
-    let (cert1_pem, key1_pem) =
-        tls::generate_self_signed(&["localhost".to_string(), "127.0.0.1".to_string()]).unwrap();
-    fs::write(tls_dir.join("cert.pem"), &cert1_pem).unwrap();
-    fs::write(tls_dir.join("key.pem"), &key1_pem).unwrap();
+    // Install initial certificate
+    fs::write(tls_dir.join("cert.pem"), &certs.initial.cert_pem).unwrap();
+    fs::write(tls_dir.join("key.pem"), &certs.initial.key_pem).unwrap();
 
     // Verify initial acceptor can be built
     assert!(tls::build_acceptor(&tls_dir.join("cert.pem"), &tls_dir.join("key.pem")).is_ok());
 
-    // Generate new certificate to stage
-    let (cert2_pem, key2_pem) =
-        tls::generate_self_signed(&["localhost".to_string(), "node2.local".to_string()]).unwrap();
+    // Stage rotated certificate
     let now = 1_000_000;
-    tls::stage_cert_pair_at(&tls_dir, &cert2_pem, &key2_pem, now).unwrap();
+    tls::stage_cert_pair_at(
+        &tls_dir,
+        &certs.rotated.cert_pem,
+        &certs.rotated.key_pem,
+        now,
+    )
+    .unwrap();
 
     // Calculate fingerprint of staged cert
-    let fp2 = tls::cert_fingerprint(&cert2_pem).unwrap();
+    let fp2 = tls::cert_fingerprint(&certs.rotated.cert_pem).unwrap();
 
     // Activate staged cert
     assert!(tls::activate_staged_cert_at(&tls_dir, &fp2, now));
@@ -169,7 +217,7 @@ fn vc_201_077_mastery_transport_cert_rotation_bounded_overlap() {
     let (prev_cert, prev_key) = prev.unwrap();
     assert_eq!(
         tls::cert_file_fingerprint(&prev_cert).unwrap(),
-        tls::cert_fingerprint(&cert1_pem).unwrap()
+        certs.initial.fingerprint
     );
     assert!(prev_key.exists());
 
@@ -186,16 +234,24 @@ fn vc_201_077_mastery_transport_cert_rotation_bounded_overlap() {
 #[test]
 fn vc_201_077_mastery_transport_cert_explicit_revocation() {
     let tls_dir = temp_tls_dir("revocation");
+    let certs = cert_fixtures();
 
-    let (cert1_pem, key1_pem) = tls::generate_self_signed(&["localhost".to_string()]).unwrap();
-    fs::write(tls_dir.join("cert.pem"), &cert1_pem).unwrap();
-    fs::write(tls_dir.join("key.pem"), &key1_pem).unwrap();
+    fs::write(tls_dir.join("cert.pem"), &certs.initial.cert_pem).unwrap();
+    fs::write(tls_dir.join("key.pem"), &certs.initial.key_pem).unwrap();
 
-    let (cert2_pem, key2_pem) = tls::generate_self_signed(&["localhost".to_string()]).unwrap();
     let now = 500_000;
-    tls::stage_cert_pair_at(&tls_dir, &cert2_pem, &key2_pem, now).unwrap();
-    let fp2 = tls::cert_fingerprint(&cert2_pem).unwrap();
-    assert!(tls::activate_staged_cert_at(&tls_dir, &fp2, now));
+    tls::stage_cert_pair_at(
+        &tls_dir,
+        &certs.rotated.cert_pem,
+        &certs.rotated.key_pem,
+        now,
+    )
+    .unwrap();
+    assert!(tls::activate_staged_cert_at(
+        &tls_dir,
+        &certs.rotated.fingerprint,
+        now
+    ));
 
     // Within window, prev cert is available
     assert!(tls::prev_cert_at(&tls_dir, now).is_some());
@@ -215,15 +271,20 @@ fn vc_201_077_mastery_transport_cert_explicit_revocation() {
 #[test]
 fn vc_201_077_mastery_transport_cert_staged_expiry_and_fingerprint_mismatch() {
     let tls_dir = temp_tls_dir("expiry");
+    let certs = cert_fixtures();
 
-    let (cert1_pem, key1_pem) = tls::generate_self_signed(&["localhost".to_string()]).unwrap();
-    fs::write(tls_dir.join("cert.pem"), &cert1_pem).unwrap();
-    fs::write(tls_dir.join("key.pem"), &key1_pem).unwrap();
+    fs::write(tls_dir.join("cert.pem"), &certs.initial.cert_pem).unwrap();
+    fs::write(tls_dir.join("key.pem"), &certs.initial.key_pem).unwrap();
 
-    let (cert2_pem, key2_pem) = tls::generate_self_signed(&["localhost".to_string()]).unwrap();
     let staged_time = 100_000;
-    tls::stage_cert_pair_at(&tls_dir, &cert2_pem, &key2_pem, staged_time).unwrap();
-    let fp2 = tls::cert_fingerprint(&cert2_pem).unwrap();
+    tls::stage_cert_pair_at(
+        &tls_dir,
+        &certs.rotated.cert_pem,
+        &certs.rotated.key_pem,
+        staged_time,
+    )
+    .unwrap();
+    let fp2 = &certs.rotated.fingerprint;
 
     // Fingerprint mismatch refuses activation and does NOT delete staged cert
     assert!(!tls::activate_staged_cert_at(
@@ -236,7 +297,7 @@ fn vc_201_077_mastery_transport_cert_staged_expiry_and_fingerprint_mismatch() {
     // Staged cert past MAX_CERT_STAGE_AGE_SECS refuses activation and self-clears
     let too_late = staged_time + tls::MAX_CERT_STAGE_AGE_SECS + 10;
     assert!(
-        !tls::activate_staged_cert_at(&tls_dir, &fp2, too_late),
+        !tls::activate_staged_cert_at(&tls_dir, fp2, too_late),
         "stale staged cert must not activate"
     );
     assert!(
@@ -250,10 +311,10 @@ fn vc_201_077_mastery_transport_cert_staged_expiry_and_fingerprint_mismatch() {
 #[test]
 fn vc_201_077_mastery_transport_cert_torn_stage_self_heals() {
     let tls_dir = temp_tls_dir("torn");
+    let certs = cert_fixtures();
 
-    let (cert1_pem, key1_pem) = tls::generate_self_signed(&["localhost".to_string()]).unwrap();
-    fs::write(tls_dir.join("cert.pem"), &cert1_pem).unwrap();
-    fs::write(tls_dir.join("key.pem"), &key1_pem).unwrap();
+    fs::write(tls_dir.join("cert.pem"), &certs.initial.cert_pem).unwrap();
+    fs::write(tls_dir.join("key.pem"), &certs.initial.key_pem).unwrap();
 
     // Simulate crash mid-stage: invalid/truncated files
     fs::write(tls_dir.join("cert.pem.next"), "NOT_A_VALID_PEM_CERTIFICATE").unwrap();
@@ -275,12 +336,17 @@ fn vc_201_077_mastery_transport_cert_torn_stage_self_heals() {
     );
 
     // Subsequent valid stage and activation succeeds without manual cleanup
-    let (cert2_pem, key2_pem) = tls::generate_self_signed(&["localhost".to_string()]).unwrap();
-    tls::stage_cert_pair_at(&tls_dir, &cert2_pem, &key2_pem, 100).unwrap();
-    let fp2 = tls::cert_fingerprint(&cert2_pem).unwrap();
-    assert!(tls::activate_staged_cert_at(&tls_dir, &fp2, 100));
+    tls::stage_cert_pair_at(
+        &tls_dir,
+        &certs.rotated.cert_pem,
+        &certs.rotated.key_pem,
+        100,
+    )
+    .unwrap();
+    let fp2 = &certs.rotated.fingerprint;
+    assert!(tls::activate_staged_cert_at(&tls_dir, fp2, 100));
     assert_eq!(
-        tls::cert_file_fingerprint(&tls_dir.join("cert.pem")).unwrap(),
+        &tls::cert_file_fingerprint(&tls_dir.join("cert.pem")).unwrap(),
         fp2
     );
 

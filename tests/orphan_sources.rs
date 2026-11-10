@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Orphan-source ratchet: every Rust file under `crates/*/src`, `tests`,
 //! `benches` and `examples` must be reached by a build or test target.
@@ -17,9 +18,11 @@
 //! `#[cfg_attr(.., path = "..")]`, and `include!`-style macros. Files under
 //! a `fixtures/` directory are inputs tests compile or read themselves and
 //! are not counted.
-use std::collections::BTreeSet;
+use std::borrow::Cow;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 /// Unreached files across the workspace: none. Never raise it.
 const ORPHAN_CEILING: usize = 0;
@@ -38,7 +41,7 @@ fn rust_files(dir: &Path, out: &mut BTreeSet<PathBuf>) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        if entry.file_type().is_ok_and(|ft| ft.is_dir()) {
             rust_files(&path, out);
         } else if path.extension().is_some_and(|e| e == "rs") {
             out.insert(path);
@@ -51,15 +54,22 @@ fn is_fixture(path: &Path) -> bool {
 }
 
 /// Strip `//` comments so commented-out declarations do not count.
-fn without_line_comments(source: &str) -> String {
-    source
-        .lines()
-        .map(|line| match line.find("//") {
+fn without_line_comments(source: &str) -> Cow<'_, str> {
+    if !source.contains("//") {
+        return Cow::Borrowed(source);
+    }
+    let mut out = String::with_capacity(source.len());
+    for (idx, line) in source.lines().enumerate() {
+        if idx > 0 {
+            out.push('\n');
+        }
+        let kept = match line.find("//") {
             Some(at) if !line[..at].contains('"') => &line[..at],
-            _ => line,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+            Some(_) | None => line,
+        };
+        out.push_str(kept);
+    }
+    Cow::Owned(out)
 }
 
 fn ident_at(text: &str, from: usize) -> Option<(&str, usize)> {
@@ -77,6 +87,7 @@ fn ident_at(text: &str, from: usize) -> Option<(&str, usize)> {
 
 /// `(module name, explicit path if any, inline block or not)` for every
 /// `mod` item in `source`, with the inline module nesting each one sits in.
+#[derive(Clone)]
 struct ModDecl {
     name: String,
     explicit_path: Option<String>,
@@ -88,6 +99,9 @@ struct ModDecl {
 }
 
 fn mod_decls(source: &str) -> Vec<ModDecl> {
+    if !source.contains("mod ") {
+        return Vec::new();
+    }
     let text = without_line_comments(source);
     let mut decls = Vec::new();
     let mut pending_path: Option<String> = None;
@@ -99,15 +113,14 @@ fn mod_decls(source: &str) -> Vec<ModDecl> {
     let bytes = text.as_bytes();
     let mut i = 0usize;
     while i < bytes.len() {
-        if !text.is_char_boundary(i) {
-            i += 1;
-            continue;
+        let b = bytes[i];
+        if matches!(b, b'/' | b'"' | b'\'' | b'r' | b'b') && text.is_char_boundary(i) {
+            if let Some(next) = skip_literal_or_comment(&text, i) {
+                i = next;
+                continue;
+            }
         }
-        if let Some(next) = skip_literal_or_comment(&text, i) {
-            i = next;
-            continue;
-        }
-        match bytes[i] {
+        match b {
             b'{' => depth += 1,
             b'}' => {
                 depth = depth.saturating_sub(1);
@@ -128,52 +141,49 @@ fn mod_decls(source: &str) -> Vec<ModDecl> {
                         && after.starts_with('=')
                 });
                 if let Some((at, _)) = key {
-                    {
-                        let after = &rest[at + 4..attr_end];
-                        if let Some(eq) = after.find('=') {
-                            let value = after[eq + 1..].trim();
-                            if let Some(stripped) = value.strip_prefix('"') {
-                                if let Some(end) = stripped.find('"') {
-                                    pending_path = Some(stripped[..end].to_owned());
-                                    pending_cfg_attr = rest[..at].contains("cfg_attr");
-                                }
+                    let after = &rest[at + 4..attr_end];
+                    if let Some(eq) = after.find('=') {
+                        let value = after[eq + 1..].trim();
+                        if let Some(stripped) = value.strip_prefix('"') {
+                            if let Some(end) = stripped.find('"') {
+                                pending_path = Some(stripped[..end].to_owned());
+                                pending_cfg_attr = rest[..at].contains("cfg_attr");
                             }
                         }
                     }
                 }
             }
-            _ => {}
-        }
-        let rest = &text[i..];
-        if rest.starts_with("mod ")
-            && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_')
-        {
-            if let Some((name, after)) = ident_at(&text, i + 4) {
-                let tail = text[after..].trim_start();
-                if let Some(first) = tail.chars().next() {
-                    if first == ';' {
-                        decls.push(ModDecl {
-                            name: name.to_owned(),
-                            explicit_path: pending_path.take(),
-                            cfg_attr: std::mem::take(&mut pending_cfg_attr),
-                            inline: false,
-                            nesting: nesting.clone(),
-                        });
-                    } else if first == '{' {
-                        decls.push(ModDecl {
-                            name: name.to_owned(),
-                            explicit_path: None,
-                            cfg_attr: false,
-                            inline: true,
-                            nesting: nesting.clone(),
-                        });
-                        pending_path = None;
-                        pending_cfg_attr = false;
-                        nesting.push(name.to_owned());
-                        module_depths.push(depth);
+            b'm' if bytes.get(i..i + 4) == Some(b"mod ")
+                && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_') =>
+            {
+                if let Some((name, after)) = ident_at(&text, i + 4) {
+                    let tail = text[after..].trim_start();
+                    if let Some(first) = tail.chars().next() {
+                        if first == ';' {
+                            decls.push(ModDecl {
+                                name: name.to_owned(),
+                                explicit_path: pending_path.take(),
+                                cfg_attr: std::mem::take(&mut pending_cfg_attr),
+                                inline: false,
+                                nesting: nesting.clone(),
+                            });
+                        } else if first == '{' {
+                            decls.push(ModDecl {
+                                name: name.to_owned(),
+                                explicit_path: None,
+                                cfg_attr: false,
+                                inline: true,
+                                nesting: nesting.clone(),
+                            });
+                            pending_path = None;
+                            pending_cfg_attr = false;
+                            nesting.push(name.to_owned());
+                            module_depths.push(depth);
+                        }
                     }
                 }
             }
+            _ => {}
         }
         i += 1;
     }
@@ -261,6 +271,9 @@ fn skip_literal_or_comment(text: &str, at: usize) -> Option<usize> {
 }
 
 fn includes(source: &str) -> Vec<String> {
+    if !source.contains("include") {
+        return Vec::new();
+    }
     let mut out = Vec::new();
     for marker in ["include!(", "include_str!(", "include_bytes!("] {
         let mut rest = source;
@@ -294,19 +307,40 @@ fn module_dir(file: &Path) -> PathBuf {
     dir.join(stem)
 }
 
+type ParsedFileCache = Mutex<HashMap<PathBuf, (Vec<ModDecl>, Vec<String>)>>;
+
+fn parsed_file(file: &Path) -> (Vec<ModDecl>, Vec<String>) {
+    static CACHE: OnceLock<ParsedFileCache> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = cache.lock().unwrap().get(file).cloned() {
+        return hit;
+    }
+    let source = read(file);
+    let parsed = (mod_decls(&source), includes(&source));
+    cache
+        .lock()
+        .unwrap()
+        .insert(file.to_path_buf(), parsed.clone());
+    parsed
+}
+
 fn reach(root: &Path, seen: &mut BTreeSet<PathBuf>) {
     let mut stack = vec![root.to_path_buf()];
-    while let Some(file) = stack.pop() {
-        let Ok(file) = file.canonicalize() else {
+    let mut raw_seen = HashSet::new();
+    while let Some(raw_file) = stack.pop() {
+        if !raw_seen.insert(raw_file.clone()) {
+            continue;
+        }
+        let Ok(file) = raw_file.canonicalize() else {
             continue;
         };
         if !seen.insert(file.clone()) {
             continue;
         }
-        let source = read(&file);
+        let (decls, file_includes) = parsed_file(&file);
         let dir = file.parent().unwrap().to_path_buf();
         let base = module_dir(&file);
-        for decl in mod_decls(&source) {
+        for decl in decls {
             if decl.inline {
                 continue;
             }
@@ -332,7 +366,7 @@ fn reach(root: &Path, seen: &mut BTreeSet<PathBuf>) {
                 stack.push(found.clone());
             }
         }
-        for inc in includes(&source) {
+        for inc in file_includes {
             stack.push(dir.join(inc));
         }
     }
@@ -361,61 +395,64 @@ struct CrateReport {
     orphans: Vec<PathBuf>,
 }
 
-fn scan() -> Vec<CrateReport> {
-    let root = workspace_root();
-    let mut reports = Vec::new();
-    let mut crate_dirs: Vec<PathBuf> = fs::read_dir(root.join("crates"))
-        .expect("crates dir")
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.join("Cargo.toml").is_file())
-        .collect();
-    crate_dirs.push(root.clone());
-    crate_dirs.sort();
-    for crate_dir in crate_dirs {
-        let mut roots = Vec::new();
-        for r in ["src/lib.rs", "src/main.rs"] {
-            let p = crate_dir.join(r);
-            if p.is_file() {
-                roots.push(p);
-            }
-        }
-        for sub in ["src/bin", "tests", "benches", "examples"] {
-            let d = crate_dir.join(sub);
-            let Ok(entries) = fs::read_dir(&d) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.extension().is_some_and(|e| e == "rs") {
+fn scan() -> &'static [CrateReport] {
+    static REPORTS: OnceLock<Vec<CrateReport>> = OnceLock::new();
+    REPORTS.get_or_init(|| {
+        let root = workspace_root();
+        let mut reports = Vec::new();
+        let mut crate_dirs: Vec<PathBuf> = fs::read_dir(root.join("crates"))
+            .expect("crates dir")
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.join("Cargo.toml").is_file())
+            .collect();
+        crate_dirs.push(root.clone());
+        crate_dirs.sort();
+        for crate_dir in crate_dirs {
+            let mut roots = Vec::new();
+            for r in ["src/lib.rs", "src/main.rs"] {
+                let p = crate_dir.join(r);
+                if p.is_file() {
                     roots.push(p);
-                } else if p.join("main.rs").is_file() {
-                    roots.push(p.join("main.rs"));
                 }
             }
+            for sub in ["src/bin", "tests", "benches", "examples"] {
+                let d = crate_dir.join(sub);
+                let Ok(entries) = fs::read_dir(&d) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().is_some_and(|e| e == "rs") {
+                        roots.push(p);
+                    } else if p.join("main.rs").is_file() {
+                        roots.push(p.join("main.rs"));
+                    }
+                }
+            }
+            roots.extend(manifest_target_paths(&crate_dir));
+            let mut seen = BTreeSet::new();
+            for r in &roots {
+                reach(r, &mut seen);
+            }
+            let mut all = BTreeSet::new();
+            for sub in ["src", "tests", "benches", "examples"] {
+                rust_files(&crate_dir.join(sub), &mut all);
+            }
+            let orphans: Vec<PathBuf> = all
+                .into_iter()
+                .filter(|f| !is_fixture(f))
+                .filter(|f| f.canonicalize().map_or(true, |c| !seen.contains(&c)))
+                .collect();
+            let name = if crate_dir == root {
+                "(root)".to_owned()
+            } else {
+                crate_dir.file_name().unwrap().to_string_lossy().to_string()
+            };
+            reports.push(CrateReport { name, orphans });
         }
-        roots.extend(manifest_target_paths(&crate_dir));
-        let mut seen = BTreeSet::new();
-        for r in &roots {
-            reach(r, &mut seen);
-        }
-        let mut all = BTreeSet::new();
-        for sub in ["src", "tests", "benches", "examples"] {
-            rust_files(&crate_dir.join(sub), &mut all);
-        }
-        let orphans: Vec<PathBuf> = all
-            .into_iter()
-            .filter(|f| !is_fixture(f))
-            .filter(|f| f.canonicalize().map_or(true, |c| !seen.contains(&c)))
-            .collect();
-        let name = if crate_dir == root {
-            "(root)".to_owned()
-        } else {
-            crate_dir.file_name().unwrap().to_string_lossy().to_string()
-        };
-        reports.push(CrateReport { name, orphans });
-    }
-    reports
+        reports
+    })
 }
 
 #[test]
@@ -424,7 +461,7 @@ fn unreached_rust_sources_only_shrink_and_stay_in_migrated_folders() {
     let reports = scan();
     let mut total = 0;
     let mut outside = Vec::new();
-    for report in &reports {
+    for report in reports {
         if report.orphans.is_empty() {
             continue;
         }

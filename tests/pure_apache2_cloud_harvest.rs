@@ -22,8 +22,9 @@
 
 use serde_json::{json, Value};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -75,6 +76,67 @@ const GPL3_LICENSE_TEXT: &str = "\
 static SANDBOX_SEQ: AtomicUsize = AtomicUsize::new(0);
 static XTASK_BINS: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
 
+fn newest_mtime(path: &Path) -> Option<SystemTime> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    let mut newest = meta.modified().ok();
+    if meta.is_dir() {
+        let entries = fs::read_dir(path).ok()?;
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if matches!(name.to_str(), Some("target" | ".git")) {
+                continue;
+            }
+            if let Some(sub) = newest_mtime(&entry.path()) {
+                newest = Some(newest.map_or(sub, |cur| cur.max(sub)));
+            }
+        }
+    }
+    newest
+}
+
+fn bins_are_fresh(workspace_root: &Path, bins: &[&Path]) -> bool {
+    let mut oldest_bin: Option<SystemTime> = None;
+    for bin in bins {
+        let Ok(meta) = fs::metadata(bin) else {
+            return false;
+        };
+        if !meta.is_file() {
+            return false;
+        }
+        let Ok(mtime) = meta.modified() else {
+            return false;
+        };
+        oldest_bin = Some(oldest_bin.map_or(mtime, |cur| cur.min(mtime)));
+    }
+    let Some(oldest_bin) = oldest_bin else {
+        return false;
+    };
+    let watched = [
+        "Cargo.toml",
+        "Cargo.lock",
+        "xtask",
+        "crates/susi-paths",
+        "crates/susi-config",
+        "crates/susi-build-policy",
+        "crates/susi-build-os-ucrt",
+        "crates/susi-windows-runtime",
+        "crates/susi-vendor-sha2",
+        "crates/susi-vendor-serde-json",
+    ];
+    for rel in watched {
+        let path = workspace_root.join(rel);
+        if path.exists() {
+            let Some(src_mtime) = newest_mtime(&path) else {
+                return false;
+            };
+            if src_mtime > oldest_bin {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 fn xtask_bins() -> &'static (PathBuf, PathBuf) {
     XTASK_BINS.get_or_init(|| {
         let exe = std::env::current_exe().expect("current test executable path");
@@ -85,11 +147,15 @@ fn xtask_bins() -> &'static (PathBuf, PathBuf) {
         let suffix = std::env::consts::EXE_SUFFIX;
         let harvest_bin = profile_dir.join(format!("local-harvest{suffix}"));
         let distill_bin = profile_dir.join(format!("distill{suffix}"));
-        if !harvest_bin.is_file() || !distill_bin.is_file() {
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        if !bins_are_fresh(
+            &workspace_root,
+            &[harvest_bin.as_path(), distill_bin.as_path()],
+        ) {
             let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
             let target_dir = profile_dir.parent().expect("target root directory");
-            let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let out = Command::new(cargo)
+            let mut build_cmd = Command::new(cargo);
+            build_cmd
                 .current_dir(&workspace_root)
                 .env("CARGO_TARGET_DIR", target_dir)
                 .args([
@@ -102,7 +168,15 @@ fn xtask_bins() -> &'static (PathBuf, PathBuf) {
                     "local-harvest",
                     "--bin",
                     "distill",
-                ])
+                ]);
+            if let Some(profile_name) = profile_dir.file_name().and_then(|n| n.to_str()) {
+                if profile_name == "release" {
+                    build_cmd.arg("--release");
+                } else if profile_name != "debug" {
+                    build_cmd.args(["--profile", profile_name]);
+                }
+            }
+            let out = build_cmd
                 .output()
                 .expect("build local-harvest and distill binaries");
             assert!(
@@ -145,40 +219,56 @@ impl CloudSandbox {
         Self { dir }
     }
 
-    /// Creates a local bare Git "cloud" repository populated via a temporary
-    /// publisher clone, returning `(bare_repo_path, head_sha)`.
+    /// Creates a local bare Git "cloud" repository populated directly via
+    /// `git fast-import`, returning `(bare_repo_path, head_sha)`.
     fn create_bare_cloud_repo(&self, name: &str, commits: &[CommitSpec<'_>]) -> (PathBuf, String) {
         let bare = self.dir.join(format!("{name}.git"));
-        let seed = self.dir.join(format!("{name}-publisher"));
-        fs::create_dir_all(&seed).unwrap();
         git(
             &self.dir,
-            &["init", "--quiet", "--bare", bare.to_str().unwrap()],
-        );
-        git(&seed, &["init", "--quiet", "--initial-branch=main"]);
-        for (rel, content) in commits[0].1 {
-            write_rel(&seed, rel, content);
-        }
-        git(&seed, &["add", "-A"]);
-        git(&seed, &["commit", "-q", "-m", commits[0].0]);
-        for (msg, files) in &commits[1..] {
-            for (rel, content) in *files {
-                write_rel(&seed, rel, content);
-            }
-            git(&seed, &["add", "-A"]);
-            git(&seed, &["commit", "-q", "-m", msg]);
-        }
-        let head = git(&seed, &["rev-parse", "HEAD"]);
-        git(
-            &seed,
             &[
-                "push",
+                "init",
                 "--quiet",
+                "--bare",
+                "--initial-branch=main",
                 bare.to_str().unwrap(),
-                "HEAD:refs/heads/main",
             ],
         );
-        let _ = fs::remove_dir_all(&seed);
+        let mut stream = Vec::with_capacity(4096);
+        for (idx, (msg, files)) in commits.iter().enumerate() {
+            let mark = idx + 1;
+            let ts = 1_700_000_000usize + idx;
+            writeln!(stream, "commit refs/heads/main").unwrap();
+            writeln!(stream, "mark :{mark}").unwrap();
+            writeln!(
+                stream,
+                "author Susi Harvest Test <harvest-test@susi.local> {ts} +0000"
+            )
+            .unwrap();
+            writeln!(
+                stream,
+                "committer Susi Harvest Test <harvest-test@susi.local> {ts} +0000"
+            )
+            .unwrap();
+            writeln!(stream, "data {}", msg.len()).unwrap();
+            stream.extend_from_slice(msg.as_bytes());
+            stream.push(b'\n');
+            if idx > 0 {
+                writeln!(stream, "from :{idx}").unwrap();
+            }
+            for (rel, content) in *files {
+                writeln!(stream, "M 100644 inline {rel}").unwrap();
+                writeln!(stream, "data {}", content.len()).unwrap();
+                stream.extend_from_slice(content.as_bytes());
+                stream.push(b'\n');
+            }
+            stream.push(b'\n');
+        }
+        git_stdin(&bare, &["fast-import", "--quiet"], &stream);
+        let head = fs::read_to_string(bare.join("refs/heads/main"))
+            .ok()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| s.len() == 40)
+            .unwrap_or_else(|| git(&bare, &["rev-parse", "refs/heads/main"]));
         (bare, head)
     }
 
@@ -247,9 +337,10 @@ fn write_rel(root: &Path, rel: &str, content: &str) {
     fs::write(full, content).unwrap();
 }
 
-fn git(cwd: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .current_dir(cwd)
+fn git_cmd(cwd: &Path, args: &[&str]) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(cwd)
+        .args(["-c", "gc.auto=0"])
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_COMMON_DIR")
@@ -261,9 +352,35 @@ fn git(cwd: &Path, args: &[&str]) -> String {
         .env("GIT_COMMITTER_NAME", "Susi Harvest Test")
         .env("GIT_COMMITTER_EMAIL", "harvest-test@susi.local")
         .env("GIT_TERMINAL_PROMPT", "0")
-        .args(args)
-        .output()
-        .expect("git must execute");
+        .args(args);
+    cmd
+}
+
+fn git(cwd: &Path, args: &[&str]) -> String {
+    let out = git_cmd(cwd, args).output().expect("git must execute");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed in {}:\n{}",
+        cwd.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+fn git_stdin(cwd: &Path, args: &[&str], stdin_bytes: &[u8]) -> String {
+    let mut child = git_cmd(cwd, args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("git must spawn with stdin");
+    child
+        .stdin
+        .take()
+        .expect("stdin pipe")
+        .write_all(stdin_bytes)
+        .expect("write git stdin");
+    let out = child.wait_with_output().expect("wait git");
     assert!(
         out.status.success(),
         "git {args:?} failed in {}:\n{}",

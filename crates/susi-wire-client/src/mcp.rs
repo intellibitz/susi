@@ -747,13 +747,13 @@ mod tests {
                 if stream.write_all(b": keep-alive\n\n").is_err() {
                     return;
                 }
-                std::thread::sleep(Duration::from_millis(200));
+                std::thread::sleep(Duration::from_millis(25));
             }
         });
         let started = std::time::Instant::now();
-        let err = Session::open(&addr, None, Duration::from_secs(1)).unwrap_err();
+        let err = Session::open(&addr, None, Duration::from_millis(120)).unwrap_err();
         assert!(
-            started.elapsed() < Duration::from_secs(5),
+            started.elapsed() < Duration::from_secs(2),
             "{:?}",
             started.elapsed()
         );

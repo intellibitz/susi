@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! GitHub is storage only (CEO mandate 2026-11-09 00:15 IST).
@@ -16,6 +17,7 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
 
 /// Tracked paths (prefixes) that may contain a pattern, and why.
 const ALLOWED: [(&str, &str); 2] = [
@@ -103,19 +105,22 @@ fn couplings(line: &str) -> Vec<String> {
     found
 }
 
-fn tracked_files(root: &Path) -> Vec<String> {
-    let out = Command::new("git")
-        .args(["ls-files", "-z"])
-        .current_dir(root)
-        .output()
-        .expect("git ls-files runs");
-    assert!(out.status.success(), "git ls-files failed");
-    String::from_utf8(out.stdout)
-        .unwrap()
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .map(str::to_owned)
-        .collect()
+fn tracked_files(root: &Path) -> &'static [String] {
+    static TRACKED: OnceLock<Vec<String>> = OnceLock::new();
+    TRACKED.get_or_init(|| {
+        let out = Command::new("git")
+            .args(["ls-files", "-z"])
+            .current_dir(root)
+            .output()
+            .expect("git ls-files runs");
+        assert!(out.status.success(), "git ls-files failed");
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned)
+            .collect()
+    })
 }
 
 #[test]
@@ -131,13 +136,16 @@ fn nothing_tracked_depends_on_a_github_feature() {
         {
             continue;
         }
-        let Ok(bytes) = std::fs::read(root.join(&path)) else {
+        let Ok(bytes) = std::fs::read(root.join(path)) else {
             continue; // deleted in the working tree
         };
         let Ok(text) = String::from_utf8(bytes) else {
             continue; // binary
         };
         scanned += 1;
+        if !text.contains("gh ") && !LITERALS.iter().any(|lit| text.contains(lit)) {
+            continue;
+        }
         for (number, line) in text.lines().enumerate() {
             for coupling in couplings(line) {
                 hits.push(format!(
@@ -171,7 +179,7 @@ fn github_only_path(path: &str) -> bool {
 fn no_github_hook_files_are_tracked() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let found: Vec<String> = tracked_files(root)
-        .into_iter()
+        .iter()
         .map(|path| path.replace('\\', "/"))
         .filter(|path| github_only_path(path))
         .collect();

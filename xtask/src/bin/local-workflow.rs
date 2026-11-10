@@ -5667,6 +5667,24 @@ mod tests {
         assert!(completed_workspace_proof("before", None, 6, 6).is_none());
     }
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    fn copy_dir_all(src: &Path, dst: &Path) {
+        fs::create_dir_all(dst).unwrap();
+        for entry in fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let ty = entry.file_type().unwrap();
+            let dst_path = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dst_path);
+            } else {
+                fs::copy(entry.path(), &dst_path).unwrap();
+                if let Ok(meta) = entry.metadata() {
+                    let _ = fs::set_permissions(&dst_path, meta.permissions());
+                }
+            }
+        }
+    }
+
     struct Scratch(PathBuf);
     impl Scratch {
         fn new() -> Self {
@@ -5678,31 +5696,42 @@ mod tests {
             fs::create_dir(&path).unwrap();
             Self(path)
         }
-        fn repo(&self) -> PathBuf {
+        fn repo_with_base(&self) -> (PathBuf, String) {
+            static REPO_TPL: std::sync::OnceLock<(PathBuf, String)> = std::sync::OnceLock::new();
+            let (tpl, base) = REPO_TPL.get_or_init(|| {
+                let tpl = env::temp_dir().join(format!("susi-lw-repo-tpl-{}", std::process::id()));
+                let _ = fs::remove_dir_all(&tpl);
+                fs::create_dir_all(&tpl).unwrap();
+                git(&tpl, &["init", "-q"]).unwrap();
+                git(&tpl, &["config", "user.name", "Test"]).unwrap();
+                git(&tpl, &["config", "user.email", "test@example.invalid"]).unwrap();
+                git(&tpl, &["config", "commit.gpgsign", "false"]).unwrap();
+                fs::write(tpl.join(".gitignore"), "/target/\n").unwrap();
+                git(&tpl, &["add", ".gitignore"]).unwrap();
+                git(
+                    &tpl,
+                    &[
+                        "-c",
+                        "core.hooksPath=",
+                        "-c",
+                        "user.name=Test",
+                        "-c",
+                        "user.email=test@example.invalid",
+                        "commit",
+                        "-qm",
+                        "initial",
+                    ],
+                )
+                .unwrap();
+                let head = git(&tpl, &["rev-parse", "HEAD"]).unwrap();
+                (tpl, head)
+            });
             let repo = self.0.join("repo");
-            fs::create_dir(&repo).unwrap();
-            git(&repo, &["init", "-q"]).unwrap();
-            git(&repo, &["config", "user.name", "Test"]).unwrap();
-            git(&repo, &["config", "user.email", "test@example.invalid"]).unwrap();
-            git(&repo, &["config", "commit.gpgsign", "false"]).unwrap();
-            fs::write(repo.join(".gitignore"), "/target/\n").unwrap();
-            git(&repo, &["add", ".gitignore"]).unwrap();
-            git(
-                &repo,
-                &[
-                    "-c",
-                    "core.hooksPath=",
-                    "-c",
-                    "user.name=Test",
-                    "-c",
-                    "user.email=test@example.invalid",
-                    "commit",
-                    "-qm",
-                    "initial",
-                ],
-            )
-            .unwrap();
-            repo
+            copy_dir_all(tpl, &repo);
+            (repo, base.clone())
+        }
+        fn repo(&self) -> PathBuf {
+            self.repo_with_base().0
         }
     }
     impl Drop for Scratch {
@@ -7456,8 +7485,7 @@ mod tests {
 
     fn ship_fixture(agent: &str) -> (Scratch, PathBuf, String) {
         let scratch = Scratch::new();
-        let repo = scratch.repo();
-        let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let (repo, base) = scratch.repo_with_base();
         worker(&repo, agent, "owned.rs", "shipped");
         (scratch, repo, base)
     }

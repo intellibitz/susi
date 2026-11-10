@@ -1004,41 +1004,94 @@ mod tests {
     }
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    fn copy_dir_all(src: &Path, dst: &Path) {
+        fs::create_dir_all(dst).unwrap();
+        for entry in fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let ty = entry.file_type().unwrap();
+            let dst_path = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dst_path);
+            } else {
+                fs::copy(entry.path(), &dst_path).unwrap();
+                if let Ok(meta) = entry.metadata() {
+                    let _ = fs::set_permissions(&dst_path, meta.permissions());
+                }
+            }
+        }
+    }
+
+    fn set_git_origin_url(repo: &Path, new_origin: &Path) {
+        let cfg_path = repo.join(".git/config");
+        let raw = fs::read_to_string(&cfg_path).unwrap();
+        let url_val = new_origin.to_str().unwrap().replace('\\', "/");
+        let mut in_origin = false;
+        let mut out = String::with_capacity(raw.len() + 64);
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                in_origin = trimmed == "[remote \"origin\"]";
+                out.push_str(line);
+                out.push('\n');
+            } else if in_origin && trimmed.starts_with("url =") {
+                out.push_str(&format!("\turl = {url_val}\n"));
+            } else {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        fs::write(&cfg_path, out).unwrap();
+    }
+
     struct Repo {
         root: PathBuf,
         work: PathBuf,
     }
     impl Repo {
         fn new() -> Self {
+            static REPO_TPL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+            let tpl = REPO_TPL.get_or_init(|| {
+                let tpl_root =
+                    std::env::temp_dir().join(format!("susi-gitpub-tpl-{}", std::process::id()));
+                let _ = fs::remove_dir_all(&tpl_root);
+                fs::create_dir_all(&tpl_root).unwrap();
+                let tpl_work = tpl_root.join("work");
+                fs::create_dir(&tpl_work).unwrap();
+                let git = Git { root: &tpl_root };
+                git.text(&["init", "--bare", "remote.git"]).unwrap();
+                let git = Git { root: &tpl_work };
+                git.text(&["init", "-b", "main"]).unwrap();
+                git.text(&["config", "user.name", "Snapshot Test"]).unwrap();
+                git.text(&["config", "user.email", "snapshot@test.invalid"])
+                    .unwrap();
+                git.text(&["config", "commit.gpgsign", "false"]).unwrap();
+                git.text(&["config", "core.hooksPath", ".no-test-hooks"])
+                    .unwrap();
+                git.text(&[
+                    "remote",
+                    "add",
+                    "origin",
+                    tpl_root.join("remote.git").to_str().unwrap(),
+                ])
+                .unwrap();
+                fs::write(tpl_work.join("source.txt"), "one").unwrap();
+                git.text(&["add", "source.txt"]).unwrap();
+                git.text(&["commit", "-m", "one"]).unwrap();
+                git.text(&["push", "origin", "main"]).unwrap();
+                tpl_root
+            });
+
             let root = std::env::temp_dir().join(format!(
                 "susi-git-snapshot-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
-            fs::create_dir(&root).unwrap();
+            let _ = fs::remove_dir_all(&root);
+            copy_dir_all(tpl, &root);
             let work = root.join("work");
-            fs::create_dir(&work).unwrap();
-            let git = Git { root: &root };
-            git.text(&["init", "--bare", "remote.git"]).unwrap();
-            let git = Git { root: &work };
-            git.text(&["init", "-b", "main"]).unwrap();
-            git.text(&["config", "user.name", "Snapshot Test"]).unwrap();
-            git.text(&["config", "user.email", "snapshot@test.invalid"])
-                .unwrap();
-            git.text(&["config", "commit.gpgsign", "false"]).unwrap();
-            git.text(&["config", "core.hooksPath", ".no-test-hooks"])
-                .unwrap();
-            git.text(&[
-                "remote",
-                "add",
-                "origin",
-                root.join("remote.git").to_str().unwrap(),
-            ])
-            .unwrap();
-            let repo = Self { root, work };
-            repo.commit("one");
-            repo.git().text(&["push", "origin", "main"]).unwrap();
-            repo
+            set_git_origin_url(&work, &root.join("remote.git"));
+            Self { root, work }
         }
         fn git(&self) -> Git<'_> {
             Git { root: &self.work }

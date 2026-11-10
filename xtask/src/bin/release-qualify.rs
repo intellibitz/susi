@@ -17,6 +17,16 @@
 //! which admits it only with that record. A failed gate stops the run: nothing
 //! is written, committed or tagged.
 #![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 #[path = "../harvest.rs"]
@@ -25,6 +35,9 @@ mod harvest;
 mod release_qualification;
 #[path = "../release_version_guard.rs"]
 mod release_version_guard;
+#[allow(dead_code)]
+#[path = "../test_runner.rs"]
+mod test_runner;
 
 use release_qualification::{
     package_version, record_path, release_version, sha256_hex, toolchain_channel,
@@ -234,6 +247,200 @@ fn run_gate(root: &Path, logs: &Path, gate: &Gate) -> Result<Value, String> {
     if gate.name == "tests" {
         record["tests"] = test_counts(&String::from_utf8_lossy(&bytes));
     }
+    if code != 0 {
+        return Err(format!(
+            "gate `{}` failed (exit {code}); log: {}",
+            gate.name,
+            log_path.display()
+        ));
+    }
+    Ok(record)
+}
+
+/// Concurrent binary lanes, total Rust test threads, and per-binary build jobs
+/// for `release-qualify`'s `tests` gate.
+fn parallel_test_concurrency(jobs: Option<&str>, available: usize) -> (usize, usize, usize) {
+    let jobs_n = jobs
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(available)
+        .max(1);
+    let concurrency = jobs_n.clamp(2, 12);
+    let total_test_threads = (concurrency * 2).max(jobs_n);
+    let build_jobs = (jobs_n / concurrency).max(1);
+    (concurrency, total_test_threads, build_jobs)
+}
+
+fn run_parallel_tests_gate(
+    root: &Path,
+    logs: &Path,
+    gate: &Gate,
+    jobs: Option<&str>,
+) -> Result<Value, String> {
+    let log_path = logs.join(format!("{}.log", gate.name));
+    eprintln!("release-qualify: {} (parallel) ...", gate.name);
+    let started = Instant::now();
+
+    let original_home =
+        std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| original_home.as_ref().map(|h| h.join(".cargo")));
+    let rustup_home = std::env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .or_else(|| original_home.as_ref().map(|h| h.join(".rustup")));
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .map(|p| if p.is_absolute() { p } else { root.join(p) })
+        .unwrap_or_else(|| root.join("target"));
+
+    let mut build_args = words(&[
+        "test",
+        "--workspace",
+        "--offline",
+        "--locked",
+        "--no-run",
+        "--message-format=json",
+    ]);
+    if let Some(n) = jobs {
+        build_args.push("-j".into());
+        build_args.push(n.into());
+    }
+    let build_out = Command::new("cargo")
+        .args(&build_args)
+        .envs(gate.env.iter().copied())
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("cannot start cargo test --no-run: {e}"))?;
+    let stdout_text = String::from_utf8_lossy(&build_out.stdout);
+    let parsed = test_runner::parse_artifacts(&stdout_text).map_err(|e| e.to_string());
+    let mut initial_log = Vec::new();
+    initial_log.extend_from_slice(&build_out.stderr);
+    if let Ok((_, ref diagnostics)) = parsed {
+        for line in diagnostics {
+            initial_log.extend_from_slice(line.as_bytes());
+            initial_log.push(b'\n');
+        }
+    } else {
+        initial_log.extend_from_slice(&build_out.stdout);
+    }
+    std::fs::write(&log_path, &initial_log).map_err(|e| format!("{}: {e}", log_path.display()))?;
+    if !build_out.status.success() {
+        let code = build_out.status.code().unwrap_or(1);
+        return Err(format!(
+            "gate `{}` failed (exit {code}); log: {}",
+            gate.name,
+            log_path.display()
+        ));
+    }
+    let (binaries, _) = parsed?;
+
+    let avail = std::thread::available_parallelism().map_or(4, usize::from);
+    let (concurrency, total_test_threads, build_jobs) = parallel_test_concurrency(jobs, avail);
+    let home_root = logs.join("test-homes");
+    let durations = logs.join("test-durations.json");
+    let heavy = test_runner::heavy_binaries(root);
+    let settings = test_runner::Settings {
+        concurrency,
+        total_test_threads,
+        build_jobs,
+        home_root: &home_root,
+        target_dir: &target_dir,
+        triple: None,
+        durations: &durations,
+        heavy: &heavy,
+        log: &log_path,
+    };
+    let outcome = test_runner::run(&binaries, &settings, &|binary, private_home| {
+        let mut child = Command::new(&binary.executable);
+        child.envs(gate.env.iter().copied());
+        susi_paths::test_env::isolate_home(&mut child, private_home);
+        if let Some(ref ch) = cargo_home {
+            child.env("CARGO_HOME", ch);
+        }
+        if let Some(ref rh) = rustup_home {
+            child.env("RUSTUP_HOME", rh);
+        }
+        let child_target = private_home.join("target");
+        for key in [
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_TARGET_DIR",
+            "CARGO_BUILD_BUILD_DIR",
+        ] {
+            child.env(key, &child_target);
+        }
+        Ok(child)
+    })
+    .map_err(|e| e.to_string());
+    let _ = std::fs::remove_dir_all(&home_root);
+    let outcome = outcome?;
+
+    let mut doc_args = words(&[
+        "test",
+        "--workspace",
+        "--doc",
+        "--offline",
+        "--locked",
+        "--no-fail-fast",
+    ]);
+    if let Some(n) = jobs {
+        doc_args.push("-j".into());
+        doc_args.push(n.into());
+    }
+    let doc_home = logs.join("doc-home");
+    let _ = std::fs::remove_dir_all(&doc_home);
+    std::fs::create_dir_all(&doc_home).map_err(|e| e.to_string())?;
+    let log_append = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("{}: {e}", log_path.display()))?;
+    let err_append = log_append.try_clone().map_err(|e| e.to_string())?;
+    let mut doc_cmd = Command::new("cargo");
+    doc_cmd
+        .args(&doc_args)
+        .envs(gate.env.iter().copied())
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(log_append)
+        .stderr(err_append);
+    susi_paths::test_env::isolate_home(&mut doc_cmd, &doc_home);
+    if let Some(ref ch) = cargo_home {
+        doc_cmd.env("CARGO_HOME", ch);
+    }
+    if let Some(ref rh) = rustup_home {
+        doc_cmd.env("RUSTUP_HOME", rh);
+    }
+    let doc_status = doc_cmd
+        .status()
+        .map_err(|e| format!("cannot start cargo test --doc: {e}"))?;
+    let _ = std::fs::remove_dir_all(&doc_home);
+
+    let seconds = started.elapsed().as_secs();
+    let bytes = std::fs::read(&log_path).map_err(|e| e.to_string())?;
+    let binaries_ok = outcome.failed.is_empty() && outcome.ran == binaries.len();
+    let code = if !binaries_ok {
+        1
+    } else if !doc_status.success() {
+        doc_status.code().unwrap_or(1)
+    } else {
+        0
+    };
+    eprintln!(
+        "release-qualify: {} exit {code} in {seconds} s ({} binaries across {concurrency} lanes + doctests)",
+        gate.name,
+        binaries.len()
+    );
+    let record = json!({
+        "name": gate.name,
+        "argv": gate.argv,
+        "env": gate.env.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>(),
+        "exit_code": code,
+        "duration_s": seconds,
+        "log_sha256": sha256_hex(&bytes),
+        "tests": test_counts(&String::from_utf8_lossy(&bytes)),
+    });
     if code != 0 {
         return Err(format!(
             "gate `{}` failed (exit {code}); log: {}",
@@ -527,7 +734,12 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
     let started = now();
     let mut records = Vec::new();
     for gate in gates(jobs.as_deref()) {
-        match run_gate(&root, &logs, &gate) {
+        let step = if gate.name == "tests" && !test_runner::serial_requested() {
+            run_parallel_tests_gate(&root, &logs, &gate, jobs.as_deref())
+        } else {
+            run_gate(&root, &logs, &gate)
+        };
+        match step {
             Ok(record) => records.push(record),
             Err(error) => {
                 if !skip_remote_check {
@@ -627,11 +839,22 @@ mod tests {
         let log = "running 2 tests\n\
                    test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.1s\n\
                    error: something else\n\
-                   test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1s\n";
+                   test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1s\n\
+                   Doc-tests susi_core\n\
+                   test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.2s\n";
         let counts = super::test_counts(log);
         assert_eq!(
             counts,
-            serde_json::json!({"binaries": 2, "passed": 7, "failed": 2, "ignored": 1})
+            serde_json::json!({"binaries": 3, "passed": 10, "failed": 2, "ignored": 1})
         );
+    }
+
+    #[test]
+    fn parallel_test_concurrency_clamps_lanes_and_honors_jobs_override() {
+        assert_eq!(super::parallel_test_concurrency(None, 2), (2, 4, 1));
+        assert_eq!(super::parallel_test_concurrency(None, 8), (8, 16, 1));
+        assert_eq!(super::parallel_test_concurrency(None, 32), (12, 32, 2));
+        assert_eq!(super::parallel_test_concurrency(Some("6"), 2), (6, 12, 1));
+        assert_eq!(super::parallel_test_concurrency(Some("24"), 4), (12, 24, 2));
     }
 }

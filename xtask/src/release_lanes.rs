@@ -997,6 +997,138 @@ fn patch_id(git: &Git<'_>, parent: &str, commit: &str) -> Result<Option<String>>
     Ok(id.split_whitespace().next().map(str::to_string))
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum MergeTreeOutcome {
+    Clean(String),
+    Conflicts(Vec<String>),
+}
+
+impl Git<'_> {
+    fn commit_tree_synthetic(
+        &self,
+        tree: &str,
+        parent: Option<&str>,
+        label: &str,
+    ) -> Result<String> {
+        let mut args = vec!["commit-tree", tree];
+        if let Some(p) = parent {
+            args.extend(["-p", p]);
+        }
+        args.extend(["-F", "-"]);
+        self.text_with(
+            &args,
+            &[
+                ("GIT_AUTHOR_NAME", "Susi Release Lanes"),
+                ("GIT_AUTHOR_EMAIL", "lanes@localhost"),
+                ("GIT_AUTHOR_DATE", "2026-11-10T00:00:00Z"),
+                ("GIT_COMMITTER_NAME", "Susi Release Lanes"),
+                ("GIT_COMMITTER_EMAIL", "lanes@localhost"),
+                ("GIT_COMMITTER_DATE", "2026-11-10T00:00:00Z"),
+            ],
+            Some(label.as_bytes()),
+        )
+    }
+
+    fn merge_three_way(
+        &self,
+        merge_base: &str,
+        ours: &str,
+        theirs: &str,
+    ) -> Result<MergeTreeOutcome> {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static MERGE_BASE_FLAG_UNSUPPORTED: AtomicBool = AtomicBool::new(false);
+
+        if !MERGE_BASE_FLAG_UNSUPPORTED.load(Ordering::Relaxed) {
+            let merge_base_arg = format!("--merge-base={merge_base}");
+            let merged = self.raw(
+                &[
+                    "merge-tree",
+                    "--write-tree",
+                    "--name-only",
+                    "--no-messages",
+                    &merge_base_arg,
+                    ours,
+                    theirs,
+                ],
+                &[],
+                None,
+            )?;
+            let stderr = String::from_utf8_lossy(&merged.stderr);
+            if merged.status.code() == Some(129)
+                && (stderr.contains("merge-base")
+                    || stderr.contains("name-only")
+                    || stderr.contains("unknown option"))
+            {
+                MERGE_BASE_FLAG_UNSUPPORTED.store(true, Ordering::Relaxed);
+            } else {
+                return parse_lane_merge_tree_output(merged, theirs);
+            }
+        }
+        self.merge_three_way_synthetic_base(merge_base, ours, theirs)
+    }
+
+    /// Git 2.38–2.39 (`merge-tree --write-tree` without `--merge-base=` / `--name-only`):
+    /// bind `merge_base`, `ours` and `theirs` trees into a deterministic 3-commit
+    /// object-store DAG (`ours <- base -> theirs`) so `merge-ort` resolves against
+    /// the identical explicit base tree without touching any index or worktree.
+    fn merge_three_way_synthetic_base(
+        &self,
+        merge_base: &str,
+        ours: &str,
+        theirs: &str,
+    ) -> Result<MergeTreeOutcome> {
+        let base_tree = self.tree(merge_base)?;
+        let ours_tree = self.tree(ours)?;
+        let theirs_tree = self.tree(theirs)?;
+        let synth_base = self.commit_tree_synthetic(&base_tree, None, "lanes-merge-base\n")?;
+        let synth_ours =
+            self.commit_tree_synthetic(&ours_tree, Some(&synth_base), "lanes-ours\n")?;
+        let synth_theirs =
+            self.commit_tree_synthetic(&theirs_tree, Some(&synth_base), "lanes-theirs\n")?;
+        let merged = self.raw(
+            &["merge-tree", "--write-tree", &synth_ours, &synth_theirs],
+            &[],
+            None,
+        )?;
+        parse_lane_merge_tree_output(merged, theirs)
+    }
+}
+
+fn parse_lane_merge_tree_output(merged: Output, source: &str) -> Result<MergeTreeOutcome> {
+    let stdout = String::from_utf8_lossy(&merged.stdout);
+    let mut lines = stdout.lines();
+    let tree = lines.next().unwrap_or_default().trim().to_string();
+    match merged.status.code() {
+        Some(0) => {
+            if tree.is_empty() {
+                return Err(format!("git merge-tree returned empty tree for {source}"));
+            }
+            Ok(MergeTreeOutcome::Clean(tree))
+        }
+        Some(1) => {
+            let mut files: Vec<String> = lines
+                .take_while(|l| !l.trim().is_empty())
+                .map(|l| {
+                    l.split_once('\t')
+                        .map_or_else(|| l.trim(), |(_, path)| path.trim())
+                        .to_string()
+                })
+                .filter(|p| !p.is_empty())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            if files.is_empty() {
+                files.push("(conflicting paths)".to_string());
+            }
+            Ok(MergeTreeOutcome::Conflicts(files))
+        }
+        _ => Err(format!(
+            "git merge-tree failed for {source}: {}",
+            String::from_utf8_lossy(&merged.stderr).trim()
+        )),
+    }
+}
+
 fn pick(git: &Git<'_>, opts: &Opts) -> Result<Picked> {
     let (name, lane) = (opts.name()?, opts.lane()?);
     let agent = opts.agent(git)?;
@@ -1062,31 +1194,9 @@ fn pick(git: &Git<'_>, opts: &Opts) -> Result<Picked> {
                 present_patches.insert(pid);
             }
         }
-        let merged = git.raw(
-            &[
-                "merge-tree",
-                "--write-tree",
-                "--name-only",
-                "--no-messages",
-                &format!("--merge-base={parent}"),
-                &head,
-                &source,
-            ],
-            &[],
-            None,
-        )?;
-        let stdout = String::from_utf8_lossy(&merged.stdout).to_string();
-        let mut lines = stdout.lines();
-        let tree = lines.next().unwrap_or_default().trim().to_string();
-        match merged.status.code() {
-            Some(0) => {}
-            Some(1) => {
-                let files: Vec<&str> = lines
-                    .take_while(|l| !l.trim().is_empty())
-                    .map(str::trim)
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect();
+        let tree = match git.merge_three_way(&parent, &head, &source)? {
+            MergeTreeOutcome::Clean(tree) => tree,
+            MergeTreeOutcome::Conflicts(files) => {
                 return Err(format!(
                     "picking {source} onto {head} conflicts in: {}\n\
                      Resolve in your worktree: git switch --detach {head} && git cherry-pick -x {source}, \
@@ -1094,13 +1204,7 @@ fn pick(git: &Git<'_>, opts: &Opts) -> Result<Picked> {
                     files.join(", ")
                 ));
             }
-            _ => {
-                return Err(format!(
-                    "git merge-tree failed for {source}: {}",
-                    String::from_utf8_lossy(&merged.stderr).trim()
-                ))
-            }
-        }
+        };
         if tree == git.tree(&head)? {
             skipped.push(format!("{source} empty after pick"));
             continue;
@@ -1452,6 +1556,47 @@ mod tests {
         assert!(segment("2026-11-11-rc4", "name").is_ok());
     }
 
+    fn copy_dir_all(src: &Path, dst: &Path) {
+        fs::create_dir_all(dst).unwrap();
+        for entry in fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let ty = entry.file_type().unwrap();
+            let dst_path = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dst_path);
+            } else {
+                fs::copy(entry.path(), &dst_path).unwrap();
+                if let Ok(meta) = entry.metadata() {
+                    let _ = fs::set_permissions(&dst_path, meta.permissions());
+                }
+            }
+        }
+    }
+
+    fn set_git_origin_url(repo: &Path, new_origin: &Path) {
+        let cfg_path = repo.join(".git/config");
+        let raw = fs::read_to_string(&cfg_path).unwrap();
+        let url_val = new_origin.to_str().unwrap().replace('\\', "/");
+        let mut in_origin = false;
+        let mut out = String::with_capacity(raw.len() + 64);
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                in_origin = trimmed == "[remote \"origin\"]";
+            } else if in_origin
+                && trimmed
+                    .strip_prefix("url")
+                    .is_some_and(|rest| rest.trim_start().starts_with('='))
+            {
+                out.push_str(&format!("\turl = {url_val}\n"));
+                continue;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        fs::write(&cfg_path, out).unwrap();
+    }
+
     struct Fx {
         dir: PathBuf,
         origin: PathBuf,
@@ -1459,37 +1604,52 @@ mod tests {
 
     impl Fx {
         fn new() -> Self {
+            use std::sync::OnceLock;
+            static ORIGIN_TPL: OnceLock<PathBuf> = OnceLock::new();
+            let tpl = ORIGIN_TPL.get_or_init(|| {
+                let tpl_root = std::env::temp_dir()
+                    .join(format!("susi-lanes-origin-tpl-{}", std::process::id()));
+                let _ = fs::remove_dir_all(&tpl_root);
+                fs::create_dir_all(&tpl_root).unwrap();
+                let origin = tpl_root.join("origin.git");
+                Git { root: &tpl_root }
+                    .text(&[
+                        "init",
+                        "--quiet",
+                        "--bare",
+                        "--initial-branch=main",
+                        origin.to_str().unwrap(),
+                    ])
+                    .unwrap();
+                origin
+            });
+
             let n = SEQ.fetch_add(1, Ordering::Relaxed);
             let dir =
                 std::env::temp_dir().join(format!("susi-lanes-test-{}-{n}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
             let origin = dir.join("origin.git");
-            Git { root: &dir }
-                .text(&[
-                    "init",
-                    "--quiet",
-                    "--bare",
-                    "--initial-branch=main",
-                    origin.to_str().unwrap(),
-                ])
-                .unwrap();
+            copy_dir_all(tpl, &origin);
             Self { dir, origin }
         }
 
         fn clone(&self, who: &str) -> PathBuf {
             let path = self.dir.join(who);
+            let name_cfg = format!("user.name={who}");
+            let email_cfg = format!("user.email={who}@localhost");
             Git { root: &self.dir }
                 .text(&[
                     "clone",
                     "--quiet",
+                    "--no-hardlinks",
+                    "-c",
+                    &name_cfg,
+                    "-c",
+                    &email_cfg,
                     self.origin.to_str().unwrap(),
                     path.to_str().unwrap(),
                 ])
-                .unwrap();
-            let git = Git { root: &path };
-            git.text(&["config", "user.name", who]).unwrap();
-            git.text(&["config", "user.email", &format!("{who}@localhost")])
                 .unwrap();
             path
         }
@@ -1547,35 +1707,70 @@ mod tests {
 
     /// Base plus three labelled contributions on main: two independent lanes.
     fn release_fixture(fx: &Fx) -> (PathBuf, PathBuf, String) {
-        let dev = fx.clone("dev");
-        let base = fx.commit(&dev, &[("a/lib.rs", "a0\n"), ("b/lib.rs", "b0\n")], "base");
-        let a1 = fx.commit(&dev, &[("a/lib.rs", "a1\n")], "a one\n\nTask: T-A-1");
-        let b1 = fx.commit(&dev, &[("b/lib.rs", "b1\n")], "b one\n\nTask: T-B-1");
-        let a2 = fx.commit(&dev, &[("a/more.rs", "a2\n")], "a two\n\nTask: T-A-2");
-        Git { root: &dev }
-            .text(&["push", "--quiet", "origin", "main"])
+        use std::sync::OnceLock;
+        static FIXTURE_TPL: OnceLock<(PathBuf, String)> = OnceLock::new();
+        let (tpl_dir, base) = FIXTURE_TPL.get_or_init(|| {
+            let tpl_root =
+                std::env::temp_dir().join(format!("susi-lanes-fx-tpl-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&tpl_root);
+            fs::create_dir_all(&tpl_root).unwrap();
+            let origin = tpl_root.join("origin.git");
+            Git { root: &tpl_root }
+                .text(&[
+                    "init",
+                    "--quiet",
+                    "--bare",
+                    "--initial-branch=main",
+                    origin.to_str().unwrap(),
+                ])
+                .unwrap();
+            let tpl_fx = Fx {
+                dir: tpl_root.clone(),
+                origin,
+            };
+            let dev = tpl_fx.clone("dev");
+            let base = tpl_fx.commit(&dev, &[("a/lib.rs", "a0\n"), ("b/lib.rs", "b0\n")], "base");
+            let a1 = tpl_fx.commit(&dev, &[("a/lib.rs", "a1\n")], "a one\n\nTask: T-A-1");
+            let b1 = tpl_fx.commit(&dev, &[("b/lib.rs", "b1\n")], "b one\n\nTask: T-B-1");
+            let a2 = tpl_fx.commit(&dev, &[("a/more.rs", "a2\n")], "a two\n\nTask: T-A-2");
+            Git { root: &dev }
+                .text(&["push", "--quiet", "origin", "main"])
+                .unwrap();
+            let _ = fs::remove_dir_all(&dev);
+            let plan = tpl_fx.dir.join("plan.json");
+            fs::write(
+                &plan,
+                receipt(
+                    &base,
+                    &[
+                        ("T-A-1", &[], &["a"], &[a1.as_str()]),
+                        ("T-B-1", &[], &["b"], &[b1.as_str()]),
+                        ("T-A-2", &["T-A-1"], &["a/more.rs"], &[a2.as_str()]),
+                    ],
+                ),
+            )
             .unwrap();
-        let plan = fx.dir.join("plan.json");
-        fs::write(
-            &plan,
-            receipt(
-                &base,
-                &[
-                    ("T-A-1", &[], &["a"], &[a1.as_str()]),
-                    ("T-B-1", &[], &["b"], &[b1.as_str()]),
-                    ("T-A-2", &["T-A-1"], &["a/more.rs"], &[a2.as_str()]),
-                ],
-            ),
-        )
-        .unwrap();
-        let alice = fx.clone("alice");
-        let bob = fx.clone("bob");
-        run_in(
-            &alice,
-            &["init", "--name", "rc1", "--plan", plan.to_str().unwrap()],
-        )
-        .unwrap();
-        (alice, bob, base)
+            let alice = tpl_fx.clone("alice");
+            let _bob = tpl_fx.clone("bob");
+            run_in(
+                &alice,
+                &["init", "--name", "rc1", "--plan", plan.to_str().unwrap()],
+            )
+            .unwrap();
+            std::mem::forget(tpl_fx);
+            (tpl_root, base)
+        });
+
+        let _ = fs::remove_dir_all(&fx.origin);
+        copy_dir_all(&tpl_dir.join("origin.git"), &fx.origin);
+        let alice = fx.dir.join("alice");
+        let bob = fx.dir.join("bob");
+        copy_dir_all(&tpl_dir.join("alice"), &alice);
+        copy_dir_all(&tpl_dir.join("bob"), &bob);
+        set_git_origin_url(&alice, &fx.origin);
+        set_git_origin_url(&bob, &fx.origin);
+        fs::copy(tpl_dir.join("plan.json"), fx.dir.join("plan.json")).unwrap();
+        (alice, bob, base.clone())
     }
 
     fn git_cmd() -> [&'static str; 3] {
@@ -1710,13 +1905,28 @@ mod tests {
         let dev = fx.clone("dev");
         let base = fx.commit(&dev, &[("c/lib.rs", "c0\n")], "base");
         // An unselected change sits between base and the selected one.
-        fx.commit(
+        let unselected = fx.commit(
             &dev,
             &[("c/lib.rs", "unselected\n")],
             "unselected\n\nTask: T-U-1",
         );
         let wanted = fx.commit(&dev, &[("c/lib.rs", "wanted\n")], "wanted\n\nTask: T-C-1");
         let clean = fx.commit(&dev, &[("d/lib.rs", "d1\n")], "clean\n\nTask: T-D-1");
+
+        // Directly exercise the Git 2.38/2.39 synthetic-base fallback on both
+        // clean and conflicting 3-way merges regardless of host Git version.
+        let dev_git = Git { root: &dev };
+        assert_eq!(
+            dev_git
+                .merge_three_way_synthetic_base(&unselected, &base, &wanted)
+                .unwrap(),
+            MergeTreeOutcome::Conflicts(vec!["c/lib.rs".to_string()])
+        );
+        let clean_merge = dev_git
+            .merge_three_way_synthetic_base(&wanted, &base, &clean)
+            .unwrap();
+        assert!(matches!(clean_merge, MergeTreeOutcome::Clean(_)));
+
         Git { root: &dev }
             .text(&["push", "--quiet", "origin", "main"])
             .unwrap();
