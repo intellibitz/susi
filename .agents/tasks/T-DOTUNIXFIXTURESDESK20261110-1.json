@@ -64,5 +64,11 @@
     "format": "rustfmt --check --edition 2021 tests/hook_enforcement.rs tests/installer_contract.rs tests/sync_hooks.rs passed",
     "limitations": "No shell or installer runtime was executed on Windows. Historical Linux original task evidence is retained verbatim. No full gate, integration, ship, push or promotion.",
     "clippy": "cargo clippy -p susi --no-deps --test hook_enforcement --test installer_contract --test sync_hooks --test task_records --offline --locked -- -D warnings passed; pre-existing Cargo unused fluent-uri patch and NVIDIA CPU-build notices remain, no Rust lint warnings."
+  },
+  "publication_followup": {
+    "date": "2026-11-10",
+    "change": "Limit sync-primary wiring assertion to post-commit, post-merge and post-checkout. Source publication does not require checkout synchronization; native push-policy tests cover publication separately.",
+    "requested_by": "remove_github_coupling",
+    "validation": "Build and tests pending coordinated desktop slot. Prior verification describes candidate 29bf33d6ae1986fae8080e9bec278894097f6ac9 before this follow-up."
   }
 }
