@@ -1,0 +1,57 @@
+{
+  "id": "T-CODEXTOOLSCHEMA-1",
+  "title": "Carry typed tool input schemas into the local-model catalog",
+  "goal": "Preserve built-in CoreTools JSON input schemas when the PlaneBus tool catalog is serialized, so GEMI can give local engines the required parameters while dynamic proxies remain explicit passthrough entries.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "codex-tool-schemas",
+  "native_worker": "codex-tool-schemas",
+  "created_by": "CODEXTOOLSCHEMA",
+  "created_unix": 1794430456,
+  "updated_unix": 1794430456,
+  "size": "S",
+  "base_commit": "159b8288a4c8beb83900ad8e54b1a754a767104d",
+  "deps": [
+    "T-CLAUDETOOLPICK-1",
+    "T-CODEXHISTORY-1"
+  ],
+  "scopes": [
+    "crates/susi-tools/src/types.rs",
+    "crates/susi-tools/src/registry.rs",
+    "crates/susi-tools/src/client.rs",
+    "crates/susi-tools/src/hooks.rs",
+    "crates/susi-gmcp/src/tool_types.rs",
+    "crates/susi-gmcp/src/tool_registry.rs",
+    "crates/susi-gemi/src/local_tool_calls.rs",
+    "crates/susi-daemon/src/engine_hooks.rs",
+    ".agents/tasks/t-codextoolschema-1.json"
+  ],
+  "scope": [
+    "crates/susi-tools/src/types.rs",
+    "crates/susi-tools/src/registry.rs",
+    "crates/susi-tools/src/client.rs",
+    "crates/susi-tools/src/hooks.rs",
+    "crates/susi-gmcp/src/tool_types.rs",
+    "crates/susi-gmcp/src/tool_registry.rs",
+    "crates/susi-gemi/src/local_tool_calls.rs",
+    "crates/susi-daemon/src/engine_hooks.rs",
+    ".agents/tasks/t-codextoolschema-1.json"
+  ],
+  "acceptance": "cargo test --offline --locked -p susi-daemon --lib built_in_tool_schema_bridge_returns_typed_arguments_only_for_core_tools",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "built_in_tool_schema_bridge_returns_typed_arguments_only_for_core_tools"
+    ]
+  },
+  "limitations": [
+    "Dynamic external MCP and Wasm reflex entries still omit schemas when discovery does not provide one; they retain the explicit passthrough behavior.",
+    "Windows qualification remains a separate native-host task."
+  ]
+}

@@ -4,7 +4,6 @@ use crate::susi_core::plane_bus::tools as plane_tools;
 use crate::susi_error::EaiResult;
 use crate::tool_types::McpTool;
 use std::path::Path;
-
 pub struct ToolRegistry;
 
 impl ToolRegistry {
@@ -21,13 +20,16 @@ impl ToolRegistry {
                                 .and_then(|d| d.as_str())
                                 .unwrap_or("")
                                 .to_string(),
+                            input_schema: v
+                                .get("input_schema")
+                                .or_else(|| v.get("inputSchema"))
+                                .cloned(),
                         })
                     })
                     .collect()
             })
             .unwrap_or_default()
     }
-
     pub fn execute_tool(name: &str, args: &serde_json::Value, workspace: &Path) -> String {
         plane_tools::execute_tool(name, args, workspace).unwrap_or_else(|e| format!("[Error] {e}"))
     }
@@ -36,7 +38,6 @@ impl ToolRegistry {
         plane_tools::exists(name)
     }
 }
-
 pub struct GmcpClient;
 
 impl GmcpClient {
@@ -51,7 +52,6 @@ impl GmcpClient {
             })
             .unwrap_or_default()
     }
-
     pub fn execute_external_tool(remote: &str, tool: &str, goal: &str) -> EaiResult<String> {
         plane_tools::execute_external_tool(remote, tool, goal)
     }
@@ -70,6 +70,7 @@ impl GmcpClient {
                         tools.push(McpTool {
                             name: format!("{name}:*"),
                             description: format!("Dynamic Proxy for standard MCP server: {name}"),
+                            input_schema: None,
                         });
                     }
                 }

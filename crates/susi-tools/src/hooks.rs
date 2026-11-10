@@ -37,6 +37,13 @@ pub trait EngineHooks: Send + Sync {
     /// (`CoreTools::*` and synthesized reflexes) - was `ToolRegistry::bootstrap`.
     fn bootstrap_tools(&self, registry: &ToolRegistry);
 
+    /// Return the typed JSON Schema for a host-owned built-in tool. The low-
+    /// level tools crate cannot depend on GMCP, so the composition root owns
+    /// this lookup. Dynamic proxies return `None` rather than guessing.
+    fn tool_input_schema(&self, _name: &str) -> Option<serde_json::Value> {
+        None
+    }
+
     // ── Swarm-facing seam ────────────────────────────────────────────────
     // The following capabilities are owned by the gawd host (safety/security
     // detectors, SusiMasterAgent, trainers, identity). MCP tool handlers in

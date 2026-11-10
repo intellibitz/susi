@@ -42,6 +42,11 @@ impl susi_tools::EngineHooks for SusiEngineHooks {
         crate::gmcp_bootstrap::bootstrap_registry(registry);
     }
 
+    fn tool_input_schema(&self, name: &str) -> Option<serde_json::Value> {
+        susi_gmcp::tools::args::core_input_schema(name)
+            .map(|schema| serde_json::Value::Object((*schema).clone()))
+    }
+
     fn audit_action(
         &self,
         tool: &str,
@@ -100,6 +105,17 @@ mod inline_tests {
         let hooks = SusiEngineHooks;
         assert_eq!(hooks.engine_version(), env!("CARGO_PKG_VERSION"));
         assert!(!hooks.engine_version().is_empty());
+    }
+
+    #[test]
+    fn built_in_tool_schema_bridge_returns_typed_arguments_only_for_core_tools() {
+        let hooks = SusiEngineHooks;
+        let schema = hooks
+            .tool_input_schema("write_file")
+            .expect("built-in tool schema");
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["required"], serde_json::json!(["path", "content"]));
+        assert!(hooks.tool_input_schema("mcp.example:remote_tool").is_none());
     }
 
     #[test]
