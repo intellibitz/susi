@@ -998,5 +998,7 @@ config, core and the tail.
   `colorchoice`, `is_terminal_polyfill`, `once_cell_polyfill`, `signal-hook`,
   `susi-vendor-signal-hook`, `utf8parse`; `Cargo.lock` 210 -> 200 packages; 156
   cumulative `Cargo.lock` packages removed across T-CARBONLEAN-1..12).
-
-
+- 2026-11-11 harness re-pin (T-CLAUDEHARNESSCEIL-1): `susi-harness` line
+  ceiling 37,439 -> 37,434, measured after T-CLAUDEAGENTREFS-1 removed a JSON
+  `.claim` reader that no writer feeds. Reach unchanged: 33 workspace crates,
+  114 third-party, 9 facade edges, each equal to its ceiling.
