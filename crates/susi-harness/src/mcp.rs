@@ -12,6 +12,9 @@ use crate::tools::{Policy, ToolSpec};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 use susi_error::{EaiError, EaiResult};
 
 /// The protocol revision this client offers in `initialize`.
@@ -32,6 +35,9 @@ pub const GMCP_HTTP_PATH: &str = "/mcp";
 
 /// Largest response body [`HttpSocketTransport`] reads.
 pub const MAX_HTTP_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Default deadline for one MCP stdio response.
+pub const DEFAULT_STDIO_TIMEOUT_SECS: u64 = 60;
 
 /// One tool an MCP server advertises.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -373,12 +379,34 @@ fn read_stdio_response<R: BufRead>(reader: &mut R) -> EaiResult<Value> {
     }
 }
 
+type StdioResponses = Receiver<EaiResult<Value>>;
+type StdioReader = JoinHandle<()>;
+
+fn start_stdio_reader(
+    mut stdout: BufReader<ChildStdout>,
+) -> EaiResult<(StdioResponses, StdioReader)> {
+    let (sender, receiver) = mpsc::channel();
+    let reader = thread::Builder::new()
+        .name("susi-mcp-stdio-reader".to_string())
+        .spawn(move || loop {
+            let result = read_stdio_response(&mut stdout);
+            let finished = result.is_err();
+            if sender.send(result).is_err() || finished {
+                break;
+            }
+        })
+        .map_err(|error| EaiError::io(format!("mcp reader thread: {error}")))?;
+    Ok((receiver, reader))
+}
+
 /// A JSON-RPC transport over a child process's stdio.
 #[derive(Debug)]
 pub struct StdioTransport {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    responses: Receiver<EaiResult<Value>>,
+    reader: Option<JoinHandle<()>>,
+    timeout: Duration,
 }
 
 impl StdioTransport {
@@ -404,11 +432,42 @@ impl StdioTransport {
             .stdout
             .take()
             .ok_or_else(|| EaiError::internal("mcp: child has no stdout"))?;
+        let (responses, reader) = match start_stdio_reader(BufReader::new(stdout)) {
+            Ok(reader) => reader,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
         Ok(Self {
             child,
             stdin,
-            stdout: BufReader::new(stdout),
+            responses,
+            reader: Some(reader),
+            timeout: Duration::from_secs(DEFAULT_STDIO_TIMEOUT_SECS),
         })
+    }
+
+    /// Set the per-response deadline.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout.max(Duration::from_millis(1));
+        self
+    }
+
+    /// Set the per-response deadline in seconds, with a one-second minimum.
+    #[must_use]
+    pub fn with_timeout_secs(self, timeout_secs: u64) -> Self {
+        self.with_timeout(Duration::from_secs(timeout_secs.max(1)))
+    }
+
+    fn stop_child(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        // Do not join the reader: a child can pass stdout to a grandchild,
+        // which keeps the pipe open after the child itself is reaped.
+        let _ = self.reader.take();
     }
 }
 
@@ -421,7 +480,17 @@ impl Transport for StdioTransport {
         self.stdin
             .flush()
             .map_err(|error| EaiError::io(format!("mcp flush: {error}")))?;
-        read_stdio_response(&mut self.stdout)
+        match self.responses.recv_timeout(self.timeout) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => {
+                let timeout_ms = self.timeout.as_millis();
+                self.stop_child();
+                Err(EaiError::io(format!(
+                    "mcp response timed out after {timeout_ms} ms"
+                )))
+            }
+            Err(RecvTimeoutError::Disconnected) => Err(EaiError::io("mcp stdio reader stopped")),
+        }
     }
 
     fn notify(&mut self, notification: &Value) -> EaiResult<()> {
@@ -437,8 +506,7 @@ impl Transport for StdioTransport {
 
 impl Drop for StdioTransport {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.stop_child();
     }
 }
 
