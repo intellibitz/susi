@@ -8,11 +8,10 @@
 
 //! Mandate 49: any agent's git activity in a worktree runs
 //! `.githooks/sync-primary` (primary parking, `susi-commercial workflow
-//! park-primary`, tested in Susi Commercial Apps); and every
-//! commit on a feature branch brings that branch up to date with
-//! `origin/main` when the merge is clean, through `.githooks/sync-branch`
-//! (sync after every feature, so a conflict is found one commit after it
-//! arises and the push guard's sync-before-push is already satisfied).
+//! park-primary`, tested in Susi Commercial Apps), in the background. A
+//! commit never waits on the network and never merges `origin/main` into
+//! its branch: a branch is reconciled when it is published (`local-snapshot
+//! submit`), and a release branch keeps exactly the tree it was distilled to.
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -106,7 +105,6 @@ impl World {
             ("scripts/park-primary.sh", "scripts/park-primary.sh"),
             ("scripts/posix-compat.sh", "scripts/posix-compat.sh"),
             (".githooks/sync-primary", ".githooks/sync-primary"),
-            (".githooks/sync-branch", ".githooks/sync-branch"),
             (".githooks/post-commit", ".githooks/post-commit"),
             (".githooks/post-merge", ".githooks/post-merge"),
             (".githooks/post-checkout", ".githooks/post-checkout"),
@@ -117,11 +115,7 @@ impl World {
         }
         git(&primary, &["add", "-A"]);
         #[cfg(windows)]
-        for path in [
-            "scripts/park-primary.sh",
-            ".githooks/post-commit",
-            ".githooks/sync-branch",
-        ] {
+        for path in ["scripts/park-primary.sh", ".githooks/post-commit"] {
             git(&primary, &["update-index", "--chmod=+x", path]);
             assert!(
                 git(&primary, &["ls-files", "-s", path]).starts_with("100755 "),
@@ -242,158 +236,42 @@ fn hooks_sync_primary_is_wired_into_post_activity_hooks() {
 }
 
 #[test]
-fn hooks_sync_branch_merges_origin_main_after_a_clean_commit() {
-    let w = World::new("branch-clean");
+fn a_commit_never_merges_origin_main_into_its_branch() {
+    let w = World::new("branch-no-merge");
     w.origin_advances_with("theirs.txt", "theirs\n");
-    assert!(
-        !w.worktree_contains_server_main(),
-        "fixture: branch starts behind"
-    );
     let (code, out) = w.commit_file_in_worktree("mine.txt", "mine\n", &[FG]);
     assert_eq!(code, 0, "{out}");
     assert!(
-        w.worktree_contains_server_main(),
-        "the commit's branch must now contain origin/main: {out}"
-    );
-    assert!(
-        w.worktree_is_clean(),
-        "the merge must be committed, not left open"
-    );
-    assert!(
-        w.wt.join("theirs.txt").is_file(),
-        "origin's file is in the tree"
-    );
-    assert!(
-        w.wt.join("mine.txt").is_file(),
-        "the commit's file is in the tree"
-    );
-    assert!(
-        out.contains("sync-branch:") && out.contains("contains origin/main"),
-        "the hook says what it did: {out}"
-    );
-    // The merge commit's first parent is the commit just made.
-    let first_parent = git(&w.wt, &["rev-parse", "HEAD^1"]);
-    let subject = git(&w.wt, &["log", "-1", "--format=%s", &first_parent]);
-    assert_eq!(subject, "work");
-    // Already current: the next commit merges nothing more.
-    let head = w.worktree_head();
-    let (code, out) = w.commit_file_in_worktree("more.txt", "more\n", &[FG]);
-    assert_eq!(code, 0, "{out}");
-    assert!(
-        !out.contains("sync-branch:"),
-        "nothing to sync: silent ({out})"
-    );
-    assert_eq!(
-        git(&w.wt, &["rev-parse", "HEAD^1"]),
-        head,
-        "a plain commit, no merge"
-    );
-}
-
-#[test]
-fn hooks_sync_branch_aborts_a_conflicting_merge_and_says_merge_now() {
-    let w = World::new("branch-conflict");
-    w.origin_advances_with("shared.txt", "theirs\n");
-    let (code, out) = w.commit_file_in_worktree("shared.txt", "mine\n", &[FG]);
-    assert_eq!(code, 0, "the commit itself never fails: {out}");
-    assert!(
         !w.worktree_contains_server_main(),
-        "a conflicting merge is not applied"
+        "the commit must not pull origin/main into the branch: {out}"
     );
+    assert!(w.worktree_is_clean(), "nothing left open: {out}");
     assert!(
-        w.worktree_is_clean(),
-        "the aborted merge leaves no MERGE_HEAD and no conflict markers"
+        run(&w.wt, &["rev-parse", "-q", "--verify", "HEAD^2"], &[]).0 != 0,
+        "HEAD is the commit just made, not a merge"
     );
-    // Line endings normalised: the aborted merge checks the file out again,
-    // and a host's `core.autocrlf` may write it back with CRLF.
-    assert_eq!(
-        std::fs::read_to_string(w.wt.join("shared.txt"))
-            .unwrap()
-            .replace("\r\n", "\n"),
-        "mine\n",
-        "the tree is as the commit left it"
-    );
-    assert_eq!(
-        git(&w.wt, &["log", "-1", "--format=%s"]),
-        "work",
-        "HEAD is the commit just made"
-    );
-    assert!(
-        out.contains("conflicts") && out.contains("git merge origin/main"),
-        "the agent is told to merge now: {out}"
-    );
+    assert_eq!(git(&w.wt, &["log", "-1", "--format=%s"]), "work");
 }
 
 #[test]
-fn hooks_sync_branch_stays_out_of_the_way() {
-    let w = World::new("branch-skip");
-    w.origin_advances_with("theirs.txt", "theirs\n");
-    // Inside finish, and when told not to: no merge.
-    for off in [("SUSI_SYNC_IN_FINISH", "1"), ("SUSI_NO_BRANCH_SYNC", "1")] {
-        let (code, out) =
-            w.commit_file_in_worktree("mine.txt", &format!("{}\n", off.0), &[FG, off]);
-        assert_eq!(code, 0, "{out}");
-        assert!(
-            !w.worktree_contains_server_main(),
-            "{}=1 skips the sync",
-            off.0
-        );
-        assert!(!out.contains("sync-branch:"), "{out}");
-    }
-    // Unstaged changes to a tracked file: a merge would touch them, so none.
-    std::fs::write(w.wt.join("mine.txt"), "edited later\n").unwrap();
-    assert_eq!(w.commit_in_worktree(&[FG]), 0);
-    assert!(
-        !w.worktree_contains_server_main(),
-        "a dirty tree is never merged into"
-    );
-    assert_eq!(
-        std::fs::read_to_string(w.wt.join("mine.txt"))
-            .unwrap()
-            .replace("\r\n", "\n"),
-        "edited later\n"
-    );
-    git(&w.wt, &["checkout", "--", "mine.txt"]);
-    // The primary checkout, on main: never (nobody works there).
-    git(&w.primary, &["config", "core.hooksPath", ".githooks"]);
-    std::fs::write(w.primary.join("primary.txt"), "x\n").unwrap();
-    git(&w.primary, &["add", "primary.txt"]);
-    let (code, out) = run(&w.primary, &["commit", "--quiet", "-m", "on main"], &[FG]);
-    assert_eq!(code, 0, "{out}");
-    assert!(!out.contains("sync-branch:"), "{out}");
-    assert_eq!(
-        git(&w.primary, &["symbolic-ref", "--short", "HEAD"]),
-        "main"
-    );
-    assert!(
-        run(&w.primary, &["rev-parse", "-q", "--verify", "HEAD^2"], &[]).0 != 0,
-        "no merge commit on main"
-    );
-    // Offline: the commit still succeeds, and nothing is merged.
-    std::fs::remove_dir_all(w.root.join("server.git")).unwrap();
-    let (code, out) = w.commit_file_in_worktree("offline.txt", "x\n", &[FG]);
-    assert_eq!(code, 0, "{out}");
-    assert!(w.worktree_is_clean());
-}
-
-#[test]
-fn hooks_sync_branch_is_wired_into_post_commit() {
+fn post_commit_does_no_network_or_merge_work() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join(".githooks");
     let text = std::fs::read_to_string(repo.join("post-commit")).unwrap();
-    assert!(
-        text.contains("sync-branch"),
-        "post-commit must call sync-branch"
-    );
-    let hook = std::fs::read_to_string(repo.join("sync-branch")).unwrap();
-    for word in [
-        "SUSI_SYNC_IN_FINISH",
-        "SUSI_NO_BRANCH_SYNC",
-        "merge --abort",
-        "origin/main",
-    ] {
-        assert!(hook.contains(word), "sync-branch must handle {word}");
+    let code: String = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in ["sync-branch", "git fetch", "git merge", "cargo "] {
+        assert!(
+            !code.contains(forbidden),
+            "post-commit must return at once, found {forbidden}"
+        );
     }
-    assert_hook_executable(&repo, "sync-branch");
+    assert!(
+        !repo.join("sync-branch").exists(),
+        "the per-commit auto-merge hook is retired"
+    );
 }
 
 /// A hook is executable where it matters on every host: git records mode

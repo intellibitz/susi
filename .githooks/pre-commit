@@ -1,40 +1,54 @@
 #!/usr/bin/env bash
-# 🛡️ SUSI Pre-Commit Compliance Hook
+# 🛡️ SUSI pre-commit: fast, local, no network, no build.
+# A commit must not wait on a whole-workspace pass (`cargo fmt --all --check`
+# took 8-11 s per commit). Only the staged Rust files are checked, each with its
+# crate's edition, in well under a second. Only when that fast check fails is
+# the authoritative `cargo fmt --all --check` run, so an edge case of the
+# per-file check (a file outside every crate's module tree) never refuses a
+# commit that the full formatter accepts. Clippy and tests are not hook work:
+# main is unqualified development; release branches run the full gates.
 
 "$(dirname "$0")/workflow-guard" commit || exit 1
 
-# Fast path: only check if relevant files are staged
-STAGED_RUST_FILES=$(git diff --cached --name-only | grep -E '\.rs$|^Cargo\.toml$|^Cargo\.lock$')
+top=$(git rev-parse --show-toplevel) || exit 1
+files=()
+while IFS= read -r -d '' path; do
+    case "$path" in
+    vendor/* | */vendor/*) continue ;; # upstream code, not workspace members
+    *.rs) [ -f "$top/$path" ] && files+=("$path") ;;
+    esac
+done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+[ ${#files[@]} -gt 0 ] || exit 0
 
-if [ -z "$STAGED_RUST_FILES" ]; then
-    echo "⏭️ No Rust/Cargo files staged, skipping format check."
+# The edition of the nearest Cargo.toml that names one (2021 otherwise).
+edition_of() {
+    local dir
+    dir=$(dirname "$1")
+    while :; do
+        if [ -f "$top/$dir/Cargo.toml" ]; then
+            local ed
+            ed=$(sed -n 's/^edition *= *"\([0-9]*\)".*/\1/p' "$top/$dir/Cargo.toml" | head -1)
+            [ -n "$ed" ] && { echo "$ed"; return; }
+        fi
+        [ "$dir" = . ] && { echo 2021; return; }
+        dir=$(dirname "$dir")
+    done
+}
+
+declare -A by_edition=()
+for f in "${files[@]}"; do
+    ed=$(edition_of "$f")
+    by_edition[$ed]+="$top/$f"$'\n'
+done
+ok=1
+for ed in "${!by_edition[@]}"; do
+    mapfile -t group < <(printf '%s' "${by_edition[$ed]}")
+    rustfmt --edition "$ed" --check "${group[@]}" >/dev/null 2>&1 || ok=0
+done
+[ "$ok" = 1 ] && exit 0
+
+if cargo fmt --all --check; then
     exit 0
 fi
-
-echo "🛡️ Running SUSI Code Compliance Checks..."
-
-# Bind the proof before validation, as finish does. A concurrent change after
-# this snapshot then causes a cache miss instead of receiving an unearned proof.
-top=$(git rev-parse --show-toplevel)
-stamp=
-if [ -x "$top/scripts/gate-input-stamp.sh" ]; then
-    stamp=$("$top/scripts/gate-input-stamp.sh" --format) || stamp=
-fi
-
-echo "- Checking Rustfmt..."
-cargo fmt --all -- --check
-if [ $? -ne 0 ]; then
-    echo "❌ Compliance Violation: Code formatting is not compliant."
-    echo "👉 Run 'cargo fmt --all' to fix."
-    exit 1
-fi
-
-# The finish gate can reuse this successful format check while the complete
-# source identity and formatter stay identical. No test/clippy proof is written.
-if [ -n "$stamp" ]; then
-    printf '%s\n' "$stamp" >"$(git rev-parse --git-dir)/susi-fmt-ok"
-fi
-
-echo "✅ SUSI Compliance Pre-Commit Check Passed."
-echo "ℹ️ Note: Clippy and Audit checks have been deferred to pre-push."
-exit 0
+echo "❌ Formatting: run 'cargo fmt --all' and commit again." >&2
+exit 1
