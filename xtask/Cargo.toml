@@ -10,7 +10,6 @@ default-run = "xtask"
 susi-build-os-ucrt = { workspace = true, features = ["link-map"] }
 susi-build-policy = { workspace = true }
 sha2 = { package = "susi-vendor-sha2", path = "../crates/susi-vendor-sha2" }
-sha1 = { package = "susi-vendor-sha1", path = "../crates/susi-vendor-sha1", optional = true }
 serde_json = { package = "susi-vendor-serde-json", path = "../crates/susi-vendor-serde-json" }
 susi-config = { workspace = true }
 susi-paths = { workspace = true }
@@ -19,7 +18,7 @@ susi-paths = { workspace = true }
 susi-build-os-ucrt = { workspace = true }
 
 [features]
-release-tooling = ["dep:sha1"]
+release-tooling = []
 
 [lints]
 workspace = true

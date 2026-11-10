@@ -20,9 +20,6 @@ serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
-# RFC 5389 long-term TURN credentials (nat.rs): MD5(user:realm:pass) then
-# HMAC-SHA1 MESSAGE-INTEGRITY. Crypto primitives, not vendor SDKs.
-sha1 = { package = "susi-vendor-sha1", path = "../susi-vendor-sha1" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
 tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }

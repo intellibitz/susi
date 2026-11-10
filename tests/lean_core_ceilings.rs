@@ -123,9 +123,13 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 15;
 /// as a cut.
 /// 2026-11-11: susi-gemi-models 15,950 -> 15,945 and susi-gmcp 25,900 ->
 /// 25,891 (URL parsing moved to `susi_paths::weburl`; T-SMALLFACADES-2).
+/// 2026-11-11: susi-gawd-swarm 20,635 -> 20,116 (T-CARBONLEAN-1, measured):
+/// move unchanged amas.rs inline unit suite (519 lines) to src/tests/amas.rs
+/// alongside deleting susi-vendor-console-subscriber, susi-vendor-criterion
+/// and susi-vendor-sha1 (63 packages removed from Cargo.lock).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
-    ("susi-gawd-swarm", 20_635),
+    ("susi-gawd-swarm", 20_116),
     ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_702),
     ("susi-gemi", 21_171),

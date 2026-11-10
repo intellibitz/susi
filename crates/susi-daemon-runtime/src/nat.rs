@@ -485,13 +485,70 @@ fn turn_long_term_key(user: &str, realm: &str, pass: &str) -> [u8; 16] {
     out
 }
 
+/// Pure-std RFC 3174 SHA-1 digest used solely for RFC 5389 STUN MESSAGE-INTEGRITY.
+fn sha1_digest(bytes: &[u8]) -> [u8; STUN_MI_LEN] {
+    let mut msg = Vec::with_capacity(bytes.len() + 72);
+    msg.extend_from_slice(bytes);
+    let bit_len = (msg.len() as u64).wrapping_mul(8);
+    msg.push(0x80);
+    while msg.len() % 64 != 56 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&bit_len.to_be_bytes());
+    let mut h0: u32 = 0x6745_2301;
+    let mut h1: u32 = 0xefcd_ab89;
+    let mut h2: u32 = 0x98ba_dcfe;
+    let mut h3: u32 = 0x1032_5476;
+    let mut h4: u32 = 0xc3d2_e1f0;
+    for chunk in msg.as_chunks::<64>().0 {
+        let mut w = [0u32; 80];
+        for (dst, word) in w.iter_mut().zip(chunk.as_chunks::<4>().0) {
+            *dst = u32::from_be_bytes(*word);
+        }
+        for i in 16..80 {
+            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
+        }
+        let (mut a, mut b, mut c, mut d, mut e) = (h0, h1, h2, h3, h4);
+        for (i, &wi) in w.iter().enumerate() {
+            let (f, k) = match i {
+                0..=19 => ((b & c) | ((!b) & d), 0x5a82_7999),
+                20..=39 => (b ^ c ^ d, 0x6ed9_eba1),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8f1b_bcdc),
+                _ => (b ^ c ^ d, 0xca62_c1d6),
+            };
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(wi);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+        h0 = h0.wrapping_add(a);
+        h1 = h1.wrapping_add(b);
+        h2 = h2.wrapping_add(c);
+        h3 = h3.wrapping_add(d);
+        h4 = h4.wrapping_add(e);
+    }
+    let mut out = [0u8; STUN_MI_LEN];
+    out[0..4].copy_from_slice(&h0.to_be_bytes());
+    out[4..8].copy_from_slice(&h1.to_be_bytes());
+    out[8..12].copy_from_slice(&h2.to_be_bytes());
+    out[12..16].copy_from_slice(&h3.to_be_bytes());
+    out[16..20].copy_from_slice(&h4.to_be_bytes());
+    out
+}
+
 /// HMAC-SHA1 (STUN MESSAGE-INTEGRITY). Block size 64; 16-byte MD5 keys pad.
 fn hmac_sha1(key: &[u8], message: &[u8]) -> [u8; STUN_MI_LEN] {
-    use sha1::{Digest, Sha1};
     const BLOCK: usize = 64;
     let mut keyed = [0u8; BLOCK];
     if key.len() > BLOCK {
-        let hashed = Sha1::digest(key);
+        let hashed = sha1_digest(key);
         keyed[..STUN_MI_LEN].copy_from_slice(&hashed);
     } else {
         keyed[..key.len()].copy_from_slice(key);
@@ -502,17 +559,14 @@ fn hmac_sha1(key: &[u8], message: &[u8]) -> [u8; STUN_MI_LEN] {
         ipad[i] ^= keyed[i];
         opad[i] ^= keyed[i];
     }
-    let mut inner = Sha1::new();
-    inner.update(ipad);
-    inner.update(message);
-    let inner_hash = inner.finalize();
-    let mut outer = Sha1::new();
-    outer.update(opad);
-    outer.update(inner_hash);
-    let out = outer.finalize();
-    let mut mac = [0u8; STUN_MI_LEN];
-    mac.copy_from_slice(&out);
-    mac
+    let mut inner = Vec::with_capacity(BLOCK + message.len());
+    inner.extend_from_slice(&ipad);
+    inner.extend_from_slice(message);
+    let inner_hash = sha1_digest(&inner);
+    let mut outer = [0u8; BLOCK + STUN_MI_LEN];
+    outer[..BLOCK].copy_from_slice(&opad);
+    outer[BLOCK..].copy_from_slice(&inner_hash);
+    sha1_digest(&outer)
 }
 
 fn requested_transport_attr() -> Vec<u8> {
@@ -869,6 +923,35 @@ mod tests {
             [
                 0xe8, 0xca, 0x7a, 0xd5, 0x9d, 0x5e, 0xb0, 0x51, 0x8e, 0x31, 0x29, 0x11, 0xd2, 0xda,
                 0xb2, 0xa9
+            ]
+        );
+    }
+
+    #[test]
+    fn sha1_and_hmac_sha1_match_rfc3174_and_rfc2202_vectors() {
+        assert_eq!(
+            sha1_digest(b"abc"),
+            [
+                0xa9, 0x99, 0x3e, 0x36, 0x47, 0x06, 0x81, 0x6a, 0xba, 0x3e, 0x25, 0x71, 0x78, 0x50,
+                0xc2, 0x6c, 0x9c, 0xd0, 0xd8, 0x9d
+            ]
+        );
+        assert_eq!(
+            hmac_sha1(b"Jefe", b"what do ya want for nothing?"),
+            [
+                0xef, 0xfc, 0xdf, 0x6a, 0xe5, 0xeb, 0x2f, 0xa2, 0xd2, 0x74, 0x16, 0xd5, 0xf1, 0x84,
+                0xdf, 0x9c, 0x25, 0x9a, 0x7c, 0x79
+            ]
+        );
+        let long_key = [0xaau8; 80];
+        assert_eq!(
+            hmac_sha1(
+                &long_key,
+                b"Test Using Larger Than Block-Size Key - Hash Key First"
+            ),
+            [
+                0xaa, 0x4a, 0xe5, 0xe1, 0x52, 0x72, 0xd0, 0x0e, 0x95, 0x70, 0x56, 0x37, 0xce, 0x8a,
+                0x3b, 0x55, 0xed, 0x40, 0x21, 0x12
             ]
         );
     }
