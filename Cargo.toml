@@ -268,10 +268,15 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 
+# dev and test must keep identical settings: any difference (codegen-units
+# included) gives every dependency a second fingerprint, so a `cargo build`
+# followed by a `cargo test` compiles the whole graph twice. 16 units also
+# measured faster than 256 for the cold `cargo build -p susi` on Linux
+# (T-BUILDTIME-1, docs/lean-core.md wave log).
 [profile.dev]
 opt-level = 0
 debug = 0
-codegen-units = 256
+codegen-units = 16
 incremental = true
 split-debuginfo = "unpacked"
 
