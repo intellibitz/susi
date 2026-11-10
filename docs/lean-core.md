@@ -870,4 +870,20 @@ config, core and the tail.
   `susi-gmcp` 25,889 -> 25,860 (-29 shipped lines). GMCP requirement and
   `--mastery` evidence re-recorded in both phases. No host build-time gain is
   claimed.
+- 2026-11-11 (T-CARBONLEAN-4, Linux x86_64, CEO laptop): the
+  `susi-vendor-tracing-subscriber` facade leaves core, removing 14 packages
+  from `Cargo.lock` (13 third-party crates: `aho-corasick`, `lazy_static`,
+  `matchers`, `nu-ansi-term`, `regex-automata`, `regex-syntax`, `sharded-slab`,
+  `susi-os-unicode`, `thread_local`, `tracing-log`, `tracing-serde`,
+  `tracing-subscriber`, `valuable`, plus `susi-vendor-tracing-subscriber`; 111
+  total `Cargo.lock` packages removed across T-CARBONLEAN-1..4) and lowering
+  `cargo tree -p susi` Linux host packages 214 -> 202 (`-e normal`: 205 -> 193;
+  host build units 275 -> 263 atop T-CODEXAXUMOUT-1). `[patch.crates-io]
+  regex-syntax` leaves `Cargo.toml` because nothing in `Cargo.lock` resolves
+  `regex-syntax` any longer. `src/tracing_subscriber.rs` provides a
+  `#![forbid(unsafe_code)]` pure-std `tracing::Subscriber` preserving
+  `RUST_LOG` target-prefix directive filtering, structured single-line JSON
+  audit records (with active `span`/`spans`) to `audit_writer`, and `stderr`
+  console formatting. Pillar third-party reach ratchets 141 -> 140
+  (`valuable`).
 

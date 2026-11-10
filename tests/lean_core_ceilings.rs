@@ -46,7 +46,9 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// left the pillars; susi-gawd-a2a and susi-leaf-services still use axum).
 /// 2026-11-11: 145 -> 141 (T-SMALLFACADES-2: url, idna, utf8_iter and
 /// form_urlencoded left with the url facade; `susi_paths::weburl` parses).
-const THIRD_PARTY_CEILING: usize = 141;
+/// 2026-11-11: 141 -> 140 (T-CARBONLEAN-4: `valuable` leaves Cargo.lock and
+/// `tracing`'s feature unification when `susi-vendor-tracing-subscriber` goes).
+const THIRD_PARTY_CEILING: usize = 140;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),

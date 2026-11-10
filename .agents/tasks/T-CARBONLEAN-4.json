@@ -1,0 +1,57 @@
+{
+  "id": "T-CARBONLEAN-4",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-4",
+  "title": "Lean core: delete tracing-subscriber facade; pure-std tracing subscriber and pillar third-party ceiling ratchet",
+  "goal": "Remove susi-vendor-tracing-subscriber and 14 Cargo.lock packages (aho-corasick, lazy_static, matchers, nu-ansi-term, regex-automata, regex-syntax, sharded-slab, susi-os-unicode, thread_local, tracing-log, tracing-serde, tracing-subscriber, valuable, plus susi-vendor-tracing-subscriber; cargo tree -p susi Linux host packages 214 -> 202, -e normal 205 -> 193, host build units 275 -> 263 atop T-CODEXAXUMOUT-1), drop unused [patch.crates-io] regex-syntax from Cargo.toml, replace tracing-subscriber in the susi binary with #![forbid(unsafe_code)] pure-std src/tracing_subscriber.rs, and ratchet THIRD_PARTY_CEILING 141 -> 140.",
+  "status": "in_progress",
+  "state": "claimed",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794383020,
+  "size": "m",
+  "deps": [
+    "T-CARBONLEAN-3",
+    "T-AGYCLOUD-8",
+    "T-CODEXAXUMOUT-1"
+  ],
+  "base": "d5dc715ccb50dbea7ebddfd81cc8de60890d7236",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-4.json",
+    ".agents/tasks/done/T-CARBONLEAN-4.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-vendor-tracing-subscriber",
+    "docs/lean-core.md",
+    "src/main.rs",
+    "src/tracing_subscriber.rs",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "task_records"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo clippy --offline --locked -p susi --all-targets -- -D warnings",
+    "cargo test --offline --locked --bin susi",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ]
+}
