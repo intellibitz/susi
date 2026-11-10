@@ -4,6 +4,7 @@ fn main() -> std::io::Result<()> {
         "local-workflow",
         "local-release",
         "ci-release-only",
+        "check-gmcp-roadmap",
         "susi-dev",
     ])
 }

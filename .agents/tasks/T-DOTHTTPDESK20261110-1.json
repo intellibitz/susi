@@ -1,0 +1,28 @@
+{
+  "id": "T-DOTHTTPDESK20261110-1",
+  "title": "Adopt and verify HTTP deadline fixture on native Windows",
+  "created_by": "dothttpdesk20261110",
+  "native_worker": "dothttpdesk20261110",
+  "created_unix": 1794286138,
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-dothttpbudget-1.json",
+    ".agents/tasks/t-dothttpdesk20261110-1.json",
+    "crates/susi-http-transport/src/client.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-http-transport",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "original_commit": "5210e34584a4054c3747b6e774fc255e39a54f0d",
+  "adoption_commit": "6de772481d2ac34f11295c0eab08b289ad674d8e",
+  "original_task": ".agents/tasks/t-dothttpbudget-1.json",
+  "goal": "Preserve the original exported commit and task unchanged, adopt the test-only fixture under this Desktop reservation, and execute nonempty HTTP package acceptance plus the required native serial integration gate. Production timeout logic and the longer-stream regression remain unchanged."
+}

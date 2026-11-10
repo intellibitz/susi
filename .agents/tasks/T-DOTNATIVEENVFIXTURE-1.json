@@ -1,0 +1,43 @@
+{
+  "id": "T-DOTNATIVEENVFIXTURE-1",
+  "title": "Use native intent ladder environment fixture",
+  "goal": "Replace the shell-only environment dump fixture with a tiny installed-rustc-built executable. Preserve production ProcessRunner and all hermetic environment and credential scrub checks on native Windows and portable source.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "created_by": "dot-native-env-fixture",
+  "claimed_by": "dot-native-env-fixture",
+  "native_worker": "dot-native-env-fixture",
+  "created_unix": 1794303900,
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-DOTNATIVEENVFIXTURE-1.json",
+    "crates/susi-gawd/src/tests/intent_ladder_startup.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "acceptance": "All susi-gawd library tests pass with the native fixture; focused intent ladder tests, strict package clippy, workspace format and task record validation pass. Original full gate red: 283 passed, 1 failed, 3 ignored, missing sh for the environment-dump fixture. No production runner or security policy changes.",
+  "verification": {
+    "platform": "x86_64-pc-windows-msvc",
+    "toolchain": "1.99.0",
+    "source_sha256": "d64d340b6b6ddb9131aa49929dc5cb9a549fbebeaa6cfadf3c7eb4e0386d791a",
+    "red": "Preserved combined-gate run: 283 passed, 1 failed, 3 ignored; hermetic process fixture could not spawn missing shell.",
+    "checks": [
+      "cargo fmt --all --check: passed",
+      "cargo test -p susi-gawd --lib --offline --locked intent_ladder_startup_tests: 7 passed, 0 failed",
+      "cargo test -p susi-gawd --offline --locked: library 284 passed, 0 failed, 3 existing ignored; binary 4 passed; doc tests 0",
+      "cargo clippy -p susi-gawd --all-targets --offline --locked -- -D warnings: passed",
+      "cargo test --test task_records --offline --locked: 3 passed, 0 failed"
+    ],
+    "review": "Independent integrator review approved final source; local commit only, combined integration gate pending."
+  }
+}

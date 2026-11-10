@@ -77,5 +77,10 @@
     "id": "deepinfra",
     "aliases": ["deepinfra"],
     "api_key_env": "DEEPINFRA_API_KEY"
+  },
+  {
+    "id": "siliconflow",
+    "aliases": ["siliconflow"],
+    "api_key_env": "SILICONFLOW_API_KEY"
   }
 ]

@@ -85,7 +85,7 @@
     "rank": 9,
     "documentation": "https://platform.moonshot.ai/docs/overview",
     "engine": "Kimi",
-    "model": "moonshot-v1-auto",
+    "model": "kimi-k3",
     "protocol_type": "chat",
     "api_key_env": "MOONSHOT_API_KEY"
   },

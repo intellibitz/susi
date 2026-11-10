@@ -192,7 +192,13 @@ impl Snapshot {
             .args([
                 "-c",
                 "core.autocrlf=false",
+                "-c",
+                "core.longpaths=true",
                 "clone",
+                // Private snapshot paths can exceed Windows legacy path limits.
+                // Keep checkout/recheck support local to this owned clone.
+                "--config",
+                "core.longpaths=true",
                 "--no-hardlinks",
                 "--no-checkout",
                 "--",
@@ -201,7 +207,13 @@ impl Snapshot {
             .arg(&database)
             .output()?;
         if !output.status.success() {
-            return Err("cannot snapshot the approved advisory database".into());
+            let stderr = String::from_utf8_lossy(&output.stderr[..output.stderr.len().min(4096)]);
+            return Err(format!(
+                "cannot snapshot the approved advisory database ({}): {}",
+                output.status,
+                stderr.trim()
+            )
+            .into());
         }
         super::git(
             &database,
@@ -473,6 +485,42 @@ mod tests {
         );
         assert!(config_with_database("[advisories]\ndb-urls = []\n", Path::new("db")).is_err());
         assert!(config_with_database("[advisories]\n[advisories]\n", Path::new("db")).is_err());
+    }
+
+    #[test]
+    fn snapshot_preserves_source_and_rechecks_beyond_windows_legacy_path_limit() {
+        let path = scratch();
+        let source = fixture_source(&path.join("db"));
+        let source_config = fs::read(source.path.join(".git/config")).unwrap();
+        let candidate = path.join("candidate");
+        fs::create_dir(&candidate).unwrap();
+        fs::write(candidate.join("deny.toml"), "[advisories]\nignore=[]\n").unwrap();
+        let mut attempt = path.join("attempt");
+        while attempt
+            .join("advisory-dbs")
+            .join(DATABASE_DIRECTORY)
+            .to_string_lossy()
+            .encode_utf16()
+            .count()
+            < 220
+        {
+            attempt = attempt.join("nested-snapshot");
+        }
+        fs::create_dir_all(&attempt).unwrap();
+        let snapshot = Snapshot::prepare(&candidate, &attempt, &source).unwrap();
+        let advisory = Path::new("crates/qualification-fixture/RUSTSEC-2026-0001.md");
+        let copied_advisory = snapshot.source.path.join(advisory);
+        assert!(copied_advisory.to_string_lossy().encode_utf16().count() > 260);
+        assert_eq!(
+            fs::read(copied_advisory).unwrap(),
+            fs::read(source.path.join(advisory)).unwrap()
+        );
+        snapshot.recheck().unwrap();
+        assert_eq!(
+            fs::read(source.path.join(".git/config")).unwrap(),
+            source_config
+        );
+        validate_source(&source, now().unwrap()).unwrap();
     }
 
     #[test]
