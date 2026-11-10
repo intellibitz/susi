@@ -1,0 +1,45 @@
+{
+  "id": "T-DOTWORKERLEASE-1",
+  "title": "Release external worker leases explicitly",
+  "goal": "Make lease lifetime explicit while retaining fail-closed contention behavior.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "dot-worker-lease",
+  "native_worker": "dot-worker-lease",
+  "created_by": "dot-worker-lease",
+  "created_unix": 1794275428,
+  "size": "S",
+  "deps": [],
+  "scope": [
+    ".agents/tasks/t-dotworkerlease-1.json",
+    "crates/susi-gawd-agents/src/external/mod.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-dotworkerlease-1.json",
+    "crates/susi-gawd-agents/src/external/mod.rs"
+  ],
+  "acceptance": "Affected library tests and strict scoped Clippy pass; deterministic inherited-descriptor regression fails without explicit unlock. Independent review and combined-tree checks pending.",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "verification": {
+    "library_tests": {
+      "passed": 198,
+      "failed": 0,
+      "ignored": 0
+    },
+    "fmt": "passed",
+    "scoped_clippy": "passed",
+    "mutation": "Removing explicit unlock deterministically fails new inherited-descriptor regression; restored final source passes all 198 library tests.",
+    "limits": "Combined-tree verification and Windows execution pending. Original round3 fork attribution not traced.",
+    "review": "Independent Astra review: no blockers; normal lexical cleanup and fail-closed unlock-error comments clarified. Tested executable code unchanged."
+  }
+}

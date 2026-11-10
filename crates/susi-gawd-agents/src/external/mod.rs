@@ -63,6 +63,22 @@ pub struct AgentManager {
     fixed_catalog: Option<Vec<AgentDefinition>>,
 }
 
+/// Explicitly release ownership during normal lexical cleanup, including when a
+/// concurrent spawn temporarily inherited the open file description before exec.
+/// Never clone or transfer the file: all task mutations stay inside this lease.
+struct WorkerLease {
+    file: File,
+}
+
+impl Drop for WorkerLease {
+    fn drop(&mut self) {
+        // Closing alone can leave a Unix flock held by an inherited descriptor.
+        // Failed unlock stays fail-closed: closing this handle may still leave
+        // an inherited duplicate holding the lock. Never panic in Drop.
+        let _ = self.file.unlock();
+    }
+}
+
 fn should_probe_readiness(adapter: &Adapter, verbose: bool) -> bool {
     let _ = (adapter, verbose);
     true
@@ -499,7 +515,7 @@ impl AgentManager {
         Ok(())
     }
 
-    fn acquire(&self, id: &str) -> Result<File> {
+    fn acquire(&self, id: &str) -> Result<WorkerLease> {
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -508,7 +524,7 @@ impl AgentManager {
             .open(self.run_dir(id)?.join("worker.lock"))?;
         file.try_lock()
             .context("task is owned by a running worker")?;
-        Ok(file)
+        Ok(WorkerLease { file })
     }
 
     fn run_dir(&self, id: &str) -> Result<PathBuf> {
@@ -715,6 +731,64 @@ mod unit_tests {
         assert_eq!(fw_run.prompt, "orchestrate graph");
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn worker_lease_rejects_competing_mutations_until_released() {
+        let root = temp_workspace("lease-owner");
+        let mgr = AgentManager::with_config(&root, CatalogKind::Execution, root.join("cfg"))
+            .unwrap()
+            .with_catalog(vec![test_def("codex", "CodexAgent", 1)]);
+        let run = mgr
+            .prepare_adapter("codex", "local fixture", local_adapter())
+            .unwrap();
+        let lease = mgr.acquire(&run.id).unwrap();
+        for error in [
+            mgr.execute(&run.id).unwrap_err(),
+            mgr.refresh(&run.id).unwrap_err(),
+            mgr.send(&run.id, "continue").unwrap_err(),
+            mgr.mark_launch_failed(&run.id, "must not mutate")
+                .unwrap_err(),
+        ] {
+            assert!(
+                error
+                    .to_string()
+                    .contains("task is owned by a running worker"),
+                "{error}"
+            );
+        }
+        assert_eq!(mgr.read(&run.id).unwrap().status, RunStatus::Queued);
+        drop(lease);
+        mgr.mark_launch_failed(&run.id, "after release").unwrap();
+        assert_eq!(mgr.read(&run.id).unwrap().status, RunStatus::Failed);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn worker_lease_unlocks_with_an_inherited_open_file_description() {
+        let root = temp_workspace("lease-inherited");
+        let mgr = AgentManager::with_config(&root, CatalogKind::Execution, root.join("cfg"))
+            .unwrap()
+            .with_catalog(vec![test_def("codex", "CodexAgent", 1)]);
+        let run = mgr
+            .prepare_adapter("codex", "local fixture", local_adapter())
+            .unwrap();
+        let lease = mgr.acquire(&run.id).unwrap();
+        // A duplicate shares the same open file description, exactly as a file
+        // inherited across fork. Keep it open to make the release race deterministic
+        // without spawning a worker or relying on scheduler timing.
+        let inherited = lease.file.try_clone().unwrap();
+        assert!(mgr.acquire(&run.id).is_err());
+        drop(lease);
+        let next = mgr.acquire(&run.id).unwrap();
+        // Closing the stale inherited descriptor must not unlock the new owner.
+        drop(inherited);
+        assert!(mgr.acquire(&run.id).is_err());
+        drop(next);
+        let final_lease = mgr.acquire(&run.id).unwrap();
+        drop(final_lease);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
