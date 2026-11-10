@@ -1,0 +1,40 @@
+{
+  "id": "T-DOTRETIREHANDOFF-1",
+  "title": "Retire GitHub branch handoff",
+  "goal": "Permanently fail closed with native local-workflow guidance, without Git or network calls. Preserve unrelated branch tests.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "dot-retire-handoff",
+  "native_worker": "dot-retire-handoff",
+  "created_by": "Codex",
+  "size": "S",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-dotretirehandoff-1.json",
+    "scripts/ci-branch-handoff.sh",
+    "xtask/tests/branch_test_handoff.rs"
+  ],
+  "scope": [
+    ".agents/tasks/t-dotretirehandoff-1.json",
+    "scripts/ci-branch-handoff.sh",
+    "xtask/tests/branch_test_handoff.rs"
+  ],
+  "acceptance": "Native retired handoff source contract passes; serialized combined-tree gate remains required before landing.",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--test",
+      "branch_test_handoff",
+      "--offline",
+      "--locked",
+      "retired_handoff_always_fails_closed_without_git_or_network",
+      "--",
+      "--exact",
+      "--test-threads=1"
+    ]
+  },
+  "verification": "2026-11-10: pinned rustfmt --edition 2021 --check xtask/tests/branch_test_handoff.rs passed. rustc --edition=2021 --test xtask/tests/branch_test_handoff.rs -o <private-state>/branch_test_handoff.exe compiled; CARGO_MANIFEST_DIR points to this worktree xtask. Exact retired_handoff_always_fails_closed_without_git_or_network --exact --test-threads=1: 1 passed, 0 failed, 2 filtered out. All child processes used cleared environment and private home/temp/output. Cargo, unrelated Bash tests, full gate and combined-tree integration not run here; serialized publisher owns qualification. Codex."
+}

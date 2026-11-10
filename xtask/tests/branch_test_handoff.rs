@@ -132,67 +132,34 @@ fn branch_test_selection_runs_the_planned_packages_and_propagates_failure() {
         .success());
 }
 #[test]
-fn handoff_requires_a_github_remote_a_trusted_main_marker_and_unchanged_ci() {
-    let p = fixture();
-    init(&p);
-    fs::create_dir_all(p.join(".github/workflows")).unwrap();
-    fs::write(
-        p.join(".github/workflows/test.yml"),
-        "# SUSI_BRANCH_TEST_HANDOFF_V1\n",
-    )
-    .unwrap();
-    fs::write(p.join("scripts/ci-branch-tests.sh"), "#!/bin/sh\nexit 0\n").unwrap();
-    fs::write(p.join("code.rs"), "fn original() {}\n").unwrap();
-    git(&p, &["add", "."]);
-    git(&p, &["commit", "--quiet", "-m", "base"]);
-    git(&p, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
-    git(
-        &p,
-        &["remote", "add", "origin", "git@github.com:example/repo.git"],
+fn retired_handoff_always_fails_closed_without_git_or_network() {
+    let source = fs::read_to_string(root().join("scripts/ci-branch-handoff.sh")).unwrap();
+    // An exact executable-line contract prevents conditional success, environment
+    // overrides, Git/network calls or substitutions from reviving remote proof.
+    // This regression runs natively, without Bash, Git, credentials or a remote.
+    let commands: Vec<_> = source
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect();
+    assert_eq!(
+        commands,
+        [
+            "printf '%s\\n' 'Branch CI handoff is retired; run cargo local-workflow check locally, then cargo local-workflow ship <name> for serialized publication.' >&2",
+            "exit 1",
+        ],
+        "the retired handoff must only explain the native migration and fail"
     );
-    fs::write(p.join("code.rs"), "fn changed() {}\n").unwrap();
-    git(&p, &["add", "code.rs"]);
-    git(&p, &["commit", "--quiet", "-m", "code"]);
-    let invoke = || {
-        Command::new(bash())
-            .arg(root().join("scripts/ci-branch-handoff.sh"))
-            .current_dir(&p)
-            .env_remove("SUSI_LOCAL_GATE")
-            .env_remove("SUSI_GATE_NOCACHE")
-            .output()
-            .unwrap()
-    };
-    assert!(invoke().status.success(), "valid branch must hand off");
-    let forced_local = Command::new(bash())
-        .arg(root().join("scripts/ci-branch-handoff.sh"))
-        .current_dir(&p)
-        .env("SUSI_LOCAL_GATE", "full")
-        .output()
-        .unwrap();
-    assert!(!forced_local.status.success(), "full gate must stay local");
-    git(&p, &["update-ref", "-d", "refs/remotes/origin/main"]);
-    assert!(
-        !invoke().status.success(),
-        "a missing main ref must fall back"
-    );
-    git(&p, &["update-ref", "refs/remotes/origin/main", "HEAD^1"]);
-    fs::write(p.join("scripts/ci-branch-tests.sh"), "changed\n").unwrap();
-    assert!(
-        !invoke().status.success(),
-        "uncommitted CI changes must fall back"
-    );
-    git(&p, &["add", "scripts/ci-branch-tests.sh"]);
-    git(&p, &["commit", "--quiet", "-m", "ci change"]);
-    assert!(
-        !invoke().status.success(),
-        "committed CI changes must fall back"
-    );
-    git(&p, &["reset", "--hard", "--quiet", "HEAD^1"]);
-    git(&p, &["remote", "set-url", "origin", "/tmp/local-only"]);
-    assert!(
-        !invoke().status.success(),
-        "a non-GitHub remote cannot use the handoff"
-    );
+
+    // The legacy caller branches on success only. Failure must still reach its
+    // local gate; the existing behavioral test covers both caller branches.
+    let workflow = fs::read_to_string(root().join("scripts/parallel-workflow.sh")).unwrap();
+    let gate = workflow.split("\ngate() {\n").nth(1).unwrap();
+    assert!(gate.contains("\"${BASH:-bash}\" \"$root/scripts/ci-branch-handoff.sh\"; then"));
+    assert!(gate.contains(
+        "    fi\n    timed_step target seed_own_target\n    timed_step scope resolve_gate_plan"
+    ));
+    assert!(gate.contains("gate_lint_and_test \"${clippy_args[@]}\" || return 1"));
 }
 
 #[test]
