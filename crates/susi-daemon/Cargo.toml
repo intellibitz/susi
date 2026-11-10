@@ -26,7 +26,6 @@ susi-server = { workspace = true }
 susi-tools = { workspace = true }
 susi-harness = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
-hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 

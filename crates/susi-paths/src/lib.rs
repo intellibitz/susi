@@ -364,6 +364,7 @@ impl LocalDirs {
 }
 
 pub mod console;
+pub mod hex;
 pub mod loopback;
 pub mod ports;
 pub mod shlex;

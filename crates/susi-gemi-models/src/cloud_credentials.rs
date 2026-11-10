@@ -90,7 +90,7 @@ pub fn save_with_options(
     hash.update(vendor_env.as_bytes());
     hash.update([0]);
     hash.update(key.as_bytes());
-    let id = hex::encode(hash.finalize());
+    let id = susi_paths::hex::encode(hash.finalize());
     let path = dir.join(format!("{id}.json"));
 
     if !path.exists()

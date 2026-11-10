@@ -118,7 +118,11 @@ fn host_only_refuses_peer_calls_off_host_before_any_connection() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("host-only-peer");
-    std::fs::write(home.config().join("cluster.key"), hex::encode([0x6Bu8; 32])).unwrap();
+    std::fs::write(
+        home.config().join("cluster.key"),
+        susi_paths::hex::encode([0x6Bu8; 32]),
+    )
+    .unwrap();
     // The persisted mode the wired policy reads on every check: this
     // binary's process-wide policy is created here, under this home.
     let substrate = susi_paths::SusiDirs::substrate_home();
@@ -435,7 +439,11 @@ fn a_daemon_bound_beyond_loopback_serves_this_machine_alone_under_host_only() {
     env.set("SUSI_PORT_OFFSET", offset.to_string());
     let config_dir = susi_paths::SusiDirs::config_dir();
     std::fs::create_dir_all(&config_dir).unwrap();
-    std::fs::write(config_dir.join("cluster.key"), hex::encode([0x3Cu8; 32])).unwrap();
+    std::fs::write(
+        config_dir.join("cluster.key"),
+        susi_paths::hex::encode([0x3Cu8; 32]),
+    )
+    .unwrap();
     // Every interface: a self-signed certificate is provisioned, so only the
     // mode stands between an off-host TLS client and the listeners. The
     // retired `allow_remote_plaintext: true` stays in the file to show that

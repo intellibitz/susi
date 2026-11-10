@@ -473,7 +473,7 @@ pub fn rekey(out: Out<'_>, force: bool) -> Result<(), String> {
     }
     let stage_args = serde_json::json!({
         "record": &record,
-        "key_hex": hex::encode(new_key),
+        "key_hex": susi_paths::hex::encode(new_key),
     });
     let bearer = susi_config::cluster_key::peer_bearer();
     let targets: Vec<String> = load_registry()?

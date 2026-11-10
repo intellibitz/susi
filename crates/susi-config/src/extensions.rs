@@ -528,16 +528,16 @@ fn keep_private_mode(path: &Path) {
 }
 
 fn sha256_digest(bytes: &[u8]) -> String {
-    format!("sha256:{}", hex::encode(Sha256::digest(bytes)))
+    format!("sha256:{}", susi_paths::hex::encode(Sha256::digest(bytes)))
 }
 
 fn is_sha256_digest(value: &str) -> bool {
     let hex_value = value.strip_prefix("sha256:").unwrap_or(value);
-    hex_value.len() == 64 && hex::decode(hex_value).is_ok()
+    hex_value.len() == 64 && susi_paths::hex::decode(hex_value).is_ok()
 }
 
 fn decode_fixed_hex<const N: usize>(value: &str) -> Option<[u8; N]> {
-    let bytes = hex::decode(value).ok()?;
+    let bytes = susi_paths::hex::decode(value).ok()?;
     bytes.try_into().ok()
 }
 
@@ -1375,8 +1375,8 @@ fn pack_admission_probe_at(root: &Path) -> Result<String, String> {
             "permissions": [],
             "files": { CATALOG: CATALOG },
             "checksums": { CATALOG: checksum },
-            "signatures": { CATALOG: hex::encode(key.sign(catalog).to_bytes()) },
-            "signer": hex::encode(key.verifying_key().to_bytes()),
+            "signatures": { CATALOG: susi_paths::hex::encode(key.sign(catalog).to_bytes()) },
+            "signer": susi_paths::hex::encode(key.verifying_key().to_bytes()),
         })
         .to_string()
     };

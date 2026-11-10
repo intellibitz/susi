@@ -62,7 +62,7 @@ fn vc_201_077_mastery_cluster_key_bounded_overlap_and_explicit_revocation() {
     let new_key: [u8; 32] = [0x22; 32];
 
     // Install initial active key
-    fs::write(dir.join("cluster.key"), hex::encode(old_key)).unwrap();
+    fs::write(dir.join("cluster.key"), susi_paths::hex::encode(old_key)).unwrap();
 
     // Stage new key and activate
     assert!(cluster_key::stage_key_to(
@@ -74,7 +74,7 @@ fn vc_201_077_mastery_cluster_key_bounded_overlap_and_explicit_revocation() {
 
     // Current key must now be new_key
     let active_bytes = fs::read_to_string(dir.join("cluster.key")).unwrap();
-    assert_eq!(active_bytes.trim(), hex::encode(new_key));
+    assert_eq!(active_bytes.trim(), susi_paths::hex::encode(new_key));
 
     // Retired key is in prev_key within bounded overlap
     assert_eq!(cluster_key::prev_key_at(&dir, 0), Some(old_key));
@@ -95,7 +95,7 @@ fn vc_201_077_mastery_cluster_key_staged_expiry_and_torn_self_heal() {
 
     let old_key: [u8; 32] = [0x33; 32];
     let ancient_key: [u8; 32] = [0x44; 32];
-    fs::write(dir.join("cluster.key"), hex::encode(old_key)).unwrap();
+    fs::write(dir.join("cluster.key"), susi_paths::hex::encode(old_key)).unwrap();
 
     // Stage key and backdate .staged_at timestamp to simulate ancient stage
     assert!(cluster_key::stage_key_to(

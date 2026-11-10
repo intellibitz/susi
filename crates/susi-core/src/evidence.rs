@@ -109,7 +109,7 @@ impl EvidenceRecord {
         ))
         .ok()?;
         hasher.update(payload);
-        Some(hex::encode(hasher.finalize()))
+        Some(susi_paths::hex::encode(hasher.finalize()))
     }
 
     /// Capture a file claim at the observation boundary. Verification later
@@ -143,7 +143,7 @@ impl EvidenceRecord {
             },
             EvidenceSource::File {
                 path: path.into(),
-                hash: hex::encode(Sha256::digest(content)),
+                hash: susi_paths::hex::encode(Sha256::digest(content)),
             },
             0.0,
         ))
@@ -192,7 +192,7 @@ impl EvidenceRecord {
                 let Ok(content) = std::fs::read(&target) else {
                     return Rejected("source cannot be read".into());
                 };
-                if hex::encode(Sha256::digest(&content)) != *hash {
+                if susi_paths::hex::encode(Sha256::digest(&content)) != *hash {
                     return Rejected("source contents changed or hash does not match".into());
                 }
                 if confined_file(workspace, Path::new(&self.claim.subject)).as_ref()

@@ -176,7 +176,7 @@ impl EmergencyStopBus {
         let mut hasher = Sha256::new();
         hasher.update(key);
         hasher.update(payload.as_bytes());
-        hex::encode(hasher.finalize())
+        susi_paths::hex::encode(hasher.finalize())
     }
 
     /// Survive restart by loading persisted, tamper-evident signed JSON.

@@ -678,7 +678,7 @@ impl ModelManager {
 
     pub(crate) fn progress_path(target: &str) -> PathBuf {
         use sha2::Digest;
-        let key = hex::encode(sha2::Sha256::digest(target.as_bytes()));
+        let key = susi_paths::hex::encode(sha2::Sha256::digest(target.as_bytes()));
         susi_paths::SusiDirs::data_dir()
             .join("downloads")
             .join(format!("{key}.json"))

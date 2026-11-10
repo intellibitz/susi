@@ -191,7 +191,7 @@ mod inline_tests {
     use sha2::{Digest, Sha256};
 
     fn hash(s: &str) -> String {
-        hex::encode(Sha256::digest(s.as_bytes()))
+        susi_paths::hex::encode(Sha256::digest(s.as_bytes()))
     }
 
     #[test]

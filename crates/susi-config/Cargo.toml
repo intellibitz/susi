@@ -10,7 +10,6 @@ susi-error = { workspace = true }
 susi-paths = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
-hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "../susi-vendor-ed25519-dalek" }

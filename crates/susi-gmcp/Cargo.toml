@@ -15,7 +15,6 @@ susi-paths = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
-hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 hyper = { package = "susi-vendor-hyper", path = "../susi-vendor-hyper" }

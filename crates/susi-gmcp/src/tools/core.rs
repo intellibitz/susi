@@ -1226,8 +1226,8 @@ impl CoreTools {
             .get("key_hex")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("missing 'key_hex' field"))?;
-        let key_bytes =
-            hex::decode(key_hex).map_err(|e| EaiError::protocol(format!("bad key_hex: {e}")))?;
+        let key_bytes = susi_paths::hex::decode(key_hex)
+            .map_err(|e| EaiError::protocol(format!("bad key_hex: {e}")))?;
         if key_bytes.len() != 32 {
             return Err(EaiError::protocol("key_hex must decode to 32 bytes"));
         }
@@ -4026,9 +4026,9 @@ mod core_io_tests {
         let mut checksums = serde_json::Map::new();
         for (name, body) in files {
             std::fs::write(pack_root.join(name), body.as_bytes()).unwrap();
-            let digest = format!("sha256:{}", hex::encode(Sha256::digest(body.as_bytes())));
+            let hex = susi_paths::hex::encode(Sha256::digest(body.as_bytes()));
             file_map.insert((*name).to_string(), json!(name));
-            checksums.insert((*name).to_string(), json!(digest));
+            checksums.insert((*name).to_string(), json!(format!("sha256:{hex}")));
         }
 
         let manifest = json!({

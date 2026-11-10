@@ -352,8 +352,10 @@ impl LocalIdentity {
         let x_secret = cluster_key::node_x25519_secret()?;
         let ed_hex = cluster_key::node_pubkey_hex()?;
         let sig_hex = cluster_key::bind_attestation()?;
-        let ed_public = <[u8; 32]>::try_from(hex::decode(&ed_hex).ok()?.as_slice()).ok()?;
-        let bind_sig = <[u8; 64]>::try_from(hex::decode(&sig_hex).ok()?.as_slice()).ok()?;
+        let ed_public =
+            <[u8; 32]>::try_from(susi_paths::hex::decode(&ed_hex).ok()?.as_slice()).ok()?;
+        let bind_sig =
+            <[u8; 64]>::try_from(susi_paths::hex::decode(&sig_hex).ok()?.as_slice()).ok()?;
         let x_public = x25519_dalek::PublicKey::from(&x_secret);
         Some(Self {
             x_secret,
@@ -377,7 +379,7 @@ impl LocalIdentity {
         let x_public = x25519_dalek::PublicKey::from(&x_secret);
         let payload = format!(
             "susi-member-v1:{}",
-            cluster_key::bind_payload(node_id, &hex::encode(ed_public))
+            cluster_key::bind_payload(node_id, &susi_paths::hex::encode(ed_public))
         );
         let bind_sig = ed25519_dalek::Signer::sign(&sk, payload.as_bytes()).to_bytes();
         Self {
@@ -396,7 +398,7 @@ impl LocalIdentity {
 
     /// The Ed25519 public key, hex, as rosters store it.
     pub fn pubkey_hex(&self) -> String {
-        hex::encode(self.ed_public)
+        susi_paths::hex::encode(self.ed_public)
     }
 
     /// `ts | id_len | node_id | ed25519 pubkey | bind_sig`, version-prefixed.
@@ -490,14 +492,14 @@ fn verify_identity(
             "Ed25519 key does not match the authenticated static key",
         ));
     }
-    let pubkey = hex::encode(ed);
-    if !cluster_key::verify_bind_attestation(node_id, &pubkey, &hex::encode(sig)) {
+    let pubkey = susi_paths::hex::encode(ed);
+    if !cluster_key::verify_bind_attestation(node_id, &pubkey, &susi_paths::hex::encode(sig)) {
         return Err(ChannelError::BadIdentity("binding attestation"));
     }
     Ok(PeerIdentity {
         node_id: node_id.to_string(),
         pubkey,
-        bind_sig: hex::encode(sig),
+        bind_sig: susi_paths::hex::encode(sig),
     })
 }
 
@@ -698,7 +700,7 @@ pub fn responder_accept_at(
     }
     let flags = payload[9];
     replay
-        .admit(&hex::encode(re.as_bytes()), now)
+        .admit(&susi_paths::hex::encode(re.as_bytes()), now)
         .map_err(|rejection| match rejection {
             cluster_key::PingRejection::CacheFull => ChannelError::CacheFull,
             cluster_key::PingRejection::Replayed

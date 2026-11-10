@@ -160,8 +160,16 @@ fn make_node(
     node.config = susi_paths::SusiDirs::config_dir();
     drop(env);
     std::fs::create_dir_all(&node.config).unwrap();
-    std::fs::write(node.config.join("cluster.key"), hex::encode(cluster_key)).unwrap();
-    std::fs::write(node.config.join("node.key"), hex::encode([seed; 32])).unwrap();
+    std::fs::write(
+        node.config.join("cluster.key"),
+        susi_paths::hex::encode(cluster_key),
+    )
+    .unwrap();
+    std::fs::write(
+        node.config.join("node.key"),
+        susi_paths::hex::encode([seed; 32]),
+    )
+    .unwrap();
     std::fs::write(node.config.join("node_id"), &node.node_id).unwrap();
     node.pubkey = LocalIdentity::from_seed(&[seed; 32], &node.node_id).pubkey_hex();
     node

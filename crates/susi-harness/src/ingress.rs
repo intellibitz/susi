@@ -887,7 +887,7 @@ fn now_minute() -> u64 {
 /// twelve hex digits of its token's SHA-256.
 fn unnamed_account(token: &str) -> String {
     use sha2::{Digest, Sha256};
-    let digest = hex::encode(Sha256::digest(token.as_bytes()));
+    let digest = susi_paths::hex::encode(Sha256::digest(token.as_bytes()));
     format!("account-{}", &digest[..12])
 }
 

@@ -36,7 +36,7 @@ impl ContainerComponent for MockContainer {
                 self.contract.component_id, ctx.task_key, ctx.sandbox.worker_identity
             ),
             spent: self.cost,
-            output_digest: hex::encode(hasher.finalize()),
+            output_digest: susi_paths::hex::encode(hasher.finalize()),
         })
     }
 }

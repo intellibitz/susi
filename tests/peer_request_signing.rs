@@ -54,7 +54,7 @@ fn sign(node: &str, ts: u64, nonce: &str, method: &str, path: &str) -> String {
 #[allow(clippy::too_many_arguments)] // mirrors the signed-request tuple
 fn sign_v2(node: &str, ts: u64, nonce: &str, method: &str, path: &str, body: &[u8]) -> String {
     use sha2::Digest;
-    let hash = hex::encode(sha2::Sha256::digest(body));
+    let hash = susi_paths::hex::encode(sha2::Sha256::digest(body));
     cluster_key::member_sign(&format!(
         "susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{hash}"
     ))
@@ -86,7 +86,11 @@ fn bound_member_authenticates_by_signature_and_loses_bearer() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("rsig");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xCCu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xCCu8; 32]),
+    )
+    .unwrap();
 
     let self_pk = cluster_key::node_pubkey_hex().expect("node key must generate");
     let self_id = cluster_key::wire_node_id();
@@ -155,7 +159,11 @@ fn v2_body_bound_signature_rejects_substituted_content() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("rsig");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xCEu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xCEu8; 32]),
+    )
+    .unwrap();
 
     let self_pk = cluster_key::node_pubkey_hex().expect("node key must generate");
     let self_id = cluster_key::wire_node_id();
@@ -197,7 +205,11 @@ fn unbound_member_keeps_bearer_and_unknown_signers_fall_through() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("rsig");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xDDu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xDDu8; 32]),
+    )
+    .unwrap();
 
     // Legacy member: rostered but no bound pubkey → bearer still works.
     write_roster(&dir, "node-legacy", "10.0.0.10:9090", "");
@@ -217,7 +229,7 @@ fn unbound_member_keeps_bearer_and_unknown_signers_fall_through() {
     // check — a forged signature grants nothing, but a valid bearer
     // still authenticates (today's pre-binding ceiling).
     let ts = now();
-    let forged_sig = hex::encode([0x11u8; 64]);
+    let forged_sig = susi_paths::hex::encode([0x11u8; 64]);
     let forged = signed("node-stranger", "n-9", ts, &forged_sig);
     assert!(!NetGuard::is_authorized(
         None, legacy, &forged, "POST", "/mcp", None
@@ -239,7 +251,11 @@ fn bound_member_with_missing_nonce_or_signature_is_rejected() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("rsig");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xDDu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xDDu8; 32]),
+    )
+    .unwrap();
 
     let self_pk = cluster_key::node_pubkey_hex().expect("node key must generate");
     let self_id = cluster_key::wire_node_id();
