@@ -5,8 +5,9 @@ use crate::capability_bus::{
     CapabilitySurface,
 };
 use crate::delegation::{
-    DelegationEnvelope, DelegationError, DelegationHop, DelegationLimits, DelegationRequest,
-    DelegationScope, ENVELOPE_SCHEMA, MAX_DEPTH_CEILING,
+    DelegationAuthority, DelegationEnvelope, DelegationError, DelegationHop, DelegationLimits,
+    DelegationRequest, DelegationScope, ENVELOPE_KEY_PURPOSE, ENVELOPE_SCHEMA, MAX_DEPTH_CEILING,
+    MAX_LEDGER_ENTRIES, MAX_SIGNED_LIFETIME_MS,
 };
 use serde_json::json;
 use std::collections::BTreeSet;
@@ -276,25 +277,50 @@ fn identities_are_validated() {
     ));
 }
 
-#[test]
-fn envelopes_continue_the_nesting_across_a_boundary() {
-    let session = root(500, DelegationLimits::default());
-    let driver = session
+/// Two processes of one host derive the same envelope key from the shared
+/// host secret; another host's secret differs.
+const HOST_SECRET: [u8; 32] = [42; 32];
+
+fn driver_under(session: &DelegationScope, budget: u64) -> DelegationScope {
+    session
         .delegate(DelegationRequest {
             timeout_ms: 60_000,
-            ..ask("dot", "plan", &["fs.read"], 200)
+            ..ask("dot", "plan", &["fs.read"], budget)
         })
-        .unwrap();
-    let envelope = driver.envelope();
+        .unwrap()
+}
+
+/// Sign `envelope` exactly as a holder of the host key would.
+fn sign_as_key_holder(envelope: &mut DelegationEnvelope) {
+    let key = crate::susi_config::cluster_key::hmac_sha256(&HOST_SECRET, ENVELOPE_KEY_PURPOSE);
+    envelope.signature = None;
+    envelope.signature = Some(crate::susi_config::cluster_key::hmac_sha256_hex(
+        &key,
+        &envelope.signed_payload().unwrap(),
+    ));
+}
+
+#[test]
+fn signed_envelopes_continue_the_nesting_in_another_process() {
+    let issuer = DelegationAuthority::from_secret(&HOST_SECRET);
+    let receiver = DelegationAuthority::from_secret(&HOST_SECRET);
+    let session = root(500, DelegationLimits::default());
+    let driver = driver_under(&session, 200);
+    let envelope = issuer.issue(&driver).unwrap();
     assert_eq!(envelope.schema, ENVELOPE_SCHEMA);
-    assert_eq!(envelope.budget_micros, 200);
-    assert!(envelope.timeout_ms.is_some_and(|ms| ms <= 60_000));
-    let wire = serde_json::to_value(&envelope).unwrap();
-    let received: DelegationEnvelope = serde_json::from_value(wire).unwrap();
-    let remote = DelegationScope::from_envelope(&received).unwrap();
+    assert_eq!(envelope.id.as_ref().map(String::len), Some(32));
+    assert!(envelope.signature.is_some());
+    let lifetime = envelope.expires_unix_ms.unwrap() - now_ms();
+    assert!(lifetime <= 60_000, "expiry follows the scope deadline");
+
+    let wire = serde_json::to_string(&envelope).unwrap();
+    let received: DelegationEnvelope = serde_json::from_str(&wire).unwrap();
+    let remote = receiver.admit(&received).unwrap();
     assert_eq!(remote.path(), driver.path());
     assert_eq!(remote.depth(), 1);
     assert_eq!(remote.permissions(), &perms(&["fs.read"]));
+    assert_eq!(remote.remaining_micros(), 200);
+    assert!(remote.remaining_time().unwrap() <= std::time::Duration::from_millis(60_000));
     // The receiver still cannot amplify, overspend or re-enter an ancestor.
     assert!(matches!(
         remote.delegate(ask("opus", "x", &["net.fetch"], 0)),
@@ -312,11 +338,139 @@ fn envelopes_continue_the_nesting_across_a_boundary() {
         .delegate(ask("opus", "build", &["fs.read"], 50))
         .unwrap();
     assert_eq!(engine.depth(), 2);
+    // The issuing process keeps the driver's reservation while the envelope
+    // is live: the session cannot hand those 200 micros out again.
+    drop(driver);
+    assert_eq!(session.remaining_micros(), 300);
+}
+
+/// One way of altering an issued envelope.
+type Tamper = dyn Fn(&mut DelegationEnvelope);
+
+#[test]
+fn a_tampered_forged_or_unsigned_envelope_is_refused() {
+    let issuer = DelegationAuthority::from_secret(&HOST_SECRET);
+    let receiver = DelegationAuthority::from_secret(&HOST_SECRET);
+    let envelope = issuer
+        .issue(&driver_under(&root(500, DelegationLimits::default()), 200))
+        .unwrap();
+    let tampered: Vec<(&str, Box<Tamper>)> = vec![
+        (
+            "wider permissions",
+            Box::new(|e| e.permissions.push("net.fetch".into())),
+        ),
+        ("larger budget", Box::new(|e| e.budget_micros = 10_000)),
+        (
+            "later expiry",
+            Box::new(|e| e.expires_unix_ms = e.expires_unix_ms.map(|t| t + 1)),
+        ),
+        ("other id", Box::new(|e| e.id = Some("00".repeat(16)))),
+        (
+            "shorter path",
+            Box::new(|e| {
+                e.path.remove(0);
+            }),
+        ),
+        (
+            "deeper limits",
+            Box::new(|e| e.limits.max_depth = MAX_DEPTH_CEILING),
+        ),
+        (
+            "garbled signature",
+            Box::new(|e| e.signature = Some("zz".into())),
+        ),
+    ];
+    for (what, change) in tampered {
+        let mut forged = envelope.clone();
+        change(&mut forged);
+        assert!(
+            matches!(receiver.admit(&forged), Err(DelegationError::Unverified(_))),
+            "{what} was admitted"
+        );
+    }
+    let mut unsigned = envelope.clone();
+    unsigned.signature = None;
+    assert!(matches!(
+        receiver.admit(&unsigned),
+        Err(DelegationError::Unverified(_))
+    ));
+    let other_host = DelegationAuthority::from_secret(&[43; 32]);
+    assert!(matches!(
+        other_host.admit(&envelope),
+        Err(DelegationError::Unverified(_))
+    ));
+    // The untouched envelope still verifies.
+    assert!(receiver.admit(&envelope).is_ok());
 }
 
 #[test]
-fn malformed_envelopes_are_refused() {
-    let good = root(5, DelegationLimits::default()).envelope();
+fn an_expired_envelope_is_refused() {
+    let issuer = DelegationAuthority::from_secret(&HOST_SECRET);
+    let session = DelegationScope::root(
+        hop("s", "root"),
+        Vec::new(),
+        10,
+        Some(30),
+        DelegationLimits::default(),
+    )
+    .unwrap();
+    let envelope = issuer.issue(&session).unwrap();
+    assert!(envelope.expires_unix_ms.unwrap() <= now_ms() + 30);
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    assert!(matches!(
+        DelegationAuthority::from_secret(&HOST_SECRET).admit(&envelope),
+        Err(DelegationError::Expired { .. })
+    ));
+    // No deadline still means a bounded signed lifetime.
+    let open = issuer.issue(&root(1, DelegationLimits::default())).unwrap();
+    assert!(open.expires_unix_ms.unwrap() <= now_ms() + MAX_SIGNED_LIFETIME_MS);
+}
+
+#[test]
+fn replaying_an_envelope_continues_the_same_level() {
+    let issuer = DelegationAuthority::from_secret(&HOST_SECRET);
+    let receiver = DelegationAuthority::from_secret(&HOST_SECRET);
+    let envelope = issuer
+        .issue(&driver_under(&root(500, DelegationLimits::default()), 200))
+        .unwrap();
+    let first = receiver.admit(&envelope).unwrap();
+    let spent = first.delegate(ask("opus", "build", &[], 150)).unwrap();
+    let replay = receiver.admit(&envelope).unwrap();
+    // A replay does not reset the budget: only 50 is left for anyone.
+    assert_eq!(replay.remaining_micros(), 50);
+    assert!(matches!(
+        replay.delegate(ask("grok", "build", &[], 51)),
+        Err(DelegationError::BudgetExceeded { .. })
+    ));
+    drop(spent);
+    assert_eq!(replay.remaining_micros(), 200);
+}
+
+#[test]
+fn revoking_an_envelope_cancels_its_level_and_everything_under_it() {
+    let issuer = DelegationAuthority::from_secret(&HOST_SECRET);
+    let receiver = DelegationAuthority::from_secret(&HOST_SECRET);
+    let envelope = issuer
+        .issue(&driver_under(&root(500, DelegationLimits::default()), 200))
+        .unwrap();
+    let id = envelope.id.clone().unwrap();
+    let level = receiver.admit(&envelope).unwrap();
+    let engine = level.delegate(ask("opus", "build", &[], 10)).unwrap();
+    assert!(receiver.revoke(&id));
+    assert!(engine.is_cancelled());
+    assert!(matches!(
+        receiver.admit(&envelope),
+        Err(DelegationError::Cancelled(_))
+    ));
+    assert!(!receiver.revoke(&"ff".repeat(16)));
+    // Revocation is per process: the issuer did not run it.
+    assert!(issuer.admit(&envelope).is_ok());
+}
+
+#[test]
+fn even_a_key_holder_cannot_admit_a_malformed_envelope() {
+    let issuer = DelegationAuthority::from_secret(&HOST_SECRET);
+    let good = issuer.issue(&root(5, DelegationLimits::default())).unwrap();
     let mut wrong_schema = good.clone();
     wrong_schema.schema = "other/v9".into();
     let mut empty = good.clone();
@@ -331,17 +485,21 @@ fn malformed_envelopes_are_refused() {
     greedy.limits.max_depth = MAX_DEPTH_CEILING + 1;
     let mut bad_permission = good;
     bad_permission.permissions.push(String::new());
-    for (envelope, what) in [
-        (&wrong_schema, "schema"),
-        (&empty, "empty"),
-        (&looped, "cycle"),
-        (&too_deep, "depth"),
-        (&greedy, "limits"),
-        (&bad_permission, "permission"),
+    for (mut envelope, what) in [
+        (wrong_schema, "schema"),
+        (empty, "empty"),
+        (looped, "cycle"),
+        (too_deep, "depth"),
+        (greedy, "limits"),
+        (bad_permission, "permission"),
     ] {
+        envelope.id = Some(format!("{:032x}", what.len()));
+        sign_as_key_holder(&mut envelope);
         assert!(
-            DelegationScope::from_envelope(envelope).is_err(),
-            "{what} envelope was accepted"
+            DelegationAuthority::from_secret(&HOST_SECRET)
+                .admit(&envelope)
+                .is_err(),
+            "{what} envelope was admitted"
         );
     }
     // Unknown fields are refused rather than silently ignored.
@@ -354,6 +512,45 @@ fn malformed_envelopes_are_refused() {
         "admin": true
     });
     assert!(serde_json::from_value::<DelegationEnvelope>(extra).is_err());
+}
+
+#[test]
+fn the_ledger_is_bounded() {
+    let issuer = DelegationAuthority::from_secret(&HOST_SECRET);
+    let session = root(0, DelegationLimits::default());
+    for _ in 0..MAX_LEDGER_ENTRIES {
+        issuer.issue(&session).unwrap();
+    }
+    assert_eq!(
+        issuer.issue(&session).unwrap_err(),
+        DelegationError::LedgerFull {
+            limit: MAX_LEDGER_ENTRIES
+        }
+    );
+}
+
+#[test]
+fn the_host_authority_signs_with_the_shared_policy_key() {
+    let host = DelegationAuthority::host().unwrap();
+    let envelope = host
+        .issue(&driver_under(&root(10, DelegationLimits::default()), 5))
+        .unwrap();
+    assert!(host.admit(&envelope).is_ok());
+    // A key derived for another purpose does not verify envelopes.
+    let policy_key = crate::mac_policy::MacPolicy::global()
+        .derive_key(b"some-other-token/v1")
+        .unwrap();
+    assert!(matches!(
+        DelegationAuthority::from_secret(&policy_key).admit(&envelope),
+        Err(DelegationError::Unverified(_))
+    ));
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 fn bus() -> CapabilityBus {

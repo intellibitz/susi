@@ -1,0 +1,102 @@
+{
+  "id": "T-CLAUDESIGNENV-1",
+  "title": "Host-signed delegation envelopes: issue, admit, replay ledger and revocation",
+  "goal": "Make the recursion adapter's cross-process envelope unforgeable: only a DelegationAuthority keyed from the host's shared MAC key issues or admits susi-delegation/v1 envelopes (HMAC-SHA256, random id, absolute expiry <= 1 h); tampered, unsigned, expired or foreign-host envelopes are refused; replays in one process continue one level (shared budget and fan-out); revocation cancels a level and its descendants; os_capabilities and the CLI gain a delegate action that issues envelopes under the same bounds.",
+  "status": "done",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794362062,
+  "size": "m",
+  "deps": [
+    "T-CLAUDERECURSE-1"
+  ],
+  "base_commit": "6182adc2b1903f00ba181d20fa0a5362a5b1b036",
+  "scopes": [
+    "crates/susi-core/src/delegation.rs",
+    "crates/susi-core/src/tests/delegation.rs",
+    "crates/susi-core/src/mac_policy.rs",
+    "crates/susi-core/src/registry.rs",
+    "crates/susi-gmcp/src/tools/args.rs",
+    "crates/susi-gmcp/src/tools/host_ops.rs",
+    "crates/susi-gmcp/tests/os_capabilities_delegation.rs",
+    "crates/susi-cli-defs/src/os.rs",
+    "src/cli/os_cli.rs",
+    "docs/recursive-delegation.md",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/done/T-CLAUDESIGNENV-1.json",
+    ".agents/tasks/T-CLAUDESIGNENV-1.json",
+    "tests/fixtures/cli_help_snapshot.txt"
+  ],
+  "capabilities": [
+    "susi_core::delegation::DelegationAuthority (host, from_secret, issue, admit, revoke)",
+    "MacPolicy::derive_key (purpose-separated keys from the shared host MAC key)",
+    "CapabilityRegistry::issue_delegation and serve_nested; dispatch_nested admits only signed envelopes",
+    "os_capabilities action `delegate`; susi os capabilities delegate"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "--",
+      "delegation",
+      "capability_bus",
+      "registry"
+    ]
+  },
+  "acceptance": [
+    "cargo test --offline --locked -p susi-core --lib -- delegation capability_bus registry",
+    "cargo test --offline --locked -p susi-core -p susi-gmcp --lib --tests",
+    "cargo test --offline --locked -p susi-gmcp --test os_capabilities_delegation (three child processes on scratch SUSI_HOME)",
+    "cargo clippy --offline --locked -p susi --bin susi -p susi-core -p susi-gmcp -p susi-cli-defs --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi --test socket_parity --test lean_core_ceilings --test architecture_tests --test capability_bus --test task_records --test gmcp_requirements",
+    "cargo fmt --all --check",
+    "susi binary smoke: delegate/nested delegate/invoke/tampered/foreign-home across separate processes",
+    "cargo test --offline --locked -p susi --lib --bins"
+  ],
+  "host": "Claude Code cloud session, Linux x86_64, 4 vCPU, 15 GiB RAM, Rust 1.99.0 (pinned), Git 2.43.0",
+  "results": {
+    "susi_core_lib": "487/487 passed; 44 focused (delegation|capability_bus|registry), of which 8 new signed-envelope tests replace 2 unsigned ones",
+    "susi_gmcp": "lib 213/213, main 5/5, tests/os_capabilities_delegation 1/1 (parent + 3 child processes on scratch SUSI_HOME: issue, admit, foreign refusal), tests/tool_input_schemas 4/4",
+    "gmcp_requirements": "87/87 after re-recording requirement (54 checks) and mastery (9 checks) evidence",
+    "root_governance": "architecture_tests 43/43, lean_core_ceilings 2/2 (susi-gmcp exactly 25,900), socket_parity 5/5, capability_bus 5/5, task_records 3/3",
+    "clippy": "clean with -D warnings: susi binary, susi-core, susi-gmcp, susi-cli-defs (--all-targets)",
+    "fmt": "cargo fmt --all --check clean",
+    "binary_smoke": "target/debug/susi in separate processes on a scratch SUSI_HOME: delegate issued; nested delegate with budget 101 > 100 refused BudgetExceeded; budget 40 issued; invoke with it admitted (then UnknownCapability: a bare CLI registers no tools); tampered budget refused Unverified; different SUSI_HOME refused Unverified; host key created only in the scratch home",
+    "timings_seconds": {
+      "focused_core_rebuild_plus_44_tests": 9.3,
+      "clippy_four_targets_warm": 8.8,
+      "core_plus_gmcp_lib_and_tests_incremental": 22.0,
+      "root_governance_tests": 14.1,
+      "susi_binary_debug_build_incremental": 22.2,
+      "gmcp_evidence_requirement_phase": 19.4,
+      "gmcp_evidence_mastery_phase": 2.4,
+      "gmcp_requirements_suite": 18.3
+    }
+  },
+  "limitations": [
+    "Any process holding the host key is trusted to issue; an envelope is bound to the host key, not to the caller or transport presenting it.",
+    "Replay ledger and revocation are per process; two admitting processes each start from the full budget. revoke has no socket or CLI action yet.",
+    "Envelopes do not cross hosts (another host's key refuses them); a cluster-key variant is future work.",
+    "Only capability dispatch opens scopes; harness missions, GEMI worker delegation and GAWD swarm hand-offs are not wired yet.",
+    "Not run on native Windows x86_64 in this session."
+  ],
+  "landed": {
+    "main_commit": "7c896d79870792044ded2c8e52609c8638e8de9f",
+    "route": "cargo run -p xtask --bin local-snapshot -- submit claude-signenv-20261111 (fast-forward)"
+  },
+  "closed": {
+    "at_unix": 1794362207,
+    "commit": "1f2d35e9ca81a912b577f8c1815781e48a859d61",
+    "by": "CLAUDESIGNENV"
+  },
+  "regression": {
+    "what": "T-CLAUDERECURSE-1 (--delegation on invoke) and T-CLAUDESIGNENV-1 (delegate action) changed `susi os capabilities` help without updating tests/fixtures/cli_help_snapshot.txt, so root unit test cli::defs::tests::cli_help_and_version_match_snapshot failed on main from c1462b524 until this fix.",
+    "why_missed": "The root package's own unit tests (cargo test -p susi --lib --bins) were not in either task's acceptance list.",
+    "fix": "Snapshot regenerated; diff is exactly the 18 added help lines for --delegation and delegate. cargo test --offline --locked -p susi --lib --bins: 9 + 129 passed (3.4 s)."
+  }
+}
