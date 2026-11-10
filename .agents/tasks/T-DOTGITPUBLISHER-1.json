@@ -17,9 +17,20 @@
     ".agents/tasks/T-DOTGITPUBLISHER-1.json"
   ],
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--features", "release-tooling", "--bin", "local-snapshot"]
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-snapshot"
+    ]
   },
-  "checkpoint": "Before the latest graft-history guard, Windows source passed 24 tests (75.32s harness, 77.686s outer), strict bin clippy -D warnings (1.356s), native build (1.888s), cargo fmt --all --check (22.356s) and executable help smoke. The new guard and its 25th test require combined validation. Independent source review completed; real Git CAS-race regression passed. The owner-scoped build.rs push-policy entry requires the coordinated native push-policy source commit; this dependency checkpoint is not independently buildable before composition. Exact combined checks and origin publication remain pending. No Linux publisher qualification, automatic dual-host release orchestration, release attestation or production promotion is claimed.",
+  "checkpoint": "Before the latest graft-history guard, Windows source passed 24 tests (75.32s harness, 77.686s outer), strict bin clippy -D warnings (1.356s), native build (1.888s), cargo fmt --all --check (22.356s) and executable help smoke. The new guard and its 25th test require combined validation. Independent source review completed; real Git CAS-race regression passed. The owner-scoped build.rs push-policy entry requires the coordinated native push-policy source commit; this dependency checkpoint is not independently buildable before composition. Exact combined checks and origin publication remain pending. No Linux publisher qualification, automatic dual-host release orchestration, release attestation or production promotion is claimed. The adjacent native push-policy discovery and its 26th test are now included; these follow-ups await final exact-tree validation. The interrupted combined build produced no result files, and reconnect confirmed no active compiler or push process. No publication occurred.",
   "historical_evidence_before_history_guard": {
     "toolchain": "Rust 1.99.0 x86_64-pc-windows-msvc",
     "module_sha256": "d49aff61c1369bc5770ba7c2fd73392d7534fd303f7403f88d467c7ec220ac15",
