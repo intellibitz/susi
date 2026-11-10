@@ -811,6 +811,32 @@ fn valid_oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+/// The fetched remote main (`refs/remotes/origin/main`), if this clone has it.
+const FETCHED_MAIN_REF: &str = "refs/remotes/origin/main";
+
+/// Whether `head` has landed: `ship` records it in the local integration ref,
+/// and `local-snapshot submit` (the development-main publisher) verifies it on
+/// the remote main, which a fetch mirrors into `origin/main`. Either is
+/// Susi's own landing, so either releases the reservation.
+fn landed(root: &Path, head: &str) -> Result<bool> {
+    if let Some(accepted) = integration_head(root)? {
+        if is_ancestor(root, head, &accepted)? {
+            return Ok(true);
+        }
+    }
+    let fetched = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(root)
+        .args(["rev-parse", "--verify", "--quiet", FETCHED_MAIN_REF])
+        .output()?;
+    if !fetched.status.success() {
+        return Ok(false);
+    }
+    let main = String::from_utf8_lossy(&fetched.stdout).trim().to_owned();
+    is_ancestor(root, head, &main)
+}
+
 fn integration_head(root: &Path) -> Result<Option<String>> {
     let out = Command::new("git")
         .arg("--literal-pathspecs")
@@ -2789,14 +2815,11 @@ fn release(root: &Path, claimant: &str) -> Result<()> {
         return Err("worktree is dirty; preserve and commit its work before releasing".into());
     }
     let head = git(&claim.worktree, &["rev-parse", "HEAD"])?;
-    if head != claim.base {
-        let accepted = integration_head(root)?
-            .ok_or("committed work must be integrated before releasing its reservation")?;
-        if !is_ancestor(root, &head, &accepted)? {
-            return Err(
-                "committed work has not passed local integration; reservation retained".into(),
-            );
-        }
+    if head != claim.base && !landed(root, &head)? {
+        return Err(
+            "committed work is neither in local integration nor on the fetched origin/main; reservation retained"
+                .into(),
+        );
     }
     fs::remove_file(path)?;
     println!(
@@ -6097,6 +6120,40 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("does not descend"));
+    }
+
+    #[test]
+    fn release_accepts_work_the_publisher_landed_on_fetched_main() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let worktree = worker(&repo, "pub", "pub.rs", "published");
+        let head = git(&worktree, &["rev-parse", "HEAD"]).unwrap();
+        // Not integrated and not on the fetched main: the reservation stays.
+        let error = release(&repo, "pub").unwrap_err();
+        assert!(
+            error.to_string().contains("reservation retained"),
+            "{error}"
+        );
+        // `local-snapshot submit` published it; a fetch mirrors that main.
+        let main = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let tree = git(&worktree, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let merged = git(
+            &repo,
+            &[
+                "commit-tree",
+                &tree,
+                "-p",
+                &main,
+                "-p",
+                &head,
+                "-m",
+                "submission",
+            ],
+        )
+        .unwrap();
+        git(&repo, &["update-ref", FETCHED_MAIN_REF, &merged]).unwrap();
+        release(&repo, "pub").unwrap();
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
     }
 
     #[test]
