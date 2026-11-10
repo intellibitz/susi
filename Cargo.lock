@@ -2438,7 +2438,6 @@ dependencies = [
  "susi-vendor-console-subscriber",
  "susi-vendor-ed25519-dalek",
  "susi-vendor-hex",
- "susi-vendor-rayon",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
@@ -3031,13 +3030,6 @@ name = "susi-vendor-ra2a"
 version = "0.1.0"
 dependencies = [
  "ra2a",
-]
-
-[[package]]
-name = "susi-vendor-rayon"
-version = "0.1.0"
-dependencies = [
- "rayon",
 ]
 
 [[package]]

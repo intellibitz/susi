@@ -598,3 +598,12 @@ config, core and the tail.
   pairs against `871425ffa` (load 5-14): wasmparser 0.259 4.7/7.8/7.9 s ->
   2.0/4.0/5.1 s, units 396 -> 386; whole-build wall 26.4/36.3/37.6 s vs
   34.5/36.4/36.3 s is inside the load noise and not claimed.
+- 2026-11-11 (T-CORECUT-3, Linux x86_64, CEO laptop): the `susi` binary no
+  longer depends on rayon. Its only use was a global pool built at startup
+  that no code ran work on (GAWD moved to `susi_core::parallel` on
+  2026-11-07), so the facade `susi-vendor-rayon` is deleted and rayon,
+  rayon-core, crossbeam-deque and crossbeam-epoch leave the build (criterion
+  keeps rayon as a benchmark dev-dependency only). Two alternated cold pairs
+  against `4e49f290b`: units 386 -> 374; at load 1.6-5.7 wall 26.2 -> 25.9 s
+  and unit CPU 224.5 -> 215.8 s; the second pair (load 7.6-9.3) is noise.
+  The removed units cost about 4 CPU-seconds; no wall gain is claimed.

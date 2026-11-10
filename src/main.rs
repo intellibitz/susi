@@ -154,7 +154,7 @@ fn parse_cli(tree: &mut clap::Command) -> Cli {
 }
 
 /// Read-only reports that answer from files and live process checks: `top`,
-/// `status` and `audit query`. They return before tracing, rayon, the kernel
+/// `status` and `audit query`. They return before tracing, the kernel
 /// bootloader and the master agent (D-SP-1): none of those feeds their
 /// output, and an operator runs `status` exactly when something is slow.
 /// Returns `Ok(exit_code)` when handled; `Err(command)` hands it back.
@@ -504,14 +504,6 @@ fn run() -> std::process::ExitCode {
 
     // Boot dynamic kernel assembly (Dynamic Self-Assembly Axiom)
     let _ = susi_gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);
-
-    // Let Rayon honor its host settings instead of overriding an explicit
-    // thread budget with every logical core.
-    let _ = rayon::ThreadPoolBuilder::new().build_global();
-    info!(
-        "[Hardware Authority] Rayon thread pool initialized with {} threads.",
-        rayon::current_num_threads()
-    );
 
     let mut exit_code = std::process::ExitCode::SUCCESS;
 

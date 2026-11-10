@@ -43,7 +43,7 @@ Commands:
   os                     Operating-system view: consensus term/leader, services, verified peers
   peers                  Verified cluster roster: list peers, revoke a member's trust
   substrate-report       Report on autonomous invisible work performed by the substrate
-  bloat-audit            Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
+  bloat-audit            Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, in parallel across all cores
   models                 Manage leading developer/agent models end to end
   openweight             Manage top open-weight frontier models end to end (Ollama/vLLM pull + prefer + probe) [alias: ow]
   frontier               Manage top frontier models end to end (Claude / GPT / DeepSeek / Gemini / Llama) [alias: fm]
@@ -2555,7 +2555,7 @@ Options:
   -h, --help  Print help
 
 === susi bloat-audit ===
-Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
+Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, in parallel across all cores
 
 Usage: susi bloat-audit
 

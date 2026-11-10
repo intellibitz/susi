@@ -1,0 +1,104 @@
+{
+  "id": "T-CORECUT-3",
+  "title": "Drop the unused rayon pool and its facade from the susi binary",
+  "goal": "Reduce the CPU work of the cold `cargo build -p susi` on Linux x86_64 without changing behaviour: the binary built a global rayon thread pool at startup and logged its size, but no crate in its build runs work on rayon (the GAWD crates moved to `susi_core::parallel` on 2026-11-07), so the pool, the `rayon` dependency and the `susi-vendor-rayon` facade go, and rayon, rayon-core, crossbeam-deque and crossbeam-epoch leave the build.",
+  "size": "S",
+  "deps": [
+    "T-CORECUT-2"
+  ],
+  "created_by": "corecut",
+  "created_unix": 1794350018,
+  "status": "in_progress",
+  "base": "4e49f290b0701ad9fdb9d9af229756f602f679fd",
+  "mandate_revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311",
+  "scopes": [
+    ".agents/tasks/T-CORECUT-3.json",
+    ".agents/build-time.jsonl",
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/susi-vendor-rayon",
+    "src/main.rs",
+    "src/cli/defs.rs",
+    "tests/fixtures/cli_help_snapshot.txt",
+    "docs/lean-core.md"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--bins",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "task_records"
+    ]
+  },
+  "results": {
+    "change": "Root Cargo.toml: `rayon` dependency and the `crates/susi-vendor-rayon` member removed; the facade crate deleted. src/main.rs: the `ThreadPoolBuilder::build_global()` call and its log line removed (nothing ran on the pool). The `bloat-audit` help text said 'rayon-parallel'; it runs on std scoped threads (`susi_core::parallel::map_ref`), so it now says 'in parallel', with the CLI help snapshot updated. Cargo.lock drops only the facade entry: rayon stays locked as criterion's benchmark dev-dependency, but it is no longer in the `cargo build -p susi` graph (`cargo tree -p susi -e normal,build` lists no rayon, rayon-core, crossbeam-deque or crossbeam-epoch; crossbeam-utils and crossbeam-channel stay through tracing-appender).",
+    "measurement_method": "Alternated fully cold `cargo build -p susi --offline --locked --timings` into empty target directories, base worktree at 4e49f290b then this change, two pairs back to back; load average and rustc count recorded before each run.",
+    "cold_build_wall_s_pairs_base_then_change": [
+      [
+        26.2,
+        25.9
+      ],
+      [
+        31.2,
+        37.3
+      ]
+    ],
+    "load1_before_pairs_base_then_change": [
+      [
+        1.58,
+        5.66
+      ],
+      [
+        7.56,
+        9.29
+      ]
+    ],
+    "unit_cpu_s_sum_pairs_base_then_change": [
+      [
+        224.5,
+        215.8
+      ],
+      [
+        247.4,
+        338.4
+      ]
+    ],
+    "removed_units_cpu_s_in_base": [
+      4.0,
+      3.6
+    ],
+    "units_base": 386,
+    "units_change": 374,
+    "verification": {
+      "cargo fmt --all --check": "exit 0",
+      "cargo check --workspace --all-targets --keep-going --offline --locked": "exit 0",
+      "cargo clippy -p susi --all-targets --offline --locked -- -D warnings": "exit 0",
+      "cargo test -p susi --bins": "130 passed, 0 failed (includes cli_help_and_version_match_snapshot)",
+      "cargo test -p susi --test architecture_tests --test orphan_sources --test lean_core_ceilings --test core_docs_promise_no_ui_or_plugins --test task_records": "56 passed, 0 failed"
+    }
+  },
+  "limitations": [
+    "The saving is about 4 CPU-seconds and 12 units of a cold build; whole-build wall time is inside this host's load noise and is not claimed (the second pair's change run met rising load: unit CPU 338 s).",
+    "`tests/architecture_tests.rs` still lists `susi-vendor-rayon` in VENDOR_FACADES (a set lookup that does not require the crate to exist, like the unused `susi-vendor-flume` entry); that file is in another agent's scope, so the stale name is owed to its owner.",
+    "The GMCP `bloat_audit` tool description in `crates/susi-gmcp/src/tools/core.rs` still says 'rayon-parallel'; correcting it changes a pinned tool definition and needs a GMCP evidence re-record, so it is owed to the next GMCP landing."
+  ],
+  "provenance": {
+    "agent": "corecut (Cursor subagent, CachyOS Linux x86_64, CEO laptop)",
+    "worktree": "susi-agent-corecut",
+    "branch": "local-agent/corecut",
+    "host": "x86_64-unknown-linux-gnu, rustc 1.99.0, 28 threads"
+  }
+}

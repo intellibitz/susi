@@ -268,7 +268,7 @@ pub(crate) enum Commands {
     // stays a hidden alias so existing scripts keep working.
     #[command(name = "substrate-report", alias = "sovereign-dashboard")]
     SubstrateReport,
-    /// Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
+    /// Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, in parallel across all cores
     #[command(name = "bloat-audit")]
     BloatAudit,
     /// Manage leading developer/agent models end to end
