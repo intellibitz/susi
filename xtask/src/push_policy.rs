@@ -84,23 +84,40 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
                 return Err(format!("stale local ref {local}"));
             }
         }
-        if remote == "refs/heads/release" || remote.starts_with("refs/heads/release/") {
-            if deleting {
-                // Release candidates are local-only now. Permit a normal,
-                // non-force deletion so old remote candidate refs can be
-                // retired without bypassing this transport policy.
-                continue;
-            }
-            return Err(format!(
-                "release branch {remote} is local-only; GitHub is storage only; publish an immutable refs/tags/susi-distill/<name> snapshot"
-            ));
-        }
         if remote.starts_with("refs/heads/") {
+            let allowed_head = remote == "refs/heads/main"
+                || remote
+                    .strip_prefix("refs/heads/local-agent/")
+                    .is_some_and(|agent| !agent.is_empty() && !agent.contains('/'));
+            if !allowed_head {
+                return Err(format!(
+                    "remote branch {remote} is forbidden: GitHub is storage only; allowed remote branches are refs/heads/main and refs/heads/local-agent/<agent>; store candidates under refs/candidates/release/<name> or refs/candidates/distill/<name>"
+                ));
+            }
             if deleting {
                 return Err(format!("branch deletion prohibited: {remote}"));
             }
             if git(root, &["cat-file", "-t", new])? != "commit" {
                 return Err("branch must name a commit".into());
+            }
+            if !zero(old) {
+                git(root, &["merge-base", "--is-ancestor", old, new])?;
+            }
+        } else if let Some(candidate) = remote.strip_prefix("refs/candidates/") {
+            let valid_candidate = candidate
+                .strip_prefix("release/")
+                .or_else(|| candidate.strip_prefix("distill/"))
+                .is_some_and(|name| !name.is_empty());
+            if !valid_candidate {
+                return Err(format!(
+                    "candidate ref {remote} must use refs/candidates/release/<name> or refs/candidates/distill/<name>"
+                ));
+            }
+            if deleting {
+                return Err(format!("candidate ref deletion prohibited: {remote}"));
+            }
+            if git(root, &["cat-file", "-t", new])? != "commit" {
+                return Err("candidate ref must name a commit".into());
             }
             if !zero(old) {
                 git(root, &["merge-base", "--is-ancestor", old, new])?;
