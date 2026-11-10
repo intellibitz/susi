@@ -1,0 +1,170 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "exit_code": 0,
+      "output_sha256": "d73a38f81e9b7f66e5ddcd8cecedc4d2982f342db63432fbc1cc2d8f6b236b66",
+      "passed": true,
+      "task_id": "T-AGYCLOUD-8"
+    }
+  ],
+  "base_commit": "2c2d6964b02dbd5932ff4f2fd44ae32e11acfb2f",
+  "base_tree": "ef8901edcc48ba2f7170d1480527ea30a2d1c731",
+  "branch_ref": "refs/heads/release/v0.21.56-distilled-rc6",
+  "closure_order": [
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CARBONRELBRANCH-1",
+    "T-CARBONLEAN-1",
+    "T-CARBONLEAN-2",
+    "T-CARBONLEAN-3",
+    "T-AGYCLOUD-8"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "e6c29a3f5ddc2847c19f616cb542239faaf142c2",
+  "final_tree": "75a5e0b26c52c605943635b76cd71951c0aac21a",
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "changed_files": [
+        ".agents/gmcp/evidence/VC-203-001.jsonl",
+        ".agents/gmcp/evidence/VC-203-002.jsonl",
+        ".agents/gmcp/evidence/VC-203-003.jsonl",
+        ".agents/gmcp/evidence/VC-203-004.jsonl",
+        ".agents/gmcp/evidence/VC-203-005.jsonl",
+        ".agents/gmcp/evidence/VC-203-006.jsonl",
+        ".agents/gmcp/evidence/VC-203-008.jsonl",
+        ".agents/gmcp/evidence/VC-203-009.jsonl",
+        ".agents/gmcp/evidence/VC-203-013.jsonl",
+        ".agents/tasks/done/T-AGYCLOUD-8.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-gmcp/Cargo.toml",
+        "crates/susi-gmcp/src/mcp/http.rs",
+        "crates/susi-gmcp/src/protocol_tests.rs",
+        "crates/susi-gmcp/src/server.rs",
+        "crates/susi-vendor-tower-service/Cargo.toml",
+        "crates/susi-vendor-tower-service/src/lib.rs",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs",
+        "tests/gmcp_requirements.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "composed_commit": "e6c29a3f5ddc2847c19f616cb542239faaf142c2",
+      "composed_tree": "75a5e0b26c52c605943635b76cd71951c0aac21a",
+      "deps": [
+        "T-CARBONLEAN-3"
+      ],
+      "goal": "Call `StreamableHttpService::handle` directly in `susi-gmcp` (`server.rs` and `protocol_tests.rs`) instead of wrapping `StreamableHttpService` in `tower_service::Service`, delete `crates/susi-vendor-tower-service`, lower lean-core ceilings (`WORKSPACE_CEILING` 38 -> 37, `DIRECT_FACADE_EDGES_CEILING` 14 -> 13, `susi-gmcp` `LINE_CEILINGS` 25,889 -> 25,860), and re-record GMCP requirement and mastery evidence.",
+      "owner": "agycloud-20261111-w2",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/gmcp/evidence",
+        ".agents/tasks/T-AGYCLOUD-8.json",
+        ".agents/tasks/done/T-AGYCLOUD-8.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-gmcp/Cargo.toml",
+        "crates/susi-gmcp/src/mcp/http.rs",
+        "crates/susi-gmcp/src/protocol_tests.rs",
+        "crates/susi-gmcp/src/server.rs",
+        "crates/susi-vendor-tower-service",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs",
+        "tests/gmcp_requirements.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "source_commits": [
+        "cf8d0216d98a1f47651b816f04bdd3cde31ddab9",
+        "b06d4149b40bbd2fb6abca5548eb4389fb7de7b2",
+        "9d22389e662410d7d7c4b90816c3ad350dc67745",
+        "d2197c1f91478e66d64c600b2bbe5f4609c27bd2"
+      ],
+      "task_id": "T-AGYCLOUD-8",
+      "title": "Lean core: delete susi-vendor-tower-service facade and ratchet pillar ceilings"
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0.21.56-distilled-rc6",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "b83e4a992b31d604878cad179cdaa25a01b9ab68d09a596db1709af8d8869786",
+  "rejected": [],
+  "requested_tasks": [
+    "T-AGYCLOUD-8"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base 2c2d6964b02dbd5932ff4f2fd44ae32e11acfb2f with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-1 is already present in base 2c2d6964b02dbd5932ff4f2fd44ae32e11acfb2f with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDRIVER-1 is already present in base 2c2d6964b02dbd5932ff4f2fd44ae32e11acfb2f with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONRELBRANCH-1 is already present in base 2c2d6964b02dbd5932ff4f2fd44ae32e11acfb2f with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONRELBRANCH-1"
+    },
+    {
+      "detail": "task T-CARBONLEAN-1 was distilled into base by an earlier distillation (Distilled-Task/Source-Commits) 2c2d6964b02dbd5932ff4f2fd44ae32e11acfb2f with zero newer commits",
+      "reason_code": "already_distilled_in_base",
+      "task_id": "T-CARBONLEAN-1"
+    },
+    {
+      "detail": "task T-CARBONLEAN-2 was distilled into base by an earlier distillation (Distilled-Task/Source-Commits) 2c2d6964b02dbd5932ff4f2fd44ae32e11acfb2f with zero newer commits",
+      "reason_code": "already_distilled_in_base",
+      "task_id": "T-CARBONLEAN-2"
+    },
+    {
+      "detail": "task T-CARBONLEAN-3 was distilled into base by an earlier distillation (Distilled-Task/Source-Commits) 2c2d6964b02dbd5932ff4f2fd44ae32e11acfb2f with zero newer commits",
+      "reason_code": "already_distilled_in_base",
+      "task_id": "T-CARBONLEAN-3"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.56-distilled-rc6",
+  "source_stream_commit": "d2197c1f91478e66d64c600b2bbe5f4609c27bd2",
+  "source_stream_tree": "bc6abe95253bada8c1cc5be24f9f01901012bdba"
+}
