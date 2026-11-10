@@ -1,0 +1,32 @@
+{
+  "id": "T-AGYWIN-4",
+  "title": "Drop unused tracing-attributes proc-macro from Cargo.lock and pillar closure",
+  "goal": "Disable tracing default attributes feature in root Cargo.toml and crates/susi-vendor-tracing/Cargo.toml (keeping std only), pruning the unused tracing-attributes proc-macro crate from Cargo.lock and lowering THIRD_PARTY_CEILING from 115 to 114 while preserving SusiSubscriber.",
+  "size": "s",
+  "state": "claimed",
+  "status": "in_progress",
+  "created_by": "agywin4",
+  "created_unix": 1794395600,
+  "base": "d5824bb94a17e76092e54f2f8344061b5fa4321c",
+  "deps": [
+    "T-AGYWIN-3"
+  ],
+  "scopes": [
+    ".agents/tasks/T-AGYWIN-4.json",
+    ".agents/tasks/done/T-AGYWIN-4.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-vendor-tracing/Cargo.toml",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  }
+}

@@ -76,7 +76,11 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// single test-only `hyper::client::conn::http2::handshake` in
 /// `susi_http_transport::http_conn` with raw RFC 9113 prior-knowledge frames,
 /// removing `want` and `try-lock` from Cargo.lock and the pillar closure).
-const THIRD_PARTY_CEILING: usize = 115;
+/// 2026-11-11: 115 -> 114 (T-AGYWIN-4: disable `tracing` default `"attributes"`
+/// feature in root `Cargo.toml` and `susi-vendor-tracing` (`features = ["std"]`
+/// only); zero files use `#[instrument]`, dropping the `tracing-attributes`
+/// proc-macro from Cargo.lock and the pillar closure).
+const THIRD_PARTY_CEILING: usize = 114;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),

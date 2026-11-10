@@ -7,7 +7,7 @@ publish = false
 description = "SUSI vendor facade: sole workspace owner of `tracing`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
 
 [dependencies]
-tracing = { version = "0.1" }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true
