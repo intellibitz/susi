@@ -11,7 +11,7 @@ use susi_gemi_models::openrouter::{OpenRouterManager, API_BASE};
 
 #[test]
 fn provider_reflects_manager_doctor_state_and_formats_provider_name() {
-    let home = tempfile::tempdir().unwrap();
+    let home = susi_paths::tempfile::tempdir().unwrap();
     let mut env = susi_paths::test_env::EnvGuard::isolated();
     env.set("HOME", home.path())
         .set("SUSI_HOME", home.path().join(".susi"))

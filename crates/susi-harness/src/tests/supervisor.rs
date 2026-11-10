@@ -114,7 +114,7 @@ fn mission(tasks: Vec<PlanTask>) -> Plan {
 
 #[test]
 fn overlapping_scopes_run_in_sequential_waves_and_both_land() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = FakeExecutor::new(vec![]);
     let plan = mission(vec![
         spec("core", &["crates/susi-core"], &[]),
@@ -135,7 +135,7 @@ fn overlapping_scopes_run_in_sequential_waves_and_both_land() {
 
 #[test]
 fn disjoint_scopes_prepare_concurrently_in_one_wave() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = FakeExecutor::new(vec![]);
     let plan = mission(vec![
         spec("a", &["docs/a.md"], &[]),
@@ -151,7 +151,7 @@ fn disjoint_scopes_prepare_concurrently_in_one_wave() {
 
 #[test]
 fn a_dependent_waits_for_its_dependency_and_fails_when_it_fails() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = FakeExecutor::new(vec!["base".into()]);
     let plan = mission(vec![
         spec("leaf", &["docs/leaf.md"], &["mid"]),
@@ -197,7 +197,7 @@ fn a_dependent_waits_for_its_dependency_and_fails_when_it_fails() {
 
 #[test]
 fn a_landed_dependency_from_an_earlier_run_unblocks_its_dependent() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let state = dir.path().join("state.json");
     let first = mission(vec![spec("base", &["docs/base.md"], &[])]);
     let executor = FakeExecutor::new(vec![]);
@@ -243,7 +243,7 @@ fn a_plan_rejects_unknown_deps_cycles_and_bad_scopes() {
 
 #[test]
 fn run_rejects_a_cyclic_plan_built_without_validation() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = FakeExecutor::new(vec![]);
     let plan = mission(vec![
         spec("a", &["docs/a.md"], &["b"]),
@@ -257,7 +257,7 @@ fn run_rejects_a_cyclic_plan_built_without_validation() {
 
 #[test]
 fn a_run_lands_every_task_and_persists_state() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = FakeExecutor::new(vec![]);
     let supervisor = Supervisor::new(dir.path().join("state.json"), &executor);
     let report = supervisor.run(&plan()).unwrap();
@@ -269,7 +269,7 @@ fn a_run_lands_every_task_and_persists_state() {
 
 #[test]
 fn a_rerun_skips_what_landed() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = FakeExecutor::new(vec![]);
     let supervisor = Supervisor::new(dir.path().join("state.json"), &executor);
     supervisor.run(&plan()).unwrap();
@@ -280,7 +280,7 @@ fn a_rerun_skips_what_landed() {
 
 #[test]
 fn a_failed_task_is_retried_on_the_next_run() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let failing = FakeExecutor::new(vec!["b".into()]);
     let state = dir.path().join("state.json");
     let first = Supervisor::new(&state, &failing).run(&plan()).unwrap();
@@ -295,7 +295,7 @@ fn a_failed_task_is_retried_on_the_next_run() {
 
 #[test]
 fn tasks_prepare_in_parallel_and_land_in_order() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = FakeExecutor::new(vec![]);
     let supervisor = Supervisor::new(dir.path().join("state.json"), &executor).with_parallelism(2);
     let report = supervisor.run(&plan()).unwrap();
@@ -347,7 +347,7 @@ impl TaskExecutor for ExhaustingExecutor {
 /// claim held, and the report called it unstarted.
 #[test]
 fn a_stop_for_a_top_up_still_lands_the_work_its_batch_prepared() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = ExhaustingExecutor {
         exhausting: "a".into(),
         exhausted: std::sync::atomic::AtomicBool::new(false),
@@ -413,7 +413,7 @@ impl Runner for StubRunner {
 
 #[test]
 fn supervisor_discovers_cli_fleet_and_reports_socket_endpoints() {
-    let bin_dir = tempfile::tempdir().unwrap();
+    let bin_dir = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(bin_dir.path().join("claude.exe"), b"").unwrap();
     std::fs::write(bin_dir.path().join("codex.exe"), b"").unwrap();
     std::fs::write(bin_dir.path().join("agy.exe"), b"").unwrap();
@@ -431,7 +431,7 @@ fn supervisor_discovers_cli_fleet_and_reports_socket_endpoints() {
     );
     assert!(!fleet.iter().find(|t| t.kind == "qwen").unwrap().installed);
 
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = FakeExecutor::new(vec![]);
     let sup = Supervisor::new(dir.path().join("state.json"), &executor).with_parallelism(3);
     let status = sup.adaptive_status_report();
@@ -458,7 +458,7 @@ fn supervisor_discovers_cli_fleet_and_reports_socket_endpoints() {
 fn supervisor_plans_embedded_workflow_and_executes_adaptive_task_with_failover() {
     use crate::adaptive::AdaptiveStrategy;
 
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let executor = FakeExecutor::new(vec![]);
     let sup = Supervisor::new(dir.path().join("state.json"), &executor).with_parallelism(2);
 

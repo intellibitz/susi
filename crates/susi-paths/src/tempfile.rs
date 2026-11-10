@@ -1,8 +1,5 @@
-//! Pure-std temporary directory leaf (`TempDir`, `Builder`, `tempdir`).
-//!
-//! Consumers depend on this crate under the dep key `tempfile`
-//! (`package = "susi-vendor-tempfile"`), so `use tempfile::...` paths resolve
-//! unchanged with zero third-party crate dependencies.
+//! Pure-std temporary directory leaf (`TempDir`, `Builder`, `tempdir`),
+//! consolidated into `susi_paths::tempfile` with zero external dependencies.
 #![forbid(unsafe_code)]
 
 use std::collections::hash_map::RandomState;

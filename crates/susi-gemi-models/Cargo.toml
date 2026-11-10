@@ -22,8 +22,5 @@ default = []
 local-engine = []
 metal = ["local-engine"]
 
-[dev-dependencies]
-tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
-
 [lints]
 workspace = true

@@ -312,7 +312,7 @@ mod inline_tests {
 
     #[test]
     fn record_assembly_at_and_cache_report_at_aggregate_records() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let journal = dir.path().join("context_cache.jsonl");
         let turns = vec![
             ("user".to_string(), "first turn".to_string()),
@@ -342,7 +342,7 @@ mod inline_tests {
         assert!(ctx.defects.is_empty(), "defects={:?}", ctx.defects);
         assert!(ctx.stable_prefix_tokens >= 1_024);
 
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let missing = dir.path().join("nonexistent_context_cache.jsonl");
         let report = cache_report_at(&missing);
         assert_eq!(report.calls, 0);

@@ -583,15 +583,15 @@ fn an_unpriced_model_runs_last_in_its_tier_even_when_it_caches() {
 
 #[test]
 fn a_fresh_susi_checkout_keeps_its_own_ledger_before_the_first_write() {
-    let home = tempfile::tempdir().unwrap();
-    let checkout = tempfile::tempdir().unwrap();
+    let home = susi_paths::tempfile::tempdir().unwrap();
+    let checkout = susi_paths::tempfile::tempdir().unwrap();
     std::fs::create_dir_all(checkout.path().join("deploy/harness")).unwrap();
     std::fs::write(checkout.path().join("deploy/harness/prices.json"), "{}").unwrap();
     assert_eq!(
         ledger_for(checkout.path(), None, home.path()),
         checkout.path().join("out").join("ledger.jsonl")
     );
-    let elsewhere = tempfile::tempdir().unwrap();
+    let elsewhere = susi_paths::tempfile::tempdir().unwrap();
     assert_eq!(
         ledger_for(elsewhere.path(), None, home.path()),
         home.path().join("harness").join("ledger.jsonl")

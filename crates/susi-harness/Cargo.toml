@@ -31,4 +31,3 @@ windows-registry = { package = "susi-vendor-windows-registry", path = "../susi-v
 
 [dev-dependencies]
 susi-build-os-ucrt = { workspace = true, features = ["link-map"] }
-tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }

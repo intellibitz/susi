@@ -115,7 +115,7 @@ fn coordinator_selection_has_zero_dot_dependency_and_fails_over_cleanly() {
 
 #[test]
 fn three_level_driver_engine_recursion_preserves_isolation_budgets_and_tamper_evident_provenance() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut runtime = RecursiveRuntime::new(dir.path(), 10).unwrap();
 
     let carbon_calls = Arc::new(AtomicUsize::new(0));
@@ -316,7 +316,7 @@ fn authority_escalation_overlapping_sibling_scopes_and_budget_overruns_are_refus
     ));
 
     // 5. Sibling overlap & cumulative budget overrun in wave
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut runtime = RecursiveRuntime::new(dir.path(), 10).unwrap();
     runtime
         .register(Arc::new(MockContainer {
@@ -390,7 +390,7 @@ fn authority_escalation_overlapping_sibling_scopes_and_budget_overruns_are_refus
 
 #[test]
 fn cycle_detection_cancellation_and_honest_failure_propagation_work() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut runtime = RecursiveRuntime::new(dir.path(), 10).unwrap();
     let root_cancel = CancellationToken::new();
 
@@ -514,7 +514,7 @@ impl Runner for BridgeSmokeRunner {
 
 #[test]
 fn runner_container_bridge_adapts_harness_runners_into_recursive_containers() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut runtime = RecursiveRuntime::new(dir.path(), 10).unwrap();
     let bridge = RunnerContainerBridge::new(
         contract(

@@ -64,7 +64,7 @@ mod inline_tests {
 
     #[test]
     fn compiled_verifier_exists_command_distinguishes_present_and_missing_files() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let file = dir.path().join("sample.txt");
         std::fs::write(&file, "hello").unwrap();
         let ok = std::process::Command::new(program())
@@ -83,7 +83,7 @@ mod inline_tests {
 
     #[test]
     fn compiled_verifier_contains_command_checks_all_needles() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let file = dir.path().join("doc.txt");
         std::fs::write(&file, "alpha beta gamma").unwrap();
         let ok = std::process::Command::new(program())
@@ -101,7 +101,7 @@ mod inline_tests {
 
     #[test]
     fn compiled_verifier_check_write_and_suite_commands_produce_expected_files() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let src = dir.path().join("input.txt");
         let receipt = dir.path().join("receipt.txt");
         std::fs::write(&src, "  expected-token \n").unwrap();

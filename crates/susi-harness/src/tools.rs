@@ -945,7 +945,7 @@ mod tests {
         } else {
             format!("printf '[%s]\\n' \"${name}\"")
         };
-        let workspace = tempfile::tempdir().unwrap();
+        let workspace = susi_paths::tempfile::tempdir().unwrap();
         let inherited = run_shell(workspace.path(), &print, &[]);
         let withheld = run_shell(workspace.path(), &print, &[name]);
         std::env::remove_var(name);

@@ -466,7 +466,7 @@ mod tests {
     #[test]
     fn suppressed_reflexes_are_listed_per_workspace() {
         use crate::susi_core::mission_trace::MissionTrace;
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         assert!(SusiPulse::suppressed_reflexes(dir.path()).is_empty());
         for outcome in ["FAILED", "FAILED", "FAILED"] {
             let mut t = MissionTrace::new("m", "goal", outcome, "fast-path");

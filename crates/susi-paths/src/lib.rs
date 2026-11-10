@@ -370,6 +370,7 @@ pub mod ports;
 pub mod shlex;
 pub mod stdio;
 pub mod sync;
+pub mod tempfile;
 #[doc(hidden)]
 pub mod test_env;
 pub mod weburl;

@@ -468,7 +468,7 @@ mod tests {
 
     #[test]
     fn readback_charges_each_run_only_the_rows_it_added() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let ledger = dir.path().join("ledger.jsonl");
         let mut runner = SusiRunner {
             gateway_url: String::new(),

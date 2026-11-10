@@ -604,7 +604,7 @@ mod tests {
         let _guard = crate::susi_core::commit_log::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let home = tempfile::tempdir().unwrap();
+        let home = susi_paths::tempfile::tempdir().unwrap();
         let mut env = susi_paths::test_env::EnvGuard::isolated();
         env.set("HOME", home.path());
         env.set("SUSI_HOME", home.path());
@@ -745,7 +745,7 @@ mod tests {
         let _guard = crate::susi_core::commit_log::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let home = tempfile::tempdir().unwrap();
+        let home = susi_paths::tempfile::tempdir().unwrap();
         let mut env = susi_paths::test_env::EnvGuard::isolated();
         env.set("HOME", home.path());
         env.set("SUSI_HOME", home.path());

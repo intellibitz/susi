@@ -24,7 +24,7 @@ fn standalone_harness_uses_original_rust_entry_and_only_os_imports() {
 
 #[test]
 fn standalone_harness_startup_answers_before_loading_credentials() {
-    let home = tempfile::tempdir().unwrap();
+    let home = susi_paths::tempfile::tempdir().unwrap();
     for argument in ["--version", "--help"] {
         let output = Command::new(env!("CARGO_BIN_EXE_susi-harness"))
             .env_clear()

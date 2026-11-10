@@ -22,7 +22,7 @@ fn vc_201_042_native_discovered_path_reaches_weight_loader() {
     use crate::engines::runtime::InferenceHost;
 
     let _guard = crate::engines::env_test_lock();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut env = susi_paths::test_env::EnvGuard::isolated();
     env.set("HOME", dir.path());
     env.set("SUSI_HOME", dir.path());

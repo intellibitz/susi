@@ -152,7 +152,7 @@ mod inline_tests {
         let store = brain::Store::default();
         let providers = vec!["deepseek".to_string()];
         let matrix = build_in(&store, &providers, 123_456);
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("matrix.json");
         persist(&path, &matrix).unwrap();
         let bytes = std::fs::read(&path).unwrap();

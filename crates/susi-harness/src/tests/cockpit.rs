@@ -50,7 +50,7 @@ fn cockpit(dir: &std::path::Path) -> Cockpit {
 
 #[test]
 fn cockpit_graph_appears_beside_the_ledger() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let cockpit = cockpit(dir.path());
     assert!(cockpit.snapshot().graph.is_empty());
     std::fs::write(
@@ -67,7 +67,7 @@ fn cockpit_graph_appears_beside_the_ledger() {
 
 #[test]
 fn the_snapshot_replays_the_focused_mission_from_events_ledger_and_graph() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut cockpit = cockpit(dir.path());
     cockpit.mission = Some("m-1".into());
     append_event(
@@ -109,7 +109,7 @@ fn the_snapshot_replays_the_focused_mission_from_events_ledger_and_graph() {
 
 #[test]
 fn a_named_graph_supplies_roles_and_per_role_spend() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut cockpit = cockpit(dir.path());
     cockpit.mission = Some("m-1".into());
     append_entry(&cockpit.ledger_path, &entry("m-1", "planner", 700)).unwrap();
@@ -151,7 +151,7 @@ fn a_named_graph_supplies_roles_and_per_role_spend() {
 
 #[test]
 fn a_snapshot_groups_and_sums_the_ledger() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let snapshot = cockpit(dir.path()).snapshot();
     assert_eq!(snapshot.total_cost_micro_usd, 350);
     assert_eq!(snapshot.missions.len(), 2);
@@ -168,7 +168,7 @@ fn a_snapshot_groups_and_sums_the_ledger() {
 
 #[test]
 fn a_plan_and_state_show_progress_and_budget() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut cockpit = cockpit(dir.path());
     let plan = dir.path().join("plan.json");
     std::fs::write(
@@ -208,7 +208,7 @@ fn a_plan_and_state_show_progress_and_budget() {
 
 #[test]
 fn a_plan_that_never_started_is_warned() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let plan = dir.path().join("plan.json");
     std::fs::write(
         &plan,
@@ -239,7 +239,7 @@ fn a_plan_that_never_started_is_warned() {
 
 #[test]
 fn an_operator_pause_is_reflected_and_blocking() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut cockpit = cockpit(dir.path());
     let controls = dir.path().join("controls.jsonl");
     cockpit.controls_path = Some(controls.clone());
@@ -272,7 +272,7 @@ fn an_operator_pause_is_reflected_and_blocking() {
 
 #[tokio::test]
 async fn the_router_serves_status_and_no_html_panel() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let cockpit = Arc::new(cockpit(dir.path()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address: SocketAddr = listener.local_addr().unwrap();
@@ -333,7 +333,7 @@ async fn post_command(address: SocketAddr, body: &str, authorization: Option<&st
 /// and never reaches the control log.
 #[tokio::test]
 async fn a_command_without_a_token_is_refused_with_401() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut cockpit = cockpit(dir.path());
     let controls = dir.path().join("controls.jsonl");
     cockpit.controls_path = Some(controls.clone());
@@ -361,7 +361,7 @@ async fn a_command_without_a_token_is_refused_with_401() {
 /// so a loopback-only policy fails closed rather than open.
 #[tokio::test]
 async fn an_unknown_peer_is_not_treated_as_loopback() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut cockpit = cockpit(dir.path());
     let controls = dir.path().join("controls.jsonl");
     cockpit.controls_path = Some(controls.clone());
@@ -384,7 +384,7 @@ async fn an_unknown_peer_is_not_treated_as_loopback() {
 
 #[tokio::test]
 async fn a_command_over_http_is_recorded() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut cockpit = cockpit(dir.path());
     let controls = dir.path().join("controls.jsonl");
     cockpit.controls_path = Some(controls.clone());
@@ -404,7 +404,7 @@ async fn a_command_over_http_is_recorded() {
 
 #[tokio::test]
 async fn the_event_route_streams_sse() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let cockpit = Arc::new(cockpit(dir.path()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address: SocketAddr = listener.local_addr().unwrap();
@@ -456,7 +456,7 @@ async fn get_text(address: SocketAddr, path: &str) -> String {
 
 #[test]
 fn snapshot_reports_prompt_cache_share_and_response_cache_hits() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let events_path = dir.path().join("events.jsonl");
 

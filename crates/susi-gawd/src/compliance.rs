@@ -418,7 +418,7 @@ mod intent_classify_tests {
             assert!(status.success());
             return;
         }
-        let temporary_home = tempfile::tempdir().unwrap();
+        let temporary_home = susi_paths::tempfile::tempdir().unwrap();
         let mut env = susi_paths::test_env::EnvGuard::isolated();
         env.set("HOME", temporary_home.path());
         env.set("SUSI_HOME", temporary_home.path());
@@ -477,7 +477,7 @@ mod intent_classify_tests {
         let _guard = crate::susi_core::commit_log::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let temporary_home = tempfile::tempdir().unwrap();
+        let temporary_home = susi_paths::tempfile::tempdir().unwrap();
         let mut env = susi_paths::test_env::EnvGuard::isolated();
         env.set("HOME", temporary_home.path());
         env.set("SUSI_HOME", temporary_home.path());
@@ -516,7 +516,7 @@ mod intent_classify_tests {
         let _guard = crate::susi_core::commit_log::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let temporary_home = tempfile::tempdir().unwrap();
+        let temporary_home = susi_paths::tempfile::tempdir().unwrap();
         let mut env = susi_paths::test_env::EnvGuard::isolated();
         env.set("HOME", temporary_home.path());
         env.set("SUSI_HOME", temporary_home.path());

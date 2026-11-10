@@ -57,7 +57,7 @@ fn setup_origin_and_two_clones(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
 
 #[test]
 fn parallel_multi_agent_harness_isolates_workers_and_reconciles_remote_on_every_step() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = susi_paths::tempfile::tempdir().unwrap();
     let (origin, clone_a, clone_b) = setup_origin_and_two_clones(tmp.path());
     let iso_root = tmp.path().join("isolated-harness");
 
@@ -198,7 +198,7 @@ fn parallel_multi_agent_harness_isolates_workers_and_reconciles_remote_on_every_
 
 #[test]
 fn step_commit_enforces_scope_confinement_and_offline_fallback_works_when_disconnected() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = susi_paths::tempfile::tempdir().unwrap();
     let (_origin, clone_a, _clone_b) = setup_origin_and_two_clones(tmp.path());
     let iso_root = tmp.path().join("iso-offline");
 

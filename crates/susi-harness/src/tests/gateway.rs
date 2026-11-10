@@ -147,7 +147,7 @@ async fn thinker(request: Request) -> Json<Value> {
 async fn a_starved_retry_takes_a_paced_slot_of_its_own() {
     let provider = "pacer-starved-test";
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(thinker))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let mut state = Arc::try_unwrap(gateway_state(upstream, dir.path().join("ledger.jsonl")))
         .unwrap_or_else(|_| unreachable!());
     state.max_output_tokens = Some(8_000);
@@ -173,7 +173,7 @@ async fn a_starved_retry_takes_a_paced_slot_of_its_own() {
 #[tokio::test]
 async fn a_starved_answer_is_retried_with_room_and_never_cached() {
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(thinker))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let cache = Arc::new(ResponseCache::new(None));
     let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
@@ -246,7 +246,7 @@ async fn a_call_whose_max_tokens_is_refused_is_sent_again_as_max_completion_toke
         (true, "pacer-token-limit-stream-test"),
     ] {
         let (upstream, seen) = refuses_max_tokens().await;
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let ledger_path = dir.path().join("ledger.jsonl");
         let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
             .unwrap_or_else(|_| unreachable!());
@@ -352,7 +352,7 @@ async fn an_unfunded_providers_refusal_is_answered_429_with_the_cooldown_as_retr
         (true, "unfunded-stream-test-provider"),
     ] {
         let upstream = unfunded_provider().await;
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let ledger_path = dir.path().join("ledger.jsonl");
         let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
             .unwrap_or_else(|_| unreachable!());
@@ -455,7 +455,7 @@ fn only_an_answer_with_nothing_usable_is_starved() {
 #[tokio::test]
 async fn a_stream_flag_that_is_not_a_boolean_is_refused_before_the_call() {
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(|_| complete()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
     for stream in [r#""true""#, "1"] {
@@ -483,7 +483,7 @@ async fn a_stream_flag_that_is_not_a_boolean_is_refused_before_the_call() {
 #[tokio::test]
 async fn a_completion_is_priced_and_recorded() {
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(|_| complete()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
@@ -514,7 +514,7 @@ async fn a_completion_is_priced_and_recorded() {
 #[tokio::test]
 async fn a_streamed_completion_is_forwarded_and_priced() {
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(|_| streamed()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
@@ -541,7 +541,7 @@ async fn a_streamed_completion_is_forwarded_and_priced() {
 #[tokio::test]
 async fn a_run_key_attributes_the_row() {
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(|_| complete()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
@@ -563,7 +563,7 @@ async fn a_run_key_attributes_the_row() {
 #[tokio::test]
 async fn an_unpriced_model_runs_and_its_tokens_are_recorded_uncosted() {
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(|_| complete()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
@@ -579,7 +579,7 @@ async fn an_unpriced_model_runs_and_its_tokens_are_recorded_uncosted() {
 #[tokio::test]
 async fn an_upstream_error_passes_through_unbilled_and_is_recorded_as_a_failure() {
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(|_| failing()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
@@ -647,7 +647,7 @@ fn provider_errors_are_classified_and_request_errors_are_not() {
 async fn an_answer_without_usage_is_loud() {
     let upstream =
         spawn(Router::new().route("/v1/chat/completions", post(|_| without_usage()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
@@ -677,7 +677,7 @@ fn a_requests_output_tokens_are_capped_not_raised() {
 
 #[tokio::test]
 async fn a_cached_request_is_served_at_zero_cost() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = susi_paths::tempfile::tempdir().unwrap();
     let ledger = temp.path().join("ledger.jsonl");
 
     let app = Router::new().route(
@@ -744,7 +744,7 @@ async fn a_cached_request_is_served_at_zero_cost() {
 }
 #[tokio::test]
 async fn an_anthropic_model_is_routed_and_translated_natively() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = susi_paths::tempfile::tempdir().unwrap();
     let ledger = temp.path().join("ledger.jsonl");
 
     // Mock Anthropic upstream server expecting Anthropic Messages format
@@ -854,7 +854,7 @@ async fn a_cached_tool_call_replayed_to_a_stream_keeps_the_call_and_its_finish()
         }))
     }
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(|_| tool_call()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
         .unwrap_or_else(|_| unreachable!());
@@ -930,7 +930,7 @@ async fn a_streamed_call_to_an_anthropic_model_is_translated_and_metered() {
         }),
     );
     let upstream = spawn(app).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let state = Arc::new(GatewayState {
         catalogue: catalogue(),
@@ -1040,7 +1040,7 @@ async fn a_buffered_call_whose_client_hangs_up_still_writes_its_row() {
         complete().await
     }
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(|_| slow()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
@@ -1079,7 +1079,7 @@ async fn a_stream_whose_client_hangs_up_mid_answer_still_writes_its_row() {
     }
     let upstream =
         spawn(Router::new().route("/v1/chat/completions", post(|_| slow_stream()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
@@ -1154,7 +1154,7 @@ async fn a_callers_hold_outlasts_a_client_that_hangs_up_until_the_row_is_written
     ];
     for (provider, body, wait_for) in cases {
         let upstream = spawn(provider).await;
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let ledger_path = dir.path().join("ledger.jsonl");
         let state = gateway_state(upstream, ledger_path.clone());
         let seen = Arc::new(std::sync::Mutex::new(None));
@@ -1197,7 +1197,7 @@ async fn a_callers_hold_outlasts_a_client_that_hangs_up_until_the_row_is_written
 #[tokio::test]
 async fn a_cache_hit_streamed_through_a_second_gateway_costs_nothing_there_either() {
     let provider = spawn(Router::new().route("/v1/chat/completions", post(|_| complete()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let (back_ledger, front_ledger) = (
         dir.path().join("back.jsonl"),
         dir.path().join("front.jsonl"),
@@ -1243,7 +1243,7 @@ async fn a_call_abandoned_while_it_waits_for_its_slot_gives_the_slot_back() {
     let pacer = crate::ratelimit::Pacer::global();
     assert_eq!(pacer.reserve(provider, now_ms(), one_a_minute), 0);
     let upstream = spawn(Router::new().route("/v1/chat/completions", post(|_| complete()))).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
         .unwrap_or_else(|_| unreachable!());
@@ -1296,7 +1296,7 @@ async fn a_call_whose_paced_slot_is_past_the_cap_is_answered_429_with_retry_afte
         }),
     );
     let upstream = spawn(app).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
         .unwrap_or_else(|_| unreachable!());
@@ -1363,7 +1363,7 @@ fn a_buffered_call_is_settled_when_the_gateway_stops_after_its_client_hung_up() 
     // The provider is not the gateway: it answers after the gateway stops.
     let provider = tokio::runtime::Runtime::new().unwrap();
     let upstream = provider.block_on(spawn(app));
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
     let gateway_runtime = tokio::runtime::Runtime::new().unwrap();
     let gateway =

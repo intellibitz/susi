@@ -1176,7 +1176,7 @@ mod tests {
     #[test]
     fn first_model_catalog_does_not_invent_local_providers_but_live_models_register() {
         let _guard = crate::engines::env_test_lock();
-        let temporary_home = tempfile::tempdir().unwrap();
+        let temporary_home = susi_paths::tempfile::tempdir().unwrap();
         let mut env = susi_paths::test_env::EnvGuard::isolated();
         env.set("HOME", temporary_home.path());
         env.set("SUSI_HOME", temporary_home.path());
@@ -1232,7 +1232,7 @@ mod tests {
     fn first_override_models_are_cached_and_do_not_invent_bundled_ids() {
         use std::io::{Read, Write};
         let _guard = crate::engines::env_test_lock();
-        let temporary_home = tempfile::tempdir().unwrap();
+        let temporary_home = susi_paths::tempfile::tempdir().unwrap();
         let mut env = susi_paths::test_env::EnvGuard::isolated();
         env.set("HOME", temporary_home.path());
         env.set("SUSI_HOME", temporary_home.path());
@@ -1301,7 +1301,7 @@ mod tests {
     #[test]
     fn first_unavailable_override_preserves_only_explicit_model() {
         let _guard = crate::engines::env_test_lock();
-        let temporary_home = tempfile::tempdir().unwrap();
+        let temporary_home = susi_paths::tempfile::tempdir().unwrap();
         let mut env = susi_paths::test_env::EnvGuard::isolated();
         env.set("HOME", temporary_home.path());
         env.set("SUSI_HOME", temporary_home.path());

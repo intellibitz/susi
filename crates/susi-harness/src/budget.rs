@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn spend_is_per_mission_and_saturating() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
         append_entry(&path, &entry("m-1", 100)).unwrap();
         append_entry(&path, &entry("m-1", 200)).unwrap();

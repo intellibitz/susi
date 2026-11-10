@@ -41,7 +41,7 @@ fn tiny_gguf() -> Vec<u8> {
 #[test]
 fn plug_call_names_the_selected_model_and_its_resolved_weights() {
     // This file holds a single test, so its process environment is its own.
-    let root = tempfile::tempdir().expect("tempdir");
+    let root = susi_paths::tempfile::tempdir().expect("tempdir");
     let home = root.path().join("home");
     let models = root.path().join("models");
     std::fs::create_dir_all(&models).unwrap();

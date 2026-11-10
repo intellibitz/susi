@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn slim_core_refuses_to_load_or_train_a_reflex() {
         let _guard = crate::engines::env_test_lock();
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         assert!(SusiAlphaModel::load(dir.path()).is_err());
         assert!(SusiAlphaModel::cached(dir.path()).is_err());
         assert!(SusiAlphaModel::train_on_staged_data(dir.path()).is_err());
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn local_engine_plug_trains_and_serves_reflex_end_to_end() {
         let _guard = crate::engines::env_test_lock();
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let staged = dir.path().join("staged.jsonl");
         let body = format!(
             "{}\n{}\n",

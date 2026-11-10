@@ -234,7 +234,7 @@ mod inline_tests {
 
     #[test]
     fn load_cloud_evidence_roundtrips_json_and_errors_on_missing() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let missing = dir.path().join("missing.json");
         assert!(load_cloud_evidence(&missing).is_err());
 

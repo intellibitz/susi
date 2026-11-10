@@ -26,6 +26,3 @@ metal = ["local-engine", "susi-gemi-models/metal"]
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }

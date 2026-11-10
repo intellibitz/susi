@@ -506,7 +506,7 @@ mod tests {
 
     #[test]
     fn claimed_buffer_keeps_only_the_newest_samples_over_cap() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("claimed.jsonl");
         let body: String = (0..10).map(|i| format!("{{\"n\":{i}}}\n")).collect();
         std::fs::write(&path, &body).unwrap();
@@ -531,7 +531,7 @@ mod tests {
 
     #[test]
     fn receipts_from_failed_missions_are_dropped_before_training() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let ws = dir.path();
         for (mission, outcome) in [("ok-session", "COMPLETE"), ("bad-session", "FAILED")] {
             crate::susi_core::mission_trace::MissionTrace::new(mission, "goal", outcome, "swarm")
@@ -570,7 +570,7 @@ mod tests {
 
     #[test]
     fn nothing_due_claims_nothing_and_backs_off() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let susi_dir = dir.path().join(".susi");
         std::fs::create_dir_all(&susi_dir).unwrap();
         let staged = susi_dir.join("distillation_staged.jsonl");
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn cycle_log_is_bounded_and_newest_last() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".susi")).unwrap();
         assert!(last_cycle(dir.path()).is_none());
         for i in 0..DISTILLATION_LOG_KEEP + 5 {
@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn summary_counts_outcomes_and_shows_the_last_cycle() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".susi")).unwrap();
         assert_eq!(super::distillation_summary(dir.path())["cycles"], 0);
         log_cycle(dir.path(), "published", 50, "ok");
@@ -627,7 +627,7 @@ mod tests {
 
     #[test]
     fn held_back_cycle_defers_until_enough_new_samples() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let susi_dir = dir.path().join(".susi");
         std::fs::create_dir_all(&susi_dir).unwrap();
         let staged = susi_dir.join("distillation_staged.jsonl");
@@ -670,7 +670,7 @@ mod tests {
 
     #[test]
     fn missing_staging_is_idle() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         assert_eq!(
             staged_sample_count(&dir.path().join("missing.jsonl")).unwrap(),
             None
@@ -679,7 +679,7 @@ mod tests {
 
     #[test]
     fn counts_complete_and_final_unterminated_samples() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("staged.jsonl");
         std::fs::write(&path, "{\"sample\":1}\n{\"sample\":2}").unwrap();
         assert_eq!(staged_sample_count(&path).unwrap(), Some(2));
@@ -688,7 +688,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn unreadable_staging_is_not_reported_as_idle() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("staged.jsonl");
         std::fs::create_dir(&path).unwrap();
         let error = staged_sample_count(&path).unwrap_err();
@@ -697,7 +697,7 @@ mod tests {
 
     #[test]
     fn claim_isolates_samples_appended_while_training() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let susi_dir = dir.path().join(".susi");
         std::fs::create_dir_all(&susi_dir).unwrap();
         let staged = susi_dir.join("distillation_staged.jsonl");
@@ -722,7 +722,7 @@ mod tests {
 
     #[test]
     fn failed_training_restores_claim_before_new_samples() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let susi_dir = dir.path().join(".susi");
         std::fs::create_dir_all(&susi_dir).unwrap();
         let staged = susi_dir.join("distillation_staged.jsonl");
@@ -752,7 +752,7 @@ mod tests {
 
     #[test]
     fn orphan_claims_recover_oldest_first_before_live_samples() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let susi_dir = dir.path().join(".susi");
         std::fs::create_dir_all(&susi_dir).unwrap();
         for (name, body) in [
@@ -776,7 +776,7 @@ mod tests {
 
     #[test]
     fn sanitize_strips_malformed_trailing_lines() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("claimed.jsonl");
         // Two valid lines, a blank record, and one truncated trailing line.
         std::fs::write(
@@ -801,7 +801,7 @@ mod tests {
 
     #[test]
     fn sanitize_entirely_malformed_yields_zero() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("claimed.jsonl");
         std::fs::write(&path, "not json at all\n").unwrap();
         let count = sanitize_claimed_buffer(&path).unwrap();
@@ -811,7 +811,7 @@ mod tests {
 
     #[test]
     fn claim_trains_only_when_valid_samples_meet_threshold() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let susi_dir = dir.path().join(".susi");
         std::fs::create_dir_all(&susi_dir).unwrap();
         let staged = susi_dir.join("distillation_staged.jsonl");
@@ -847,7 +847,7 @@ mod tests {
 
     #[test]
     fn claim_all_malformed_leaves_no_claim() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let susi_dir = dir.path().join(".susi");
         std::fs::create_dir_all(&susi_dir).unwrap();
         let staged = susi_dir.join("distillation_staged.jsonl");

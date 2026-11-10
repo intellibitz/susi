@@ -341,7 +341,7 @@ mod inline_tests {
 
     #[test]
     fn load_last_returns_none_for_missing_or_empty_journal() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let missing = dir.path().join("nonexistent.jsonl");
         assert!(load_last(&missing).is_none());
 
@@ -352,7 +352,7 @@ mod inline_tests {
 
     #[test]
     fn append_and_load_last_roundtrip_most_recent_run() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let journal = dir.path().join("scout.jsonl");
         let run1 = ScoutRun {
             unix: 100,

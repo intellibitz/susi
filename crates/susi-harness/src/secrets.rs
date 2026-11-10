@@ -1060,7 +1060,7 @@ mod tests {
             );
         }
         // Through the file, as the harness reads it.
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join(".env");
         std::fs::write(&path, utf16le_with_bom(line)).unwrap();
         assert_eq!(
@@ -1089,7 +1089,7 @@ mod tests {
     #[test]
     fn a_dotenv_directory_is_passed_over() {
         // Python projects keep a virtual environment in a `.env` folder.
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         assert!(read_dotenv(dir.path()).is_empty());
         assert!(read_dotenv(&dir.path().join("missing")).is_empty());
     }

@@ -1079,8 +1079,8 @@ pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> Strin
 mod tests {
     use super::*;
 
-    fn workspace() -> tempfile::TempDir {
-        tempfile::tempdir().unwrap()
+    fn workspace() -> susi_paths::tempfile::TempDir {
+        susi_paths::tempfile::tempdir().unwrap()
     }
 
     #[test]

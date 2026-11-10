@@ -711,7 +711,7 @@ mod tests {
 
     #[test]
     fn a_missing_state_root_is_created() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let mut config = mission(dir.path(), 1, vec!["cheap"]);
         config.state_dir = dir.path().join("nested").join("state");
         let report = run_mission(&config, &runner(vec![])).unwrap();
@@ -730,7 +730,7 @@ mod tests {
 
     #[test]
     fn every_task_runs_and_succeeds() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let config = mission(dir.path(), 2, vec!["cheap"]);
         let report = run_mission(&config, &runner(vec![])).unwrap();
         assert_eq!(report.succeeded, 3);
@@ -743,7 +743,7 @@ mod tests {
 
     #[test]
     fn a_failing_model_falls_to_the_next_candidate() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let config = mission(dir.path(), 1, vec!["cheap", "capable"]);
         let report = run_mission(&config, &runner(vec!["cheap"])).unwrap();
         assert_eq!(report.succeeded, 3);
@@ -756,7 +756,7 @@ mod tests {
 
     #[test]
     fn an_exhausted_ladder_fails_the_task() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let config = mission(dir.path(), 1, vec!["cheap", "capable"]);
         let report = run_mission(&config, &runner(vec!["cheap", "capable"])).unwrap();
         assert_eq!(report.failed, 3);
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn the_same_failure_on_two_models_stops_the_task_early() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let config = mission(dir.path(), 1, vec!["cheap", "capable", "third"]);
         let runner = runner_with_identical_failures(vec!["cheap", "capable", "third"]);
         let report = run_mission(&config, &runner).unwrap();
@@ -790,7 +790,7 @@ mod tests {
 
     #[test]
     fn a_catalogue_ranks_candidates_by_expected_cost() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let mut config = mission(dir.path(), 1, vec!["capable", "cheap"]);
         config.catalogue = Some(catalogue());
         let runner = runner(vec!["capable"]);
@@ -808,7 +808,7 @@ mod tests {
 
     #[test]
     fn a_budget_refuses_the_attempt_instead_of_running_it() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let mut config = mission(dir.path(), 1, vec!["cheap"]);
         config.catalogue = Some(catalogue());
         config.budget = Some(Budget::new(MicroUsd::from_micros(1)));
@@ -829,7 +829,7 @@ mod tests {
 
     #[test]
     fn a_budget_without_a_catalogue_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let mut config = mission(dir.path(), 1, vec!["cheap"]);
         config.budget = Some(Budget::new(MicroUsd::from_micros(1)));
         assert!(run_mission(&config, &runner(vec![])).is_err());
@@ -837,7 +837,7 @@ mod tests {
 
     #[test]
     fn the_mission_total_comes_from_the_ledger() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let ledger = dir.path().join("ledger.jsonl");
         let entry = LedgerEntry::settle(Dispatch {
             mission: "m-1".into(),
@@ -868,7 +868,7 @@ mod tests {
     #[test]
     fn the_mission_total_counts_every_row_around_a_torn_line() {
         use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let ledger = dir.path().join("ledger.jsonl");
         let charge = |task: &str| {
             LedgerEntry::settle(Dispatch {
@@ -926,7 +926,7 @@ mod tests {
 
     #[test]
     fn panicking_runner_is_caught_releases_budget_and_lets_sibling_tasks_succeed() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let mut config = mission(dir.path(), 2, vec!["cheap"]);
         let cat = catalogue();
         let single_estimate = Budget::new(MicroUsd::from_micros(1_000_000))

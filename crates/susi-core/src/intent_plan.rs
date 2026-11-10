@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn intent_exec_runs_native_executable_without_implicit_shell() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = susi_paths::tempfile::tempdir().unwrap();
         let executable = std::env::current_exe().unwrap();
         let inputs = BTreeMap::from([(
             "command".into(),

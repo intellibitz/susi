@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn mcp_launcher_native_lookup_does_not_execute_or_accept_relative_path() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         // Node ships an extensionless Unix shell launcher next to npx.cmd.
         // Native Windows must choose the .cmd, not try executing that script.
         fs::write(dir.path().join("npx"), "#!/bin/sh\nexit 1\n").unwrap();

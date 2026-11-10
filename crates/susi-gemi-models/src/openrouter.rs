@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn effective_model_defaults_to_auto_and_clear_preferred_model_is_idempotent() {
-        let root = tempfile::tempdir().unwrap();
+        let root = susi_paths::tempfile::tempdir().unwrap();
         let manager = OpenRouterManager::with_root(root.path().to_path_buf());
         assert!(manager.preferred_model().is_none());
         assert_eq!(manager.effective_model(), DEFAULT_MODEL);

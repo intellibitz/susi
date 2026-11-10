@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn local_engine_plug_preloads_inspects_and_unloads_valid_gguf() {
         let _guard = crate::engines::env_test_lock();
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let gguf_path = dir.path().join("tiny.gguf");
         let mut bytes = Vec::from(&b"GGUF"[..]);
         bytes.extend_from_slice(&3u32.to_le_bytes());

@@ -10,7 +10,6 @@ members = [
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
-    "crates/susi-vendor-tempfile",
     "crates/susi-vendor-wasmtime",
     "crates/susi-vendor-syn",
     "crates/susi-native-client",
