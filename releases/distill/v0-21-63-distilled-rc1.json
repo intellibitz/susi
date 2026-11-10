@@ -1,0 +1,342 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "pure_apache2_cloud_harvest"
+      ],
+      "exit_code": 0,
+      "output_sha256": "9a07cdddf00e27b30b5910fb2a3edcedcdeb40f88d54b2c64b83f4db8dc58fbb",
+      "passed": true,
+      "task_id": "T-CTOHARVEST-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "architecture_tests",
+        "ceo_"
+      ],
+      "exit_code": 0,
+      "output_sha256": "ea059fdeba197401b5fca8ecabf5618816e58b8d8f53c63aef8b07f02cefa2ab",
+      "passed": true,
+      "task_id": "T-CTOMANDATE75-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "port_block_reservation",
+        "--test",
+        "host_only_privacy",
+        "--test",
+        "peer_channel_hub"
+      ],
+      "exit_code": 0,
+      "output_sha256": "9220f09936ef9f48f50f038d6fa7e8285d1f853afd1354337877036319075151",
+      "passed": true,
+      "task_id": "T-CLAUDEPORTBLOCKS-1"
+    }
+  ],
+  "adopted_host_commits": {},
+  "base_commit": "b77701ca440fc0bc83f9f51abdad5b8c74716087",
+  "base_tree": "37354b59ca1bd7ff4abd60a396fb9be48ce6ba8b",
+  "branch_ref": "refs/heads/release/v0-21-63-distilled-rc1",
+  "closure_order": [
+    "T-CLAUDEHARVESTAPACHE-1",
+    "T-CTOHARVEST-1",
+    "T-CLAUDEONECUT-1",
+    "T-CTOMANDATE75-1",
+    "T-CODEXSOCKETRACE-1",
+    "T-CLAUDEPORTBLOCKS-1"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "c38d71a59a32596ae83823788cf3ffea4a98d55a",
+  "final_tree": "0b21cd0844410a1be0b8f479fa5b882a777594aa",
+  "git_host_created_in_stream": [],
+  "git_host_identities": [
+    "noreply@github.com"
+  ],
+  "harvest_audit": {
+    "findings": [],
+    "harvest_commits_checked": 0,
+    "manifest_ids": [],
+    "manifests": [],
+    "manifests_verified": 0,
+    "passed": true,
+    "schema": "susi-harvest-audit-v1"
+  },
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "pure_apache2_cloud_harvest"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CTOHARVEST-1.json",
+        "tests/pure_apache2_cloud_harvest.rs",
+        "xtask/src/bin/local-harvest.rs",
+        "xtask/src/bin/release-qualify.rs",
+        "xtask/src/harvest.rs"
+      ],
+      "composed_commit": "cea53466400cf2c686f2fe01d7123cfbe1dee0a7",
+      "composed_tree": "f0f5676f3fed99b8bd4fad0f8c738c36bd9de074",
+      "deps": [
+        "T-CLAUDEHARVESTAPACHE-1"
+      ],
+      "goal": "Implement Mandate 75 pure Apache-2.0 compliance and autonomous cloud raw-source pickup in xtask/src/harvest.rs (`local-harvest route`, `local-harvest pickup`, `local-harvest raw-features`, strict pure Apache-2.0 / dual-elected Apache-2.0 license gate with zero MIT/BSD fallback, Core 5-pillar vs Commercial Apps boundary routing, and §4(a)-(d) provenance artifacts), add end-to-end bare-Git cloud harvest integration tests in tests/pure_apache2_cloud_harvest.rs, and fix `release-qualify --verify-only` in local offline repositories without configured Git remotes so distilled_release_promotion passes 10/10.",
+      "owner": "core-harvest",
+      "patch_id": "ad3e947e8a1b7d7082ddfe1fd5c4212c17ec893a",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CTOHARVEST-1.json",
+        "tests/pure_apache2_cloud_harvest.rs",
+        "xtask/src/bin/local-harvest.rs",
+        "xtask/src/bin/release-qualify.rs",
+        "xtask/src/harvest.rs"
+      ],
+      "source_commits": [
+        "4492b12b68932ad8da2b9a816cdb027384d415c6"
+      ],
+      "task_id": "T-CTOHARVEST-1",
+      "title": "Mandate 75 pure Apache-2.0 cloud raw-source discovery, smart routing, one-step pickup, and offline release-qualify verify-only fix"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "architecture_tests",
+        "ceo_"
+      ],
+      "changed_files": [
+        ".agents/identity.json",
+        ".agents/tasks/T-CTOMANDATE75-1.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-agent-mandate.md",
+        "docs/ceo-mandate-74.md",
+        "docs/ceo-mandate-75.md",
+        "docs/distillation.md",
+        "docs/harvest.md",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs"
+      ],
+      "composed_commit": "014b0b35cc3c7a92628f947011e830527c26f878",
+      "composed_tree": "fba80983287cf97776a241076dab11e951f86aba",
+      "deps": [
+        "T-CLAUDEHARVESTAPACHE-1",
+        "T-CLAUDEONECUT-1"
+      ],
+      "goal": "Author and register CEO Mandate 75 (2026-11-12) across Susi Core constitutional governance: codify the symmetric Raw Source (main) -> Distill (release) pipeline across intellibitz/susi and intellibitz/susi-commercial-apps, document autonomous cloud raw-source feature discovery/routing/pickup (local-harvest raw-features, route, pickup) across Core's 5 <10s socket pillars vs. Commercial Apps, enforce Pure Apache-2.0 ONLY license compliance with full section 4(a)-(d) attribution for all cloud raw-source harvesting, register Mandate 75 in .agents/identity.json, synchronize front-door agent docs (AGENTS.md, CLAUDE.md, GEMINI.md, README.md, VISION.md, docs/ceo-agent-mandate.md, docs/ceo-mandate-74.md, docs/harvest.md, docs/distillation.md, docs/lean-core.md), and add Mandate 75 discoverability/completeness assertions in tests/architecture_tests.rs.",
+      "owner": "CTOMANDATE75",
+      "patch_id": "89af731f64ae8ed66a5db422c1a7ff19ab8771a4",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/identity.json",
+        ".agents/tasks/T-CTOMANDATE75-1.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-agent-mandate.md",
+        "docs/ceo-mandate-74.md",
+        "docs/ceo-mandate-75.md",
+        "docs/distillation.md",
+        "docs/harvest.md",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs"
+      ],
+      "source_commits": [
+        "f7928f0ad8b5f2d60d33249ba0afe1d9fc743775"
+      ],
+      "task_id": "T-CTOMANDATE75-1",
+      "title": "Codify CEO Mandate 75: Raw Source (main) -> Distill (release), Cloud Raw-Source Pickup, and Pure Apache-2.0 Compliance"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "port_block_reservation",
+        "--test",
+        "host_only_privacy",
+        "--test",
+        "peer_channel_hub"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CLAUDEPORTBLOCKS-1.json",
+        "tests/common/mod.rs",
+        "tests/host_only_privacy.rs",
+        "tests/peer_channel_hub.rs",
+        "tests/port_block_reservation.rs"
+      ],
+      "composed_commit": "c38d71a59a32596ae83823788cf3ffea4a98d55a",
+      "composed_tree": "0b21cd0844410a1be0b8f479fa5b882a777594aa",
+      "deps": [
+        "T-CODEXSOCKETRACE-1"
+      ],
+      "goal": "CEO direction 2026-11-12 (\"fix the port collisions between agents\"). Several agents run their gates on one laptop at once. tests/common/mod.rs SocketTestGuard took ONE machine-wide lock with a blocking lock() and no time limit, so while any agent's host_only_privacy or peer_channel_hub test ran, or hung, every other agent's waited (board item 193: two test binaries asleep for over two minutes). The lock was keyed on the temp folder, so agents with a different TMPDIR did not share it at all, and host_only_privacy::free_wide_offset always scanned from offset 4000, so two unsynchronised runs chose the same block. Fix: common::reserve_port_block reserves a port block machine-wide (one lock file per block under a fixed folder, non-blocking try_lock, held until the test process exits, dropped by the OS on a crash), and both listener tests take their blocks through it; SocketTestGuard now serialises the listener tests within one checkout (lock keyed on the checkout path) instead of across the machine. No network or privacy assertion is changed.",
+      "owner": "CLAUDEPORTBLOCKS",
+      "patch_id": "87a403906d606a0104c74770c7d1e1e6864681bc",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CLAUDEPORTBLOCKS-1.json",
+        "tests/common/mod.rs",
+        "tests/host_only_privacy.rs",
+        "tests/peer_channel_hub.rs",
+        "tests/port_block_reservation.rs"
+      ],
+      "source_commits": [
+        "7bb9100b56b3e2b4cacf001ebea1f0eb480d23f3"
+      ],
+      "task_id": "T-CLAUDEPORTBLOCKS-1",
+      "title": "Agents' listener tests no longer wait on or race each other"
+    }
+  ],
+  "lanes": [
+    {
+      "changed_files": [
+        "tests/pure_apache2_cloud_harvest.rs",
+        "xtask/src/bin/local-harvest.rs",
+        "xtask/src/bin/release-qualify.rs",
+        "xtask/src/harvest.rs"
+      ],
+      "lane_id": "lane-01",
+      "patch_ids": {
+        "T-CTOHARVEST-1": "ad3e947e8a1b7d7082ddfe1fd5c4212c17ec893a"
+      },
+      "scopes": [
+        "tests/pure_apache2_cloud_harvest.rs",
+        "xtask/src/bin/local-harvest.rs",
+        "xtask/src/bin/release-qualify.rs",
+        "xtask/src/harvest.rs"
+      ],
+      "tasks": [
+        "T-CTOHARVEST-1"
+      ]
+    },
+    {
+      "changed_files": [
+        ".agents/identity.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-agent-mandate.md",
+        "docs/ceo-mandate-74.md",
+        "docs/ceo-mandate-75.md",
+        "docs/distillation.md",
+        "docs/harvest.md",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs"
+      ],
+      "lane_id": "lane-02",
+      "patch_ids": {
+        "T-CTOMANDATE75-1": "89af731f64ae8ed66a5db422c1a7ff19ab8771a4"
+      },
+      "scopes": [
+        ".agents/identity.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-agent-mandate.md",
+        "docs/ceo-mandate-74.md",
+        "docs/ceo-mandate-75.md",
+        "docs/distillation.md",
+        "docs/harvest.md",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs"
+      ],
+      "tasks": [
+        "T-CTOMANDATE75-1"
+      ]
+    },
+    {
+      "changed_files": [
+        "tests/common/mod.rs",
+        "tests/host_only_privacy.rs",
+        "tests/peer_channel_hub.rs",
+        "tests/port_block_reservation.rs"
+      ],
+      "lane_id": "lane-03",
+      "patch_ids": {
+        "T-CLAUDEPORTBLOCKS-1": "87a403906d606a0104c74770c7d1e1e6864681bc"
+      },
+      "scopes": [
+        "tests/common/mod.rs",
+        "tests/host_only_privacy.rs",
+        "tests/peer_channel_hub.rs",
+        "tests/port_block_reservation.rs"
+      ],
+      "tasks": [
+        "T-CLAUDEPORTBLOCKS-1"
+      ]
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0-21-63-distilled-rc1",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "5563005c2ba55715f81ca9cad244c1c32e73986cd335f2100ca24c6ca32aba55",
+  "rejected": [],
+  "reland_claims_not_honoured": [],
+  "relanded_host_commits_in_stream": {},
+  "requested_tasks": [
+    "T-CLAUDEPORTBLOCKS-1",
+    "T-CTOMANDATE75-1",
+    "T-CTOHARVEST-1"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "task T-CLAUDEHARVESTAPACHE-1 is already present in base b77701ca440fc0bc83f9f51abdad5b8c74716087 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEHARVESTAPACHE-1"
+    },
+    {
+      "detail": "task T-CLAUDEONECUT-1 is already present in base b77701ca440fc0bc83f9f51abdad5b8c74716087 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEONECUT-1"
+    },
+    {
+      "detail": "task T-CODEXSOCKETRACE-1 is already present in base b77701ca440fc0bc83f9f51abdad5b8c74716087 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CODEXSOCKETRACE-1"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0-21-63-distilled-rc1",
+  "source_stream_commit": "64c1073895ab6da319e8421627922b1cf3a2a98b",
+  "source_stream_tree": "16af4b9777cfa832cb4c60cab8bad830ff4708cd"
+}
