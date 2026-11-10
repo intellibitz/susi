@@ -78,9 +78,6 @@ version = "0.2"
 [dev-dependencies.test-cert-gen]
 version = "0.9"
 
-[target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies.log]
-version = "0.4.27"
-
 [target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies.openssl]
 version = "0.10.75"
 
