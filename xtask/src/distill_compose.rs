@@ -32,7 +32,8 @@ const MAX_CLOSURE_DEPTH: usize = 256;
 const ZERO_SHA1: &str = "0000000000000000000000000000000000000000";
 const ZERO_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose|orchestrate> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--tasks-from-range <A..B>] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--verify-accept] [--publish-snapshot] [--publish-release-branch] [--release-candidate] [--strict] [--adopt-host-commit <full-commit-id>]... [--receipt-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|publish-branch|status> <name> [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- submit-main [--rev <rev>] [--max-attempts <n>] [--json]\nDistillation composes an audited candidate from labelled contributions. Full release qualification gates remain separate.";
+const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose|orchestrate> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--tasks-from-range <A..B>] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--verify-accept] [--publish-snapshot] [--release-candidate] [--strict] [--adopt-host-commit <full-commit-id>]... [--receipt-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|status> <name> [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- submit-main [--rev <rev>] [--max-attempts <n>] [--json]\nDistillation composes an audited candidate from labelled contributions. Release candidates stay local; publish pushes only immutable snapshot tags. Full release qualification gates remain separate.";
+const RELEASE_BRANCH_STORAGE_ONLY: &str = "release branch publication is disabled: release candidates are local-only; GitHub is storage only; use `publish <name>` for an immutable refs/tags/susi-distill/<name> snapshot";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CommandMode {
@@ -40,7 +41,6 @@ enum CommandMode {
     Compose,
     Orchestrate,
     Publish,
-    PublishBranch,
     Status,
 }
 
@@ -56,7 +56,6 @@ struct DistillArgs {
     plan_manifest: Option<PathBuf>,
     verify_accept: bool,
     publish_snapshot: bool,
-    publish_release_branch: bool,
     release_candidate: bool,
     strict: bool,
     /// Host-created commits the distilling agent explicitly adopts (full ids);
@@ -1104,19 +1103,18 @@ fn parse_cli(args: &[String]) -> Result<ParsedCli> {
     if args[0] == "submit-main" {
         return parse_submit_main_flags(&args[1..]);
     }
+    if args[0] == "publish-branch" {
+        return Err(RELEASE_BRANCH_STORAGE_ONLY.to_owned());
+    }
     let mode = match args[0].as_str() {
         "plan" => CommandMode::Plan,
         "compose" => CommandMode::Compose,
         "orchestrate" => CommandMode::Orchestrate,
         "publish" => CommandMode::Publish,
-        "publish-branch" => CommandMode::PublishBranch,
         "status" => CommandMode::Status,
         _ => return Err(USAGE.to_owned()),
     };
-    if matches!(
-        mode,
-        CommandMode::Publish | CommandMode::PublishBranch | CommandMode::Status
-    ) {
+    if matches!(mode, CommandMode::Publish | CommandMode::Status) {
         if args.len() < 2 || args.len() > 3 {
             return Err(USAGE.to_owned());
         }
@@ -1274,15 +1272,7 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
         return Err("--publish-snapshot requires orchestrate mode".to_owned());
     }
     if publish_release_branch {
-        if mode != CommandMode::Orchestrate {
-            return Err("--publish-release-branch requires orchestrate mode".to_owned());
-        }
-        if !release_candidate || !verify_accept {
-            return Err(
-                "--publish-release-branch requires --release-candidate and --verify-accept"
-                    .to_owned(),
-            );
-        }
+        return Err(RELEASE_BRANCH_STORAGE_ONLY.to_owned());
     }
     let name = name.ok_or_else(|| "missing --name <name>".to_owned())?;
     valid_name(&name)?;
@@ -1309,7 +1299,6 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
         plan_manifest,
         verify_accept,
         publish_snapshot,
-        publish_release_branch,
         release_candidate,
         strict,
         adopt_host_commits,
@@ -2482,7 +2471,6 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             CommandMode::Compose => "compose",
             CommandMode::Orchestrate => "orchestrate",
             CommandMode::Publish => "publish",
-            CommandMode::PublishBranch => "publish-branch",
             CommandMode::Status => "status",
         },
         "qualification_status": qualification_status,
@@ -2800,16 +2788,6 @@ fn run_distill_command(root: &Path, args: &DistillArgs) -> Result<String> {
                 },
             )?);
         }
-        if args.mode == CommandMode::Orchestrate && args.publish_release_branch {
-            extra_summaries.push(run_inspect_command(
-                root,
-                &InspectArgs {
-                    mode: CommandMode::PublishBranch,
-                    name: args.name.clone(),
-                    json_output: false,
-                },
-            )?);
-        }
         if !extra_summaries.is_empty() && !args.json_output {
             return Ok(format!(
                 "{}\n{}",
@@ -2883,9 +2861,6 @@ fn run_inspect_command(root: &Path, args: &InspectArgs) -> Result<String> {
     let tag_ref = receipt["snapshot_tag_ref"]
         .as_str()
         .ok_or_else(|| "receipt missing snapshot_tag_ref".to_owned())?;
-    let receipt_sha256 = receipt["receipt_sha256"]
-        .as_str()
-        .ok_or_else(|| "receipt missing receipt_sha256".to_owned())?;
     if git.tree(final_commit)? != final_tree {
         return Err("distilled commit/tree evidence does not match stored receipt".to_owned());
     }
@@ -2904,95 +2879,6 @@ fn run_inspect_command(root: &Path, args: &InspectArgs) -> Result<String> {
                     .to_owned(),
             );
         }
-    }
-
-    if args.mode == CommandMode::PublishBranch {
-        let Some(rel_name) = branch_ref.strip_prefix("refs/heads/release/") else {
-            return Err(format!(
-                "publish-branch requires a release-candidate distillation (branch_ref is {branch_ref})"
-            ));
-        };
-        if receipt["qualification_status"].as_str() != Some("accept_verified_candidate") {
-            return Err(
-                "publish-branch requires an accept-verified candidate (--verify-accept)".to_owned(),
-            );
-        }
-        if receipt["rejected"].as_array().is_none_or(|r| !r.is_empty()) {
-            return Err("publish-branch refuses receipts with rejected tasks".to_owned());
-        }
-        let branch_oid = git
-            .text(&["show-ref", "--verify", "--hash", branch_ref])
-            .map_err(|_| format!("local release branch {branch_ref} is missing"))?;
-        verify_local_release_envelope(&git, rel_name, &branch_oid, final_commit, receipt_sha256)?;
-
-        if let Some(remote_oid) = git.remote_ref(&endpoint, branch_ref)? {
-            if remote_oid == branch_oid {
-                if args.json_output {
-                    return serde_json::to_string_pretty(&json!({
-                        "status": "published_exact",
-                        "branch_ref": branch_ref,
-                        "envelope_commit": branch_oid,
-                        "distilled_commit": final_commit,
-                        "distilled_tree": final_tree,
-                        "receipt_sha256": receipt_sha256,
-                    }))
-                    .map_err(|e| e.to_string());
-                }
-                return Ok(format!(
-                    "Published distilled release branch verified: branch={branch_ref} envelope={branch_oid} distilled_commit={final_commit} tree={final_tree}"
-                ));
-            }
-            if !git.ancestor(&remote_oid, &branch_oid)? {
-                return Err(format!(
-                    "remote release branch {branch_ref} at {remote_oid} is not an ancestor of {branch_oid}; refusing non-fast-forward update"
-                ));
-            }
-        }
-
-        let refspec = format!("{branch_oid}:{branch_ref}");
-        let push_out = git.output(
-            &[
-                "push",
-                "--porcelain",
-                "--no-follow-tags",
-                "--recurse-submodules=no",
-                "--",
-                &endpoint.address,
-                &refspec,
-            ],
-            None,
-        )?;
-        let push_stderr = String::from_utf8_lossy(&push_out.stderr).trim().to_owned();
-
-        return match git.remote_ref(&endpoint, branch_ref) {
-            Ok(Some(remote_oid)) if remote_oid == branch_oid => {
-                if args.json_output {
-                    serde_json::to_string_pretty(&json!({
-                        "status": "published_exact",
-                        "branch_ref": branch_ref,
-                        "envelope_commit": branch_oid,
-                        "distilled_commit": final_commit,
-                        "distilled_tree": final_tree,
-                        "receipt_sha256": receipt_sha256,
-                    }))
-                    .map_err(|e| e.to_string())
-                } else {
-                    Ok(format!(
-                        "Published distilled release branch verified: branch={branch_ref} envelope={branch_oid} distilled_commit={final_commit} tree={final_tree}\nFull dual-OS qualification remains separate before any vX.Y.Z production release tag."
-                    ))
-                }
-            }
-            Ok(Some(other)) => Err(format!(
-                "remote release branch {branch_ref} points to {other} instead of {branch_oid}: {push_stderr}"
-            )),
-            Ok(None) => Err(format!(
-                "distilled release branch {branch_ref} was not published: {push_stderr}"
-            )),
-            Err(_) => Err(format!(
-                "publication outcome for {branch_ref} is unknown; run status {} before retrying",
-                args.name
-            )),
-        };
     }
 
     if let Some(remote_oid) = git.remote_ref(&endpoint, tag_ref)? {
@@ -3051,6 +2937,7 @@ fn report_status(
     let receipt_sha256 = receipt["receipt_sha256"]
         .as_str()
         .ok_or_else(|| "receipt missing receipt_sha256".to_owned())?;
+    let local_only_branch = branch_ref.starts_with("refs/heads/release/");
     let local_branch_oid = git
         .text(&["show-ref", "--verify", "--hash", branch_ref])
         .ok();
@@ -3070,14 +2957,28 @@ fn report_status(
         None => "absent",
     };
     let (remote_state, remote_branch_state) = match git.endpoint_optional()? {
-        None => ("no_remote", "no_remote"),
+        None => (
+            "no_remote",
+            if local_only_branch {
+                "local_only"
+            } else {
+                "no_remote"
+            },
+        ),
         Some(endpoint) => {
             if receipt
                 .get("endpoint_digest")
                 .and_then(Value::as_str)
                 .is_some_and(|exp| exp != endpoint.digest)
             {
-                ("endpoint_changed", "endpoint_changed")
+                (
+                    "endpoint_changed",
+                    if local_only_branch {
+                        "local_only"
+                    } else {
+                        "endpoint_changed"
+                    },
+                )
             } else {
                 let tag_st = match git.remote_ref(&endpoint, tag_ref) {
                     Ok(Some(oid)) if oid == final_commit => "published_exact",
@@ -3085,18 +2986,22 @@ fn report_status(
                     Ok(None) => "absent",
                     Err(_) => "unreadable",
                 };
-                let br_st = match (
-                    local_branch_oid.as_deref(),
-                    git.remote_ref(&endpoint, branch_ref),
-                ) {
-                    (Some(expected), Ok(Some(oid)))
-                        if branch_state == "present_exact" && oid == expected =>
-                    {
-                        "published_exact"
+                let br_st = if local_only_branch {
+                    "local_only"
+                } else {
+                    match (
+                        local_branch_oid.as_deref(),
+                        git.remote_ref(&endpoint, branch_ref),
+                    ) {
+                        (Some(expected), Ok(Some(oid)))
+                            if branch_state == "present_exact" && oid == expected =>
+                        {
+                            "published_exact"
+                        }
+                        (_, Ok(Some(_))) => "diverged",
+                        (_, Ok(None)) => "absent",
+                        (_, Err(_)) => "unreadable",
                     }
-                    (_, Ok(Some(_))) => "diverged",
-                    (_, Ok(None)) => "absent",
-                    (_, Err(_)) => "unreadable",
                 };
                 (tag_st, br_st)
             }

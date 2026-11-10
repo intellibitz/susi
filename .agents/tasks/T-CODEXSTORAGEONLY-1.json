@@ -1,0 +1,45 @@
+{
+  "id": "T-CODEXSTORAGEONLY-1",
+  "native_worker": "codex",
+  "title": "Keep release candidates local to Susi storage",
+  "goal": "Make release-candidate refs local evidence only. Prevent local-distill and the native push policy from publishing refs/heads/release/* to GitHub, while retaining immutable distillation snapshot tags as the storage publication path.",
+  "status": "done",
+  "size": "s",
+  "deps": [],
+  "base_commit": "177a1d1d1e091f3b6aa83cbab5330bcd6f04113a",
+  "owner": "CODEX",
+  "scopes": [
+    ".agents/tasks/T-CODEXSTORAGEONLY-1.json",
+    "docs/release-distillation.md",
+    "xtask/src/distill_compose.rs",
+    "xtask/src/push_policy.rs",
+    "xtask/tests/git_publisher_native_hook.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "native_push_policy",
+      "--test",
+      "git_publisher_native_hook"
+    ]
+  },
+  "created_by": "CODEX",
+  "created_unix": 1794387786,
+  "results": {
+    "fmt_check": "pass",
+    "cargo_check": "pass",
+    "tests_passed": 18,
+    "tests_failed": 0,
+    "release_branch_policy": "local-only; legacy remote deletion allowed",
+    "snapshot_publication": "immutable refs/tags/susi-distill/<name> remains allowed"
+  },
+  "limitations": [
+    "Legacy refs/heads/release/* already present on the remote require a separate normal deletion push; new publication is refused by the updated policy."
+  ]
+}

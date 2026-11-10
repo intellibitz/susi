@@ -360,8 +360,8 @@ fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immu
         expected_commit
     );
 
-    // Orchestrating an accept-verified release candidate and publishing refs/heads/release/<name>
-    // passes through the real pre-push hook + push-policy and records the envelope commit on origin.
+    // Orchestrating an accept-verified release candidate creates only a local
+    // release ref. Release branches are not a GitHub merge surface.
     let rel_orch = f.publish(
         Path::new(DISTILL),
         &worker,
@@ -377,7 +377,6 @@ fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immu
             "T-HOOKDISTILL-1",
             "--verify-accept",
             "--release-candidate",
-            "--publish-release-branch",
             "--strict",
         ],
     );
@@ -386,11 +385,32 @@ fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immu
         &worker,
         &["rev-parse", "refs/heads/release/v0.21.55-hook-rc1"],
     );
-    let remote_rel = f.git(
-        &f.remote,
-        &["rev-parse", "refs/heads/release/v0.21.55-hook-rc1"],
+    assert!(!local_rel.is_empty());
+    let remote_rel = isolated(&mut Command::new("git"), &f.remote)
+        .args([
+            "show-ref",
+            "--verify",
+            "refs/heads/release/v0.21.55-hook-rc1",
+        ])
+        .status()
+        .unwrap();
+    assert!(!remote_rel.success(), "release candidate leaked to remote");
+
+    let publish_branch = f.publish(
+        Path::new(DISTILL),
+        &worker,
+        &["publish-branch", "v0.21.55-hook-rc1"],
     );
-    assert_eq!(local_rel, remote_rel);
+    assert!(
+        !publish_branch.status.success(),
+        "{}",
+        text(&publish_branch)
+    );
+    assert!(
+        text(&publish_branch).contains("local-only"),
+        "{}",
+        text(&publish_branch)
+    );
 
     let rel_status = f.publish(
         Path::new(DISTILL),
@@ -400,5 +420,5 @@ fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immu
     assert!(rel_status.status.success(), "{}", text(&rel_status));
     let rel_status_json: serde_json::Value = serde_json::from_slice(&rel_status.stdout).unwrap();
     assert_eq!(rel_status_json["branch_state"], "present_exact");
-    assert_eq!(rel_status_json["remote_branch_state"], "published_exact");
+    assert_eq!(rel_status_json["remote_branch_state"], "local_only");
 }

@@ -1,5 +1,6 @@
 //! Provider-neutral Git transport safety. Release tags are admitted only with
-//! the exact-tree qualification record (`release_qualification.rs`).
+//! the exact-tree qualification record (`release_qualification.rs`). Release
+//! candidate branches are local evidence, never a remote merge surface.
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
@@ -83,9 +84,15 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
                 return Err(format!("stale local ref {local}"));
             }
         }
-        if remote == "refs/heads/release" {
+        if remote == "refs/heads/release" || remote.starts_with("refs/heads/release/") {
+            if deleting {
+                // Release candidates are local-only now. Permit a normal,
+                // non-force deletion so old remote candidate refs can be
+                // retired without bypassing this transport policy.
+                continue;
+            }
             return Err(format!(
-                "release branch {remote} requires exact native qualification (use refs/heads/release/<name>)"
+                "release branch {remote} is local-only; GitHub is storage only; publish an immutable refs/tags/susi-distill/<name> snapshot"
             ));
         }
         if remote.starts_with("refs/heads/") {
@@ -97,13 +104,6 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
             }
             if !zero(old) {
                 git(root, &["merge-base", "--is-ancestor", old, new])?;
-            }
-            if let Some(name) = remote.strip_prefix("refs/heads/release/") {
-                verify_release_branch(root, name, new).map_err(|e| {
-                    format!(
-                        "release branch {remote} requires exact native qualification or an accept-verified distillation receipt: {e}"
-                    )
-                })?;
             }
         } else if let Some(tag) = remote.strip_prefix("refs/tags/") {
             if deleting || !zero(old) {
@@ -149,142 +149,6 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
             }
         } else {
             return Err(format!("unsupported ref namespace: {remote}"));
-        }
-    }
-    Ok(())
-}
-
-const DISTILL_RECEIPT_SCHEMA: &str = "susi-distillation-receipt-v1";
-
-fn valid_release_branch_name(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or(name);
-    let device = matches!(stem, "con" | "prn" | "aux" | "nul")
-        || (stem.len() == 4
-            && (stem.starts_with("com") || stem.starts_with("lpt"))
-            && matches!(stem.as_bytes()[3], b'1'..=b'9'));
-    !name.is_empty()
-        && name.len() <= 48
-        && !device
-        && !name.starts_with(['-', '.'])
-        && !name.ends_with(['-', '.'])
-        && !name.contains("..")
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.'))
-}
-
-fn verify_release_branch(root: &Path, name: &str, new: &str) -> Result<(), String> {
-    if !valid_release_branch_name(name) {
-        return Err(format!("invalid release branch name `{name}`"));
-    }
-    if release_qualification::release_version(name).is_some()
-        && release_qualification::verify_tag(root, name, new).is_ok()
-    {
-        return Ok(());
-    }
-
-    let commit = git(
-        root,
-        &["rev-parse", "--verify", &format!("{new}^{{commit}}")],
-    )?;
-    let lineage = git(root, &["rev-list", "--parents", "-n", "1", &commit])?;
-    let parents: Vec<&str> = lineage.split_whitespace().skip(1).collect();
-    let [parent] = parents.as_slice() else {
-        return Err(
-            "the release branch commit must be a single-parent receipt envelope commit".into(),
-        );
-    };
-    let path = format!("releases/distill/{name}.json");
-    let changed = git(
-        root,
-        &[
-            "diff-tree",
-            "--no-commit-id",
-            "--no-renames",
-            "--name-only",
-            "-r",
-            parent,
-            &commit,
-        ],
-    )?;
-    if changed != path {
-        return Err(format!(
-            "the release branch commit must change only {path}, not: {changed}"
-        ));
-    }
-    let out = Command::new("git")
-        .current_dir(root)
-        .arg("--no-replace-objects")
-        .args(["cat-file", "blob", &format!("{commit}:{path}")])
-        .output()
-        .map_err(|e| format!("cannot run Git: {e}"))?;
-    if !out.status.success() {
-        return Err(format!("cannot read {path} from {commit}"));
-    }
-    let mut record: serde_json::Value =
-        serde_json::from_slice(&out.stdout).map_err(|e| format!("{path} is not JSON: {e}"))?;
-
-    let recorded_sha = record["receipt_sha256"]
-        .as_str()
-        .ok_or("receipt missing `receipt_sha256`")?
-        .to_owned();
-    if recorded_sha.len() != 64 || !recorded_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("distillation receipt `receipt_sha256` is invalid".into());
-    }
-    if let Some(map) = record.as_object_mut() {
-        map.remove("receipt_sha256");
-    }
-    let canonical =
-        serde_json::to_vec(&record).map_err(|e| format!("cannot canonicalize receipt: {e}"))?;
-    if release_qualification::sha256_hex(&canonical) != recorded_sha {
-        return Err("distillation receipt digest mismatch".into());
-    }
-
-    let expect = |field: &str, wanted: &str| -> Result<(), String> {
-        let found = record[field]
-            .as_str()
-            .ok_or_else(|| format!("receipt `{field}` missing"))?;
-        if found == wanted {
-            Ok(())
-        } else {
-            Err(format!("receipt `{field}` is {found}, expected {wanted}"))
-        }
-    };
-    expect("schema", DISTILL_RECEIPT_SCHEMA)?;
-    expect("name", name)?;
-    expect("branch_ref", &format!("refs/heads/release/{name}"))?;
-    expect("qualification_status", "accept_verified_candidate")?;
-    expect("final_commit", parent)?;
-    let tree = git(root, &["rev-parse", &format!("{parent}^{{tree}}")])?;
-    expect("final_tree", &tree)?;
-
-    let rejected = record["rejected"]
-        .as_array()
-        .ok_or("receipt missing `rejected` array")?;
-    if !rejected.is_empty() {
-        return Err("release branch receipt contains rejected tasks".into());
-    }
-    let included = record["included"]
-        .as_array()
-        .ok_or("receipt missing `included` array")?;
-    let base_sat = record["satisfied_in_base"]
-        .as_array()
-        .ok_or("receipt missing `satisfied_in_base` array")?;
-    if included.is_empty() && base_sat.is_empty() {
-        return Err("release branch receipt includes no functional tasks".into());
-    }
-
-    let tasks = record["accept_verification"]
-        .as_array()
-        .ok_or("release branch missing accept_verification array")?;
-    if !included.is_empty() && tasks.len() != included.len() {
-        return Err(
-            "release branch accept_verification count does not match included tasks".into(),
-        );
-    }
-    for task in tasks {
-        if task["exit_code"].as_i64() != Some(0) || task["passed"].as_bool() != Some(true) {
-            return Err("an acceptance task in the release branch receipt did not pass".into());
         }
     }
     Ok(())
