@@ -29,6 +29,38 @@ fn zero(value: &str) -> bool {
     value.bytes().all(|c| c == b'0')
 }
 
+fn is_preservation_destination(remote: &str) -> bool {
+    remote == "refs/heads/main"
+        || remote
+            .strip_prefix("refs/candidates/release/")
+            .or_else(|| remote.strip_prefix("refs/candidates/distill/"))
+            .or_else(|| remote.strip_prefix("refs/tags/susi-distill/"))
+            .or_else(|| remote.strip_prefix("refs/tags/susi-snapshot/"))
+            .is_some_and(|name| !name.is_empty())
+}
+
+fn is_preserved_for_retirement(root: &Path, old: &str, co_preserved: &[&str]) -> bool {
+    if git(
+        root,
+        &[
+            "for-each-ref",
+            &format!("--contains={old}"),
+            "--count=1",
+            "--format=ok",
+            "refs/tags/susi-distill",
+            "refs/tags/susi-snapshot",
+            "refs/candidates",
+        ],
+    )
+    .is_ok_and(|s| !s.is_empty())
+    {
+        return true;
+    }
+    co_preserved
+        .iter()
+        .any(|co_new| git(root, &["merge-base", "--is-ancestor", old, co_new]).is_ok())
+}
+
 /// Validate the exact transaction Git supplies, never HEAD or a tracking branch.
 /// No network, builds, config writes, receipt fabrication or environment bypasses.
 /// The receiving Git server remains responsible for atomic compare-and-swap.
@@ -56,6 +88,21 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
     if std::env::var_os("GIT_GRAFT_FILE").is_some() {
         return Err("GIT_GRAFT_FILE override prevents actual ancestry validation".into());
     }
+    let co_preserved: Vec<&str> = input
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.len() == 4
+                && oid(fields[1])
+                && !zero(fields[1])
+                && is_preservation_destination(fields[2])
+            {
+                Some(fields[1])
+            } else {
+                None
+            }
+        })
+        .collect();
     let mut destinations = BTreeSet::new();
     for line in input.lines() {
         let fields: Vec<_> = line.split_whitespace().collect();
@@ -103,6 +150,11 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
                 ));
             }
             if deleting {
+                if remote != "refs/heads/main"
+                    && is_preserved_for_retirement(root, old, &co_preserved)
+                {
+                    continue;
+                }
                 return Err(format!("branch deletion prohibited: {remote}"));
             }
             if git(root, &["cat-file", "-t", new])? != "commit" {
