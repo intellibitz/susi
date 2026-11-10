@@ -865,8 +865,8 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
             //
             // Caps scale with the host: a fixed 2G/50%-of-one-core budget
             // (sized for a minimal daemon) makes local inference impossible —
-            // a single 7B Q4 model needs ~5G, and the leaf services + rayon
-            // swarm share the same cgroup. Floor at 8G/200%, then a quarter
+            // a single 7B Q4 model needs ~5G, and the leaf services + the
+            // swarm's worker threads share the same cgroup. Floor at 8G/200%, then a quarter
             // of RAM and half the cores, so runaway stays bounded without
             // starving real workloads.
             let total_ram_bytes = std::fs::read_to_string("/proc/meminfo")
@@ -955,7 +955,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
             // SAFETY: `pre_exec` requires the closure to only call
             // async-signal-safe functions, since it runs in the forked child
             // between fork() and execve() with the rest of this (possibly
-            // multi-threaded, e.g. the rayon pool) process's threads gone but
+            // multi-threaded, e.g. the swarm's worker threads) process's threads gone but
             // its locks (malloc, etc.) in whatever state they were left in.
             // `fork()`, `_exit()`, and `setsid()` are all POSIX
             // async-signal-safe, so this closure does not risk deadlocking.

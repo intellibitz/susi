@@ -414,7 +414,10 @@ config, core and the tail.
   units. Not done here: the GMCP `intent_ladder` tool description and the queue example in
   `docs/gmcp-roadmap.md` still name the moved commands (both are pinned by the GMCP ledger and
   evidence and change only with both re-record phases), and Mandate 55's did-you-mean example
-  in `.agents/identity.json` still names `susi admin release`.
+  in `.agents/identity.json` still names `susi admin release`. (Done 2026-11-11, T-TRUTHDOCS-1:
+  the `intent_ladder` description says `adopt_gap` is refused and names the commercial
+  command, the roadmap queue example names `susi-commercial`, and Mandate 55 names
+  `susi-commercial admin release`; GMCP evidence re-recorded in both phases.)
 - 2026-11-09 T-PEERCHAN-1 (sealed peer channel, `docs/peer-channel.md`): `susi-gmcp` re-pinned
   19,345 -> 19,469 (+124), at the measured value, as the brief for this task allows. The lines are
   the GMCP side of the channel in `server.rs` (sessions that terminate at this node are served

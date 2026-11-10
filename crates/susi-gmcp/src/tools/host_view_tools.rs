@@ -268,11 +268,11 @@ impl CoreTools {
 
     crate::tool_def!(intent_ladder_tool_attr {
         name: "intent_ladder",
-        description: "The intent ladder: last scorecard, a full or start-up-slice run, one intent's verification, the failing-rung outbox, or adopting a gap as a repair task, as `susi admin intent-ladder`. Args: optional mode, id, workspace",
+        description: "The intent ladder: last scorecard, a full or start-up-slice run, one intent's verification, or the failing-rung outbox, as `susi admin intent-ladder`. Mode adopt_gap is refused: adopting a gap as a repair task moved to Susi Commercial Apps (`susi-commercial admin intent-ladder --adopt-gap <id>`). Args: optional mode, id, workspace",
         input_schema: args::typed::<args::IntentLadderArgs>(),
     });
     pub fn intent_ladder(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        // `adopt_gap` authors a task in the checkout: it needs write.
+        // `adopt_gap` keeps its old write admission; the host now refuses it.
         let write = arg.get("mode").and_then(Value::as_str) == Some("adopt_gap");
         let workspace = policy_workspace(arg, "workspace", workspace, write)?;
         forward(

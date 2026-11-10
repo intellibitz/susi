@@ -21,7 +21,7 @@
    "source": {
     "repository": "susi",
     "document": "docs/gmcp-roadmap.md",
-    "sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "sha256": "e816149f5d7c5cbb551ce6a1715ee518a0c902ef66194bc833c4adc3aa2bac34",
     "line": 102
    },
    "clause": "implements current discovery, core primitives, modern subscriptions, MRTR, tasks, schema checks, and older request handling",
@@ -48,7 +48,7 @@
    "source": {
     "repository": "susi",
     "document": "docs/gmcp-roadmap.md",
-    "sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "sha256": "e816149f5d7c5cbb551ce6a1715ee518a0c902ef66194bc833c4adc3aa2bac34",
     "line": 103
    },
    "clause": "bounded stdio and Streamable HTTP, local auth, origin/host checks, rate and concurrency controls, TLS for remote use",
@@ -75,7 +75,7 @@
    "source": {
     "repository": "susi",
     "document": "docs/gmcp-roadmap.md",
-    "sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "sha256": "e816149f5d7c5cbb551ce6a1715ee518a0c902ef66194bc833c4adc3aa2bac34",
     "line": 104
    },
    "clause": "tools, resources, templates, prompts, completion, progress, notifications, and structured outputs have substantial tests",
@@ -102,7 +102,7 @@
    "source": {
     "repository": "susi",
     "document": "docs/gmcp-roadmap.md",
-    "sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "sha256": "e816149f5d7c5cbb551ce6a1715ee518a0c902ef66194bc833c4adc3aa2bac34",
     "line": 105
    },
    "clause": "`susi-vendor-mcp` connects over stdio or HTTP and lists/calls tools",
@@ -129,7 +129,7 @@
    "source": {
     "repository": "susi",
     "document": "docs/gmcp-roadmap.md",
-    "sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "sha256": "e816149f5d7c5cbb551ce6a1715ee518a0c902ef66194bc833c4adc3aa2bac34",
     "line": 106
    },
    "clause": "configuration import, health checks, and runtime hot-plugging of explicitly admitted servers exist",
@@ -156,7 +156,7 @@
    "source": {
     "repository": "susi",
     "document": "docs/gmcp-roadmap.md",
-    "sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "sha256": "e816149f5d7c5cbb551ce6a1715ee518a0c902ef66194bc833c4adc3aa2bac34",
     "line": 107
    },
    "clause": "bearer/peer controls, untrusted-output policy, data classification, sandbox pieces, and signed audit foundations exist",
@@ -183,7 +183,7 @@
    "source": {
     "repository": "susi",
     "document": "docs/gmcp-roadmap.md",
-    "sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "sha256": "e816149f5d7c5cbb551ce6a1715ee518a0c902ef66194bc833c4adc3aa2bac34",
     "line": 108
    },
    "clause": "daemon integration, status/doctor commands, process launch, rate limits, and audit infrastructure exist",
@@ -210,7 +210,7 @@
    "source": {
     "repository": "susi",
     "document": "docs/gmcp-roadmap.md",
-    "sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "sha256": "e816149f5d7c5cbb551ce6a1715ee518a0c902ef66194bc833c4adc3aa2bac34",
     "line": 109
    },
    "clause": "unit/integration tests and a previous lifecycle probe exist",

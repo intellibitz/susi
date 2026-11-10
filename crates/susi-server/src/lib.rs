@@ -29,7 +29,8 @@ pub mod prometheus_metrics;
 //
 // Async Defaults (Mandate 28): connection accept/read/write is tokio-native
 // (hyper). Route handlers that ultimately invoke SusiMasterAgent (a
-// synchronous, CPU-bound swarm/agent execution graph, rayon-based) dispatch
+// synchronous, CPU-bound swarm/agent execution graph on std scoped worker
+// threads, `susi_core::parallel`) dispatch
 // via tokio::task::spawn_blocking rather than pretending that work is
 // non-blocking — running it directly on a tokio worker thread would stall
 // the reactor for every other in-flight connection.
