@@ -458,3 +458,13 @@ table once the clean baseline is recorded.
   not a measured host build-time or total executable-size improvement. Standalone
   diagnostic PE/link-map evidence is separate from full production qualification;
   the source-bound GMCP evidence must be renewed in both phases before integration.
+
+- 2026-11-10 T-DOTLATENCY-1 (measured test latency, no production deadline cut):
+  move the model-manager unit suite from its production file into the existing
+  excluded src/tests layout, preserving all cases and adding cancellation evidence.
+  The gemi-models source ceiling falls from 16,737 to 15,938. This is test
+  organization, not runtime code removal, dependency reduction or production
+  qualification. Production retry sleeping remains unchanged; fixtures record
+  the same backoff ticks while real HTTP, validation and durable publication run.
+  A shorter explicit real-lock fixture budget preserves forward-progress and
+  stalled-deadline assertions. Native Windows timing remains unverified.

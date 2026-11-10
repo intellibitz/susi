@@ -1,0 +1,47 @@
+{
+  "id": "T-DOTLATENCYDESK20261110-1",
+  "agent": "Codex",
+  "title": "Adopt latency fixtures on native Windows",
+  "status": "in_progress",
+  "native_worker": "dotlatencydesk20261110",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-dotlatency-1.json",
+    ".agents/tasks/t-dotlatencydesk20261110-1.json",
+    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
+    "crates/susi-gemi-models/src/tests/model_manager.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs",
+    "tests/peer_channel_hub.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi-models",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "provenance": {
+    "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "bundle_sha256": "ca0b3d300f0271ae4263590b6f80912e2e29e9e074b68fdcd4d618db54da6dfa",
+    "original_task": "T-DOTLATENCY-1",
+    "source_head": "e7a39ac7019cfb57e9e2529df92a584207216db7"
+  },
+  "notes": "Original task retained unchanged; its 15952 ceiling prose is stale, actual candidate ceiling is 15938. Sandbox files are byte-identical to base and not adopted. All model-manager tests remain wired by path; production retry sleeper unchanged. Windows scoped verification does not qualify integration, publication, production or the 60-second end-to-end mandate.",
+  "verification": {
+    "platform": "x86_64-pc-windows-msvc",
+    "toolchain": "1.99.0",
+    "model_library": "cargo test -p susi-gemi-models --lib --offline --locked: 251 passed, 5 ignored, 0 failed; 153.871s wall, 12.90s test phase",
+    "focused": "lifecycle::model_manager::tests:: --test-threads=1: 28 passed each of three runs; 5.27, 4.62, 4.70 seconds test phase",
+    "peer": "cargo test -p susi --test peer_channel_hub --offline --locked: 2 passed, 0 failed; 236.091s wall including build, 51.28s test phase",
+    "source_guards": "Exact source compiled directly with rustc --test against private dependency artifacts: architecture 41, orphan 3, docs 5, lean 2 passed. Not Cargo-root acceptance or a full workspace gate.",
+    "format": "cargo fmt --all --check passed",
+    "clippy": "cargo clippy -p susi-gemi-models --all-targets --offline --locked -- -D warnings passed",
+    "limits": "Full gate, integration, ship, push, production promotion and 60-second end-to-end qualification remain unperformed. Original production model-manager file retains base CRLF; all added task records are LF.",
+    "root_clippy": "cargo clippy -p susi --test peer_channel_hub --test lean_core_ceilings --test architecture_tests --test orphan_sources --test core_docs_promise_no_ui_or_plugins --offline --locked -- -D warnings passed"
+  }
+}
