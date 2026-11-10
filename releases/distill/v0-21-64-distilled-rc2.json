@@ -1,0 +1,279 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "functional_distillation"
+      ],
+      "exit_code": 0,
+      "output_sha256": "5b6384b48c1b5b577f4afb0b40a431cb0e3d9beb5ce45ea15e5823b09dc5f147",
+      "passed": true,
+      "task_id": "T-CTODISTILLFUNC-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-core",
+        "--lib",
+        "acp"
+      ],
+      "exit_code": 0,
+      "output_sha256": "23d364dcf6a6f220694d0cf311eec67055abe3094ee5a11692c272490d52ee3a",
+      "passed": true,
+      "task_id": "T-CTOCORELEAN-1"
+    }
+  ],
+  "adopted_host_commits": {},
+  "base_commit": "983f0100c461ba00365e340a5bd43a6160bacf5a",
+  "base_tree": "3b91fe9b1840e2e902a78eb5baf8a2bf54092daa",
+  "branch_ref": "refs/heads/release/v0-21-64-distilled-rc2",
+  "closure_order": [
+    "T-CTODISTILLFUNC-1",
+    "T-CLAUDEACPGAWD-1",
+    "T-CLAUDEGEMIFIX-1",
+    "T-CLAUDEGEMIFIX-2",
+    "T-CODEXHISTORY-1",
+    "T-CODEXTOOLSCHEMA-1",
+    "T-CTOPILLARS-1",
+    "T-CTOCORELEAN-1"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "0a575a517c5c77c5e35cc7b6c132fc2f366bd99d",
+  "final_tree": "566ba8bed01addcaeaa8f9062c5409754cf40f1a",
+  "functional_only": true,
+  "git_host_created_in_stream": [],
+  "git_host_identities": [
+    "noreply@github.com"
+  ],
+  "harvest_audit": {
+    "findings": [],
+    "harvest_commits_checked": 0,
+    "manifest_ids": [],
+    "manifests": [],
+    "manifests_verified": 0,
+    "passed": true,
+    "schema": "susi-harvest-audit-v1"
+  },
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "functional_distillation"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CTODISTILLFUNC-1.json",
+        "tests/functional_distillation.rs",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/functional.rs",
+        "xtask/src/distill/lint.rs",
+        "xtask/src/distill_compose.rs",
+        "xtask/src/harvest.rs"
+      ],
+      "composed_commit": "c46627d4061b013afefa30306f80092ec84ed393",
+      "composed_tree": "6eaa8c2e42418fef947388b64cecaca46650d06d",
+      "deps": [],
+      "goal": "Implement deterministic functional vs. non-functional task and commit classification in `distill plan` and `local-distill` (`plan`, `compose`, `orchestrate`) under `--functional-only` so non-functional receipt, release-record, docs, and chore commits are skipped without blocking functional dependents or triggering out-of-scope diffs while recording `functional_only` and `skipped_non_functional_tasks` in plan manifests and distillation receipts and passing `task_records`, `distill lint`, and `release-qualify --from-distill`; close the multi-crate symlinked-license gap in `xtask/src/harvest.rs` by resolving Git `120000` license and NOTICE symlinks strictly confined inside the quarantined commit tree (<= 4 hops, regular blob target) while continuing to hard-reject symlinked source files; and add end-to-end integration tests in `tests/functional_distillation.rs`.",
+      "owner": "carbon",
+      "patch_id": "afa4acb0a85b9f928f60afad97518b1600283e3f",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CTODISTILLFUNC-1.json",
+        "tests/functional_distillation.rs",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/functional.rs",
+        "xtask/src/distill/lint.rs",
+        "xtask/src/distill_compose.rs",
+        "xtask/src/harvest.rs"
+      ],
+      "source_commits": [
+        "6d10660ff4e73fc732e73aa582910d20ddd4cf25"
+      ],
+      "task_id": "T-CTODISTILLFUNC-1",
+      "title": "Functional-only release distillation (--functional-only) and confined in-tree symlinked-license harvest resolution"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-core",
+        "--lib",
+        "acp"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CTOCORELEAN-1.json",
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-gawd-a2a/src/task_store.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+        "crates/susi-gawd-a2a/src/tests/executor.rs",
+        "crates/susi-vendor-tempfile/src/lib.rs",
+        "crates/susi-vendor-wasmtime/src/cell.rs",
+        "docs/lean-core.md",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "composed_commit": "0a575a517c5c77c5e35cc7b6c132fc2f366bd99d",
+      "composed_tree": "566ba8bed01addcaeaa8f9062c5409754cf40f1a",
+      "deps": [
+        "T-CTOPILLARS-1",
+        "T-CLAUDEACPGAWD-1",
+        "T-CODEXHISTORY-1",
+        "T-CLAUDEGEMIFIX-1",
+        "T-CODEXTOOLSCHEMA-1",
+        "T-CLAUDEGEMIFIX-2"
+      ],
+      "goal": "Upgrade Susi Core's Apache-2.0 ACP open-socket pillar (`crates/susi-core/src/acp.rs`) so ACP sessions (`session/new`, `session/prompt`, `session/load`, `session/history`, `session/cancel`) maintain bounded multi-turn conversation message history (`role`, `content`, `turn_id`, `tool_calls` metadata, per-session message cap and byte budget ring buffer, cursor replay, and HTTP `acp-session-id` header binding/spoofing rejection) and return structured multi-turn `messages` / `inference_messages` context for downstream inference and commercial ACP plugs; prune 77 production lines of unreferenced dead helpers across `susi-vendor-tempfile`, `susi-vendor-wasmtime`, and `susi-gawd-a2a::TaskStore::delete`; move `susi-gawd-a2a`'s unchanged `executor.rs` inline unit suite to `src/tests/executor.rs`; and ratchet `susi-gawd-a2a` ceiling strictly down (-175 lines, 3,588 -> 3,413) in `tests/lean_core_ceilings.rs` and `docs/lean-core.md`.",
+      "owner": "core-lean",
+      "patch_id": "a223394e1c2e920dca36a160926d8f0aeffd2d68",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CTOCORELEAN-1.json",
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-gawd-a2a/src/task_store.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+        "crates/susi-gawd-a2a/src/tests/executor.rs",
+        "crates/susi-vendor-tempfile/src/lib.rs",
+        "crates/susi-vendor-wasmtime/src/cell.rs",
+        "docs/lean-core.md",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "source_commits": [
+        "03fae4dda3f460d79ba671e0babc0ffbd0ad2145"
+      ],
+      "task_id": "T-CTOCORELEAN-1",
+      "title": "Multi-turn ACP session context & bounded replay in susi-core plus vendor/a2a dead-code pruning and susi-gawd-a2a ceiling ratchet"
+    }
+  ],
+  "lanes": [
+    {
+      "changed_files": [
+        "tests/functional_distillation.rs",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/functional.rs",
+        "xtask/src/distill/lint.rs",
+        "xtask/src/distill_compose.rs",
+        "xtask/src/harvest.rs"
+      ],
+      "lane_id": "lane-01",
+      "patch_ids": {
+        "T-CTODISTILLFUNC-1": "afa4acb0a85b9f928f60afad97518b1600283e3f"
+      },
+      "scopes": [
+        "tests/functional_distillation.rs",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/functional.rs",
+        "xtask/src/distill/lint.rs",
+        "xtask/src/distill_compose.rs",
+        "xtask/src/harvest.rs"
+      ],
+      "tasks": [
+        "T-CTODISTILLFUNC-1"
+      ]
+    },
+    {
+      "changed_files": [
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-gawd-a2a/src/task_store.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+        "crates/susi-gawd-a2a/src/tests/executor.rs",
+        "crates/susi-vendor-tempfile/src/lib.rs",
+        "crates/susi-vendor-wasmtime/src/cell.rs",
+        "docs/lean-core.md",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "lane_id": "lane-02",
+      "patch_ids": {
+        "T-CTOCORELEAN-1": "a223394e1c2e920dca36a160926d8f0aeffd2d68"
+      },
+      "scopes": [
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-gawd-a2a/src/task_store.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+        "crates/susi-gawd-a2a/src/tests/executor.rs",
+        "crates/susi-vendor-tempfile/src/lib.rs",
+        "crates/susi-vendor-wasmtime/src/cell.rs",
+        "docs/lean-core.md",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "tasks": [
+        "T-CTOCORELEAN-1"
+      ]
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0-21-64-distilled-rc2",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "b1691f3b633abfc9f2e96ca73e5ea78ab19e18c155ab2d516577b3aae56a2309",
+  "rejected": [],
+  "reland_claims_not_honoured": [],
+  "relanded_host_commits_in_stream": {},
+  "requested_tasks": [
+    "T-CTODISTILLFUNC-1",
+    "T-CTOCORELEAN-1"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "task T-CLAUDEACPGAWD-1 is already present in base 983f0100c461ba00365e340a5bd43a6160bacf5a with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEACPGAWD-1"
+    },
+    {
+      "detail": "task T-CLAUDEGEMIFIX-1 is already present in base 983f0100c461ba00365e340a5bd43a6160bacf5a with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEGEMIFIX-1"
+    },
+    {
+      "detail": "task T-CLAUDEGEMIFIX-2 is already present in base 983f0100c461ba00365e340a5bd43a6160bacf5a with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEGEMIFIX-2"
+    },
+    {
+      "detail": "task T-CODEXHISTORY-1 is already present in base 983f0100c461ba00365e340a5bd43a6160bacf5a with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CODEXHISTORY-1"
+    },
+    {
+      "detail": "task T-CODEXTOOLSCHEMA-1 is already present in base 983f0100c461ba00365e340a5bd43a6160bacf5a with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CODEXTOOLSCHEMA-1"
+    },
+    {
+      "detail": "task T-CTOPILLARS-1 is already present in base 983f0100c461ba00365e340a5bd43a6160bacf5a with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CTOPILLARS-1"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "skipped_non_functional_tasks": [],
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0-21-64-distilled-rc2",
+  "source_stream_commit": "42ff5968b73c4ef720e8d0e8199fb433b81b49ba",
+  "source_stream_tree": "7036a765e4347e09e61a36d13f0b49819a2f9190"
+}
