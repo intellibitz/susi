@@ -414,10 +414,15 @@ mod tests {
         let live = FileLock::acquire(dir.path(), "judged").unwrap();
         assert!(!reclaim(&lock, &judged), "reclaimed a lock nobody judged");
         assert!(lock.exists(), "the live holder's lock was removed");
+        let timeout = std::time::Duration::from_millis(50);
+        let started = std::time::Instant::now();
         assert!(
-            FileLock::acquire_within(dir.path(), "judged", std::time::Duration::from_millis(50))
-                .is_none(),
+            FileLock::acquire_within(dir.path(), "judged", timeout).is_none(),
             "a second holder got in beside the live one"
+        );
+        assert!(
+            started.elapsed() >= timeout,
+            "a contended acquisition returned before its deadline"
         );
         drop(live);
         // The file that was judged is reclaimed, breaker and all.
@@ -597,12 +602,26 @@ mod tests {
     }
 
     #[test]
+    fn a_zero_timeout_still_attempts_a_free_lock_and_refuses_a_held_one() {
+        let dir = Scratch::new("zero-timeout");
+        let held = FileLock::acquire_within(dir.path(), "zero", std::time::Duration::ZERO)
+            .expect("a zero timeout still attempts acquisition");
+        assert!(
+            FileLock::acquire_within(dir.path(), "zero", std::time::Duration::ZERO).is_none(),
+            "a zero timeout must not bypass an existing holder"
+        );
+        drop(held);
+        assert!(FileLock::acquire(dir.path(), "zero").is_some());
+    }
+
+    #[test]
     fn hold_while_returns_the_work_result_and_keeps_the_lock() {
         let dir = Scratch::new("work");
         let held = FileLock::acquire(dir.path(), "work").unwrap();
         let out = held.hold_while(|| {
             assert!(
-                FileLock::acquire(dir.path(), "work").is_none(),
+                // Check exclusion, without waiting out the default three-second deadline.
+                FileLock::acquire_within(dir.path(), "work", std::time::Duration::ZERO).is_none(),
                 "still exclusive"
             );
             7

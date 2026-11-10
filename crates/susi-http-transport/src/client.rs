@@ -558,9 +558,9 @@ mod tests {
     #[test]
     fn http_deadline_includes_headers_and_trickled_body() {
         let (url, stop, worker) =
-            delayed_response(Duration::from_millis(1200), Duration::from_millis(100), 100);
+            delayed_response(Duration::from_millis(600), Duration::from_millis(50), 100);
         let started = std::time::Instant::now();
-        let call = http_call("GET", &url, &[], 2, 0).unwrap();
+        let call = http_call("GET", &url, &[], 1, 0).unwrap();
         let result = call.into_bytes(100);
         let elapsed = started.elapsed();
         let _ = stop.send(());
@@ -569,8 +569,11 @@ mod tests {
             result.is_err(),
             "trickling must not extend the total deadline"
         );
+        // A fresh body budget after the headers would take at least 1600ms.
+        // Allow 400ms of scheduling slack, while rejecting that reset.
+        assert!(elapsed >= Duration::from_secs(1), "elapsed: {elapsed:?}");
         assert!(
-            elapsed < Duration::from_millis(2800),
+            elapsed < Duration::from_millis(1400),
             "elapsed: {elapsed:?}"
         );
     }

@@ -1,28 +1,21 @@
 //! Execute the Unix installer against fake git, cargo and rustup: it builds
 //! the release tag with its recorded settings and downloads nothing.
 //! No provider, network, installed Susi, or user profile is touched.
-// Optional POSIX/hosted compatibility fixtures execute shell scripts.
-// Native Windows delivery is covered by the Rust coordinator, bootstrap,
-// installer and release suites; it must not require a POSIX userland.
 #![allow(missing_docs)]
-#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod common;
+
 const INSTALLER: &str = include_str!("../install.sh");
 
 fn run_bash(script: &str) -> std::process::Output {
-    let bash = if cfg!(windows) {
-        "C:/Program Files/Git/bin/bash.exe"
-    } else {
-        "bash"
-    };
-    let mut command = Command::new(bash);
+    let mut command = Command::new(common::posix_shell());
     command.env_clear();
-    for name in ["PATH", "SystemRoot", "TEMP", "TMP"] {
+    for name in ["PATH", "SystemRoot", "TMPDIR", "TEMP", "TMP"] {
         if let Some(value) = std::env::var_os(name) {
             command.env(name, value);
         }
@@ -56,6 +49,18 @@ fn run_bash(script: &str) -> std::process::Output {
     child.wait_with_output().unwrap()
 }
 
+#[test]
+fn installer_fixture_preserves_the_private_temp_directory() {
+    let output = run_bash("printf '%s' \"${TMPDIR-}\"");
+    assert!(output.status.success());
+    assert_eq!(
+        output.stdout,
+        std::env::var_os("TMPDIR")
+            .unwrap_or_default()
+            .as_encoded_bytes()
+    );
+}
+
 /// Fake `git`, `cargo`, `rustup`, `curl` and `wget` executables in
 /// `$scratch/bin`, ahead of everything else on PATH. `git` serves one tag,
 /// `v0.21.52`, whose record is the committed `releases/v0.21.52.json`; `cargo`
@@ -63,6 +68,7 @@ fn run_bash(script: &str) -> std::process::Output {
 /// logged to `$CALLS`; `curl` and `wget` fail, so any download shows up.
 const FAKE_TOOLS: &str = r#"mkdir -p "$scratch/bin" "$scratch/fixture"
 export CALLS="$scratch/calls" RECORD_FIXTURE="$scratch/fixture/record.json"
+: >"$CALLS"
 export FIXTURE_VERSION="${FIXTURE_VERSION:-0.21.52}" TAG_COMMIT="${TAG_COMMIT:-92f7ee498ac9103ee2e4bd2a86f0a646a20443ad}"
 cat >"$RECORD_FIXTURE" <<'RECORD_EOF'
 __RECORD__
@@ -99,11 +105,17 @@ chmod +x "$scratch/bin/"*
 export PATH="$scratch/bin:$PATH"
 "#;
 
-/// Removes fake TOOL and every PATH entry that holds a real one, so the
-/// installer sees the tool as missing.
-const WITHOUT: &str = r#"rm "$scratch/bin/TOOL"
-PATH="$(printf '%s' "$PATH" | tr ':' '\n' | while read -r d; do { [ -x "$d/TOOL" ] || [ -x "$d/TOOL.exe" ]; } && continue; printf '%s:' "$d"; done)"
-export PATH="${PATH%:}""#;
+/// Exposes only fake tools and the real utilities needed to reach the
+/// requirements check, assert its result and clean up. A host may install
+/// Cargo beside tr/grep/rm; removing that entire PATH entry loses those too.
+const WITHOUT: &str = r#"mkdir -p "$scratch/support-bin"
+for utility in bash tr grep rm; do
+    ln -s "$(command -v "$utility")" "$scratch/support-bin/$utility"
+done
+rm "$scratch/bin/TOOL"
+export PATH="$scratch/bin:$scratch/support-bin"
+hash -r
+if command -v TOOL >/dev/null 2>&1; then exit 91; fi"#;
 
 fn fake_tools() -> String {
     FAKE_TOOLS.replace(
@@ -176,6 +188,7 @@ fn installer_unix_refuses_what_it_cannot_build_or_verify() {
             "export RUSTUP_HAS=1.98.0".to_owned(),
             "rustup toolchain install 1.99.0",
         ),
+        (WITHOUT.replace("TOOL", "git"), "git is required"),
         (WITHOUT.replace("TOOL", "rustup"), "rustup was not found"),
         (WITHOUT.replace("TOOL", "cargo"), "cargo was not found"),
         ("unset SUSI_SOURCE_REPO".to_owned(), "Set SUSI_SOURCE_REPO"),
@@ -202,6 +215,60 @@ test "$status" -ne 0 && test ! -e "$SUSI_HOME/bin/susi" && ! grep -Eq '^(curl|wg
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{setup}: {stderr}");
         assert!(stderr.contains(needle), "{setup}: {stderr}");
+    }
+}
+
+#[test]
+fn missing_tool_fixture_preserves_utilities_beside_build_tools() {
+    for (missing, needle) in [
+        ("git", "git is required"),
+        ("cargo", "cargo was not found"),
+        ("rustup", "rustup was not found"),
+    ] {
+        let script = format!(
+            r#"set -e
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+export HOME="$scratch/home" SUSI_HOME="$scratch/install" NONINTERACTIVE=1
+{tools}
+# Simulate a host whose only support-tool directory also contains the
+# missing build tool. Keep its executable independent of the fake removed
+# below, so filtering whole PATH directories would lose the utilities.
+mkdir -p "$scratch/co-located"
+for utility in bash tr grep rm mkdir ln; do
+    ln -s "$(command -v "$utility")" "$scratch/co-located/$utility"
+done
+printf '#!/usr/bin/env bash\nexit 97\n' >"$scratch/co-located/{missing}"
+chmod +x "$scratch/co-located/{missing}"
+export PATH="$scratch/bin:$scratch/co-located"
+{without}
+! command -v {missing} >/dev/null 2>&1
+for retained in git cargo rustup; do
+    [ "$retained" = '{missing}' ] || command -v "$retained" >/dev/null
+done
+printf 'UTILITY_OK\n' | tr '[:upper:]' '[:lower:]' | grep -qx utility_ok
+: >"$scratch/remove-me"
+rm "$scratch/remove-me"
+test ! -e "$scratch/remove-me"
+uname() {{ if [ "$1" = '-s' ]; then echo Linux; else echo x86_64; fi; }}
+set +e
+(
+{INSTALLER}
+)
+status=$?
+set -e
+test "$status" -ne 0
+test ! -e "$SUSI_HOME"
+test ! -s "$CALLS"
+"#,
+            tools = fake_tools(),
+            without = WITHOUT.replace("TOOL", missing),
+        );
+        let output = run_bash(&script);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{missing}: {stderr}");
+        assert!(stderr.contains(needle), "{missing}: {stderr}");
+        assert!(!stderr.contains("command not found"), "{missing}: {stderr}");
     }
 }
 

@@ -383,7 +383,10 @@ mod platform {
     }
 
     /// `statvfs` on `mount`: `(total, available)` bytes.
-    #[allow(unsafe_code)]
+    // `u64::from` is a no-op on x86_64 Linux, where libc's `f_frsize`,
+    // `f_blocks` and `f_bavail` are already 64-bit, and a widening on targets
+    // where they are narrower; it keeps one portable body.
+    #[allow(unsafe_code, clippy::useless_conversion)]
     fn statvfs_bytes(mount: &str) -> Option<(u64, u64)> {
         let path = std::ffi::CString::new(mount).ok()?;
         let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
@@ -395,11 +398,16 @@ mod platform {
         }
         // SAFETY: statvfs returned 0, so it initialized `stats`.
         let stats = unsafe { stats.assume_init() };
-        let frsize = u64::from(stats.f_frsize);
         Some((
-            u64::from(stats.f_blocks).saturating_mul(frsize),
-            u64::from(stats.f_bavail).saturating_mul(frsize),
+            bytes_from_blocks(stats.f_blocks, stats.f_frsize),
+            bytes_from_blocks(stats.f_bavail, stats.f_frsize),
         ))
+    }
+
+    // Linux statvfs field widths vary by ABI. Widen before multiplication so
+    // narrower fields retain the same u64 saturation behavior.
+    fn bytes_from_blocks(blocks: impl Into<u64>, block_size: impl Into<u64>) -> u64 {
+        blocks.into().saturating_mul(block_size.into())
     }
 
     /// Octal escapes `/proc/mounts` uses for spaces and tabs in paths.
@@ -442,6 +450,28 @@ mod platform {
             });
         }
         out
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::bytes_from_blocks;
+
+        #[test]
+        fn filesystem_bytes_widen_before_multiplication() {
+            let expected = u64::from(u32::MAX) * 4096;
+            assert_eq!(bytes_from_blocks(u32::MAX, 4096_u32), expected);
+            assert_eq!(bytes_from_blocks(u32::MAX, 4096_u64), expected);
+            assert_eq!(bytes_from_blocks(u64::from(u32::MAX), 4096_u32), expected);
+            assert_eq!(bytes_from_blocks(u64::MAX, 1_u64), u64::MAX);
+        }
+
+        #[test]
+        fn filesystem_bytes_saturate_only_at_u64_limit() {
+            assert_eq!(bytes_from_blocks(u64::MAX, 2_u32), u64::MAX);
+            assert_eq!(bytes_from_blocks(2_u32, u64::MAX), u64::MAX);
+            assert_eq!(bytes_from_blocks(u64::MAX, 0_u32), 0);
+            assert_eq!(bytes_from_blocks(0_u32, u64::MAX), 0);
+        }
     }
 }
 

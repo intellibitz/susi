@@ -295,7 +295,7 @@
         "name": "Kimi",
         "api_base": "https://api.moonshot.ai/v1",
         "protocol_type": "chat",
-        "model": "moonshot-v1-auto",
+        "model": "kimi-k3",
         "api_key_env": "MOONSHOT_API_KEY"
       },
       {
@@ -325,6 +325,13 @@
         "protocol_type": "chat",
         "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
         "api_key_env": "DEEPINFRA_API_KEY"
+      },
+      {
+        "name": "SiliconFlow",
+        "api_base": "https://api.siliconflow.com/v1",
+        "protocol_type": "chat",
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+        "api_key_env": "SILICONFLOW_API_KEY"
       }
     ],
     "llama_api_base": "http://localhost:8080/v1",

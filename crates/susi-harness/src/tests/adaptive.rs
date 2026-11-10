@@ -162,9 +162,27 @@ fn invocations_pipe_the_prompt_on_stdin_for_every_tool() {
 
     let (programs, args, _) = build_invocation(CliToolKind::Codex, None);
     assert_eq!(programs, ["codex", "codex.exe"]);
-    assert_eq!(args, strings(&["exec", "--full-auto", "-"]));
+    assert_eq!(
+        args,
+        strings(&[
+            "exec",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--skip-git-repo-check",
+            "-"
+        ])
+    );
     let (_, args, _) = build_invocation(CliToolKind::Codex, Some("o3"));
-    assert_eq!(args, strings(&["exec", "--full-auto", "-", "-m", "o3"]));
+    assert_eq!(
+        args,
+        strings(&[
+            "exec",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--skip-git-repo-check",
+            "-",
+            "-m",
+            "o3"
+        ])
+    );
 
     let (programs, args, _) = build_invocation(CliToolKind::Gemini, Some("flash"));
     assert_eq!(programs, ["gemini", "gemini.cmd", "gemini.exe"]);
@@ -690,7 +708,15 @@ fn cli_resolution_prefers_the_spec_then_the_default_then_discovery() {
         CliSubRunner::with_default_kind(CliToolKind::Codex).with_search_dirs(dirs.clone());
     let commands = defaulted.resolve("deepseek-flash").unwrap();
     assert_eq!(commands[0].program, dir.path().join("codex"));
-    assert_eq!(commands[0].args, ["exec", "--full-auto", "-"]);
+    assert_eq!(
+        commands[0].args,
+        [
+            "exec",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--skip-git-repo-check",
+            "-"
+        ]
+    );
 
     let commands = defaulted.resolve("cli:claude:opus").unwrap();
     assert_eq!(commands[0].program, dir.path().join("claude"));

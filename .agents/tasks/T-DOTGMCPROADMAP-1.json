@@ -1,0 +1,229 @@
+{
+  "id": "T-DOTGMCPROADMAP-1",
+  "title": "Replace shell GMCP roadmap validator",
+  "goal": "Preserve existing roadmap structural validation in a native Rust helper shared by the integration test and a CLI, with source-backed positive and negative parity fixtures.",
+  "created_by": "dot-gmcp-roadmap",
+  "created_unix": 1794262078,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-gmcp-roadmap",
+  "claimed_by": "dot-gmcp-roadmap",
+  "deps": [],
+  "scopes": [
+    "tests/gmcp_roadmap.rs",
+    "xtask/src/gmcp_roadmap.rs",
+    "xtask/src/bin/check-gmcp-roadmap.rs",
+    "xtask/build.rs",
+    "docs/gmcp-roadmap.md",
+    ".agents/tasks/T-DOTGMCPROADMAP-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "--test",
+      "gmcp_roadmap",
+      "--test",
+      "task_records"
+    ]
+  },
+  "checkpoint": "Corrected native Rust migration passes all 87 GMCP requirement tests (including pinned-ledger and retained mastery/evidence freshness), 18 roadmap tests and 3 task-record tests, plus strict xtask all-target Clippy and workspace formatting. The pinned roadmap document is byte-identical to the baseline; native tooling instructions live in the shared validator module. Combined integration gate/publication remain pending. No ledger/evidence records, digest checks or protocol behavior changed; no new protocol or product qualification claimed.",
+  "validation": {
+    "base_source": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "legacy_script_blob": "dd1ca01d697e37f9ce8a95a41ac4771fb9a61e89",
+    "validator_sha256": "8908e94d1d5103ca361c27de910c54a79004c680ef9f3ab816b96049f4fd32bd",
+    "helper": {
+      "filtered": 0,
+      "logs": "C:/Users/muthu/susi-private/gmcp-roadmap-helper-01",
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "check-gmcp-roadmap"
+      ],
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0,
+      "test_seconds": 0.57,
+      "build_report": "1m03s"
+    },
+    "root": {
+      "failed": 0,
+      "gmcp_roadmap_passed": 18,
+      "filtered": 0,
+      "build_report": "6m01s",
+      "task_records_passed": 3,
+      "gmcp_roadmap_seconds": 20.01,
+      "logs": "C:/Users/muthu/susi-private/gmcp-roadmap-root-01",
+      "task_records_seconds": 0.37,
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "gmcp_roadmap",
+        "--test",
+        "task_records"
+      ],
+      "ignored": 0
+    },
+    "remaining_shell_preflight": {
+      "failed": 0,
+      "logs": "C:/Users/muthu/susi-private/gmcp-roadmap-shell-preflight-01",
+      "branch_test_handoff_passed": 3,
+      "filtered": 0,
+      "branch_test_handoff_seconds": 7.61,
+      "hermetic_cleanup_passed": 1,
+      "hermetic_cleanup_seconds": 3.53,
+      "build_seconds": 16.82,
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--test",
+        "branch_test_handoff",
+        "--test",
+        "hermetic_cleanup"
+      ],
+      "limitation": "These existing compatibility tests still require installed Git Bash; no shell was installed or added to the sanitized PATH.",
+      "ignored": 0
+    },
+    "clippy": {
+      "logs": "C:/Users/muthu/susi-private/gmcp-roadmap-clippy-all-01",
+      "seconds": 11.39,
+      "exit": 0,
+      "cmd": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ]
+    },
+    "format": {
+      "logs": "C:/Users/muthu/susi-private/gmcp-roadmap-fmt-check-01",
+      "exit": 0,
+      "cmd": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ]
+    },
+    "cli_smoke": {
+      "imports_log": "C:/Users/muthu/susi-private/gmcp-roadmap-imports-01",
+      "malformed_json_exit": 1,
+      "link_map_sha256": "ec65adccad8962bb66e925465f81a4cb542b00dda4a4bd6b63729164f14d4711",
+      "imports": "Windows OS/UCRT DLLs only; no msvcrt.dll or vcruntime DLL imports",
+      "entry_point": "susi_pe_entry",
+      "default_root_from_unrelated_directory_exit": 0,
+      "extra_arguments_exit": 1,
+      "executable_sha256": "b35808643697b66f7d64ac170c5212c4e8982c8ae1e1501ff1a0e995ef3a1b42",
+      "log_prefix": "C:/Users/muthu/susi-private/gmcp-roadmap-cli-",
+      "missing_roadmap_exit": 1
+    },
+    "isolation": "Cleared process environment, private HOME/USERPROFILE/APPDATA/SUSI_HOME/TEMP per invocation, SUSI_NO_REGISTRY_ENV=1, no inherited credentials; unique private target C:/Users/muthu/susi-private/gmcp-roadmap-target-01.",
+    "review": "Independent read-through plus Argon High source-only review 9579a522-7d7e-4f25-9d98-e292ed45f72c found no remaining ordinary-JSON semantic parity defect. Review is not executed-test evidence.",
+    "scope": "Initial f1c3517e scoped verification only; the later combined GMCP requirement gate failed as recorded below. These earlier passes are not final-source or combined-gate approval."
+  },
+  "remediation": {
+    "cause": "Optional edit to the pinned docs/gmcp-roadmap.md was outside the structural preflight but inside ledger source hashes and every GMCP evidence digest.",
+    "failed_combined_tree": "b009032541b6161bb2e013973d164e382950946e",
+    "gmcp_requirements_passed": 46,
+    "gmcp_requirements_failed": 41,
+    "failed_gate_log": "C:/Users/muthu/susi-private/desktop-opus-backfill/ship-3-combined/native-evidence/gate-3.log",
+    "restored_from": "956332c4de6d30acb560ffb615d8b611a7c8a45b:docs/gmcp-roadmap.md",
+    "restored_bytes": 24508,
+    "restored_sha256": "b27774f23901b1e1acc784975f855728aa76a47491f141939c9125fb85bdc286",
+    "artifact_comparison": "Compared every shared path and every ledger trace.production_path between the baseline and combined tree; docs/gmcp-roadmap.md was the sole changed evidence artifact. Restoring it restores the prior artifact set without new evidence claims.",
+    "instructions": "Native usage, parity matrix and pre-existing limitations are now documented in xtask/src/gmcp_roadmap.rs; the integration test points there.",
+    "acceptance": "Passed on clean committed c386389aad7d24afc19228a328a67ab192d8b301; later task-record-only evidence updates do not alter any compiled validator code or GMCP-bound source artifact.",
+    "validation": {
+      "tested_commit": "c386389aad7d24afc19228a328a67ab192d8b301",
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "gmcp_requirements",
+        "--test",
+        "gmcp_roadmap",
+        "--test",
+        "task_records"
+      ],
+      "build_seconds": 10.7,
+      "gmcp_requirements": {
+        "seconds": 132.49,
+        "passed": 87,
+        "filtered": 0,
+        "failed": 0,
+        "ignored": 0
+      },
+      "gmcp_roadmap": {
+        "seconds": 0.71,
+        "passed": 18,
+        "filtered": 0,
+        "failed": 0,
+        "ignored": 0
+      },
+      "task_records": {
+        "seconds": 0.4,
+        "passed": 3,
+        "filtered": 0,
+        "failed": 0,
+        "ignored": 0
+      },
+      "logs": "C:/Users/muthu/susi-private/gmcp-roadmap-remediation-tests-01",
+      "stdout_sha256": "e61c5928e6f5472e996a6df2086107902c136af8767b7457372f5e4fae60bf0e",
+      "stderr_sha256": "f3f2d290f97a8aa3c2f5b43aa811fdad33fb56cd84d4b6edff9f21319c2abdfa",
+      "validator_sha256": "d31a8013a94f067fa970aeaeeb8fdf5bba01dc7fc5b283f1cf08cf562968f634",
+      "cli_source_sha256": "690e22fdf335428cab8622a6c10586fc5a9fed051a9874e2e5c20db6b9488084",
+      "root_test_sha256": "070d0480206e97e6f0be7115af752f8d1bfee60e541a36861337f4aca1b46976",
+      "clippy": {
+        "cmd": [
+          "cargo",
+          "clippy",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "logs": "C:/Users/muthu/susi-private/gmcp-roadmap-remediation-clippy-01",
+        "exit": 0,
+        "seconds": 1.21
+      },
+      "format": {
+        "cmd": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "logs": "C:/Users/muthu/susi-private/gmcp-roadmap-remediation-fmt-01",
+        "exit": 0
+      }
+    }
+  }
+}

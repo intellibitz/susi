@@ -23,6 +23,8 @@ fn root() -> PathBuf {
 /// kill-on-close job, an active client, another installation, rollback and a
 /// locked legacy duplicate. The regression fails, never hangs: the whole run is
 /// bounded and a run past the bound is killed and reported.
+/// A test-only catalog restricts discovery to pinned fixture children; the
+/// production scripts are unchanged and still refuse unreadable live images.
 #[test]
 #[cfg(windows)]
 fn windows_release_promotion() {
@@ -95,10 +97,17 @@ fn windows_release_promotion() {
         panic!("release promotion regression did not finish within {BOUND:?}\n{out}\n{err}")
     });
     assert!(status.success(), "{out}\n{err}");
-    assert!(
-        out.contains("PASS: owned process safety"),
-        "the regression exited 0 without reporting its checks\n{out}\n{err}"
-    );
+    for marker in [
+        "PASS: owned process safety",
+        "PASS: fixture catalog rejects outside PIDs",
+        "PASS: unreadable live ownership fails closed",
+        "PASS: leaf admission rejects mismatched identity",
+    ] {
+        assert!(
+            out.contains(marker),
+            "the regression exited 0 without reporting {marker}\n{out}\n{err}"
+        );
+    }
 }
 
 #[test]

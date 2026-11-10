@@ -200,3 +200,43 @@ Unit tests for the writer, the parser and the verifier are in
 `xtask/src/gate_receipt.rs`; the ship tests in
 `xtask/src/bin/local-workflow.rs` check that a ship publishes the receipt
 commit and refuses to publish without one.
+
+## Complete workspace binary execution (staged)
+
+The experimental `workspace-binaries` path is **not available for production
+activation, receipt publication, or full public replay yet**. The pinned stable
+rustdoc rejects `--test` with `--emit=dep-info`; compile-only doctest discovery
+also requires unstable options. The current Git-visible input snapshot cannot
+account for ignored files consumed by doctests. An explicit request fails
+closed rather than pretending that snapshot is complete. No unstable flags or
+source-code include scanner are used. The default remains unchanged. Linux
+continues to use serial Cargo; the runner does not yet reproduce its dynamic
+library runtime contract. `serial` and `nextest` retain their existing meanings.
+
+This mode records the command that actually compiles the tests, including
+`--no-run --message-format=json`, and an explicit
+`susi/cargo-test-binaries/v1` execution descriptor. Compilation alone is never
+accepted as executed tests. Cargo's complete strict JSON inventory is sealed
+before launch, each exact executable is accounted for, and matching companion
+doctests must pass. A binary's nested Cargo uses its private home target while
+runtime library lookup retains the outer target. Unsupported build-script
+library search paths or reserved runtime environment overrides fail closed;
+serial Cargo remains available. This mode emits no serial
+`workspace-test-pass-v1` proof and changes no fresh production qualification.
+
+Native capture retains immutable raw Cargo output, metadata, execution plan,
+and results in the local Git object store. Its private retention refs do not
+travel with an ordinary publication/fetch. Historical validation of those
+original artifact identities requires the retained objects, but not the old
+worktree or target directory. The public receipt intentionally carries only a
+path-free typed descriptor, counts, and the original selection. The experimental
+replay plumbing rebuilds a fresh inventory from source in an isolated checkout,
+executes it, runs the exact companion doctests, and compares observations. It
+does not claim to recover or independently authenticate old private artifacts.
+Selecting this mode with `--only` requires selecting `doc-tests` too. A missing
+or unknown descriptor is rejected before a build-only command can run.
+
+Absent descriptors preserve historical serial/nextest replay unchanged.
+Inclusive timing covers input and artifact hashing and final checks; no
+throughput improvement or production acceptance is established by these new
+fixtures alone.

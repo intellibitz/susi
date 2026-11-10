@@ -5,27 +5,13 @@
 //! script existed nothing checked that the tag named the version in `Cargo.toml`
 //! or that `main` contained the tagged commit — so a tag on a branch could
 //! publish code no one merged, under a version no one cut.
-// Optional POSIX/hosted compatibility fixtures execute shell scripts.
-// Native Windows delivery is covered by the Rust coordinator, bootstrap,
-// installer and release suites; it must not require a POSIX userland.
-#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn script_command(script: &Path) -> Command {
-    #[cfg(windows)]
-    {
-        let mut command = Command::new("sh");
-        command.arg(script);
-        command
-    }
-    #[cfg(not(windows))]
-    {
-        Command::new(script)
-    }
-}
+mod common;
+use common::script_command;
 
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
@@ -93,11 +79,9 @@ impl World {
 
     fn check(&self, tag: &str) -> (i32, String) {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-release-tag.sh");
-        let out = script_command(&script)
-            .arg(tag)
-            .current_dir(&self.repo)
-            .output()
-            .unwrap();
+        let mut command = script_command(&script);
+        command.arg(tag).current_dir(&self.repo);
+        let out = common::output_within(&mut command, b"", common::SCRIPT_BOUND);
         (
             out.status.code().unwrap_or(-1),
             format!(

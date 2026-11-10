@@ -26,7 +26,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Instant;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -359,42 +360,137 @@ fn schedule(binaries: &[Binary], durations: &BTreeMap<String, u64>) -> VecDeque<
     order.into_iter().cloned().collect()
 }
 
-struct Lanes {
-    free: Mutex<usize>,
-    changed: Condvar,
+/// The pending binaries (with their lane weights, already clamped to the
+/// pool) and the free lanes, kept under one lock so choosing a binary and
+/// reserving its lanes is a single step.
+struct SchedulerState {
+    pending: VecDeque<(Binary, usize)>,
+    free: usize,
 }
 
-impl Lanes {
-    fn take(&self, weight: usize) -> Result<()> {
-        let mut free = self.free.lock().map_err(|_| "runner lane state poisoned")?;
-        while *free < weight {
-            free = self
+impl SchedulerState {
+    /// Remove the earliest pending binary whose weight fits the free lanes
+    /// and reserve them. Binaries that fit keep their queue order; one that
+    /// does not fit stays where it is. Finite first fit: a heavy binary may
+    /// wait while lighter ones behind it fill the free lanes.
+    fn take_fitting(&mut self) -> Option<(Binary, usize)> {
+        let free = self.free;
+        let position = self
+            .pending
+            .iter()
+            .position(|(_, weight)| *weight <= free)?;
+        let (binary, weight) = self.pending.remove(position)?;
+        self.free = free.saturating_sub(weight);
+        Some((binary, weight))
+    }
+}
+
+/// Hands each worker the earliest pending binary that fits the free lanes,
+/// so a worker never holds a binary while lanes it cannot use sit idle.
+struct Scheduler {
+    state: Mutex<SchedulerState>,
+    changed: Condvar,
+    /// Set (under the state lock) once a binary fails or a worker unwinds:
+    /// no further binary starts.
+    stop: AtomicBool,
+}
+
+impl Scheduler {
+    fn new(order: VecDeque<Binary>, heavy: &[String], lanes: usize) -> Self {
+        let lanes = lanes.max(1);
+        let pending = order
+            .into_iter()
+            .map(|binary| {
+                // Every binary holds one lane; a heavy one holds two so it
+                // keeps the CPU its deadlines assume. The lane count stays
+                // the limit on what runs at once.
+                let lanes_needed = weight(&binary, heavy).min(lanes);
+                (binary, lanes_needed)
+            })
+            .collect();
+        Self {
+            state: Mutex::new(SchedulerState {
+                pending,
+                free: lanes,
+            }),
+            changed: Condvar::new(),
+            stop: AtomicBool::new(false),
+        }
+    }
+
+    fn stopped(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
+    }
+
+    /// Wait for the earliest pending binary that fits the free lanes and
+    /// reserve them. `None` once the run is stopped or nothing is pending.
+    /// No binary leaves the queue while its worker waits.
+    fn reserve(&self) -> Result<Option<(Binary, Reservation<'_>)>> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "runner scheduler state poisoned")?;
+        loop {
+            if self.stopped() || state.pending.is_empty() {
+                return Ok(None);
+            }
+            if let Some((binary, weight)) = state.take_fitting() {
+                return Ok(Some((
+                    binary,
+                    Reservation {
+                        scheduler: self,
+                        weight,
+                    },
+                )));
+            }
+            state = self
                 .changed
-                .wait(free)
-                .map_err(|_| "runner lane state poisoned")?;
+                .wait(state)
+                .map_err(|_| "runner scheduler state poisoned")?;
         }
-        *free -= weight;
-        Ok(())
     }
 
-    fn take_unless_stopped(
-        &self,
-        weight: usize,
-        stop: &std::sync::atomic::AtomicBool,
-    ) -> Result<bool> {
-        self.take(weight)?;
-        if stop.load(std::sync::atomic::Ordering::SeqCst) {
-            self.give(weight);
-            return Ok(false);
-        }
-        Ok(true)
-    }
-
-    fn give(&self, weight: usize) {
-        if let Ok(mut free) = self.free.lock() {
-            *free += weight;
-        }
+    /// Stop starting binaries and wake every waiting worker. The flag is set
+    /// under the state lock, so a worker between its stop check and its wait
+    /// cannot miss the wakeup. A poisoned lock is recovered only to stop and
+    /// wake; `reserve` still reports the poison.
+    fn cancel(&self) {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        self.stop.store(true, Ordering::SeqCst);
+        drop(state);
         self.changed.notify_all();
+    }
+}
+
+/// Lanes reserved for one binary; returned to the pool when dropped, on
+/// every path including errors and unwinding.
+struct Reservation<'a> {
+    scheduler: &'a Scheduler,
+    weight: usize,
+}
+
+impl Reservation<'_> {
+    fn weight(&self) -> usize {
+        self.weight
+    }
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        // Recover a poisoned lock only to return the lanes and wake waiters.
+        let mut state = self
+            .scheduler
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        state.free = state.free.saturating_add(self.weight);
+        if std::thread::panicking() {
+            // A worker unwinding out of a launch fails the run: start
+            // nothing more.
+            self.scheduler.stop.store(true, Ordering::SeqCst);
+        }
+        drop(state);
+        self.scheduler.changed.notify_all();
     }
 }
 
@@ -402,9 +498,7 @@ impl Lanes {
 type Finished = (String, Option<i32>, u64);
 
 struct Shared<'a> {
-    queue: Mutex<VecDeque<Binary>>,
-    lanes: Lanes,
-    stop: std::sync::atomic::AtomicBool,
+    scheduler: Scheduler,
     log: Mutex<fs::File>,
     results: Mutex<Vec<Finished>>,
     settings: &'a Settings<'a>,
@@ -518,7 +612,7 @@ fn run_one(
             u64::try_from(elapsed).unwrap_or(u64::MAX),
         ));
     if code != Some(0) {
-        shared.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        shared.scheduler.cancel();
     }
     Ok(())
 }
@@ -543,12 +637,7 @@ pub fn run(
     let total_test_threads = settings.total_test_threads.max(1);
     let lanes = effective_lanes(settings.concurrency, total_test_threads);
     let shared = Shared {
-        queue: Mutex::new(schedule(binaries, &durations)),
-        lanes: Lanes {
-            free: Mutex::new(lanes),
-            changed: Condvar::new(),
-        },
-        stop: std::sync::atomic::AtomicBool::new(false),
+        scheduler: Scheduler::new(schedule(binaries, &durations), settings.heavy, lanes),
         log: Mutex::new(log),
         results: Mutex::new(Vec::new()),
         settings,
@@ -563,31 +652,28 @@ pub fn run(
             scope.spawn(move || {
                 let mut index = worker;
                 loop {
-                    if shared.stop.load(std::sync::atomic::Ordering::SeqCst) {
-                        break;
-                    }
-                    let next = shared
-                        .queue
-                        .lock()
-                        .ok()
-                        .and_then(|mut queue| queue.pop_front());
-                    let Some(binary) = next else {
-                        break;
+                    // The earliest pending binary that fits the free lanes,
+                    // with those lanes already reserved: a light binary
+                    // behind heavy ones fills a lane no heavy one can use.
+                    let (binary, reservation) = match shared.scheduler.reserve() {
+                        Ok(Some(next)) => next,
+                        Ok(None) => break,
+                        Err(error) => {
+                            if let Ok(mut errors) = errors.lock() {
+                                errors.push(format!("scheduler: {error}"));
+                            }
+                            shared.scheduler.cancel();
+                            break;
+                        }
                     };
-                    // Every binary holds one lane; a heavy one holds two so
-                    // it keeps the CPU its deadlines assume. The lane count
-                    // stays the limit on what runs at once.
-                    let acquired_weight = weight(&binary, shared.settings.heavy).min(lanes);
-                    // A worker may have waited for lanes while another binary
-                    // failed. Do not launch its already-dequeued binary after
-                    // that failure, and return every acquired lane on stop.
-                    if !shared
-                        .lanes
-                        .take_unless_stopped(acquired_weight, &shared.stop)
-                        .unwrap_or(false)
-                    {
+                    // Another binary may have failed since the reservation.
+                    // Do not launch after that failure; dropping the
+                    // reservation returns its lanes.
+                    if shared.scheduler.stopped() {
+                        drop(reservation);
                         break;
                     }
+                    let acquired_weight = reservation.weight();
                     let assigned_threads = threads_for_binary(
                         &binary,
                         shared.settings.total_test_threads,
@@ -604,9 +690,9 @@ pub fn run(
                         if let Ok(mut errors) = errors.lock() {
                             errors.push(format!("{}: {error}", binary.id()));
                         }
-                        shared.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+                        shared.scheduler.cancel();
                     }
-                    shared.lanes.give(acquired_weight);
+                    drop(reservation);
                     if let Ok(mut log) = shared.log.lock() {
                         let _ = writeln!(
                             log,
@@ -846,83 +932,364 @@ mod tests {
         }
     }
 
+    fn free_lanes(scheduler: &Scheduler) -> usize {
+        scheduler.state.lock().unwrap().free
+    }
+
+    fn pending_names(scheduler: &Scheduler) -> Vec<String> {
+        scheduler
+            .state
+            .lock()
+            .unwrap()
+            .pending
+            .iter()
+            .map(|(binary, _)| binary.target_name.clone())
+            .collect()
+    }
+
+    /// `reserve` mapped to sendable values; the reservation is returned
+    /// before the result leaves the thread.
+    fn reserve_name(scheduler: &Scheduler) -> std::result::Result<Option<String>, String> {
+        scheduler
+            .reserve()
+            .map(|next| next.map(|(binary, _reservation)| binary.target_name))
+            .map_err(|error| error.to_string())
+    }
+
     #[test]
     fn effective_lane_pool_bounds_mixed_weights() {
-        use std::sync::{mpsc, Arc};
+        use std::sync::mpsc;
         use std::time::Duration;
 
         let workflow = binary("xtask", "bin", "local-workflow");
         let ordinary = binary("ordinary", "lib", "ordinary");
         let budget = 3;
         let lanes = effective_lanes(6, budget);
-        let pool = Arc::new(Lanes {
-            free: Mutex::new(lanes),
-            changed: Condvar::new(),
-        });
-        let workflow_weight = weight(&workflow, &[]).min(lanes);
-        let ordinary_weight = weight(&ordinary, &[]).min(lanes);
-        pool.take(workflow_weight).unwrap();
-        pool.take(ordinary_weight).unwrap();
+        let scheduler = Scheduler::new(
+            VecDeque::from(vec![
+                workflow.clone(),
+                ordinary.clone(),
+                binary("third", "lib", "third"),
+            ]),
+            &[],
+            lanes,
+        );
+        let (first, workflow_lanes) = scheduler.reserve().unwrap().unwrap();
+        let (second, ordinary_lanes) = scheduler.reserve().unwrap().unwrap();
+        assert_eq!(
+            (first.target_name.as_str(), second.target_name.as_str()),
+            ("local-workflow", "ordinary")
+        );
+        assert_eq!(workflow_lanes.weight(), weight(&workflow, &[]).min(lanes));
+        assert_eq!(ordinary_lanes.weight(), weight(&ordinary, &[]).min(lanes));
+        assert_eq!(free_lanes(&scheduler), 0);
         let (acquired_tx, acquired_rx) = mpsc::channel();
-        let waiter_pool = Arc::clone(&pool);
-        let waiter_weight = weight(&binary("third", "lib", "third"), &[]).min(lanes);
-        let waiter = std::thread::spawn(move || {
-            waiter_pool.take(waiter_weight).unwrap();
-            acquired_tx.send(()).unwrap();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _ = acquired_tx.send(reserve_name(&scheduler));
+            });
+            let premature = acquired_rx.recv_timeout(Duration::from_millis(25)).ok();
+            let assigned = threads_for_binary(&workflow, budget, lanes, workflow_lanes.weight())
+                + threads_for_binary(&ordinary, budget, lanes, ordinary_lanes.weight());
+            // Release before assertions so a failing regression never
+            // strands the waiter inside the scoped join.
+            drop(workflow_lanes);
+            let acquired = acquired_rx.recv_timeout(Duration::from_secs(5));
+            assert!(premature.is_none(), "{premature:?}");
+            assert_eq!(assigned, budget);
+            assert_eq!(acquired, Ok(Ok(Some("third".to_owned()))));
         });
-        assert!(acquired_rx.recv_timeout(Duration::from_millis(25)).is_err());
-
-        let assigned = threads_for_binary(&workflow, budget, lanes, workflow_weight)
-            + threads_for_binary(&ordinary, budget, lanes, ordinary_weight);
-        assert_eq!(assigned, budget);
-
-        pool.give(workflow_weight);
-        acquired_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        waiter.join().unwrap();
-        pool.give(ordinary_weight);
-        pool.give(waiter_weight);
-        assert_eq!(*pool.free.lock().unwrap(), lanes);
+        drop(ordinary_lanes);
+        assert_eq!(free_lanes(&scheduler), lanes);
     }
 
     #[test]
     fn failure_cancels_a_dequeued_binary_waiting_for_weighted_lanes() {
-        use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::mpsc;
         use std::time::Duration;
 
-        let pool = Lanes {
-            free: Mutex::new(2),
-            changed: Condvar::new(),
-        };
-        let stop = AtomicBool::new(false);
-        pool.take(2).unwrap();
+        // The waiting binary is no longer dequeued before its lanes are free:
+        // it stays pending, and a failure must still keep it from launching.
+        let heavy = vec!["waiting".to_owned()];
+        let scheduler = Scheduler::new(
+            VecDeque::from(vec![
+                binary("xtask", "bin", "local-workflow"),
+                binary("p", "test", "waiting"),
+            ]),
+            &heavy,
+            2,
+        );
+        let (held, held_reservation) = scheduler.reserve().unwrap().unwrap();
+        assert_eq!(held.target_name, "local-workflow");
+        assert_eq!(free_lanes(&scheduler), 0);
         let (entered_tx, entered_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         std::thread::scope(|scope| {
             scope.spawn(|| {
-                entered_tx.send(()).unwrap();
-                let acquired = pool.take_unless_stopped(2, &stop).unwrap();
-                result_tx.send(acquired).unwrap();
+                let _ = entered_tx.send(());
+                let _ = result_tx.send(reserve_name(&scheduler));
             });
             let entered = entered_rx.recv_timeout(Duration::from_secs(1));
             let premature = result_rx.recv_timeout(Duration::from_millis(25)).ok();
+            // Cancellation alone (no lane released) must wake the waiter.
+            scheduler.cancel();
+            let woken = result_rx.recv_timeout(Duration::from_secs(5));
             // Release before assertions so a failing regression never strands
             // a worker inside the scoped thread join.
-            stop.store(true, Ordering::SeqCst);
-            pool.give(2);
-            let acquired = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            drop(held_reservation);
             assert!(entered.is_ok());
-            assert!(premature.is_none());
-            assert!(
-                !acquired,
+            assert!(premature.is_none(), "{premature:?}");
+            assert_eq!(
+                woken,
+                Ok(Ok(None)),
                 "a binary must not launch after a waiting gate fails"
             );
         });
-        assert_eq!(*pool.free.lock().unwrap(), 2);
-        stop.store(false, Ordering::SeqCst);
-        assert!(pool.take_unless_stopped(2, &stop).unwrap());
-        assert_eq!(*pool.free.lock().unwrap(), 0);
-        pool.give(2);
+        assert_eq!(free_lanes(&scheduler), 2);
+        assert_eq!(pending_names(&scheduler), vec!["waiting"]);
+        scheduler.stop.store(false, Ordering::SeqCst);
+        let (again, reservation) = scheduler.reserve().unwrap().unwrap();
+        assert_eq!(again.target_name, "waiting");
+        assert_eq!(reservation.weight(), 2);
+        assert_eq!(free_lanes(&scheduler), 0);
+        drop(reservation);
+        assert_eq!(free_lanes(&scheduler), 2);
+    }
+
+    #[test]
+    fn scheduler_takes_the_earliest_fitting_binary_and_keeps_fifo_among_fits() {
+        fn take(state: &mut SchedulerState) -> Option<(String, usize)> {
+            state
+                .take_fitting()
+                .map(|(binary, weight)| (binary.target_name, weight))
+        }
+        fn names(state: &SchedulerState) -> Vec<String> {
+            state
+                .pending
+                .iter()
+                .map(|(binary, _)| binary.target_name.clone())
+                .collect()
+        }
+        let heavy = vec!["h1".to_owned(), "h2".to_owned()];
+        let scheduler = Scheduler::new(
+            ["h1", "h2", "l1", "l2"]
+                .iter()
+                .map(|name| binary("p", "lib", name))
+                .collect(),
+            &heavy,
+            3,
+        );
+        let mut state = scheduler.state.lock().unwrap();
+        assert_eq!(take(&mut state), Some(("h1".to_owned(), 2)));
+        assert_eq!(state.free, 1);
+        // h2 does not fit the one free lane; l1 backfills it.
+        assert_eq!(take(&mut state), Some(("l1".to_owned(), 1)));
+        assert_eq!(state.free, 0);
+        // Nothing fits: nothing leaves the queue.
+        assert_eq!(take(&mut state), None);
+        assert_eq!(names(&state), vec!["h2", "l2"]);
+        state.free += 1; // l1 finished
+        assert_eq!(take(&mut state), Some(("l2".to_owned(), 1)));
+        assert_eq!(take(&mut state), None);
+        assert_eq!(names(&state), vec!["h2"]);
+        state.free += 3; // h1 and l2 finished
+        assert_eq!(take(&mut state), Some(("h2".to_owned(), 2)));
+        assert!(state.pending.is_empty());
+        assert_eq!(state.free, 1);
+        drop(state);
+
+        // A weight never exceeds the pool, so the head always fits an idle pool.
+        let single = Scheduler::new(VecDeque::from(vec![binary("p", "lib", "h1")]), &heavy, 1);
+        let (_, reservation) = single.reserve().unwrap().unwrap();
+        assert_eq!(reservation.weight(), 1);
+        assert_eq!(free_lanes(&single), 0);
+        drop(reservation);
+        assert_eq!(free_lanes(&single), 1);
+    }
+
+    #[test]
+    fn scheduler_reservations_restore_weight_and_respect_cancellation() {
+        let heavy = vec!["h1".to_owned()];
+        let scheduler = Scheduler::new(
+            ["h1", "l1", "l2"]
+                .iter()
+                .map(|name| binary("p", "lib", name))
+                .collect(),
+            &heavy,
+            3,
+        );
+        let (h1, h1_lanes) = scheduler.reserve().unwrap().unwrap();
+        let (l1, l1_lanes) = scheduler.reserve().unwrap().unwrap();
+        assert_eq!((h1.target_name.as_str(), h1_lanes.weight()), ("h1", 2));
+        assert_eq!((l1.target_name.as_str(), l1_lanes.weight()), ("l1", 1));
+        assert_eq!(free_lanes(&scheduler), 0);
+        drop(h1_lanes);
+        assert_eq!(free_lanes(&scheduler), 2);
+        let (l2, l2_lanes) = scheduler.reserve().unwrap().unwrap();
+        assert_eq!(l2.target_name, "l2");
+        assert_eq!(free_lanes(&scheduler), 1);
+        drop(l1_lanes);
+        drop(l2_lanes);
+        assert_eq!(free_lanes(&scheduler), 3);
+        assert!(scheduler.reserve().unwrap().is_none());
+
+        let canceled = Scheduler::new(VecDeque::from(vec![binary("p", "lib", "l1")]), &heavy, 3);
+        canceled.cancel();
+        assert!(canceled.stopped());
+        assert!(canceled.reserve().unwrap().is_none());
+        assert_eq!(pending_names(&canceled), vec!["l1"]);
+        assert_eq!(free_lanes(&canceled), 3);
+    }
+
+    #[test]
+    fn reservations_return_lanes_when_a_launch_errors_or_panics() {
+        /// A launch that fails while its lanes are reserved.
+        fn failing_launch(scheduler: &Scheduler) -> Result<()> {
+            let (_binary, reservation) = scheduler.reserve()?.ok_or("nothing to reserve")?;
+            Err(format!(
+                "launch callback failed holding {} lanes",
+                reservation.weight()
+            )
+            .into())
+        }
+        let scheduler = Scheduler::new(
+            VecDeque::from(vec![
+                binary("xtask", "bin", "local-workflow"),
+                binary("p", "lib", "after-error"),
+            ]),
+            &[],
+            3,
+        );
+        assert_eq!(
+            failing_launch(&scheduler).map_err(|error| error.to_string()),
+            Err("launch callback failed holding 2 lanes".to_owned())
+        );
+        assert_eq!(free_lanes(&scheduler), 3);
+        assert!(!scheduler.stopped());
+
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Ok(Some((_binary, _reservation))) = scheduler.reserve() {
+                panic!("launch callback panicked while holding lanes");
+            }
+        }));
+        assert!(
+            unwound.is_err(),
+            "the launch must have panicked while holding its reservation"
+        );
+        assert!(
+            scheduler.state.lock().is_ok(),
+            "the state lock was poisoned"
+        );
+        assert_eq!(free_lanes(&scheduler), 3);
+        assert!(
+            scheduler.stopped(),
+            "an unwinding launch stops further binaries"
+        );
+        assert!(scheduler.reserve().unwrap().is_none());
+    }
+
+    #[test]
+    fn poisoned_scheduler_reports_errors_and_releases_waiters_and_lanes() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let scheduler = Scheduler::new(
+            VecDeque::from(vec![
+                binary("xtask", "bin", "local-workflow"),
+                binary("p", "lib", "waiting"),
+            ]),
+            &[],
+            2,
+        );
+        let (_, reservation) = scheduler.reserve().unwrap().unwrap();
+        let (result_tx, result_rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _ = result_tx.send(reserve_name(&scheduler));
+            });
+            let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _state = scheduler.state.lock().unwrap();
+                panic!("poison the scheduler state");
+            }));
+            scheduler.cancel();
+            let result = result_rx.recv_timeout(Duration::from_secs(5));
+            // Return the held lanes and wake before any assertion or join.
+            drop(reservation);
+            assert!(poisoned.is_err());
+            assert_eq!(
+                result,
+                Ok(Err("runner scheduler state poisoned".to_owned()))
+            );
+        });
+        assert!(scheduler.stopped());
+        assert_eq!(
+            reserve_name(&scheduler),
+            Err("runner scheduler state poisoned".to_owned())
+        );
+        let state = scheduler
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(state.free, 2);
+        assert_eq!(state.pending.len(), 1);
+    }
+
+    #[test]
+    fn run_reports_a_launch_error_and_releases_its_lanes() {
+        let exe = std::env::current_exe().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("susi-runner-launch-err-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let make = |name: &str| Binary {
+            package: "xtask".into(),
+            version: "0.1.0".into(),
+            manifest_path: manifest.clone(),
+            target_name: name.into(),
+            kind: "bin".into(),
+            src_path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/bin/local-workflow.rs"),
+            executable: exe.clone(),
+        };
+        let settings = Settings {
+            concurrency: 3,
+            total_test_threads: 3,
+            build_jobs: 3,
+            home_root: &dir.join("homes"),
+            target_dir: &dir.join("target"),
+            triple: None,
+            durations: &dir.join("durations.json"),
+            heavy: &[],
+            log: &dir.join("gate.log"),
+        };
+        let launch = |binary: &Binary, _home: &Path| -> Result<Command> {
+            if binary.target_name == "local-workflow" {
+                return Err(format!("launch refused for {}", binary.id()).into());
+            }
+            let mut command = Command::new(&exe);
+            command.arg("--list");
+            Ok(command)
+        };
+        let binaries = vec![
+            make("local-workflow"),
+            make("ordinary-one"),
+            make("ordinary-two"),
+        ];
+        let result = run(&binaries, &settings, &launch).map_err(|error| error.to_string());
+        let log = fs::read_to_string(settings.log).unwrap_or_default();
+        let _ = fs::remove_dir_all(&dir);
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("test runner: xtask/bin/local-workflow: launch refused"),
+            "{error}"
+        );
+        // Written after the failed launch's reservation was dropped.
+        assert!(
+            log.contains(
+                "runner: xtask/bin/local-workflow assigned 2/3 lanes and 2/3 test threads"
+            ),
+            "{log}"
+        );
     }
 
     #[test]
@@ -1009,6 +1376,138 @@ mod tests {
         let log = fs::read_to_string(settings.log).unwrap();
         assert!(
             log.contains("runner: 3 of 3 binaries ran on 3 lanes"),
+            "{log}"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn run_backfills_a_light_binary_beside_a_heavy_one_on_three_lanes() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        /// Opens the launch gate when dropped, including while unwinding.
+        struct Release<'a>(&'a (Mutex<bool>, Condvar));
+        impl Drop for Release<'_> {
+            fn drop(&mut self) {
+                let (lock, changed) = self.0;
+                *lock.lock().unwrap_or_else(PoisonError::into_inner) = true;
+                changed.notify_all();
+            }
+        }
+
+        let exe = std::env::current_exe().unwrap();
+        let dir = std::env::temp_dir().join(format!("susi-runner-fill-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let make = |name: &str| Binary {
+            package: "xtask".into(),
+            version: "0.1.0".into(),
+            manifest_path: manifest.clone(),
+            target_name: name.into(),
+            kind: "bin".into(),
+            src_path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/bin/local-workflow.rs"),
+            executable: exe.clone(),
+        };
+        let heavy = vec![
+            "heavy-one".to_owned(),
+            "heavy-two".to_owned(),
+            "heavy-three".to_owned(),
+        ];
+        // No durations file yet: every binary is unmeasured, so the queue
+        // keeps this order.
+        let binaries = vec![
+            make("heavy-one"),
+            make("heavy-two"),
+            make("heavy-three"),
+            make("light"),
+        ];
+        let settings = Settings {
+            concurrency: 3,
+            total_test_threads: 3,
+            build_jobs: 3,
+            home_root: &dir.join("homes"),
+            target_dir: &dir.join("target"),
+            triple: None,
+            durations: &dir.join("durations.json"),
+            heavy: &heavy,
+            log: &dir.join("gate.log"),
+        };
+        let gate = (Mutex::new(false), Condvar::new());
+        // Each admission with whether the gate was already open, read under
+        // the gate lock: a third admission needs a lane returned, which needs
+        // a launch to pass the closed gate first.
+        let admitted: Mutex<Vec<(String, bool)>> = Mutex::new(Vec::new());
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let launch = |binary: &Binary, _home: &Path| -> Result<Command> {
+            let (lock, changed) = &gate;
+            let mut open = lock.lock().unwrap_or_else(PoisonError::into_inner);
+            admitted
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push((binary.target_name.clone(), *open));
+            let _ = entered_tx.send(binary.target_name.clone());
+            while !*open {
+                open = changed.wait(open).unwrap_or_else(PoisonError::into_inner);
+            }
+            drop(open);
+            let mut command = Command::new(&exe);
+            command.arg("--list");
+            Ok(command)
+        };
+
+        std::thread::scope(|scope| {
+            let release = Release(&gate);
+            let running =
+                scope.spawn(|| run(&binaries, &settings, &launch).map_err(|e| e.to_string()));
+            // Hang guards only: both admissions arrive without any timer in
+            // the scheduler.
+            let first = entered_rx.recv_timeout(Duration::from_secs(60));
+            let second = entered_rx.recv_timeout(Duration::from_secs(60));
+
+            // Always release the gate before asserting or joining, so a
+            // regression fails instead of stranding runner threads.
+            drop(release);
+            let outcome = running.join();
+
+            let mut before_release: Vec<String> = admitted
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, open)| !open)
+                .map(|(name, _)| name.clone())
+                .collect();
+            before_release.sort();
+            assert!(
+                first.is_ok() && second.is_ok(),
+                "admitted before release: {before_release:?}"
+            );
+            assert_eq!(
+                before_release,
+                vec!["heavy-one", "light"],
+                "the light binary must backfill the lane no heavy one fits"
+            );
+            let admitted_weight: usize = before_release
+                .iter()
+                .map(|name| weight(&make(name), &heavy).min(3))
+                .sum();
+            assert!(admitted_weight <= 3, "admitted weight {admitted_weight}");
+            let outcome = outcome.unwrap().unwrap();
+            assert_eq!(outcome.failed.len(), 0, "{outcome:?}");
+            assert_eq!(outcome.ran, 4, "{outcome:?}");
+        });
+        let log = fs::read_to_string(settings.log).unwrap();
+        assert!(
+            log.contains("runner: xtask/bin/heavy-one assigned 2/3 lanes and 1/3 test threads"),
+            "{log}"
+        );
+        assert!(
+            log.contains("runner: xtask/bin/light assigned 1/3 lanes and 1/3 test threads"),
+            "{log}"
+        );
+        assert!(
+            log.contains("runner: 4 of 4 binaries ran on 3 lanes"),
             "{log}"
         );
         fs::remove_dir_all(dir).unwrap();

@@ -455,6 +455,8 @@ mod tests {
         // The product stdlib loads a qualified OS ICU at runtime; a direct ICU
         // link would pin one distribution's major and is no longer reviewed.
         for icu in [
+            "libicuuc.so.78",
+            "libicudata.so.78",
             "libicuuc.so.76",
             "libicudata.so.76",
             "libicuuc.so.74",

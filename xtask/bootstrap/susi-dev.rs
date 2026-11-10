@@ -4,6 +4,8 @@
 
 #[path = "../src/compiler_env.rs"]
 mod compiler_env;
+#[path = "../src/local_dev.rs"]
+mod local_dev;
 #[path = "../src/sysroot_sources.rs"]
 mod sysroot_sources;
 #[path = "../src/trusted_sysroot.rs"]
@@ -26,7 +28,7 @@ fn parse(args: &[String]) -> io::Result<Action> {
         [mode, profile] if mode == "build" && matches!(profile.as_str(), "debug" | "production") => Ok(Action::Build(profile.clone())),
         [mode, rest @ ..] if mode == "workflow" && !rest.is_empty() => Ok(Action::Workflow(rest.to_vec())),
         [mode, rest @ ..] if mode == "release" && !rest.is_empty() => Ok(Action::Release(rest.to_vec())),
-        _ => Err(io::Error::other("usage: susi-dev build debug|production | workflow <command> [args] | release <command> [args]")),
+        _ => Err(io::Error::other("usage: susi-dev build debug|production | workflow <command> [args] | release <command> [args] | dev capacity [agents] | dev check|clippy|test <package> [--jobs N] [--wait-ms N]")),
     }
 }
 
@@ -162,6 +164,9 @@ fn configure(command: &mut Command, root: &Path, output: &Path, host: &str, acti
 }
 
 pub(crate) fn run(args: &[String]) -> io::Result<ExitCode> {
+    if args.first().is_some_and(|arg| arg == "dev") {
+        return local_dev::run(&args[1..]);
+    }
     let action = parse(args)?;
     let root = workspace(&env::current_dir()?)?;
     let host = host(&root)?;
