@@ -1,0 +1,40 @@
+{
+  "id": "T-BUILDTIME-1",
+  "title": "Measure the 60-second core compile budget on Linux under load and cut what measures as a real lever",
+  "goal": "Measure cold and warm build, test, startup and change-to-useful-result times of Susi core separately on the CEO's Linux x86_64 laptop under real multi-agent load, identify the critical path and levers, land any lever that measures better without removing capability, and record the numbers.",
+  "size": "S",
+  "deps": [],
+  "created_by": "buildtime",
+  "created_unix": 1794345477,
+  "status": "in_progress",
+  "base": "d771008a39d6557dcdb485bf62f3642fcd0a0d31",
+  "mandate_revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311",
+  "scopes": [
+    ".agents/tasks/T-BUILDTIME-1.json",
+    ".agents/build-time.jsonl",
+    "Cargo.toml",
+    "docs/lean-core.md"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  },
+  "results": {},
+  "limitations": [],
+  "provenance": {
+    "agent": "buildtime",
+    "host": "CEO laptop, CachyOS Linux x86_64, 13th Gen Intel Core i7-13850HX, 28 logical CPUs, 219 GiB RAM",
+    "toolchain": "rustc 1.99.0 (b940084d7 2026-09-28), cargo 1.99.0",
+    "worktree": "susi-agent-buildtime, branch local-agent/buildtime, own target directory"
+  }
+}
