@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXSOCKETPARITY-1",
+  "feature": "F-CORE-SOCKET-PARITY-ACP-1",
+  "feature_id": "F-CORE-SOCKET-PARITY-ACP-1",
+  "title": "Classify ACP CLI process and local discovery commands in socket parity",
+  "goal": "Keep the socket parity ratchet truthful after the ACP CLI landed: classify acp serve as a process entry point and acp discover as a local discovery report without weakening any socket mapping.",
+  "size": "s",
+  "deps": ["T-CARBONCLOUD-5"],
+  "native_worker": "codex-socket-parity",
+  "created_by": "COMPLIANCERECORDCLOSE",
+  "created_unix": 1794504204,
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "socket_parity"]
+  },
+  "results": {
+    "socket_parity": "5 passed, 0 failed"
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXSOCKETPARITY-1.json",
+    "tests/socket_parity.rs"
+  ]
+}

@@ -370,6 +370,10 @@ const EXEMPT: &[(&str, &str)] = &[
         "process entry point: runs Susi's MCP stdio server; the socket is that MCP server",
     ),
     (
+        "acp",
+        "process entry point and local report: `acp serve` runs the ACP stdio endpoint, while `acp discover` prints the host's local discovery document",
+    ),
+    (
         "mcp call",
         "socket client: calls a tool on another MCP endpoint; the desktop calls tools/call on the socket itself, where registered servers' tools are served as server:tool proxies",
     ),
