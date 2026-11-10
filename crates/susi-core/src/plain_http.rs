@@ -128,6 +128,12 @@ pub struct Response {
     body: Body,
 }
 
+impl Read for Response {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.body.read(buf)
+    }
+}
+
 impl Response {
     /// First header value named `name` (case-insensitive).
     pub fn header(&self, name: &str) -> Option<&str> {
