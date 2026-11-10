@@ -3268,22 +3268,7 @@ mod tests {
     const APACHE: &str = "\n                                 Apache License\n                           Version 2.0, January 2004\n                        http://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n   (c) You must retain all copyright, patent, trademark notices.\n\n   Copyright [yyyy] [name of copyright owner]\n";
     const WIDGET: &str = "// Copyright 2024 The Widget Authors\n//\n// Licensed under the Apache License, Version 2.0.\n\npub fn widget() -> u32 {\n    7\n}\n";
 
-    fn copy_dir_all(src: &Path, dst: &Path) {
-        fs::create_dir_all(dst).unwrap();
-        for entry in fs::read_dir(src).unwrap() {
-            let entry = entry.unwrap();
-            let ty = entry.file_type().unwrap();
-            let dst_path = dst.join(entry.file_name());
-            if ty.is_dir() {
-                copy_dir_all(&entry.path(), &dst_path);
-            } else {
-                fs::copy(entry.path(), &dst_path).unwrap();
-                if let Ok(meta) = entry.metadata() {
-                    let _ = fs::set_permissions(&dst_path, meta.permissions());
-                }
-            }
-        }
-    }
+    use super::test_fixture_fs::copy_dir_all;
 
     struct Fixture {
         dir: PathBuf,
@@ -3963,3 +3948,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "test_fixture_fs.rs"]
+mod test_fixture_fs;

@@ -53,22 +53,9 @@ fn isolated<'a>(command: &'a mut Command, dir: &Path) -> &'a mut Command {
         .env("PATH", path_without_helper())
 }
 
-fn copy_dir_all(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for entry in std::fs::read_dir(src).unwrap() {
-        let entry = entry.unwrap();
-        let ty = entry.file_type().unwrap();
-        let dst_path = dst.join(entry.file_name());
-        if ty.is_dir() {
-            copy_dir_all(&entry.path(), &dst_path);
-        } else {
-            std::fs::copy(entry.path(), &dst_path).unwrap();
-            if let Ok(meta) = entry.metadata() {
-                let _ = std::fs::set_permissions(&dst_path, meta.permissions());
-            }
-        }
-    }
-}
+#[path = "../src/test_fixture_fs.rs"]
+mod test_fixture_fs;
+use test_fixture_fs::copy_dir_all;
 
 struct Fixture {
     root: PathBuf,

@@ -13,8 +13,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::sync::RwLock;
 
-const HMAC_BLOCK: usize = 64;
-
 /// Privacy posture for the substrate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -169,26 +167,9 @@ impl CapabilityToken {
     }
 }
 
+/// HMAC-SHA256: the one implementation lives in `susi_config::cluster_key`.
 fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
-    let mut keyed = [0u8; HMAC_BLOCK];
-    keyed[..32].copy_from_slice(key);
-    let mut ipad = [0x36u8; HMAC_BLOCK];
-    let mut opad = [0x5cu8; HMAC_BLOCK];
-    for i in 0..HMAC_BLOCK {
-        ipad[i] ^= keyed[i];
-        opad[i] ^= keyed[i];
-    }
-    let mut inner = Sha256::new();
-    inner.update(ipad);
-    inner.update(message);
-    let inner_hash = inner.finalize();
-    let mut outer = Sha256::new();
-    outer.update(opad);
-    outer.update(inner_hash);
-    let out = outer.finalize();
-    let mut mac = [0u8; 32];
-    mac.copy_from_slice(&out);
-    mac
+    crate::susi_config::cluster_key::hmac_sha256(key, message)
 }
 
 fn now_secs() -> u64 {

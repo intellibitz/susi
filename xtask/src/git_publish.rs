@@ -876,6 +876,10 @@ fn publish_main(
 }
 
 #[cfg(test)]
+#[path = "test_fixture_fs.rs"]
+mod test_fixture_fs;
+
+#[cfg(test)]
 mod tests {
     // Test assertions intentionally panic on a failed invariant.
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -1005,44 +1009,7 @@ mod tests {
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-    fn copy_dir_all(src: &Path, dst: &Path) {
-        fs::create_dir_all(dst).unwrap();
-        for entry in fs::read_dir(src).unwrap() {
-            let entry = entry.unwrap();
-            let ty = entry.file_type().unwrap();
-            let dst_path = dst.join(entry.file_name());
-            if ty.is_dir() {
-                copy_dir_all(&entry.path(), &dst_path);
-            } else {
-                fs::copy(entry.path(), &dst_path).unwrap();
-                if let Ok(meta) = entry.metadata() {
-                    let _ = fs::set_permissions(&dst_path, meta.permissions());
-                }
-            }
-        }
-    }
-
-    fn set_git_origin_url(repo: &Path, new_origin: &Path) {
-        let cfg_path = repo.join(".git/config");
-        let raw = fs::read_to_string(&cfg_path).unwrap();
-        let url_val = new_origin.to_str().unwrap().replace('\\', "/");
-        let mut in_origin = false;
-        let mut out = String::with_capacity(raw.len() + 64);
-        for line in raw.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with('[') {
-                in_origin = trimmed == "[remote \"origin\"]";
-                out.push_str(line);
-                out.push('\n');
-            } else if in_origin && trimmed.starts_with("url =") {
-                out.push_str(&format!("\turl = {url_val}\n"));
-            } else {
-                out.push_str(line);
-                out.push('\n');
-            }
-        }
-        fs::write(&cfg_path, out).unwrap();
-    }
+    use super::test_fixture_fs::{copy_dir_all, set_git_origin_url};
 
     struct Repo {
         root: PathBuf,
