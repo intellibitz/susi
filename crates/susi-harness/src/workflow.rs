@@ -539,42 +539,62 @@ fn is_oid(text: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Integration policy for remote and cloud agents (CEO mandate 2026-11-08).
+// Integration policy for autonomous and remote agents (Mandates 2026-11-08 & 73).
 // ---------------------------------------------------------------------------
 
-/// The refs only the gated host moves: direct pushes here are never an
-/// agent's to make.
+/// The refs only the gated host moves in branch-only mode.
 const GATE_ONLY_REFS: &[&str] = &["main", "refs/heads/main", "HEAD"];
+
+/// Protected release refs that development pushes never move directly without
+/// release qualification.
+const PROTECTED_RELEASE_PREFIXES: &[&str] = &[
+    "release/",
+    "refs/heads/release/",
+    "refs/tags/v",
+    "refs/tags/susi-release/",
+];
 
 /// Ref prefixes the native coordinator owns (claims, receipts, integration
 /// pointers).
 const COORDINATOR_REF_PREFIXES: &[&str] = &["refs/susi/"];
 
-/// Where a remote agent's work may be published and what a move out of
-/// core must prove before core deletes anything.
+/// How agents publish development contributions under [`IntegrationPolicy`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PublicationMode {
+    /// Branch-only mode (2026-11-08): agents push only `local-agent/<agent>`
+    /// once per gated cycle.
+    #[default]
+    BranchOnly,
+    /// Mandate 73 autonomous fast-main mode (2026-11-10): every agent works in
+    /// isolation (own worktree, branch, build output and scratch state) and may
+    /// publish non-force fast-forwards directly to unqualified development
+    /// `main` (`main` / `refs/heads/main`) or its own `local-agent/<agent>`
+    /// branch with zero mandatory cooldown, while coordinator refs, release
+    /// branches/tags, and foreign agent branches stay strictly refused.
+    FastMainStream,
+}
+
+/// Where an agent's work may be published and what a move out of core must
+/// prove before core deletes anything.
 ///
-/// Written after the 2026-11-07 incident: a remote agent pushed about sixty
-/// ungated commits straight to `main`, deleting roughly 20,000 lines under
-/// the message "migrated to commercial" while the destination origin
-/// received none of it. The rules are mechanical here so a wave that would
-/// repeat that is refused before a worker starts, and every worker brief
-/// carries them.
+/// Supports both the 2026-11-08 branch-only policy ([`Self::branch_only`]) and
+/// CEO Mandate 73's autonomous fast-main policy ([`Self::fast_main`]), while
+/// preserving every safety invariant: owned identity, disjoint scopes, `Task:`
+/// trailers, protected coordinator/release refs, and destination-first
+/// migrations with zero stubbed ports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntegrationPolicy {
-    /// Prefix of the one branch per agent and repository that an agent may
-    /// push (`local-agent/`).
+    /// Prefix of the per-agent isolated branch (`local-agent/`).
     pub agent_branch_prefix: String,
-    /// Shortest gated cycle on the integrating host, in seconds; an agent
-    /// batches its iterations into one push per cycle.
+    /// Shortest gated cycle in seconds (`0` in [`PublicationMode::FastMainStream`]).
     pub gate_cycle_secs: u64,
+    /// Active publication mode (`BranchOnly` or `FastMainStream`).
+    pub mode: PublicationMode,
 }
 
 impl Default for IntegrationPolicy {
     fn default() -> Self {
-        Self {
-            agent_branch_prefix: "local-agent/".to_string(),
-            gate_cycle_secs: 20 * 60,
-        }
+        Self::branch_only()
     }
 }
 
@@ -583,8 +603,10 @@ impl Default for IntegrationPolicy {
 pub enum PolicyViolation {
     /// The agent name cannot name a branch.
     BadAgentName(String),
-    /// The target is `main` or another ref only the gate moves.
+    /// The target is `main` or `HEAD` when restricted to branch-only mode.
     GateOnlyRef(String),
+    /// The target is a protected release branch or immutable release tag.
+    ProtectedReleaseRef(String),
     /// The target is the coordinator's own ref space.
     CoordinatorRef(String),
     /// The target is another agent's branch.
@@ -635,6 +657,10 @@ impl std::fmt::Display for PolicyViolation {
             Self::GateOnlyRef(target) => write!(
                 f,
                 "{target} is moved only by the gated host; publish on your local-agent branch"
+            ),
+            Self::ProtectedReleaseRef(target) => write!(
+                f,
+                "{target} is a protected release ref; release branches and immutable tags require full exact-tree qualification"
             ),
             Self::CoordinatorRef(target) => {
                 write!(f, "{target} belongs to the coordinator; agents never move refs/susi/*")
@@ -689,6 +715,29 @@ pub struct MigrationProof {
 }
 
 impl IntegrationPolicy {
+    /// Branch-only integration policy (2026-11-08 remote rule).
+    #[must_use]
+    pub fn branch_only() -> Self {
+        Self {
+            agent_branch_prefix: "local-agent/".to_string(),
+            gate_cycle_secs: 20 * 60,
+            mode: PublicationMode::BranchOnly,
+        }
+    }
+
+    /// Mandate 73 autonomous fast-main policy (2026-11-10): every agent works
+    /// in full isolation and publishes directly to unqualified development
+    /// `main` or its own `local-agent/<agent>` branch with zero gate cooldown
+    /// and zero dependency on any single coordinator agent.
+    #[must_use]
+    pub fn fast_main() -> Self {
+        Self {
+            agent_branch_prefix: "local-agent/".to_string(),
+            gate_cycle_secs: 0,
+            mode: PublicationMode::FastMainStream,
+        }
+    }
+
     /// The one branch `agent` publishes on.
     ///
     /// # Errors
@@ -715,21 +764,40 @@ impl IntegrationPolicy {
     ///
     /// # Errors
     ///
-    /// Returns the violation: `main` and the coordinator's refs are never an
-    /// agent's; another agent's branch is not either; anything outside the
-    /// agent branch prefix is refused.
+    /// Refuses coordinator refs (`refs/susi/*`), protected release refs
+    /// (`release/*`, `refs/tags/v*`), symbolic `HEAD`, foreign agent branches,
+    /// and — in [`PublicationMode::BranchOnly`] — `main` / `refs/heads/main`.
+    /// In [`PublicationMode::FastMainStream`], normal fast-forward pushes to
+    /// `main` / `refs/heads/main` and `agent`'s own branch are both permitted.
     pub fn check_push_target(&self, agent: &str, target: &str) -> Result<(), PolicyViolation> {
         let own = self.publish_branch(agent)?;
         let target = target.trim();
         let short = target.strip_prefix("refs/heads/").unwrap_or(target);
-        if GATE_ONLY_REFS.contains(&target) || GATE_ONLY_REFS.contains(&short) {
-            return Err(PolicyViolation::GateOnlyRef(target.to_string()));
-        }
         if COORDINATOR_REF_PREFIXES
             .iter()
             .any(|prefix| target.starts_with(prefix))
         {
             return Err(PolicyViolation::CoordinatorRef(target.to_string()));
+        }
+        if PROTECTED_RELEASE_PREFIXES
+            .iter()
+            .any(|prefix| target.starts_with(prefix) || short.starts_with(prefix))
+        {
+            return Err(PolicyViolation::ProtectedReleaseRef(target.to_string()));
+        }
+        if target == "HEAD" {
+            return Err(PolicyViolation::GateOnlyRef(target.to_string()));
+        }
+        if target == "main" || target == "refs/heads/main" || short == "main" {
+            return match self.mode {
+                PublicationMode::BranchOnly => {
+                    Err(PolicyViolation::GateOnlyRef(target.to_string()))
+                }
+                PublicationMode::FastMainStream => Ok(()),
+            };
+        }
+        if GATE_ONLY_REFS.contains(&target) || GATE_ONLY_REFS.contains(&short) {
+            return Err(PolicyViolation::GateOnlyRef(target.to_string()));
         }
         if !short.starts_with(&self.agent_branch_prefix) {
             return Err(PolicyViolation::NotAnAgentBranch(target.to_string()));
@@ -775,6 +843,40 @@ impl IntegrationPolicy {
                     subject,
                     trailer: trailer.to_string(),
                 });
+            }
+        }
+        Ok(())
+    }
+
+    /// Check that every commit in a multi-agent composed batch carries a valid
+    /// `Task: T-<ID>` trailer (used when any pluggable driver reconciles and
+    /// submits peer contributions to development `main` without overwriting
+    /// authorship).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PolicyViolation::MissingTaskTrailer`] if any commit lacks a
+    /// well-formed `T-...` task identifier.
+    pub fn check_composed_task_trailers<'a, I>(&self, messages: I) -> Result<(), PolicyViolation>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        for message in messages {
+            let subject = message.lines().next().unwrap_or("").to_string();
+            let trailer = message
+                .lines()
+                .rev()
+                .map(str::trim)
+                .find_map(|line| line.strip_prefix("Task:").map(str::trim))
+                .filter(|value| {
+                    value.len() >= 5
+                        && (value.starts_with("T-") || value.starts_with("t-"))
+                        && value
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                });
+            if trailer.is_none() {
+                return Err(PolicyViolation::MissingTaskTrailer { subject });
             }
         }
         Ok(())
@@ -826,19 +928,32 @@ impl IntegrationPolicy {
         Ok(())
     }
 
-    /// The lines every worker brief carries, so a remote worker reads the
-    /// rules with its task instead of discovering them from a refused push.
+    /// The lines every worker brief carries, so a worker reads the exact rules
+    /// for its publication mode (`BranchOnly` or `FastMainStream`).
     pub fn brief_lines(&self, agent: &str) -> Result<Vec<String>, PolicyViolation> {
         let branch = self.publish_branch(agent)?;
-        let minutes = self.gate_cycle_secs.div_ceil(60);
-        Ok(vec![
-            format!("Publish only on `{branch}`; never push `main`, never move `refs/susi/*`; the gated host integrates your branch."),
-            format!("Every commit ends with `Task: T-{}-<n>`; the task record in `.agents/tasks/` lists exactly the claimed scopes.", agent.trim().to_ascii_uppercase()),
-            "A move out of core counts only when the destination commit is on the commercial origin, declared, compiling and tested there; core deletes afterwards, in a change that names that commit. Never leave a port answering an error for a removed capability.".to_string(),
-            "Before every push, on the exact tree: cargo fmt --all --check; cargo check --workspace --all-targets --keep-going --offline --locked; cargo clippy --workspace --all-targets --offline --locked -- -D warnings; the touched crates' tests; the guard tests; GMCP evidence re-recorded for any gmcp change.".to_string(),
-            format!("One push per gated cycle (about {minutes} minutes); read the coordination board and your brief first; a stop note halts pushes at once."),
-            "Never edit a file in another agent's claim; keep files LF-ended; report `landed` or `migrated` only with the commit on the target origin.".to_string(),
-        ])
+        let upper = agent.trim().to_ascii_uppercase();
+        match self.mode {
+            PublicationMode::BranchOnly => {
+                let minutes = self.gate_cycle_secs.div_ceil(60);
+                Ok(vec![
+                    format!("Publish only on `{branch}`; never push `main`, never move `refs/susi/*`; the gated host integrates your branch."),
+                    format!("Every commit ends with `Task: T-{upper}-<n>`; the task record in `.agents/tasks/` lists exactly the claimed scopes."),
+                    "A move out of core counts only when the destination commit is on the commercial origin, declared, compiling and tested there; core deletes afterwards, in a change that names that commit. Never leave a port answering an error for a removed capability.".to_string(),
+                    "Before every push, on the exact tree: cargo fmt --all --check; cargo check --workspace --all-targets --keep-going --offline --locked; cargo clippy --workspace --all-targets --offline --locked -- -D warnings; the touched crates' tests; the guard tests; GMCP evidence re-recorded for any gmcp change.".to_string(),
+                    format!("One push per gated cycle (about {minutes} minutes); read the coordination board and your brief first; a stop note halts pushes at once."),
+                    "Never edit a file in another agent's claim; keep files LF-ended; report `landed` or `migrated` only with the commit on the target origin.".to_string(),
+                ])
+            }
+            PublicationMode::FastMainStream => Ok(vec![
+                format!("Work in full isolation (own worktree, private target dir, scratch home, and `{branch}`); publish non-force fast-forwards to unqualified development `main` or `{branch}` with zero mandatory cooldown and zero dependency on any single coordinator."),
+                format!("Every commit ends with `Task: T-{upper}-<n>`; record base commit, scopes, deps, `accept.cmd`, actual results and limitations in `.agents/tasks/` for distillation."),
+                "A move out of core counts only when the destination commit is on the commercial origin, declared, compiling and tested there; core deletes afterwards, in a change that names that commit. Never leave a port answering an error for a removed capability.".to_string(),
+                "Run focused checks in your private target dir (`fmt`, touched-crate `clippy -D warnings`, touched-crate tests, relevant guards) and report results honestly; full workspace gates belong to distilled release snapshots.".to_string(),
+                "Reconcile with the latest `origin/main` head and use atomic normal fast-forward updates; never force-push, never move `refs/susi/*` or `release/*` or `refs/tags/v*`, and never touch another agent's branch or claim.".to_string(),
+                "Keep files LF-ended; report `main` as unqualified development and `landed` only after `git ls-remote` confirms the commit on origin.".to_string(),
+            ]),
+        }
     }
 
     /// Refuse a plan whose task keys cannot name branches or collide after
@@ -865,427 +980,5 @@ impl IntegrationPolicy {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Task {
-        key: String,
-        deps: Vec<String>,
-        scopes: Vec<String>,
-    }
-
-    fn task(key: &str, deps: &[&str], scopes: &[&str]) -> Task {
-        Task {
-            key: key.into(),
-            deps: deps.iter().map(|dep| (*dep).to_string()).collect(),
-            scopes: scopes.iter().map(|scope| (*scope).to_string()).collect(),
-        }
-    }
-
-    impl WorkflowTask for Task {
-        fn key(&self) -> &str {
-            &self.key
-        }
-        fn deps(&self) -> &[String] {
-            &self.deps
-        }
-        fn scopes(&self) -> &[String] {
-            &self.scopes
-        }
-    }
-
-    fn keys<T: WorkflowTask>(tasks: &[T]) -> Vec<&str> {
-        tasks.iter().map(WorkflowTask::key).collect()
-    }
-
-    fn strings(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| (*value).to_string()).collect()
-    }
-
-    #[test]
-    fn normalize_scope_canonicalises_separators_case_and_dots() {
-        assert_eq!(
-            normalize_scope(" .\\Crates\\Susi-Core\\ ").unwrap(),
-            "crates/susi-core"
-        );
-        assert_eq!(normalize_scope("./docs//a.md/").unwrap(), "docs/a.md");
-        assert_eq!(normalize_scope("././x").unwrap(), "x");
-    }
-
-    #[test]
-    fn normalize_scope_rejects_empty_dot_parent_and_absolute() {
-        for raw in [
-            "", "  ", ".", "./", "..", "../x", "a/../b", "a/./b", "/etc", "\\x", "C:/x",
-        ] {
-            assert!(normalize_scope(raw).is_err(), "{raw:?} should be rejected");
-        }
-    }
-
-    #[test]
-    fn scopes_overlap_on_equality_and_component_prefixes_only() {
-        assert!(scopes_overlap("crates/susi-core", "crates/susi-core"));
-        assert!(scopes_overlap(
-            "crates/susi-core",
-            "crates/susi-core/src/lib.rs"
-        ));
-        assert!(scopes_overlap(
-            "crates/susi-core/src/lib.rs",
-            "crates/susi-core"
-        ));
-        assert!(!scopes_overlap("crates/susi-core", "crates/susi-core-defs"));
-        assert!(!scopes_overlap("crates/susi-core-defs", "crates/susi-core"));
-        assert!(!scopes_overlap("docs/a.md", "docs/b.md"));
-    }
-
-    #[test]
-    fn task_scopes_disjoint_normalizes_and_fails_closed() {
-        assert!(!task_scopes_disjoint(
-            &strings(&["Crates\\Susi-Core"]),
-            &strings(&["crates/susi-core/src/lib.rs"])
-        ));
-        assert!(task_scopes_disjoint(
-            &strings(&["crates/susi-core", "docs/a.md"]),
-            &strings(&["crates/susi-core-defs", "docs/b.md"])
-        ));
-        assert!(!task_scopes_disjoint(
-            &strings(&["../escape"]),
-            &strings(&["docs/b.md"])
-        ));
-    }
-
-    #[test]
-    fn validate_dependencies_rejects_unknown_and_cycles() {
-        let fine = [task("a", &[], &["x"]), task("b", &["a"], &["y"])];
-        assert!(validate_dependencies(&fine).is_ok());
-
-        let unknown = [task("a", &["ghost"], &["x"])];
-        let error = validate_dependencies(&unknown).unwrap_err().to_string();
-        assert!(error.contains("ghost"), "{error}");
-
-        let cycle = [
-            task("a", &["c"], &["x"]),
-            task("b", &["a"], &["y"]),
-            task("c", &["b"], &["z"]),
-        ];
-        let error = validate_dependencies(&cycle).unwrap_err().to_string();
-        assert!(error.contains("dependency cycle"), "{error}");
-        assert!(error.contains("a -> c -> b -> a"), "{error}");
-
-        let selfish = [task("a", &["a"], &["x"])];
-        let error = validate_dependencies(&selfish).unwrap_err().to_string();
-        assert!(error.contains("a -> a"), "{error}");
-    }
-
-    #[test]
-    fn overlapping_scopes_are_deferred_to_later_waves_in_plan_order() {
-        let tasks = [
-            task("a", &[], &["crates/susi-core"]),
-            task("b", &[], &["crates/susi-core/src/lib.rs"]),
-            task("c", &[], &["crates/susi-core-defs"]),
-            task("d", &[], &["docs/d.md"]),
-        ];
-        let schedule = WorkflowSchedule::build(&tasks, &BTreeSet::new(), &[], 4).unwrap();
-        assert_eq!(schedule.waves.len(), 2);
-        assert_eq!(schedule.waves[0].index, 0);
-        assert_eq!(keys(&schedule.waves[0].tasks), vec!["a", "c", "d"]);
-        assert_eq!(schedule.waves[1].index, 1);
-        assert_eq!(keys(&schedule.waves[1].tasks), vec!["b"]);
-        assert!(schedule.blocked.is_empty());
-    }
-
-    #[test]
-    fn waves_respect_max_parallel_and_dependencies() {
-        let tasks = [
-            task("a", &[], &["a"]),
-            task("b", &[], &["b"]),
-            task("c", &["a"], &["c"]),
-            task("d", &["c", "b"], &["d"]),
-        ];
-        let schedule = WorkflowSchedule::build(&tasks, &BTreeSet::new(), &[], 2).unwrap();
-        let waves: Vec<Vec<&str>> = schedule
-            .waves
-            .iter()
-            .map(|wave| keys(&wave.tasks))
-            .collect();
-        assert_eq!(waves, vec![vec!["a", "b"], vec!["c"], vec!["d"]]);
-
-        let landed: BTreeSet<String> = ["a".to_string()].into();
-        let resumed = WorkflowSchedule::build(&tasks, &landed, &[], 2).unwrap();
-        assert_eq!(keys(&resumed.waves[0].tasks), vec!["b", "c"]);
-    }
-
-    #[test]
-    fn active_claims_block_overlapping_tasks_and_their_dependents() {
-        let tasks = [
-            task("a", &[], &["crates/susi-core/src"]),
-            task("b", &[], &["docs/b.md"]),
-            task("c", &["a"], &["docs/c.md"]),
-        ];
-        let claimed = strings(&["crates/susi-core"]);
-        let schedule = WorkflowSchedule::build(&tasks, &BTreeSet::new(), &claimed, 4).unwrap();
-        assert_eq!(schedule.waves.len(), 1);
-        assert_eq!(keys(&schedule.waves[0].tasks), vec!["b"]);
-        assert_eq!(keys(&schedule.blocked), vec!["a", "c"]);
-    }
-
-    #[test]
-    fn next_wave_reports_an_invalid_scope() {
-        let tasks = [task("a", &[], &["../escape"])];
-        let pending: Vec<&Task> = tasks.iter().collect();
-        assert!(next_wave(&pending, &BTreeSet::new(), &[], 2).is_err());
-    }
-
-    fn write_claim(claims: &Path, name: &str, worktree: &Path, scopes: &[&str]) {
-        std::fs::write(
-            claims.join(format!("{name}.claim")),
-            format!(
-                "{CLAIM_HEADER}\n{name}\n{}\n{}\n{}\n",
-                worktree.display(),
-                "b".repeat(40),
-                scopes.join("\n")
-            ),
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn inspect_repo_workflow_reads_claims_slots_and_head_without_locking() {
-        let repo = tempfile::tempdir().unwrap();
-        let state = repo.path().join(".git/susi-local-workflow");
-        let claims = state.join("claims");
-        let slots = state.join("slots");
-        std::fs::create_dir_all(&claims).unwrap();
-        std::fs::create_dir_all(slots.join("1")).unwrap();
-        std::fs::create_dir_all(slots.join("2")).unwrap();
-        write_claim(
-            &claims,
-            "zeta",
-            &repo.path().join("wt-zeta"),
-            &["crates/susi-harness", ".agents/tasks/t-z.json"],
-        );
-        write_claim(&claims, "alpha", &repo.path().join("wt-alpha"), &["docs"]);
-        std::fs::write(claims.join("notes.txt"), "ignored").unwrap();
-        // The OS lock file is held open while we inspect: a reader that
-        // tried to lock it would block or fail; the inspector must not care.
-        let held = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(slots.join("1.lock"))
-            .unwrap();
-        held.lock().unwrap();
-        std::fs::write(slots.join("1/owner"), "pid=4242\n").unwrap();
-        std::fs::write(
-            slots.join("2/owner"),
-            "pid=7\nagent=antigravity\nscope=crates/susi-harness\n",
-        )
-        .unwrap();
-        std::fs::create_dir_all(slots.join("3")).unwrap();
-        let head = "c".repeat(40);
-        std::fs::create_dir_all(repo.path().join(".git/refs/susi/integration")).unwrap();
-        std::fs::write(
-            repo.path().join(".git/refs/susi/integration/current"),
-            format!("{head}\n"),
-        )
-        .unwrap();
-
-        let snapshot = inspect_repo_workflow(repo.path()).unwrap();
-        held.unlock().unwrap();
-
-        assert_eq!(
-            snapshot
-                .claims
-                .iter()
-                .map(|c| c.name.as_str())
-                .collect::<Vec<_>>(),
-            vec!["alpha", "zeta"]
-        );
-        let zeta = &snapshot.claims[1];
-        assert_eq!(zeta.worktree, repo.path().join("wt-zeta"));
-        assert_eq!(zeta.base, "b".repeat(40));
-        assert_eq!(
-            zeta.scopes,
-            strings(&["crates/susi-harness", ".agents/tasks/t-z.json"])
-        );
-        assert_eq!(
-            snapshot.active_slots,
-            vec![
-                SlotRecord {
-                    agent: "1".into(),
-                    pid: Some(4242),
-                    scope_key: None,
-                },
-                SlotRecord {
-                    agent: "antigravity".into(),
-                    pid: Some(7),
-                    scope_key: Some("crates/susi-harness".into()),
-                },
-            ]
-        );
-        assert_eq!(snapshot.integration_head.as_deref(), Some(head.as_str()));
-        assert_eq!(
-            snapshot.claimed_scopes(),
-            strings(&["docs", "crates/susi-harness", ".agents/tasks/t-z.json"])
-        );
-    }
-
-    #[test]
-    fn inspect_repo_workflow_handles_empty_state_and_packed_refs() {
-        let repo = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(repo.path().join(".git")).unwrap();
-        assert_eq!(
-            inspect_repo_workflow(repo.path()).unwrap(),
-            WorkflowSnapshot::default()
-        );
-        let head = "d".repeat(40);
-        std::fs::write(
-            repo.path().join(".git/packed-refs"),
-            format!("# pack-refs with: peeled\n{head} {INTEGRATION_REF}\n"),
-        )
-        .unwrap();
-        assert_eq!(
-            inspect_repo_workflow(repo.path())
-                .unwrap()
-                .integration_head
-                .as_deref(),
-            Some(head.as_str())
-        );
-    }
-
-    #[test]
-    fn inspect_repo_workflow_rejects_a_malformed_claim() {
-        let repo = tempfile::tempdir().unwrap();
-        let claims = repo.path().join(".git/susi-local-workflow/claims");
-        std::fs::create_dir_all(&claims).unwrap();
-        std::fs::write(claims.join("bad.claim"), "susi-local-claim-v1\nbad\n").unwrap();
-        assert!(inspect_repo_workflow(repo.path()).is_err());
-        assert!(inspect_repo_workflow(&repo.path().join("missing")).is_err());
-    }
-
-    // --- integration policy ---------------------------------------------
-
-    #[test]
-    fn an_agent_publishes_on_its_own_branch_and_nowhere_else() {
-        let policy = IntegrationPolicy::default();
-        assert_eq!(
-            policy.publish_branch("Antigravity").ok(),
-            Some("local-agent/antigravity".to_string())
-        );
-        assert!(policy
-            .check_push_target("antigravity", "local-agent/antigravity")
-            .is_ok());
-        assert!(policy
-            .check_push_target("antigravity", "refs/heads/local-agent/antigravity")
-            .is_ok());
-        assert_eq!(
-            policy.check_push_target("antigravity", "main"),
-            Err(PolicyViolation::GateOnlyRef("main".into()))
-        );
-        assert_eq!(
-            policy.check_push_target("antigravity", "refs/heads/main"),
-            Err(PolicyViolation::GateOnlyRef("refs/heads/main".into()))
-        );
-        assert_eq!(
-            policy.check_push_target("antigravity", "refs/susi/integration/current"),
-            Err(PolicyViolation::CoordinatorRef(
-                "refs/susi/integration/current".into()
-            ))
-        );
-        assert_eq!(
-            policy.check_push_target("antigravity", "local-agent/gemini"),
-            Err(PolicyViolation::ForeignBranch {
-                target: "local-agent/gemini".into(),
-                own: "local-agent/antigravity".into(),
-            })
-        );
-        assert_eq!(
-            policy.check_push_target("antigravity", "feature/x"),
-            Err(PolicyViolation::NotAnAgentBranch("feature/x".into()))
-        );
-        assert!(matches!(
-            policy.publish_branch("bad name/"),
-            Err(PolicyViolation::BadAgentName(_))
-        ));
-    }
-
-    #[test]
-    fn every_commit_in_a_batch_names_the_agents_task() {
-        let policy = IntegrationPolicy::default();
-        let good = [
-            "refactor: x\n\nTask: T-GEMINI-1\n",
-            "fix: y\n\nTask: t-gemini-2",
-        ];
-        assert!(policy.check_commit_trailers("gemini", good).is_ok());
-        assert_eq!(
-            policy.check_commit_trailers("gemini", ["[iter 320/400] delete crate"]),
-            Err(PolicyViolation::MissingTaskTrailer {
-                subject: "[iter 320/400] delete crate".into()
-            })
-        );
-        assert_eq!(
-            policy.check_commit_trailers("gemini", ["chore\n\nTask: T-LEAN-1"]),
-            Err(PolicyViolation::ForeignTaskTrailer {
-                subject: "chore".into(),
-                trailer: "T-LEAN-1".into()
-            })
-        );
-    }
-
-    #[test]
-    fn core_deletes_only_after_the_destination_is_proven() {
-        let policy = IntegrationPolicy::default();
-        let module = "crates/susi-gemi/src/engines/alpha.rs";
-        let mut proof = MigrationProof {
-            module: module.into(),
-            ..MigrationProof::default()
-        };
-        assert_eq!(
-            policy.check_migration(&proof),
-            Err(PolicyViolation::DeletionBeforeDestination {
-                module: module.into()
-            })
-        );
-        proof.destination_commit = Some("c128ef95".into());
-        assert!(matches!(
-            policy.check_migration(&proof),
-            Err(PolicyViolation::DestinationUnproven { missing, .. })
-                if missing.contains("not declared")
-        ));
-        proof.destination_declared = true;
-        proof.destination_compiles = true;
-        assert!(matches!(
-            policy.check_migration(&proof),
-            Err(PolicyViolation::DestinationUnproven { missing, .. })
-                if missing.contains("tests")
-        ));
-        proof.destination_tests_pass = true;
-        assert!(policy.check_migration(&proof).is_ok());
-        proof.ports_kept = vec![("gemi /v1/chat/completions local engine".into(), None)];
-        assert!(matches!(
-            policy.check_migration(&proof),
-            Err(PolicyViolation::StubbedCapability { .. })
-        ));
-        proof.ports_kept = vec![(
-            "gemi /v1/chat/completions local engine".into(),
-            Some("susi-gpu-fabric plug over GEMI 9091".into()),
-        )];
-        assert!(policy.check_migration(&proof).is_ok());
-    }
-
-    #[test]
-    fn worker_briefs_carry_the_rules_and_plans_cannot_share_a_branch() {
-        let policy = IntegrationPolicy::default();
-        let lines = policy.brief_lines("Gemini").unwrap_or_default();
-        assert_eq!(lines.len(), 6);
-        assert!(lines[0].contains("`local-agent/gemini`"));
-        assert!(lines[1].contains("Task: T-GEMINI-<n>"));
-        assert!(lines[4].contains("20 minutes"));
-        let ok = [task("alpha", &[], &["a"]), task("beta", &[], &["b"])];
-        assert!(policy.validate_plan(&ok).is_ok());
-        let clash = [task("Alpha", &[], &["a"]), task("alpha", &[], &["b"])];
-        assert!(policy.validate_plan(&clash).is_err());
-        let bad = [task("no spaces", &[], &["a"])];
-        assert!(policy.validate_plan(&bad).is_err());
-    }
-}
+#[path = "tests/workflow.rs"]
+mod tests;
