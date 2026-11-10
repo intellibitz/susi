@@ -259,8 +259,11 @@ impl PlaneHandler for GemiPlaneHandler {
                 // `requires` (absent = none): declared request capability —
                 // forwarded into the engine's local-rung gate.
                 let requires = payload.get("requires").and_then(|v| v.as_str());
+                let chat = payload.get("chat").cloned();
                 Ok(json!({
-                    "text": GemiEngine::generate_reasoning_deep_opts(prompt, &ws, None, min_c, requires)
+                    "text": GemiEngine::generate_reasoning_deep_opts_chat(
+                        prompt, &ws, None, min_c, requires, chat
+                    )
                 }))
             }
             topics::GEMI_INFER_GENERATE_DEEP_MODEL => {
@@ -276,8 +279,11 @@ impl PlaneHandler for GemiPlaneHandler {
                     .and_then(|v| v.as_str())
                     .and_then(parse_complexity);
                 let requires = payload.get("requires").and_then(|v| v.as_str());
+                let chat = payload.get("chat").cloned();
                 Ok(json!({
-                    "text": GemiEngine::generate_reasoning_deep_opts(prompt, &ws, Some(model), min_c, requires)
+                    "text": GemiEngine::generate_reasoning_deep_opts_chat(
+                        prompt, &ws, Some(model), min_c, requires, chat
+                    )
                 }))
             }
             topics::GEMI_INFER_VERIFY => {
@@ -322,13 +328,14 @@ impl PlaneHandler for GemiPlaneHandler {
                 // capability — `"tools"` gates the local rung on a
                 // tool-capable model and injects the registered schemas.
                 let requires = payload.get("requires").and_then(|v| v.as_str());
+                let chat = payload.get("chat").cloned();
                 let text = if deep {
-                    GemiEngine::generate_reasoning_stream_deep_meta(
-                        prompt, &ws, &emit, model, &meta,
+                    GemiEngine::generate_reasoning_stream_deep_meta_chat(
+                        prompt, &ws, &emit, model, &meta, chat,
                     )
                 } else {
-                    GemiEngine::generate_reasoning_stream_meta(
-                        prompt, &ws, &emit, model, &meta, requires,
+                    GemiEngine::generate_reasoning_stream_meta_chat(
+                        prompt, &ws, &emit, model, &meta, requires, chat,
                     )
                 };
                 Ok(json!({ "text": text }))
