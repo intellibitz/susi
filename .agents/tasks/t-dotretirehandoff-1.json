@@ -30,11 +30,9 @@
       "branch_test_handoff",
       "--offline",
       "--locked",
-      "retired_handoff_always_fails_closed_without_git_or_network",
       "--",
-      "--exact",
       "--test-threads=1"
     ]
   },
-  "verification": "2026-11-10: pinned rustfmt --edition 2021 --check xtask/tests/branch_test_handoff.rs passed. rustc --edition=2021 --test xtask/tests/branch_test_handoff.rs -o <private-state>/branch_test_handoff.exe compiled; CARGO_MANIFEST_DIR points to this worktree xtask. Exact retired_handoff_always_fails_closed_without_git_or_network --exact --test-threads=1: 1 passed, 0 failed, 2 filtered out. All child processes used cleared environment and private home/temp/output. Cargo, unrelated Bash tests, full gate and combined-tree integration not run here; serialized publisher owns qualification. Codex."
+  "verification": "2026-11-10: pinned rustfmt --edition 2021 --check xtask/tests/branch_test_handoff.rs passed. rustc --edition=2021 --test xtask/tests/branch_test_handoff.rs -o <private-state>/branch_test_handoff.exe compiled; CARGO_MANIFEST_DIR points to this worktree xtask. Exact retired_handoff_always_fails_closed_without_git_or_network --exact --test-threads=1: 1 passed, 0 failed, 2 filtered out. All child processes used cleared environment and private home/temp/output. Cargo, unrelated Bash tests, full gate and combined-tree integration not run here; serialized publisher owns qualification. Codex. Follow-up: pinned rustfmt check and standalone rustc compilation passed again. Exact retired_handoff_always_fails_closed_without_git_or_network: 1 passed, 0 failed, 2 filtered. Exact remote_gate_does_not_claim_local_acceptance_or_cache_a_false_proof: 1 passed, 0 failed, 2 filtered, 7.77s. Matrix copies real retired script, local bare non-GitHub origin, both SUSI_BRANCH_CI_HANDOFF/SUSI_FINISH_REMOTE_GATE flags 0/1 and local success/failure (8 combinations). Legacy behavior uses already-installed Git Bash on Windows; native retirement contract requires no shell. Unix execution and broader branch-selection test not run. Native hook migration owns hook dispatch/push safety coverage. No production or combined-tree qualification claimed."
 }
