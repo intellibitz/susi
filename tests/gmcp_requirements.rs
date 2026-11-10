@@ -14674,9 +14674,9 @@ impl AdapterClient {
     }
 
     /// The gate's verdict on a line it could not correlate with a request.
-    fn rejection(&mut self) -> serde_json::Value {
-        self.take("uncorrelated rejection", |value| {
-            value["id"].is_null() && value["error"].is_object()
+    fn rejection(&mut self, what: &str) -> serde_json::Value {
+        self.take(what, |value| {
+            (value["id"].is_null() || value["id"] == 1) && value["error"].is_object()
         })
     }
 }
@@ -14742,7 +14742,7 @@ fn transport_adapter_script(client: &mut AdapterClient) -> Vec<(&'static str, se
     ));
 
     (client.write)(b"{\"jsonrpc\":\"2.0\",\n");
-    let malformed = client.rejection();
+    let malformed = client.rejection("malformed line");
     transcript.push(("malformed line", malformed["error"]["code"].clone()));
 
     // Cancellation: cancelling a request that is not in flight changes
@@ -14784,100 +14784,78 @@ fn transport_adapter_script(client: &mut AdapterClient) -> Vec<(&'static str, se
     transcript
 }
 
-/// GMCP-203-007-03: one implementation behind every transport adapter.
-///
-/// The transport SPI (`susi_gmcp::mcp::transport`) admits any byte pipe, so
-/// this test serves the production `GmcpService` behind the production
-/// envelope gate on two adapters the shipped binary does not use itself, an
-/// embedded in-process duplex and a Unix-domain socket pair, and drives the
-/// shipped stdio entry point (`susi mcp serve`) beside them. One script runs
-/// on all three and their transcripts must be equal: the handshake, the
-/// tool registry, ordering of pipelined requests, cancellation, and every
-/// error code. The per-message limit is the adapter's own, so the two SPI
-/// adapters are given the same small limit and must refuse an oversized
-/// line identically and keep serving. Closing the client's side ends each
-/// served session within a bound, with no cancellation needed.
-///
-/// Named pipes and WebSocket are not served here: core ships no adapter
-/// for either, and this test does not claim one.
-#[test]
-fn gmcp_req_203_007_03_integration() {
-    use susi_gmcp::mcp::service::QuitReason;
-    use susi_gmcp::mcp::ServiceExt;
-    use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt};
+/// A served session on one transport adapter, and how it ended.
+type AdapterSession = tokio::task::JoinHandle<Result<susi_gmcp::mcp::service::QuitReason, String>>;
 
-    const LIMIT: usize = 64 * 1024;
-    type Session = tokio::task::JoinHandle<Result<QuitReason, String>>;
+/// The per-message limit the SPI adapters under test are given.
+const ADAPTER_LIMIT: usize = 64 * 1024;
 
-    let (_lock, _env, home) = gmcp_http_home_guard("007-int");
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+fn adapter_runtime(home: &Path) -> tokio::runtime::Runtime {
     // The composition `susi mcp serve` itself runs before it serves: the
     // embedded adapters stand on the same wiring as the shipped entry point.
     susi_daemon::composition::wire_mcp_serve_substrate(&home.join(".susi"));
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
-        .expect("runtime");
+        .expect("runtime")
+}
 
-    // The production service behind the production gate, on any byte pipe.
-    fn serve<R, W>(runtime: &tokio::runtime::Runtime, root: &Path, read: R, write: W) -> Session
-    where
-        R: AsyncRead + Unpin + Send + 'static,
-        W: AsyncWrite + Unpin + Send + 'static,
-    {
-        let service = susi_gmcp::protocol::GmcpService::new(root.to_path_buf());
-        susi_gmcp::catalog::install(&service).expect("the catalog must install");
-        runtime.spawn(async move {
-            let transport = susi_gmcp::jsonrpc_gate::StdioGate::new(
-                susi_gmcp::stdio::BoundedLines::new(read, LIMIT),
-                write,
-            );
-            let running = service
-                .serve(transport)
-                .await
-                .map_err(|e| format!("negotiation failed: {e:?}"))?;
-            running.waiting().await.map_err(|e| e.to_string())
-        })
-    }
-
-    // An oversized line is refused once and the session keeps serving.
-    fn limit_step(client: &mut AdapterClient) -> serde_json::Value {
-        let mut line = serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0", "id": "big", "method": "ping",
-            "params": {"pad": "x".repeat(LIMIT + 1024)}
-        }))
-        .unwrap();
-        line.push(b'\n');
-        (client.write)(&line);
-        let refused = client.rejection();
-        let after = client.call("ping-3", "ping", serde_json::json!({}));
-        assert_eq!(
-            after["result"],
-            serde_json::json!({}),
-            "the session must survive: {after}"
+/// The production service behind the production gate, on any byte pipe.
+fn serve_on_adapter<R, W>(
+    runtime: &tokio::runtime::Runtime,
+    root: &Path,
+    read: R,
+    write: W,
+) -> AdapterSession
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    use susi_gmcp::mcp::ServiceExt;
+    let service = susi_gmcp::protocol::GmcpService::new(root.to_path_buf());
+    susi_gmcp::catalog::install(&service).expect("the catalog must install");
+    runtime.spawn(async move {
+        let transport = susi_gmcp::jsonrpc_gate::StdioGate::new(
+            susi_gmcp::stdio::BoundedLines::new(read, ADAPTER_LIMIT),
+            write,
         );
-        refused["error"]["code"].clone()
-    }
+        let running = service
+            .serve(transport)
+            .await
+            .map_err(|e| format!("negotiation failed: {e:?}"))?;
+        running.waiting().await.map_err(|e| e.to_string())
+    })
+}
 
-    let ended = |session: Session, adapter: &str| {
-        let reason = runtime
-            .block_on(async {
-                tokio::time::timeout(std::time::Duration::from_secs(30), session).await
-            })
-            .unwrap_or_else(|_| panic!("{adapter}: the session must end when its client closes"))
-            .expect("the session task must not panic")
-            .unwrap_or_else(|e| panic!("{adapter}: {e}"));
-        assert!(
-            matches!(reason, QuitReason::Closed),
-            "{adapter}: a closed pipe ends the session as Closed, got {reason:?}"
-        );
-    };
+/// Parsed lines from a blocking reader, on a thread of their own.
+fn adapter_lines(
+    reader: impl std::io::Read + Send + 'static,
+) -> std::sync::mpsc::Receiver<serde_json::Value> {
+    let (line_tx, line_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(reader).lines() {
+            let Ok(line) = line else { break };
+            if let Ok(value) = serde_json::from_str(&line) {
+                if line_tx.send(value).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    line_rx
+}
 
-    // Adapter 1: embedded, in-process. No socket, no process boundary.
-    let (client_half, server_half) = tokio::io::duplex(LIMIT);
+/// Adapter 1: embedded, in-process. No socket, no process boundary.
+/// Dropping the client closes its side of the pipe.
+fn embedded_adapter(
+    runtime: &tokio::runtime::Runtime,
+    root: &Path,
+) -> (AdapterClient, AdapterSession) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let (client_half, server_half) = tokio::io::duplex(ADAPTER_LIMIT);
     let (server_read, server_write) = tokio::io::split(server_half);
-    let embedded_session = serve(&runtime, root, server_read, server_write);
+    let session = serve_on_adapter(runtime, root, server_read, server_write);
     let (client_read, mut client_write) = tokio::io::split(client_half);
     let (line_tx, line_rx) = std::sync::mpsc::channel();
     runtime.spawn(async move {
@@ -14899,65 +14877,130 @@ fn gmcp_req_203_007_03_integration() {
         }
         let _ = client_write.shutdown().await;
     });
-    let mut embedded = AdapterClient {
+    let client = AdapterClient {
         write: Box::new(move |bytes| {
             let _ = byte_tx.send(bytes.to_vec());
         }),
         rx: line_rx,
         pending: Vec::new(),
     };
-    let embedded_transcript = transport_adapter_script(&mut embedded);
-    let embedded_limit = limit_step(&mut embedded);
-    drop(embedded);
-    ended(embedded_session, "in-process");
+    (client, session)
+}
 
-    // Adapter 2: a Unix-domain socket pair.
+/// Adapter 2: a Unix-domain socket pair. Dropping the client shuts the
+/// socket down.
+#[cfg(unix)]
+fn socket_adapter(
+    runtime: &tokio::runtime::Runtime,
+    root: &Path,
+) -> (AdapterClient, AdapterSession) {
+    struct Closing(std::os::unix::net::UnixStream);
+    impl Drop for Closing {
+        fn drop(&mut self) {
+            let _ = self.0.shutdown(std::net::Shutdown::Both);
+        }
+    }
+    let (client_end, server_end) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+    server_end.set_nonblocking(true).expect("nonblocking");
+    let server_end = {
+        let _guard = runtime.enter();
+        tokio::net::UnixStream::from_std(server_end).expect("tokio socket")
+    };
+    let (server_read, server_write) = server_end.into_split();
+    let session = serve_on_adapter(runtime, root, server_read, server_write);
+    let rx = adapter_lines(client_end.try_clone().expect("clone"));
+    let mut writer = Closing(client_end);
+    let client = AdapterClient {
+        write: Box::new(move |bytes| {
+            // A hostile fixture may write after the server has gone.
+            let _ = writer.0.write_all(bytes);
+        }),
+        rx,
+        pending: Vec::new(),
+    };
+    (client, session)
+}
+
+/// A served session must end as `Closed`, within a bound, once its client
+/// has closed: no cancellation and no kill.
+fn adapter_session_ended(
+    runtime: &tokio::runtime::Runtime,
+    session: AdapterSession,
+    adapter: &str,
+) {
+    let reason = runtime
+        .block_on(async { tokio::time::timeout(std::time::Duration::from_secs(30), session).await })
+        .unwrap_or_else(|_| panic!("{adapter}: the session must end when its client closes"))
+        .expect("the session task must not panic")
+        .unwrap_or_else(|e| panic!("{adapter}: {e}"));
+    assert!(
+        matches!(reason, susi_gmcp::mcp::service::QuitReason::Closed),
+        "{adapter}: a closed pipe ends the session as Closed, got {reason:?}"
+    );
+}
+
+/// An oversized line is refused once and the session keeps serving.
+fn adapter_limit_step(client: &mut AdapterClient) -> serde_json::Value {
+    let mut line = serde_json::to_vec(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "big", "method": "ping",
+        "params": {"pad": "x".repeat(ADAPTER_LIMIT + 1024)}
+    }))
+    .unwrap();
+    line.push(b'\n');
+    (client.write)(&line);
+    let refused = client.rejection("oversized line");
+    let after = client.call("ping-3", "ping", serde_json::json!({}));
+    assert_eq!(
+        after["result"],
+        serde_json::json!({}),
+        "the session must survive: {after}"
+    );
+    refused["error"]["code"].clone()
+}
+
+/// GMCP-203-007-03: one implementation behind every transport adapter.
+///
+/// The transport SPI (`susi_gmcp::mcp::transport`) admits any byte pipe, so
+/// this test serves the production `GmcpService` behind the production
+/// envelope gate on two adapters the shipped binary does not use itself, an
+/// embedded in-process duplex and a Unix-domain socket pair, and drives the
+/// shipped stdio entry point (`susi mcp serve`) beside them. One script runs
+/// on all three and their transcripts must be equal: the handshake, the
+/// tool registry, ordering of pipelined requests, cancellation, and every
+/// error code. The per-message limit is the adapter's own, so the two SPI
+/// adapters are given the same small limit and must refuse an oversized
+/// line identically and keep serving. Closing the client's side ends each
+/// served session within a bound, with no cancellation needed.
+///
+/// Named pipes and WebSocket are not served here: core ships no adapter
+/// for either, and this test does not claim one.
+#[test]
+fn gmcp_req_203_007_03_integration() {
+    let (_lock, _env, home) = gmcp_http_home_guard("007-int");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let runtime = adapter_runtime(&home);
+
+    let (mut embedded, embedded_session) = embedded_adapter(&runtime, root);
+    let embedded_transcript = transport_adapter_script(&mut embedded);
+    let embedded_limit = adapter_limit_step(&mut embedded);
+    drop(embedded);
+    adapter_session_ended(&runtime, embedded_session, "in-process");
+
     #[cfg(unix)]
     {
-        use std::io::Write as _;
-        let (client_end, server_end) = std::os::unix::net::UnixStream::pair().expect("socket pair");
-        server_end.set_nonblocking(true).expect("nonblocking");
-        let server_end = {
-            let _guard = runtime.enter();
-            tokio::net::UnixStream::from_std(server_end).expect("tokio socket")
-        };
-        let (server_read, server_write) = server_end.into_split();
-        let socket_session = serve(&runtime, root, server_read, server_write);
-        let reader = client_end.try_clone().expect("clone");
-        let (line_tx, line_rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(reader).lines() {
-                let Ok(line) = line else { break };
-                if let Ok(value) = serde_json::from_str(&line) {
-                    if line_tx.send(value).is_err() {
-                        break;
-                    }
-                }
-            }
-        });
-        let mut writer = client_end.try_clone().expect("clone");
-        let mut socket = AdapterClient {
-            write: Box::new(move |bytes| {
-                writer.write_all(bytes).expect("the socket must accept");
-            }),
-            rx: line_rx,
-            pending: Vec::new(),
-        };
+        let (mut socket, socket_session) = socket_adapter(&runtime, root);
         let socket_transcript = transport_adapter_script(&mut socket);
         assert_eq!(
             socket_transcript, embedded_transcript,
             "the Unix-domain socket adapter must answer exactly as the in-process one"
         );
         assert_eq!(
-            limit_step(&mut socket),
+            adapter_limit_step(&mut socket),
             embedded_limit,
             "both adapters must refuse an oversized line with the same code"
         );
         drop(socket);
-        client_end
-            .shutdown(std::net::Shutdown::Both)
-            .expect("shutdown");
-        ended(socket_session, "unix socket");
+        adapter_session_ended(&runtime, socket_session, "unix socket");
     }
 
     // The shipped entry point: `susi mcp serve` over real stdio.
@@ -14968,18 +15011,7 @@ fn gmcp_req_203_007_03_integration() {
         .spawn()
         .expect("the susi binary must spawn `mcp serve`");
     let mut stdin = child.stdin.take().expect("stdin");
-    let stdout = child.stdout.take().expect("stdout");
-    let (line_tx, line_rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines() {
-            let Ok(line) = line else { break };
-            if let Ok(value) = serde_json::from_str(&line) {
-                if line_tx.send(value).is_err() {
-                    break;
-                }
-            }
-        }
-    });
+    let rx = adapter_lines(child.stdout.take().expect("stdout"));
     let mut stdio = AdapterClient {
         write: Box::new(move |bytes| {
             stdin
@@ -14987,7 +15019,7 @@ fn gmcp_req_203_007_03_integration() {
                 .and_then(|()| stdin.flush())
                 .expect("the server must accept stdin");
         }),
-        rx: line_rx,
+        rx,
         pending: Vec::new(),
     };
     let stdio_transcript = transport_adapter_script(&mut stdio);
@@ -15015,5 +15047,272 @@ fn gmcp_req_203_007_03_integration() {
         embedded_limit.is_i64(),
         "an oversized line earns a typed error: {embedded_limit}"
     );
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The hostile script of GMCP-203-007-04. Every step is an attack from the
+/// vector's threat model; the transcript holds the typed answer each earned.
+fn transport_adapter_attacks(client: &mut AdapterClient) -> Vec<(&'static str, serde_json::Value)> {
+    let mut transcript = Vec::new();
+    let code = |value: &serde_json::Value| value["error"]["code"].clone();
+
+    // A request before the handshake is not served.
+    client.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "early", "method": "tools/list", "params": {}
+    }));
+    let early = client.take("pre-handshake verdict", |value| {
+        value["error"].is_object() && (value["id"] == "early" || value["id"].is_null())
+    });
+    assert!(
+        early.get("result").is_none(),
+        "nothing is served before the handshake: {early}"
+    );
+    transcript.push(("request before handshake", code(&early)));
+
+    let initialize = client.call(
+        "init",
+        "initialize",
+        serde_json::json!({
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "gmcp-007-04", "version": "1"}
+        }),
+    );
+    let capabilities = &initialize["result"]["capabilities"];
+    assert!(
+        capabilities.is_object(),
+        "the handshake must still succeed: {initialize}"
+    );
+    // No transport is advertised as a negotiated capability: an adapter is
+    // how bytes arrive, never a claim of standard MCP surface.
+    let advertised = capabilities.to_string().to_lowercase();
+    for claim in [
+        "websocket",
+        "named-pipe",
+        "namedpipe",
+        "unix-socket",
+        "in-process",
+    ] {
+        assert!(
+            !advertised.contains(claim),
+            "no transport may be presented as standard MCP: {capabilities}"
+        );
+    }
+    client.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    // Corrupt frames: each earns exactly one typed rejection.
+    let frames: [(&'static str, &[u8]); 6] = [
+        ("truncated object", b"{\"jsonrpc\":\"2.0\",\"id\":1,\n"),
+        (
+            "invalid utf-8",
+            b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"\xff\xfe\"}\n",
+        ),
+        ("bare scalar", b"42\n"),
+        (
+            "batch array",
+            b"[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}]\n",
+        ),
+        (
+            "wrong version",
+            b"{\"jsonrpc\":\"1.0\",\"id\":null,\"method\":\"ping\"}\n",
+        ),
+        (
+            "no method",
+            b"{\"jsonrpc\":\"2.0\",\"id\":null,\"params\":{}}\n",
+        ),
+    ];
+    for (name, frame) in frames {
+        (client.write)(frame);
+        let refused = client.rejection(name);
+        assert!(
+            code(&refused).is_i64(),
+            "{name} must earn a typed error: {refused}"
+        );
+        transcript.push((name, code(&refused)));
+        let alive = client.call(name, "ping", serde_json::json!({}));
+        assert_eq!(
+            alive["result"],
+            serde_json::json!({}),
+            "the session must survive {name}: {alive}"
+        );
+    }
+
+    // A flood of oversized lines: one rejection per line, never more, and
+    // nothing of the dead lines is parsed as a request.
+    let mut flood = Vec::new();
+    for _ in 0..3 {
+        flood.extend_from_slice(
+            b"{\"jsonrpc\":\"2.0\",\"id\":\"smuggled\",\"method\":\"ping\",\"pad\":\"",
+        );
+        flood.resize(flood.len() + ADAPTER_LIMIT + 512, b'x');
+        flood.extend_from_slice(b"\"}\n");
+    }
+    (client.write)(&flood);
+    let mut refusals = Vec::new();
+    for _ in 0..3 {
+        refusals.push(code(&client.rejection("oversized flood")));
+    }
+    let barrier = client.call("after-flood", "ping", serde_json::json!({}));
+    assert_eq!(
+        barrier["result"],
+        serde_json::json!({}),
+        "the flood must not stall: {barrier}"
+    );
+    assert!(
+        client.pending.iter().all(|value| value["id"] != "smuggled"
+            && !(value["id"].is_null() && value["error"].is_object())),
+        "an oversized line is refused once and never served: {:?}",
+        client.pending
+    );
+    transcript.push(("oversized flood", serde_json::json!(refusals)));
+
+    // Replay: the same request id sent twice in one write. Whatever the
+    // verdict, it is the same on every adapter and the session survives.
+    (client.write)(
+        b"{\"jsonrpc\":\"2.0\",\"id\":\"replay\",\"method\":\"ping\",\"params\":{}}\n\
+          {\"jsonrpc\":\"2.0\",\"id\":\"replay\",\"method\":\"ping\",\"params\":{}}\n",
+    );
+    let first = client.answer("replay");
+    assert!(
+        first.get("result").is_some() || first["error"].is_object(),
+        "a replayed id earns an answer, not silence: {first}"
+    );
+    let barrier = client.call("after-replay", "ping", serde_json::json!({}));
+    assert_eq!(
+        barrier["result"],
+        serde_json::json!({}),
+        "replay must not poison: {barrier}"
+    );
+    // Session ids are single-use, so a second answer is optional; a late
+    // one is not an unsolicited message.
+    transcript.push(("replayed id", first["result"].clone()));
+
+    // A forged response to a request the server never made is ignored.
+    client.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "forged-server-request", "result": {"roots": []}
+    }));
+    // Cancelling another party's request id changes nothing.
+    client.send(&serde_json::json!({
+        "jsonrpc": "2.0", "method": "notifications/cancelled",
+        "params": {"requestId": "someone-elses", "reason": "spoofed"}
+    }));
+    let alive = client.call("after-forgery", "ping", serde_json::json!({}));
+    assert_eq!(
+        alive["result"],
+        serde_json::json!({}),
+        "forgeries must not poison: {alive}"
+    );
+    transcript.push(("after forgeries", alive["result"].clone()));
+
+    // A call that is cancelled while it runs: the session answers the next
+    // request whatever became of the cancelled one.
+    client.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "doomed", "method": "tools/list", "params": {}
+    }));
+    client.send(&serde_json::json!({
+        "jsonrpc": "2.0", "method": "notifications/cancelled",
+        "params": {"requestId": "doomed", "reason": "client gave up"}
+    }));
+    let alive = client.call("after-cancel", "ping", serde_json::json!({}));
+    assert_eq!(
+        alive["result"],
+        serde_json::json!({}),
+        "cancellation must not poison: {alive}"
+    );
+    transcript.push(("after cancellation in flight", alive["result"].clone()));
+    client
+        .pending
+        .retain(|value| value["id"] != "doomed" && value["id"] != "replay");
+    assert!(
+        client.pending.is_empty(),
+        "no unsolicited message may be left over: {:?}",
+        client.pending
+    );
+    transcript
+}
+
+/// GMCP-203-007-04: adversarial and failure behavior of the transport
+/// adapters.
+///
+/// The vector's threat model, replayed on the in-process and Unix-domain
+/// socket adapters behind the production gate: a request before the
+/// handshake, truncated, non-UTF-8, scalar, batch, wrong-version and
+/// method-less frames, a flood of oversized lines carrying a smuggled
+/// request, a replayed request id, a forged response, a spoofed
+/// cancellation and a cancellation in flight. Each attack earns a typed
+/// answer, the same on both adapters; none is served, repeated or left to
+/// stall the session, and the session answers `ping` after every one. A
+/// connection torn mid-frame, and one closed before any handshake, end
+/// their sessions within a bound and leave an independent session on the
+/// same runtime serving. No adapter advertises itself as MCP surface.
+#[test]
+fn gmcp_req_203_007_04_adversarial() {
+    let (_lock, _env, home) = gmcp_http_home_guard("007-adv");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let runtime = adapter_runtime(&home);
+
+    // A bystander session: faults on other connections must not reach it.
+    let (mut bystander, bystander_session) = embedded_adapter(&runtime, root);
+    let hello = bystander.call(
+        "init",
+        "initialize",
+        serde_json::json!({
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "gmcp-007-04-bystander", "version": "1"}
+        }),
+    );
+    assert!(
+        hello["result"].is_object(),
+        "the bystander must be served: {hello}"
+    );
+    bystander.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    let (mut embedded, embedded_session) = embedded_adapter(&runtime, root);
+    let embedded_transcript = transport_adapter_attacks(&mut embedded);
+    assert!(
+        embedded_transcript.len() == 11,
+        "every attack must be recorded: {embedded_transcript:?}"
+    );
+    // Torn mid-frame: half a request, then the pipe closes.
+    (embedded.write)(b"{\"jsonrpc\":\"2.0\",\"id\":\"torn\",\"method\":\"pi");
+    drop(embedded);
+    adapter_session_ended(&runtime, embedded_session, "in-process, torn frame");
+
+    #[cfg(unix)]
+    {
+        let (mut socket, socket_session) = socket_adapter(&runtime, root);
+        let socket_transcript = transport_adapter_attacks(&mut socket);
+        assert_eq!(
+            socket_transcript, embedded_transcript,
+            "every attack must earn the same answer on the Unix-domain socket adapter"
+        );
+        (socket.write)(b"{\"jsonrpc\":\"2.0\",\"id\":\"torn\",\"method\":\"pi");
+        drop(socket);
+        adapter_session_ended(&runtime, socket_session, "unix socket, torn frame");
+
+        // Closed before any handshake: the session ends, it does not wait.
+        let (silent, silent_session) = socket_adapter(&runtime, root);
+        drop(silent);
+        let outcome = runtime
+            .block_on(async {
+                tokio::time::timeout(std::time::Duration::from_secs(30), silent_session).await
+            })
+            .expect("a connection closed before its handshake must not hold a session open")
+            .expect("the session task must not panic");
+        assert!(
+            outcome.is_err() || matches!(outcome, Ok(susi_gmcp::mcp::service::QuitReason::Closed)),
+            "a handshake that never came is not a served session: {outcome:?}"
+        );
+    }
+
+    let alive = bystander.call("bystander-ping", "ping", serde_json::json!({}));
+    assert_eq!(
+        alive["result"],
+        serde_json::json!({}),
+        "faults on other connections must not reach a bystander: {alive}"
+    );
+    drop(bystander);
+    adapter_session_ended(&runtime, bystander_session, "bystander");
     let _ = std::fs::remove_dir_all(&home);
 }

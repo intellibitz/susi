@@ -38,11 +38,10 @@ impl<R> BoundedLines<R> {
         }
     }
 
-    fn oversized() -> io::Error {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "MCP message exceeds configured byte limit",
-        )
+    /// `open`: the dead line's terminator is still inbound (`FileTooLarge`).
+    fn oversized(open: bool) -> io::Error {
+        let kind = [io::ErrorKind::InvalidData, io::ErrorKind::FileTooLarge][usize::from(open)];
+        io::Error::new(kind, "MCP message exceeds configured byte limit")
     }
 
     /// Consume `slice`, delivering valid lines to `out`. Any bytes read
@@ -59,9 +58,9 @@ impl<R> BoundedLines<R> {
                         self.dropping = false;
                         self.length = 0;
                         self.pending.extend_from_slice(&slice[p + 1..]);
-                        Err(Self::oversized())
+                        Err(Self::oversized(false))
                     }
-                    None => Err(Self::oversized()),
+                    None => Err(Self::oversized(true)),
                 };
             }
             match slice.iter().position(|b| *b == b'\n') {
@@ -72,7 +71,7 @@ impl<R> BoundedLines<R> {
                         // tail; the next call resumes cleanly.
                         self.length = 0;
                         self.pending.extend_from_slice(&slice[p + 1..]);
-                        return Err(Self::oversized());
+                        return Err(Self::oversized(false));
                     }
                     self.length = 0;
                     out.put_slice(&slice[..=p]);
@@ -84,7 +83,7 @@ impl<R> BoundedLines<R> {
                         // byte until it arrives.
                         self.dropping = true;
                         self.length = 0;
-                        return Err(Self::oversized());
+                        return Err(Self::oversized(true));
                     }
                     self.length = self.length.saturating_add(slice.len());
                     out.put_slice(slice);
@@ -196,7 +195,7 @@ mod tests {
 
     #[test]
     fn oversized_helper_constructs_invalid_data_error_with_limit_message() {
-        let err = BoundedLines::<&[u8]>::oversized();
+        let err = BoundedLines::<&[u8]>::oversized(false);
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         assert!(err.to_string().contains("byte limit"));
     }
