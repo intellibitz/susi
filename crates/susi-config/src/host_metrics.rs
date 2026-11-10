@@ -383,10 +383,7 @@ mod platform {
     }
 
     /// `statvfs` on `mount`: `(total, available)` bytes.
-    // `u64::from` is a no-op on x86_64 Linux, where libc's `f_frsize`,
-    // `f_blocks` and `f_bavail` are already 64-bit, and a widening on targets
-    // where they are narrower; it keeps one portable body.
-    #[allow(unsafe_code, clippy::useless_conversion)]
+    #[allow(unsafe_code)]
     fn statvfs_bytes(mount: &str) -> Option<(u64, u64)> {
         let path = std::ffi::CString::new(mount).ok()?;
         let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();

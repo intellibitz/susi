@@ -7,7 +7,7 @@
   "status": "in_progress",
   "dependencies": [],
   "scopes": [
-    ".agents/tasks/t-dothostmetrics-1.json",
+    ".agents/tasks/T-DOTHOSTMETRICS-1.json",
     "crates/susi-config/src/host_metrics.rs"
   ],
   "accept": {
