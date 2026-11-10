@@ -72,7 +72,6 @@ fn git(dir: &Path, args: &[&str]) -> String {
 
 struct World {
     root: PathBuf,
-    primary: PathBuf,
     wt: PathBuf,
     other: PathBuf,
 }
@@ -147,21 +146,7 @@ impl World {
                 other.to_str().unwrap(),
             ],
         );
-        Self {
-            root,
-            primary,
-            wt,
-            other,
-        }
-    }
-
-    fn commit_in_worktree(&self, envs: &[(&str, &str)]) -> i32 {
-        run(
-            &self.wt,
-            &["commit", "--allow-empty", "--quiet", "-m", "work"],
-            envs,
-        )
-        .0
+        Self { root, wt, other }
     }
 
     /// `origin/main` gains a commit that writes `path`.
@@ -182,10 +167,6 @@ impl World {
         std::fs::write(self.wt.join(path), body).unwrap();
         git(&self.wt, &["add", path]);
         run(&self.wt, &["commit", "--quiet", "-m", "work"], envs)
-    }
-
-    fn worktree_head(&self) -> String {
-        git(&self.wt, &["rev-parse", "HEAD"])
     }
 
     /// Whether the worktree's HEAD contains the server's `main`.
