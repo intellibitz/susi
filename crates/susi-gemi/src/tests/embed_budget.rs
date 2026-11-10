@@ -6,6 +6,10 @@ use crate::engines::runtime::GemiEngine;
 use crate::susi_core::provider::{BoxFuture, Provider};
 use crate::susi_core::registry::CapabilityRegistry;
 use crate::susi_core::susi_error::{EaiError, EaiResult};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 enum Embeds {
@@ -33,6 +37,33 @@ impl Provider for Fake {
             Embeds::Vector => Box::pin(async { Ok(vec![0.5, 0.25]) }),
         }
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+struct CountedFailure {
+    calls: Arc<AtomicUsize>,
+}
+
+impl Provider for CountedFailure {
+    fn name(&self) -> &str {
+        "a-fails"
+    }
+
+    fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+        Box::pin(async { Ok(true) })
+    }
+
+    fn generate(&self, _prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
+        Box::pin(async { Ok(String::new()) })
+    }
+
+    fn embed(&self, _text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async { Err(EaiError::network("unreachable")) })
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -68,4 +99,20 @@ fn providers_are_tried_in_turn_and_a_named_one_first() {
     only_failing.register_provider(Fake("a-fails", Embeds::Fails));
     let error = GemiEngine::embed_from(&only_failing, "x", Some("a-fails"), budget).unwrap_err();
     assert!(error.contains("a-fails: "), "{error}");
+}
+
+#[test]
+fn a_named_provider_is_not_retried_after_the_preferred_attempt() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let registry = CapabilityRegistry::new();
+    registry.register_provider(CountedFailure {
+        calls: Arc::clone(&calls),
+    });
+    registry.register_provider(Fake("b-embeds", Embeds::Vector));
+
+    assert_eq!(
+        GemiEngine::embed_from(&registry, "x", Some("a-fails"), Duration::from_secs(5)).unwrap(),
+        [0.5, 0.25]
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
