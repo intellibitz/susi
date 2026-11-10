@@ -35,7 +35,8 @@ pub(crate) fn private_directory(path: &Path) -> io::Result<()> {
     }
 }
 
-pub(crate) fn try_lock(path: &Path) -> io::Result<Option<File>> {
+/// Take `path`'s lock without waiting; the guard unlocks it explicitly on drop.
+pub(crate) fn try_lock(path: &Path) -> io::Result<Option<Held>> {
     if let Ok(metadata) = fs::symlink_metadata(path) {
         let redirected = metadata.file_type().is_symlink();
         #[cfg(windows)]
@@ -54,7 +55,7 @@ pub(crate) fn try_lock(path: &Path) -> io::Result<Option<File>> {
         .write(true)
         .open(path)?;
     match file.try_lock() {
-        Ok(()) => Ok(Some(file)),
+        Ok(()) => Ok(Some(Held(file))),
         Err(fs::TryLockError::WouldBlock) => Ok(None),
         Err(fs::TryLockError::Error(error)) => Err(error),
     }
@@ -65,7 +66,7 @@ pub(crate) fn try_lock(path: &Path) -> io::Result<Option<File>> {
 /// of every open descriptor until it execs, and that copy keeps a `flock`
 /// held, so a dropped token would stay spent for that window.
 #[derive(Debug)]
-struct Held(File);
+pub(crate) struct Held(File);
 
 impl Drop for Held {
     fn drop(&mut self) {
@@ -102,7 +103,7 @@ impl Pool {
         let started = Instant::now();
         let _guard = loop {
             if let Some(lock) = try_lock(&root.join("admission.lock"))? {
-                break Held(lock);
+                break lock;
             }
             if started.elapsed() >= Duration::from_secs(2) {
                 return Err(io::Error::new(
@@ -153,13 +154,13 @@ impl Pool {
                 "requested jobs exceed the coordinator capacity",
             ));
         }
-        let Some(_guard) = try_lock(&self.root.join("admission.lock"))?.map(Held) else {
+        let Some(_guard) = try_lock(&self.root.join("admission.lock"))? else {
             return Ok(None);
         };
         let mut slots = Vec::with_capacity(jobs);
         let mut markers = Vec::with_capacity(jobs);
         for index in 0..self.capacity {
-            if let Some(slot) = try_lock(&self.root.join(format!("slot-{index}.lock")))?.map(Held) {
+            if let Some(slot) = try_lock(&self.root.join(format!("slot-{index}.lock")))? {
                 if self
                     .root
                     .join(format!("slot-{index}.running"))
@@ -319,6 +320,18 @@ mod tests {
         drop(lease);
         assert!(pool.try_acquire(2).unwrap().is_some());
         drop(copies);
+    }
+
+    #[test]
+    fn a_dropped_gate_lock_returns_while_a_descriptor_copy_is_alive() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("gate.lock");
+        let held = try_lock(&path).unwrap().unwrap();
+        let copy = held.0.try_clone().unwrap();
+        assert!(try_lock(&path).unwrap().is_none());
+        drop(held);
+        assert!(try_lock(&path).unwrap().is_some());
+        drop(copy);
     }
 
     #[test]

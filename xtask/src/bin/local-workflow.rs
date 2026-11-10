@@ -280,6 +280,7 @@ impl Drop for Lock {
         HELD_LOCKS.with(|held| {
             held.borrow_mut().remove(&self.key);
         });
+        let _ = self._file.unlock();
     }
 }
 
@@ -289,6 +290,21 @@ impl Drop for Lock {
 /// no age-based stale-lock guess is needed.
 struct HostGate {
     _file: fs::File,
+}
+
+/// Released explicitly: closing the file alone is not enough, because a
+/// process spawned concurrently by another thread holds a copy of every open
+/// descriptor until it execs, and that copy keeps a `flock` held.
+impl Drop for HostGate {
+    fn drop(&mut self) {
+        let _ = self._file.unlock();
+    }
+}
+
+/// Release a lock taken only to probe whether its holder is gone; see
+/// [`HostGate`] for why the close alone is not enough.
+fn release_probe(file: fs::File) {
+    let _ = file.unlock();
 }
 
 /// Per-user state shared by every repository on this host:
@@ -624,8 +640,9 @@ fn read_claim(path: &Path) -> Result<Claim> {
     }
     let claimant = lines.next().ok_or("missing claim name")?.to_owned();
     name(&claimant)?;
-    let worktree = PathBuf::from(lines.next().ok_or("missing worktree")?);
-    if !worktree.is_absolute() {
+    let recorded = lines.next().ok_or("missing worktree")?;
+    let worktree = PathBuf::from(recorded);
+    if !worktree.is_absolute() && !absolute_on_some_host(recorded) {
         return Err("claim worktree must be absolute".into());
     }
     let base = lines.next().ok_or("missing claim base")?.to_owned();
@@ -645,6 +662,51 @@ fn read_claim(path: &Path) -> Result<Claim> {
         base,
         scopes,
     })
+}
+
+/// The claim state lives in the shared `.git`, which one checkout may expose
+/// to several operating systems. A worktree recorded by another OS is still
+/// a valid claim, holding its scopes, but its path is not absolute here:
+/// accept a Unix root or a Windows drive or UNC root, whichever host wrote it.
+fn absolute_on_some_host(recorded: &str) -> bool {
+    let bytes = recorded.as_bytes();
+    recorded.starts_with('/')
+        || recorded.starts_with("\\\\")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'/' | b'\\'))
+}
+
+impl Claim {
+    /// Whether the claimed worktree path is an absolute path on this host.
+    /// A claim recorded on another OS reserves its scopes here but its
+    /// worktree can only be operated on from the host that recorded it.
+    fn is_local(&self) -> bool {
+        self.worktree.is_absolute()
+    }
+
+    fn host_label(&self) -> &'static str {
+        if self.is_local() {
+            ""
+        } else {
+            " [other host]"
+        }
+    }
+}
+
+/// Read a claim whose worktree must be operated on from this host.
+fn read_local_claim(path: &Path) -> Result<Claim> {
+    let claim = read_claim(path)?;
+    if !claim.is_local() {
+        return Err(format!(
+            "claim {} was recorded on another host ({}); run this from that host",
+            claim.name,
+            claim.worktree.display()
+        )
+        .into());
+    }
+    Ok(claim)
 }
 
 fn claims(state: &Path) -> Result<Vec<Claim>> {
@@ -1460,7 +1522,7 @@ fn reclaim_gate_caches(workflow: &Path, candidate: &Path) -> Vec<(PathBuf, u64)>
                     .join("target"),
             );
         }
-        drop(lock);
+        release_probe(lock);
     }
     freed
 }
@@ -2162,7 +2224,7 @@ where
             .iter()
             .map(|claimant| {
                 let path = state.join("claims").join(format!("{claimant}.claim"));
-                let claim = read_claim(&path)?;
+                let claim = read_local_claim(&path)?;
                 let source = check_source(root, &claim)?;
                 let bytes = fs::read(&path)?;
                 Ok((claim, source, path, bytes))
@@ -2437,7 +2499,19 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
             }
         }
     }
-    let primary = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
+    // Agent worktrees sit beside the primary checkout, whichever worktree
+    // `start` runs from (agents never run it inside the primary).
+    let common = PathBuf::from(git(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?);
+    let primary = match common.file_name() {
+        Some(name) if name == ".git" => common
+            .parent()
+            .ok_or("git common dir has no parent")?
+            .to_path_buf(),
+        _ => PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?),
+    };
     let base = primary
         .file_name()
         .and_then(|s| s.to_str())
@@ -2633,7 +2707,7 @@ fn update_scopes(
     let state = state(root)?;
     let _lock = Lock::acquire(&state)?;
     let path = state.join("claims").join(format!("{claimant}.claim"));
-    let mut claim = read_claim(&path)?;
+    let mut claim = read_local_claim(&path)?;
     let actual = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
     if actual.canonicalize()? != claim.worktree.canonicalize()?
         || git(root, &["branch", "--show-current"])? != format!("local-agent/{claimant}")
@@ -2697,7 +2771,7 @@ fn release(root: &Path, claimant: &str) -> Result<()> {
     let state = state(root)?;
     let _lock = Lock::acquire(&state)?;
     let path = state.join("claims").join(format!("{claimant}.claim"));
-    let claim = read_claim(&path)?;
+    let claim = read_local_claim(&path)?;
     if self::state(&claim.worktree)? != state {
         return Err("claim points to another repository".into());
     }
@@ -2856,7 +2930,7 @@ fn scoped_commit(
     let state = state(root)?;
     let _lock = Lock::acquire(&state)?;
     let claim_path = state.join("claims").join(format!("{claimant}.claim"));
-    let claim = read_claim(&claim_path)?;
+    let claim = read_local_claim(&claim_path)?;
     let actual_root = PathBuf::from(git(root, &["rev-parse", "--show-toplevel"])?);
     if actual_root.canonicalize()? != claim.worktree.canonicalize()? {
         return Err("commit must run inside the claimed agent's worktree".into());
@@ -3450,7 +3524,7 @@ fn load_sources(
         .map(|claimant| {
             let path = workflow.join("claims").join(format!("{claimant}.claim"));
             let bytes = fs::read(&path)?;
-            let claim = read_claim(&path)?;
+            let claim = read_local_claim(&path)?;
             let source = check_ship_source(root, workflow, &claim, publish_base)?;
             Ok(SourceInput {
                 claim,
@@ -4731,7 +4805,7 @@ fn busy_slots(slots: &Path) -> Result<Vec<BusySlot>> {
             continue;
         };
         match file.try_lock() {
-            Ok(()) => {}
+            Ok(()) => release_probe(file),
             Err(fs::TryLockError::WouldBlock) => busy.push(BusySlot {
                 slot,
                 owner: fs::read_to_string(slots.join(slot.to_string()).join("owner"))
@@ -4752,6 +4826,7 @@ fn status_json(status: &WorkflowStatus) -> serde_json::Value {
         "claims": status.claims.iter().map(|claim| serde_json::json!({
             "name": claim.name,
             "worktree": claim.worktree.display().to_string(),
+            "local": claim.is_local(),
             "base": claim.base,
             "scopes": claim.scopes,
         })).collect::<Vec<_>>(),
@@ -4770,9 +4845,10 @@ fn status_text(status: &WorkflowStatus) -> String {
     );
     for claim in &status.claims {
         out.push_str(&format!(
-            "  {}\t{}\tbase {}\t{}\n",
+            "  {}\t{}{}\tbase {}\t{}\n",
             claim.name,
             claim.worktree.display(),
+            claim.host_label(),
             claim.base.get(..12).unwrap_or(&claim.base),
             claim.scopes.join(", ")
         ));
@@ -4839,7 +4915,7 @@ fn run(args: &[String]) -> Result<()> {
         Some("list") if args.len() == 1 => {
             let state = state(&root)?;
             let _lock = Lock::acquire(&state)?;
-            for claim in claims(&state)? { println!("{}\t{}\t{}", claim.name, claim.worktree.display(), claim.scopes.join(", ")); }
+            for claim in claims(&state)? { println!("{}\t{}{}\t{}", claim.name, claim.worktree.display(), claim.host_label(), claim.scopes.join(", ")); }
         }
         Some("status") if args.len() == 1 => print!("{}", status_text(&workflow_status(&root)?)),
         Some("status") if args.len() == 2 && args[1] == "--json" => {
@@ -5423,6 +5499,66 @@ mod tests {
         fs::write(first.join("dirty"), "pending").unwrap();
         assert!(update_scopes(&first, "first", &["docs".into()], ScopeChange::Extend).is_err());
         assert_eq!(fs::read(claim_path).unwrap(), before);
+    }
+
+    #[test]
+    fn a_claim_recorded_on_another_os_is_listed_and_still_reserves_its_scopes() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let state = state(&repo).unwrap();
+        let claims_dir = state.join("claims");
+        fs::create_dir_all(&claims_dir).unwrap();
+        let foreign = if cfg!(windows) {
+            "/mnt/shared/src/repo-agent-far".to_owned()
+        } else {
+            "F:/src/github.com/intellibitz\\repo-agent-far".to_owned()
+        };
+        let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let recorded = format!("susi-local-claim-v2\nfar\n{foreign}\n{base}\nsrc/far\n");
+        fs::write(claims_dir.join("far.claim"), &recorded).unwrap();
+
+        let listed = claims(&state).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(!listed[0].is_local());
+        assert_eq!(listed[0].worktree, PathBuf::from(&foreign));
+        let status = workflow_status(&repo).unwrap();
+        assert!(status_text(&status).contains("[other host]"));
+        assert_eq!(status_json(&status)["claims"][0]["local"], false);
+
+        let error = start(&repo, "near", &["src/far/x.rs".into()]).unwrap_err();
+        assert!(error.to_string().contains("overlaps agent far"), "{error}");
+        let worktree = start(&repo, "near", &["src/near".into()]).unwrap();
+        assert!(claims(&state)
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "near" && c.is_local()));
+        // Started from an agent worktree, the new one still sits beside the primary.
+        let nested = start(&worktree, "nested", &["src/nested".into()]).unwrap();
+        let primary_name = repo.file_name().unwrap().to_str().unwrap();
+        assert_eq!(
+            nested,
+            repo.parent()
+                .unwrap()
+                .join(format!("{primary_name}-agent-nested"))
+        );
+
+        let error = release(&repo, "far").unwrap_err();
+        assert!(error.to_string().contains("another host"), "{error}");
+        release(&worktree, "near").unwrap();
+        release(&nested, "nested").unwrap();
+        assert_eq!(
+            fs::read_to_string(claims_dir.join("far.claim")).unwrap(),
+            recorded
+        );
+
+        for relative in ["relative/path", "x:", "C:relative"] {
+            fs::write(
+                claims_dir.join("far.claim"),
+                format!("susi-local-claim-v2\nfar\n{relative}\n{base}\nsrc/far\n"),
+            )
+            .unwrap();
+            assert!(claims(&state).is_err(), "{relative}");
+        }
     }
 
     #[test]
@@ -6589,6 +6725,37 @@ mod tests {
     }
 
     #[test]
+    fn dropped_locks_release_while_a_descriptor_copy_is_alive() {
+        let scratch = Scratch::new();
+        let gate = acquire_host_gate(&scratch.0.join("host"), "test").unwrap();
+        let gate_copy = gate._file.try_clone().unwrap();
+        drop(gate);
+        let probe = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(scratch.0.join("host").join("gate.lock"))
+            .unwrap();
+        assert!(probe.try_lock().is_ok(), "host gate stayed held by a copy");
+        release_probe(probe);
+
+        let state = scratch.0.join("state");
+        let lock = Lock::acquire(&state).unwrap();
+        let lock_copy = lock._file.try_clone().unwrap();
+        drop(lock);
+        let probe = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(state.join("lock.file"))
+            .unwrap();
+        assert!(
+            probe.try_lock().is_ok(),
+            "workflow lock stayed held by a copy"
+        );
+        release_probe(probe);
+        drop((gate_copy, lock_copy));
+    }
+
+    #[test]
     fn disk_reclaim_frees_idle_caches_and_keeps_busy_and_current_ones() {
         let scratch = Scratch::new();
         let workflow = scratch.0.join("wf");
@@ -6614,6 +6781,7 @@ mod tests {
             .open(slots.join("3.lock"))
             .unwrap();
         busy.try_lock().unwrap();
+        let busy = HostGate { _file: busy };
         let freed = reclaim_gate_caches(&workflow, &candidate);
         let mut paths: Vec<_> = freed.iter().map(|(path, _)| path.clone()).collect();
         paths.sort();

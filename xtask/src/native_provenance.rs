@@ -135,11 +135,13 @@ pub fn store_blob(root: &Path, bytes: &[u8]) -> Result<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    child
+    // A Git that refuses early closes its stdin before the write finishes;
+    // its exit status and stderr are the diagnosis, not the broken pipe.
+    let written = child
         .stdin
         .take()
         .ok_or("missing blob input")?
-        .write_all(bytes)?;
+        .write_all(bytes);
     let output = child.wait_with_output()?;
     if !output.status.success() {
         // Keep Git's own reason: a bare "cannot retain" left a failed ship
@@ -152,6 +154,7 @@ pub fn store_blob(root: &Path, bytes: &[u8]) -> Result<String> {
         )
         .into());
     }
+    written?;
     let object = String::from_utf8(output.stdout)?.trim().to_owned();
     oid(&object)?;
     // Git does not trace object IDs embedded in JSON. Every evidence object
