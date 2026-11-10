@@ -1,0 +1,397 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-vendor-x25519-dalek",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "output_sha256": "6d35582ef34436517d98ac0092d2505282b9ea33424818021339b49e691c4af8",
+      "passed": true,
+      "task_id": "T-CARBONLEAN-16"
+    }
+  ],
+  "adopted_host_commits": {},
+  "base_commit": "527a58709f081bf7d431befe880642229b959fd0",
+  "base_tree": "3f6ab4cd45102863601ead9dab4cd344554a8973",
+  "branch_ref": "refs/heads/release/v0-21-61-distilled-rc1",
+  "closure_order": [
+    "T-CLAUDEHARVEST-1",
+    "T-CLAUDEMANDATE74-1",
+    "T-CLAUDELANES-1",
+    "T-CLAUDEPROMOTE-1",
+    "T-CLAUDEPROMOTEEVID-1",
+    "T-CLAUDEREL56-1",
+    "T-CLAUDEREL56-2",
+    "T-CODEXSTORAGEONLY-1",
+    "T-AGYWIN-2",
+    "T-AGYWIN-3",
+    "T-AGYWIN-4",
+    "T-FURY-1",
+    "T-FURY-3",
+    "T-FURY-4",
+    "T-AGYFURY-1",
+    "T-AGYFURY-2",
+    "T-AGYFURY-3",
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CARBONRELBRANCH-1",
+    "T-CARBONLEAN-1",
+    "T-CARBONLEAN-2",
+    "T-CARBONLEAN-3",
+    "T-AGYCLOUD-8",
+    "T-HARNESSSTD-1",
+    "T-CODEXAXUMOUT-1",
+    "T-CARBONLEAN-4",
+    "T-CARBONLEAN-5",
+    "T-CARBONLEAN-6",
+    "T-CARBONLEAN-7",
+    "T-AGYWIN-1",
+    "T-CARBONLEAN-8",
+    "T-CARBONLEAN-9",
+    "T-CARBONLEAN-10",
+    "T-CARBONLEAN-11",
+    "T-CARBONDISTILL-2",
+    "T-CARBONLEAN-12",
+    "T-RETIREBR-1",
+    "T-CLAUDEAGENTREFS-1",
+    "T-CLAUDEHARNESSCEIL-1",
+    "T-CARBONLEAN-13",
+    "T-CARBONLEAN-14",
+    "T-CARBONLEAN-15",
+    "T-CARBONLEAN-16"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "07632503d910cbf72890597a4aa8879ac01ab7c1",
+  "final_tree": "8e21a04230f5643593e02efa1cfadd224c650399",
+  "git_host_created_in_stream": [],
+  "git_host_identities": [
+    "noreply@github.com"
+  ],
+  "harvest_audit": {
+    "findings": [],
+    "harvest_commits_checked": 0,
+    "manifest_ids": [],
+    "manifests": [],
+    "manifests_verified": 0,
+    "passed": true,
+    "schema": "susi-harvest-audit-v1"
+  },
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-vendor-x25519-dalek",
+        "--lib"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CARBONLEAN-16.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-vendor-x25519-dalek/Cargo.toml",
+        "crates/susi-vendor-x25519-dalek/src/lib.rs",
+        "docs/lean-core.md",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "composed_commit": "07632503d910cbf72890597a4aa8879ac01ab7c1",
+      "composed_tree": "8e21a04230f5643593e02efa1cfadd224c650399",
+      "deps": [
+        "T-CARBONLEAN-15"
+      ],
+      "goal": "Replace external x25519-dalek in crates/susi-vendor-x25519-dalek with a thin #![forbid(unsafe_code)] RFC 7748 X25519 Diffie-Hellman facade backed directly by the workspace's existing curve25519-dalek 4.1.3 arithmetic (EdwardsPoint::mul_base_clamped, MontgomeryPoint::mul_clamped, and constant-time IsIdentity) and zeroize::Zeroize. Removes 3 packages — including the zeroize_derive proc-macro — from Cargo.lock (rand_core 0.6.4, x25519-dalek 2.0.1, zeroize_derive 1.5.0; Cargo.lock 185 -> 182; 173 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..16) and lowers THIRD_PARTY_CEILING 99 -> 96.",
+      "owner": "carbon-cachyos-distill",
+      "patch_id": "624427bcdb02418acfb01c8da02fb2b953776f7e",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CARBONLEAN-16.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-vendor-x25519-dalek/Cargo.toml",
+        "crates/susi-vendor-x25519-dalek/src/lib.rs",
+        "docs/lean-core.md",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "source_commits": [
+        "4a15d6d08d71cc3cce313723aaa0591db8a16139"
+      ],
+      "task_id": "T-CARBONLEAN-16",
+      "title": "Lean core: back susi-vendor-x25519-dalek directly with curve25519-dalek + zeroize (THIRD_PARTY_CEILING 99 -> 96, Cargo.lock 185 -> 182)"
+    }
+  ],
+  "lanes": [
+    {
+      "changed_files": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-vendor-x25519-dalek/Cargo.toml",
+        "crates/susi-vendor-x25519-dalek/src/lib.rs",
+        "docs/lean-core.md",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "lane_id": "lane-01",
+      "patch_ids": {
+        "T-CARBONLEAN-16": "624427bcdb02418acfb01c8da02fb2b953776f7e"
+      },
+      "scopes": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-vendor-x25519-dalek/Cargo.toml",
+        "crates/susi-vendor-x25519-dalek/src/lib.rs",
+        "docs/lean-core.md",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "tasks": [
+        "T-CARBONLEAN-16"
+      ]
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0-21-61-distilled-rc1",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "d972ef9f7facd5f9903a6c9a40a2e17de1e39a68aa039a57995c1d56e6703036",
+  "rejected": [],
+  "reland_claims_not_honoured": [],
+  "relanded_host_commits_in_stream": {},
+  "requested_tasks": [
+    "T-CARBONLEAN-16"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "task T-CLAUDEHARVEST-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEHARVEST-1"
+    },
+    {
+      "detail": "task T-CLAUDEMANDATE74-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEMANDATE74-1"
+    },
+    {
+      "detail": "task T-CLAUDELANES-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDELANES-1"
+    },
+    {
+      "detail": "task T-CLAUDEPROMOTE-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEPROMOTE-1"
+    },
+    {
+      "detail": "task T-CLAUDEPROMOTEEVID-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEPROMOTEEVID-1"
+    },
+    {
+      "detail": "task T-CLAUDEREL56-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEREL56-1"
+    },
+    {
+      "detail": "task T-CLAUDEREL56-2 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEREL56-2"
+    },
+    {
+      "detail": "task T-CODEXSTORAGEONLY-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CODEXSTORAGEONLY-1"
+    },
+    {
+      "detail": "closed task record for T-AGYWIN-2 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYWIN-2"
+    },
+    {
+      "detail": "closed task record for T-AGYWIN-3 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYWIN-3"
+    },
+    {
+      "detail": "closed task record for T-AGYWIN-4 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYWIN-4"
+    },
+    {
+      "detail": "closed task record for T-FURY-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-FURY-1"
+    },
+    {
+      "detail": "closed task record for T-FURY-3 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-FURY-3"
+    },
+    {
+      "detail": "closed task record for T-FURY-4 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-FURY-4"
+    },
+    {
+      "detail": "closed task record for T-AGYFURY-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYFURY-1"
+    },
+    {
+      "detail": "closed task record for T-AGYFURY-2 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYFURY-2"
+    },
+    {
+      "detail": "closed task record for T-AGYFURY-3 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYFURY-3"
+    },
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDRIVER-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONRELBRANCH-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONRELBRANCH-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-2 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-2"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-3 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-3"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-8 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-8"
+    },
+    {
+      "detail": "closed task record for T-HARNESSSTD-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-HARNESSSTD-1"
+    },
+    {
+      "detail": "task T-CODEXAXUMOUT-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CODEXAXUMOUT-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-4 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-4"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-5 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-5"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-6 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-6"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-7 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-7"
+    },
+    {
+      "detail": "closed task record for T-AGYWIN-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYWIN-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-8 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-8"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-9 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-9"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-10 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-10"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-11 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-11"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-2 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-2"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-12 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-12"
+    },
+    {
+      "detail": "task T-RETIREBR-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-RETIREBR-1"
+    },
+    {
+      "detail": "task T-CLAUDEAGENTREFS-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEAGENTREFS-1"
+    },
+    {
+      "detail": "task T-CLAUDEHARNESSCEIL-1 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEHARNESSCEIL-1"
+    },
+    {
+      "detail": "task T-CARBONLEAN-13 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-13"
+    },
+    {
+      "detail": "task T-CARBONLEAN-14 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-14"
+    },
+    {
+      "detail": "task T-CARBONLEAN-15 is already present in base 527a58709f081bf7d431befe880642229b959fd0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-15"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0-21-61-distilled-rc1",
+  "source_stream_commit": "4a15d6d08d71cc3cce313723aaa0591db8a16139",
+  "source_stream_tree": "8e21a04230f5643593e02efa1cfadd224c650399"
+}
