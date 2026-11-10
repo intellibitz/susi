@@ -401,7 +401,10 @@ fn wrapped_by_bounded_cmd(tokens: &[Token], at: usize, close: usize) -> bool {
 /// Guarded launches and unjudgeable syntax in one source: `(line, what)`,
 /// where `what` is the program name or `unsupported: <reason>`.
 fn scan_source(source: &str) -> Result<Vec<(usize, String)>, String> {
-    let tokens = tokenize(source)?;
+    Ok(launch_findings(&tokenize(source)?))
+}
+
+fn launch_findings(tokens: &[Token]) -> Vec<(usize, String)> {
     let mut found = Vec::new();
     let unsupported = |line: usize, reason: &str, found: &mut Vec<(usize, String)>| {
         found.push((line, format!("unsupported: {reason}")));
@@ -449,7 +452,7 @@ fn scan_source(source: &str) -> Result<Vec<(usize, String)>, String> {
             }
             continue;
         }
-        let Some(close) = close_of(&tokens, open) else {
+        let Some(close) = close_of(tokens, open) else {
             unsupported(line, "unbalanced brackets after a launch", &mut found);
             continue;
         };
@@ -457,7 +460,7 @@ fn scan_source(source: &str) -> Result<Vec<(usize, String)>, String> {
             // The helper is the sanctioned way, except for `icacls`, which is
             // never launched. A wrapped `Command::new` is no direct launch.
             let sanctioned = if is_new {
-                program != NEVER_LAUNCHED && wrapped_by_bounded_cmd(&tokens, at, close)
+                program != NEVER_LAUNCHED && wrapped_by_bounded_cmd(tokens, at, close)
             } else {
                 program != NEVER_LAUNCHED
             };
@@ -467,7 +470,7 @@ fn scan_source(source: &str) -> Result<Vec<(usize, String)>, String> {
         }
     }
     found.sort_unstable();
-    Ok(found)
+    found
 }
 
 /// The names the two sanctioned forms resolve through. The guard accepts
@@ -848,8 +851,9 @@ fn manifest_findings(file: &str, text: &str) -> Vec<(usize, String)> {
 
 /// Launches and binding violations in one file, given the scanned set.
 fn scan_file(file: &str, source: &str, scanned: &[String]) -> Result<Vec<(usize, String)>, String> {
-    let mut found = scan_source(source)?;
-    found.extend(binding_findings(file, &tokenize(source)?, scanned));
+    let tokens = tokenize(source)?;
+    let mut found = launch_findings(&tokens);
+    found.extend(binding_findings(file, &tokens, scanned));
     found.sort_unstable();
     Ok(found)
 }
@@ -1500,4 +1504,29 @@ fn a_manifest_cannot_rebind_the_crate_names() {
     for (file, text) in accepted {
         assert_eq!(manifest_findings(file, text), Vec::new(), "{file}: {text}");
     }
+}
+
+#[test]
+fn combined_scan_preserves_lexical_errors_and_line_numbered_findings() {
+    let file = "tests/guard-fixture.rs";
+    let scanned = [file.to_string()];
+    for (source, expected) in [
+        ("\n/* unfinished", "unterminated block comment at line 2"),
+        ("\n\"unfinished", "unterminated string at line 2"),
+    ] {
+        assert_eq!(scan_source(source).unwrap_err(), expected);
+        assert_eq!(scan_file(file, source, &scanned).unwrap_err(), expected);
+    }
+    let source = "Command::new(\"taskkill\");\nmod susi_core {}\n";
+    assert_eq!(scan_source(source).unwrap(), vec![(1, "taskkill".into())]);
+    assert_eq!(
+        scan_file(file, source, &scanned).unwrap(),
+        vec![
+            (1, "taskkill".into()),
+            (
+                2,
+                "unsupported: `mod susi_core` outside its one definition".into()
+            ),
+        ]
+    );
 }
