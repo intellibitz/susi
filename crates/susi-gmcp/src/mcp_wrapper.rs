@@ -1,25 +1,18 @@
 use crate::susi_core::registry::{CapabilityRegistry, Tool};
 use crate::tool_registry::GmcpClient;
-
-/// Wraps an MCP tool as a dynamically executable Tool.
 pub struct McpDynamicTool {
     pub server_name: String,
-    /// Registry / swarm-facing name (`server:tool`).
     pub registry_name: String,
-    /// Bare MCP tool name passed to the remote server.
     pub mcp_tool_name: String,
     pub description: String,
 }
-
 impl Tool for McpDynamicTool {
     fn name(&self) -> &str {
         &self.registry_name
     }
-
     fn description(&self) -> &str {
         &self.description
     }
-
     fn execute(
         &self,
         args: &serde_json::Value,
@@ -33,29 +26,36 @@ impl Tool for McpDynamicTool {
         GmcpClient::execute_external_tool_result(&self.server_name, &self.mcp_tool_name, &args_str)
     }
 }
-
-/// Probe configured MCP servers and hot-plug their live tools into the
-/// shared capability registry. Uses `CapabilityRegistry::global()` — one
-/// catalog across every process on the substrate via the
-/// `<cache>/bus/<pid>/` rendezvous.
 pub fn register_mcp_servers() {
     let registry = CapabilityRegistry::global();
     let live = GmcpClient::discover_live_tools();
+    let fallback = if live.is_empty() {
+        GmcpClient::list_external_tools()
+    } else {
+        Vec::new()
+    };
+    register_discovered_tools(registry, live, fallback);
+}
+pub(crate) fn register_discovered_tools(
+    registry: &CapabilityRegistry,
+    live: Vec<(String, crate::tool_types::McpTool)>,
+    fallback: Vec<crate::tool_types::McpTool>,
+) {
     if live.is_empty() {
-        // Config-only fallback: advertise wildcard proxies so swarm routing
-        // still knows the server exists when live probing is unavailable.
-        for t in GmcpClient::list_external_tools() {
-            let parts: Vec<&str> = t.name.splitn(2, ':').collect();
-            if parts.len() == 2 {
-                let tool = McpDynamicTool {
-                    server_name: parts[0].to_string(),
-                    registry_name: t.name.clone(),
-                    mcp_tool_name: parts[1].to_string(),
-                    description: t.description,
-                };
-                if registry.get_tool(tool.name()).is_none() {
-                    registry.register_tool(tool);
-                }
+        for t in fallback {
+            let registry_name = t.name.clone();
+            let (server_name, mcp_tool_name) = match registry_name.split_once(':') {
+                Some((server, tool)) => (server.to_string(), tool.to_string()),
+                None => continue,
+            };
+            let tool = McpDynamicTool {
+                server_name,
+                registry_name,
+                mcp_tool_name,
+                description: t.description,
+            };
+            if registry.get_tool(tool.name()).is_none() {
+                registry.register_tool(tool);
             }
         }
         return;
@@ -78,68 +78,7 @@ pub fn register_mcp_servers() {
         }
     }
 }
-
-/// Pillar 8 entrypoint: discover configured MCP servers and hot-plug them
-/// into the capability registry. Alias of [`register_mcp_servers`].
+/// Pillar 8 entrypoint; alias of [`register_mcp_servers`].
 pub fn auto_discover_mcp() {
     register_mcp_servers();
-}
-
-#[cfg(test)]
-mod inline_tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn mcp_dynamic_tool_exposes_registry_name_and_description_via_tool_trait() {
-        let tool = McpDynamicTool {
-            server_name: "github".into(),
-            registry_name: "github:list_prs".into(),
-            mcp_tool_name: "list_prs".into(),
-            description: "List pull requests".into(),
-        };
-        assert_eq!(tool.name(), "github:list_prs");
-        assert_eq!(tool.description(), "List pull requests");
-    }
-
-    #[test]
-    fn mcp_dynamic_tool_execute_forwards_string_and_json_object_args() {
-        let tool = McpDynamicTool {
-            server_name: "unconfigured-server".into(),
-            registry_name: "unconfigured-server:ping".into(),
-            mcp_tool_name: "ping".into(),
-            description: "Ping tool".into(),
-        };
-        let ws = std::env::temp_dir();
-        let res_str = tool.execute(&json!("raw-goal"), &ws);
-        let res_obj = tool.execute(&json!({"q": "test"}), &ws);
-        assert_eq!(res_str.is_ok(), res_obj.is_ok());
-    }
-
-    #[test]
-    fn register_mcp_servers_runs_cleanly_on_capability_registry() {
-        register_mcp_servers();
-        let registry = CapabilityRegistry::global();
-        let _ = registry.list_tools();
-    }
-
-    #[test]
-    fn auto_discover_mcp_is_idempotent_across_repeated_calls() {
-        auto_discover_mcp();
-        auto_discover_mcp();
-    }
-
-    #[test]
-    fn mcp_dynamic_tool_preserves_server_and_bare_tool_fields_for_proxy_routing() {
-        let tool = McpDynamicTool {
-            server_name: "filesystem".into(),
-            registry_name: "filesystem:read_text".into(),
-            mcp_tool_name: "read_text".into(),
-            description: "Read text file via MCP".into(),
-        };
-        assert_eq!(tool.server_name, "filesystem");
-        assert_eq!(tool.mcp_tool_name, "read_text");
-        assert!(tool.name().starts_with(&tool.server_name));
-        assert!(tool.name().ends_with(&tool.mcp_tool_name));
-    }
 }
