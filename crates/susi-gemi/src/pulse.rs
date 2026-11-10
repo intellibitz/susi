@@ -229,75 +229,6 @@ impl SusiPulse {
             suppressed_actions,
         }
     }
-
-    /// Spectral-Margin Information-Theoretic Reflex Gate (SCIS).
-    ///
-    /// Computes the information-theoretic diagnostic for a Tier-0 distribution:
-    /// - Top probability $p_{(1)}$ and runner-up probability $p_{(2)}$ over the
-    ///   active vocabulary.
-    /// - Spectral probability margin $\Delta p = p_{(1)} - p_{(2)}$.
-    /// - Normalized Shannon certainty $\mathcal{C}(p) = 1 - H(p) / \ln K \in [0, 1]$.
-    /// - Support-Coupled Information Score (SCIS):
-    ///   $$\text{SCIS} = (0.50\,p_{(1)} + 0.30\,\Delta p + 0.20\,\mathcal{C}(p)) \cdot s_{\cos}$$
-    #[must_use]
-    pub fn compute_spectral_prediction(
-        intents: &[String],
-        probabilities: &[f32],
-        support_cosine: Option<f32>,
-    ) -> Option<SpectralPrediction> {
-        let k = intents.len().min(probabilities.len());
-        if k == 0 {
-            return None;
-        }
-        let active_probs = &probabilities[..k];
-        let mut ranked: Vec<(usize, f32)> = active_probs.iter().copied().enumerate().collect();
-        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
-        let (top_idx, top_probability) = ranked[0];
-        let runner_up_probability = ranked.get(1).map_or(0.0, |(_, p)| *p);
-        let spectral_margin = (top_probability - runner_up_probability).max(0.0);
-
-        let shannon_certainty = if k <= 1 {
-            1.0
-        } else {
-            let entropy: f32 = active_probs
-                .iter()
-                .filter(|&&p| p > 1e-12)
-                .map(|&p| -p * p.ln())
-                .sum();
-            let max_entropy = (k as f32).ln();
-            (1.0 - (entropy / max_entropy)).clamp(0.0, 1.0)
-        };
-
-        let support_factor = support_cosine.unwrap_or(1.0).clamp(0.0, 1.0);
-        let scis_score =
-            (0.50 * top_probability + 0.30 * spectral_margin + 0.20 * shannon_certainty)
-                * support_factor;
-
-        let action = intents
-            .get(top_idx)
-            .map(|intent| format!("ACTION: {intent}"))?;
-
-        Some(SpectralPrediction {
-            action,
-            top_probability,
-            runner_up_probability,
-            spectral_margin,
-            shannon_certainty,
-            support_cosine,
-            scis_score,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SpectralPrediction {
-    pub action: String,
-    pub top_probability: f32,
-    pub runner_up_probability: f32,
-    pub spectral_margin: f32,
-    pub shannon_certainty: f32,
-    pub support_cosine: Option<f32>,
-    pub scis_score: f32,
 }
 
 fn action_name(action: &str) -> Option<String> {
@@ -642,23 +573,5 @@ mod tests {
             16 * AVOIDED_FRONTIER_CALL_MICRO_USD
         );
         assert_eq!(summary.suppressed_actions, 1);
-    }
-
-    #[test]
-    fn compute_spectral_prediction_computes_margin_shannon_certainty_and_scis() {
-        let intents = vec![
-            "status".to_string(),
-            "version".to_string(),
-            "read_file".to_string(),
-            "list_directory".to_string(),
-        ];
-        let probs = vec![0.75, 0.15, 0.05, 0.05];
-        let spectral = SusiPulse::compute_spectral_prediction(&intents, &probs, Some(0.9)).unwrap();
-        assert_eq!(spectral.action, "ACTION: status");
-        assert!((spectral.top_probability - 0.75).abs() < 1e-6);
-        assert!((spectral.runner_up_probability - 0.15).abs() < 1e-6);
-        assert!((spectral.spectral_margin - 0.60).abs() < 1e-6);
-        assert!((0.0..=1.0).contains(&spectral.shannon_certainty));
-        assert!((0.0..=1.0).contains(&spectral.scis_score));
     }
 }

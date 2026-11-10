@@ -861,6 +861,7 @@ async fn dispatch_gemi_route(
                 // body carries the raw model output, matching the
                 // streaming path's shape.
                 let body_text = unwrap_inference_render(&content).unwrap_or(content);
+                let (body_text, tool_calls) = caller_tool_calls(&body_text);
                 let body_text = apply_stops(&body_text, &completion.stop);
                 let (body_text, capped) = cap_completion(&body_text, completion.max_tokens);
                 let mut payload = completion_response(
@@ -869,6 +870,14 @@ async fn dispatch_gemi_route(
                     path == "/v1/completions",
                     if capped { "length" } else { "stop" },
                 );
+                if !tool_calls.is_empty() {
+                    let message = &mut payload["choices"][0]["message"];
+                    message["tool_calls"] = json!(tool_calls);
+                    if body_text.is_empty() {
+                        message["content"] = serde_json::Value::Null;
+                    }
+                    payload["choices"][0]["finish_reason"] = json!("tool_calls");
+                }
                 payload["usage"] =
                     estimated_usage(approx_tokens(&trimmed_prompt), approx_tokens(&body_text));
                 add_placement_body(&mut payload, &placement_id, &placement_target);
@@ -1475,6 +1484,36 @@ fn partial_stop_hold(text: &str, stops: &[String]) -> usize {
     hold
 }
 
+/// Split a GEMI reply into its text and the OpenAI `tool_calls` it carries:
+/// the calls a model made with tools the caller supplied
+/// ([`gemi::CALLER_TOOL_CALLS`]). Any other reply has no calls.
+fn caller_tool_calls(reply: &str) -> (String, Vec<serde_json::Value>) {
+    let Some(body) = reply.strip_prefix(gemi::CALLER_TOOL_CALLS) else {
+        return (reply.to_string(), Vec::new());
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body) else {
+        return (reply.to_string(), Vec::new());
+    };
+    let content = parsed["content"].as_str().unwrap_or_default().to_string();
+    let calls = parsed["tool_calls"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(index, call)| {
+            json!({
+                "id": format!("call_{}_{index}", completion_id().replace('-', "_")),
+                "type": "function",
+                "function": {
+                    "name": call["name"],
+                    "arguments": call["arguments"].to_string(),
+                },
+            })
+        })
+        .collect();
+    (content, calls)
+}
+
 fn completion_response(
     model: &str,
     content: &str,
@@ -1582,6 +1621,7 @@ fn completion_stream(
         let emitted_total_chars = std::cell::Cell::new(0u64);
         let emitted_total_words = std::cell::Cell::new(0u64);
         let truncated = std::cell::Cell::new(false);
+        let finish_tool_calls = std::cell::Cell::new(false);
         let failed = std::cell::Cell::new(false);
         // `stop` sequences may span chunk boundaries — content is buffered
         // and only the portion that cannot yet complete a match is emitted.
@@ -1674,6 +1714,9 @@ fn completion_stream(
             send_content(buf);
         };
         let result = solve(&callback, &meta_cb);
+        // Calls a model made with tools the caller supplied end the stream as
+        // a `tool_calls` delta (OpenAI streaming shape), not as text.
+        let (result, tool_calls) = caller_tool_calls(&result);
         // Some solver paths return a complete answer without invoking callbacks.
         if !emitted.get() && !failed.get() && !stopped.get() {
             callback(result);
@@ -1700,13 +1743,38 @@ fn completion_stream(
         if !send_role(&tx) {
             return;
         }
+        if !tool_calls.is_empty() {
+            let indexed: Vec<serde_json::Value> = tool_calls
+                .into_iter()
+                .enumerate()
+                .map(|(index, mut call)| {
+                    call["index"] = json!(index);
+                    call
+                })
+                .collect();
+            let _ = tx.blocking_send(stream_chunk(
+                (&id, created),
+                &label(),
+                legacy,
+                json!({"tool_calls": indexed}),
+                None,
+            ));
+            truncated.set(false);
+            finish_tool_calls.set(true);
+        }
         if tx
             .blocking_send(stream_chunk(
                 (&id, created),
                 &label(),
                 legacy,
                 json!({}),
-                Some(if truncated.get() { "length" } else { "stop" }),
+                Some(if finish_tool_calls.get() {
+                    "tool_calls"
+                } else if truncated.get() {
+                    "length"
+                } else {
+                    "stop"
+                }),
             ))
             .is_err()
         {
@@ -2142,7 +2210,7 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
     if legacy && tools.is_some() {
         return Err("tools are supported only for chat completions".into());
     }
-    let chat = chat_turns.map(|turns| {
+    let mut chat = chat_turns.map(|turns| {
         let messages = turns
             .into_iter()
             .map(|(role, content)| {
@@ -2177,6 +2245,11 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
                 .ok_or("max_tokens must be a positive integer")? as u32,
         ),
     };
+    // The engine stops generating at the budget instead of the server
+    // trimming a full-length answer afterwards.
+    if let (Some(chat), Some(max)) = (chat.as_mut(), max_tokens) {
+        chat["max_tokens"] = json!(max);
+    }
     // `stop`: a string or an array of strings; empty entries are no-ops.
     let stop = match object.get("stop") {
         None | Some(serde_json::Value::Null) => Vec::new(),
@@ -3028,6 +3101,76 @@ mod tests {
         assert!(parse_completion(br#"{"prompt":" "}"#, true).is_err());
         assert!(parse_completion(br#"{"prompt":"hello","tools":[]}"#, true).is_err());
     }
+    #[test]
+    fn caller_tool_calls_become_openai_tool_calls_and_other_replies_pass() {
+        let reply = format!(
+            "{}{}",
+            gemi::CALLER_TOOL_CALLS,
+            json!({"content": "", "tool_calls": [{"name": "get_weather", "arguments": {"city": "Paris"}}]})
+        );
+        let (text, calls) = caller_tool_calls(&reply);
+        assert_eq!(text, "");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["type"], "function");
+        assert_eq!(calls[0]["function"]["name"], "get_weather");
+        assert_eq!(calls[0]["function"]["arguments"], r#"{"city":"Paris"}"#);
+        assert!(calls[0]["id"].as_str().unwrap().starts_with("call_"));
+        for plain in ["The sky is blue.", "[SUSI CALLER_TOOL_CALLS]not json"] {
+            assert_eq!(caller_tool_calls(plain), (plain.to_string(), Vec::new()));
+        }
+        // max_tokens travels with the conversation to the engine.
+        let input = parse_completion(
+            br#"{"messages":[{"role":"user","content":"hi"}],"max_tokens":5,"tools":[{"type":"function","function":{"name":"t"}}]}"#,
+            false,
+        )
+        .unwrap();
+        let chat = input.chat.unwrap();
+        assert_eq!(chat["max_tokens"], 5);
+        assert_eq!(chat["tools"][0]["function"]["name"], "t");
+    }
+
+    #[tokio::test]
+    async fn a_streamed_reply_ends_with_the_callers_tool_calls() {
+        let reply = format!(
+            "{}{}",
+            gemi::CALLER_TOOL_CALLS,
+            json!({"content": "", "tool_calls": [{"name": "get_weather", "arguments": {"city": "Paris"}}]})
+        );
+        let mut rx = completion_stream(
+            "m".into(),
+            false,
+            None,
+            Vec::new(),
+            false,
+            0,
+            None,
+            move |_, _| reply,
+        );
+        let (mut content, mut calls, mut finish) = (String::new(), Vec::new(), String::new());
+        while let Some(frame) = rx.recv().await {
+            if frame == "data: [DONE]\n\n" {
+                break;
+            }
+            let value: serde_json::Value =
+                serde_json::from_str(frame.strip_prefix("data: ").unwrap().trim()).unwrap();
+            let delta = &value["choices"][0]["delta"];
+            if let Some(piece) = delta["content"].as_str() {
+                content.push_str(piece);
+            }
+            if let Some(list) = delta["tool_calls"].as_array() {
+                calls.extend(list.iter().cloned());
+            }
+            if let Some(reason) = value["choices"][0]["finish_reason"].as_str() {
+                finish = reason.to_string();
+            }
+        }
+        assert_eq!(content, "", "no markup or marker in the content");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["index"], 0);
+        assert_eq!(calls[0]["function"]["name"], "get_weather");
+        assert_eq!(finish, "tool_calls");
+    }
+
     #[tokio::test]
     async fn routing_notes_never_reach_streamed_content() {
         let mut rx = completion_stream(

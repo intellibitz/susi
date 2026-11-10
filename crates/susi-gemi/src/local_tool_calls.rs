@@ -162,6 +162,26 @@ pub(crate) fn chat_request_from(listed: &Value, user_prompt: &str) -> Option<Val
     })
 }
 
+/// The reply to a request that supplied its own tools: the calls the model
+/// made, for the caller to run, behind
+/// [`crate::susi_core::plane_bus::gemi::CALLER_TOOL_CALLS`]. Text without a
+/// call is returned unchanged.
+pub fn caller_tool_reply(text: &str) -> String {
+    let (prose, calls) = extract_tool_calls(text);
+    if calls.is_empty() {
+        return text.to_string();
+    }
+    let calls: Vec<Value> = calls
+        .into_iter()
+        .map(|c| serde_json::json!({"name": c.name, "arguments": c.arguments}))
+        .collect();
+    let reply = serde_json::json!({"content": prose.trim(), "tool_calls": calls});
+    format!(
+        "{}{reply}",
+        crate::susi_core::plane_bus::gemi::CALLER_TOOL_CALLS
+    )
+}
+
 /// Walk `<tool_call>...</tool_call>` pairs (case-insensitive; an unclosed
 /// trailing block counts). Blocks whose inner JSON does not normalize are
 /// preserved in the prose.

@@ -270,12 +270,17 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// deleting what only its own tests called (`looks_like_inference_tool`,
 /// `worker::seat_window_state`). With T-CODEXHISTORY-1 merged the
 /// measured size is 21,153.
+/// 2026-11-12: susi-gemi 21,153 -> 21,096 (T-CLAUDEGEMIFIX-2, measured):
+/// calls to caller-supplied tools return to the caller as OpenAI
+/// `tool_calls` and `max_tokens` reaches the engine; paid for by deleting
+/// `SusiPulse::compute_spectral_prediction` and `SpectralPrediction`, which
+/// only their own test used.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_525),
     ("susi-gawd-swarm", 20_206),
     ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_588),
-    ("susi-gemi", 21_153),
+    ("susi-gemi", 21_096),
     ("susi-gemi-models", 15_939),
     ("susi-gmcp", 25_860),
     ("susi-harness", 37_536),

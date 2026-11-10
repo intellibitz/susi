@@ -442,6 +442,13 @@ pub fn with_watched<T>(payload: &Value, call: impl FnOnce() -> T) -> T {
 pub mod gemi {
     use super::*;
 
+    /// Prefix of a GEMI reply that carries the tool calls a model made with
+    /// tools the caller supplied: `{"content": .., "tool_calls": [{"name",
+    /// "arguments"}]}` follows. The caller runs its own tools, so GEMI returns
+    /// the calls instead of executing them; the 9091 server turns them into
+    /// OpenAI `tool_calls`.
+    pub const CALLER_TOOL_CALLS: &str = "[SUSI CALLER_TOOL_CALLS]";
+
     /// Bounded provider identifier accepted across CLI, HTTP, MCP, and the
     /// plane bus. This is a wire invariant and deliberately performs no I/O.
     pub fn valid_provider_id(value: &str) -> bool {
