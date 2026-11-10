@@ -157,7 +157,7 @@ impl ResponseCache {
             object.remove("stream_options");
         }
         let bytes = serde_json::to_vec(&normalized).unwrap_or_default();
-        hex::encode(Sha256::digest(&bytes))
+        susi_paths::hex::encode(Sha256::digest(&bytes))
     }
 
     /// Look up a cached response by key.

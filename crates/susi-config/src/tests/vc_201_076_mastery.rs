@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 fn digest(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    format!("sha256:{}", hex::encode(Sha256::digest(bytes)))
+    format!("sha256:{}", susi_paths::hex::encode(Sha256::digest(bytes)))
 }
 
 fn with_temp_home<F: FnOnce()>(f: F) {
@@ -78,10 +78,12 @@ fn vc_201_076_mastery_validates_optional_ed25519_signatures() {
         std::fs::create_dir_all(&root).unwrap();
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
         let mut m = pack("signed", &[("data.json", "data.json")]);
-        m.signer = Some(hex::encode(signing_key.verifying_key().to_bytes()));
+        m.signer = Some(susi_paths::hex::encode(
+            signing_key.verifying_key().to_bytes(),
+        ));
         m.signatures.insert(
             "data.json".into(),
-            hex::encode(signing_key.sign(b"original").to_bytes()),
+            susi_paths::hex::encode(signing_key.sign(b"original").to_bytes()),
         );
         std::fs::write(
             root.join("manifest.json"),

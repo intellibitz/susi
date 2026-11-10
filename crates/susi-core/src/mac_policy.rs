@@ -207,9 +207,9 @@ fn grant_key(subject: &str, action: &str, resource: &str) -> String {
         // zero pipes and cannot collide with the two-pipe legacy key.
         format!(
             "v2:{}:{}:{}",
-            hex::encode(subject),
-            hex::encode(action),
-            hex::encode(resource)
+            susi_paths::hex::encode(subject),
+            susi_paths::hex::encode(action),
+            susi_paths::hex::encode(resource)
         )
     } else {
         format!("{subject}|{action}|{resource}")
@@ -250,7 +250,7 @@ fn grant_paths(
         hash.update((field.len() as u64).to_be_bytes());
         hash.update(field.as_bytes());
     }
-    let current = dir.join(format!("v2-{}", hex::encode(hash.finalize())));
+    let current = dir.join(format!("v2-{}", susi_paths::hex::encode(hash.finalize())));
     let legacy = enc(&format!("{subject}|{action}|{resource}"));
     // Previous names were ASCII. Longer components cannot have existed on
     // the supported filesystems, and probing one would itself fail.
@@ -812,7 +812,7 @@ impl MacPolicy {
     }
 
     fn sign(&self, token: &CapabilityToken) -> String {
-        hex::encode(hmac_sha256(&self.key, token.canonical_payload().as_bytes()))
+        susi_paths::hex::encode(hmac_sha256(&self.key, token.canonical_payload().as_bytes()))
     }
 
     pub fn verify(&self, token: &CapabilityToken) -> bool {
@@ -2045,7 +2045,7 @@ mod tests {
         token.action = "worker|process.exec".into();
         assert!(!policy.verify(&token));
         let ambiguous = format!("mission|worker|process.exec|*|{}|none", token.issued_at);
-        token.signature = hex::encode(hmac_sha256(&policy.key, ambiguous.as_bytes()));
+        token.signature = susi_paths::hex::encode(hmac_sha256(&policy.key, ambiguous.as_bytes()));
         assert!(!policy.verify(&token));
         assert_ne!(
             grant_key("mission|worker", "process.exec", "*"),

@@ -109,7 +109,11 @@ fn write_roster(dir: &std::path::Path, node_id: &str, addr: &str, pubkey: &str) 
 
 fn isolated_cluster_home(tag: &str) -> HomeGuard {
     let home = HomeGuard::new(tag);
-    std::fs::write(home.config().join("cluster.key"), hex::encode([0x5Au8; 32])).unwrap();
+    std::fs::write(
+        home.config().join("cluster.key"),
+        susi_paths::hex::encode([0x5Au8; 32]),
+    )
+    .unwrap();
     home
 }
 

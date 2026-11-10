@@ -15,7 +15,7 @@ pub struct EvalReceipt {
 impl EvalReceipt {
     #[must_use]
     pub fn digest_bytes(bytes: &[u8]) -> String {
-        hex::encode(Sha256::digest(bytes))
+        susi_paths::hex::encode(Sha256::digest(bytes))
     }
 
     #[must_use]

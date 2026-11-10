@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+use susi_paths::hex;
 
 /// Stable identifier for a node in the context graph.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

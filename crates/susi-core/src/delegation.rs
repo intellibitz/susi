@@ -738,9 +738,9 @@ impl DelegationAuthority {
         getrandom::fill(&mut id)
             .map_err(|e| DelegationError::Unverified(format!("no entropy for an id: {e}")))?;
         let mut envelope = scope.envelope();
-        envelope.id = Some(hex::encode(id));
+        envelope.id = Some(susi_paths::hex::encode(id));
         envelope.expires_unix_ms = Some(now.saturating_add(life));
-        envelope.signature = Some(hex::encode(self.mac(&envelope)?));
+        envelope.signature = Some(susi_paths::hex::encode(self.mac(&envelope)?));
         self.remember(&envelope, scope.clone())?;
         Ok(envelope)
     }
@@ -763,7 +763,7 @@ impl DelegationAuthority {
                 "unsigned: id, expires_unix_ms and signature are required".into(),
             ));
         };
-        let presented = hex::decode(signature)
+        let presented = susi_paths::hex::decode(signature)
             .map_err(|_| DelegationError::Unverified("signature is not hex".into()))?;
         if !constant_time_eq(&presented, &self.mac(envelope)?) {
             return Err(DelegationError::Unverified(

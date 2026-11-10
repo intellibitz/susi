@@ -190,7 +190,7 @@ fn artifact_tree_digest(tree: &[u8], manifest: &str) -> String {
         }
         digest.update(line.as_bytes());
     }
-    hex::encode(digest.finalize())
+    susi_paths::hex::encode(digest.finalize())
 }
 
 /// Git objects, not the working tree: shallow CI and full clones hash the
@@ -2148,7 +2148,7 @@ fn gmcp_vc_203_001_mastery() {
     //    zero-test records fail ───────────────────────────────────────
     use sha2::{Digest, Sha256};
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
     let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -3436,7 +3436,7 @@ fn gmcp_req_203_002_06_operations() {
     // so a changed dependency invalidates stale proof instead of preserving
     // a green record by wording alone.
     use sha2::{Digest, Sha256};
-    let ledger_hash = hex::encode(Sha256::digest(
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-002.jsonl"))
@@ -3677,7 +3677,7 @@ fn gmcp_vc_203_002_mastery() {
     //    zero-test records fail ──────────────────────────────────────
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
         .expect("the canonical ledger must exist");
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
     let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -4811,7 +4811,7 @@ fn gmcp_req_203_003_06_operations() {
     // Evidence is retained, signed, and tied to the canonical ledger
     // bytes, so a changed corpus invalidates this proof.
     use sha2::{Digest, Sha256};
-    let ledger_hash = hex::encode(Sha256::digest(
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-003.jsonl"))
@@ -5034,7 +5034,7 @@ fn gmcp_vc_203_003_mastery() {
     //    zero-test records fail ──────────────────────────────────────
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
         .expect("the canonical ledger must exist");
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
     let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -6454,7 +6454,7 @@ fn gmcp_req_203_008_06_operations() {
     // Evidence is retained, signed, and tied to the canonical ledger
     // bytes, so a changed corpus invalidates this proof.
     use sha2::{Digest, Sha256};
-    let ledger_hash = hex::encode(Sha256::digest(
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-008.jsonl"))
@@ -6682,7 +6682,7 @@ fn gmcp_vc_203_008_mastery() {
     //    zero-test records fail ──────────────────────────────────────
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
         .expect("the canonical ledger must exist");
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
     let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -8537,7 +8537,7 @@ fn gmcp_req_203_005_06_operations() {
 
     // 8. Evidence is retained, signed, and tied to current ledger bytes.
     use sha2::{Digest, Sha256};
-    let ledger_hash = hex::encode(Sha256::digest(
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-005.jsonl"))
@@ -9415,7 +9415,7 @@ fn gmcp_req_203_006_06_operations() {
 
     // 8. Evidence is retained, signed, and tied to current ledger bytes.
     use sha2::{Digest, Sha256};
-    let ledger_hash = hex::encode(Sha256::digest(
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-006.jsonl"))
@@ -9848,7 +9848,7 @@ fn gmcp_req_203_009_04_adversarial() {
     assert!(contract.contains("## Threat model"));
     assert!(contract.contains("## SLOs and resource budgets"));
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
 
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
         .expect("VC-203-009 must retain evidence");
@@ -10137,7 +10137,7 @@ fn gmcp_req_203_009_05_interop() {
     assert!(contract.contains("## Threat model"));
     assert!(contract.contains("## SLOs and resource budgets"));
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
 
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
         .expect("VC-203-009 must retain evidence");
@@ -10315,7 +10315,7 @@ fn gmcp_req_203_009_06_operations() {
 
     // 8. Evidence is retained, signed, and tied to current ledger bytes.
     use sha2::{Digest, Sha256};
-    let ledger_hash = hex::encode(Sha256::digest(
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
@@ -11416,7 +11416,7 @@ fn gmcp_req_203_004_06_operations() {
 
     // 8. Evidence is retained, signed, and tied to current ledger bytes.
     use sha2::{Digest, Sha256};
-    let ledger_hash = hex::encode(Sha256::digest(
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(
         std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-004.jsonl"))
@@ -11610,7 +11610,7 @@ fn gmcp_vc_203_004_mastery() {
     //    complete, fresh, signed, exit 0, matching ledger hash, and backed by a real test.
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
         .expect("canonical ledger must exist");
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
     let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -11918,7 +11918,7 @@ fn gmcp_vc_203_005_mastery() {
         root.join(".agents/gmcp/spec/docs/specification/2026-07-28/basic/transports/stdio.mdx");
     assert!(stdio_spec_path.exists(), "stdio spec must exist");
     let spec_bytes = std::fs::read(&stdio_spec_path).expect("stdio spec must be readable");
-    let spec_hash = hex::encode(Sha256::digest(&spec_bytes));
+    let spec_hash = susi_paths::hex::encode(Sha256::digest(&spec_bytes));
     assert!(
         !spec_hash.is_empty(),
         "spec hash must be computed deterministically"
@@ -11927,7 +11927,7 @@ fn gmcp_vc_203_005_mastery() {
     // ── 7. Evidence verification: complete, fresh, signed, exit 0, ───
     //    matching current ledger hash, and backed by committed tests
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
     let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -12288,7 +12288,7 @@ fn gmcp_vc_203_006_mastery() {
     );
     assert!(spec_path.exists(), "streamable-http spec must exist");
     let spec_bytes = std::fs::read(&spec_path).expect("streamable-http spec must be readable");
-    let spec_hash = hex::encode(Sha256::digest(&spec_bytes));
+    let spec_hash = susi_paths::hex::encode(Sha256::digest(&spec_bytes));
     assert!(
         !spec_hash.is_empty(),
         "spec hash must be computed deterministically"
@@ -12297,7 +12297,7 @@ fn gmcp_vc_203_006_mastery() {
     // ── 7. Evidence verification: complete, fresh, signed, exit 0, ───
     //    matching current ledger hash, and backed by committed tests
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
     let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -13827,7 +13827,7 @@ fn gmcp_vc_203_009_mastery() {
     // ── 7. Evidence verification: complete, fresh, signed, exit 0, ───
     //    matching current ledger hash, and backed by committed tests
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
     let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -14101,7 +14101,7 @@ fn gmcp_vc_203_013_mastery() {
     // ── 7. Evidence verification: complete, fresh, signed, exit 0, ───
     //    matching current ledger hash, and backed by committed tests
     let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
-    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
     let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

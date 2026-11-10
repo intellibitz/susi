@@ -59,7 +59,7 @@ fn rekey_rotates_epoch_and_bounds_prior_epoch_appends() {
     let dir = home.config();
     let key_a = [0xAAu8; 32];
     let key_b = [0xBBu8; 32];
-    std::fs::write(dir.join("cluster.key"), hex::encode(key_a)).unwrap();
+    std::fs::write(dir.join("cluster.key"), susi_paths::hex::encode(key_a)).unwrap();
 
     // Pre-rotation chain r1..r4, all appended so each seal sees the
     // right chain head; r4 is held back (not yet delivered "to this
@@ -110,7 +110,7 @@ fn rekey_rotates_epoch_and_bounds_prior_epoch_appends() {
         std::fs::read_to_string(dir.join("cluster.key"))
             .unwrap()
             .trim(),
-        hex::encode(key_a)
+        susi_paths::hex::encode(key_a)
     );
     assert!(dir.join("cluster.key.next").exists());
     assert!(!dir.join("cluster.key.prev").exists());
@@ -131,13 +131,13 @@ fn rekey_rotates_epoch_and_bounds_prior_epoch_appends() {
         std::fs::read_to_string(dir.join("cluster.key"))
             .unwrap()
             .trim(),
-        hex::encode(key_b)
+        susi_paths::hex::encode(key_b)
     );
     assert_eq!(
         std::fs::read_to_string(dir.join("cluster.key.prev"))
             .unwrap()
             .trim(),
-        hex::encode(key_a)
+        susi_paths::hex::encode(key_a)
     );
     assert!(!dir.join("cluster.key.next").exists());
 
@@ -198,7 +198,11 @@ fn decision_seals_record_with_current_key_epoch_and_verifies() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("rekey-seal-unit");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0x11u8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0x11u8; 32]),
+    )
+    .unwrap();
 
     let rec = decision("unit-decision-1");
     assert_eq!(rec.seq, 1);
@@ -213,7 +217,11 @@ fn drop_ledger_seq_removes_targeted_sequence_and_preserves_remaining() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("rekey-drop-unit");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0x22u8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0x22u8; 32]),
+    )
+    .unwrap();
 
     let r1 = decision("keep-or-drop-1");
     commit_log::append(&r1).unwrap();
@@ -239,7 +247,7 @@ fn stage_key_to_writes_next_key_and_produces_deterministic_fingerprint() {
     assert!(cluster_key::stage_key_to(&next_key, &next_path));
     assert_eq!(
         std::fs::read_to_string(&next_path).unwrap().trim(),
-        hex::encode(next_key)
+        susi_paths::hex::encode(next_key)
     );
     let fp1 = cluster_key::key_fingerprint(&next_key);
     let fp2 = cluster_key::key_fingerprint(&next_key);

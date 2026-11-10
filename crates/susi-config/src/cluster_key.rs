@@ -51,12 +51,12 @@ pub fn cluster_key() -> Option<[u8; 32]> {
         _ => {
             let mut fresh = [0u8; 32];
             getrandom::fill(&mut fresh).ok()?;
-            install_identity_file(&path, hex::encode(fresh).as_bytes())?
+            install_identity_file(&path, susi_paths::hex::encode(fresh).as_bytes())?
         }
     };
     let bytes = std::str::from_utf8(&raw)
         .ok()
-        .and_then(|text| hex::decode(text.trim()).ok());
+        .and_then(|text| susi_paths::hex::decode(text.trim()).ok());
     if let Some(bytes) = bytes.filter(|b| b.len() == 32) {
         let mut key = [0u8; 32];
         key.copy_from_slice(&bytes);
@@ -126,7 +126,7 @@ pub fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
 }
 
 pub fn hmac_sha256_hex(key: &[u8; 32], message: &[u8]) -> String {
-    hex::encode(hmac_sha256(key, message))
+    susi_paths::hex::encode(hmac_sha256(key, message))
 }
 
 /// Bearer credential for member-to-member MCP calls. The host
@@ -194,7 +194,8 @@ fn read_timestamp_file(path: &Path) -> Option<u64> {
 }
 
 fn key_bytes_from_file(path: &std::path::Path) -> Option<[u8; 32]> {
-    let bytes = hex::decode(String::from_utf8(cached_file_bytes(path)?).ok()?.trim()).ok()?;
+    let bytes =
+        susi_paths::hex::decode(String::from_utf8(cached_file_bytes(path)?).ok()?.trim()).ok()?;
     if bytes.len() != 32 {
         return None;
     }
@@ -205,7 +206,7 @@ fn key_bytes_from_file(path: &std::path::Path) -> Option<[u8; 32]> {
 
 /// Write a key file with 0600 mode atomically (unique staging + rename).
 fn write_key_file(path: &Path, key: &[u8; 32]) -> bool {
-    super::json_util::atomic_write_bytes(path, hex::encode(key).as_bytes()).is_ok()
+    super::json_util::atomic_write_bytes(path, susi_paths::hex::encode(key).as_bytes()).is_ok()
 }
 
 /// A fresh random 32-byte cluster key — the coordinator-side half of
@@ -221,7 +222,7 @@ pub fn generate_key() -> Option<[u8; 32]> {
 /// fingerprint before staging, so the ledger — not the transport —
 /// is the authority on which rotation happened.
 pub fn key_fingerprint(key: &[u8; 32]) -> String {
-    hex::encode(Sha256::digest(key))
+    susi_paths::hex::encode(Sha256::digest(key))
 }
 
 /// Stage a next-epoch key beside `cluster.key` (0600). The staged
@@ -350,9 +351,9 @@ pub fn random_nonce_hex() -> String {
                 .unwrap_or(0)
         );
         let digest = Sha256::digest(seed.as_bytes());
-        return hex::encode(&digest[..16]);
+        return susi_paths::hex::encode(&digest[..16]);
     }
-    hex::encode(raw)
+    susi_paths::hex::encode(raw)
 }
 
 pub(crate) fn mac_tag(key: &[u8; 32], fields: &[&str]) -> String {
@@ -450,7 +451,7 @@ fn node_signing_key() -> Option<ed25519_dalek::SigningKey> {
 /// life of `node.key` — roster bindings and signed-pong attestation
 /// both carry this value.
 pub fn node_pubkey_hex() -> Option<String> {
-    node_signing_key().map(|k| hex::encode(k.verifying_key().to_bytes()))
+    node_signing_key().map(|k| susi_paths::hex::encode(k.verifying_key().to_bytes()))
 }
 
 /// Sign `payload` with this node's key → hex Ed25519 signature.
@@ -459,7 +460,7 @@ pub fn node_pubkey_hex() -> Option<String> {
 pub fn member_sign(payload: &str) -> Option<String> {
     let key = node_signing_key()?;
     let msg = format!("susi-member-v1:{payload}");
-    Some(hex::encode(
+    Some(susi_paths::hex::encode(
         ed25519_dalek::Signer::sign(&key, msg.as_bytes()).to_bytes(),
     ))
 }
@@ -468,10 +469,10 @@ pub fn member_sign(payload: &str) -> Option<String> {
 /// verification (rejects non-canonical encodings and small-order
 /// keys). Any parse failure is a refusal, never a pass.
 pub fn member_verify(pubkey_hex: &str, payload: &str, sig_hex: &str) -> bool {
-    let Ok(pk) = hex::decode(pubkey_hex) else {
+    let Ok(pk) = susi_paths::hex::decode(pubkey_hex) else {
         return false;
     };
-    let Ok(sig) = hex::decode(sig_hex) else {
+    let Ok(sig) = susi_paths::hex::decode(sig_hex) else {
         return false;
     };
     let (Ok(pk_arr), Ok(sig_arr)) = (
@@ -506,7 +507,7 @@ pub(crate) fn node_x25519_secret() -> Option<x25519_dalek::StaticSecret> {
 /// A peer's X25519 public key from its roster-bound Ed25519 pubkey —
 /// the same birational map `node_x25519_secret` uses on our side.
 pub(crate) fn peer_x25519_public(pubkey_hex: &str) -> Option<x25519_dalek::PublicKey> {
-    let pk = hex::decode(pubkey_hex).ok()?;
+    let pk = susi_paths::hex::decode(pubkey_hex).ok()?;
     let arr = <[u8; 32]>::try_from(pk.as_slice()).ok()?;
     let vk = ed25519_dalek::VerifyingKey::from_bytes(&arr).ok()?;
     Some(x25519_dalek::PublicKey::from(vk.to_montgomery().to_bytes()))
@@ -534,7 +535,7 @@ pub fn member_seal(peer_pubkey_hex: &str, plaintext: &[u8]) -> Option<(String, V
     let ct = cipher
         .encrypt(chacha20poly1305::Nonce::from_slice(&nonce), plaintext)
         .ok()?;
-    Some((hex::encode(nonce), ct))
+    Some((susi_paths::hex::encode(nonce), ct))
 }
 
 /// Open a `member_seal` ciphertext from the bound member
@@ -543,7 +544,7 @@ pub fn member_seal(peer_pubkey_hex: &str, plaintext: &[u8]) -> Option<(String, V
 pub fn member_open(peer_pubkey_hex: &str, nonce_hex: &str, ciphertext: &[u8]) -> Option<Vec<u8>> {
     use chacha20poly1305::aead::{Aead, KeyInit};
     let key = peer_channel_key(peer_pubkey_hex)?;
-    let nonce = hex::decode(nonce_hex).ok()?;
+    let nonce = susi_paths::hex::decode(nonce_hex).ok()?;
     let nonce: &[u8; 12] = nonce.as_slice().try_into().ok()?;
     let cipher = chacha20poly1305::ChaCha20Poly1305::new((&key).into());
     cipher
@@ -923,7 +924,7 @@ pub fn bound_ping_frame(
     nonce: &str,
 ) -> Option<String> {
     let checksum = checksum.to_string();
-    let service_hex = hex::encode(service.to_string());
+    let service_hex = susi_paths::hex::encode(service.to_string());
     let ts = ts_secs.to_string();
     for f in [node_id, caps_csv, &checksum, bloom_hex, nonce] {
         if !wire_safe(f) {
@@ -1000,7 +1001,7 @@ pub fn verify_bound_ping_with(
     let (Ok(checksum), Ok(ts_secs)) = (checksum_s.parse::<u64>(), ts_s.parse::<u64>()) else {
         return Err(PingRejection::Malformed);
     };
-    let service = hex::decode(service_hex)
+    let service = susi_paths::hex::decode(service_hex)
         .ok()
         .and_then(|raw| String::from_utf8(raw).ok())
         .and_then(|text| text.parse::<std::net::SocketAddr>().ok())
@@ -1044,7 +1045,7 @@ pub fn encode_roster(entries: &[(String, String)]) -> String {
         .map(|(id, addr)| format!("{id}@{addr}"))
         .collect::<Vec<_>>()
         .join(";");
-    hex::encode(joined.as_bytes())
+    susi_paths::hex::encode(joined.as_bytes())
 }
 
 /// Inverse of `encode_roster`; `0` or undecodable input yields an
@@ -1054,7 +1055,7 @@ pub fn decode_roster(field: &str) -> Vec<(String, String)> {
     if field == "0" {
         return Vec::new();
     }
-    let Ok(bytes) = hex::decode(field) else {
+    let Ok(bytes) = susi_paths::hex::decode(field) else {
         return Vec::new();
     };
     let Ok(text) = String::from_utf8(bytes) else {
@@ -1333,7 +1334,7 @@ mod inline_tests {
             "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad"
         );
         assert_eq!(
-            hex::encode(hmac_sha256(&KEY, b"")),
+            susi_paths::hex::encode(hmac_sha256(&KEY, b"")),
             hmac_sha256_hex(&KEY, b"")
         );
         assert_ne!(hmac_sha256(&KEY, b"a"), hmac_sha256(&K1, b"a"));
@@ -1410,11 +1411,18 @@ mod inline_tests {
         let dir = scratch("keyfile");
         let good = dir.join("good.key");
         assert!(write_key_file(&good, &K1));
-        assert_eq!(fs::read_to_string(&good).unwrap(), hex::encode(K1));
+        assert_eq!(
+            fs::read_to_string(&good).unwrap(),
+            susi_paths::hex::encode(K1)
+        );
         assert_eq!(key_bytes_from_file(&good), Some(K1));
 
         let padded = dir.join("padded.key");
-        fs::write(&padded, format!("  {}\n", hex::encode(K2).to_uppercase())).unwrap();
+        fs::write(
+            &padded,
+            format!("  {}\n", susi_paths::hex::encode(K2).to_uppercase()),
+        )
+        .unwrap();
         assert_eq!(
             key_bytes_from_file(&padded),
             Some(K2),
@@ -1603,11 +1611,11 @@ mod inline_tests {
     }
 
     fn pubkey_of(sk: &ed25519_dalek::SigningKey) -> String {
-        hex::encode(sk.verifying_key().to_bytes())
+        susi_paths::hex::encode(sk.verifying_key().to_bytes())
     }
 
     fn member_sig(sk: &ed25519_dalek::SigningKey, payload: &str) -> String {
-        hex::encode(
+        susi_paths::hex::encode(
             sk.sign(format!("susi-member-v1:{payload}").as_bytes())
                 .to_bytes(),
         )
@@ -1670,7 +1678,7 @@ mod inline_tests {
         assert!(decode_roster("zz").is_empty(), "not hex");
         assert!(decode_roster("ff").is_empty(), "not UTF-8");
         assert!(decode_roster("").is_empty());
-        let mixed = hex::encode("a@b;no-separator;c@d:1");
+        let mixed = susi_paths::hex::encode("a@b;no-separator;c@d:1");
         assert_eq!(
             decode_roster(&mixed),
             [
@@ -1896,8 +1904,8 @@ mod inline_tests {
             assert!(verify_bound_ping_with(&KEY, &frame, sender(), NOW, &mut cache).is_ok());
             // Re-addressing the frame breaks the MAC.
             let readdressed = frame.replace(
-                &hex::encode(sender().to_string()),
-                &hex::encode("10.0.0.66:9093"),
+                &susi_paths::hex::encode(sender().to_string()),
+                &susi_paths::hex::encode("10.0.0.66:9093"),
             );
             assert_eq!(
                 verify_bound_ping_with(&KEY, &readdressed, replayer, NOW, &mut cache),
@@ -1969,7 +1977,7 @@ mod inline_tests {
             let mut bad_mac = good.clone();
             let last = bad_mac.pop().unwrap();
             bad_mac.push(if last == '0' { '1' } else { '0' });
-            let svc = hex::encode(sender().to_string());
+            let svc = susi_paths::hex::encode(sender().to_string());
             let ts = NOW.to_string();
             let not_an_addr = ping(
                 &KEY,

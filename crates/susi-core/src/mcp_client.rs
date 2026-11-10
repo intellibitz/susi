@@ -75,7 +75,9 @@ pub fn open_stream_records(peer_pubkey_hex: &str, body: &[u8]) -> Result<Vec<u8>
 fn frame_record(chunk: &[u8], seal: impl Fn(&[u8]) -> Option<(String, Vec<u8>)>) -> Vec<u8> {
     seal(chunk)
         .and_then(|(nonce, ct)| {
-            let nonce = hex::decode(nonce).ok().filter(|n| n.len() == 12)?;
+            let nonce = susi_paths::hex::decode(nonce)
+                .ok()
+                .filter(|n| n.len() == 12)?;
             let len = u32::try_from(nonce.len() + ct.len()).ok()?;
             let mut record = Vec::with_capacity(4 + nonce.len() + ct.len());
             record.extend_from_slice(&len.to_be_bytes());
@@ -104,7 +106,7 @@ fn open_records(
             return Err("sealed stream: truncated record".to_string());
         }
         let (nonce, ct) = rest[..len].split_at(12);
-        let chunk = open(&hex::encode(nonce), ct)
+        let chunk = open(&susi_paths::hex::encode(nonce), ct)
             .ok_or("sealed stream: record failed AEAD verification")?;
         plain.extend_from_slice(&chunk);
         body = &rest[len..];
@@ -373,7 +375,7 @@ pub fn signed_headers(method: &str, url: &str, body_bytes: &[u8]) -> Vec<(String
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let nonce = cluster_key::random_nonce_hex();
-    let hash = hex::encode(sha2::Sha256::digest(body_bytes));
+    let hash = susi_paths::hex::encode(sha2::Sha256::digest(body_bytes));
     let canonical = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{hash}");
     let Some(sig) = cluster_key::member_sign(&canonical) else {
         return Vec::new();

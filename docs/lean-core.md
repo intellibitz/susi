@@ -897,4 +897,16 @@ config, core and the tail.
   simultaneously: third-party 140 -> 139, workspace 37 -> 36, direct facade
   edges 13 -> 12 (`susi-gmcp` shipped lines unchanged at 25,860). GMCP
   requirement and `--mastery` evidence re-recorded in both phases.
+- 2026-11-11 (T-CARBONLEAN-6, Linux x86_64, CEO laptop): the `susi-vendor-hex`
+  facade and `hex` leave core and `Cargo.lock` (-2 packages; 115 cumulative
+  `Cargo.lock` packages removed across T-CARBONLEAN-1..6; Linux host packages
+  200 -> 198, `-e normal` 191 -> 189, host build units 261 -> 259, crossing
+  below 200 host packages). `susi_paths::hex` provides `#![forbid(unsafe_code)]`
+  pure-std lowercase hex encoding and case-insensitive decoding (`encode`,
+  `decode`, `FromHexError`) verified with zero mismatches across 500,000
+  generated inputs (250,000 `encode` + 250,000 `decode`) against `hex 0.4.3`
+  before removal. All three pillar reach ceilings ratchet down simultaneously
+  for the second consecutive wave: third-party 139 -> 138, workspace 36 -> 35,
+  direct facade edges 12 -> 11 (`susi-gmcp` shipped lines unchanged at 25,860).
+  GMCP requirement and `--mastery` evidence re-recorded in both phases.
 

@@ -12,7 +12,7 @@ use std::sync::{Mutex, OnceLock};
 
 fn cell_sha256_hex(path: &Path) -> std::io::Result<String> {
     let bytes = std::fs::read(path)?;
-    Ok(hex::encode(Sha256::digest(&bytes)))
+    Ok(susi_paths::hex::encode(Sha256::digest(&bytes)))
 }
 
 fn sidecar_path(path: &Path, ext: &str) -> Option<PathBuf> {

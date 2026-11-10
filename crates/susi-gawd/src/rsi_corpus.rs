@@ -141,7 +141,7 @@ impl std::error::Error for CorpusIntegrityError {}
 impl RsiCorpus {
     #[must_use]
     pub fn hash_input(input: &str) -> String {
-        hex::encode(Sha256::digest(input.as_bytes()))
+        susi_paths::hex::encode(Sha256::digest(input.as_bytes()))
     }
 
     /// The deserialization boundary: parse a corpus document and verify

@@ -91,7 +91,7 @@ fn digest(bytes: &[u8]) -> String {
             hash.update(line);
         }
     }
-    hex::encode(hash.finalize())
+    susi_paths::hex::encode(hash.finalize())
 }
 
 /// True means unchanged historical debt, false means a valid task record.

@@ -9,7 +9,7 @@ fn sign(secret: &str, chain_anchor: &str) -> String {
     digest.update(secret.as_bytes());
     digest.update(b":");
     digest.update(chain_anchor.as_bytes());
-    hex::encode(digest.finalize())
+    susi_paths::hex::encode(digest.finalize())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

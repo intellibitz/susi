@@ -336,7 +336,7 @@ fn stream_sha256(path: &Path) -> Option<String> {
     loop {
         let read = file.read(&mut chunk).ok()?;
         if read == 0 {
-            return Some(hex::encode(hasher.finalize()));
+            return Some(susi_paths::hex::encode(hasher.finalize()));
         }
         hasher.update(&chunk[..read]);
     }
@@ -704,7 +704,7 @@ mod tests {
         use sha2::{Digest, Sha256};
         let dir = ws();
         std::fs::write(dir.path().join("h.bin"), b"digest me").unwrap();
-        let good = hex::encode(Sha256::digest(b"digest me"));
+        let good = susi_paths::hex::encode(Sha256::digest(b"digest me"));
         assert!(verify_contract(
             &Contract::FileHash {
                 path: "h.bin".into(),
@@ -870,7 +870,7 @@ mod tests {
         use sha2::{Digest, Sha256};
         assert_eq!(
             stream_sha256(&path).unwrap(),
-            hex::encode(Sha256::digest(&body))
+            susi_paths::hex::encode(Sha256::digest(&body))
         );
     }
 

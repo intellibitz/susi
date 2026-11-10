@@ -42,7 +42,7 @@ fn run(home: &Path, args: &[&str]) -> Output {
 
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    hex::encode(Sha256::digest(bytes))
+    susi_paths::hex::encode(Sha256::digest(bytes))
 }
 
 /// Install `id` with a checksummed catalog; returns its manifest digest.

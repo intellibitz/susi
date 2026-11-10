@@ -217,7 +217,7 @@ impl GossipManager {
         let caps = wrap.get("caps")?;
         let caps_bytes = serde_json::to_vec(caps).ok()?;
         let expected = hmac(&self.store_key()?, &caps_bytes);
-        let got = hex::decode(mac_hex).ok()?;
+        let got = susi_paths::hex::decode(mac_hex).ok()?;
         if !mac_eq(&got, &expected) {
             return None;
         }
@@ -247,7 +247,7 @@ impl GossipManager {
             let mac = hmac(&store_key, &caps_bytes);
             let wrap = serde_json::json!({
                 "v": 1,
-                "mac": hex::encode(mac),
+                "mac": susi_paths::hex::encode(mac),
                 "caps": caps_value,
             });
             if let Ok(text) = serde_json::to_string_pretty(&wrap) {

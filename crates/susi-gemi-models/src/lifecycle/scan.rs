@@ -109,7 +109,7 @@ impl ModelManager {
             }
             hasher.update(&buffer[..n]);
         }
-        Ok(hex::encode(hasher.finalize()))
+        Ok(susi_paths::hex::encode(hasher.finalize()))
     }
 
     #[allow(clippy::type_complexity)] // one-off function-local cache tuple; a named type would add no clarity

@@ -262,10 +262,10 @@ impl CommitRecord {
             .unwrap_or(0);
         let mut sorted = input.electorate;
         sorted.sort();
-        let epoch = hex::encode(Sha256::digest(
+        let epoch = susi_paths::hex::encode(Sha256::digest(
             format!("{}|{}", sorted.join(","), committed_at).as_bytes(),
         ));
-        let value_hash = hex::encode(Sha256::digest(input.value.as_bytes()));
+        let value_hash = susi_paths::hex::encode(Sha256::digest(input.value.as_bytes()));
         let held = load();
         let mut rec = CommitRecord {
             epoch,
@@ -339,7 +339,7 @@ impl CommitRecord {
         // Only adds carry a key binding — remove/unban deltas act on
         // members whose binding already exists (or is moot).
         if kind == KIND_MEMBER_ADD
-            && hex::decode(member_pubkey)
+            && susi_paths::hex::decode(member_pubkey)
                 .ok()
                 .is_some_and(|b| b.len() == 32)
         {
@@ -360,7 +360,7 @@ impl CommitRecord {
         fingerprint: &str,
         electorate: Vec<String>,
     ) -> Option<Self> {
-        if hex::decode(fingerprint).ok()?.len() != 32 {
+        if susi_paths::hex::decode(fingerprint).ok()?.len() != 32 {
             return None;
         }
         Self::seal_signed(
@@ -382,7 +382,7 @@ impl CommitRecord {
         fingerprint: &str,
         electorate: Vec<String>,
     ) -> Option<Self> {
-        if hex::decode(fingerprint).ok()?.len() != 32 {
+        if susi_paths::hex::decode(fingerprint).ok()?.len() != 32 {
             return None;
         }
         Self::seal_signed(
@@ -411,7 +411,7 @@ impl CommitRecord {
             .unwrap_or(0);
         let mut sorted = electorate;
         sorted.sort();
-        let epoch = hex::encode(Sha256::digest(
+        let epoch = susi_paths::hex::encode(Sha256::digest(
             format!("{}|{}|{}", kind, sorted.join(","), committed_at).as_bytes(),
         ));
         let held = load();
@@ -421,7 +421,7 @@ impl CommitRecord {
             electorate: sorted,
             tally: 0,
             quorum_threshold: 0,
-            value_hash: hex::encode(Sha256::digest(value.as_bytes())),
+            value_hash: susi_paths::hex::encode(Sha256::digest(value.as_bytes())),
             value: value.to_string(),
             committed_at,
             seq: next_seq_for(&held, coordinator),
@@ -471,7 +471,7 @@ impl CommitRecord {
         ) {
             return None;
         }
-        if hex::decode(&self.value).ok()?.len() != 32 {
+        if susi_paths::hex::decode(&self.value).ok()?.len() != 32 {
             return None;
         }
         Some(self.value.as_str())
@@ -548,7 +548,7 @@ impl CommitRecord {
         } else if self.member_delta().is_none() && self.rekey_fingerprint().is_none() {
             return false;
         }
-        hex::encode(Sha256::digest(self.value.as_bytes())) == self.value_hash
+        susi_paths::hex::encode(Sha256::digest(self.value.as_bytes())) == self.value_hash
     }
 
     /// Verify a received record against the local cluster key and its own
@@ -2632,7 +2632,7 @@ mod tests {
         r2.epoch = "epoch-two".into();
         r2.seq = 2;
         r2.value = "v2".into();
-        r2.value_hash = hex::encode(Sha256::digest(b"v2"));
+        r2.value_hash = susi_paths::hex::encode(Sha256::digest(b"v2"));
         r2.prev_epoch = r1.epoch.clone();
         resign(&mut r2);
         append_to(&path, &r2).unwrap();
@@ -2821,7 +2821,8 @@ mod tests {
         let mut records = records_base;
         let mut equivocating = records[0].clone();
         equivocating.value = "a1-forked".into();
-        equivocating.value_hash = hex::encode(Sha256::digest(equivocating.value.as_bytes()));
+        equivocating.value_hash =
+            susi_paths::hex::encode(Sha256::digest(equivocating.value.as_bytes()));
         resign(&mut equivocating);
         records.push(equivocating);
 

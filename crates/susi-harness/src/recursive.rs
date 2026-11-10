@@ -411,7 +411,7 @@ impl IdempotencyLedger {
         hasher.update(task_key.as_bytes());
         hasher.update(b"|");
         hasher.update(prompt.as_bytes());
-        hex::encode(hasher.finalize())
+        susi_paths::hex::encode(hasher.finalize())
     }
 
     fn lookup(&self, key: &str) -> Option<LeafExecutionOutput> {
@@ -543,7 +543,7 @@ impl<R: Runner + Send + Sync> ContainerComponent for RunnerContainerBridge<R> {
                 Ok(LeafExecutionOutput {
                     summary: final_text,
                     spent: MicroUsd::ZERO,
-                    output_digest: hex::encode(hasher.finalize()),
+                    output_digest: susi_paths::hex::encode(hasher.finalize()),
                 })
             }
             Ok(RunOutcome::Failed { message }) => Err(format!("runner failed: {message}")),
@@ -721,7 +721,7 @@ impl ExecutionProvenanceReceipt {
             hasher.update(b"|child:");
             hasher.update(child.evidence_digest.as_bytes());
         }
-        hex::encode(hasher.finalize())
+        susi_paths::hex::encode(hasher.finalize())
     }
 }
 

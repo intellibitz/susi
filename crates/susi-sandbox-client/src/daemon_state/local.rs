@@ -21,7 +21,7 @@ impl SusiDaemonState {
                 Err(e) => return Err(e),
             }
         }
-        Ok(hex::encode(hasher.finalize()))
+        Ok(susi_paths::hex::encode(hasher.finalize()))
     }
 
     pub fn calculate_binary_hash_cached(
@@ -82,7 +82,7 @@ impl SusiDaemonState {
     pub fn check_status(workspace: &Path, global_dir: &Path) -> bool {
         let lock = global_dir.join(format!(
             "daemon_{}.lock",
-            hex::encode(workspace.to_string_lossy().as_bytes())
+            susi_paths::hex::encode(workspace.to_string_lossy().as_bytes())
         ));
         if !lock.exists() {
             return false;
@@ -118,7 +118,7 @@ mod tests {
         std::fs::write(&bin, vec![7u8; 200_000]).unwrap();
         let expected = {
             use sha2::{Digest, Sha256};
-            hex::encode(Sha256::digest(vec![7u8; 200_000]))
+            susi_paths::hex::encode(Sha256::digest(vec![7u8; 200_000]))
         };
         assert_eq!(
             SusiDaemonState::calculate_binary_hash(&bin).unwrap(),
@@ -222,7 +222,7 @@ mod tests {
 
         let lock = dir.join(format!(
             "daemon_{}.lock",
-            hex::encode(ws.to_string_lossy().as_bytes())
+            susi_paths::hex::encode(ws.to_string_lossy().as_bytes())
         ));
         std::fs::write(&lock, "not-a-pid\n").unwrap();
         assert!(!SusiDaemonState::check_status(&ws, &dir));

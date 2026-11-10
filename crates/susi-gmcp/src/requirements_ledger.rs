@@ -265,7 +265,7 @@ fn read(root: &Path, rel: &str) -> Result<Vec<u8>, EaiError> {
 fn sha256_hex(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
-    hex::encode(hasher.finalize())
+    susi_paths::hex::encode(hasher.finalize())
 }
 
 /// One upstream-drift finding against a pinned source: either the refetched

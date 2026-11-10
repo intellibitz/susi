@@ -62,7 +62,7 @@ impl VerifiedArtifact {
         self.file.read_to_end(&mut bytes)?;
         // Only a protected local stream can reuse its digest directly. Verify
         // every other consumed buffer before it enters the tokenizer cache.
-        if !protected && hex::encode(Sha256::digest(&bytes)) != self.sha256 {
+        if !protected && susi_paths::hex::encode(Sha256::digest(&bytes)) != self.sha256 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "model artifact changed during consumption",
@@ -85,7 +85,7 @@ fn digest_stream(source: &mut File, output: &mut impl Write) -> io::Result<Strin
         #[cfg(all(test, windows))]
         HASHED_BYTES.with(|total| total.set(total.get() + n as u64));
     }
-    Ok(hex::encode(hash.finalize()))
+    Ok(susi_paths::hex::encode(hash.finalize()))
 }
 
 fn private_snapshot_file() -> io::Result<File> {
@@ -159,7 +159,7 @@ fn git_blob_sha1_hex(bytes: &[u8]) -> String {
     out[8..12].copy_from_slice(&h2.to_be_bytes());
     out[12..16].copy_from_slice(&h3.to_be_bytes());
     out[16..20].copy_from_slice(&h4.to_be_bytes());
-    hex::encode(out)
+    susi_paths::hex::encode(out)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -378,7 +378,7 @@ pub fn admit_download(url: &str) -> Result<ModelLicenseReceipt, String> {
                 "[MODEL LICENSE] Companion differs from publisher Git blob identity".into(),
             );
         }
-        hex::encode(Sha256::digest(bytes))
+        susi_paths::hex::encode(Sha256::digest(bytes))
     } else {
         return Err("[MODEL LICENSE] Publisher SHA-256 missing for model weights".into());
     };
@@ -648,7 +648,7 @@ mod tests {
                 "https://huggingface.co/org/model/resolve/{}/model.gguf",
                 "a".repeat(40)
             ),
-            sha256: hex::encode(Sha256::digest(b"weight fixture")),
+            sha256: susi_paths::hex::encode(Sha256::digest(b"weight fixture")),
             publishers: vec![PublisherLicense {
                 repository: "org/model".into(),
                 revision: "a".repeat(40),
@@ -693,7 +693,7 @@ mod tests {
                 "https://huggingface.co/org/window-fixture/resolve/{}/admission.gguf",
                 "c".repeat(40)
             ),
-            sha256: hex::encode(Sha256::digest(b"original")),
+            sha256: susi_paths::hex::encode(Sha256::digest(b"original")),
             publishers: vec![PublisherLicense {
                 repository: "org/window-fixture".into(),
                 revision: "c".repeat(40),
@@ -740,7 +740,7 @@ mod tests {
             "https://huggingface.co/org/window-fixture/resolve/{}/admission.gguf",
             "d".repeat(40)
         );
-        revised.sha256 = hex::encode(Sha256::digest(b"tampered"));
+        revised.sha256 = susi_paths::hex::encode(Sha256::digest(b"tampered"));
         remember(&revised);
         fs::write(&receipt_path, serde_json::to_vec(&revised).unwrap()).unwrap();
         verify_local_offline(&path).unwrap();
@@ -806,7 +806,7 @@ mod tests {
             artifact_url: format!(
                 "https://huggingface.co/org/resident/resolve/{rev}/resident.gguf"
             ),
-            sha256: hex::encode(Sha256::digest(b"original")),
+            sha256: susi_paths::hex::encode(Sha256::digest(b"original")),
             publishers: vec![PublisherLicense {
                 repository: "org/resident".into(),
                 revision: rev,
@@ -924,7 +924,7 @@ mod tests {
         std::fs::write(&path, b"verified").unwrap();
         let read = || VerifiedArtifact {
             file: File::open(&path).unwrap(),
-            sha256: hex::encode(Sha256::digest(b"verified")),
+            sha256: susi_paths::hex::encode(Sha256::digest(b"verified")),
         };
         // The permissive File::open models a source with no immutable lease.
         // Changes after the first digest cannot enter either consumer.

@@ -448,7 +448,7 @@ fn credential_set_stamp(host: &str, targets: &[CredentialTarget]) -> String {
         digest.update(b"\n");
         digest.update(target_line(&targets[index]).as_bytes());
     }
-    hex::encode(digest.finalize())
+    susi_paths::hex::encode(digest.finalize())
 }
 
 /// The report the gated scout `entry` gave for `targets` (the set its stamp

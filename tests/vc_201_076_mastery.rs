@@ -30,7 +30,7 @@ use std::path::PathBuf;
 use susi_config::extensions::*;
 
 fn compute_digest(bytes: &[u8]) -> String {
-    format!("sha256:{}", hex::encode(Sha256::digest(bytes)))
+    format!("sha256:{}", susi_paths::hex::encode(Sha256::digest(bytes)))
 }
 
 fn extensions_root() -> PathBuf {
@@ -91,10 +91,12 @@ fn vc_201_076_mastery() {
         std::fs::create_dir_all(&root).expect("create ext dir");
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&[42; 32]);
         let mut signed_manifest = create_pack("signed_ext", &[("model.json", "model.json")]);
-        signed_manifest.signer = Some(hex::encode(signing_key.verifying_key().to_bytes()));
+        signed_manifest.signer = Some(susi_paths::hex::encode(
+            signing_key.verifying_key().to_bytes(),
+        ));
         signed_manifest.signatures.insert(
             "model.json".into(),
-            hex::encode(signing_key.sign(b"original-model-weights").to_bytes()),
+            susi_paths::hex::encode(signing_key.sign(b"original-model-weights").to_bytes()),
         );
 
         std::fs::write(
@@ -208,8 +210,8 @@ fn vc_201_076_validate_manifest_rejects_short_or_non_hex_sha256_digests() {
 #[test]
 fn vc_201_076_validate_manifest_enforces_signer_and_signature_hex_format() {
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
-    let valid_sig = hex::encode(signing_key.sign(b"payload").to_bytes());
-    let valid_signer = hex::encode(signing_key.verifying_key().to_bytes());
+    let valid_sig = susi_paths::hex::encode(signing_key.sign(b"payload").to_bytes());
+    let valid_signer = susi_paths::hex::encode(signing_key.verifying_key().to_bytes());
 
     let mut missing_signer = create_pack("pkg-nosigner", &[("a.json", "a.json")]);
     missing_signer.signatures.insert("a.json".into(), valid_sig);
