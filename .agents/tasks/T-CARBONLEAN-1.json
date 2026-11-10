@@ -1,0 +1,80 @@
+{
+  "id": "T-CARBONLEAN-1",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-1",
+  "title": "Lean core: delete console-subscriber, criterion and sha1 facades; ratchet gawd-swarm ceiling and hermetic hook PATH",
+  "goal": "Remove three workspace vendor facades (susi-vendor-console-subscriber, susi-vendor-criterion, susi-vendor-sha1) and 60 transitive third-party crates (63 packages total: tonic, prost, console-subscriber, criterion, rayon, plotters, ciborium, flate2, zlib-rs, wasm-bindgen, regex, sha1, etc.) from Cargo.lock and workspace builds, replace STUN HMAC-SHA1 and Git object SHA-1 with pure-std RFC 3174 SHA-1, replace Criterion with a deterministic std benchmark runner, ratchet susi-gawd-swarm line ceiling down by 519 lines, and harden git_publisher_native_hook against ambient PATH push-policy leakage.",
+  "status": "in_progress",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794378340,
+  "size": "m",
+  "deps": [
+    "T-CARBONRELBRANCH-1"
+  ],
+  "base": "c784c915b0c68b5f9d4ec07bac5b91def45dfdcd",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-1.json",
+    ".agents/tasks/done/T-CARBONLEAN-1.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-core/Cargo.toml",
+    "crates/susi-core/benches/evidence_verify.rs",
+    "crates/susi-daemon-runtime/Cargo.toml",
+    "crates/susi-daemon-runtime/src/nat.rs",
+    "crates/susi-gawd-swarm/src/amas.rs",
+    "crates/susi-gawd-swarm/src/tests/amas.rs",
+    "crates/susi-vendor-console-subscriber",
+    "crates/susi-vendor-criterion",
+    "crates/susi-vendor-sha1",
+    "docs/lean-core.md",
+    "src/main.rs",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs",
+    "xtask/Cargo.toml",
+    "xtask/src/main.rs",
+    "xtask/src/upstream_notices.rs",
+    "xtask/tests/git_publisher_native_hook.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo clippy --offline --locked -p susi -p susi-daemon-runtime -p susi-core -p susi-gawd-swarm -p xtask --all-targets -- -D warnings",
+    "cargo clippy --offline --locked -p xtask --features release-tooling --all-targets -- -D warnings",
+    "cargo bench --offline --locked -p susi-core --bench evidence_verify",
+    "cargo test --offline --locked -p susi-daemon-runtime --lib",
+    "cargo test --offline --locked -p susi-gawd-swarm --lib",
+    "cargo test --offline --locked -p xtask --features release-tooling --bin local-release upstream_notices",
+    "cargo test --offline --locked -p xtask --test git_publisher_native_hook",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins"
+  ],
+  "results": {
+    "lockfile_packages_removed": "63 packages removed from Cargo.lock (60 third-party crates + 3 workspace facades), 0 added",
+    "susi_daemon_runtime": "161/161 lib tests passed including RFC 3174 SHA-1 and RFC 2202 HMAC-SHA1 vectors (1.13 s)",
+    "susi_gawd_swarm": "425/425 lib tests passed; shipped src lines lowered 20,635 -> 20,116 (-519 lines moved unchanged to src/tests/amas.rs)",
+    "xtask_and_guards": "upstream_notices 9/9 passed; git_publisher_native_hook 5/5 passed (with target/debug on PATH); architecture_tests 43/43, lean_core_ceilings 2/2, core_docs_promise_no_ui_or_plugins 5/5, no_github_coupling 5/5, orphan_sources 3/3",
+    "bench_evidence_verify": "evidence_record_new_and_signature 935 ns/iter; truth_transformer_verify_evidence 668 ns/iter",
+    "mandate_73_timings": "cold clean-target offline cargo build -p susi: 60.22 s (load 8.29 -> 18.83 as 27 sibling rustc processes started mid-run); warm noop build: 144.85 ms; susi --version startup: 8.32 ms; isolated 5-port daemon fresh start: 395.05 ms; susi status round-trip: 64.28 ms; susi stop: 148.73 ms"
+  },
+  "limitations": [
+    "susi-gawd-swarm line ceiling drop (20,635 -> 20,116) reflects moving amas.rs inline unit tests unchanged to src/tests/amas.rs rather than cutting runtime swarm code.",
+    "cargo-deny is not provisioned on this Linux host, so 9 local-release advisory-database tests remain host-gated for dual-OS production tag qualification."
+  ]
+}

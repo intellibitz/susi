@@ -438,8 +438,6 @@ fn run() -> std::process::ExitCode {
             susi_daemon::composition::wire_cli_substrate_priming(&substrate, catalogs)
         });
     }
-    #[cfg(all(feature = "tokio-console", tokio_unstable))]
-    console_subscriber::init();
 
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let _home = get_home_dir();

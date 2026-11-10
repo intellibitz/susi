@@ -10,7 +10,6 @@ members = [
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
-    "crates/susi-vendor-criterion",
     "crates/susi-vendor-proptest",
     "crates/susi-vendor-tempfile",
     "crates/susi-vendor-wasmtime",
@@ -37,7 +36,6 @@ members = [
     "crates/susi-vendor-axum",
     "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",
-    "crates/susi-vendor-console-subscriber",
     "crates/susi-vendor-ed25519-dalek",
     "crates/susi-vendor-getrandom",
     "crates/susi-vendor-hex",
@@ -48,7 +46,6 @@ members = [
     "crates/susi-vendor-rcgen",
     "crates/susi-vendor-serde",
     "crates/susi-vendor-serde-json",
-    "crates/susi-vendor-sha1",
     "crates/susi-vendor-sha2",
     "crates/susi-vendor-shlex",
     "crates/susi-vendor-signal-hook",
@@ -84,8 +81,6 @@ rust-version = "1.98"
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 missing_docs = "warn"
-# `tokio_unstable` is set via RUSTFLAGS for the tokio-console feature.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
 [lints.clippy]
 # Root package mirrors the workspace deny set (it keeps its own
@@ -159,7 +154,6 @@ ed25519-dalek = { version = "2.2", default-features = false }
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 tokio = { version = "1.53", features = ["full", "tracing"] }
-criterion = "0.5"
 
 [dev-dependencies]
 ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "crates/susi-vendor-ed25519-dalek" }
@@ -194,10 +188,6 @@ tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing"
 tracing-subscriber = { package = "susi-vendor-tracing-subscriber", path = "crates/susi-vendor-tracing-subscriber" }
 tracing-appender = { package = "susi-vendor-tracing-appender", path = "crates/susi-vendor-tracing-appender" }
 tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
-# Optional: only needed for tokio-console / RUSTFLAGS='--cfg tokio_unstable'.
-# Keeping it off the default graph drops console-subscriber (+ its tonic path)
-# from cold release builds.
-console-subscriber = { package = "susi-vendor-console-subscriber", path = "crates/susi-vendor-console-subscriber" , optional = true }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 susi-windows-runtime = { workspace = true }
@@ -220,8 +210,6 @@ hashbrown = { path = "vendor/hashbrown" }
 [features]
 default = []
 metal = ["susi-gemi/metal"]
-# Enable with: RUSTFLAGS='--cfg tokio_unstable' cargo build --features tokio-console
-tokio-console = ["dep:console-subscriber"]
 # Bulk specialist tools (browser, full-text index, embeddings, syn AST).
 tools-rich = ["susi-daemon/tools-rich", "susi-gmcp/tools-rich"]
 # Built-in Candle local model engine. Off in the default protocol socket.
