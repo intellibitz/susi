@@ -13,6 +13,8 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+#[path = "distill/hostmerge.rs"]
+pub mod hostmerge;
 #[path = "distill/lint.rs"]
 mod lint;
 
@@ -106,6 +108,9 @@ pub struct Facts {
     pub reachable: BTreeSet<String>,
     /// Evidence paths verified to exist in the base tree.
     pub existing_paths: BTreeSet<String>,
+    /// Commits of the planned tasks that the Git host created instead of Susi
+    /// (commit id -> `committer <email>`), see `hostmerge`.
+    pub host_created: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,6 +135,9 @@ pub struct Options {
     /// Defer a task whose scope overlaps a task outside the selection that is
     /// already in base history (composition without the rest of base).
     pub isolate: bool,
+    /// Host-created commits the planning agent explicitly adopts (full ids).
+    /// Each adoption is listed in the manifest.
+    pub adopt_host_commits: BTreeSet<String>,
 }
 
 // ---------------------------------------------------------------- parsing
@@ -526,6 +534,26 @@ fn intrinsic(
     out
 }
 
+/// Merges happen in Susi: a task whose provenance commits the Git host created
+/// is rejected unless the planning agent adopted each such commit by full id.
+fn host_provenance(out: &mut Outcome, facts: &Facts, adopted: &BTreeSet<String>) {
+    for c in &out.commits {
+        let Some(who) = facts.host_created.get(c) else {
+            continue;
+        };
+        if adopted.contains(c) {
+            out.notes.insert(format!(
+                "adopted_host_commit: {c} ({who}), adopted by the planning agent"
+            ));
+        } else {
+            out.kind = Kind::Rejected;
+            out.reasons.insert(format!(
+                "merged_outside_susi: {c} was created by the Git host ({who}), not by a Susi merge; re-land it through Susi or adopt it with --adopt-host-commit {c}"
+            ));
+        }
+    }
+}
+
 fn propagate(outcomes: &mut BTreeMap<String, Outcome>) {
     for _ in 0..=outcomes.len() {
         let snapshot: BTreeMap<String, Kind> =
@@ -626,6 +654,9 @@ pub fn plan(
             )
         })
         .collect();
+    for o in outcomes.values_mut() {
+        host_provenance(o, facts, &options.adopt_host_commits);
+    }
     propagate(&mut outcomes);
 
     let mut conflicts = Vec::new();
@@ -712,6 +743,19 @@ pub fn plan(
     if unscoped > 0 {
         warnings.insert(format!(
             "{unscoped} included task(s) declare no scope, so their overlaps cannot be checked"
+        ));
+    }
+    let adopted: BTreeSet<&str> = outcomes
+        .values()
+        .flat_map(|o| o.commits.iter())
+        .filter(|c| facts.host_created.contains_key(*c) && options.adopt_host_commits.contains(*c))
+        .map(String::as_str)
+        .collect();
+    if !adopted.is_empty() {
+        warnings.insert(format!(
+            "{} host-created commit(s) adopted by the planning agent instead of re-landed through Susi: {}",
+            adopted.len(),
+            adopted.into_iter().collect::<Vec<_>>().join(", ")
         ));
     }
     let entangled_total: usize = entangled.values().map(BTreeSet::len).sum();
@@ -1194,13 +1238,21 @@ fn gather(git: &Git<'_>, base: &str, records: &[Record], requested: &[String]) -
         }
     }
     let idx = index(records);
-    for id in closure(requested, &idx)? {
+    let nodes = closure(requested, &idx)?;
+    let mut planned: BTreeSet<String> = BTreeSet::new();
+    for id in &nodes {
+        if let Some(c) = facts.trailer_commits.get(id) {
+            planned.extend(c.iter().cloned());
+        }
+    }
+    for id in nodes {
         let Some(r) = idx.get(id.as_str()) else {
             continue;
         };
         if let Some(c) = &r.record.closed_commit {
             if git.is_ancestor(c, base)? {
                 facts.reachable.insert(c.clone());
+                planned.insert(c.clone());
             }
         }
         for e in &r.record.evidence {
@@ -1208,6 +1260,12 @@ fn gather(git: &Git<'_>, base: &str, records: &[Record], requested: &[String]) -
                 facts.existing_paths.insert(e.clone());
             }
         }
+    }
+    let hosts = hostmerge::identities(git.root)?;
+    for (oid, c) in hostmerge::among(git.root, &planned, &hosts)? {
+        facts
+            .host_created
+            .insert(oid, format!("{} <{}>", c.committer, c.email));
     }
     Ok(facts)
 }
@@ -1222,9 +1280,10 @@ pub struct Args {
     pub out: Option<String>,
     pub json: bool,
     pub isolate: bool,
+    pub adopt_host_commits: Vec<String>,
 }
 
-const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- plan [--tasks <id>...] [--tasks-from-range <from>..<to>] [--base <rev>] [--out <file>] [--json] [--isolate]\n       cargo run --offline --locked -p xtask --bin distill -- lint --range <from>..<to> | --range <to> [--base <rev>] [--out <file>] [--json] [--strict]\n";
+const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- plan [--tasks <id>...] [--tasks-from-range <from>..<to>] [--base <rev>] [--out <file>] [--json] [--isolate] [--adopt-host-commit <full-commit-id>]...\n       cargo run --offline --locked -p xtask --bin distill -- lint --range <from>..<to> | --range <to> [--base <rev>] [--out <file>] [--json] [--strict]\n";
 
 pub fn parse_args(args: &[String]) -> Result<Args> {
     let mut it = args.iter().peekable();
@@ -1266,6 +1325,7 @@ pub fn parse_args(args: &[String]) -> Result<Args> {
             "--out" => a.out = Some(value("--out")?),
             "--json" => a.json = true,
             "--isolate" => a.isolate = true,
+            "--adopt-host-commit" => a.adopt_host_commits.push(value("--adopt-host-commit")?),
             other => return Err(format!("unknown option {other}\n{USAGE}")),
         }
     }
@@ -1316,7 +1376,10 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
         &records,
         &requested,
         &facts,
-        &Options { isolate: a.isolate },
+        &Options {
+            isolate: a.isolate,
+            adopt_host_commits: hostmerge::parse_adoptions(&a.adopt_host_commits)?,
+        },
     )?;
     let comparison = match range {
         Some((mut rf, from_commit)) => {
@@ -1563,7 +1626,10 @@ mod tests {
             &records,
             &ids(&["T-A-1", "T-B-1", "T-C-1"]),
             &f,
-            &Options { isolate: true },
+            &Options {
+                isolate: true,
+                ..Options::default()
+            },
         )
         .unwrap();
         assert!(has_reason(&p, "T-A-1", "scope_conflict"));
@@ -1843,5 +1909,138 @@ mod tests {
         );
         assert!(run(&dir, &ids(&["plan", "--tasks", "T-A-1", "--base", "-x"])).is_err());
         drop(fixture);
+    }
+
+    /// A real repository: the host writes one task commit and one merge;
+    /// lint reports both, plan refuses the task, adoption admits it on record.
+    #[test]
+    fn real_git_host_created_work_is_a_lint_finding_and_a_plan_rejection() {
+        use serde_json::Value;
+        let dir = std::env::temp_dir().join(format!("susi-hostmerge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let g = |host: bool, args: &[&str]| {
+            let (name, email) = if host {
+                ("GitHub", "noreply@github.com")
+            } else {
+                ("fixture", "fixture@example.invalid")
+            };
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_AUTHOR_NAME", "fixture")
+                .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+                .env("GIT_COMMITTER_NAME", name)
+                .env("GIT_COMMITTER_EMAIL", email)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {out:?}");
+            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        };
+        let w = |p: &str, b: &str| {
+            let p = dir.join(p);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b).unwrap();
+        };
+        g(false, &["init", "-q", "-b", "main"]);
+        w("README", "r\n");
+        g(false, &["add", "."]);
+        g(false, &["commit", "-qm", "base"]);
+        let start = g(false, &["rev-parse", "HEAD"]);
+        w(
+            ".agents/tasks/done/T-H-1.json",
+            r#"{"id":"T-H-1","status":"done","scopes":["h.txt"]}"#,
+        );
+        w("h.txt", "h\n");
+        g(false, &["add", "."]);
+        g(true, &["commit", "-qm", "api commit\n\nTask: T-H-1"]);
+        let api = g(false, &["rev-parse", "HEAD"]);
+        g(false, &["checkout", "-qb", "side", &start]);
+        w(
+            ".agents/tasks/done/T-L-1.json",
+            r#"{"id":"T-L-1","status":"done","scopes":["l.txt"]}"#,
+        );
+        w("l.txt", "l\n");
+        g(false, &["add", "."]);
+        g(false, &["commit", "-qm", "local work\n\nTask: T-L-1"]);
+        g(false, &["checkout", "-q", "main"]);
+        g(
+            true,
+            &[
+                "merge",
+                "-q",
+                "--no-ff",
+                "-m",
+                "Merge pull request #1",
+                "side",
+            ],
+        );
+        let s = |v: &[&str]| v.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
+
+        let lint: Value = serde_json::from_str(
+            &run(
+                &dir,
+                &s(&[
+                    "lint",
+                    "--range",
+                    &format!("{start}..main"),
+                    "--json",
+                    "--no-claims",
+                ]),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(lint["summary"]["commits_created_by_git_host"], 2, "{lint}");
+        assert_eq!(lint["summary"]["merges_created_by_git_host"], 1);
+        assert_eq!(lint["commits_created_by_git_host"][0]["merge"], true);
+        let strict = run(
+            &dir,
+            &s(&[
+                "lint",
+                "--range",
+                &format!("{start}..main"),
+                "--strict",
+                "--no-claims",
+            ]),
+        );
+        assert!(strict
+            .unwrap_err()
+            .contains("by GitHub <noreply@github.com>"));
+
+        let plan = |extra: &[&str]| -> Value {
+            let mut args = s(&[
+                "plan", "--tasks", "T-H-1", "T-L-1", "--base", "main", "--json",
+            ]);
+            args.extend(s(extra));
+            serde_json::from_str(&run(&dir, &args).unwrap()).unwrap()
+        };
+        let refused = plan(&[]);
+        assert_eq!(refused["summary"]["rejected"], 1, "{refused}");
+        assert_eq!(refused["rejected"][0]["id"], "T-H-1");
+        let reasons = refused["rejected"][0]["reasons"].to_string();
+        assert!(reasons.contains("merged_outside_susi"), "{reasons}");
+        // The task whose own commit is local stays included: the host merge
+        // that carried it is a lint finding, not a property of the task.
+        assert_eq!(refused["included"][0]["id"], "T-L-1");
+
+        let adopted = plan(&["--adopt-host-commit", &api]);
+        assert_eq!(adopted["summary"]["rejected"], 0, "{adopted}");
+        assert!(adopted["warnings"].to_string().contains(&api));
+        assert!(run(
+            &dir,
+            &s(&[
+                "plan",
+                "--tasks",
+                "T-H-1",
+                "--adopt-host-commit",
+                &api[..12]
+            ]),
+        )
+        .is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

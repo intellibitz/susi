@@ -137,6 +137,17 @@ before `release-qualify`. Main keeps every record. The first distilled
 candidate, `v0.21.55` (`T-CLAUDEDISTILL-1`), followed this and records its gate
 results in `.agents/evidence/distill-v0-21-55-rc2-T-CLAUDEDISTILL-1.json`.
 
+## Work merged outside Susi is refused
+
+A task whose attributed commits were written by the Git host itself (web or
+API merge, web edit, API commit; committer `noreply@github.com` on the current
+host, more via `git config --add susi.hostCommitter <email>`) is rejected with
+`reason_code: merged_outside_susi`. The distilling agent may adopt such a commit
+explicitly with `--adopt-host-commit <full-id>`; the receipt lists every
+adoption in `adopted_host_commits`, and every host-created commit in the
+composed stream in `git_host_created_in_stream`. Details and the first real
+run: `docs/distillation.md`, "Merges happen in Susi".
+
 ## What remains separate
 
 Distillation produces an **unqualified candidate** (`qualification_status:
