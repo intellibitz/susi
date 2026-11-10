@@ -29,8 +29,6 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
 use tokio_rustls::TlsAcceptor;
-use tokio_rustls::pki_types::CertificateDer;
-use tokio_rustls::pki_types::pem::{self, PemObject};
 
 pub use susi_http_transport::dual_transport::{MaybeTls, negotiate_transport};
 
@@ -172,48 +170,28 @@ pub fn generate_self_signed(sans: &[String]) -> std::io::Result<(String, String)
 /// Compute SHA-256 fingerprint hex of the first PEM certificate in `cert_pem`.
 pub fn cert_fingerprint(cert_pem: &str) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};
-    let invalid = |e: pem::Error| {
-        if let pem::Error::Io(io) = e {
-            io
-        } else {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        }
-    };
-    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(cert_pem.as_bytes())
-        .collect::<Result<_, _>>()
-        .map_err(invalid)?;
-    if let Some(first) = certs.first() {
-        Ok(susi_paths::hex::encode(Sha256::digest(first.as_ref())))
-    } else {
-        Err(std::io::Error::new(
+    let certs = tokio_rustls::parse_certificate_pem_chain(cert_pem.as_bytes())?;
+    let first = certs.first().ok_or_else(|| {
+        std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "no PEM certificates found in slice",
-        ))
-    }
+        )
+    })?;
+    Ok(susi_paths::hex::encode(Sha256::digest(first.as_slice())))
 }
 
 /// Compute SHA-256 fingerprint hex of the first certificate in the PEM file at `cert_path`.
 pub fn cert_file_fingerprint(cert_path: &Path) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};
-    let invalid = |e: pem::Error| {
-        if let pem::Error::Io(io) = e {
-            io
-        } else {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        }
-    };
-    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(cert_path)
-        .map_err(invalid)?
-        .collect::<Result<_, _>>()
-        .map_err(invalid)?;
-    if let Some(first) = certs.first() {
-        Ok(susi_paths::hex::encode(Sha256::digest(first.as_ref())))
-    } else {
-        Err(std::io::Error::new(
+    let pem_bytes = std::fs::read(cert_path)?;
+    let certs = tokio_rustls::parse_certificate_pem_chain(&pem_bytes)?;
+    let first = certs.first().ok_or_else(|| {
+        std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("no PEM certificates in {}", cert_path.display()),
-        ))
-    }
+        )
+    })?;
+    Ok(susi_paths::hex::encode(Sha256::digest(first.as_slice())))
 }
 
 fn read_timestamp(path: &Path) -> Option<u64> {

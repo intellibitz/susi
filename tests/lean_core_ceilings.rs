@@ -80,7 +80,14 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// feature in root `Cargo.toml` and `susi-vendor-tracing` (`features = ["std"]`
 /// only); zero files use `#[instrument]`, dropping the `tracing-attributes`
 /// proc-macro from Cargo.lock and the pillar closure).
-const THIRD_PARTY_CEILING: usize = 114;
+/// 2026-11-11: 114 -> 108 (T-CARBONLEAN-13: replace `x509-cert` and
+/// `rustls-pki-types` in `susi-vendor-tokio-rustls` and `susi-daemon-runtime`
+/// with `#![forbid(unsafe_code)]` RFC 7468 PEM chain decoding and RFC 5280
+/// ASN.1 DER `Certificate -> TBSCertificate -> SubjectPublicKeyInfo` validation;
+/// removes `x509-cert`, `tls_codec`, `tls_codec_derive`, `der_derive` and
+/// `flagset` from Cargo.lock (199 -> 194) and additionally removes
+/// `rustls-pki-types` from the four-pillar closure).
+const THIRD_PARTY_CEILING: usize = 108;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),

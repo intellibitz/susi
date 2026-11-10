@@ -1002,3 +1002,14 @@ config, core and the tail.
   ceiling 37,439 -> 37,434, measured after T-CLAUDEAGENTREFS-1 removed a JSON
   `.claim` reader that no writer feeds. Reach unchanged: 33 workspace crates,
   114 third-party, 9 facade edges, each equal to its ceiling.
+- 2026-11-11 (T-CARBONLEAN-13, Linux x86_64, CEO laptop): replace `x509-cert`
+  and `rustls-pki-types` in `crates/susi-vendor-tokio-rustls` and
+  `crates/susi-daemon-runtime/src/tls.rs` with `#![forbid(unsafe_code)]`
+  RFC 7468 PEM certificate-chain decoding (`parse_certificate_pem_chain`) and
+  RFC 5280 ASN.1 DER `Certificate -> TBSCertificate -> SubjectPublicKeyInfo`
+  RSA OID (`1.2.840.113549.1.1.1`) + public-key validation. Removes 5 packages
+  — including 2 proc-macro crates — from `Cargo.lock` (`der_derive`, `flagset`,
+  `tls_codec`, `tls_codec_derive`, `x509-cert`; `Cargo.lock` 199 -> 194
+  packages; 161 cumulative `Cargo.lock` packages removed across
+  T-CARBONLEAN-1..13) and lowers `THIRD_PARTY_CEILING` 114 -> 108
+  (`rustls-pki-types` also leaves the four-pillar closure).
