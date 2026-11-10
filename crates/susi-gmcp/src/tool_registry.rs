@@ -1,31 +1,42 @@
-//! Plane-bus backed tool registry facade (no `susi-tools` dependency).
-
-use crate::susi_core::plane_bus::tools as plane_tools;
-use crate::susi_error::EaiResult;
+use crate::susi_core::plane_bus::{self, tools as plane_tools};
+use crate::susi_error::{EaiError, EaiResult};
 use crate::tool_types::McpTool;
+use serde_json::{json, Value};
 use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+const TOPIC_MCP_LIST_TOOLS: &str = "ecosystem_hub.mcp.list_tools";
+const DISCOVERY_BUDGET: Duration = Duration::from_secs(12);
+const LEASE_MS: u64 = 10_000;
+const HANDSHAKE_MS: u64 = 5_000;
 pub struct ToolRegistry;
-
+fn mcp_tool(name: String, value: &Value) -> McpTool {
+    McpTool {
+        name,
+        description: value
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .into(),
+        input_schema: value
+            .get("input_schema")
+            .or_else(|| value.get("inputSchema"))
+            .cloned(),
+    }
+}
+fn budgeted(mut payload: Value) -> Value {
+    payload["lease_ms"] = json!(LEASE_MS);
+    payload["handshake_ms"] = json!(HANDSHAKE_MS);
+    payload
+}
 impl ToolRegistry {
     pub fn list_tools() -> Vec<McpTool> {
         plane_tools::list_tools()
             .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| {
-                        Some(McpTool {
-                            name: v.get("name")?.as_str()?.to_string(),
-                            description: v
-                                .get("description")
-                                .and_then(|d| d.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            input_schema: v
-                                .get("input_schema")
-                                .or_else(|| v.get("inputSchema"))
-                                .cloned(),
-                        })
-                    })
+            .map(|tools| {
+                tools
+                    .iter()
+                    .filter_map(|value| Some(mcp_tool(value.get("name")?.as_str()?.into(), value)))
                     .collect()
             })
             .unwrap_or_default()
@@ -33,21 +44,20 @@ impl ToolRegistry {
     pub fn execute_tool(name: &str, args: &serde_json::Value, workspace: &Path) -> String {
         plane_tools::execute_tool(name, args, workspace).unwrap_or_else(|e| format!("[Error] {e}"))
     }
-
     pub fn exists(name: &str) -> bool {
         plane_tools::exists(name)
     }
 }
 pub struct GmcpClient;
-
 impl GmcpClient {
     pub fn scout_reasoning_remotes() -> Vec<String> {
         plane_tools::scout_reasoning_remotes()
             .get("remotes")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|x| x.as_str().map(String::from))
+            .and_then(Value::as_array)
+            .map(|remotes| {
+                remotes
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             })
             .unwrap_or_default()
@@ -55,85 +65,114 @@ impl GmcpClient {
     pub fn execute_external_tool(remote: &str, tool: &str, goal: &str) -> EaiResult<String> {
         plane_tools::execute_external_tool(remote, tool, goal)
     }
-
     pub fn execute_external_tool_result(remote: &str, tool: &str, goal: &str) -> EaiResult<String> {
         Self::execute_external_tool(remote, tool, goal)
     }
-
     pub fn list_external_tools() -> Vec<McpTool> {
-        let config_path = susi_paths::SusiDirs::config_dir().join("mcp_config.json");
-        let mut tools = Vec::new();
-        if let Ok(content) = std::fs::read_to_string(&config_path) {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(servers) = v.get("mcpServers").and_then(|s| s.as_object()) {
-                    for name in servers.keys() {
-                        tools.push(McpTool {
-                            name: format!("{name}:*"),
-                            description: format!("Dynamic Proxy for standard MCP server: {name}"),
-                            input_schema: None,
-                        });
-                    }
-                }
-            }
-        }
-        tools
+        configured_servers()
+            .into_iter()
+            .map(|(name, _)| McpTool {
+                name: format!("{name}:*"),
+                description: format!("Dynamic Proxy for standard MCP server: {name}"),
+                input_schema: None,
+            })
+            .collect()
     }
-
     pub fn discover_live_tools() -> Vec<(String, McpTool)> {
-        Vec::new()
+        let servers = configured_servers();
+        let request: Arc<dyn Fn(Value) -> Result<Value, String> + Send + Sync> =
+            Arc::new(|payload| {
+                plane_bus::PlaneBus::global().request(TOPIC_MCP_LIST_TOOLS, payload)
+            });
+        discover_live_tools_with(servers, request)
     }
-
     pub fn autonomous_web_scout() -> Vec<String> {
-        Vec::new()
+        let live = Self::discover_live_tools();
+        if live.is_empty() {
+            return Self::list_external_tools()
+                .into_iter()
+                .map(|tool| format!("{} — {} (not probed)", tool.name, tool.description))
+                .collect();
+        }
+        live.into_iter()
+            .map(|(_, tool)| format!("{} — {}", tool.name, tool.description))
+            .collect()
     }
-
-    pub fn auto_configure_server(_name: &str, _package: &str) -> EaiResult<String> {
-        Ok("[plane_bus] auto_configure_server requires composition-root tools plane".into())
+    pub fn auto_configure_server(name: &str, package: &str) -> EaiResult<String> {
+        let (name, package) = (name.trim(), package.trim());
+        if name.is_empty() || package.is_empty() {
+            return Err(EaiError::protocol(
+                "MCP server name and package are required",
+            ));
+        }
+        let (command_or_url, args) =
+            if package.starts_with("http://") || package.starts_with("https://") {
+                (package.to_string(), Vec::new())
+            } else {
+                ("npx".into(), vec!["-y".into(), package.to_string()])
+            };
+        plane_bus::daemon::adapters(json!({
+            "action": "mcp_add", "name": name, "command_or_url": command_or_url, "args": args
+        }))
+        .map_err(EaiError::process)?
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| EaiError::protocol("MCP adapter returned no admission message"))
     }
 }
-
-#[cfg(test)]
-mod inline_tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn tool_registry_facade_queries_plane_bus_without_panicking() {
-        let tools = ToolRegistry::list_tools();
-        let _ = tools.len();
-        let _ = ToolRegistry::exists("nonexistent_tool_xyz");
+fn read_config() -> Option<Value> {
+    std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("mcp_config.json"))
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok())
+}
+fn configured_servers() -> Vec<(String, Value)> {
+    read_config()
+        .and_then(|value| {
+            value
+                .get("mcpServers")
+                .or_else(|| value.get("mcp_servers"))
+                .and_then(Value::as_object)
+                .map(|servers| {
+                    servers
+                        .iter()
+                        .map(|(name, config)| (name.clone(), config.clone()))
+                        .collect()
+                })
+        })
+        .unwrap_or_default()
+}
+pub(crate) fn discover_live_tools_with(
+    servers: Vec<(String, Value)>,
+    request: Arc<dyn Fn(Value) -> Result<Value, String> + Send + Sync>,
+) -> Vec<(String, McpTool)> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    for (server_name, config) in servers {
+        let (tx, request) = (tx.clone(), Arc::clone(&request));
+        let _ = std::thread::Builder::new()
+            .name("mcp-probe".into())
+            .spawn(move || {
+                let result = request(budgeted(json!({"config": config})));
+                let _ = tx.send((server_name, result));
+            });
     }
-
-    #[test]
-    fn tool_registry_execute_tool_formats_errors_with_bracketed_prefix() {
-        let ws = std::env::temp_dir();
-        let out = ToolRegistry::execute_tool("nonexistent_tool_xyz", &json!({}), &ws);
-        assert!(!out.is_empty());
+    drop(tx);
+    let deadline = Instant::now() + DISCOVERY_BUDGET;
+    let mut discovered = Vec::new();
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        let Ok((server_name, Ok(reply))) = rx.recv_timeout(remaining) else {
+            break;
+        };
+        let Some(tools) = reply.get("tools").and_then(Value::as_array) else {
+            continue;
+        };
+        discovered.extend(tools.iter().filter_map(|tool| {
+            let name = tool.get("name")?.as_str()?;
+            Some((
+                server_name.clone(),
+                mcp_tool(format!("{server_name}:{name}"), tool),
+            ))
+        }));
     }
-
-    #[test]
-    fn gmcp_client_discovery_and_scout_helpers_return_deterministic_defaults() {
-        assert!(GmcpClient::discover_live_tools().is_empty());
-        assert!(GmcpClient::autonomous_web_scout().is_empty());
-        let _ = GmcpClient::scout_reasoning_remotes();
-    }
-
-    #[test]
-    fn gmcp_client_auto_configure_and_external_tool_wrappers_behave_consistently() {
-        let msg = GmcpClient::auto_configure_server("demo", "@modelcontextprotocol/demo").unwrap();
-        assert!(msg.contains("composition-root tools plane"));
-
-        let r1 = GmcpClient::execute_external_tool("srv", "tool", "goal");
-        let r2 = GmcpClient::execute_external_tool_result("srv", "tool", "goal");
-        assert_eq!(r1.is_ok(), r2.is_ok());
-    }
-
-    #[test]
-    fn gmcp_client_list_external_tools_formats_wildcard_proxies_when_present() {
-        let external = GmcpClient::list_external_tools();
-        for tool in &external {
-            assert!(tool.name.ends_with(":*"));
-            assert!(!tool.description.is_empty());
-        }
-    }
+    discovered
 }

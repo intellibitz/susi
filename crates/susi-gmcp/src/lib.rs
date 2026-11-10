@@ -65,6 +65,9 @@ impl GmcpHost {
 #[cfg(test)]
 mod eco_mcp_features;
 #[cfg(test)]
+#[path = "tests/mcp_bus.rs"]
+mod mcp_bus_tests;
+#[cfg(test)]
 mod protocol_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_086_mastery.rs"]
