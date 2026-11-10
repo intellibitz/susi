@@ -17,6 +17,7 @@ const CLOCK_SKEW_SECONDS: u64 = 300;
 pub struct Source {
     path: PathBuf,
     revision: String,
+    approved_origin: String,
 }
 
 impl Source {
@@ -26,7 +27,16 @@ impl Source {
             .ok_or("provision a clean approved RustSec checkout in SUSI_RELEASE_ADVISORY_DB")?;
         let revision = env::var("SUSI_RELEASE_ADVISORY_REVISION")
             .map_err(|_| "pin the approved database commit in SUSI_RELEASE_ADVISORY_REVISION")?;
-        Ok(Self { path, revision })
+        let approved_origin = match env::var("SUSI_RELEASE_ADVISORY_ORIGIN") {
+            Ok(value) => value,
+            Err(env::VarError::NotPresent) => DATABASE_URL.to_owned(),
+            Err(error) => return Err(error.into()),
+        };
+        Ok(Self {
+            path,
+            revision,
+            approved_origin,
+        })
     }
 }
 
@@ -35,6 +45,26 @@ fn now() -> Result<u64> {
 }
 
 fn validate_source(source: &Source, current_time: u64) -> Result<(String, u64)> {
+    // This is an independently approved source identity, not an auto-discovered
+    // origin. It is never contacted by qualification and grants no remote trust.
+    if source.approved_origin.trim() != source.approved_origin
+        || source.approved_origin.is_empty()
+        || source.approved_origin.chars().any(char::is_control)
+        || source.approved_origin.contains(['?', '#'])
+        || source
+            .approved_origin
+            .split_once("://")
+            .is_some_and(|(scheme, rest)| {
+                let authority = rest.split('/').next().unwrap_or("");
+                authority
+                    .split_once('@')
+                    .is_some_and(|(user, _)| scheme != "ssh" || user.contains(':'))
+            })
+    {
+        return Err(
+            "advisory database approved origin must be a nonempty credential-free identity".into(),
+        );
+    }
     if !super::hex(&source.revision, &[40, 64]) {
         return Err("advisory database revision must be a full Git object ID".into());
     }
@@ -44,8 +74,13 @@ fn validate_source(source: &Source, current_time: u64) -> Result<(String, u64)> 
         return Err("advisory database does not match its approved revision".into());
     }
     let origin = super::git(&source.path, &["remote", "get-url", "origin"])?;
-    if origin.strip_suffix(".git").unwrap_or(&origin) != DATABASE_URL {
-        return Err("advisory database must identify the approved HTTPS RustSec origin".into());
+    if origin.strip_suffix(".git").unwrap_or(&origin)
+        != source
+            .approved_origin
+            .strip_suffix(".git")
+            .unwrap_or(&source.approved_origin)
+    {
+        return Err("advisory database does not identify its independently approved origin".into());
     }
     // No ignored overrides or untracked advisory records may enter the scan.
     if !super::git(
@@ -229,10 +264,14 @@ impl Snapshot {
         )?;
         // The snapshot is an offline local copy; retain the checked source
         // identity instead of advertising its private filesystem path as origin.
-        super::git(&database, &["remote", "set-url", "origin", DATABASE_URL])?;
+        super::git(
+            &database,
+            &["remote", "set-url", "origin", &source.approved_origin],
+        )?;
         let snapshot_source = Source {
             path: database,
             revision: source.revision.clone(),
+            approved_origin: source.approved_origin.clone(),
         };
         validate_source(&snapshot_source, current_time)?;
         if content_receipt(&snapshot_source.path)? != approved_content
@@ -259,6 +298,7 @@ impl Snapshot {
         let evidence = json!({
             "schema": "susi/production-advisories/v1",
             "database_url": DATABASE_URL,
+            "approved_source_origin": source.approved_origin,
             "provenance": "caller-provisioned approved Git revision; configured origin checked; no network authentication is performed by this offline gate",
             "database_commit": source.revision, "database_tree": tree,
             "database_commit_unix": committed_at, "checked_unix": current_time,
@@ -329,8 +369,11 @@ pub fn fixture_source(directory: &Path) -> Source {
 #[cfg(test)]
 pub fn fixture_source_for(directory: &Path, package: &str) -> Source {
     fs::create_dir(directory).unwrap();
-    super::git(directory, &["init", "-q"]).unwrap();
+    super::git(directory, &["-c", "core.longpaths=true", "init", "-q"]).unwrap();
     super::git(directory, &["config", "core.autocrlf", "false"]).unwrap();
+    // Test repositories live below private nested runtime homes. This setting
+    // affects only the disposable fixture, never the user's Git configuration.
+    super::git(directory, &["config", "core.longpaths", "true"]).unwrap();
     super::git(directory, &["remote", "add", "origin", DATABASE_URL]).unwrap();
     let collection = directory.join("crates").join(package);
     fs::create_dir_all(&collection).unwrap();
@@ -357,6 +400,7 @@ pub fn fixture_source_for(directory: &Path, package: &str) -> Source {
     Source {
         path: directory.to_owned(),
         revision: super::git(directory, &["rev-parse", "HEAD"]).unwrap(),
+        approved_origin: DATABASE_URL.to_owned(),
     }
 }
 
@@ -473,6 +517,25 @@ mod tests {
     }
 
     #[test]
+    fn fixture_source_supports_advisory_paths_beyond_windows_legacy_limit() {
+        let mut path = scratch();
+        // Keep the child working directory within CreateProcess's separate
+        // limit while exercising Git's >260-character tracked-file handling.
+        while path
+            .join("db/crates/qualification-fixture/RUSTSEC-2026-0001.md")
+            .to_string_lossy()
+            .encode_utf16()
+            .count()
+            < 270
+        {
+            path = path.join("nested-fixture");
+        }
+        fs::create_dir_all(&path).unwrap();
+        let source = fixture_source(&path.join("db"));
+        validate_source(&source, now().unwrap()).unwrap();
+    }
+
+    #[test]
     fn database_configuration_preserves_policy_and_rejects_overrides() {
         let original = "[advisories]\nignore = []\n[licenses]\nallow = [\"MIT\"]\n";
         let generated = config_with_database(original, Path::new("C:\\private\\db")).unwrap();
@@ -485,6 +548,98 @@ mod tests {
         );
         assert!(config_with_database("[advisories]\ndb-urls = []\n", Path::new("db")).is_err());
         assert!(config_with_database("[advisories]\n[advisories]\n", Path::new("db")).is_err());
+    }
+
+    #[test]
+    fn approved_mirror_identity_is_explicit_and_does_not_relax_pin_or_freshness() {
+        let path = scratch();
+        let mut source = fixture_source(&path.join("db"));
+        let mirror = "https://forge.example.invalid/security/rustsec.git";
+        super::super::git(&source.path, &["remote", "set-url", "origin", mirror]).unwrap();
+        assert!(validate_source(&source, now().unwrap()).is_err());
+        source.approved_origin = mirror.to_owned();
+        let (_, committed_at) = validate_source(&source, now().unwrap()).unwrap();
+        assert!(validate_source(&source, committed_at + MAX_AGE_SECONDS + 1).is_err());
+        source.revision = "0".repeat(40);
+        assert!(validate_source(&source, now().unwrap()).is_err());
+        for invalid in [
+            "",
+            " ",
+            "https://forge.example.invalid/db\n",
+            "https://user:secret@forge.example.invalid/db",
+            "https://forge.example.invalid/db?token=secret",
+            "ssh://user:secret@forge.example.invalid/db",
+        ] {
+            source.approved_origin = invalid.to_owned();
+            assert!(validate_source(&source, now().unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn mirror_snapshot_retains_source_identity_and_offline_scanner_lookup() {
+        let path = scratch();
+        // Fabricated fixture vulnerability, not an advisory about real autocfg.
+        let mut source = fixture_source_for(&path.join("db"), "autocfg");
+        source.approved_origin = "https://forge.example.invalid/security/rustsec".into();
+        super::super::git(
+            &source.path,
+            &["remote", "set-url", "origin", &source.approved_origin],
+        )
+        .unwrap();
+        let candidate = path.join("candidate");
+        let attempt = path.join("attempt");
+        fs::create_dir(&candidate).unwrap();
+        fs::create_dir(&attempt).unwrap();
+        fs::write(candidate.join("deny.toml"), "[advisories]\nignore=[]\n").unwrap();
+        fs::write(candidate.join("Cargo.toml"), "[package]\nname=\"mirror-scan-fixture\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[dependencies]\nautocfg=\"=1.5.1\"\n").unwrap();
+        fs::create_dir(candidate.join("src")).unwrap();
+        fs::write(candidate.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
+        let lock = super::super::isolated_command(Path::new("cargo"), &path.join("lock-home"))
+            .unwrap()
+            .current_dir(&candidate)
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap();
+        assert!(
+            lock.status.success(),
+            "{}",
+            String::from_utf8_lossy(&lock.stderr)
+        );
+        let snapshot = Snapshot::prepare(&candidate, &attempt, &source).unwrap();
+        assert_eq!(
+            snapshot.evidence["approved_source_origin"],
+            source.approved_origin
+        );
+        assert_eq!(snapshot.evidence["database_url"], DATABASE_URL);
+        assert_eq!(
+            super::super::git(&snapshot.source.path, &["remote", "get-url", "origin"]).unwrap(),
+            source.approved_origin
+        );
+        snapshot.recheck().unwrap();
+        let (host, _) = super::super::compiler(&candidate).unwrap();
+        let scan = super::super::isolated_command(&snapshot.executable, &path.join("scan-home"))
+            .unwrap()
+            .current_dir(&candidate)
+            .args(arguments(&candidate, &attempt, &host).unwrap())
+            .output()
+            .unwrap();
+        let log = format!(
+            "{}{}",
+            String::from_utf8_lossy(&scan.stdout),
+            String::from_utf8_lossy(&scan.stderr)
+        );
+        assert!(
+            !scan.status.success(),
+            "fixture advisory must reject qualification"
+        );
+        assert!(log.contains("RUSTSEC-2026-0001"), "{log}");
+        snapshot.recheck().unwrap();
+        super::super::git(
+            &snapshot.source.path,
+            &["remote", "set-url", "origin", DATABASE_URL],
+        )
+        .unwrap();
+        assert!(snapshot.recheck().is_err());
     }
 
     #[test]
