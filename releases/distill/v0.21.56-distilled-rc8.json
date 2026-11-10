@@ -1,0 +1,209 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "exit_code": 0,
+      "output_sha256": "4fe8e308010ad5d79674ecd36dc378324aa136a8e386a62b72d3ae8ffebeef35",
+      "passed": true,
+      "task_id": "T-CARBONLEAN-5"
+    }
+  ],
+  "base_commit": "47208b7da8c6d6d8d16bef216c4cbbe064c90ba0",
+  "base_tree": "f22ad1efbce80072bcd19f12f4fd601adc669cb5",
+  "branch_ref": "refs/heads/release/v0.21.56-distilled-rc8",
+  "closure_order": [
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CARBONRELBRANCH-1",
+    "T-CARBONLEAN-1",
+    "T-CARBONLEAN-2",
+    "T-CARBONLEAN-3",
+    "T-AGYCLOUD-8",
+    "T-HARNESSSTD-1",
+    "T-CODEXAXUMOUT-1",
+    "T-CARBONLEAN-4",
+    "T-CARBONLEAN-5"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "a8852a66543da41b8bfce7b2929fa1172a834c12",
+  "final_tree": "2058383755af3d5496d076d565439d0d7be988af",
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "changed_files": [
+        ".agents/gmcp/evidence/VC-203-001.jsonl",
+        ".agents/gmcp/evidence/VC-203-002.jsonl",
+        ".agents/gmcp/evidence/VC-203-003.jsonl",
+        ".agents/gmcp/evidence/VC-203-004.jsonl",
+        ".agents/gmcp/evidence/VC-203-005.jsonl",
+        ".agents/gmcp/evidence/VC-203-006.jsonl",
+        ".agents/gmcp/evidence/VC-203-008.jsonl",
+        ".agents/gmcp/evidence/VC-203-009.jsonl",
+        ".agents/gmcp/evidence/VC-203-013.jsonl",
+        ".agents/tasks/T-CARBONLEAN-5.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-gmcp/Cargo.toml",
+        "crates/susi-gmcp/src/mcp/http.rs",
+        "crates/susi-gmcp/src/protocol_tests.rs",
+        "crates/susi-gmcp/src/server.rs",
+        "crates/susi-http-transport/Cargo.toml",
+        "crates/susi-http-transport/src/http_body.rs",
+        "crates/susi-http-transport/src/lib.rs",
+        "crates/susi-server/Cargo.toml",
+        "crates/susi-server/src/lib.rs",
+        "crates/susi-vendor-http-body-util/Cargo.toml",
+        "crates/susi-vendor-http-body-util/src/lib.rs",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "composed_commit": "a8852a66543da41b8bfce7b2929fa1172a834c12",
+      "composed_tree": "2058383755af3d5496d076d565439d0d7be988af",
+      "deps": [
+        "T-CARBONLEAN-4"
+      ],
+      "goal": "Remove susi-vendor-http-body-util and http-body-util from Cargo.lock (-2 packages; 113 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..5), provide #![forbid(unsafe_code)] shared Hyper body combinators (BoxBody, Full, Empty, Limited, LengthLimitError, Collected, BodyExt) in susi_http_transport::http_body for susi-gmcp and susi-server, ratchet all three pillar reach ceilings down simultaneously (THIRD_PARTY_CEILING 140 -> 139, WORKSPACE_CEILING 37 -> 36, DIRECT_FACADE_EDGES_CEILING 13 -> 12), and re-record GMCP requirement and --mastery evidence.",
+      "owner": "carbon-cachyos-distill",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/gmcp/evidence",
+        ".agents/tasks/T-CARBONLEAN-5.json",
+        ".agents/tasks/done/T-CARBONLEAN-5.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-gmcp/Cargo.toml",
+        "crates/susi-gmcp/src/mcp/http.rs",
+        "crates/susi-gmcp/src/protocol_tests.rs",
+        "crates/susi-gmcp/src/server.rs",
+        "crates/susi-http-transport/Cargo.toml",
+        "crates/susi-http-transport/src/http_body.rs",
+        "crates/susi-http-transport/src/lib.rs",
+        "crates/susi-server/Cargo.toml",
+        "crates/susi-server/src/lib.rs",
+        "crates/susi-vendor-http-body-util",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "source_commits": [
+        "d3632ec46094e244f6b75d60ee606137f31f17a5",
+        "d8b14e6268c4408f33d17ab94e8d5e68f9bf4cb0",
+        "dabaf08d7fd9ccc052c205a26c85ef4a8613a384"
+      ],
+      "task_id": "T-CARBONLEAN-5",
+      "title": "Lean core: delete http-body-util facade; shared susi-http-transport body combinators and triple pillar ceiling ratchet"
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0.21.56-distilled-rc8",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "0b4e8779fccfdbdf2a8a4fd2aaa77fdfc17c0e9a3c9599ba3f35d9c360e69c92",
+  "rejected": [],
+  "requested_tasks": [
+    "T-CARBONLEAN-5"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-1 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDRIVER-1 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONRELBRANCH-1 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONRELBRANCH-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-1 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-2 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-2"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-3 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-3"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-8 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-8"
+    },
+    {
+      "detail": "closed task record for T-HARNESSSTD-1 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-HARNESSSTD-1"
+    },
+    {
+      "detail": "task T-CODEXAXUMOUT-1 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CODEXAXUMOUT-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-4 is already present in base 47208b7da8c6d6d8d16bef216c4cbbe064c90ba0 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-4"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.56-distilled-rc8",
+  "source_stream_commit": "33ca860a3aa219f5786ad349e12af26d8b65303c",
+  "source_stream_tree": "da9b639e058412ab057d95bbdf64a2c0afb2905b"
+}
