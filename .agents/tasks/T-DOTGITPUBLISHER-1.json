@@ -20,7 +20,7 @@
     "cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--features", "release-tooling", "--bin", "local-snapshot"]
   },
   "checkpoint": "Publisher native Windows source verified: 24 tests passed (75.32s harness, 77.686s outer), strict bin clippy -D warnings passed (1.356s), native build passed (1.888s), cargo fmt --all --check passed (22.356s), executable --help smoke passed. Independent source review completed. Real concurrent Git tests caught the incorrect-old-value CAS response; explicit regression now passes. The subsequent owner-scoped build.rs push-policy entry requires the coordinated native push-policy source commit in the combined candidate; this dependency checkpoint is not independently buildable before composition. Exact combined checks and origin publication remain pending. No Linux publisher qualification, automatic dual-host release orchestration, release attestation or production promotion is claimed.",
-  "evidence": {
+  "historical_evidence_before_history_guard": {
     "toolchain": "Rust 1.99.0 x86_64-pc-windows-msvc",
     "module_sha256": "d49aff61c1369bc5770ba7c2fd73392d7534fd303f7403f88d467c7ec220ac15",
     "native_binary_sha256": "837595462f5d508246e8d925a8fa5fc87ff45860884d13a82d9a5c46f3b48cd5",

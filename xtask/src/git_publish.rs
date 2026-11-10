@@ -46,6 +46,7 @@ impl Git<'_> {
             "GIT_INDEX_FILE",
             "GIT_OBJECT_DIRECTORY",
             "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_GRAFT_FILE",
         ] {
             command.env_remove(key);
         }
@@ -238,6 +239,7 @@ impl Git<'_> {
     }
 
     fn ancestor(&self, ancestor: &str, descendant: &str) -> Result<bool> {
+        self.require_original_history()?;
         valid_oid(ancestor)?;
         valid_oid(descendant)?;
         let output = self.output(&["merge-base", "--is-ancestor", ancestor, descendant], None)?;
@@ -246,6 +248,19 @@ impl Git<'_> {
             Some(1) => Ok(false),
             _ => Err("cannot verify Git ancestry".to_owned()),
         }
+    }
+
+    fn require_original_history(&self) -> Result<()> {
+        let path = PathBuf::from(self.text(&[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "info/grafts",
+        ])?);
+        if !path.is_absolute() || path.try_exists().map_err(|e| e.to_string())? {
+            return Err("legacy Git grafts can alter history; publication requires the original commit graph".to_owned());
+        }
+        Ok(())
     }
 
     fn compose(&self, base: &str, source: &str, name: &str) -> Result<String> {
@@ -560,6 +575,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
     let name = &args[1];
     valid_name(name)?;
     let git = Git { root };
+    git.require_original_history()?;
     let path = git.intent_path(name)?;
     let intent = if matches!(args[0].as_str(), "cut" | "adopt") {
         if path.try_exists().map_err(|e| e.to_string())? {
@@ -640,6 +656,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
 fn submit_main(root: &Path, command: &str, name: &str) -> Result<String> {
     valid_name(name)?;
     let git = Git { root };
+    git.require_original_history()?;
     let path = git.state_path("submissions", name)?;
     let intent = if command == "submit" {
         if path.try_exists().map_err(|e| e.to_string())? {
@@ -1554,5 +1571,34 @@ mod tests {
             MainPush::Rejected
         );
         assert_eq!(rejected_main_push("connection lost"), MainPush::Unknown);
+    }
+
+    #[test]
+    fn legacy_grafts_cannot_falsify_main_publication_evidence() {
+        let repo = Repo::new();
+        let remote = repo.git().text(&["rev-parse", "HEAD"]).unwrap();
+        let source = repo.commit("unpublished source");
+        let grafts = PathBuf::from(
+            repo.git()
+                .text(&[
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "info/grafts",
+                ])
+                .unwrap(),
+        );
+        fs::create_dir_all(grafts.parent().unwrap()).unwrap();
+        fs::write(grafts, format!("{remote} {source}\n")).unwrap();
+        assert!(repo
+            .run("submit", "grafted")
+            .unwrap_err()
+            .contains("original commit graph"));
+        assert_eq!(
+            repo.git()
+                .remote_ref(&repo.git().endpoint().unwrap(), "refs/heads/main")
+                .unwrap(),
+            Some(remote)
+        );
     }
 }
