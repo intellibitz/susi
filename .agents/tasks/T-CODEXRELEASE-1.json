@@ -1,0 +1,68 @@
+{
+  "id": "T-CODEXRELEASE-1",
+  "native_worker": "codex",
+  "title": "Promote landed core work and distill the free, lean, fast release candidate",
+  "goal": "Record the open-core boundary, preserve commercial functionality in intellibitz/susi-commercial-apps, and compose the closed functional Susi core contributions from the v0.21.54 base into a release candidate without force-moving shared history.",
+  "status": "done",
+  "size": "m",
+  "deps": [],
+  "base_commit": "c5083168ac8b4957e898944f018dd21115f51c76",
+  "owner": "CODEX",
+  "scopes": [
+    ".agents/features/susi-core-free-lean-fast-20261111.json",
+    ".agents/tasks/T-CODEXRELEASE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "run",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-distill",
+      "--",
+      "plan",
+      "--name",
+      "2026-11-11-rc3",
+      "--base",
+      "b626d435c6bbae9a89a10c091fd7819fbe3b3910",
+      "--from",
+      "main",
+      "--feature",
+      ".agents/features/susi-core-free-lean-fast-20261111.json",
+      "--json"
+    ]
+  },
+  "created_by": "CODEX",
+  "created_unix": 1794375331,
+  "results": [
+    {
+      "main_commit": "05b53c4e7c99e2ef1a7b3cca625094a92b439c7e",
+      "main_remote_verified": true,
+      "release_branch": "refs/heads/release/2026-11-11-rc3",
+      "release_envelope": "ccada69afca4a56bca3d70ca466c50726c9914f3",
+      "distilled_commit": "05b53c4e7c99e2ef1a7b3cca625094a92b439c7e",
+      "receipt_sha256": "74b97653eb8d544dee69201c581fa5ccd8f465101f71420d07d32d471bde3093",
+      "plan": {
+        "base": "0dd10a52d8a3c77054ede7e3721649719b77cd35",
+        "source_stream": "05b53c4e7c99e2ef1a7b3cca625094a92b439c7e",
+        "included": 0,
+        "satisfied_in_base": 30,
+        "deferred": 0,
+        "rejected": 0,
+        "qualification_status": "accept_verified_candidate"
+      }
+    }
+  ],
+  "closed": {
+    "at_unix": 1794376448,
+    "commit": "25a2b9ee9",
+    "by": "CODEX"
+  },
+  "limitations": [
+    "The candidate remains unqualified until the exact release tree passes the full Windows x86_64 and Linux x86_64 release gates; source publication is not production qualification.",
+    "The latest distiller executable could not be rebuilt on this host because the installed MSVC/Windows SDK registration does not expose dbghelp.lib; the candidate envelope was verified with the repository's receipt format and Git object checks."
+  ]
+}
