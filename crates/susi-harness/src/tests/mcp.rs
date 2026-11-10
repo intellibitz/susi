@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::VecDeque;
+use std::io::{BufReader, Cursor};
 
 struct Scripted {
     responses: VecDeque<Value>,
@@ -145,6 +146,19 @@ fn mcp_surfaces_a_tool_result_error_instead_of_returning_success_text() {
     let error = error.to_string();
     assert!(error.contains("tools/call 'read_file' failed"), "{error}");
     assert!(error.contains("permission denied"), "{error}");
+}
+
+#[test]
+fn stdio_skips_notifications_before_the_json_rpc_response() {
+    let stream = concat!(
+        "\n",
+        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{}}\n",
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n"
+    );
+    let mut reader = BufReader::new(Cursor::new(stream));
+    let response = read_stdio_response(&mut reader).unwrap();
+    assert_eq!(response["id"], 1);
+    assert_eq!(response["result"]["ok"], true);
 }
 
 #[test]
