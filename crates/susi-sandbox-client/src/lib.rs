@@ -173,6 +173,8 @@ mod audit_chain_tests {
 
     #[test]
     fn append_waits_for_the_cross_process_chain_lock() {
+        // The chain's HMAC key path follows SUSI_HOME, which sibling tests swap.
+        let _guard = crate::env_test_lock();
         let log = temp_audit();
         // Another "process" holds the chain lock: the append must not
         // proceed on a possibly stale tip.
