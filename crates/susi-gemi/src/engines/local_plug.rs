@@ -297,10 +297,12 @@ impl LocalEnginePlug for BuiltinLocalEnginePlug {
         callback: &dyn Fn(String),
         selected_model: Option<&str>,
     ) -> EaiResult<String> {
-        if let Some(res) = call_bus_plug(
-            TOPIC_LOCAL_INFER_STREAM,
-            json!({ "prompt": prompt, "selected_model": selected_model }),
-        ) {
+        // `model_path`: the weights core resolved for `selected_model`, so the
+        // plug loads exactly that file (additive; older plugs ignore it).
+        let model_path = selected_model.and_then(crate::models::ModelManager::get_model_path);
+        let payload =
+            json!({ "prompt": prompt, "selected_model": selected_model, "model_path": model_path });
+        if let Some(res) = call_bus_plug(TOPIC_LOCAL_INFER_STREAM, payload) {
             let val = res?;
             if let Some(t) = val.get("text").and_then(Value::as_str) {
                 callback(t.to_string());
