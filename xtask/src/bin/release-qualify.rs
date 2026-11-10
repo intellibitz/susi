@@ -1,7 +1,14 @@
 //! Native exact-tree release qualification (`docs/releases.md`).
 //!
-//! `cargo run -p xtask --bin release-qualify -- vX.Y.Z [--jobs N]`, from a clean
-//! checkout of the release tree whose package version is X.Y.Z. It runs every
+//! `cargo run -p xtask --bin release-qualify -- vX.Y.Z [--from-distill <name>]
+//! [--jobs N] [--verify-only]`, from a clean checkout of the release tree whose
+//! package version is X.Y.Z. With `--from-distill <name>` the tree must be the
+//! accept-verified distilled candidate `release/<name>` plus only its version
+//! bump; that is checked against the candidate's receipt before any gate runs
+//! (`release_qualification::verify_distilled_source`), and the record carries
+//! the `distillation` block. Without it the record says `source: snapshot`.
+//! `--verify-only` runs every check that precedes the gates and stops there:
+//! no gate runs and nothing is written, committed or tagged. It runs every
 //! gate in `REQUIRED_GATES` on that exact committed tree, keeps each gate's log
 //! under `target/release-qualification/<tag>/`, and only when all of them pass
 //! writes `releases/qualification/<tag>.json`, commits that one file, checks
@@ -16,8 +23,8 @@ extern crate susi_windows_runtime;
 mod release_qualification;
 
 use release_qualification::{
-    package_version, record_path, release_version, sha256_hex, toolchain_channel, verify_tag,
-    REQUIRED_GATES, SCHEMA,
+    package_version, record_path, release_version, sha256_hex, toolchain_channel,
+    verify_distilled_source, verify_tag, REQUIRED_GATES, SCHEMA, SOURCE_DISTILL, SOURCE_SNAPSHOT,
 };
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -28,8 +35,12 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 const ASSETS: [&str; 2] = ["susi", "susi-harness"];
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(Path::new("."), &args) {
+        Ok(summary) => {
+            println!("{summary}");
+            ExitCode::SUCCESS
+        }
         Err(error) => {
             eprintln!("release-qualify: {error}");
             ExitCode::FAILURE
@@ -276,17 +287,107 @@ fn smoke(root: &Path, logs: &Path, version: &str) -> Result<(Value, Vec<Value>),
     Ok((gate, assets))
 }
 
-fn run() -> Result<(), String> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: release-qualify vX.Y.Z [--jobs N]";
-    let tag = args.first().ok_or(usage)?.clone();
-    let jobs = match args.get(1).map(String::as_str) {
-        None => None,
-        Some("--jobs") => Some(args.get(2).ok_or(usage)?.as_str()),
-        Some(_) => return Err(usage.into()),
+const USAGE: &str =
+    "usage: release-qualify vX.Y.Z [--from-distill <candidate>] [--jobs N] [--verify-only]";
+
+/// The parsed command line.
+struct Options {
+    tag: String,
+    jobs: Option<String>,
+    from_distill: Option<String>,
+    verify_only: bool,
+}
+
+fn parse(args: &[String]) -> Result<Options, String> {
+    let mut tag = None;
+    let mut jobs = None;
+    let mut from_distill = None;
+    let mut verify_only = false;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--jobs" if jobs.is_none() => jobs = Some(args.next().ok_or(USAGE)?.clone()),
+            "--from-distill" if from_distill.is_none() => {
+                from_distill = Some(args.next().ok_or(USAGE)?.clone());
+            }
+            "--verify-only" if !verify_only => verify_only = true,
+            other if !other.starts_with('-') && tag.is_none() => tag = Some(other.to_owned()),
+            _ => return Err(USAGE.into()),
+        }
+    }
+    Ok(Options {
+        tag: tag.ok_or(USAGE)?,
+        jobs,
+        from_distill,
+        verify_only,
+    })
+}
+
+/// Local refs that name the candidate, checked against its receipt: the
+/// immutable snapshot tag `susi-distill/<name>` must be the composed commit,
+/// the immutable tag `susi-distill/legacy-release-<name>` (which preserved the
+/// envelopes of the release branches retired from the Git host) must be the
+/// envelope, and the local-only release branch must contain the envelope.
+fn corroborate(root: &Path, distillation: &Value) -> Result<Vec<String>, String> {
+    let field = |name: &str| distillation[name].as_str().unwrap_or_default().to_owned();
+    let (name, envelope, composed) = (
+        field("candidate"),
+        field("envelope_commit"),
+        field("final_commit"),
+    );
+    let resolve = |reference: &str| {
+        git(
+            root,
+            &[
+                "rev-parse",
+                "--verify",
+                "-q",
+                &format!("{reference}^{{commit}}"),
+            ],
+        )
+        .ok()
+        .filter(|id| !id.is_empty())
     };
-    let version = release_version(&tag).ok_or(usage)?.to_owned();
-    let root = PathBuf::from(git(Path::new("."), &["rev-parse", "--show-toplevel"])?);
+    let mut seen = Vec::new();
+    let snapshot = format!("refs/tags/susi-distill/{name}");
+    if let Some(id) = resolve(&snapshot) {
+        if id != composed {
+            return Err(format!(
+                "{snapshot} is {id}, but the receipt's composed commit is {composed}"
+            ));
+        }
+        seen.push(snapshot);
+    }
+    let preserved = format!("refs/tags/susi-distill/legacy-release-{name}");
+    if let Some(id) = resolve(&preserved) {
+        if id != envelope {
+            return Err(format!(
+                "{preserved} is {id}, but the receipt's envelope commit is {envelope}"
+            ));
+        }
+        seen.push(preserved);
+    }
+    let local = format!("refs/heads/release/{name}");
+    if let Some(id) = resolve(&local) {
+        if git(root, &["merge-base", "--is-ancestor", &envelope, &id]).is_err() {
+            return Err(format!(
+                "{local} ({id}) does not contain the envelope commit {envelope}"
+            ));
+        }
+        seen.push(local);
+    }
+    Ok(seen)
+}
+
+fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
+    let Options {
+        tag,
+        jobs,
+        from_distill,
+        verify_only,
+    } = parse(args)?;
+    let version = release_version(&tag).ok_or(USAGE)?.to_owned();
+    let root = PathBuf::from(git(cwd, &["rev-parse", "--show-toplevel"])?);
     if !git(&root, &["status", "--porcelain", "--untracked-files=no"])?.is_empty() {
         return Err("the checkout has uncommitted changes; qualify a committed tree only".into());
     }
@@ -324,11 +425,38 @@ fn run() -> Result<(), String> {
             "active compiler {release} is not the pinned {channel}"
         ));
     }
+    let (source, distillation, corroborated) = match &from_distill {
+        None => (SOURCE_SNAPSHOT, None, Vec::new()),
+        Some(name) => {
+            let block = verify_distilled_source(&root, name, &commit)
+                .map_err(|e| format!("--from-distill {name} refused: {e}"))?;
+            let seen = corroborate(&root, &block)
+                .map_err(|e| format!("--from-distill {name} refused: {e}"))?;
+            (SOURCE_DISTILL, Some(block), seen)
+        }
+    };
+    if verify_only {
+        let mut summary = format!(
+            "verify-only: {tag} from {source} tree {tree} (commit {commit}) passes every check before the gates; no gate ran, nothing was written, committed or tagged."
+        );
+        if let Some(block) = &distillation {
+            summary.push_str(&format!(
+                "\ndistillation: {}\ncorroborated by: {}",
+                serde_json::to_string_pretty(block).map_err(|e| e.to_string())?,
+                if corroborated.is_empty() {
+                    "no local candidate ref".to_owned()
+                } else {
+                    corroborated.join(", ")
+                }
+            ));
+        }
+        return Ok(summary);
+    }
     let logs = root.join("target").join("release-qualification").join(&tag);
     std::fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
     let started = now();
     let mut records = Vec::new();
-    for gate in gates(jobs) {
+    for gate in gates(jobs.as_deref()) {
         records.push(run_gate(&root, &logs, &gate)?);
     }
     let (smoke_gate, assets) = smoke(&root, &logs, &version)?;
@@ -344,7 +472,7 @@ fn run() -> Result<(), String> {
         .into_iter()
         .filter(|target| *target != host)
         .collect();
-    let record = json!({
+    let mut record = json!({
         "schema": SCHEMA,
         "product": "susi",
         "tag": tag,
@@ -360,7 +488,11 @@ fn run() -> Result<(), String> {
         "assets": assets,
         "owed_platforms": owed,
         "provenance": "written by xtask release-qualify from the logs under target/release-qualification; each gate's log digest is recorded",
+        "source": source,
     });
+    if let Some(block) = &distillation {
+        record["distillation"] = block.clone();
+    }
     let text = serde_json::to_string_pretty(&record).map_err(|e| e.to_string())? + "\n";
     let file = root.join(&path);
     if let Some(dir) = file.parent() {
@@ -369,8 +501,25 @@ fn run() -> Result<(), String> {
     std::fs::write(&file, &text).map_err(|e| e.to_string())?;
     git(&root, &["add", "--", &path])?;
     let subject = format!("chore: release {tag} qualification record");
+    let origin = match &distillation {
+        Some(block) => format!(
+            "distilled candidate {} (receipt sha256 {}, envelope {}, tasks {})",
+            block["candidate"].as_str().unwrap_or_default(),
+            block["receipt_sha256"].as_str().unwrap_or_default(),
+            block["envelope_commit"].as_str().unwrap_or_default(),
+            block["included_tasks"]
+                .as_array()
+                .map(|ids| ids
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", "))
+                .unwrap_or_default()
+        ),
+        None => "snapshot".to_owned(),
+    };
     let body = format!(
-        "Qualified tree {tree} (commit {commit}) on {host}: {}.\nOwed: {}.",
+        "Qualified tree {tree} (commit {commit}) on {host}: {}.\nSource: {origin}.\nOwed: {}.",
         REQUIRED_GATES.join(", "),
         if owed.is_empty() {
             "none".to_owned()
@@ -387,10 +536,9 @@ fn run() -> Result<(), String> {
         sha256_hex(text.as_bytes())
     );
     git(&root, &["tag", "-a", &tag, "-m", &message, &record_commit])?;
-    println!(
-        "Qualified {tag}: record commit {record_commit}, tag created locally.\nPublish with: git push origin {tag}"
-    );
-    Ok(())
+    Ok(format!(
+        "Qualified {tag} from {source}: record commit {record_commit}, tag created locally.\nPublish with: git push origin {tag}"
+    ))
 }
 
 #[cfg(test)]
