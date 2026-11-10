@@ -44,6 +44,8 @@ identities containing host/session, agent and execution mode, plus private
 source worktrees, branch names, build outputs, scratch homes and runtime ports.
 No worker impersonates another worker or the CEO.
 
+The agents actually present on a machine are those with a registered agent
+root (Mandate 77, `ceo-mandate-77.md`).
 These names express roles and desired deployment, not proof that a product,
 model, account or connector is installed, reachable or licensed. Record actual
 availability and limitations. A blocked provider does not stop unrelated work.
@@ -123,10 +125,11 @@ remote `refs/heads/*` branch on GitHub is `refs/heads/main` (CEO directives
 `release-staging/*`, `distill/*`, `wip/*`) is offered by GitHub as a pull
 request that could bypass Susi's integration rules, and is strictly forbidden.
 Agents publish their work to the non-branch ref `refs/agents/<agent>`
-(`docs/agent-refs.md`), which offers no pull request. Release candidates stay
-local to Susi and publish solely as immutable tags
-(`refs/tags/susi-distill/<name>`, `refs/tags/susi-snapshot/<name>`, and
-qualified `refs/tags/v<version>`). No agent opens, merges, or closes a pull
+(`docs/agent-refs.md`), which offers no pull request. A release line lives on
+storage as the non-branch ref `refs/candidates/release/<name>` (fast-forward
+only, never deleted); a `refs/heads/release/*` branch stays local. Snapshots
+and releases publish as immutable tags (`refs/tags/susi-distill/<name>`,
+`refs/tags/susi-snapshot/<name>`, and qualified `refs/tags/v<version>`). No agent opens, merges, or closes a pull
 request, or deletes remote branches without explicit CEO direction. Native
 Windows x86_64 and Linux x86_64 development, integration and qualification must
 work locally. Keep portable source; do not add unapproved platform release legs.

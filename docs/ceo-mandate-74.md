@@ -33,7 +33,11 @@ storage bucket only.
    10 seconds (`< 10.0s` / `total_ms < 10_000` warm pipeline budget)**, recorded
    with structured timing breakdown (`build_ms`, `test_ms`, `release_ms`,
    `total_ms`) and durable evidence while reporting cold vs. warm timings
-   separately and honestly (Mandates 1, 62, 69).
+   separately and honestly (Mandates 1, 62, 69). This budget is the warm fast
+   check (`cargo fast-release`: incremental build, the fast test set, the
+   distilled artifact and its manifest). It is not the full workspace suite,
+   which takes minutes and is what qualifies a release under the exact-tree
+   gates. Report both, never one as the other.
 2. **Continuous `main` development, deterministic release distillation:** Features
    and fixes land continuously on `main` as an append-only, ungated development
    stream and are deterministically **distilled into qualified immutable releases**
