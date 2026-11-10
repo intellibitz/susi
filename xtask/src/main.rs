@@ -18,11 +18,19 @@ mod extension_watch;
 #[allow(dead_code)]
 mod gate_receipt;
 mod local_build;
+// Receipt verification replays test binaries through these local-workflow
+// modules; their writer and gate-launch halves are unused by this binary.
+#[allow(dead_code)]
+mod native_provenance;
 // Shared with the local-release binary, which also uses `select_product_features`;
 // this binary only needs `product_feature_args` (local-build).
 #[allow(dead_code)]
 mod product_features;
 mod sysroot_sources;
+#[allow(dead_code)]
+mod test_binary_evidence;
+#[allow(dead_code)]
+mod test_runner;
 mod trusted_sysroot;
 
 #[cfg(windows)]
