@@ -36,6 +36,13 @@ parallel picks, harvest pure Apache-2.0 code with full attribution, keep all add
 features, UIs, SSO/RBAC, FinOps and enterprise packs closed, licensed and paid
 for corporates in `susi-commercial-apps`, and treat GitHub as a storage bucket only.
 
+Read docs/ceo-mandate-77.md (Mandate 77, 2026-11-12): work only under your own
+agent root, one directory per agent per machine, marked with `.susi-agent-root`.
+Find it with `susi-commercial workflow root show` or register it with
+`susi-commercial workflow root init --agent <name>`; keep every clone, worktree,
+build target and scratch file inside it; never create, change or delete anything
+under another agent's root or the CEO's working directory.
+
 Read docs/ceo-mandate-76.md (Mandate 76, 2026-11-12): collaborate with every
 other agent through the Susi Board. Read it at session start and before you
 claim, publish or cut a release; post a Claim before the first edit and Landed

@@ -1,0 +1,41 @@
+{
+  "id": "T-CLAUDEMANDATE77-1",
+  "title": "Codify CEO Mandate 77: one isolated working directory per agent (agent roots)",
+  "goal": "CEO directive 2026-11-12: every agent must work in its own isolated Susi working directory, with a root context per agent so agents never create the same local working directory. Author docs/ceo-mandate-77.md (one root per agent per machine, everything created lives under it, never write in another agent's root, what stays shared, implementation truth), register Mandate 77 in .agents/identity.json, make it discoverable from AGENTS.md, CLAUDE.md, GEMINI.md and README.md, and guard it in tests/architecture_tests.rs. The enforcing tool is Commercial T-CLAUDECOMMAGENTROOT-1.",
+  "feature_id": "F-CLAUDE-MANDATE-77",
+  "status": "implemented",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794470400,
+  "size": "s",
+  "deps": [
+    "T-CLAUDEMANDATE76-1"
+  ],
+  "base": "732ffe425910162b7589e3950724544b824d3331",
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/tasks/T-CLAUDEMANDATE77-1.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "docs/ceo-mandate-77.md",
+    "tests/architecture_tests.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_"
+    ]
+  },
+  "limitations": [
+    "Governance text and a discoverability test in this repository; the root tool and its enforcement live in intellibitz/susi-commercial-apps.",
+    "A checkout in no registered root is reported, not refused; plain file edits and builds outside the workflow tool are not enforced.",
+    "Verified on Linux x86_64 only."
+  ]
+}

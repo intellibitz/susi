@@ -1,5 +1,24 @@
 **START HERE: read the CEO mandates below, inspect local state, and reserve an isolated worktree before editing.**
 
+## CEO Mandate 77 (2026-11-12): One Isolated Working Directory per Agent (Agent Roots)
+
+Read [CEO Mandate 77](docs/ceo-mandate-77.md). Every agent works only under its
+own root: one directory per agent per machine, named for the agent.
+
+- **Find or register your root first:** `susi-commercial workflow root show`,
+  or `susi-commercial workflow root init --agent <name>` (default
+  `~/susi-agents/<name>`). A root is marked by a `.susi-agent-root` file naming
+  its owner; existing roots are registered in place, never moved.
+- **Everything you create lives under it:** your own clones of both
+  repositories, every worktree, build target, private `SUSI_HOME` and scratch
+  file.
+- **Never write in another agent's root or the CEO's working directory.** You
+  may read it and fetch from it; to change something there, ask the owner on
+  the Susi Board.
+- **Enforced:** `workflow start` and the commit guard refuse to work inside a
+  root that belongs to a different agent. A checkout in no registered root is
+  reported, not refused.
+
 ## CEO Mandate 76 (2026-11-12): Multi-Agent Collaboration through the Susi Board
 
 Read [CEO Mandate 76](docs/ceo-mandate-76.md). Every agent collaborates with
@@ -189,6 +208,7 @@ These are requirements, **not claims of completed implementation**. Consult
 | 74 | **Autonomous CTO ecosystem mandate (2026-11-11):** `<10s` warm core build+test+release budget (`total_ms < 10_000`); 5 Apache-2.0 free-forever core pillars (**GAWD**, **GEMI**, **GMCP**, **ACP**, **Susi Harness** with parallel multi-agent workflow); remote pull and merge at every workflow step over portable Git storage (zero GitHub Actions/PRs/API); ungated labelled `main` deterministically distilled into immutable releases; attributed Apache-2.0 harvesting; all add-ons/UIs/SSO/RBAC/FinOps closed, licensed, and paid for corporates in `susi-commercial-apps`. |
 | 75 | **Raw Source (`main`) & Distill (`release`), Cloud Feature Pickup, and Pure `Apache-2.0` Compliance (2026-11-12):** symmetric Raw Source (`main`) -> Distill (`release`) pipeline across `susi` and `susi-commercial-apps` with one-version-one-cut guards; `local-harvest raw-features` / `route` / `pickup` routing 5-pillar `<10s` capabilities to Core and all UIs/packs/connectors/workflows to `susi-commercial-apps`; **Pure `Apache-2.0` ONLY** cloud harvest compliance (full §4(a)–(d) notices, refusing standalone MIT/BSD, LLVM-exception, `AND`, copyleft and unlicensed raw source); additive multi-agent (`Claude`, `Codex`, `Carbon`) Git and Susi Board collaboration. |
 | 76 | **Multi-agent collaboration through the Susi Board (2026-11-12):** every agent reads the Susi Board at session start and before claiming, publishing or cutting a release; posts Claim, Landed, Cut, Heads-up, Request, Handoff, Decision and Blocked items; appends only and never rewrites another agent's item; respects open claims and answers requests addressed to it; keeps the board truthful, free of secrets and commercial source, and free of any GitHub or hosted-service dependency. The board coordinates, Git stays the record, and no gate is added ([`docs/ceo-mandate-76.md`](docs/ceo-mandate-76.md)). |
+| 77 | **One isolated working directory per agent (2026-11-12):** every agent has exactly one root directory per machine, named for the agent and marked with `.susi-agent-root`; all of its clones, worktrees, build targets and scratch files live under it; it never creates, changes or deletes anything under another agent's root or the CEO's working directory, and asks the owner on the Susi Board instead. `susi-commercial workflow root show | init` finds and registers a root; `workflow start` and the commit guard refuse to work inside another agent's root ([`docs/ceo-mandate-77.md`](docs/ceo-mandate-77.md)). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
