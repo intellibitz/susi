@@ -79,22 +79,30 @@ impl SusiDaemonState {
         Ok(true)
     }
 
-    pub fn check_status(workspace: &Path, global_dir: &Path) -> bool {
-        let lock = global_dir.join(format!(
-            "daemon_{}.lock",
-            susi_paths::hex::encode(workspace.to_string_lossy().as_bytes())
-        ));
-        if !lock.exists() {
-            return false;
-        }
-        if let Ok(pid_str) = fs::read_to_string(&lock) {
-            if let Some(pid_line) = pid_str.lines().next() {
-                if let Ok(pid) = pid_line.parse::<u32>() {
-                    return Path::new(&format!("/proc/{}", pid)).exists();
-                }
-            }
-        }
-        false
+    /// Whether a daemon holds the substrate lock in `global_dir`: the record
+    /// the daemon itself writes (`substrate.lock`, mirrored to the unlocked
+    /// `substrate.pid`) and the check `susi status` relies on
+    /// ([`susi_paths::ports::daemon_lock_live`]). One daemon serves every
+    /// workspace, so `workspace` does not name a file. Read-only: a stale
+    /// record is reported dead, never removed here.
+    ///
+    /// This used to read `daemon_<hex of workspace path>.lock`, a per-workspace
+    /// file nothing writes since the daemon took one global lock, so the answer
+    /// was always "not running"; and for a workspace path over about 120 bytes
+    /// the name passed the 255-byte file-name limit.
+    pub fn check_status(_workspace: &Path, global_dir: &Path) -> bool {
+        ["substrate.pid", "substrate.lock"]
+            .iter()
+            .find_map(|name| {
+                fs::read_to_string(global_dir.join(name))
+                    .ok()?
+                    .lines()
+                    .next()?
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+            })
+            .is_some_and(|pid| susi_paths::ports::daemon_lock_live(global_dir, pid))
     }
 }
 
@@ -206,10 +214,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn check_status_returns_false_when_lock_file_is_absent_or_contains_non_numeric_pid() {
+    fn status_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "susi-daemon-status-{}-{}",
+            "susi-daemon-status-{tag}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -217,15 +224,51 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn check_status_is_false_without_a_live_substrate_record() {
+        let dir = status_dir("absent");
         let ws = dir.join("ws");
         assert!(!SusiDaemonState::check_status(&ws, &dir));
 
-        let lock = dir.join(format!(
-            "daemon_{}.lock",
-            susi_paths::hex::encode(ws.to_string_lossy().as_bytes())
-        ));
-        std::fs::write(&lock, "not-a-pid\n").unwrap();
+        std::fs::write(dir.join("substrate.pid"), "not-a-pid\n").unwrap();
         assert!(!SusiDaemonState::check_status(&ws, &dir));
+
+        // A recorded pid no process has: the largest pid Linux can hand out
+        // is 2^22, so this one names nothing; the record stays in place.
+        std::fs::write(dir.join("substrate.pid"), "4294967294\n").unwrap();
+        assert!(!SusiDaemonState::check_status(&ws, &dir));
+        assert!(dir.join("substrate.pid").exists());
+
+        // The workspace path names no file: a 300-byte one is answered, where
+        // `daemon_<hex>.lock` exceeded the 255-byte file-name limit.
+        let deep = dir.join("w".repeat(300));
+        assert!(!SusiDaemonState::check_status(&deep, &dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The live case reads the daemon's own record: this test process stands
+    /// in for the daemon. Linux judges the recorded pid by `/proc`; Windows
+    /// needs the daemon's byte-range lock, which only the daemon holds.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn check_status_sees_the_daemons_substrate_record() {
+        let dir = status_dir("live");
+        let ws = dir.join("w".repeat(300));
+        std::fs::write(
+            dir.join("substrate.lock"),
+            format!("{}\n", std::process::id()),
+        )
+        .unwrap();
+        assert!(SusiDaemonState::check_status(&ws, &dir));
+        std::fs::write(
+            dir.join("substrate.pid"),
+            format!("{}\n", std::process::id()),
+        )
+        .unwrap();
+        assert!(SusiDaemonState::check_status(&ws, &dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
