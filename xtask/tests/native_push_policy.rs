@@ -297,3 +297,23 @@ fn graft_environment_override_fails_closed_even_when_file_is_missing() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("GIT_GRAFT_FILE"));
 }
+
+#[test]
+fn release_branches_require_qualification_even_for_create_or_fast_forward() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    let new = r.commit("release candidate");
+    for reference in ["refs/heads/release", "refs/heads/release/1.0"] {
+        for previous in [ZERO, &old] {
+            let input = format!("HEAD {new} {reference} {previous}");
+            let error = r.check(&input).unwrap_err();
+            assert!(error.contains("requires exact native qualification"));
+        }
+        assert!(r
+            .check(&format!("(delete) {ZERO} {reference} {old}"))
+            .is_err());
+    }
+    for reference in ["refs/heads/main", "refs/heads/release-notes"] {
+        assert!(r.check(&format!("HEAD {new} {reference} {old}")).is_ok());
+    }
+}

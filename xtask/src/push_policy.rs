@@ -79,6 +79,9 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
                 return Err(format!("stale local ref {local}"));
             }
         }
+        if remote == "refs/heads/release" || remote.starts_with("refs/heads/release/") {
+            return Err(format!("release branch {remote} requires exact native qualification; adapter not yet available"));
+        }
         if remote.starts_with("refs/heads/") {
             if deleting {
                 return Err(format!("branch deletion prohibited: {remote}"));
