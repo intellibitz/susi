@@ -1,0 +1,59 @@
+{
+  "id": "T-CARBONDISTILL-2",
+  "feature_id": "F-MANDATE74-DISTILL-LANES-AND-HARVEST-AUDIT-1",
+  "title": "Mandate 74 distillation & release-qualification automation: local-harvest audit in release-qualify/push-policy, disjoint-scope lanes, stable patch-ids & harvest receipts in local-distill",
+  "goal": "Implement Mandate 74 \u00a7\u00a73, 5 & 10 integration across local-distill and release-qualify: (1) wire local-harvest audit directly into release-qualify before any build/test gate (both --verify-only and full qualification), record harvest_audit in releases/qualification/<tag>.json, and enforce in release_qualification::verify_tag (push-policy) that any qualified tree carrying .agents/harvest/*.json manifests or harvest_audit must pass with zero violations; (2) add deterministic disjoint-scope lane partitioning (lanes), git patch-id --stable recording (patch_id), canonical/alias susi-harvest-manifest-v1 + Harvest:/Origin:/Origin-License: trailer verification (verify-harvest and harvest_audit in susi-distillation-receipt-v1), and hook-disabled quarantine-fetch in xtask/src/distill/mandate74.rs + xtask/src/distill_compose.rs.",
+  "status": "in_progress",
+  "state": "in_progress",
+  "owner": "carbon-cachyos-distill",
+  "claimed_by": "carbon-cachyos-distill",
+  "native_worker": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794393150,
+  "size": "m",
+  "deps": [
+    "T-CARBONLEAN-11",
+    "T-CLAUDEMANDATE74-1",
+    "T-CLAUDEHARVEST-1",
+    "T-CLAUDELANES-1",
+    "T-CLAUDEPROMOTEEVID-1"
+  ],
+  "base": "dd0e5e9537e5ac5dbc6c8af3130408e2558f2810",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONDISTILL-2.json",
+    ".agents/tasks/done/T-CARBONDISTILL-2.json",
+    "docs/ceo-mandate-74.md",
+    "docs/harvest.md",
+    "xtask/src/bin/release-qualify.rs",
+    "xtask/src/distill/mandate74.rs",
+    "xtask/src/distill_compose.rs",
+    "xtask/src/release_qualification.rs",
+    "xtask/tests/distilled_release_promotion.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-distill",
+      "--bin",
+      "release-qualify",
+      "--test",
+      "distilled_release_promotion"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo clippy --offline --locked -p xtask --all-targets -- -D warnings",
+    "cargo test --offline --locked -p xtask --bin local-distill --bin release-qualify --bin local-harvest --test distilled_release_promotion",
+    "cargo test --offline --locked --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records --test lean_core_ceilings"
+  ],
+  "limitations": [
+    "Enforces recorded .agents/harvest/*.json manifests, Apache-2.0 \u00a74(a)-(d) obligations, and Harvest: commit trailers during local-distill and release-qualify / push-policy; unrecorded manual ports without manifests or Harvest: trailers remain outside automatic detection."
+  ]
+}

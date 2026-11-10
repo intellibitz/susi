@@ -19,6 +19,8 @@
 #![forbid(unsafe_code)]
 #[cfg(windows)]
 extern crate susi_windows_runtime;
+#[path = "../harvest.rs"]
+mod harvest;
 #[path = "../release_qualification.rs"]
 mod release_qualification;
 
@@ -435,9 +437,28 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
             (SOURCE_DISTILL, Some(block), seen)
         }
     };
+    let harvest_range = match &distillation {
+        Some(block) => match block["base_commit"].as_str() {
+            Some(base) if !base.is_empty() && base != commit => format!("{base}..{commit}"),
+            _ => commit.clone(),
+        },
+        None => commit.clone(),
+    };
+    let harvest_raw = harvest::run(
+        &root,
+        &[
+            "audit".to_owned(),
+            "--range".to_owned(),
+            harvest_range,
+            "--json".to_owned(),
+        ],
+    )
+    .map_err(|e| format!("harvest audit refused: {e}"))?;
+    let harvest_audit: Value = serde_json::from_str(&harvest_raw)
+        .map_err(|e| format!("harvest audit output is not JSON: {e}"))?;
     if verify_only {
         let mut summary = format!(
-            "verify-only: {tag} from {source} tree {tree} (commit {commit}) passes every check before the gates; no gate ran, nothing was written, committed or tagged."
+            "verify-only: {tag} from {source} tree {tree} (commit {commit}) passes every check before the gates (including local-harvest audit); no gate ran, nothing was written, committed or tagged."
         );
         if let Some(block) = &distillation {
             summary.push_str(&format!(
@@ -489,6 +510,7 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
         "owed_platforms": owed,
         "provenance": "written by xtask release-qualify from the logs under target/release-qualification; each gate's log digest is recorded",
         "source": source,
+        "harvest_audit": harvest_audit,
     });
     if let Some(block) = &distillation {
         record["distillation"] = block.clone();
