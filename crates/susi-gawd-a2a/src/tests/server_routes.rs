@@ -4,12 +4,16 @@ use crate::protocol::{
 };
 use crate::susi_core::a2a_wire;
 use crate::susi_core::acp::{
+    AcpAdmissionPolicy, AcpContentBlock, AcpEngine, AcpTurnContext, AcpTurnExecutor,
     ACP_DISCOVERY_SCHEMA, ACP_PROTOCOL_VERSION, ACP_RPC_PATH, ACP_STREAM_PATH, WELL_KNOWN_ACP_PATH,
 };
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Replies with the received text, uppercased, as a completed task.
 struct Shout;
@@ -46,6 +50,27 @@ impl AgentExecutor for Shout {
         _queue: &'a EventQueue,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async { Ok(()) })
+    }
+}
+
+struct PausingAcp {
+    entered: Arc<AtomicBool>,
+    release: Arc<AtomicBool>,
+}
+
+impl AcpTurnExecutor for PausingAcp {
+    fn execute_turn(
+        &self,
+        _ctx: &AcpTurnContext,
+        _cancelled: &AtomicBool,
+        emit_delta: &mut dyn FnMut(&str),
+    ) -> std::result::Result<Vec<AcpContentBlock>, String> {
+        emit_delta("early");
+        self.entered.store(true, Ordering::Release);
+        while !self.release.load(Ordering::Acquire) {
+            thread::yield_now();
+        }
+        Ok(vec![AcpContentBlock::text("done")])
     }
 }
 
@@ -300,4 +325,71 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
         "{sse_text}"
     );
     assert!(!sse_text.contains("acp-ack["), "{sse_text}");
+}
+
+#[test]
+fn acp_sse_dispatch_delivers_lifecycle_and_delta_before_the_turn_finishes() {
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let engine = Arc::new(AcpEngine::new(
+        AcpAdmissionPolicy::default(),
+        Arc::new(PausingAcp {
+            entered: Arc::clone(&entered),
+            release: Arc::clone(&release),
+        }),
+    ));
+    let session = engine.handle_jsonrpc_bytes(
+        &serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "session/new",
+            "params": {}
+        }))
+        .unwrap(),
+    );
+    let session_id = serde_json::from_slice::<serde_json::Value>(&session).unwrap()["result"]
+        ["session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let body = serde_json::to_vec(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "session/prompt",
+        "params": {"session_id": session_id, "prompt": "stream this"}
+    }))
+    .unwrap();
+    let (frames_tx, frames_rx) = std::sync::mpsc::channel();
+    let worker_engine = Arc::clone(&engine);
+    let worker = thread::spawn(move || {
+        let mut send = |frame: String| frames_tx.send(frame).unwrap();
+        worker_engine
+            .handle_sse_stream_bytes_with_session_header_and(&body, None, &mut send)
+            .unwrap();
+    });
+
+    let first = frames_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("turn_started arrives before the mission blocks");
+    assert!(first.contains("turn_started"), "{first}");
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while !entered.load(Ordering::Acquire) {
+        assert!(Instant::now() < deadline, "mission did not enter its pause");
+        thread::yield_now();
+    }
+    let delta = frames_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("message_delta arrives before the mission is released");
+    assert!(delta.contains("message_delta"), "{delta}");
+    assert!(delta.contains("early"), "{delta}");
+
+    release.store(true, Ordering::Release);
+    let mut result = String::new();
+    while !result.contains("acp.turn.result") {
+        result = frames_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("turn result arrives after release");
+    }
+    assert!(result.contains("done"), "{result}");
+    worker.join().unwrap();
 }
