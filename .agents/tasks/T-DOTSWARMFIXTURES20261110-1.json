@@ -1,0 +1,80 @@
+{
+  "id": "T-DOTSWARMFIXTURES20261110-1",
+  "title": "Make swarm fixtures native",
+  "goal": "Repair native swarm fixtures and the Windows descendant-termination ordering they exposed. Keep taskkill scoped to the owned root tree before the direct-child fallback, remove unscoped MSYS orphan cleanup, preserve Unix behavior, and prove that an unrelated owned sibling remains alive.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "dotswarmfixtures20261110",
+  "native_worker": "dotswarmfixtures20261110",
+  "created_by": "dotswarmfixtures20261110",
+  "created_unix": 1794306734,
+  "size": "S",
+  "deps": [],
+  "scope": [
+    ".agents/tasks/t-dotswarmfixtures20261110-1.json",
+    "crates/susi-gawd-swarm/src/cancel_propagate.rs",
+    "crates/susi-gawd-swarm/src/tests/swarm_gap_real_cancellation.rs",
+    "crates/susi-gawd-swarm/src/tests/swarm_gap_workspace_isolation.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-dotswarmfixtures20261110-1.json",
+    "crates/susi-gawd-swarm/src/cancel_propagate.rs",
+    "crates/susi-gawd-swarm/src/tests/swarm_gap_real_cancellation.rs",
+    "crates/susi-gawd-swarm/src/tests/swarm_gap_workspace_isolation.rs"
+  ],
+  "acceptance": "All susi-gawd-swarm library tests pass on native Windows without sh/ps/kill in PATH; both persisted DAG mutation cases preserve exact bytes and conflict evidence, and the cancellation regression observes a live identified descendant become exited through the real production runner.",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "progress": "Native Windows red/green is verified. Original DAG fixtures: 3 passed, 2 failed; original shell cancellation: 1 failed. Strict creation-time-bound descendant probe first failed because the real child survived, then passed after the Windows-only termination-order fix. Final library acceptance: 424 passed, 0 failed, 0 ignored. The unrelated test-owned sibling survives cancellation. Strict affected-crate Clippy and architecture/orphan/source-ceiling/docs guards passed. Independent exact-source review is complete. Combined-tree reconciliation of the reduced swarm production source ceiling belongs to its separate scope owner, and serialized integration remains pending; no release or publication is claimed.",
+  "verification": {
+    "library": {
+      "ignored": 0,
+      "cmd": [
+        "cargo",
+        "test",
+        "-p",
+        "susi-gawd-swarm",
+        "--lib",
+        "--offline",
+        "--locked"
+      ],
+      "passed": 424,
+      "failed": 0
+    },
+    "strict_clippy": {
+      "cmd": [
+        "cargo",
+        "clippy",
+        "-p",
+        "susi-gawd-swarm",
+        "--all-targets",
+        "--offline",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "result": "passed"
+    },
+    "guard_tests": {
+      "task_records": 3,
+      "method": "Unmodified repository test sources compiled with pinned native rustc and matching Cargo-built dependency artifacts, then executed in isolated homes",
+      "lean_core_ceilings": 2,
+      "orphan_sources": 3,
+      "architecture_tests": 41,
+      "core_docs_promise_no_ui_or_plugins": 5
+    },
+    "red_checkpoint": "3c0fa89c11ae1268caea92b0758569d325465a62",
+    "source_platform": "x86_64-pc-windows-msvc",
+    "integration": "Independent exact-source review approved local commit; pending separate-owner production source ceiling reconciliation and serialized combined-tree gate."
+  }
+}
