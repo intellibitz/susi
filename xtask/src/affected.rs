@@ -125,8 +125,13 @@ fn resolve(dir: &str, relative: &str) -> Option<String> {
 /// `"../x"`, `"/../x"` (the `concat!(env!("CARGO_MANIFEST_DIR"), "/../x")`
 /// form), `"key=../x"` (build-script `rerun-if-changed=`) and a bare `".."`.
 /// Each comes with whether its statement embeds it at compile time.
-fn parent_literals(source: &str, test_only: bool) -> Vec<(&str, bool)> {
-    let (tests, _, ignored) = scan_test_modules(source);
+fn parent_literals<'a>(
+    source: &'a str,
+    test_only: bool,
+    modules: &TestModules,
+) -> Vec<(&'a str, bool)> {
+    let tests = &modules.ranges;
+    let ignored = &modules.ignored;
     let bytes = source.as_bytes();
     let mut found = Vec::new();
     let mut i = 0;
@@ -245,8 +250,7 @@ fn parent_literals(source: &str, test_only: bool) -> Vec<(&str, bool)> {
 }
 
 /// Specific workspace-root-relative paths named as string literals in `source`.
-fn workspace_root_reads(source: &str) -> Vec<String> {
-    let (_, _, ignored) = scan_test_modules(source);
+fn workspace_root_reads(source: &str, ignored: &[(usize, usize)]) -> Vec<String> {
     let bytes = source.as_bytes();
     let mut paths = BTreeSet::new();
     let mut i = 0;
@@ -363,19 +367,25 @@ fn workspace_root_reads(source: &str) -> Vec<String> {
 /// conservative: an embed that is not provably test-only counts as compiled.
 #[cfg(test)]
 pub(crate) fn test_module_ranges(source: &str) -> Vec<(usize, usize)> {
-    scan_test_modules(source).0
+    scan_test_modules(source).ranges
 }
 
 /// Names of out-of-line `#[cfg(test)] mod name;` declarations in `source`:
 /// the module's whole file (and its submodules) is test-only.
+#[cfg(test)]
 pub(crate) fn test_module_decls(source: &str) -> Vec<String> {
-    scan_test_modules(source).1
+    scan_test_modules(source).decls
 }
 
-/// One pass of the lexer behind [`test_module_ranges`], [`test_module_decls`],
-/// and ignored test function ranges (`#[ignore]`).
-#[allow(clippy::type_complexity)]
-fn scan_test_modules(source: &str) -> (Vec<(usize, usize)>, Vec<String>, Vec<(usize, usize)>) {
+/// Lexical facts from one source snapshot, reused only during this load.
+struct TestModules {
+    ranges: Vec<(usize, usize)>,
+    decls: Vec<String>,
+    ignored: Vec<(usize, usize)>,
+}
+
+/// One pass for inline/out-of-line test modules and ignored test functions.
+fn scan_test_modules(source: &str) -> TestModules {
     let bytes = source.as_bytes();
     let mut ranges = Vec::new();
     let mut decls = Vec::new();
@@ -489,7 +499,11 @@ fn scan_test_modules(source: &str) -> (Vec<(usize, usize)>, Vec<String>, Vec<(us
         }
         i += 1;
     }
-    (ranges, decls, ignored)
+    TestModules {
+        ranges,
+        decls,
+        ignored,
+    }
 }
 
 /// After an `#[ignore...]` attribute ending at `from`, find the opening `{`
@@ -621,13 +635,29 @@ fn test_mod_item(source: &str, from: usize) -> Option<TestMod> {
 /// Files that only a package's own tests compile: integration tests,
 /// benchmarks and examples under the crate directory, and the files of
 /// out-of-line `#[cfg(test)] mod name;` modules (with their submodules).
+#[cfg(test)]
 pub fn test_only_files<'a>(
     members: &[Member],
     sources: impl IntoIterator<Item = (&'a str, &'a str)> + Clone,
 ) -> BTreeSet<String> {
+    let declarations: Vec<_> = sources
+        .into_iter()
+        .map(|(file, source)| (file, test_module_decls(source)))
+        .collect();
+    test_only_files_from_decls(
+        members,
+        declarations
+            .iter()
+            .map(|(file, decls)| (*file, decls.as_slice())),
+    )
+}
+
+fn test_only_files_from_decls<'a>(
+    members: &[Member],
+    sources: impl IntoIterator<Item = (&'a str, &'a [String])> + Clone,
+) -> BTreeSet<String> {
     let mut prefixes: Vec<String> = Vec::new();
-    for (file, source) in sources.clone() {
-        let decls = test_module_decls(source);
+    for (file, decls) in sources.clone() {
         if decls.is_empty() {
             continue;
         }
@@ -645,7 +675,7 @@ pub fn test_only_files<'a>(
         };
         for name in decls {
             let base = if module_dir.is_empty() {
-                name
+                name.clone()
             } else {
                 format!("{module_dir}/{name}")
             };
@@ -695,6 +725,7 @@ pub fn scan_source(
 /// [`scan_source`] for a file that may be compiled only into its package's
 /// own tests (`test_only`): its embeds are then observations, never compiled
 /// inputs of dependents.
+#[cfg(test)]
 pub fn scan_source_in(
     workspace: &mut Workspace,
     member: &Member,
@@ -702,15 +733,30 @@ pub fn scan_source_in(
     source: &str,
     test_only: bool,
 ) {
+    let modules = scan_test_modules(source);
+    scan_source_with_modules(workspace, member, file, (source, &modules), test_only);
+}
+
+fn scan_source_with_modules(
+    workspace: &mut Workspace,
+    member: &Member,
+    file: &str,
+    (source, modules): (&str, &TestModules),
+    test_only: bool,
+) {
     let package = member.name.as_str();
     let crate_dir = member.dir.as_str();
     let file_dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
     let build_script = file.rsplit('/').next() == Some("build.rs");
-    let record_root = |workspace: &mut Workspace, compiled: bool| {
+    // Preserve every recorded read (including duplicates), but resolve the
+    // same source's root-relative literals at most once.
+    let mut root_paths = None;
+    let mut record_root = |workspace: &mut Workspace, compiled: bool| {
         if member.dir.is_empty() && !compiled {
             return;
         }
-        let specific = workspace_root_reads(source);
+        let specific =
+            root_paths.get_or_insert_with(|| workspace_root_reads(source, &modules.ignored));
         if specific.is_empty() {
             let entry = workspace
                 .root_readers
@@ -718,16 +764,16 @@ pub fn scan_source_in(
                 .or_insert(false);
             *entry |= compiled;
         } else {
-            for path in specific {
+            for path in specific.iter() {
                 workspace.references.push(Reference {
-                    path,
+                    path: path.clone(),
                     package: package.to_owned(),
                     compiled: false,
                 });
             }
         }
     };
-    for (literal, embedded) in parent_literals(source, test_only) {
+    for (literal, embedded) in parent_literals(source, test_only, modules) {
         let compiled = embedded || build_script;
         if literal == ".." {
             record_root(workspace, compiled);
@@ -992,18 +1038,25 @@ pub fn load(root: &Path) -> Result<Workspace> {
         };
         sources.push((file, source));
     }
-    let test_only = test_only_files(
+    // Reuse this invocation's lexical facts for both out-of-line test files
+    // and source references. Nothing survives this load or a source change.
+    let modules: Vec<_> = sources
+        .iter()
+        .map(|(_, source)| scan_test_modules(source))
+        .collect();
+    let test_only = test_only_files_from_decls(
         &members,
         sources
             .iter()
-            .map(|(file, source)| (file.as_str(), source.as_str())),
+            .zip(&modules)
+            .map(|((file, _), modules)| (file.as_str(), modules.decls.as_slice())),
     );
-    for (file, source) in &sources {
+    for ((file, source), modules) in sources.iter().zip(&modules) {
         let Some(member) = owner(&members, file) else {
             continue;
         };
         let only_tests = test_only.contains(file);
-        scan_source_in(&mut workspace, member, file, source, only_tests);
+        scan_source_with_modules(&mut workspace, member, file, (source, modules), only_tests);
     }
     Ok(workspace)
 }
@@ -1389,6 +1442,163 @@ pub(crate) mod t { fn a() {} }
         assert_eq!(ws.root_readers.get("leaf"), Some(&false));
     }
 
+    #[test]
+    fn reused_module_facts_match_independent_scans() {
+        let mut original = workspace();
+        original.members.push(Member {
+            name: "nested".into(),
+            dir: "crates/config/examples/nested".into(),
+        });
+        original.libraries = ["config".into(), "paths".into()].into();
+        let mut reused = workspace();
+        reused.members = original.members.clone();
+        reused.libraries = original.libraries.clone();
+        let sources = [
+            (
+                "crates/config/src/lib.rs",
+                r###"
+/* outer { /* #[cfg(test)] mod fake; */ "../comment" } */
+const BRIEF: &str = include_str!(r#"../brief.md"#);
+const ESCAPED: &str = "quote \" ../not-a-path";
+const BYTE: &[u8] = br##"} #[cfg(test)] mod fake;"##;
+fn chars<'a>(value: &'a str) -> &'a str { let _ = ('{', '\'', 'é'); value }
+#[cfg(test)] mod tests;
+#[cfg(test)] mod inline {
+    const SPEC: &str = include_str!("../../../docs/spec.md");
+    #[test] #[ignore = "expensive"]
+    fn ignored() { let _ = include_str!("../../../docs/ignored.md"); }
+}
+const AFTER: &str = include_str!("../after.md");
+"###,
+            ),
+            (
+                "crates/config/src/tests.rs",
+                r#"const TEST: &str = include_str!("../../../docs/only-tests.md");"#,
+            ),
+            (
+                "crates/config/src/tests/deep.rs",
+                r#"const TEST: &str = include_str!("../../../../docs/deep.md");"#,
+            ),
+            (
+                "crates/config/build.rs",
+                r#"fn main() { println!("cargo:rerun-if-changed=../../docs/build.md"); }"#,
+            ),
+            (
+                "crates/config/tests/integration.rs",
+                r#"fn paths() { root.join(".."); root.join(".."); root.join("docs/spec.md"); }"#,
+            ),
+            ("crates/config/benches/bench.rs", ""),
+            ("crates/config/examples/example.rs", ""),
+            ("crates/config/examples/nested/src/lib.rs", ""),
+        ];
+        let independent_only = test_only_files(&original.members, sources);
+        let modules: Vec<_> = sources
+            .iter()
+            .map(|(_, source)| scan_test_modules(source))
+            .collect();
+        let reused_only = test_only_files_from_decls(
+            &reused.members,
+            sources
+                .iter()
+                .zip(&modules)
+                .map(|((file, _), modules)| (*file, modules.decls.as_slice())),
+        );
+        assert_eq!(independent_only, reused_only);
+        assert!(!reused_only.contains("crates/config/examples/nested/src/lib.rs"));
+        let members = original.members.clone();
+        for ((file, source), modules) in sources.iter().zip(&modules) {
+            let member = owner(&members, file);
+            assert!(member.is_some(), "fixture must have an owner: {file}");
+            let Some(member) = member else {
+                continue;
+            };
+            scan_source_in(
+                &mut original,
+                member,
+                file,
+                source,
+                independent_only.contains(*file),
+            );
+            scan_source_with_modules(
+                &mut reused,
+                member,
+                file,
+                (source, modules),
+                reused_only.contains(*file),
+            );
+        }
+        assert_eq!(format!("{original:?}"), format!("{reused:?}"));
+        assert!(reused
+            .references
+            .iter()
+            .any(|r| r.path == "crates/config/brief.md" && r.compiled));
+        assert!(reused
+            .references
+            .iter()
+            .any(|r| r.path == "docs/only-tests.md" && !r.compiled));
+        assert!(!reused
+            .references
+            .iter()
+            .any(|r| r.path.ends_with("ignored.md") || r.path.ends_with("comment")));
+        for path in [
+            "docs/spec.md",
+            "docs/only-tests.md",
+            "docs/deep.md",
+            "docs/build.md",
+            "crates/config/brief.md",
+            "crates/config/after.md",
+            "crates/config/examples/nested/src/lib.rs",
+            "Cargo.lock",
+            "xtask/build.rs",
+        ] {
+            assert_eq!(
+                select_explained(&original, &[path.into()]),
+                select_explained(&reused, &[path.into()]),
+                "{path}",
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_root_reads_preserve_duplicate_reference_order() {
+        let mut ws = workspace();
+        let source = r#"
+fn read(root: &Path) {
+    root.join("..");
+    root.join("..");
+    root.join("docs/first.md");
+    root.join("docs/second.md");
+}
+"#;
+        scan_source(
+            &mut ws,
+            "config",
+            "crates/config",
+            "crates/config/build.rs",
+            source,
+        );
+        assert!(ws.root_readers.is_empty());
+        let references: Vec<_> = ws
+            .references
+            .iter()
+            .map(|reference| {
+                (
+                    reference.path.as_str(),
+                    reference.package.as_str(),
+                    reference.compiled,
+                )
+            })
+            .collect();
+        assert_eq!(
+            references,
+            [
+                ("docs/first.md", "config", false),
+                ("docs/second.md", "config", false),
+                ("docs/first.md", "config", false),
+                ("docs/second.md", "config", false),
+            ]
+        );
+    }
     #[test]
     #[allow(clippy::unwrap_used)]
     fn real_susi_workspace_has_no_unbounded_root_readers() {
