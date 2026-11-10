@@ -35,9 +35,8 @@ pub mod prometheus_metrics;
 // non-blocking — running it directly on a tokio worker thread would stall
 // the reactor for every other in-flight connection.
 
-use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
-use hyper::body::{Frame, Incoming};
+use hyper::body::{Bytes, Frame, Incoming};
 use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
