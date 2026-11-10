@@ -3,10 +3,11 @@
 //! Products that plug into Susi hard-code the five contract ports (README,
 //! "Host contract"). This suite checks a running host the way such a product
 //! sees it: liveness without credentials, bearer authentication on every HTTP
-//! port, the MCP Streamable HTTP handshake, A2A discovery and JSON-RPC errors
-//! (on `/` and the SSE route `/stream`), UDP discovery on 9092, the GEMI model
-//! list, and, when asked, a streamed GEMI completion and MCP over stdio
-//! (`susi mcp serve`). Every check records its own wall-clock latency.
+//! port, the MCP Streamable HTTP handshake, A2A and ACP discovery and JSON-RPC
+//! routes on 9094, UDP discovery on 9092, the GEMI model list, and, when
+//! asked, a streamed GEMI completion and MCP/ACP over stdio (`susi mcp serve`,
+//! `susi acp serve`). Every check records its own wall-clock latency.
+#![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub use susi_wire_client::http;
@@ -29,7 +30,7 @@ pub mod ports {
     /// GMCP HTTP alias (streamable / SSE). A permanent alias of 9090:
     /// deployed clients hard-code it.
     pub const MCP_ALIAS: u16 = 9093;
-    /// A2A HTTP (JSON-RPC, agent card).
+    /// A2A + ACP HTTP (JSON-RPC, SSE, agent card, ACP discovery).
     pub const A2A: u16 = 9094;
 
     /// The five stable host-contract base ports.
@@ -79,6 +80,10 @@ pub use ports::{
 pub const MCP_CURRENT: &str = "2026-07-28";
 /// Session-based MCP revision most deployed clients still speak.
 pub const MCP_SESSION: &str = "2025-06-18";
+/// Canonical ACP discovery document schema identifier on `/.well-known/acp.json`.
+pub const ACP_DISCOVERY_SCHEMA: &str = "susi-acp-discovery/v1";
+/// Canonical ACP wire protocol version.
+pub const ACP_PROTOCOL: &str = "2026-11-11";
 
 /// Where and how to reach the host under test.
 #[derive(Debug, Clone)]
@@ -96,9 +101,10 @@ pub struct Target {
 /// Checks that do more than read the host, so they run only when asked.
 #[derive(Debug, Clone, Default)]
 pub struct Optional {
-    /// `susi` binary for the MCP stdio check (`<bin> mcp serve`). The child
-    /// inherits this process's environment, so `SUSI_HOME` selects the
-    /// instance; it is always stopped before the check returns.
+    /// `susi` binary for the MCP and ACP stdio checks (`<bin> mcp serve`,
+    /// `<bin> acp serve`). Each child inherits this process's environment, so
+    /// `SUSI_HOME` selects the instance; it is always stopped before the check
+    /// returns.
     pub susi_bin: Option<PathBuf>,
     /// Run the GEMI SSE check: one streamed, 1-token, local-only
     /// (`susi.allow_cloud: false`) chat completion. Costs a local inference.
@@ -664,6 +670,132 @@ fn a2a_stream(target: &Target) -> Check {
     })
 }
 
+/// Public ACP discovery at `GET /.well-known/acp.json` on `9094 + offset`
+/// requires no credentials and advertises `/acp` and `/acp/stream`.
+fn acp_discover(target: &Target) -> Check {
+    timed(
+        format!("acp.discover@{}", target.port(ports::A2A)),
+        || match target.call(ports::A2A, Call::get("/.well-known/acp.json", false)) {
+            Ok(r) => {
+                let doc: Value = match serde_json::from_slice(&r.body) {
+                    Ok(doc) => doc,
+                    Err(e) => {
+                        return (
+                            Outcome::Fail,
+                            format!("status {}: invalid JSON ({e})", r.status),
+                        );
+                    }
+                };
+                let schema = doc["schema"].as_str().unwrap_or("");
+                let version = doc["protocol_version"].as_str().unwrap_or("");
+                let rpc = doc["endpoints"]["rpc"].as_str().unwrap_or("");
+                let stream = doc["endpoints"]["stream"].as_str().unwrap_or("");
+                let ok = r.status == 200
+                    && schema == ACP_DISCOVERY_SCHEMA
+                    && !version.is_empty()
+                    && rpc == "/acp"
+                    && stream == "/acp/stream";
+                verdict(
+                    ok,
+                    format!(
+                        "status {} schema {schema:?} protocol_version {version:?} endpoints=({rpc:?}, {stream:?})",
+                        r.status
+                    ),
+                )
+            }
+            Err(e) => (Outcome::Fail, e),
+        },
+    )
+}
+
+fn acp_post(target: &Target, id: i64, method: &str, params: Value) -> Result<(u16, Value), String> {
+    let request = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
+    let r = target.call(ports::A2A, Call::post("/acp", true, &[], &request))?;
+    Ok((r.status, rpc_payload(&r).unwrap_or(Value::Null)))
+}
+
+/// Authenticated ACP JSON-RPC 2.0 session lifecycle on `POST /acp`:
+/// `initialize` -> `session/new` -> `session/close`, plus `-32601` on an
+/// unknown method.
+fn acp_rpc(target: &Target) -> Check {
+    let id = format!("acp.rpc@{}", target.port(ports::A2A));
+    if let Some(skip) = needs_token(target, &id) {
+        return skip;
+    }
+    timed(id, || {
+        let (s_init, p_init) = match acp_post(
+            target,
+            1,
+            "initialize",
+            json!({"protocolVersion": ACP_PROTOCOL}),
+        ) {
+            Ok(v) => v,
+            Err(e) => return (Outcome::Fail, format!("initialize: {e}")),
+        };
+        let negotiated = p_init["result"]["protocol_version"]
+            .as_str()
+            .or_else(|| p_init["result"]["protocolVersion"].as_str())
+            .unwrap_or("")
+            .to_string();
+        if s_init != 200 || negotiated.is_empty() {
+            return (
+                Outcome::Fail,
+                format!("initialize status {s_init}, negotiated {negotiated:?}"),
+            );
+        }
+
+        let (s_new, p_new) = match acp_post(
+            target,
+            2,
+            "session/new",
+            json!({"workspace": ".", "cwd": "."}),
+        ) {
+            Ok(v) => v,
+            Err(e) => return (Outcome::Fail, format!("session/new: {e}")),
+        };
+        let session_id = p_new["result"]["session_id"]
+            .as_str()
+            .or_else(|| p_new["result"]["sessionId"].as_str())
+            .unwrap_or("")
+            .to_string();
+        if s_new != 200 || session_id.is_empty() {
+            return (
+                Outcome::Fail,
+                format!("session/new status {s_new}, session_id {session_id:?}"),
+            );
+        }
+
+        let (s_close, p_close) = match acp_post(
+            target,
+            3,
+            "session/close",
+            json!({"session_id": session_id, "sessionId": session_id}),
+        ) {
+            Ok(v) => v,
+            Err(e) => return (Outcome::Fail, format!("session/close: {e}")),
+        };
+        let closed = p_close["result"]["closed"].as_bool() == Some(true);
+        if s_close != 200 || !closed {
+            return (
+                Outcome::Fail,
+                format!("session/close status {s_close}, closed={closed}"),
+            );
+        }
+
+        let (s_unk, p_unk) = match acp_post(target, 4, "acp/no_such_method", json!({})) {
+            Ok(v) => v,
+            Err(e) => return (Outcome::Fail, format!("acp/no_such_method: {e}")),
+        };
+        let code = p_unk["error"]["code"].as_i64();
+        verdict(
+            s_unk == 200 && code == Some(-32601),
+            format!(
+                "negotiated {negotiated:?}, session {session_id:?} closed, unknown -> {s_unk} code {code:?} (want -32601)"
+            ),
+        )
+    })
+}
+
 /// What one unauthenticated datagram to the discovery port drew back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UdpProbe {
@@ -1028,6 +1160,49 @@ fn stdio_session(
     Ok((negotiated, server, tools.len()))
 }
 
+/// Spawn `<bin> <args...>` with piped stdin/stdout, run `session`, then close
+/// stdin and reap the child regardless of outcome.
+fn run_stdio_child<T>(
+    bin: &std::path::Path,
+    args: &[&str],
+    session: impl FnOnce(
+        &mut std::process::ChildStdin,
+        &std::sync::mpsc::Receiver<String>,
+    ) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut child = Command::new(bin)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("spawn {}: {e}", bin.display()))?;
+    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("child pipes unavailable".into());
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let outcome = session(&mut stdin, &rx);
+    drop(stdin);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline && matches!(child.try_wait(), Ok(None)) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if matches!(child.try_wait(), Ok(None)) {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    outcome
+}
+
 /// Opt-in MCP stdio check: `<susi_bin> mcp serve` speaks newline-delimited
 /// JSON-RPC at the session revision. The child is stopped before the check
 /// returns, whatever the outcome.
@@ -1042,47 +1217,132 @@ fn mcp_stdio(target: &Target, optional: &Optional) -> Check {
         };
     };
     timed(id, || {
-        let mut child = match Command::new(bin)
-            .args(["mcp", "serve"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(e) => return (Outcome::Fail, format!("spawn {}: {e}", bin.display())),
-        };
-        let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
-            let _ = child.kill();
-            let _ = child.wait();
-            return (Outcome::Fail, "child pipes unavailable".into());
-        };
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if tx.send(line).is_err() {
-                    break;
-                }
-            }
-        });
         // Process start can include substrate boot; the first reply gets
         // at least 15 s.
         let first = target.timeout.max(Duration::from_secs(15));
-        let outcome = stdio_session(&mut stdin, &rx, first, target.timeout);
-        // Closing stdin ends the session; stop the child either way.
-        drop(stdin);
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while Instant::now() < deadline && matches!(child.try_wait(), Ok(None)) {
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        if matches!(child.try_wait(), Ok(None)) {
-            let _ = child.kill();
-        }
-        let _ = child.wait();
-        match outcome {
+        match run_stdio_child(bin, &["mcp", "serve"], |stdin, rx| {
+            stdio_session(stdin, rx, first, target.timeout)
+        }) {
             Ok((negotiated, server, tools)) => verdict(
                 !negotiated.is_empty() && !server.is_empty(),
                 format!("server {server:?} negotiated {negotiated:?}, {tools} tools"),
+            ),
+            Err(e) => (Outcome::Fail, e),
+        }
+    })
+}
+
+/// One ACP stdio session: `initialize`, `session/new`, `session/list`, and
+/// `session/close`. Rejects any non-JSON-RPC banner line on stdout via
+/// [`stdio_response`].
+fn acp_stdio_session(
+    stdin: &mut impl Write,
+    lines: &std::sync::mpsc::Receiver<String>,
+    first: Duration,
+    timeout: Duration,
+) -> Result<(String, String), String> {
+    let mut send = |value: Value| {
+        writeln!(stdin, "{value}")
+            .and_then(|()| stdin.flush())
+            .map_err(|e| format!("write to stdin: {e}"))
+    };
+    send(json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {"protocolVersion": ACP_PROTOCOL}
+    }))?;
+    let init = stdio_response(lines, 1, first)?;
+    if let Some(err) = init.get("error") {
+        return Err(format!("initialize JSON-RPC error: {err}"));
+    }
+    let negotiated = init["result"]["protocol_version"]
+        .as_str()
+        .or_else(|| init["result"]["protocolVersion"].as_str())
+        .unwrap_or("")
+        .to_string();
+    if negotiated.is_empty() {
+        return Err("initialize returned empty protocol_version".into());
+    }
+
+    send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "session/new",
+        "params": {"workspace": ".", "cwd": "."}
+    }))?;
+    let created = stdio_response(lines, 2, timeout)?;
+    if let Some(err) = created.get("error") {
+        return Err(format!("session/new JSON-RPC error: {err}"));
+    }
+    let session_id = created["result"]["session_id"]
+        .as_str()
+        .or_else(|| created["result"]["sessionId"].as_str())
+        .unwrap_or("")
+        .to_string();
+    if session_id.is_empty() {
+        return Err("session/new returned empty session_id".into());
+    }
+
+    send(json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "session/list",
+        "params": {}
+    }))?;
+    let listed = stdio_response(lines, 3, timeout)?;
+    if let Some(err) = listed.get("error") {
+        return Err(format!("session/list JSON-RPC error: {err}"));
+    }
+    let Some(sessions) = listed["result"]["sessions"].as_array() else {
+        return Err("session/list returned no `sessions` array".into());
+    };
+    let listed_match = sessions.iter().any(|s| {
+        s["session_id"].as_str().or_else(|| s["sessionId"].as_str()) == Some(session_id.as_str())
+    });
+    if !listed_match {
+        return Err(format!(
+            "session/list did not include created session {session_id:?}"
+        ));
+    }
+
+    send(json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "session/close",
+        "params": {"session_id": session_id, "sessionId": session_id}
+    }))?;
+    let closed = stdio_response(lines, 4, timeout)?;
+    if let Some(err) = closed.get("error") {
+        return Err(format!("session/close JSON-RPC error: {err}"));
+    }
+    if closed["result"]["closed"].as_bool() != Some(true) {
+        return Err("session/close did not confirm `closed: true`".into());
+    }
+    Ok((negotiated, session_id))
+}
+
+/// Opt-in ACP stdio check: `<susi_bin> acp serve` speaks pure newline-delimited
+/// JSON-RPC 2.0 on stdout with zero banner lines, negotiates ACP, and completes
+/// `session/new` -> `session/list` -> `session/close`.
+fn acp_stdio(target: &Target, optional: &Optional) -> Check {
+    let id = "acp.stdio".to_string();
+    let Some(bin) = optional.susi_bin.as_ref() else {
+        return Check {
+            id,
+            outcome: Outcome::Skip,
+            millis: 0,
+            detail: "opt-in: --susi-bin PATH runs `PATH acp serve`".into(),
+        };
+    };
+    timed(id, || {
+        let first = target.timeout.max(Duration::from_secs(15));
+        match run_stdio_child(bin, &["acp", "serve"], |stdin, rx| {
+            acp_stdio_session(stdin, rx, first, target.timeout)
+        }) {
+            Ok((negotiated, session_id)) => verdict(
+                !negotiated.is_empty() && !session_id.is_empty(),
+                format!("negotiated {negotiated:?}, session {session_id:?} listed and closed"),
             ),
             Err(e) => (Outcome::Fail, e),
         }
@@ -1137,7 +1397,7 @@ fn gemi_models(target: &Target) -> Check {
 }
 
 /// Run every contract check against `target`, in a stable order. The
-/// opt-in checks (GEMI SSE, MCP stdio) report `skip`; see [`run_with`].
+/// opt-in checks (GEMI SSE, MCP stdio, ACP stdio) report `skip`; see [`run_with`].
 #[must_use]
 pub fn run(target: &Target) -> Vec<Check> {
     run_with(target, &Optional::default())
@@ -1161,6 +1421,14 @@ pub fn run_with(target: &Target, optional: &Optional) -> Vec<Check> {
         "/stream",
         "/stream",
     ));
+    checks.push(auth_required_as(target, ports::A2A, "POST", "/acp", "/acp"));
+    checks.push(auth_required_as(
+        target,
+        ports::A2A,
+        "POST",
+        "/acp/stream",
+        "/acp/stream",
+    ));
     checks.push(mcp_discover(target, ports::MCP));
     checks.push(mcp_discover(target, ports::MCP_ALIAS));
     checks.push(mcp_tools_at(target, ports::MCP));
@@ -1171,11 +1439,14 @@ pub fn run_with(target: &Target, optional: &Optional) -> Vec<Check> {
     checks.push(a2a_card(target));
     checks.push(a2a_unknown(target));
     checks.push(a2a_stream(target));
+    checks.push(acp_discover(target));
+    checks.push(acp_rpc(target));
     checks.push(udp_discovery(target));
     checks.push(udp_discovery_signed(target, optional));
     checks.push(gemi_models(target));
     checks.push(gemi_stream(target, optional));
     checks.push(mcp_stdio(target, optional));
+    checks.push(acp_stdio(target, optional));
     checks
 }
 
@@ -1365,6 +1636,7 @@ mod tests {
             "udp.discovery-signed@59092",
             "gemi.stream@59091",
             "mcp.stdio",
+            "acp.stdio",
         ] {
             let check = checks.iter().find(|c| c.id == id).unwrap();
             assert_eq!(check.outcome, Outcome::Skip, "{id}");
@@ -1509,7 +1781,16 @@ mod tests {
             &Optional::default(),
         );
         let mut ids: Vec<&str> = checks.iter().map(|c| c.id.as_str()).collect();
-        assert!(ids.contains(&"auth.required@59094/stream"), "{ids:?}");
+        for expected in [
+            "auth.required@59094/stream",
+            "auth.required@59094/acp",
+            "auth.required@59094/acp/stream",
+            "acp.discover@59094",
+            "acp.rpc@59094",
+            "acp.stdio",
+        ] {
+            assert!(ids.contains(&expected), "missing {expected} in {ids:?}");
+        }
         ids.sort_unstable();
         let before = ids.len();
         ids.dedup();
@@ -2160,7 +2441,9 @@ mod tests {
             ],
         );
 
-        // 4. A2A (9094 + offset): 8 requests (health, auth /, auth /stream, card, unknown, 3x stream)
+        // 4. A2A + ACP (9094 + offset): 15 requests (health, auth /, auth /stream,
+        // auth /acp, auth /acp/stream, card, a2a unknown, 3x a2a stream,
+        // acp discover, 4x acp rpc)
         let honest_card = json!({
             "name": "susi-gawd",
             "supportedInterfaces": [{"url": "http://127.0.0.1:9094/"}],
@@ -2172,10 +2455,20 @@ mod tests {
                 {"id": "models", "name": "models", "description": "Route through GEMI models."}
             ]
         });
+        let honest_acp_discovery = json!({
+            "schema": ACP_DISCOVERY_SCHEMA,
+            "protocol_version": ACP_PROTOCOL,
+            "endpoints": {
+                "rpc": "/acp",
+                "stream": "/acp/stream"
+            }
+        });
         let h_a2a = serve_bound_http(
             a2a_l,
             vec![
                 MockReply::json(200, &json!({"status": "ok"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                MockReply::json(401, &json!({"error": "unauthorized"})),
                 MockReply::json(401, &json!({"error": "unauthorized"})),
                 MockReply::json(401, &json!({"error": "unauthorized"})),
                 MockReply::json(200, &honest_card),
@@ -2194,6 +2487,23 @@ mod tests {
                 MockReply::json(
                     200,
                     &json!({"jsonrpc": "2.0", "id": 10, "error": {"code": -32001, "message": "Task not found"}}),
+                ),
+                MockReply::json(200, &honest_acp_discovery),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 1, "result": {"protocol_version": ACP_PROTOCOL}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 2, "result": {"session_id": "acp-sess-000001"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 3, "result": {"session_id": "acp-sess-000001", "closed": true}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 4, "error": {"code": -32601, "message": "Method not found"}}),
                 ),
             ],
         );
@@ -2234,7 +2544,7 @@ mod tests {
         let checks = run_with(&target, &optional);
         assert!(conformant(&checks), "{checks:?}");
         for check in &checks {
-            if check.id == "mcp.stdio" {
+            if matches!(check.id.as_str(), "mcp.stdio" | "acp.stdio") {
                 assert_eq!(check.outcome, Outcome::Skip, "{}", check.detail);
             } else {
                 assert_eq!(
@@ -2250,7 +2560,257 @@ mod tests {
         assert_eq!(h_mcp.join().unwrap(), 8);
         assert_eq!(h_gemi.join().unwrap(), 4);
         assert_eq!(h_alias.join().unwrap(), 7);
-        assert_eq!(h_a2a.join().unwrap(), 8);
+        assert_eq!(h_a2a.join().unwrap(), 15);
         h_udp.join().unwrap();
+    }
+
+    #[test]
+    fn loopback_acp_discover_auth_and_rpc_conformance_checks() {
+        let valid_discovery = json!({
+            "schema": ACP_DISCOVERY_SCHEMA,
+            "protocol_version": ACP_PROTOCOL,
+            "endpoints": {
+                "rpc": "/acp",
+                "stream": "/acp/stream"
+            }
+        });
+        let bad_schema_discovery = json!({
+            "schema": "wrong/v0",
+            "protocol_version": ACP_PROTOCOL,
+            "endpoints": {
+                "rpc": "/acp",
+                "stream": "/acp/stream"
+            }
+        });
+        let missing_stream_discovery = json!({
+            "schema": ACP_DISCOVERY_SCHEMA,
+            "protocol_version": ACP_PROTOCOL,
+            "endpoints": {
+                "rpc": "/acp"
+            }
+        });
+
+        let (target, handle) = spawn_loopback_http(
+            ports::A2A,
+            vec![
+                // 1. acp_discover valid -> Pass
+                MockReply::json(200, &valid_discovery),
+                // 2. acp_discover wrong schema -> Fail
+                MockReply::json(200, &bad_schema_discovery),
+                // 3. acp_discover missing /acp/stream -> Fail
+                MockReply::json(200, &missing_stream_discovery),
+                // 4. auth_required_as POST /acp -> 401 Pass
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                // 5. auth_required_as POST /acp/stream -> 401 Pass
+                MockReply::json(401, &json!({"error": "unauthorized"})),
+                // 6..=9. acp_rpc full lifecycle (initialize, session/new, session/close, unknown -> -32601)
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": ACP_PROTOCOL}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 2, "result": {"sessionId": "acp-sess-42"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 3, "result": {"session_id": "acp-sess-42", "closed": true}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 4, "error": {"code": -32601, "message": "Method not found"}}),
+                ),
+                // 10..=13. acp_rpc failing when unknown method does not return -32601
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 1, "result": {"protocol_version": ACP_PROTOCOL}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 2, "result": {"session_id": "acp-sess-43"}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 3, "result": {"session_id": "acp-sess-43", "closed": true}}),
+                ),
+                MockReply::json(
+                    200,
+                    &json!({"jsonrpc": "2.0", "id": 4, "result": {"unexpected": true}}),
+                ),
+            ],
+        );
+
+        let c_disc_ok = acp_discover(&target);
+        assert_eq!(c_disc_ok.outcome, Outcome::Pass, "{}", c_disc_ok.detail);
+        assert!(
+            c_disc_ok.detail.contains(ACP_PROTOCOL),
+            "{}",
+            c_disc_ok.detail
+        );
+
+        let c_disc_bad_schema = acp_discover(&target);
+        assert_eq!(
+            c_disc_bad_schema.outcome,
+            Outcome::Fail,
+            "{}",
+            c_disc_bad_schema.detail
+        );
+        assert!(c_disc_bad_schema.detail.contains("wrong/v0"));
+
+        let c_disc_missing_stream = acp_discover(&target);
+        assert_eq!(
+            c_disc_missing_stream.outcome,
+            Outcome::Fail,
+            "{}",
+            c_disc_missing_stream.detail
+        );
+        assert!(
+            c_disc_missing_stream
+                .detail
+                .contains("endpoints=(\"/acp\", \"\")"),
+            "{}",
+            c_disc_missing_stream.detail
+        );
+
+        let c_auth_acp = auth_required_as(&target, ports::A2A, "POST", "/acp", "/acp");
+        assert_eq!(c_auth_acp.outcome, Outcome::Pass, "{}", c_auth_acp.detail);
+
+        let c_auth_stream =
+            auth_required_as(&target, ports::A2A, "POST", "/acp/stream", "/acp/stream");
+        assert_eq!(
+            c_auth_stream.outcome,
+            Outcome::Pass,
+            "{}",
+            c_auth_stream.detail
+        );
+
+        let mut no_token_target = target.clone();
+        no_token_target.token = None;
+        let c_rpc_skip = acp_rpc(&no_token_target);
+        assert_eq!(c_rpc_skip.outcome, Outcome::Skip, "{}", c_rpc_skip.detail);
+
+        let c_rpc_ok = acp_rpc(&target);
+        assert_eq!(c_rpc_ok.outcome, Outcome::Pass, "{}", c_rpc_ok.detail);
+        assert!(
+            c_rpc_ok.detail.contains("acp-sess-42"),
+            "{}",
+            c_rpc_ok.detail
+        );
+
+        let c_rpc_bad_unknown = acp_rpc(&target);
+        assert_eq!(
+            c_rpc_bad_unknown.outcome,
+            Outcome::Fail,
+            "{}",
+            c_rpc_bad_unknown.detail
+        );
+        assert!(c_rpc_bad_unknown.detail.contains("-32601"));
+
+        let requests = handle.join().unwrap();
+        assert_eq!(requests.len(), 13);
+        assert!(requests[0].starts_with("GET /.well-known/acp.json HTTP/1.1"));
+        assert!(requests[3].starts_with("POST /acp HTTP/1.1"));
+        assert!(requests[4].starts_with("POST /acp/stream HTTP/1.1"));
+        assert!(requests[5].contains("\"initialize\""));
+        assert!(requests[6].contains("\"session/new\""));
+        assert!(requests[7].contains("\"session/close\""));
+        assert!(requests[8].contains("\"acp/no_such_method\""));
+    }
+
+    #[test]
+    fn acp_stdio_session_and_subprocess_reject_banner_and_validate_lifecycle() {
+        let wait = Duration::from_millis(200);
+
+        // 1. Valid initialize -> session/new -> session/list -> session/close passes.
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(
+            json!({"jsonrpc": "2.0", "id": 1, "result": {"protocol_version": ACP_PROTOCOL}})
+                .to_string(),
+        )
+        .unwrap();
+        tx.send(
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"session_id": "acp-sess-000001"}})
+                .to_string(),
+        )
+        .unwrap();
+        tx.send(
+            json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "result": {"sessions": [{"session_id": "acp-sess-000001"}]}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        tx.send(
+            json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "result": {"session_id": "acp-sess-000001", "closed": true}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut stdin_buf = Vec::new();
+        let (negotiated, session_id) = acp_stdio_session(&mut stdin_buf, &rx, wait, wait).unwrap();
+        assert_eq!(negotiated, ACP_PROTOCOL);
+        assert_eq!(session_id, "acp-sess-000001");
+        let sent = String::from_utf8(stdin_buf).unwrap();
+        let sent_lines: Vec<&str> = sent.lines().collect();
+        assert_eq!(sent_lines.len(), 4);
+        assert!(sent_lines[0].contains("\"initialize\""));
+        assert!(sent_lines[1].contains("\"session/new\""));
+        assert!(sent_lines[2].contains("\"session/list\""));
+        assert!(sent_lines[3].contains("\"session/close\""));
+
+        // 2. Non-JSON banner on stdout fails immediately.
+        let (tx_banner, rx_banner) = std::sync::mpsc::channel();
+        tx_banner
+            .send("[SUSI] bootloader banner leaked on stdout".to_string())
+            .unwrap();
+        let mut sink = Vec::new();
+        let banner_err = acp_stdio_session(&mut sink, &rx_banner, wait, wait).unwrap_err();
+        assert!(banner_err.contains("bootloader banner"), "{banner_err}");
+
+        // 3. session/list omitting created session fails.
+        let (tx_list, rx_list) = std::sync::mpsc::channel();
+        tx_list
+            .send(
+                json!({"jsonrpc": "2.0", "id": 1, "result": {"protocol_version": ACP_PROTOCOL}})
+                    .to_string(),
+            )
+            .unwrap();
+        tx_list
+            .send(
+                json!({"jsonrpc": "2.0", "id": 2, "result": {"session_id": "acp-sess-000009"}})
+                    .to_string(),
+            )
+            .unwrap();
+        tx_list
+            .send(json!({"jsonrpc": "2.0", "id": 3, "result": {"sessions": []}}).to_string())
+            .unwrap();
+        let mut sink2 = Vec::new();
+        let list_err = acp_stdio_session(&mut sink2, &rx_list, wait, wait).unwrap_err();
+        assert!(
+            list_err.contains("did not include created session"),
+            "{list_err}"
+        );
+
+        // 4. acp_stdio subprocess spawn failure & non-ACP binary failure reap cleanly.
+        let target = Target {
+            host: "127.0.0.1".into(),
+            port_offset: 0,
+            token: None,
+            timeout: Duration::from_millis(200),
+        };
+        let missing = acp_stdio(
+            &target,
+            &Optional {
+                susi_bin: Some(PathBuf::from("/nonexistent-susi-acp-binary")),
+                ..Optional::default()
+            },
+        );
+        assert_eq!(missing.outcome, Outcome::Fail, "{}", missing.detail);
+        assert!(missing.detail.contains("spawn"), "{}", missing.detail);
     }
 }

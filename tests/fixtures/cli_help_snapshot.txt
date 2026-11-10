@@ -17,6 +17,7 @@ Commands:
   local                  Build, test, integrate and qualify Susi locally through native guarded tools
   uninstall              Clean up sandboxed .susi environment
   mcp                    Manage leading MCP tool servers, or serve SUSI's native MCP stdio endpoint
+  acp                    Serve SUSI's native ACP JSON-RPC 2.0 stdio endpoint, or inspect ACP discovery
   extensions             Manage extension packs (auto-seeded vendor opinions under ~/.susi/extensions) [alias: ext]
   auto                   Zero-config auto substrate: packs, MCP, models, peers readiness
   setup                  One end-to-end ecosystem setup: detect, consent, apply (safe to rerun)
@@ -598,6 +599,36 @@ Arguments:
 Options:
       --token <TOKEN>  Bearer token (default: cluster peer bearer for remote members, ~/.susi/api_token for loopback)
   -h, --help           Print help
+
+=== susi acp ===
+Serve SUSI's native ACP JSON-RPC 2.0 stdio endpoint, or inspect ACP discovery
+
+Usage: susi acp [COMMAND]
+
+Commands:
+  serve     Run SUSI's native ACP JSON-RPC 2.0 stdio server (default when bare `susi acp`)
+  discover  Print the host's canonical ACP discovery document (`susi-acp-discovery/v1`)
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi acp serve ===
+Run SUSI's native ACP JSON-RPC 2.0 stdio server (default when bare `susi acp`)
+
+Usage: susi acp serve
+
+Options:
+  -h, --help  Print help
+
+=== susi acp discover ===
+Print the host's canonical ACP discovery document (`susi-acp-discovery/v1`)
+
+Usage: susi acp discover [OPTIONS]
+
+Options:
+      --json  Emit machine-readable JSON instead of the human summary
+  -h, --help  Print help
 
 === susi extensions ===
 Manage extension packs (auto-seeded vendor opinions under ~/.susi/extensions)

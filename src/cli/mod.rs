@@ -1,4 +1,5 @@
 // CLI command modules
+pub mod acp_cli;
 pub mod admin_cli;
 pub mod agent_cli;
 pub mod ambient_cli;

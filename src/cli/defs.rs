@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use super::acp_cli;
 use super::agent_cli;
 use super::ambient_cli;
 use super::auto_cli;
@@ -105,6 +106,11 @@ pub(crate) enum Commands {
     Mcp {
         #[command(subcommand)]
         action: Option<mcp_cli::McpCommands>,
+    },
+    /// Serve SUSI's native ACP JSON-RPC 2.0 stdio endpoint, or inspect ACP discovery
+    Acp {
+        #[command(subcommand)]
+        action: Option<acp_cli::AcpCommands>,
     },
     /// Manage extension packs (auto-seeded vendor opinions under ~/.susi/extensions)
     #[command(name = "extensions", visible_alias = "ext")]
@@ -616,7 +622,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         // daemon first held the MCP handshake for the whole host-contract
         // wait (10 s when the daemon never binds) and left a daemon behind
         // every session.
-        Commands::Mcp { .. } => false,
+        Commands::Mcp { .. } | Commands::Acp { .. } => false,
         Commands::Clean
         | Commands::Review
         | Commands::OsClean
@@ -690,6 +696,10 @@ mod tests {
                 &["susi", "mcp", "ledger"],
                 &["susi", "mcp", "call", "127.0.0.1:9090", "t"],
                 &["susi", "mcp", "serve"],
+                &["susi", "acp"],
+                &["susi", "acp", "serve"],
+                &["susi", "acp", "discover"],
+                &["susi", "acp", "discover", "--json"],
                 &["susi", "auto", "status"],
                 &["susi", "keys", "list"],
                 &["susi", "keys"],
@@ -837,6 +847,7 @@ mod tests {
             ("local", &["local", "build", "debug"], true, C::ALL),
             ("uninstall", &["uninstall"], false, C::ALL),
             ("mcp", &["mcp", "list"], false, C::NONE),
+            ("acp", &["acp", "discover"], false, C::NONE),
             ("extensions", &["extensions"], false, C::ALL),
             ("auto", &["auto", "status"], false, C::NONE),
             ("setup", &["setup"], false, C::ALL),
