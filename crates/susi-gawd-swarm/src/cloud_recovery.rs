@@ -806,25 +806,9 @@ async fn recover_with_providers(
         if cancellation.should_stop() {
             break;
         }
-        // Try IDE delegation protocol for IDE agents
-        if ["antigravity", "codex"].contains(&agent) {
-            let delegations_dir = susi_paths::SusiDirs::data_dir().join("delegations");
-            let _ = std::fs::create_dir_all(&delegations_dir);
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |duration| duration.as_secs());
-            let req_path = delegations_dir.join(format!("{agent}_request_{ts}.md"));
-            let content = format!(
-                "# IDE Delegation Request\n\n## Goal\n{}\n\n## Context\n{}",
-                report.goal, context
-            );
-            if std::fs::write(&req_path, content).is_ok() {
-                delegated.push(agent);
-                continue;
-            }
-        }
-
-        // Try executing CLI agents via plane bus
+        // Every fallback agent runs through the plane bus. A request file in
+        // an inbox no process reads is not a delegation and is never counted
+        // as one.
         match run_external_agent_cancellable(
             &cancellation,
             workspace,
@@ -898,6 +882,16 @@ async fn recover_with_providers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_never_counts_an_unread_inbox_file_as_a_delegation() {
+        // No process reads `<data>/delegations`, so a request written there
+        // reaches no agent; reporting it as "pending with external agents"
+        // claimed work nobody was doing.
+        let source = include_str!("cloud_recovery.rs");
+        let inbox = concat!("join(\"deleg", "ations\")");
+        assert!(!source.contains(inbox));
+    }
     use crate::susi_core::provider::{BoxFuture, Provider};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
