@@ -8,5 +8,7 @@ fn main() -> std::io::Result<()> {
         "check-gmcp-roadmap",
         "susi-dev",
         "local-snapshot",
+        "distill",
+        "local-distill",
     ])
 }

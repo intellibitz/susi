@@ -43,6 +43,12 @@ fn records() -> Vec<(PathBuf, String, Value)> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(&dir).expect("releases/ holds the committed release records") {
         let path = entry.unwrap().path();
+        // releases/qualification/<tag>.json are the exact-tree qualification
+        // records push-policy reads (schema susi-release-qualification/v1);
+        // each belongs to a release record here, checked below.
+        if path.is_dir() && path.file_name().and_then(|n| n.to_str()) == Some("qualification") {
+            continue;
+        }
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             panic!(
                 "releases/ holds only <tag>.json records, found {}",
@@ -331,6 +337,33 @@ fn the_release_format_is_documented() {
         assert!(
             doc.contains(needle),
             "docs/releases.md must explain {needle:?}"
+        );
+    }
+}
+
+#[test]
+fn every_qualification_record_belongs_to_a_release_record() {
+    let dir = root().join("releases").join("qualification");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let tags: Vec<String> = records()
+        .iter()
+        .map(|(_, _, record)| record["tag"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    for entry in entries {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+        let tag = name
+            .strip_suffix(".json")
+            .unwrap_or_else(|| panic!("releases/qualification holds only <tag>.json: {name}"));
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
+            .unwrap_or_else(|e| panic!("{name} is not JSON: {e}"));
+        assert_eq!(value["schema"], "susi-release-qualification/v1", "{name}");
+        assert_eq!(value["tag"], tag, "{name} names another tag");
+        assert!(
+            tags.iter().any(|t| t == tag),
+            "{name}: no releases/{tag}.json for this qualified release"
         );
     }
 }
