@@ -2,13 +2,26 @@ $ErrorActionPreference = 'Stop'
 # PowerShell 7 callers can pass a module path without Windows PowerShell modules.
 $env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
 $Scratch = Join-Path ([IO.Path]::GetTempPath()) ('susi-release-sync-test-' + [guid]::NewGuid().ToString('N'))
-$Helper = Join-Path $PSScriptRoot 'susi-release-sync-windows.ps1'
+$Harness = Join-Path $Scratch 'harness'
+$Helper = Join-Path $Harness 'susi-release-sync-windows.ps1'
+$CatalogPath = Join-Path $Harness 'processes.xml'
 $OwnedBin = Join-Path $Scratch 'owned\susi.exe'
 $OtherBin = Join-Path $Scratch 'other\susi.exe'
 $Candidate = Join-Path $Scratch 'candidate.exe'
 $Ready = Join-Path $Scratch 'ready'
 $Processes = @()
+$Catalog = @()
 function Check($Condition, $Message) { if (-not $Condition) { throw $Message } }
+# Register only children this fixture started (or its verified job leaves).
+# Cleanup admission is separate: a rejected discovered process must never be
+# stopped by finally. Callers retain only direct children or verified job leaves.
+function Register-Fixture($Process) {
+    $null = $Process.Handle
+    $Rows = @(CimCmdlets\Get-CimInstance Win32_Process -Filter "ProcessId=$($Process.Id)")
+    Check ($Rows.Count -eq 1 -and $Rows[0].CreationDate -and $Rows[0].ExecutablePath -eq $Process.Path) 'Cannot register fixture process identity'
+    Check ($Rows[0].ExecutablePath -eq $OwnedBin -or $Rows[0].ExecutablePath -eq $OtherBin) 'Fixture image is outside the two test installations'
+    $script:Catalog += [pscustomobject]@{ ProcessId=$Process.Id; CreationDate=$Rows[0].CreationDate; ExecutablePath=$Rows[0].ExecutablePath }
+}
 # busy emits one complete decimal PID per line. Substring regex matching can
 # confuse unrelated PIDs (for example, 1234 and 51234) and fail a safe swap.
 function Has-PidLine([string]$Text, [int]$ProcessId) {
@@ -30,14 +43,27 @@ function Wait-Leaf($Daemon) {
         Start-Sleep -Milliseconds 50
     }
     $LeafId = [int](Get-Content -LiteralPath $Marker -Raw)
-    $Leaf = Get-CimInstance Win32_Process -Filter "ProcessId=$LeafId"
-    Check ($Leaf -and $Leaf.ParentProcessId -eq $Daemon.Id -and $Leaf.CommandLine -match '\sservice-run$') "Leaf $LeafId is not the daemon fixture's service-run child"
-    Check ($Leaf.ExecutablePath -eq $Daemon.Path) "Leaf $LeafId runs $($Leaf.ExecutablePath), not the daemon's image"
-    Get-Process -Id $LeafId
+    $CandidateProcess = Get-Process -Id $LeafId
+    try {
+        # Pin BEFORE querying identity. If the marker's PID was reused, the
+        # new process must fail validation and is only disposed, never stopped.
+        # Keeping this handle open prevents reuse after validation as well.
+        $null = $CandidateProcess.Handle
+        $Rows = @(CimCmdlets\Get-CimInstance Win32_Process -Filter "ProcessId=$LeafId")
+        Check ($Rows.Count -eq 1 -and $Rows[0].CreationDate -and $Rows[0].ParentProcessId -eq $Daemon.Id -and $Rows[0].CommandLine -match '\sservice-run$') "Leaf $LeafId is not the daemon fixture's service-run child"
+        Check ($Rows[0].ExecutablePath -eq $Daemon.Path) "Leaf $LeafId does not run the daemon's image"
+        $CandidateProcess
+    } catch {
+        $CandidateProcess.Dispose()
+        throw
+    }
 }
-function Run-Helper($Action, $Built='') {
+function Run-Helper($Action, $Built='', [int]$UnreadableProcessId=0, [switch]$ProbeOutsideCatalog) {
+    $Catalog | Export-Clixml -LiteralPath $CatalogPath
     $Arguments = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$Helper,'-Action',$Action,'-Bin',$OwnedBin)
     if ($Built) { $Arguments += @('-Built',$Built) }
+    if ($UnreadableProcessId) { $Arguments += @('-UnreadableProcessId',$UnreadableProcessId) }
+    if ($ProbeOutsideCatalog) { $Arguments += '-ProbeOutsideCatalog' }
     $ErrorActionPreference = 'Continue'
     $Output = & powershell.exe @Arguments 2>&1
     $ErrorActionPreference = 'Stop'
@@ -45,6 +71,87 @@ function Run-Helper($Action, $Built='') {
 }
 try {
     New-Item -ItemType Directory -Force -Path (Split-Path $OwnedBin),(Split-Path $OtherBin) | Out-Null
+    New-Item -ItemType Directory -Path $Harness | Out-Null
+    # Run unchanged production code against a fixture-local process catalog.
+    # No production test switch, global process discovery, or fake stop/wait.
+    foreach ($Name in 'susi-release-sync.sh','posix-compat.sh','susi-release-sync-windows.ps1') {
+        $Destination = if ($Name -eq 'susi-release-sync-windows.ps1') { Join-Path $Harness 'production-helper.ps1' } else { Join-Path $Harness $Name }
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $Name) -Destination $Destination
+        Check ((Get-FileHash $Destination).Hash -eq (Get-FileHash (Join-Path $PSScriptRoot $Name)).Hash) "Production source copy changed: $Name"
+    }
+    $Wrapper = @'
+param([string]$Action, [string]$Bin, [string]$Built, [int]$UnreadableProcessId=0, [switch]$ProbeOutsideCatalog)
+$ErrorActionPreference = 'Stop'
+$env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
+$FixtureCatalog = @(Import-Clixml -LiteralPath (Join-Path $PSScriptRoot 'processes.xml'))
+function Fixture-Entry([int]$ProcessId) {
+    $Entry = @($FixtureCatalog | Where-Object { $_.ProcessId -eq $ProcessId })
+    if ($Entry.Count -ne 1) { throw "Unregistered fixture PID: $ProcessId" }
+    $Entry[0]
+}
+function Fixture-Row([int]$ProcessId) {
+    $Entry = Fixture-Entry $ProcessId
+    $Row = @(CimCmdlets\Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId")
+    if ($Row.Count -eq 0) { return }
+    if ($Row.Count -ne 1 -or $Row[0].CreationDate -ne $Entry.CreationDate -or $Row[0].ExecutablePath -ne $Entry.ExecutablePath) {
+        throw "Fixture identity changed: $ProcessId"
+    }
+    $Row[0]
+}
+function Get-CimInstance {
+    param($ClassName, $Filter)
+    if ($ClassName -ne 'Win32_Process') { throw 'Unexpected fixture CIM class' }
+    if ($Filter -eq "Name='susi.exe' OR Name='susi-engine.exe'") {
+        foreach ($Entry in $FixtureCatalog) {
+            $Row = Fixture-Row $Entry.ProcessId
+            if (-not $Row) { continue }
+            if ($Row.ProcessId -eq $UnreadableProcessId) {
+                # Only this explicit negative case changes real process metadata.
+                [pscustomobject]@{ ProcessId=$Row.ProcessId; CreationDate=$Row.CreationDate; ExecutablePath=$null; CommandLine=$Row.CommandLine }
+            } else { $Row }
+        }
+    } elseif ($Filter -cmatch '^ProcessId=([0-9]+)$') {
+        Fixture-Row ([int]$Matches[1])
+    } else { throw "Unexpected fixture CIM filter: $Filter" }
+}
+function Get-Process {
+    [CmdletBinding()] param([int]$Id)
+    $null = Fixture-Entry $Id
+    Microsoft.PowerShell.Management\Get-Process -Id $Id -ErrorAction Stop
+}
+function Stop-Process {
+    [CmdletBinding()] param([Diagnostics.Process]$InputObject)
+    $null = Fixture-Entry $InputObject.Id
+    $null = $InputObject.Handle
+    $null = Fixture-Row $InputObject.Id
+    Microsoft.PowerShell.Management\Stop-Process -InputObject $InputObject -ErrorAction Stop
+}
+if ($ProbeOutsideCatalog) {
+    # This helper process is known to the test but is deliberately not a
+    # registered Susi child. A broken stop check can only kill this probe.
+    $Self = [Diagnostics.Process]::GetCurrentProcess()
+    try {
+        foreach ($Operation in @(
+            { Get-CimInstance Win32_Process -Filter "ProcessId=$($Self.Id)" },
+            { Get-Process -Id $Self.Id },
+            { Stop-Process -InputObject $Self }
+        )) {
+            $Refused = $false
+            try { $null = & $Operation } catch {
+                if ($_.Exception.Message -ne "Unregistered fixture PID: $($Self.Id)") { throw }
+                $Refused = $true
+            }
+            if (-not $Refused) { throw 'Out-of-catalog process access was accepted' }
+        }
+    } finally { $Self.Dispose() }
+    'PASS: fixture catalog rejects outside PIDs'
+    exit 0
+}
+$Arguments = @{ Action=$Action; Bin=$Bin }
+if ($Built) { $Arguments.Built = $Built }
+& (Join-Path $PSScriptRoot 'production-helper.ps1') @Arguments
+'@
+    [IO.File]::WriteAllText($Helper, $Wrapper.Replace("`r`n", "`n"))
     # The fixture stands in for susi.exe. As `daemon-start` it does what the
     # real daemon's supervisor does since sockfix2: it puts its leaf service in
     # a kill-on-close Job Object, so stopping the daemon takes the leaf down
@@ -118,15 +225,53 @@ public class SusiPromotionFixture {
     New-Item -ItemType Directory -Force -Path $Ready | Out-Null
     $env:SUSI_FIXTURE_READY = $Ready
     $Other = Start-Process $OtherBin -ArgumentList 'daemon-start' -WindowStyle Hidden -PassThru
+    $Processes += $Other
+    Register-Fixture $Other
     $Daemon = Start-Process $OwnedBin -ArgumentList 'daemon-start' -WindowStyle Hidden -PassThru
+    $Processes += $Daemon
+    Register-Fixture $Daemon
     $Client = Start-Process $OwnedBin -ArgumentList 'mission daemon-start' -WindowStyle Hidden -PassThru
-    $Processes += $Other,$Daemon,$Client
+    $Processes += $Client
+    Register-Fixture $Client
+    $OtherClient = Start-Process $OtherBin -ArgumentList 'mission daemon-start' -WindowStyle Hidden -PassThru
+    $Processes += $OtherClient
+    Register-Fixture $OtherClient
     $OtherLeaf = Wait-Leaf $Other
     $Processes += $OtherLeaf
+    Register-Fixture $OtherLeaf
     $Leaf = Wait-Leaf $Daemon
     $Processes += $Leaf
+    Register-Fixture $Leaf
+    # A stale/untrusted leaf marker must not admit its target into cleanup.
+    # Use our real client as the wrong-parent target, never an unrelated PID.
+    $LeafMarker = Join-Path $Ready "$($Daemon.Id).leaf"
+    $RealLeafId = Get-Content -LiteralPath $LeafMarker -Raw
+    $ProcessCount = $Processes.Count; $CatalogCount = $Catalog.Count
+    try {
+        [IO.File]::WriteAllText($LeafMarker, [string]$Client.Id)
+        $Rejected = $false
+        try { $null = Wait-Leaf $Daemon } catch {
+            Check ($_.Exception.Message -eq "Leaf $($Client.Id) is not the daemon fixture's service-run child") 'Unexpected leaf rejection failure'
+            $Rejected = $true
+        }
+        Check $Rejected 'Wrong-parent leaf marker was accepted'
+        Check ($Processes.Count -eq $ProcessCount -and $Catalog.Count -eq $CatalogCount) 'Rejected leaf changed cleanup or process catalog'
+        $Client.Refresh(); Check (-not $Client.HasExited) 'Rejected leaf marker stopped its target'
+    } finally { [IO.File]::WriteAllText($LeafMarker, $RealLeafId) }
+    'PASS: leaf admission rejects mismatched identity'
+    $Outside = Run-Helper 'busy' -ProbeOutsideCatalog
+    Check ($Outside.Code -eq 0 -and $Outside.Text -match 'PASS: fixture catalog rejects outside PIDs') "Catalog confinement failed: $($Outside.Text)"
+    'PASS: fixture catalog rejects outside PIDs'
+    # An unreadable LIVE other-installation image must refuse before filtering
+    # by installation path, stopping anything, or staging replacement bytes.
+    $Unknown = Run-Helper 'swap' $Candidate $Other.Id
+    Check ($Unknown.Code -ne 0 -and $Unknown.Text -match 'Cannot establish executable ownership for a running Susi process') "Unknown live ownership was not refused: $($Unknown.Text)"
+    Check ((Get-FileHash $OwnedBin).Hash -eq $OriginalHash) 'Unknown ownership changed installed bytes'
+    Check (-not (Test-Path "$OwnedBin.new") -and -not (Test-Path (Join-Path (Split-Path $OwnedBin) 'susi.prev.exe'))) 'Unknown ownership staged or preserved release bytes'
+    foreach ($Process in $Processes) { $Process.Refresh(); Check (-not $Process.HasExited) 'Unknown ownership stopped a fixture process' }
+    'PASS: unreadable live ownership fails closed'
     $Busy = Run-Helper 'busy'
-    Check ($Busy.Code -eq 0 -and (Has-PidLine $Busy.Text $Client.Id) -and -not (Has-PidLine $Busy.Text $Other.Id)) "Exact-owned client detection failed: code=$($Busy.Code), client=$($Client.Id), other=$($Other.Id), output=[$($Busy.Text)]"
+    Check ($Busy.Code -eq 0 -and (Has-PidLine $Busy.Text $Client.Id) -and -not (Has-PidLine $Busy.Text $Other.Id) -and -not (Has-PidLine $Busy.Text $OtherClient.Id)) "Exact-owned client detection failed: code=$($Busy.Code), client=$($Client.Id), other=$($Other.Id), output=[$($Busy.Text)]"
     Check ((Run-Helper 'running').Text -match 'running') 'Owned daemon not detected'
     $Refused = Run-Helper 'swap' $Candidate
     Check ($Refused.Code -ne 0) 'Active-client promotion must fail'
@@ -145,6 +290,8 @@ public class SusiPromotionFixture {
     Check $Leaf.HasExited 'Owned leaf service not stopped before replacement'
     Check (-not $Other.HasExited) 'Other installation was stopped'
     Check (-not $OtherLeaf.HasExited) "Other installation's leaf service was stopped"
+    $OtherClient.Refresh()
+    Check (-not $OtherClient.HasExited) "Other installation's active client was stopped"
     $Rollback = Run-Helper 'rollback'
     Check ($Rollback.Code -eq 0) "Rollback failed: $($Rollback.Text)"
     Check ((Get-FileHash $OwnedBin).Hash -eq $OriginalHash) 'Rollback did not restore executable'
@@ -172,7 +319,7 @@ public class SusiPromotionFixture {
         Check (Test-Path -LiteralPath $Shell -PathType Leaf) "Git for Windows bash not found at $Shell"
         $StartInfo = New-Object Diagnostics.ProcessStartInfo
         $StartInfo.FileName = $Shell
-        $StartInfo.Arguments = '"' + (Join-Path $PSScriptRoot 'susi-release-sync.sh') + '" --rollback'
+        $StartInfo.Arguments = '"' + (Join-Path $Harness 'susi-release-sync.sh') + '" --rollback'
         $StartInfo.UseShellExecute = $false
         $StartInfo.CreateNoWindow = $true
         $StartInfo.RedirectStandardOutput = $true
@@ -237,9 +384,9 @@ report_reference "$SUSI_CHECKSUM_FIXTURE" 2>&1 | grep -q 'differs from the refer
     Check ($ChecksumProcess.ExitCode -eq 0) "Release record integration failed: $ChecksumOutput"
     'PASS: owned process safety, replacement, rollback, canonical home, release record checks and reference checksums on Windows paths'
 } finally {
-    foreach ($Process in $Processes) { if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -ErrorAction SilentlyContinue } }
+    foreach ($Process in $Processes) { if (-not $Process.HasExited) { Stop-Process -InputObject $Process -ErrorAction SilentlyContinue } }
     # Images stay locked until their processes are gone; bound the wait.
-    foreach ($Process in $Processes) { $Process.WaitForExit(10000) | Out-Null }
+    foreach ($Process in $Processes) { $Process.WaitForExit(10000) | Out-Null; $Process.Dispose() }
     Remove-Item Env:\SUSI_FIXTURE_READY -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $Scratch) { Remove-Item -LiteralPath $Scratch -Recurse -Force }
 }
