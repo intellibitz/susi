@@ -822,9 +822,17 @@ async fn dispatch_gemi_route(
                 };
 
                 if let Some(detail) = content.strip_prefix("[INFERENCE_FAILED]") {
+                    // The detail arrives with or without a leading newline;
+                    // without one it ran into the headline ("failedRecovery").
+                    let detail = detail.trim();
+                    let message = if detail.is_empty() {
+                        "All inference providers failed".to_string()
+                    } else {
+                        format!("All inference providers failed: {detail}")
+                    };
                     return Ok(json_response(
                         StatusCode::BAD_GATEWAY,
-                        &json!({"error": {"message": format!("All inference providers failed{detail}"), "type": "server_error", "code": "inference_exhausted"}}),
+                        &json!({"error": {"message": message, "type": "server_error", "code": "inference_exhausted"}}),
                     ));
                 }
                 // Label the response with the actual generator, not the
