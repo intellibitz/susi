@@ -294,7 +294,7 @@ fn budget_ceiling_cascade_steps_down_to_the_affordable_rung() {
         .expect("pin the pricey rung");
 
     let (out, ladder) =
-        GemiEngine::try_providers(&registry, "hello there", None, None, &|_| {}, &|_| {});
+        GemiEngine::try_providers(&registry, "hello there", None, None, None, &|_| {}, &|_| {});
     // Cleared before the assertions so a panic cannot leak the pin into
     // the other cascade tests sharing this process's preference file.
     let _ = crate::engines::routing::InferenceRouter::clear_preferred_cloud();
@@ -332,7 +332,7 @@ fn budget_ceiling_cascade_records_spend_with_attribution() {
         reply: "cheap answer",
     });
     let (out, _ladder) =
-        GemiEngine::try_providers(&registry, "hello there", None, None, &|_| {}, &|_| {});
+        GemiEngine::try_providers(&registry, "hello there", None, None, None, &|_| {}, &|_| {});
     assert_eq!(out.as_deref(), Some("cheap answer"));
 
     let ledger = UsageLedger::load(&usage).expect("ledger written");
@@ -371,7 +371,7 @@ fn budget_ceiling_all_over_cap_leaves_nothing_priced() {
         reply: "never",
     });
     let (out, ladder) =
-        GemiEngine::try_providers(&registry, "hello there", None, None, &|_| {}, &|_| {});
+        GemiEngine::try_providers(&registry, "hello there", None, None, None, &|_| {}, &|_| {});
     assert!(
         out.is_none(),
         "every priced rung over the cap leaves the cascade unanswered — the local rung outside it stays free"

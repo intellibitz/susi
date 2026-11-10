@@ -175,7 +175,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
             crate::susi_core::registry::CapabilityRegistry::global(),
         );
         let (text, mut ladder) =
-            GemiEngine::try_discovered_providers(prompt, None, None, callback, &|_| {});
+            GemiEngine::try_discovered_providers(prompt, None, None, None, callback, &|_| {});
         if ladder.step_downs() > 0 {
             callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
         }
