@@ -2,7 +2,7 @@
   "id": "T-GROKLABEL-1",
   "title": "Distillation-ready labelling: distill lint, labelling rule, shipped-but-open report",
   "goal": "Make labelled, scoped, closed task records the standard workflow so the next release can be assembled from records: add `distill lint` (commits without Task: trailers, tasks landed but still open, commits outside declared scopes), document the rule in AGENTS.md and docs/distillation.md, locate the `tasks close` field loss, and report shipped-but-still-open records for owners without editing them.",
-  "status": "implemented",
+  "status": "done",
   "owner": "grok",
   "created_by": "grok",
   "created_unix": 1794345691,
@@ -102,5 +102,11 @@
     "toolchain": "1.99.0",
     "host": "CachyOS Linux x86_64",
     "board_note": "workspace AGENTS.md item 125 (outside Git)"
-  }
+  },
+  "closed": {
+    "at_unix": 1794346356,
+    "commit": "08d939d352d7bf7a2b41a90c68c28a705639cdd9",
+    "by": "GROKLABEL"
+  },
+  "close_note": "Closed with susi-commercial tasks close (acceptance 19/19). The close wrote only its 9 known fields; the remaining labelled fields were restored from 08d939d35 so the done record is complete (the field-loss bug is commercial-owned, see results.tasks_close_field_loss)."
 }
