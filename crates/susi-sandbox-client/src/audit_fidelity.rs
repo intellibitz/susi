@@ -750,6 +750,8 @@ mod audit_payload_free_policy_tests {
     /// typed path keeps only a digest and a byte length.
     #[test]
     fn audit_payload_free_policy_prompt_rides_as_digest() {
+        // The chain's HMAC key path follows SUSI_HOME, which sibling tests swap.
+        let _guard = crate::env_test_lock();
         let ws = scratch("prompt");
         let prompt = "my private half-formed thought about deleting prod";
         SusiAuditLogger::log_details(
@@ -773,6 +775,7 @@ mod audit_payload_free_policy_tests {
     /// Canary 3: tool output is the same — digest only, never content.
     #[test]
     fn audit_payload_free_policy_tool_output_rides_as_digest() {
+        let _guard = crate::env_test_lock();
         let ws = scratch("tool");
         let output = "SECRET_ROW alice@example.com password=hunter2";
         SusiAuditLogger::log_details(
@@ -792,6 +795,7 @@ mod audit_payload_free_policy_tests {
     /// it and leaves a visible truncation marker — a defect, not a silence.
     #[test]
     fn audit_payload_free_policy_legacy_details_bounded() {
+        let _guard = crate::env_test_lock();
         let ws = scratch("legacy");
         let huge = "x".repeat(10_000);
         SusiAuditLogger::log_event(&ws, "STUFFED", &huge);
@@ -810,6 +814,7 @@ mod audit_payload_free_policy_tests {
     /// because there is no payload-carrying variant.
     #[test]
     fn audit_payload_free_policy_typed_details_render_metadata() {
+        let _guard = crate::env_test_lock();
         let d = AuditDetails::payload_ref("the crown jewels", "document");
         let rendered = d.to_string();
         assert!(rendered.contains("sha256:") && rendered.contains("bytes:16"));
@@ -924,6 +929,7 @@ mod audit_payload_free_policy_tests {
     /// still goes through the one HMAC-chained chokepoint.
     #[test]
     fn audit_payload_free_policy_audit_still_signed_and_append_only() {
+        let _guard = crate::env_test_lock();
         let ws = scratch("signed");
         SusiAuditLogger::log_details(
             &ws,
@@ -989,6 +995,8 @@ mod audit_retention_prune_tests {
     /// the archive keeps its checkpoint beside it.
     #[test]
     fn audit_retention_prune_full_segment_rotates_and_attests() {
+        // The chain's HMAC key path follows SUSI_HOME, which sibling tests swap.
+        let _guard = crate::env_test_lock();
         let ws = scratch("rotate");
         policy(
             &ws,
@@ -1044,6 +1052,7 @@ mod audit_retention_prune_tests {
     /// pruned on the next write, checkpoint files included.
     #[test]
     fn audit_retention_prune_expired_archives_are_removed() {
+        let _guard = crate::env_test_lock();
         let ws = scratch("expire");
         policy(
             &ws,
@@ -1078,6 +1087,7 @@ mod audit_retention_prune_tests {
     /// archive goes first — and the active segment is never a candidate.
     #[test]
     fn audit_retention_prune_total_cap_drops_oldest_keeps_active() {
+        let _guard = crate::env_test_lock();
         let ws = scratch("cap");
         policy(
             &ws,
