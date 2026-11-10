@@ -162,14 +162,6 @@ impl World {
         }
     }
 
-    fn origin_advances(&self) {
-        git(
-            &self.other,
-            &["commit", "--allow-empty", "--quiet", "-m", "newer"],
-        );
-        git(&self.other, &["push", "--quiet", "origin", "HEAD:main"]);
-    }
-
     fn commit_in_worktree(&self, envs: &[(&str, &str)]) -> i32 {
         run(
             &self.wt,
