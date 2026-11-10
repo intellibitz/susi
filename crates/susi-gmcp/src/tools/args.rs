@@ -1152,6 +1152,8 @@ pub struct OsCapabilities {
     pub timeout_ms: Option<u64>,
     /// `invoke`: spend budget in micro-dollars (default unlimited).
     pub budget_micros: Option<u64>,
+    /// `invoke`: `susi-delegation/v1` envelope the call nests under (default: none).
+    pub delegation: Option<serde_json::Map<String, serde_json::Value>>,
     /// Absolute workspace the CLI would run this in (default: the server
     /// workspace); admitted only where the MAC policy grants it.
     pub workspace: Option<String>,

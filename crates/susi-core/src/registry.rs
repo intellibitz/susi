@@ -233,9 +233,55 @@ impl CapabilityRegistry {
     /// invoke the live registered tool (already MAC-enforced and
     /// evidence-captured by [`Self::register_tool`]) under the bus's
     /// permission/timeout/cost contract — the production caller
-    /// `typed_bus()` otherwise lacked.
+    /// `typed_bus()` otherwise lacked. It runs under a root delegation scope
+    /// built from the request.
     pub fn dispatch_capability(
         &self,
+        request: &crate::capability_bus::CapabilityRequest,
+        args: &serde_json::Value,
+        workspace: &std::path::Path,
+    ) -> Result<crate::capability_bus::CapabilityReceipt, crate::capability_bus::CapabilityError>
+    {
+        let root = crate::capability_bus::CapabilityBus::root_scope(request)?;
+        self.dispatch_capability_in(&root, request, args, workspace)
+    }
+
+    /// [`Self::dispatch_capability`] for a socket or CLI argument: with no
+    /// `delegation` value (absent or JSON null) the call runs from a root
+    /// scope; otherwise the value must be a `susi-delegation/v1` envelope
+    /// from the calling driver and the call nests under it. The envelope is
+    /// unsigned (`crate::delegation`): it bounds a cooperating driver, and
+    /// the host MAC policy remains the authority.
+    pub fn dispatch_nested(
+        &self,
+        delegation: Option<&serde_json::Value>,
+        request: &crate::capability_bus::CapabilityRequest,
+        args: &serde_json::Value,
+        workspace: &std::path::Path,
+    ) -> Result<crate::capability_bus::CapabilityReceipt, crate::capability_bus::CapabilityError>
+    {
+        use crate::capability_bus::CapabilityError;
+        use crate::delegation::{DelegationEnvelope, DelegationError, DelegationScope};
+        use serde::Deserialize;
+
+        let Some(value) = delegation.filter(|value| !value.is_null()) else {
+            return self.dispatch_capability(request, args, workspace);
+        };
+        let envelope = DelegationEnvelope::deserialize(value).map_err(|e| {
+            CapabilityError::Delegation(DelegationError::InvalidEnvelope(e.to_string()))
+        })?;
+        let parent =
+            DelegationScope::from_envelope(&envelope).map_err(CapabilityError::Delegation)?;
+        self.dispatch_capability_in(&parent, request, args, workspace)
+    }
+
+    /// [`Self::dispatch_capability`] nested under `parent`, e.g. a scope a
+    /// driver received as a [`crate::delegation::DelegationEnvelope`]: the
+    /// invocation cannot exceed the parent's permissions, budget, deadline or
+    /// depth, and its receipt carries the full delegation path.
+    pub fn dispatch_capability_in(
+        &self,
+        parent: &crate::delegation::DelegationScope,
         request: &crate::capability_bus::CapabilityRequest,
         args: &serde_json::Value,
         workspace: &std::path::Path,
@@ -258,7 +304,7 @@ impl CapabilityRegistry {
         let tool = self
             .get_tool(&descriptor.id)
             .ok_or_else(|| CapabilityError::UnknownCapability(request.capability_id.clone()))?;
-        bus.dispatch(request, |_descriptor| {
+        bus.dispatch_in(parent, request, |_descriptor, _scope| {
             let started = std::time::Instant::now();
             let output = tool.execute(args, workspace).map_err(|e| e.to_string())?;
             Ok(CapabilityInvocation {
@@ -381,6 +427,94 @@ mod tests {
 
         assert!(registry.unregister_tool("echo_tool"));
         assert!(!registry.unregister_tool("echo_tool"));
+    }
+
+    #[test]
+    fn dispatch_capability_nests_a_live_tool_under_a_received_envelope() {
+        use crate::capability_bus::{CapabilityError, CapabilityRequest};
+        use crate::delegation::{
+            DelegationError, DelegationHop, DelegationLimits, DelegationRequest, DelegationScope,
+        };
+
+        let registry = CapabilityRegistry::new();
+        struct EchoTool;
+        impl Tool for EchoTool {
+            fn name(&self) -> &str {
+                "echo_tool"
+            }
+            fn description(&self) -> &str {
+                "echo"
+            }
+            fn execute(
+                &self,
+                _args: &serde_json::Value,
+                _workspace: &std::path::Path,
+            ) -> crate::susi_error::EaiResult<String> {
+                Ok("echo".into())
+            }
+        }
+        registry.register_tool(EchoTool);
+        let ws = std::path::Path::new(".");
+        let args = serde_json::json!({});
+
+        // A driver on one side of the socket opens its scope and sends it.
+        let session = DelegationScope::root(
+            DelegationHop::new("ceo-session", "root").unwrap(),
+            ["capability:tool".to_string()],
+            1_000,
+            Some(60_000),
+            DelegationLimits::default(),
+        )
+        .unwrap();
+        let driver = session
+            .delegate(DelegationRequest {
+                hop: DelegationHop::new("dot", "plan").unwrap(),
+                permissions: ["capability:tool".to_string()].into(),
+                budget_micros: 100,
+                timeout_ms: 30_000,
+            })
+            .unwrap();
+        let received = DelegationScope::from_envelope(&driver.envelope()).unwrap();
+
+        let request =
+            CapabilityRequest::new("echo_tool", "opus", ["capability:tool".into()], 5_000, 50);
+        let receipt = registry
+            .dispatch_capability_in(&received, &request, &args, ws)
+            .unwrap();
+        assert_eq!(receipt.output, serde_json::json!("echo"));
+        let path: Vec<String> = receipt
+            .delegation_path
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            path,
+            ["ceo-session:root", "dot:plan", "opus:echo_tool"].map(String::from)
+        );
+
+        // Without the envelope the same call is a root-level dispatch.
+        let top = registry.dispatch_capability(&request, &args, ws).unwrap();
+        assert_eq!(top.delegation_path.len(), 2);
+
+        // Permissions the envelope does not carry cannot be presented.
+        let greedy = CapabilityRequest::new(
+            "echo_tool",
+            "opus",
+            ["capability:tool".into(), "admin".into()],
+            5_000,
+            50,
+        );
+        assert!(matches!(
+            registry.dispatch_capability_in(&received, &greedy, &args, ws),
+            Err(CapabilityError::Delegation(
+                DelegationError::PermissionAmplification { .. }
+            ))
+        ));
+        received.cancel();
+        assert!(matches!(
+            registry.dispatch_capability_in(&received, &request, &args, ws),
+            Err(CapabilityError::Delegation(DelegationError::Cancelled(_)))
+        ));
     }
 
     #[test]

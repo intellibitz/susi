@@ -46,6 +46,7 @@ pub mod capture;
 pub mod commit_log;
 pub mod commit_log_report;
 pub mod context_graph;
+pub mod delegation;
 pub mod egress;
 pub mod emergency_stop;
 pub mod evidence;
@@ -117,6 +118,9 @@ mod audit_action_choke_point_tests;
 #[cfg(test)]
 #[path = "tests/capability_bus.rs"]
 mod capability_bus_tests;
+#[cfg(test)]
+#[path = "tests/delegation.rs"]
+mod delegation_tests;
 #[cfg(test)]
 #[path = "tests/vc_200_001.rs"]
 mod vc_200_001_tests;

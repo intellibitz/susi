@@ -107,6 +107,10 @@ pub enum OsCapabilitiesAction {
         timeout_ms: u64,
         #[arg(long, default_value_t = u64::MAX)]
         budget_micros: u64,
+        /// `susi-delegation/v1` envelope (JSON) from the calling driver: the
+        /// call nests under it and cannot exceed its permissions or budget
+        #[arg(long)]
+        delegation: Option<String>,
         #[arg(long)]
         json: bool,
     },
