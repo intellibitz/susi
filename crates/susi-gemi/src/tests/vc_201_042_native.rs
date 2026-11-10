@@ -362,9 +362,10 @@ fn answer(engine: Arc<dyn NativeInferenceEngine>, call: &ContractCall<'_>) -> St
 #[test]
 fn a_request_with_tools_reaches_the_engine_as_a_conversation_and_keeps_its_prose_fallback() {
     let listed = serde_json::json!([
-        {"name": "get_time", "description": "Current time", "input_schema": {
+        {"name": "get_time", "description": "Current time in a city such as Paris", "input_schema": {
             "type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}},
-        {"name": "ping"},
+        {"name": "paris_time_zone"},
+        {"name": "brain_matrix", "description": "Show the measured model capability matrix"},
         {"description": "no name: not a tool the model can call"}
     ]);
     let chat =
@@ -378,12 +379,22 @@ fn a_request_with_tools_reaches_the_engine_as_a_conversation_and_keeps_its_prose
     assert_eq!(tools[0]["type"], "function");
     assert_eq!(tools[0]["function"]["name"], "get_time");
     assert_eq!(tools[0]["function"]["parameters"]["required"][0], "city");
-    // A tool that publishes no schema still gets a valid empty one.
+    // Ranked by fit (get_time matches "time" and "paris" plus its description;
+    // paris_time_zone only its name), an unrelated tool is not offered, and a
+    // tool that publishes no schema still gets a valid empty one.
+    assert_eq!(tools[1]["function"]["name"], "paris_time_zone");
     assert_eq!(
         tools[1]["function"]["parameters"],
         serde_json::json!({"type": "object", "properties": {}})
     );
-    // Nothing registered: there is no conversation to send.
+    // Nothing registered, or nothing that fits: no conversation to send, so
+    // the model answers in prose instead of calling an unrelated tool.
+    let unrelated = serde_json::json!([{"name": "benchmark_run", "description": "Measure local inference latency"}]);
+    assert!(crate::local_tool_calls::chat_request_from(
+        &unrelated,
+        "What is the weather in Paris right now?"
+    )
+    .is_none());
     assert!(crate::local_tool_calls::chat_request_from(&serde_json::json!([]), "hi").is_none());
     assert!(
         crate::local_tool_calls::chat_request_from(&serde_json::json!({"error": "x"}), "hi")

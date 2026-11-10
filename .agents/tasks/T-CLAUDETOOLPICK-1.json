@@ -1,0 +1,48 @@
+{
+  "id": "T-CLAUDETOOLPICK-1",
+  "title": "Local tool requests offer the tools that fit, not the first 32 by name",
+  "goal": "Found in the end-to-end run of T-CLAUDETOOLCAP-1 (board item 217): a local request with `requires: \"tools\"` took 152 s and the 0.5B model, asked about the weather, called `benchmark_run`. Measured on an isolated instance: the registry lists 195 tools (name and description only), and `local_tool_calls` offered `.take(32)` of them in name order, so the model read 32 unrelated tools. `relevant_tools` now ranks tools by the words the request shares with each tool's name and description (common words such as list/show/run are ignored, plurals folded), offers at most 8, and none when nothing fits, so the model answers in prose instead of calling an unrelated tool. The prose list and the conversation's `tools` use the same selection. The crate stays under its ceiling by deleting code nothing called.",
+  "status": "done",
+  "scopes": [
+    ".agents/tasks/T-CLAUDETOOLPICK-1.json",
+    "crates/susi-gemi/src/engines/cost.rs",
+    "crates/susi-gemi/src/engines/mod.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/engines/runtime_substrate.rs",
+    "crates/susi-gemi/src/local_tool_calls.rs",
+    "crates/susi-gemi/src/tests/vc_201_042_native.rs",
+    "crates/susi-gemi/src/worker.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "size": "s",
+  "deps": [
+    "T-CLAUDETOOLCAP-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "vc_201_042"
+    ]
+  },
+  "created_by": "CLAUDETOOLPICK",
+  "created_unix": 1794428677,
+  "owner": "claude",
+  "base": "e3c3e0feabf2e30d517e46a6ba39eef95a543137",
+  "host": "CEO laptop, CachyOS Linux x86_64",
+  "results": {
+    "end_to_end": "2026-11-12, isolated instance (scratch SUSI_HOME, offset 7300), core daemon from this change, commercial susi-plug-host 9b2128b, audited starter qwen2.5-0.5b-instruct-q4_0. 'What is the weather in Paris right now?' with requires=tools: before 152,246 ms in the engine and a call to the unrelated `benchmark_run`; after 12,232 ms end to end and a plain answer that it has no real-time weather. 'Show me the privacy mode and capability grants on this host.' with requires=tools: 24.9 s, the model called `privacy_mode`, a relevant tool, which refused for a missing `mode` argument."
+  },
+  "limitations": [
+    "Selection is word overlap, not meaning: a request worded differently from every tool's description gets no tools, and a tool with a misleading description can be offered.",
+    "Core's tool registry publishes no parameter schemas, so a local model cannot know a tool's required arguments (the `privacy_mode` call above lacked `mode`). Publishing schemas from the registry is the next step and belongs to susi-tools.",
+    "The 0.5B model chose `privacy_mode` where `privacy_status` was the better fit; choice quality is the model's.",
+    "Linux x86_64 only."
+  ]
+}
