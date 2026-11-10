@@ -30,7 +30,7 @@
       "susi-dev"
     ]
   },
-  "checkpoint": "Windows diagnostic implementation verified: 25 native tests, strict clippy, build and repeated real targeted diagnostics passed. Independent source review found no remaining blocker for this cooperative diagnostic scope. Main publication pending; Linux validation and global legacy-gate participation remain outside this verified result. No release or 100-agent throughput claim.",
+  "checkpoint": "Windows diagnostics verified with 25 native tests, strict clippy, executable build and real cold/warm/busy invocations. Exact std-only capacity module also passed 9 Linux tests under verified nice 19. Independent source review found no remaining blocker for this cooperative diagnostic scope. Main publication pending; legacy gate participation and full release qualification are not claimed.",
   "validation": {
     "hardware": {
       "logical_cpus": 8,
@@ -197,13 +197,46 @@
       },
       "source_base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
       "notes": "Both real leaf runs executed 5 unit tests and a successful zero-doctest command. The busy smoke returned exit 75 with 77 ms measured wait, launcher bytes unchanged, no leftover running marker. Existing unused fluent-uri patch warning was emitted; all commands passed."
+    },
+    "linux_capacity": {
+      "failed": 0,
+      "scope": "Exact std-only capacity module, not full Linux launcher or release qualification",
+      "source_sha256": "382153f29a261a19540193abed3da4deeab053dc737d63bd42e10c2021d7e5c4",
+      "compiler": "rustc 1.99.0 (b940084d7 2026-09-28), x86_64-unknown-linux-gnu",
+      "source_commit": "cc143901dd8e3a89cd556b383b98b8e5cf123796",
+      "source_path": "xtask/src/dev_capacity.rs",
+      "passed": 9,
+      "compile": [
+        "nice",
+        "-n",
+        "19",
+        "rustc",
+        "+1.99.0",
+        "--edition=2021",
+        "--test",
+        "dev_capacity.rs",
+        "-o",
+        "dev_capacity_tests"
+      ],
+      "verified_niceness": 19,
+      "test_ms": 54,
+      "compile_ms": 219,
+      "evidence": "/home/ramadoss/susi-capacity-linux-check.aCq68HMI",
+      "test": [
+        "nice",
+        "-n",
+        "19",
+        "./dev_capacity_tests",
+        "--test-threads=1"
+      ]
     }
   },
   "review": {
     "limitations": [
       "Legacy gates and raw Cargo do not share these tokens",
       "Separate Cargo homes and separate hosts have separate coordination domains",
-      "Linux checks and full release qualification are not claimed"
+      "Compiler job tokens are a scheduling heuristic, not an OS CPU or memory quota",
+      "Full Linux launcher and full release qualification are not claimed"
     ],
     "corrections": [
       "Removed production sysroot preparation from explicitly stock-toolchain diagnostics; required release qualification unchanged",

@@ -4,7 +4,8 @@ Status: **Windows-verified development diagnostics**, currently on
 `local-agent/dot-parallel-capacity`; publication is tracked by its task record.
 Its cooperative stock-toolchain development diagnostics are not a replacement
 for the native
-integration gate, a production qualification, or approval to start 100 builds.
+existing integration machinery, production qualification, or approval to start
+100 builds.
 
 ## Three separate loops
 
@@ -77,7 +78,8 @@ The initial ceiling is one fewer logical CPU, at least one and at most 16.
 The persisted ceiling cannot silently grow when another process observes a
 different CPU affinity. Each command reserves its explicit Cargo job count and
 bounds the normal Rust test, nextest and Rayon thread counts to that count.
-These are cooperative CPU scheduling limits, **not** a memory limit or an OS
+These are cooperative compiler-job scheduling limits, **not** a strict CPU or
+memory quota or an OS
 sandbox against tests spawning their own processes.
 
 Admission is all-or-nothing. No caller sleeps while holding a partial allocation.
@@ -146,7 +148,14 @@ and 34 waves. This is not 100 builds and does not establish a delivery budget.
 
 The earlier 22-test run and one Clippy finding are retained in the task history;
 all review corrections are covered by the final result above. Logs and source
-hashes are recorded in the task. Linux execution, cross-host coordination,
+hashes are recorded in the task. Full Linux launcher execution, cross-host coordination,
 legacy-gate participation, main publication and full production qualification
 are separate verification obligations. No released artifact or full 100-agent
 readiness follows from these focused results.
+
+The exact std-only capacity source from commit `cc143901d` also passed all nine
+Linux tests on Fury with pinned rustc 1.99.0. Its SHA-256 was verified unchanged
+from Windows: `382153f29a261a19540193abed3da4deeab053dc737d63bd42e10c2021d7e5c4`.
+Compilation took 0.219 seconds and execution 0.054 seconds, both at verified
+niceness 19 with no competing build. This validates the capacity module's Linux
+OS-lock and crash behavior, not the full Linux launcher or release.
