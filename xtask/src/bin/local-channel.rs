@@ -423,6 +423,8 @@ fn dev_cargo(repo: &Path) -> Command {
         .env("CARGO_PROFILE_DEV_OPT_LEVEL", "0")
         .env("CARGO_PROFILE_DEV_LTO", "false")
         .env("CARGO_PROFILE_DEV_INCREMENTAL", "true")
+        .env("CARGO_PROFILE_DEV_CODEGEN_UNITS", "16")
+        .env("CARGO_PROFILE_TEST_CODEGEN_UNITS", "16")
         .env_remove("RUSTC_WRAPPER")
         .args(["--config", "build.rustc-wrapper=''"]);
     cmd
@@ -1386,6 +1388,25 @@ mod tests {
         );
         assert_eq!(unchanged, Some(state));
         Ok(())
+    }
+
+    #[test]
+    fn dev_and_test_commands_keep_dependency_codegen_aligned() {
+        let command = dev_cargo(Path::new("."));
+        for (key, value) in [
+            ("CARGO_PROFILE_DEV_OPT_LEVEL", "0"),
+            ("CARGO_PROFILE_DEV_LTO", "false"),
+            ("CARGO_PROFILE_DEV_INCREMENTAL", "true"),
+            ("CARGO_PROFILE_DEV_CODEGEN_UNITS", "16"),
+            ("CARGO_PROFILE_TEST_CODEGEN_UNITS", "16"),
+        ] {
+            assert!(
+                command.get_envs().any(|(name, configured)| {
+                    name == key && configured == Some(std::ffi::OsStr::new(value))
+                }),
+                "{key} must be explicitly set to {value} for both delivery phases"
+            );
+        }
     }
 
     #[test]
