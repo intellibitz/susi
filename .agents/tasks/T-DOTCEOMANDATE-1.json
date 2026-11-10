@@ -19,7 +19,8 @@
     "tests/architecture_tests.rs",
     "docs/ceo-agent-mandate.md",
     "docs/harness-coordination.md",
-    ".agents/tasks/T-DOTCEOMANDATE-1.json"
+    ".agents/tasks/T-DOTCEOMANDATE-1.json",
+    ".agents/receipts/a28e3b6205161bfef5c72f1226a5b08db99906ce.json"
   ],
   "accept": {
     "cmd": [
@@ -41,5 +42,11 @@
       "ignored": 0
     },
     "review": "Independent static review; latest policy conflict corrected"
+  },
+  "inherited_origin_receipt": {
+    "blob": "a42daf1c3e17db72c4bc96af439edb8aeecb7ecd",
+    "origin_commit": "c7b666029f5a614a2240000bdf20efd1d621d424",
+    "path": ".agents/receipts/a28e3b6205161bfef5c72f1226a5b08db99906ce.json",
+    "purpose": "Preserve byte-identical existing origin receipt while normal native scope guard reconciles main; no new acceptance claim."
   }
 }
