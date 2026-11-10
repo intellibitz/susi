@@ -29,12 +29,13 @@ const MAX_CLOSURE_DEPTH: usize = 256;
 const ZERO_SHA1: &str = "0000000000000000000000000000000000000000";
 const ZERO_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--verify-accept] [--release-candidate] [--strict] [--receipt-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|status> <name> [--json]\nDistillation composes an audited candidate from labelled contributions. Full release qualification gates remain separate.";
+const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose|orchestrate> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--tasks-from-range <A..B>] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--verify-accept] [--publish-snapshot] [--release-candidate] [--strict] [--receipt-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|status> <name> [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- submit-main [--rev <rev>] [--max-attempts <n>] [--json]\nDistillation composes an audited candidate from labelled contributions. Full release qualification gates remain separate.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CommandMode {
     Plan,
     Compose,
+    Orchestrate,
     Publish,
     Status,
 }
@@ -46,9 +47,11 @@ struct DistillArgs {
     base_rev: String,
     from_rev: Option<String>,
     selected: Vec<String>,
+    tasks_from_range: Option<String>,
     feature_spec: Option<String>,
     plan_manifest: Option<PathBuf>,
     verify_accept: bool,
+    publish_snapshot: bool,
     release_candidate: bool,
     strict: bool,
     receipt_out: Option<PathBuf>,
@@ -63,10 +66,18 @@ struct InspectArgs {
 }
 
 #[derive(Clone, Debug)]
+struct SubmitMainArgs {
+    rev: Option<String>,
+    max_attempts: usize,
+    json_output: bool,
+}
+
+#[derive(Clone, Debug)]
 enum ParsedCli {
     Help,
     Distill(DistillArgs),
     Inspect(InspectArgs),
+    SubmitMain(SubmitMainArgs),
 }
 
 #[derive(Clone, Debug)]
@@ -484,18 +495,20 @@ impl Git<'_> {
     }
 
     fn inspect_commit(&self, oid: &str) -> Result<CommitInfo> {
+        self.inspect_commit_inner(oid, false)
+    }
+
+    fn inspect_commit_allow_root(&self, oid: &str) -> Result<CommitInfo> {
+        self.inspect_commit_inner(oid, true)
+    }
+
+    fn inspect_commit_inner(&self, oid: &str, allow_root: bool) -> Result<CommitInfo> {
         valid_oid(oid)?;
         let meta = self.text(&["log", "-n", "1", "--format=%P%x00%s%x00%B", oid])?;
         let mut fields = meta.splitn(3, '\0');
         let parents_str = fields.next().unwrap_or("").trim();
         let subject = fields.next().unwrap_or("").trim().to_owned();
         let body = fields.next().unwrap_or("");
-        let parent = parents_str
-            .split_whitespace()
-            .next()
-            .ok_or_else(|| format!("commit {oid} has no parent commit to diff against"))?
-            .to_owned();
-        valid_oid(&parent)?;
         let mut task_trailers = Vec::new();
         for line in body.lines() {
             if let Some(rest) = line.trim().strip_prefix("Task:") {
@@ -505,7 +518,24 @@ impl Git<'_> {
                 }
             }
         }
-        let changed_paths = self.diff_paths(&parent, oid)?;
+        let (parent, changed_paths) = match parents_str.split_whitespace().next() {
+            Some(p) => {
+                valid_oid(p)?;
+                let paths = self.diff_paths(p, oid)?;
+                (p.to_owned(), paths)
+            }
+            None if allow_root => {
+                let paths: Vec<String> = self
+                    .tree_blobs(oid, ".")?
+                    .into_iter()
+                    .map(|(p, _)| p)
+                    .collect();
+                (self.zero_oid(oid).to_owned(), paths)
+            }
+            None => {
+                return Err(format!("commit {oid} has no parent commit to diff against"));
+            }
+        };
         Ok(CommitInfo {
             oid: oid.to_owned(),
             parent,
@@ -566,13 +596,26 @@ impl Git<'_> {
     }
 
     fn commit_tree(&self, tree: &str, parent: &str, message: &str) -> Result<String> {
+        self.commit_tree_parents(tree, &[parent], message)
+    }
+
+    fn commit_tree_parents(&self, tree: &str, parents: &[&str], message: &str) -> Result<String> {
         valid_oid(tree)?;
-        valid_oid(parent)?;
+        if parents.is_empty() {
+            return Err("commit-tree requires at least one parent".to_owned());
+        }
         let mut command = Command::new("git");
         command
             .current_dir(self.root)
             .arg("--no-replace-objects")
-            .args(["commit-tree", tree, "-p", parent, "-F", "-"])
+            .arg("commit-tree")
+            .arg(tree);
+        for parent in parents {
+            valid_oid(parent)?;
+            command.args(["-p", parent]);
+        }
+        command
+            .args(["-F", "-"])
             .env("GIT_AUTHOR_NAME", "Susi Distiller")
             .env("GIT_AUTHOR_EMAIL", "distiller@localhost")
             .env("GIT_AUTHOR_DATE", "2026-11-10T00:00:00Z")
@@ -834,9 +877,13 @@ fn parse_cli(args: &[String]) -> Result<ParsedCli> {
             Ok(ParsedCli::Help)
         };
     }
+    if args[0] == "submit-main" {
+        return parse_submit_main_flags(&args[1..]);
+    }
     let mode = match args[0].as_str() {
         "plan" => CommandMode::Plan,
         "compose" => CommandMode::Compose,
+        "orchestrate" => CommandMode::Orchestrate,
         "publish" => CommandMode::Publish,
         "status" => CommandMode::Status,
         _ => return Err(USAGE.to_owned()),
@@ -863,14 +910,53 @@ fn parse_cli(args: &[String]) -> Result<ParsedCli> {
     parse_distill_flags(mode, &args[1..])
 }
 
+fn parse_submit_main_flags(rest: &[String]) -> Result<ParsedCli> {
+    let mut rev: Option<String> = None;
+    let mut max_attempts: usize = 4;
+    let mut json_output = false;
+    let mut idx = 0usize;
+    while idx < rest.len() {
+        match rest[idx].as_str() {
+            "--rev" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if rev.replace(val.clone()).is_some() {
+                    return Err("duplicate --rev".to_owned());
+                }
+            }
+            "--max-attempts" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                let parsed: usize = val
+                    .parse()
+                    .map_err(|_| "invalid --max-attempts integer".to_owned())?;
+                if parsed == 0 || parsed > 16 {
+                    return Err("--max-attempts must be between 1 and 16".to_owned());
+                }
+                max_attempts = parsed;
+            }
+            "--json" => json_output = true,
+            _ => return Err(USAGE.to_owned()),
+        }
+        idx += 1;
+    }
+    Ok(ParsedCli::SubmitMain(SubmitMainArgs {
+        rev,
+        max_attempts,
+        json_output,
+    }))
+}
+
 fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> {
     let mut name: Option<String> = None;
     let mut base_rev: Option<String> = None;
     let mut from_rev: Option<String> = None;
     let mut selected = Vec::new();
+    let mut tasks_from_range: Option<String> = None;
     let mut feature_spec: Option<String> = None;
     let mut plan_manifest: Option<PathBuf> = None;
     let mut verify_accept = false;
+    let mut publish_snapshot = false;
     let mut release_candidate = false;
     let mut strict = false;
     let mut receipt_out: Option<PathBuf> = None;
@@ -907,6 +993,13 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
                     selected.push(item.to_owned());
                 }
             }
+            "--tasks-from-range" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if tasks_from_range.replace(val.clone()).is_some() {
+                    return Err("duplicate --tasks-from-range".to_owned());
+                }
+            }
             "--feature" => {
                 idx += 1;
                 let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
@@ -929,6 +1022,7 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
                 }
             }
             "--verify-accept" => verify_accept = true,
+            "--publish-snapshot" => publish_snapshot = true,
             "--release-candidate" => release_candidate = true,
             "--strict" => strict = true,
             "--json" => json_output = true,
@@ -937,15 +1031,23 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
         idx += 1;
     }
 
-    if verify_accept && mode != CommandMode::Compose {
-        return Err("--verify-accept requires compose mode".to_owned());
+    if verify_accept && !matches!(mode, CommandMode::Compose | CommandMode::Orchestrate) {
+        return Err("--verify-accept requires compose or orchestrate mode".to_owned());
+    }
+    if publish_snapshot && mode != CommandMode::Orchestrate {
+        return Err("--publish-snapshot requires orchestrate mode".to_owned());
     }
     let name = name.ok_or_else(|| "missing --name <name>".to_owned())?;
     valid_name(&name)?;
     let base_rev = base_rev.ok_or_else(|| "missing --base <rev>".to_owned())?;
-    if selected.is_empty() && feature_spec.is_none() && plan_manifest.is_none() {
+    if selected.is_empty()
+        && tasks_from_range.is_none()
+        && feature_spec.is_none()
+        && plan_manifest.is_none()
+        && mode != CommandMode::Orchestrate
+    {
         return Err(
-            "specify at least one --select <TASK_ID>, --feature <manifest>, or --plan-manifest <path>"
+            "specify at least one --select <TASK_ID>, --tasks-from-range <A..B>, --feature <manifest>, or --plan-manifest <path>"
                 .to_owned(),
         );
     }
@@ -955,9 +1057,11 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
         base_rev,
         from_rev,
         selected,
+        tasks_from_range,
         feature_spec,
         plan_manifest,
         verify_accept,
+        publish_snapshot,
         release_candidate,
         strict,
         receipt_out,
@@ -1161,6 +1265,29 @@ fn load_plan_manifest(root: &Path, path: &Path) -> Result<PlanManifestSpec> {
 struct LoadedTasks {
     valid: BTreeMap<String, TaskManifest>,
     invalid: BTreeMap<String, String>,
+    done_deps: BTreeMap<String, Vec<String>>,
+}
+
+impl LoadedTasks {
+    fn deps_of(&self, key: &str) -> Option<&[String]> {
+        self.valid
+            .get(key)
+            .map(|m| m.deps.as_slice())
+            .or_else(|| self.done_deps.get(key).map(Vec::as_slice))
+    }
+}
+
+fn parse_closed_done_deps(bytes: &[u8]) -> Option<(String, Vec<String>)> {
+    let val: Value = serde_json::from_slice(bytes).ok()?;
+    let id = val.get("id")?.as_str()?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let mut deps = json_string_vec(&val, "deps", false).unwrap_or_default();
+    if deps.is_empty() {
+        deps = json_string_vec(&val, "dependencies", false).unwrap_or_default();
+    }
+    Some((id.to_ascii_uppercase(), deps))
 }
 
 fn load_tasks_from_commit(git: &Git<'_>, commit: &str) -> Result<LoadedTasks> {
@@ -1185,13 +1312,20 @@ fn load_tasks_from_commit(git: &Git<'_>, commit: &str) -> Result<LoadedTasks> {
 
     let mut valid: BTreeMap<String, TaskManifest> = BTreeMap::new();
     let mut invalid: BTreeMap<String, String> = BTreeMap::new();
+    let mut done_deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
     for ((path, _), bytes) in entries.into_iter().zip(payloads) {
+        let is_done = path.starts_with(".agents/tasks/done/");
         let stem = Path::new(&path)
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_ascii_uppercase();
+        if is_done {
+            if let Some((done_key, deps)) = parse_closed_done_deps(&bytes) {
+                done_deps.insert(done_key, deps);
+            }
+        }
         match parse_task_manifest(&path, &bytes) {
             Ok(task) => {
                 if valid.contains_key(&task.key) || invalid.contains_key(&task.key) {
@@ -1211,7 +1345,11 @@ fn load_tasks_from_commit(git: &Git<'_>, commit: &str) -> Result<LoadedTasks> {
             }
         }
     }
-    Ok(LoadedTasks { valid, invalid })
+    Ok(LoadedTasks {
+        valid,
+        invalid,
+        done_deps,
+    })
 }
 
 fn parse_task_manifest(path: &str, bytes: &[u8]) -> Result<TaskManifest> {
@@ -1349,9 +1487,8 @@ fn dfs_closure(key: &str, tasks: &LoadedTasks, walk: &mut ClosureWalk) {
     walk.state.insert(key.to_owned(), VisitState::Visiting);
     walk.stack.push(key.to_owned());
 
-    if let Some(manifest) = tasks.valid.get(key) {
-        let mut sorted_deps: Vec<String> = manifest
-            .deps
+    if let Some(raw_deps) = tasks.deps_of(key) {
+        let mut sorted_deps: Vec<String> = raw_deps
             .iter()
             .map(|d| d.trim().to_ascii_uppercase())
             .filter(|d| !d.is_empty())
@@ -1385,9 +1522,9 @@ fn deterministic_toposort(
         if cycle_errors.contains_key(key) {
             continue;
         }
-        if let Some(manifest) = tasks.valid.get(key) {
+        if let Some(raw_deps) = tasks.deps_of(key) {
             let mut deps: BTreeSet<String> = BTreeSet::new();
-            for dep in &manifest.deps {
+            for dep in raw_deps {
                 let dep_key = dep.trim().to_ascii_uppercase();
                 if nodes.contains(&dep_key)
                     && dep_key != *key
@@ -1724,6 +1861,9 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
     };
 
     let mut requested: Vec<String> = args.selected.clone();
+    if let Some(range_spec) = &args.tasks_from_range {
+        requested.extend(discover_tasks_in_range(git, range_spec)?);
+    }
     if let Some(plan) = &plan_spec {
         requested.extend(plan.task_ids.clone());
     }
@@ -1735,6 +1875,17 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
     let from_tasks = load_tasks_from_commit(git, &from_commit)?;
     let base_tasks = load_tasks_from_commit(git, &base_commit)?;
     let stream_commits = git.non_merge_commits(&base_commit, &from_commit)?;
+
+    if args.mode == CommandMode::Orchestrate && requested.is_empty() {
+        let mut seen = BTreeSet::new();
+        for commit in &stream_commits {
+            for trailer in &commit.task_trailers {
+                if seen.insert(trailer.clone()) {
+                    requested.push(trailer.clone());
+                }
+            }
+        }
+    }
 
     let mut commit_rank: BTreeMap<String, usize> = BTreeMap::new();
     for (idx, commit) in stream_commits.iter().enumerate() {
@@ -1778,6 +1929,45 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             });
             outcomes.insert(key.clone(), TaskOutcome::Rejected);
             continue;
+        }
+
+        if let Some(base_done_deps) = base_tasks.done_deps.get(key) {
+            let has_stream_commits = stream_commits.iter().any(|c| {
+                c.task_trailers.iter().any(|t| t == key)
+                    || c.changed_paths
+                        .iter()
+                        .any(|p| p.eq_ignore_ascii_case(&format!(".agents/tasks/done/{key}.json")))
+            });
+            if !has_stream_commits {
+                if let Some((dep_reason, dep_detail, is_reject)) =
+                    check_dep_list_outcomes(key, base_done_deps, &outcomes)
+                {
+                    let entry = DecisionEntry {
+                        task_id: key.clone(),
+                        source_commits: Vec::new(),
+                        deps: base_done_deps.clone(),
+                        reason_code: dep_reason,
+                        detail: dep_detail,
+                    };
+                    if is_reject {
+                        rejected.push(entry);
+                        outcomes.insert(key.clone(), TaskOutcome::Rejected);
+                    } else {
+                        deferred.push(entry);
+                        outcomes.insert(key.clone(), TaskOutcome::Deferred);
+                    }
+                } else {
+                    satisfied_in_base.push(BaseSatisfiedEntry {
+                        task_id: key.clone(),
+                        reason_code: "already_in_base",
+                        detail: format!(
+                            "closed task record for {key} is already present in base {base_commit} with zero newer commits"
+                        ),
+                    });
+                    outcomes.insert(key.clone(), TaskOutcome::SatisfiedInBase);
+                }
+                continue;
+            }
         }
 
         if let Some(inv_detail) = from_tasks.invalid.get(key) {
@@ -1958,6 +2148,7 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         "mode": match args.mode {
             CommandMode::Plan => "plan",
             CommandMode::Compose => "compose",
+            CommandMode::Orchestrate => "orchestrate",
             CommandMode::Publish => "publish",
             CommandMode::Status => "status",
         },
@@ -2055,9 +2246,17 @@ fn check_dep_outcomes(
     task: &TaskManifest,
     outcomes: &BTreeMap<String, TaskOutcome>,
 ) -> Option<(&'static str, String, bool)> {
-    for dep in &task.deps {
+    check_dep_list_outcomes(&task.key, &task.deps, outcomes)
+}
+
+fn check_dep_list_outcomes(
+    self_key: &str,
+    deps: &[String],
+    outcomes: &BTreeMap<String, TaskOutcome>,
+) -> Option<(&'static str, String, bool)> {
+    for dep in deps {
         let dep_key = dep.trim().to_ascii_uppercase();
-        if dep_key.is_empty() || dep_key == task.key {
+        if dep_key.is_empty() || dep_key == self_key {
             continue;
         }
         match outcomes.get(&dep_key).copied() {
@@ -2177,6 +2376,30 @@ fn format_summary(outcome: &DistillOutcome, json_output: bool) -> String {
     )
 }
 
+fn discover_tasks_in_range(git: &Git<'_>, range_spec: &str) -> Result<Vec<String>> {
+    let (left_raw, right_raw) = range_spec
+        .split_once("..")
+        .ok_or_else(|| "invalid --tasks-from-range; expected <base-rev>..<from-rev>".to_owned())?;
+    if left_raw.trim().is_empty() || right_raw.trim().is_empty() || right_raw.starts_with('.') {
+        return Err(
+            "invalid --tasks-from-range; expected two-dot <base-rev>..<from-rev>".to_owned(),
+        );
+    }
+    let left_oid = git.resolve_commit(left_raw.trim())?;
+    let right_oid = git.resolve_commit(right_raw.trim())?;
+    let commits = git.non_merge_commits(&left_oid, &right_oid)?;
+    let mut seen = BTreeSet::new();
+    let mut ordered = Vec::new();
+    for commit in commits {
+        for trailer in commit.task_trailers {
+            if seen.insert(trailer.clone()) {
+                ordered.push(trailer);
+            }
+        }
+    }
+    Ok(ordered)
+}
+
 fn run_distill_command(root: &Path, args: &DistillArgs) -> Result<String> {
     let git = Git { root };
     let outcome = execute_distill(&git, root, args)?;
@@ -2195,7 +2418,7 @@ fn run_distill_command(root: &Path, args: &DistillArgs) -> Result<String> {
         ));
     }
 
-    if args.mode == CommandMode::Compose {
+    if matches!(args.mode, CommandMode::Compose | CommandMode::Orchestrate) {
         let receipt_path = git.state_path("receipts", &args.name)?;
         store_durable_receipt(
             &receipt_path,
@@ -2207,6 +2430,22 @@ fn run_distill_command(root: &Path, args: &DistillArgs) -> Result<String> {
             &outcome.final_commit,
         )?;
         git.ensure_cas_ref(&outcome.branch_ref, &outcome.final_commit)?;
+        if args.mode == CommandMode::Orchestrate && args.publish_snapshot {
+            let pub_summary = run_inspect_command(
+                root,
+                &InspectArgs {
+                    mode: CommandMode::Publish,
+                    name: args.name.clone(),
+                    json_output: false,
+                },
+            )?;
+            if !args.json_output {
+                return Ok(format!(
+                    "{}\n{pub_summary}",
+                    format_summary(&outcome, false)
+                ));
+            }
+        }
     }
 
     Ok(format_summary(&outcome, args.json_output))
@@ -2352,11 +2591,182 @@ fn report_status(
     ))
 }
 
+fn audit_candidate_commits_for_main(commits: &[CommitInfo]) -> Result<Vec<String>> {
+    let mut seen = BTreeSet::new();
+    let mut tasks = Vec::new();
+    for commit in commits {
+        if commit.task_trailers.is_empty() {
+            return Err(format!(
+                "missing_task_trailer: commit {} ('{}') lacks a 'Task: T-...' trailer required for main distillation",
+                commit.oid, commit.subject
+            ));
+        }
+        for path in &commit.changed_paths {
+            if is_forbidden_confidential_path(path) {
+                return Err(format!(
+                    "confidentiality_violation: commit {} touches forbidden credential/key path '{path}'",
+                    commit.oid
+                ));
+            }
+        }
+        for trailer in &commit.task_trailers {
+            if seen.insert(trailer.clone()) {
+                tasks.push(trailer.clone());
+            }
+        }
+    }
+    Ok(tasks)
+}
+
+fn run_submit_main_command(root: &Path, args: &SubmitMainArgs) -> Result<String> {
+    let git = Git { root };
+    git.require_original_history()?;
+    let candidate = git.resolve_commit(args.rev.as_deref().unwrap_or("HEAD"))?;
+    let endpoint = git
+        .endpoint_optional()?
+        .ok_or_else(|| "origin remote is not configured; cannot submit to main".to_owned())?;
+
+    for attempt in 1..=args.max_attempts {
+        let remote_main = git.remote_ref(&endpoint, "refs/heads/main")?;
+        if let Some(ref remote_oid) = remote_main {
+            let fetch_out = git.output(
+                &[
+                    "fetch",
+                    "--no-tags",
+                    "--recurse-submodules=no",
+                    "--",
+                    &endpoint.address,
+                    "refs/heads/main",
+                ],
+                None,
+            )?;
+            if !fetch_out.status.success() {
+                return Err(format!(
+                    "cannot fetch origin refs/heads/main ({})",
+                    fetch_out.status
+                ));
+            }
+            if remote_oid == &candidate || git.ancestor(&candidate, remote_oid)? {
+                let payload = json!({
+                    "schema": "susi-main-submission-receipt-v1",
+                    "status": "already_landed",
+                    "candidate_commit": candidate,
+                    "published_commit": remote_oid,
+                    "remote_main": remote_oid,
+                    "reconciled": false,
+                    "attempts": attempt,
+                    "endpoint_digest": endpoint.digest,
+                    "tasks": Vec::<String>::new(),
+                });
+                return format_submit_main_result(&payload, args.json_output);
+            }
+        }
+
+        let (publish_commit, reconciled, tasks) = match remote_main {
+            None => {
+                let head_info = git.inspect_commit_allow_root(&candidate)?;
+                let tasks = audit_candidate_commits_for_main(&[head_info])?;
+                (candidate.clone(), false, tasks)
+            }
+            Some(ref remote_oid) if git.ancestor(remote_oid, &candidate)? => {
+                let delta = git.non_merge_commits(remote_oid, &candidate)?;
+                let tasks = audit_candidate_commits_for_main(&delta)?;
+                (candidate.clone(), false, tasks)
+            }
+            Some(ref remote_oid) => {
+                let merge_base = git.text(&["merge-base", remote_oid, &candidate])?;
+                valid_oid(&merge_base)?;
+                let delta = git.non_merge_commits(&merge_base, &candidate)?;
+                let tasks = audit_candidate_commits_for_main(&delta)?;
+                let merged_tree = git
+                    .merge_three_way(&merge_base, remote_oid, &candidate)
+                    .map_err(|e| {
+                        format!(
+                            "reconcile_conflict against concurrent origin/main {remote_oid}: {e}"
+                        )
+                    })?;
+                let mut msg = format!(
+                    "Reconcile autonomous contribution {} onto development main\n\nNon-destructive object-store reconciliation preserving peer commits.\n",
+                    &candidate[..12.min(candidate.len())]
+                );
+                for task_id in &tasks {
+                    msg.push_str(&format!("Task: {task_id}\n"));
+                }
+                let merge_commit = git.commit_tree_parents(
+                    &merged_tree,
+                    &[remote_oid.as_str(), candidate.as_str()],
+                    &msg,
+                )?;
+                (merge_commit, true, tasks)
+            }
+        };
+
+        let refspec = format!("{publish_commit}:refs/heads/main");
+        let push_out = git.output(
+            &[
+                "push",
+                "--porcelain",
+                "--no-follow-tags",
+                "--recurse-submodules=no",
+                "--",
+                &endpoint.address,
+                &refspec,
+            ],
+            None,
+        )?;
+
+        let post_remote = git.remote_ref(&endpoint, "refs/heads/main")?;
+        if let Some(ref landed) = post_remote {
+            if landed == &publish_commit {
+                let payload = json!({
+                    "schema": "susi-main-submission-receipt-v1",
+                    "status": if reconciled { "published_reconciled" } else { "published_fast_forward" },
+                    "candidate_commit": candidate,
+                    "published_commit": publish_commit,
+                    "remote_main": landed,
+                    "reconciled": reconciled,
+                    "attempts": attempt,
+                    "endpoint_digest": endpoint.digest,
+                    "tasks": tasks,
+                });
+                return format_submit_main_result(&payload, args.json_output);
+            }
+        }
+
+        if attempt == args.max_attempts {
+            let stderr = String::from_utf8_lossy(&push_out.stderr);
+            return Err(format!(
+                "submit-main exhausted {} attempt(s) without fast-forwarding refs/heads/main (remote={:?}): {}",
+                args.max_attempts,
+                post_remote,
+                stderr.trim()
+            ));
+        }
+    }
+    Err("submit-main failed".to_owned())
+}
+
+fn format_submit_main_result(payload: &Value, json_output: bool) -> Result<String> {
+    if json_output {
+        return serde_json::to_string_pretty(payload).map_err(|e| e.to_string());
+    }
+    Ok(format!(
+        "Main submission {}: candidate={} published={} remote_main={} reconciled={} attempts={}",
+        payload["status"].as_str().unwrap_or(""),
+        payload["candidate_commit"].as_str().unwrap_or(""),
+        payload["published_commit"].as_str().unwrap_or(""),
+        payload["remote_main"].as_str().unwrap_or(""),
+        payload["reconciled"].as_bool().unwrap_or(false),
+        payload["attempts"].as_u64().unwrap_or(1),
+    ))
+}
+
 pub fn run(root: &Path, args: &[String]) -> Result<String> {
     match parse_cli(args)? {
         ParsedCli::Help => Ok(USAGE.to_owned()),
         ParsedCli::Distill(distill_args) => run_distill_command(root, &distill_args),
         ParsedCli::Inspect(inspect_args) => run_inspect_command(root, &inspect_args),
+        ParsedCli::SubmitMain(submit_args) => run_submit_main_command(root, &submit_args),
     }
 }
 
@@ -3046,5 +3456,124 @@ mod tests {
             .git()
             .text(&["show-ref", "--verify", "refs/heads/distill/verify-fail"])
             .is_err());
+    }
+
+    #[test]
+    fn orchestrate_discovers_tasks_from_range_composes_and_publishes_snapshot() {
+        let fx = Fixture::new();
+        fx.write("core/base.txt", "base\n");
+        fx.write(
+            ".agents/tasks/done/T-LEGACY-BASE.json",
+            "{\n  \"id\": \"T-LEGACY-BASE\",\n  \"title\": \"Closed without scopes by susi tasks close\",\n  \"closed\": { \"at_unix\": 1794000000 }\n}\n",
+        );
+        let base = fx.commit_all("chore: base");
+
+        fx.write("mod_one/lib.rs", "pub fn one() -> usize { 1 }\n");
+        fx.write_task("T-ORCH-1", &["T-LEGACY-BASE"], &["mod_one"]);
+        let c1 = fx.commit_all("feat: mod_one\n\nTask: T-ORCH-1");
+
+        fx.write("mod_two/lib.rs", "pub fn two() -> usize { 2 }\n");
+        fx.write_task("T-ORCH-2", &["T-ORCH-1"], &["mod_two"]);
+        let c2 = fx.commit_all("feat: mod_two\n\nTask: T-ORCH-2");
+
+        let range = format!("{base}..{c2}");
+        let out = fx
+            .run_args(&[
+                "orchestrate",
+                "--name",
+                "orch-wave-1",
+                "--base",
+                &base,
+                "--from",
+                &c2,
+                "--tasks-from-range",
+                &range,
+                "--publish-snapshot",
+                "--strict",
+                "--json",
+            ])
+            .unwrap();
+        let receipt: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(receipt["mode"], "orchestrate");
+        assert_eq!(receipt["included"].as_array().unwrap().len(), 2);
+        assert_eq!(receipt["included"][0]["task_id"], "T-ORCH-1");
+        assert_eq!(receipt["included"][1]["task_id"], "T-ORCH-2");
+        assert_eq!(receipt["included"][0]["source_commits"][0], c1);
+
+        let status_json = fx.run_args(&["status", "orch-wave-1", "--json"]).unwrap();
+        let st: Value = serde_json::from_str(&status_json).unwrap();
+        assert_eq!(st["branch_state"], "present_exact");
+        assert_eq!(st["remote_state"], "published_exact");
+    }
+
+    #[test]
+    fn submit_main_reconciles_concurrent_peer_commits_without_force_push_and_rejects_unlabelled() {
+        let fx = Fixture::new();
+        fx.write("core/root.txt", "v0\n");
+        fx.write_task("T-BASE-1", &[], &["core"]);
+        let base = fx.commit_all("feat: base\n\nTask: T-BASE-1");
+
+        // Fast-forward initial main submission
+        let ff_json = fx.run_args(&["submit-main", "--json"]).unwrap();
+        let ff: Value = serde_json::from_str(&ff_json).unwrap();
+        assert_eq!(ff["status"], "published_fast_forward");
+        assert_eq!(ff["reconciled"], false);
+
+        // Simulate a concurrent peer pushing disjoint work directly to origin/main
+        let peer_dir = fx.dir.join("peer");
+        Git { root: &fx.dir }
+            .text(&[
+                "clone",
+                fx.remote.to_str().unwrap(),
+                peer_dir.to_str().unwrap(),
+            ])
+            .unwrap();
+        let peer_git = Git { root: &peer_dir };
+        fs::create_dir_all(peer_dir.join("peer_mod")).unwrap();
+        fs::write(peer_dir.join("peer_mod/peer.txt"), "peer work\n").unwrap();
+        peer_git.text(&["add", "-A"]).unwrap();
+        peer_git
+            .text(&[
+                "-c",
+                "user.name=Peer",
+                "-c",
+                "user.email=peer@localhost",
+                "commit",
+                "-m",
+                "feat: peer\n\nTask: T-PEER-1",
+            ])
+            .unwrap();
+        peer_git
+            .text(&["push", "origin", "HEAD:refs/heads/main"])
+            .unwrap();
+        let peer_head = peer_git.resolve_commit("HEAD").unwrap();
+        assert_ne!(peer_head, base);
+
+        // Meanwhile local worker commits isolated work on top of `base` (diverged from origin/main)
+        fx.write("agent_mod/own.txt", "own isolated work\n");
+        fx.write_task("T-OWN-1", &[], &["agent_mod"]);
+        let own_commit = fx.commit_all("feat: own\n\nTask: T-OWN-1");
+
+        // submit-main reconciles in-memory via 3-way merge-tree + commit-tree and fast-forwards origin/main!
+        let rec_json = fx
+            .run_args(&["submit-main", "--rev", &own_commit, "--json"])
+            .unwrap();
+        let rec: Value = serde_json::from_str(&rec_json).unwrap();
+        assert_eq!(rec["status"], "published_reconciled");
+        assert_eq!(rec["reconciled"], true);
+        let published = rec["published_commit"].as_str().unwrap();
+
+        // Both peer work and own work are preserved on origin/main!
+        let bare = Git { root: &fx.remote };
+        assert!(bare.ancestor(&peer_head, published).unwrap());
+        assert!(bare.ancestor(&own_commit, published).unwrap());
+
+        // Unlabelled commit is refused before touching origin/main
+        fx.write("agent_mod/unlabelled.txt", "no trailer\n");
+        let bad_commit = fx.commit_all("chore: forgot trailer");
+        let err = fx
+            .run_args(&["submit-main", "--rev", &bad_commit])
+            .unwrap_err();
+        assert!(err.contains("missing_task_trailer"));
     }
 }
