@@ -1,0 +1,175 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records"
+      ],
+      "exit_code": 0,
+      "output_sha256": "263fbc9f36739c92892c54a878d8e289892f52241bc35d46e1e316c346646f9c",
+      "passed": true,
+      "task_id": "T-CARBONLEAN-4"
+    }
+  ],
+  "base_commit": "d5dc715ccb50dbea7ebddfd81cc8de60890d7236",
+  "base_tree": "3b8722a3f2ddb3234614f40da1c9b6f6da611446",
+  "branch_ref": "refs/heads/release/v0.21.56-distilled-rc7",
+  "closure_order": [
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CARBONRELBRANCH-1",
+    "T-CARBONLEAN-1",
+    "T-CARBONLEAN-2",
+    "T-CARBONLEAN-3",
+    "T-AGYCLOUD-8",
+    "T-HARNESSSTD-1",
+    "T-CODEXAXUMOUT-1",
+    "T-CARBONLEAN-4"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "fafd60bbe5463eabd505e019acd1162cc92b434c",
+  "final_tree": "40237365f9c673d08802e9a63d677922db6fc4d5",
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CARBONLEAN-4.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-vendor-tracing-subscriber/Cargo.toml",
+        "crates/susi-vendor-tracing-subscriber/src/lib.rs",
+        "docs/lean-core.md",
+        "src/main.rs",
+        "src/tracing_subscriber.rs",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "composed_commit": "fafd60bbe5463eabd505e019acd1162cc92b434c",
+      "composed_tree": "40237365f9c673d08802e9a63d677922db6fc4d5",
+      "deps": [
+        "T-CARBONLEAN-3",
+        "T-AGYCLOUD-8",
+        "T-CODEXAXUMOUT-1"
+      ],
+      "goal": "Remove susi-vendor-tracing-subscriber and 14 Cargo.lock packages (aho-corasick, lazy_static, matchers, nu-ansi-term, regex-automata, regex-syntax, sharded-slab, susi-os-unicode, thread_local, tracing-log, tracing-serde, tracing-subscriber, valuable, plus susi-vendor-tracing-subscriber; cargo tree -p susi Linux host packages 214 -> 202, -e normal 205 -> 193, host build units 275 -> 263 atop T-CODEXAXUMOUT-1), drop unused [patch.crates-io] regex-syntax from Cargo.toml, replace tracing-subscriber in the susi binary with #![forbid(unsafe_code)] pure-std src/tracing_subscriber.rs, and ratchet THIRD_PARTY_CEILING 141 -> 140.",
+      "owner": "carbon-cachyos-distill",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CARBONLEAN-4.json",
+        ".agents/tasks/done/T-CARBONLEAN-4.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-vendor-tracing-subscriber",
+        "docs/lean-core.md",
+        "src/main.rs",
+        "src/tracing_subscriber.rs",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "source_commits": [
+        "6ff1867fdb837247134a07231b9336a58db200ba"
+      ],
+      "task_id": "T-CARBONLEAN-4",
+      "title": "Lean core: delete tracing-subscriber facade; pure-std tracing subscriber and pillar third-party ceiling ratchet"
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0.21.56-distilled-rc7",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "193258a4042eaa293d6bee499658a817f300d954af107ae157e8c69f40f16a97",
+  "rejected": [],
+  "requested_tasks": [
+    "T-CARBONLEAN-4"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-1 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDRIVER-1 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONRELBRANCH-1 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONRELBRANCH-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-1 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-2 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-2"
+    },
+    {
+      "detail": "closed task record for T-CARBONLEAN-3 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONLEAN-3"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-8 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-8"
+    },
+    {
+      "detail": "closed task record for T-HARNESSSTD-1 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-HARNESSSTD-1"
+    },
+    {
+      "detail": "task T-CODEXAXUMOUT-1 is already present in base d5dc715ccb50dbea7ebddfd81cc8de60890d7236 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CODEXAXUMOUT-1"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.56-distilled-rc7",
+  "source_stream_commit": "71b5e96511940985a7acf7285021eccd6f1dce6c",
+  "source_stream_tree": "e7da47a2ecb511c059df288e736fe50e33ec14b3"
+}
