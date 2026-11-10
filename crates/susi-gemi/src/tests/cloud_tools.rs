@@ -167,3 +167,44 @@ fn cloud_provider_tool_contract_anthropic_translates_messages_tools_and_tool_use
     assert_eq!(envelope["tool_calls"][0]["name"], "get_weather");
     assert_eq!(envelope["tool_calls"][0]["arguments"]["city"], "Paris");
 }
+
+#[test]
+fn a_reply_cut_at_the_callers_max_tokens_is_marked_for_the_server() {
+    use crate::susi_core::plane_bus::gemi::LENGTH_CUT;
+    let reply = |protocol, response: &'static str, chat: Value| {
+        let (base, _, server) = one_shot(response);
+        let provider = HttpProvider {
+            name: "test-length".into(),
+            api_base: base,
+            model: "test-model".into(),
+            protocol,
+            api_key: "test-key".into(),
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let text = runtime
+            .block_on(provider.generate_with_chat("fallback", Some(&chat)))
+            .unwrap();
+        server.join().unwrap();
+        text
+    };
+    let openai_cut = r#"{"choices":[{"message":{"role":"assistant","content":"Once upon"},"finish_reason":"length"}]}"#;
+    let asked = json!({"messages": [{"role": "user", "content": "story"}], "max_tokens": 2});
+    let unasked = json!({"messages": [{"role": "user", "content": "story"}]});
+    assert_eq!(
+        reply(InferenceProtocol::OpenAiChat, openai_cut, asked.clone()),
+        format!("{LENGTH_CUT}Once upon")
+    );
+    // A provider's own default limit is not the caller's: no mark.
+    assert_eq!(
+        reply(InferenceProtocol::OpenAiChat, openai_cut, unasked),
+        "Once upon"
+    );
+    let anthropic_cut = r#"{"id":"msg_1","content":[{"type":"text","text":"Once upon"}],"stop_reason":"max_tokens"}"#;
+    assert_eq!(
+        reply(InferenceProtocol::Anthropic, anthropic_cut, asked),
+        format!("{LENGTH_CUT}Once upon")
+    );
+}

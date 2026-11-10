@@ -1,0 +1,45 @@
+{
+  "id": "T-CLAUDELENGTH-1",
+  "title": "GEMI answers finish_reason \"length\" when the model stopped at the caller's max_tokens",
+  "goal": "Since the engine itself stops at max_tokens (T-CLAUDECOMMMAXTOK-1), core's own cap never cuts and the 9091 server answered \"stop\" for a cut reply. Carry the engine's and the OpenAI/Anthropic provider's length stop to the server as a gemi::LENGTH_CUT reply prefix, only when the caller asked for max_tokens, and answer \"length\" on the plain and streamed paths. Also withhold the caller-tool-call marker that cloud providers hand to the stream callback.",
+  "status": "implemented",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794437301,
+  "size": "s",
+  "deps": [
+    "T-CLAUDEGEMIFIX-2",
+    "T-CODEXCLOUDTOOLS-1"
+  ],
+  "base": "acf78de5bcd0f254a80aefa85ecf35cbbe13c1ee",
+  "scopes": [
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-gemi/src/engines/local_plug.rs",
+    "crates/susi-gemi/src/engines/http_provider.rs",
+    "crates/susi-gemi/src/tests/cloud_tools.rs",
+    "crates/susi-gemi/src/tests/vc_201_042_native.rs",
+    "crates/susi-server/src/lib.rs",
+    ".agents/tasks/T-CLAUDELENGTH-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-server",
+      "--lib",
+      "a_reply_the_model_stopped_at_max_tokens_finishes_with_length"
+    ]
+  },
+  "results": {
+    "focused": "susi-gemi lib 440/0, susi-server lib 55/0, lean_core_ceilings 2/2, strict clippy on susi-core, susi-gemi, susi-server clean",
+    "live": "daemon + commercial plug host (T-CLAUDECOMMLENGTH-1) in a private network namespace, qwen2.5-0.5b-instruct-q4_0: chat and stream max_tokens=5 -> length; short answer with max_tokens=50 and no max_tokens -> stop; legacy completions max_tokens=4 -> length"
+  },
+  "limitations": [
+    "Needs a plug that reports finish_reason; older plugs keep answering stop.",
+    "A provider's own default limit is not marked: only a caller-asked max_tokens is.",
+    "Verified on Linux x86_64."
+  ]
+}

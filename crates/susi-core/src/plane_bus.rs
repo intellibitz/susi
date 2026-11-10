@@ -449,6 +449,10 @@ pub mod gemi {
     /// OpenAI `tool_calls`.
     pub const CALLER_TOOL_CALLS: &str = "[SUSI CALLER_TOOL_CALLS]";
 
+    /// Prefix of a GEMI reply the model stopped because it reached the
+    /// caller's `max_tokens`, so the 9091 server answers `"length"`.
+    pub const LENGTH_CUT: &str = "[SUSI LENGTH_CUT]";
+
     /// Bounded provider identifier accepted across CLI, HTTP, MCP, and the
     /// plane bus. This is a wire invariant and deliberately performs no I/O.
     pub fn valid_provider_id(value: &str) -> bool {

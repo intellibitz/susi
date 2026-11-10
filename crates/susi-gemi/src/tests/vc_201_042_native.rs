@@ -471,4 +471,19 @@ fn max_tokens_reaches_the_engine_request() {
     let chat = serde_json::json!({"messages": [{"role": "user", "content": "q"}], "max_tokens": 5});
     let payload = crate::engines::local_plug::infer_payload("q", &chat, None, None);
     assert_eq!(payload["max_tokens"], 5);
+    // The engine says it stopped at that limit; the reply is marked for the
+    // server only when the caller asked for one.
+    use crate::engines::local_plug::length_cut;
+    use crate::susi_core::plane_bus::gemi::LENGTH_CUT;
+    let cut = serde_json::json!({"text": "Once upon", "finish_reason": "length"});
+    assert_eq!(
+        length_cut(&cut, &chat, "Once upon"),
+        format!("{LENGTH_CUT}Once upon")
+    );
+    assert_eq!(
+        length_cut(&cut, &serde_json::Value::Null, "Once upon"),
+        "Once upon"
+    );
+    let done = serde_json::json!({"text": "Hi."});
+    assert_eq!(length_cut(&done, &chat, "Hi."), "Hi.");
 }
