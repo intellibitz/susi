@@ -16,32 +16,25 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use susi_core::acp::{AcpContentBlock, AcpMessageRole, AcpTurnContext, AcpTurnExecutor};
 use susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
 
-/// Time-windowed operating-layer Service Level Objective (SLO) sample
-/// measured directly from A2A task execution, queue, inference, and recovery events (`VC-201-092`).
+/// Time-windowed SLO sample measured from A2A execution, queue, inference and recovery events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SloSample {
     /// Window length in seconds over which events were aggregated.
     pub window_secs: u64,
-    /// Successful or handled completions (`Completed` + `Failed`) vs total attempts (`Completed` + `Failed` + `Rejected`).
     pub availability_num: u64,
     pub availability_den: u64,
-    /// `Completed` outcomes vs (`Completed` + `Failed` + `Canceled`).
     pub task_success_num: u64,
     pub task_success_den: u64,
-    /// Sum of measured queue delays in microseconds and sample count.
     pub queue_delay_total_us: u64,
     pub queue_delay_samples: u64,
-    /// Sum of measured inference execution latencies in microseconds and sample count.
     pub inference_latency_total_us: u64,
     pub inference_latency_samples: u64,
-    /// Sum of measured recovery durations in microseconds (from failure/cancel to recovered completion) and sample count.
     pub recovery_duration_total_us: u64,
     pub recovery_duration_samples: u64,
 }
 
 impl SloSample {
-    /// Formats all 5 operating-layer SLO metrics with explicit windows, denominators,
-    /// and `"unknown"` markers whenever the sample count is below `min_samples`.
+    /// Formats all 5 SLO metrics with explicit windows and `"unknown"` markers below `min_samples`.
     #[must_use]
     pub fn publish_slos(&self, min_samples: u64) -> BTreeMap<String, String> {
         let mut out = BTreeMap::new();
@@ -120,9 +113,7 @@ fn now_unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Concurrent fleet executions are bounded: each task owns a dedicated OS
-/// thread while the fleet runs (see `run_fleet`), and unbounded thread growth
-/// is a per-request DoS surface.
+/// Bound concurrent fleet executions because each task owns a dedicated OS thread.
 const MAX_INFLIGHT_REQUESTS: usize = 32;
 static INFLIGHT_REQUESTS: AtomicUsize = AtomicUsize::new(0);
 
@@ -148,12 +139,16 @@ impl Drop for InflightPermit {
 /// live GAWD plane.
 pub type MissionRunner = Arc<dyn Fn(&str) -> std::result::Result<String, String> + Send + Sync>;
 
-/// The production runner: a real mission through the GAWD plane
-/// (`plane_bus::gawd::solve_mission`, served by the swarm master). An empty
-/// reply means the plane was unreachable or produced nothing — reported as
-/// a failure, never as a completed task.
+/// Production A2A runner through the GAWD plane; empty replies are failures.
 fn plane_bus_mission(intent: &str) -> std::result::Result<String, String> {
     let workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    plane_bus_mission_at(intent, workspace)
+}
+
+fn plane_bus_mission_at(
+    intent: &str,
+    workspace: std::path::PathBuf,
+) -> std::result::Result<String, String> {
     let answer = susi_core::plane_bus::gawd::solve_mission(
         intent,
         &workspace,
@@ -166,10 +161,17 @@ fn plane_bus_mission(intent: &str) -> std::result::Result<String, String> {
     }
 }
 
-/// Run the mission on a dedicated OS thread: mission dispatch blocks (IPC,
-/// provider calls with their own runtimes), which must not happen on the
-/// runtime worker driving this executor. The result crosses back on a tokio
-/// oneshot so the caller `await`s without blocking the worker.
+fn plane_bus_acp_mission(
+    intent: &str,
+    workspace: Option<String>,
+) -> std::result::Result<String, String> {
+    let workspace = workspace.map(std::path::PathBuf::from).unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    });
+    plane_bus_mission_at(intent, workspace)
+}
+
+/// Run blocking mission dispatch on a dedicated OS thread and await its result.
 async fn run_mission(
     runner: MissionRunner,
     content: String,
@@ -182,13 +184,13 @@ async fn run_mission(
         .unwrap_or_else(|_| Err("mission thread dropped".to_string()))
 }
 
-/// ACP turns (`session/prompt` on 9094 and the stdio transport) answered by
-/// the same GAWD mission an A2A task runs: the same untrusted-content gate,
-/// the same in-flight capacity, the same reply redaction. Replaces core's
-/// `SubstrateAcpExecutor`, which only echoed the prompt back.
+/// ACP turns answered by the same guarded GAWD mission as A2A tasks.
 pub struct GawdAcpExecutor {
-    runner: MissionRunner,
+    runner: AcpMissionRunner,
 }
+
+pub type AcpMissionRunner =
+    Arc<dyn Fn(&str, Option<String>) -> std::result::Result<String, String> + Send + Sync>;
 
 impl Default for GawdAcpExecutor {
     fn default() -> Self {
@@ -199,21 +201,22 @@ impl Default for GawdAcpExecutor {
 impl GawdAcpExecutor {
     /// Executor that answers ACP turns with real GAWD missions.
     pub fn new() -> Self {
-        Self::with_runner(Arc::new(plane_bus_mission))
+        Self::with_workspace_runner(Arc::new(plane_bus_acp_mission))
     }
 
     /// Executor with an injected mission runner (tests, embedding hosts).
     pub fn with_runner(runner: MissionRunner) -> Self {
+        Self::with_workspace_runner(Arc::new(move |intent, _workspace| runner(intent)))
+    }
+
+    pub(crate) fn with_workspace_runner(runner: AcpMissionRunner) -> Self {
         Self { runner }
     }
 }
 
-/// Bytes of earlier turns a mission carries; the newest are kept.
 const HISTORY_BUDGET: usize = 16 * 1024;
 
-/// The session's earlier turns, newest kept, ahead of the gated prompt so a
-/// multi-turn ACP client keeps its context. An earlier question goes only if
-/// it passes the gate itself; an earlier answer is the mission's own reply.
+/// Prefix the gated prompt with the newest safe turns from the session history.
 fn mission_text(ctx: &AcpTurnContext, prompt: String) -> String {
     let mut earlier = String::new();
     let messages = ctx.inference_messages();
@@ -235,8 +238,7 @@ fn mission_text(ctx: &AcpTurnContext, prompt: String) -> String {
     }
 }
 
-/// An ACP session does not make text trusted: gate it before a mission can
-/// dispatch consequential tools.
+/// Gate ACP text before dispatching consequential tools.
 fn gated(text: &str) -> std::result::Result<String, String> {
     enforce_action(
         &wrap_tool_output("acp:request", text),
@@ -245,9 +247,7 @@ fn gated(text: &str) -> std::result::Result<String, String> {
 }
 
 impl AcpTurnExecutor for GawdAcpExecutor {
-    /// Blocks for the whole mission: callers on an async runtime run it on a
-    /// blocking thread. A mission cannot be interrupted midway; a turn
-    /// cancelled while it runs reports cancelled and drops the answer.
+    /// Blocks for the mission; cancellation drops an in-flight answer.
     fn execute_turn(
         &self,
         ctx: &AcpTurnContext,
@@ -264,7 +264,7 @@ impl AcpTurnExecutor for GawdAcpExecutor {
         }
         let _permit = InflightPermit::try_acquire()
             .ok_or_else(|| "Request rejected: fleet at capacity".to_string())?;
-        let answer = (self.runner)(&content)
+        let answer = (self.runner)(&content, ctx.workspace.clone())
             .map_err(|error| wrap_tool_output("acp:mission-error", &error).redacted_for_sink())?;
         if cancelled.load(Ordering::SeqCst) {
             return Ok(Vec::new());
