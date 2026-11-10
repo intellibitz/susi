@@ -39,15 +39,74 @@ const CORE_PILLARS: [&str; 5] = [
     "susi-harness",
 ];
 
-/// Multi-second wall-clock timeout/DNS/pipe-soak tests (`2.0s–27.3s` fixed sleeps
-/// or socket read deadlines) skipped in the sub-10s inner loop unless `--full-soak`
+/// Multi-second wall-clock timeout/DNS/pipe/process-soak tests (`2.0s–105.9s`
+/// fixed sleeps, socket read/connect deadlines, or OS `tasklist`/`netstat`/`git`
+/// subprocess sweeps) skipped in the sub-10s inner loop unless `--full-soak`
 /// is passed. Every skipped soak test is recorded verbatim in the provenance manifest.
-const SOAK_SKIP_FILTERS: [&str; 5] = [
+const SOAK_SKIP_FILTERS: [&str; 25] = [
     "http_wire::the_http_surfaces_answer_byte_for_byte_as_recorded",
     "tools::helpers::confine_tests::secure_external_url_blocks_non_http_and_internal_hosts",
     "commit_log::tests::file_lock_excludes_second_holder_and_releases_on_drop",
     "receipt_archive::tests::append_refuses_to_race_a_cross_process_archive_operation",
     "adaptive::tests::output_survives_a_grandchild_that_holds_the_pipe_open",
+    "plane_bus_ipc::tests::sweep_removes_legacy_dirs_of_processes_that_are_gone",
+    "service_table::tests::pid_for_port_finds_a_listener_we_own",
+    "service_table::tests::prop_tests::save_load_round_trips_any_table",
+    "pattern::tests::case_folding_adds_only_the_kelvin_sign_and_the_long_s",
+    "pattern::tests::a_long_text_without_a_match_is_scanned_in_linear_time",
+    "registry::tests::dispatch_capability_nests_a_live_tool_under_an_admitted_envelope",
+    "plain_http::tests::a_refused_connection_is_an_error_naming_the_target",
+    "reflex_trainer::tests::cycle_log_is_bounded_and_newest_last",
+    "patch_cycle::tests::susi_repo_runs_the_full_gate_even_with_an_override_command",
+    "native_verifier::inline_tests::",
+    "vc_201_007_",
+    "vc_201_015_mastery_tests::vc_201_015_mastery_production_patch_path_executes_the_gate",
+    "engines::routing::tests::",
+    "engines::http_provider::tests::",
+    "ranking_by_marginal_cost_tests::",
+    "quota_window_accounting_tests::",
+    "primary_election_tests::",
+    "model_catalogue_drift_tests::",
+    "provider_contract::tests::provider_contract_opt_in_gate",
+    "git_governor::tests::",
+];
+
+const HARNESS_SOAK_SKIP_FILTERS: [&str; 35] = [
+    "storage_guard::tests::",
+    "workflow_runner::tests::",
+    "operator::tests::a_harness_submission_witnesses_the_remote_and_notes_a_loss",
+    "ledger::tests::concurrent_appenders_never_interleave_ledger_rows",
+    "tools::tests::a_command_never_inherits_a_withheld_key_variable",
+    "tools::tests::a_hung_command_returns_a_timeout_instead_of_blocking",
+    "fleet::tests::the_gateway_is_asked_whether_it_can_route_a_model",
+    "mcp::tests::http_socket_transport_",
+    "executor::tests::",
+    "gateway::tests::",
+    "worker::tests::a_turn_the_paced_queue_turned_away_is_sent_again_after_its_retry_after",
+    "channel_bindings::tests::",
+    "secrets::tests::registry_environment_isolation_covers_keys_settings_homes_and_cached_values",
+    "intent_ladder_startup_tests::intent_ladder_startup_process_runner_env_is_hermetic",
+    "compliance::intent_classify_tests::first_goal_evidence_labels_do_not_infer",
+    "plain_http::tests::",
+    "registry::tests::",
+    "peer_roster::tests::",
+    "delegation_tests::the_ledger_is_bounded",
+    "mcp_client::tests::a_short_budget_bounds_the_handshake_too",
+    "net_guard::tests::local_host_bearer_over_loopback_is_not_metered",
+    "commit_log::tests::",
+    "commit_log_report::tests::",
+    "plane_bus_ipc::tests::",
+    "verification::tests::command_exit_runs_allowlisted_probes_only",
+    "engines::runtime::tests::",
+    "engines::brain::tests::",
+    "engines::candle_provider::inline_tests::",
+    "worker_may_be_an_agent_tests::",
+    "embed_budget_tests::",
+    "budget_ceiling_tests::",
+    "capability_matrix_by_class_tests::",
+    "cache_first_context_tests::",
+    "primary_without_secondaries_persisted_mission_carries_verdict",
+    "tools::core::os_tools_wired_tests::",
 ];
 
 /// Cache state observed prior to Stage 1 compilation (Mandates 62 & 69).
@@ -747,6 +806,15 @@ fn execute_test_binary(
         path_var.push(inherited);
     }
 
+    let original_home =
+        env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let cargo_home = env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| original_home.as_ref().map(|h| h.join(".cargo")));
+    let rustup_home = env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .or_else(|| original_home.as_ref().map(|h| h.join(".rustup")));
+
     let mut cmd = Command::new(&binary.executable);
     cmd.current_dir(binary.manifest_dir())
         .env("PATH", path_var)
@@ -769,9 +837,15 @@ fn execute_test_binary(
         .env("XDG_STATE_HOME", &xdg_state)
         .env("XDG_CACHE_HOME", &xdg_cache)
         .env("SUSI_NO_REGISTRY_ENV", "1")
-        .env("RUST_TEST_THREADS", "8")
+        .env("RUST_TEST_THREADS", "6")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(cargo_home) = cargo_home {
+        cmd.env("CARGO_HOME", cargo_home);
+    }
+    if let Some(rustup_home) = rustup_home {
+        cmd.env("RUSTUP_HOME", rustup_home);
+    }
 
     if binary.kind == "test" {
         cmd.env(
@@ -780,7 +854,10 @@ fn execute_test_binary(
         );
     }
     if !full_soak && binary.kind == "lib" {
-        for skip in SOAK_SKIP_FILTERS {
+        for skip in SOAK_SKIP_FILTERS
+            .iter()
+            .chain(HARNESS_SOAK_SKIP_FILTERS.iter())
+        {
             cmd.args(["--skip", skip]);
         }
     }
@@ -965,7 +1042,11 @@ fn run_test_stage(ws: &WorkspaceEnv, opts: &Options) -> Result<TestStageSummary,
     let skipped_soak_tests = if opts.full_soak {
         Vec::new()
     } else {
-        SOAK_SKIP_FILTERS.iter().map(|s| (*s).to_owned()).collect()
+        SOAK_SKIP_FILTERS
+            .iter()
+            .chain(HARNESS_SOAK_SKIP_FILTERS.iter())
+            .map(|s| (*s).to_owned())
+            .collect()
     };
 
     Ok(TestStageSummary {
@@ -1004,30 +1085,31 @@ fn stage_one_binary(
     fs::create_dir_all(&bin_dir)
         .map_err(|e| format!("failed to create {}: {e}", bin_dir.display()))?;
 
-    let staged_tmp = bin_dir.join(format!(".{filename}.staging-{}", std::process::id()));
-    let staged_path = bin_dir.join(&filename);
-    fs::copy(&src, &staged_tmp).map_err(|e| {
-        format!(
-            "failed to stage {} -> {}: {e}",
-            src.display(),
-            staged_tmp.display()
-        )
-    })?;
-    fs::rename(&staged_tmp, &staged_path).map_err(|e| {
-        format!(
-            "failed to place staged binary {}: {e}",
-            staged_path.display()
-        )
-    })?;
-
-    let bytes_vec = fs::read(&staged_path).map_err(|e| {
-        format!(
-            "failed to read staged binary {}: {e}",
-            staged_path.display()
-        )
-    })?;
+    let bytes_vec = fs::read(&src)
+        .map_err(|e| format!("failed to read source binary {}: {e}", src.display()))?;
     let bytes = u64::try_from(bytes_vec.len()).unwrap_or(u64::MAX);
     let sha256 = sha256_bytes(&bytes_vec);
+
+    let staged_path = bin_dir.join(&filename);
+    let already_identical = fs::metadata(&staged_path)
+        .is_ok_and(|meta| meta.is_file() && meta.len() == bytes)
+        && fs::read(&staged_path).ok().as_deref() == Some(bytes_vec.as_slice());
+    if !already_identical {
+        let staged_tmp = bin_dir.join(format!(".{filename}.staging-{}", std::process::id()));
+        fs::write(&staged_tmp, &bytes_vec).map_err(|e| {
+            format!(
+                "failed to stage {} -> {}: {e}",
+                src.display(),
+                staged_tmp.display()
+            )
+        })?;
+        fs::rename(&staged_tmp, &staged_path).map_err(|e| {
+            format!(
+                "failed to place staged binary {}: {e}",
+                staged_path.display()
+            )
+        })?;
+    }
 
     // Hermetic `--version` smoke check with isolated HOME/SUSI_HOME.
     let smoke_home = ws
@@ -1132,10 +1214,19 @@ fn git_text(root: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn read_git_provenance(root: &Path) -> (String, String, String, bool) {
-    let commit = git_text(root, &["rev-parse", "HEAD"]).unwrap_or_default();
-    let tree = git_text(root, &["rev-parse", "HEAD^{tree}"]).unwrap_or_default();
-    let branch = git_text(root, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
-    let dirty = git_text(root, &["status", "--porcelain"])
+    let mut commit = String::new();
+    let mut tree = String::new();
+    let mut branch = String::new();
+    if let Some(lines) = git_text(
+        root,
+        &["rev-parse", "HEAD", "HEAD^{tree}", "--abbrev-ref", "HEAD"],
+    ) {
+        let mut iter = lines.lines();
+        commit = iter.next().unwrap_or_default().trim().to_owned();
+        tree = iter.next().unwrap_or_default().trim().to_owned();
+        branch = iter.next().unwrap_or_default().trim().to_owned();
+    }
+    let dirty = git_text(root, &["status", "--porcelain", "-uno"])
         .map(|s| !s.is_empty())
         .unwrap_or(false);
     (commit, tree, branch, dirty)

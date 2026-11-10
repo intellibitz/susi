@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::VecDeque;
 use std::io::{BufReader, Cursor};
+#[cfg(unix)]
 use std::time::Duration;
 
 struct Scripted {
