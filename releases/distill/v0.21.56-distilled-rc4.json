@@ -1,0 +1,322 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "local-workflow"
+      ],
+      "exit_code": 0,
+      "output_sha256": "639cd067fcded9baa40d1fd64f142526be35b30bf3adf9be9449a1779f57058f",
+      "passed": true,
+      "task_id": "T-CLAUDEWTPRUNE-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins"
+      ],
+      "exit_code": 0,
+      "output_sha256": "cefd0f3d2cf25187698584a84b38f49dfaed3be93375d9f8b5f17f6b3f2cbe14",
+      "passed": true,
+      "task_id": "T-CARBONLEAN-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "exit_code": 0,
+      "output_sha256": "4296f022cf32628ac12f3fc2fcc9078550acb1df37ba6ca475a967e9676de5d7",
+      "passed": true,
+      "task_id": "T-CARBONLEAN-2"
+    }
+  ],
+  "base_commit": "e9767382bc87dce615a98add5f83034507c3e5c6",
+  "base_tree": "5c9970de372801ed4747efda107628ba6534fbed",
+  "branch_ref": "refs/heads/release/v0.21.56-distilled-rc4",
+  "closure_order": [
+    "T-CLAUDEWTPRUNE-1",
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CARBONRELBRANCH-1",
+    "T-CARBONLEAN-1",
+    "T-CARBONLEAN-2"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "1f8eb39e70eede23ded650cb3a5a5a49c25e234e",
+  "final_tree": "5db061574e880e3817922230b2470ce13acd2676",
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "local-workflow"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CLAUDEWTPRUNE-1.json",
+        "xtask/src/bin/local-release.rs",
+        "xtask/src/bin/local-workflow.rs",
+        "xtask/src/release_coordinator.rs",
+        "xtask/src/worktree_admin.rs"
+      ],
+      "composed_commit": "e46a7a580252e497a1175bf0e0038a7363f88a02",
+      "composed_tree": "497e001257b81d28c553174c7587447866b3cff6",
+      "deps": [],
+      "goal": "local-workflow's clear_candidate and local-release's gate-tool checkout forget only their own worktree record instead of running a bare `git worktree prune`, which on this shared NTFS drive also deletes the records of live worktrees registered from the Windows boot (gitdir F:/..., a missing relative path to Linux Git); board item 147",
+      "owner": "CLAUDEWTPRUNE",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "xtask/src/worktree_admin.rs",
+        "xtask/src/bin/local-workflow.rs",
+        "xtask/src/bin/local-release.rs",
+        "xtask/src/release_coordinator.rs",
+        ".agents/tasks/T-CLAUDEWTPRUNE-1.json"
+      ],
+      "source_commits": [
+        "070fcf789b463706982f7787267749836dd421bb"
+      ],
+      "task_id": "T-CLAUDEWTPRUNE-1",
+      "title": "No repository-wide git worktree prune in core tooling"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CARBONLEAN-1.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-core/Cargo.toml",
+        "crates/susi-core/benches/evidence_verify.rs",
+        "crates/susi-daemon-runtime/Cargo.toml",
+        "crates/susi-daemon-runtime/src/nat.rs",
+        "crates/susi-gawd-swarm/src/amas.rs",
+        "crates/susi-gawd-swarm/src/tests/amas.rs",
+        "crates/susi-vendor-console-subscriber/Cargo.toml",
+        "crates/susi-vendor-console-subscriber/src/lib.rs",
+        "crates/susi-vendor-criterion/Cargo.toml",
+        "crates/susi-vendor-criterion/src/lib.rs",
+        "crates/susi-vendor-sha1/Cargo.toml",
+        "crates/susi-vendor-sha1/src/lib.rs",
+        "docs/lean-core.md",
+        "src/main.rs",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs",
+        "xtask/Cargo.toml",
+        "xtask/src/main.rs",
+        "xtask/src/upstream_notices.rs",
+        "xtask/tests/git_publisher_native_hook.rs"
+      ],
+      "composed_commit": "b00b1d79c582a5f1e8ace46d8c46009604e71923",
+      "composed_tree": "97c86776b7e8acfc132b8c14b40b47cf2c49ea92",
+      "deps": [
+        "T-CARBONRELBRANCH-1"
+      ],
+      "goal": "Remove three workspace vendor facades (susi-vendor-console-subscriber, susi-vendor-criterion, susi-vendor-sha1) and 60 transitive third-party crates (63 packages total: tonic, prost, console-subscriber, criterion, rayon, plotters, ciborium, flate2, zlib-rs, wasm-bindgen, regex, sha1, etc.) from Cargo.lock and workspace builds, replace STUN HMAC-SHA1 and Git object SHA-1 with pure-std RFC 3174 SHA-1, replace Criterion with a deterministic std benchmark runner, ratchet susi-gawd-swarm line ceiling down by 519 lines, and harden git_publisher_native_hook against ambient PATH push-policy leakage.",
+      "owner": "carbon-cachyos-distill",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CARBONLEAN-1.json",
+        ".agents/tasks/done/T-CARBONLEAN-1.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-core/Cargo.toml",
+        "crates/susi-core/benches/evidence_verify.rs",
+        "crates/susi-daemon-runtime/Cargo.toml",
+        "crates/susi-daemon-runtime/src/nat.rs",
+        "crates/susi-gawd-swarm/src/amas.rs",
+        "crates/susi-gawd-swarm/src/tests/amas.rs",
+        "crates/susi-vendor-console-subscriber",
+        "crates/susi-vendor-criterion",
+        "crates/susi-vendor-sha1",
+        "docs/lean-core.md",
+        "src/main.rs",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs",
+        "xtask/Cargo.toml",
+        "xtask/src/main.rs",
+        "xtask/src/upstream_notices.rs",
+        "xtask/tests/git_publisher_native_hook.rs"
+      ],
+      "source_commits": [
+        "41fae89df2245abd25b6230a90be2a110f7fcb0e"
+      ],
+      "task_id": "T-CARBONLEAN-1",
+      "title": "Lean core: delete console-subscriber, criterion and sha1 facades; ratchet gawd-swarm ceiling and hermetic hook PATH"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "no_github_coupling",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "changed_files": [
+        ".agents/gmcp/evidence/VC-203-001.jsonl",
+        ".agents/gmcp/evidence/VC-203-002.jsonl",
+        ".agents/gmcp/evidence/VC-203-003.jsonl",
+        ".agents/gmcp/evidence/VC-203-004.jsonl",
+        ".agents/gmcp/evidence/VC-203-005.jsonl",
+        ".agents/gmcp/evidence/VC-203-006.jsonl",
+        ".agents/gmcp/evidence/VC-203-008.jsonl",
+        ".agents/gmcp/evidence/VC-203-009.jsonl",
+        ".agents/gmcp/evidence/VC-203-013.jsonl",
+        ".agents/tasks/T-CARBONLEAN-2.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-gawd-agents/Cargo.toml",
+        "crates/susi-gawd-agents/src/safety.rs",
+        "crates/susi-gmcp/Cargo.toml",
+        "crates/susi-gmcp/src/tools/core.rs",
+        "crates/susi-paths/src/lib.rs",
+        "crates/susi-paths/src/shlex.rs",
+        "crates/susi-vendor-shlex/Cargo.toml",
+        "crates/susi-vendor-shlex/src/lib.rs",
+        "crates/susi-vendor-tracing-appender/Cargo.toml",
+        "crates/susi-vendor-tracing-appender/src/lib.rs",
+        "docs/lean-core.md",
+        "src/audit_writer.rs",
+        "src/main.rs",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "composed_commit": "1f8eb39e70eede23ded650cb3a5a5a49c25e234e",
+      "composed_tree": "5db061574e880e3817922230b2470ce13acd2676",
+      "deps": [
+        "T-CARBONLEAN-1"
+      ],
+      "goal": "Remove two more workspace vendor facades (susi-vendor-shlex and susi-vendor-tracing-appender) and 9 Cargo.lock packages (crossbeam-channel, crossbeam-utils, symlink, thiserror, proc-macros thiserror-impl and time-macros, tracing-appender, susi-vendor-shlex, susi-vendor-tracing-appender; cargo tree -p susi host packages 237 -> 229), replace shlex with pure-std #![forbid(unsafe_code)] susi_paths::shlex::split (differential-tested across 500,000 generated inputs with zero mismatches), replace tracing-appender with pure-std bounded daily UTC rolling JSON audit writer (src/audit_writer.rs), ratchet pillar ceilings down (workspace 39 -> 38, direct facade edges 15 -> 14, susi-gmcp lines 25,891 -> 25,889), and re-record GMCP requirement and --mastery evidence.",
+      "owner": "carbon-cachyos-distill",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/gmcp/evidence",
+        ".agents/tasks/T-CARBONLEAN-2.json",
+        ".agents/tasks/done/T-CARBONLEAN-2.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-gawd-agents/Cargo.toml",
+        "crates/susi-gawd-agents/src/safety.rs",
+        "crates/susi-gmcp/Cargo.toml",
+        "crates/susi-gmcp/src/tools/core.rs",
+        "crates/susi-paths/src/lib.rs",
+        "crates/susi-paths/src/shlex.rs",
+        "crates/susi-vendor-shlex",
+        "crates/susi-vendor-tracing-appender",
+        "docs/lean-core.md",
+        "src/audit_writer.rs",
+        "src/main.rs",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "source_commits": [
+        "f15bb007acea275e71e8e0f5f4823cb00a78975a",
+        "9a152d53a4e74924d5de39974e2bbd23dd403a27",
+        "c30f17c5f99513b45892c29d5b9628087c7d4297"
+      ],
+      "task_id": "T-CARBONLEAN-2",
+      "title": "Lean core: delete shlex and tracing-appender facades; pure-std POSIX shlex and daily rolling audit writer"
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0.21.56-distilled-rc4",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "38b413ce6e20feb70fa7099a164bb83a0594cd384c1d957c1c106747d3e723ac",
+  "rejected": [],
+  "requested_tasks": [
+    "T-CARBONLEAN-1",
+    "T-CLAUDEWTPRUNE-1",
+    "T-CARBONLEAN-2"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base e9767382bc87dce615a98add5f83034507c3e5c6 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-1 is already present in base e9767382bc87dce615a98add5f83034507c3e5c6 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDRIVER-1 is already present in base e9767382bc87dce615a98add5f83034507c3e5c6 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONRELBRANCH-1 is already present in base e9767382bc87dce615a98add5f83034507c3e5c6 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONRELBRANCH-1"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.56-distilled-rc4",
+  "source_stream_commit": "ad640e3bd9203fe00afa20636100b6fb5c2fe59d",
+  "source_stream_tree": "4d86d6b70a833326ac10eb4dc0917294c9a0cb7b"
+}
