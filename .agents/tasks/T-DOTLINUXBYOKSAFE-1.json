@@ -1,0 +1,37 @@
+{
+  "id": "T-DOTLINUXBYOKSAFE-1",
+  "title": "Adopt reviewed cloud defaults and truthful status without credential handoff",
+  "goal": "Adopt the six reviewed config/status/error files from upstream d7d7b563469e682cdd5febb0b76bea384b9a82f0. Exclude crates/susi-daemon/src/server.rs entirely: credential-file handoff is rejected and deferred. host_metrics.rs remains with its owner. Coordinate the exact +12 model-source delta with the lean-ceiling owner without undoing lower limits; require combined-tree gates before landing.",
+  "scopes": [
+    ".agents/tasks/T-DOTLINUXBYOKSAFE-1.json",
+    "config/cloud-vendors.json",
+    "config/coding-models.json",
+    "config/config.default.json",
+    "crates/susi-daemon/src/status_report.rs",
+    "crates/susi-gemi-models/src/cloud.rs",
+    "crates/susi-server/src/lib.rs"
+  ],
+  "created_unix": 1794315321,
+  "deps": [],
+  "size": "s",
+  "created_by": "DOTLINUXBYOKSAFE",
+  "state": "in_progress",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "-p",
+      "susi-gemi-models",
+      "-p",
+      "susi-server",
+      "--lib"
+    ]
+  },
+  "source_commit": "d7d7b563469e682cdd5febb0b76bea384b9a82f0",
+  "source_task": "T-LINUXBYOK-1",
+  "verification_status": "Static review and whitespace checks only so far; native tests and combined-tree gate pending."
+}
