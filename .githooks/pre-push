@@ -1,5 +1,25 @@
 #!/bin/sh
-# Git's compatibility boundary only. All policy lives in the native Rust tool.
-# Install the qualified push-policy executable on PATH before using this hook.
-# Missing tooling fails closed; publication never builds or runs release tests.
-exec push-policy "$@"
+# Git's compatibility boundary only. All policy lives in the native Rust tool:
+# transport safety (no force, no unsafe deletion, real ancestry), no tests, no
+# network. A push never stops because the tool is not installed: push-policy on
+# PATH, else this checkout's own build, else it is built once here (offline,
+# about 10 s warm) and used from then on. Only a tool that cannot be built
+# fails closed.
+if command -v push-policy >/dev/null 2>&1; then
+    exec push-policy "$@"
+fi
+top=$(git rev-parse --show-toplevel) || exit 1
+for bin in "$top/target/debug/push-policy" "$top/target/debug/push-policy.exe" \
+    "$top/target/release/push-policy" "$top/target/release/push-policy.exe"; do
+    [ -x "$bin" ] && exec "$bin" "$@"
+done
+echo "pre-push: building push-policy once for this checkout" >&2
+(cd "$top" && cargo build --offline --locked --quiet -p xtask --bin push-policy </dev/null >&2) || {
+    echo "pre-push: push-policy could not be built; refusing the push (transport safety)" >&2
+    exit 1
+}
+for bin in "$top/target/debug/push-policy" "$top/target/debug/push-policy.exe"; do
+    [ -x "$bin" ] && exec "$bin" "$@"
+done
+echo "pre-push: push-policy missing after build; refusing the push" >&2
+exit 1
