@@ -353,13 +353,17 @@ impl TaskManager {
             .tasks
             .get_mut(task_id)
             .ok_or_else(|| unknown_task(task_id))?;
+        if entry.current_status().is_terminal() {
+            return Err(ErrorData::invalid_params(
+                "cannot cancel a terminal task",
+                None,
+            ));
+        }
         entry.cancel_requested = true;
         let _ = entry.cancel_signal.send(true);
-        if entry.terminal.is_none() {
-            entry.pending_inputs.clear();
-            entry.touch();
-            entry.task.status = entry.current_status();
-        }
+        entry.pending_inputs.clear();
+        entry.touch();
+        entry.task.status = entry.current_status();
         Ok(())
     }
 
