@@ -1,0 +1,32 @@
+{
+  "id": "T-DOTPROVIDERNEUTRAL-1",
+  "title": "Verify provider-neutral qualification inputs",
+  "goal": "Accept independently approved advisory mirror identities and locally verifiable upstream Git object proofs without weakening source, freshness, checksum or license checks.",
+  "created_by": "dot-provider-neutral",
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-provider-neutral",
+  "claimed_by": "dot-provider-neutral",
+  "deps": [],
+  "scopes": [
+    "xtask/src/advisory_evidence.rs",
+    "xtask/src/upstream_notices.rs",
+    "docs/provider-neutral-inputs.md",
+    ".agents/tasks/T-DOTPROVIDERNEUTRAL-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release"
+    ]
+  },
+  "checkpoint": "Provider-neutral source focused tests17/17, strict production-bin clippy, cargo fmt --all --check passed. Full local-release binary run:91 passed,4 failed,2 ignored in151.19s; all4 failed at original disposable advisory fixture Git add with filename-too-long under private Windows paths. Fixture now configures core.longpaths only in its own temporary repository. New exact tracked-file-over260 regression passed1/1 after fix; deliberately does not claim CreateProcess working-directory paths over260 are supported. Final source formatted. Full98-test rerun and exact combined-tree publication/qualification pending. Actual mirror cargo-deny scan was tested; optional MCP live GitHub default remains explicit migration debt."
+}
