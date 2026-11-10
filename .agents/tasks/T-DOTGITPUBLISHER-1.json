@@ -1,0 +1,22 @@
+{
+  "id": "T-DOTGITPUBLISHER-1",
+  "title": "Freeze portable Git release snapshots",
+  "goal": "Implement an exact-source snapshot publisher with durable retry evidence, safe concurrent publication and no GitHub dependency, without weakening existing main or production qualification gates.",
+  "created_by": "dot-git-publisher",
+  "created_unix": 1794317569,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-git-publisher",
+  "claimed_by": "dot-git-publisher",
+  "deps": [],
+  "scopes": [
+    "xtask/src/git_publish.rs",
+    "xtask/src/bin/local-snapshot.rs",
+    "docs/git-storage-publisher.md",
+    ".agents/tasks/T-DOTGITPUBLISHER-1.json"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--bin", "local-snapshot"]
+  },
+  "checkpoint": "Isolated implementation candidate; 15 regression tests written but compilation/execution waits for the shared gate owner. Rustfmt passed. Independent source review found endpoint routing, complete-file sync and push URL parsing races; fixes and regressions are present but not yet executed. Native runtime import added; required xtask/build.rs local-snapshot entry remains blocked by another frozen claim. Main publisher wiring, workspace checks and production qualification are not claimed. Remote immutable snapshot uses a standard tag; release branch creation is local only because force flags are prohibited."
+}
