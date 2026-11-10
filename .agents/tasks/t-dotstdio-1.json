@@ -1,0 +1,68 @@
+{
+  "id": "T-DOTSTDIO-1",
+  "agent": "Codex",
+  "status": "done",
+  "scopes": [
+    ".agents/tasks/t-dotstdio-1.json",
+    "crates/susi-paths/src/bin/stdio_guard_probe.rs",
+    "crates/susi-paths/tests/cli_output_contract.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-paths",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "notes": "Codex: locally verified fixture change only; not integrated, pushed, or production-qualified. No Windows execution; cross-platform pipe protocol source reviewed.",
+  "title": "Replace stdio probe scheduling sleeps with an explicit pipe handshake",
+  "state": "done",
+  "claimed_by": "dotstdio20261110",
+  "native_worker": "dotstdio20261110",
+  "created_by": "Codex",
+  "deps": [],
+  "scope": [
+    ".agents/tasks/t-dotstdio-1.json",
+    "crates/susi-paths/src/bin/stdio_guard_probe.rs",
+    "crates/susi-paths/tests/cli_output_contract.rs"
+  ],
+  "verification": {
+    "package_tests_passed": 79,
+    "integration_test_count": 5,
+    "probe_unit_test_count": 5,
+    "stable_binary_repetitions": 20,
+    "stable_binary_test_passes": 100,
+    "baseline_seconds": [
+      1.042323937999754,
+      1.0523073240001395,
+      1.0495913000013388
+    ],
+    "after_seconds": [
+      0.0073720069995033555,
+      0.0060461120010586455,
+      0.007354886001849081
+    ],
+    "median_saving_seconds": 1.0422364139994897,
+    "mutation_controls": [
+      "missing guard fails EPIPE check",
+      "stalled handshake fails 10-second watchdog",
+      "199 writes fails 13000-byte assertion"
+    ],
+    "process_protocol_checks": [
+      "EOF exits4 without output",
+      "malformed token exits4 without output",
+      "valid token exits3 with13000 bytes"
+    ],
+    "checks": [
+      "cargo test -p susi-paths --offline --locked",
+      "cargo clippy -p susi-paths --all-targets --offline --locked -- -D warnings",
+      "cargo fmt --all --check"
+    ]
+  },
+  "created_unix": 1794281327,
+  "goal": "Remove stdio fixture scheduling delay while preserving real subprocess broken-pipe handling, full output volume, explicit setup failure, bounded cleanup, and test counts.",
+  "size": "S"
+}

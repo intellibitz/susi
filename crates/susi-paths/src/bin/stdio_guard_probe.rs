@@ -11,15 +11,31 @@
 //! not a libtest harness — it marks the test skipped, so a regression could
 //! never fail a shard. A plain bin is invisible to discovery and is spawned by
 //! an ordinary test that nextest does run and report.
+use std::io::{self, Read};
+
+/// The parent releases the writer only after arranging its stdout reader.
+/// EOF or a malformed token is a setup failure, never a successful probe.
+fn await_release(mut input: impl Read) -> io::Result<()> {
+    let mut token = [0];
+    input.read_exact(&mut token)?;
+    if token != *b"R" {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid release token",
+        ));
+    }
+    Ok(())
+}
+
 fn main() {
     susi_paths::stdio::install_broken_pipe_guard();
-    // The reader can close just after we start, and an early write merely
-    // fills the pipe buffer and looks like success (that race failed this
-    // check on CI while it passed on a warm 28-core host), so retry until a
-    // write really fails.
+    if await_release(io::stdin().lock()).is_err() {
+        std::process::exit(4);
+    }
+    // The parent has now closed the reader or started draining it. No sleep
+    // is needed to guess when the pipe is ready, on either supported OS.
     for _ in 0..200 {
         println!("{}", "x".repeat(64));
-        std::thread::sleep(std::time::Duration::from_millis(5));
     }
     // Every write succeeded: the reader never went away, so the spawning
     // experiment proved nothing and must not count as a pass.
@@ -51,9 +67,16 @@ mod tests {
     }
 
     #[test]
-    fn probe_sleep_interval_is_five_milliseconds() {
-        let sleep_dur = std::time::Duration::from_millis(5);
-        assert_eq!(sleep_dur.as_millis(), 5);
+    fn probe_release_requires_the_token_and_rejects_eof() {
+        assert!(super::await_release(&b"R"[..]).is_ok());
+        assert_eq!(
+            super::await_release(&b""[..]).unwrap_err().kind(),
+            std::io::ErrorKind::UnexpectedEof
+        );
+        assert_eq!(
+            super::await_release(&b"X"[..]).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
