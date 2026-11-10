@@ -45,6 +45,12 @@ mod common;
 
 const CLUSTER_KEY: [u8; 32] = [0x5Au8; 32];
 
+// `SocketTestGuard` is shared across test processes, but the two tests in
+// this binary can still enter it concurrently because the OS lock is
+// re-entrant within one process. Their four-block allocations must be
+// serialized locally as well.
+static PEER_CHANNEL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Ports of one contract block at offset 0 (TCP true, UDP false).
 const BLOCK: [(u16, bool); 6] = [
     (9090, true),
@@ -471,23 +477,43 @@ fn run_cli(node: &Node, args: &[&str], limit: Duration) -> (bool, String, String
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd.spawn().unwrap();
+    // Drain both pipes while the child runs. A CLI can emit diagnostics while
+    // a daemon is under load; polling wait() without readers lets a full pipe
+    // deadlock the child until this test's timeout kills it.
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let stdout_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut stdout = stdout;
+        let _ = stdout.read_to_end(&mut bytes);
+        bytes
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut stderr = stderr;
+        let _ = stderr.read_to_end(&mut bytes);
+        bytes
+    });
     let deadline = Instant::now() + limit;
     loop {
         if let Some(status) = child.try_wait().unwrap() {
-            let out = child.wait_with_output().unwrap();
+            let stdout = stdout_reader.join().unwrap_or_default();
+            let stderr = stderr_reader.join().unwrap_or_default();
             return (
                 status.success(),
-                String::from_utf8_lossy(&out.stdout).into_owned(),
-                String::from_utf8_lossy(&out.stderr).into_owned(),
+                String::from_utf8_lossy(&stdout).into_owned(),
+                String::from_utf8_lossy(&stderr).into_owned(),
             );
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
-            let out = child.wait_with_output().unwrap();
+            let _ = child.wait();
+            let _stdout = stdout_reader.join().unwrap_or_default();
+            let stderr = stderr_reader.join().unwrap_or_default();
             panic!(
                 "susi {args:?} as {} did not finish within {limit:?}; stderr:\n{}",
                 node.name,
-                String::from_utf8_lossy(&out.stderr)
+                String::from_utf8_lossy(&stderr)
             );
         }
         std::thread::sleep(Duration::from_millis(10));
@@ -512,6 +538,32 @@ fn peers_status(node: &Node) -> std::collections::HashMap<String, serde_json::Va
     rows.into_iter()
         .filter_map(|r| Some((r.get("node")?.as_str()?.to_string(), r)))
         .collect()
+}
+
+/// Poll the product status surface until every requested member answers
+/// without an error. A sealed HTTP exchange can be retried after a transient
+/// channel close; the final returned rows are still required to be successful.
+fn peers_status_until(
+    node: &Node,
+    others: &[&Node],
+    limit: Duration,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let deadline = Instant::now() + limit;
+    loop {
+        let rows = peers_status(node);
+        if others.iter().all(|other| {
+            rows.get(&other.node_id)
+                .is_some_and(|row| row.get("error").is_none())
+        }) {
+            return rows;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{} could not reach every requested peer within {limit:?}: {rows:?}",
+            node.name
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 fn allow_all(_: &SocketAddr) -> Result<(), String> {
@@ -595,6 +647,9 @@ fn assert_opaque(what: &str, bytes: &[u8], ids: &[&str]) {
 
 #[test]
 fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
+    let _process = PEER_CHANNEL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
@@ -713,7 +768,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     // machines only inside the channel (a member's CLI via its hub; the
     // hub's CLI via its own daemon and the members' uplinks).
     for (caller, others) in [(&a, [&hub, &b]), (&hub, [&a, &b])] {
-        let rows = peers_status(caller);
+        let rows = peers_status_until(caller, &others, up);
         for other in others {
             let row = rows.get(&other.node_id).unwrap_or_else(|| {
                 panic!("{} lists no row for {}: {rows:?}", caller.name, other.name)
@@ -920,8 +975,9 @@ fn binds(node: &Node, other: &Node) -> bool {
         .is_some_and(|r| r["pubkey"] == other.pubkey.as_str())
 }
 
-/// `susi peers add <endpoint>` as `node`, repeated until the hub reports
-/// that it admitted this node (its leader election runs on a cadence).
+/// `susi peers add <endpoint>` as `node`, repeated until the local node has
+/// accepted the hub (the hub's own admission is asserted by the caller after
+/// this returns; its leader election and response may run on a cadence).
 fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
     let deadline = Instant::now() + limit;
     loop {
@@ -954,7 +1010,7 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
             }
             panic!("peers add as {} failed: {stdout}{stderr}", node.name);
         }
-        if stdout.contains("admitted this node") {
+        if stdout.contains("verified + admitted over the sealed peer channel") {
             return format!("{stdout}{stderr}");
         }
         assert!(
@@ -979,6 +1035,9 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
 /// other through the hub.
 #[test]
 fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
+    let _process = PEER_CHANNEL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
