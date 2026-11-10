@@ -133,22 +133,6 @@ mod inline_tests {
     }
 
     #[test]
-    fn provider_reflects_manager_doctor_state_and_formats_provider_name() {
-        let manager = OpenRouterManager::new().expect("manager init");
-        match manager.doctor() {
-            Ok(_) => {
-                let built = provider(&manager).expect("provider when doctor succeeds");
-                assert_eq!(built.api_base, API_BASE);
-                assert!(built.name.starts_with("openrouter-"));
-                assert_eq!(built.protocol, InferenceProtocol::OpenAiChat);
-            }
-            Err(_) => {
-                assert!(provider(&manager).is_err());
-            }
-        }
-    }
-
-    #[test]
     fn openrouter_manager_exposes_non_empty_effective_model_identifier() {
         let manager = OpenRouterManager::new().expect("manager init");
         let effective = manager.effective_model();

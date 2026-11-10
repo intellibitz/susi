@@ -1,0 +1,1377 @@
+{
+  "schema": "susi-label-report/v1",
+  "task": "T-GROKLABEL-1",
+  "owner": "grok",
+  "host": "CachyOS Linux x86_64 (CEO laptop)",
+  "generated_unix": 1794346263,
+  "base_commit": "eba6c9fbae98773ee9f96f376344ecee413fa4f3",
+  "load_average_at_run": [
+    "45.06",
+    "41.58",
+    "35.16"
+  ],
+  "commands": {
+    "full_history": "distill lint --range eba6c9fbae98773ee9f96f376344ecee413fa4f3 --base eba6c9fbae98773ee9f96f376344ecee413fa4f3 --json",
+    "since_v0.21.53": "distill lint --range v0.21.53..eba6c9fbae98773ee9f96f376344ecee413fa4f3 --base eba6c9fbae98773ee9f96f376344ecee413fa4f3 --json"
+  },
+  "deterministic": true,
+  "runs_seconds_full_history": [
+    4.675,
+    2.884,
+    3.19
+  ],
+  "run_seconds_since_v0.21.53": 0.907,
+  "meaning": "A task listed under shipped_but_record_open has at least one non-merge commit on main whose Task: trailer names it, while its record at base is still open (status in_progress/open, or no status in .agents/tasks/). Some may legitimately have more work to come; each owner decides. Records were not edited.",
+  "summary_full_history": {
+    "commits": 7326,
+    "commits_touching_files_outside_task_scopes": 59,
+    "commits_with_local_label_only": 644,
+    "commits_with_malformed_trailer": 0,
+    "commits_with_task_trailer": 2637,
+    "commits_without_task_trailer": 4045,
+    "files_outside_task_scopes": 155,
+    "findings": 5603,
+    "local_labels": 165,
+    "tasks_landed_but_record_implemented_not_closed": 4,
+    "tasks_landed_but_record_open": 102,
+    "tasks_named": 1536,
+    "tasks_scoped_by_claim_ref_only": 30,
+    "tasks_without_record": 10,
+    "tasks_without_scopes": 1387
+  },
+  "summary_since_v0.21.53": {
+    "commits": 218,
+    "commits_touching_files_outside_task_scopes": 15,
+    "commits_with_local_label_only": 158,
+    "commits_with_malformed_trailer": 0,
+    "commits_with_task_trailer": 39,
+    "commits_without_task_trailer": 21,
+    "files_outside_task_scopes": 15,
+    "findings": 73,
+    "local_labels": 55,
+    "tasks_landed_but_record_implemented_not_closed": 3,
+    "tasks_landed_but_record_open": 37,
+    "tasks_named": 44,
+    "tasks_scoped_by_claim_ref_only": 1,
+    "tasks_without_record": 0,
+    "tasks_without_scopes": 0
+  },
+  "claim_refs_read": 114,
+  "shipped_but_record_open": {
+    "count": 102,
+    "by_owner_token": {
+      "A2ASTD": 1,
+      "AGENT17930233209632": 1,
+      "AGENT2026102817540410895": 1,
+      "ANTIGRAVITY": 1,
+      "BUDGET": 1,
+      "CICONF": 1,
+      "CIPERF": 1,
+      "CLAUDECLAIMGEN": 1,
+      "CLAUDEFASTHOOKS": 1,
+      "CLAUDEGEMICEILING": 1,
+      "CLAUDENOGITHUB": 1,
+      "CLAUDERELADAPTER": 1,
+      "CLAUDETESTFIX": 1,
+      "CODEXAGENTNATIVE20261101": 1,
+      "CODEXCEOMANDATES20261101": 2,
+      "CODEXFULLACCESS": 1,
+      "CODEXNATIVE20261101": 1,
+      "CODEXNATIVEPOLICY20261101": 1,
+      "CODEXNATIVETLS20261101": 1,
+      "CODEXPRODUCTIONPOLICY20261101": 1,
+      "CODEXSTEP1GOAL20261101": 1,
+      "CODEXWASMILIMITS20261101": 1,
+      "COMPILE2": 1,
+      "CONFORMANCE": 1,
+      "CORENET": 1,
+      "DEVWF": 1,
+      "DOTADVISORYFIX": 1,
+      "DOTAGY": 1,
+      "DOTASTRAFAILFAST": 1,
+      "DOTCASEFIX": 1,
+      "DOTCOMMERCIALRECEIPTTESTS": 1,
+      "DOTFASTGIT": 1,
+      "DOTGITPUBLISHER": 1,
+      "DOTGMCPCLEANUP": 1,
+      "DOTHARNESSNATIVE": 1,
+      "DOTHOSTMETRICS": 1,
+      "DOTMODELPUBLISH": 1,
+      "DOTOPENSSL": 1,
+      "DOTPEERLOG": 1,
+      "DOTPROOF": 1,
+      "DOTPUBLISHCORE": 1,
+      "DOTRACE": 1,
+      "DOTRELEASE": 1,
+      "DOTREUSE": 1,
+      "DOTREVOKE": 1,
+      "DOTSCHEDULER": 1,
+      "DOTSTATE": 1,
+      "DOTTESTORDER": 1,
+      "DOTWALLTIME": 1,
+      "EXTVALIDATE": 1,
+      "GATECOLOR": 1,
+      "GAWDMODSC4T1104": 1,
+      "GAWDTESTS5TB1104": 1,
+      "GEMINI": 1,
+      "GROK": 1,
+      "GROKPLATFORM1104": 1,
+      "GROKSOCKET1104": 1,
+      "GUIDE": 1,
+      "HOMECLUSTER": 1,
+      "HOSTONLY": 1,
+      "LEAFBOOT": 1,
+      "LEAN": 1,
+      "LEAN2": 1,
+      "LINUXBYOK": 1,
+      "LINUXPUB": 2,
+      "LOCALREPORT": 1,
+      "MAINFIX": 1,
+      "MERGERESTORE": 1,
+      "NOGH": 1,
+      "NOMCPSDK": 1,
+      "NOWINDOW": 1,
+      "OPENCORE": 1,
+      "PEERCHAN": 1,
+      "PEERSEC": 1,
+      "PEERSTATUS": 1,
+      "PORTFALLBACK": 1,
+      "PR1674": 1,
+      "PROBES": 1,
+      "PRUNECLOSEDADAPTERS": 1,
+      "PTEST": 1,
+      "README": 1,
+      "RECEIPTLINK": 1,
+      "RECEIPTS": 1,
+      "RECEIPTS2": 1,
+      "RELEASE45": 1,
+      "RELEASE46": 1,
+      "RELEASE47": 1,
+      "RELEASE48": 1,
+      "RELEASE53": 1,
+      "RELEASE53REC": 1,
+      "ROOTTESTS5TB1104": 1,
+      "SOCKFIX": 1,
+      "SOCKFIX2": 1,
+      "SOCKFIX3": 1,
+      "STEP1D": 1,
+      "STEP1RELEASE": 1,
+      "SUBSTRATE": 1,
+      "SWARMMOVE": 1,
+      "SYNCFIX": 1,
+      "VENDORSMALLCRATES4T1104": 1
+    },
+    "tasks": [
+      {
+        "task": "T-A2ASTD-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-A2ASTD-1.json",
+        "commits": 1,
+        "latest_commit": "f0a182b92fdc9b9ab1c7e13b2e45a91137b1254f",
+        "title": "Compile budget: the A2A HTTP stack off the path into susi-gawd"
+      },
+      {
+        "task": "T-AGENT17930233209632-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-AGENT17930233209632-1.json",
+        "commits": 1,
+        "latest_commit": "4a076a6c4655582c4a851c9611c78ac100739a5d",
+        "title": "Worker shells must be marked so the CLI can refuse harness commands"
+      },
+      {
+        "task": "T-AGENT2026102817540410895-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-AGENT2026102817540410895-1.json",
+        "commits": 1,
+        "latest_commit": "28d196b3d821d9bb006fa64fc5909fa22d7748b4",
+        "title": "Every susi workflow must use the susi harness (Mandate 61)"
+      },
+      {
+        "task": "T-ANTIGRAVITY-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-ANTIGRAVITY-1.json",
+        "commits": 1,
+        "latest_commit": "9a3810194b5b35780ea700aee7f7e530a8c916d0",
+        "title": "Lean-core rung 1 completion: MCP client over PlaneBus + std JSON-RPC 2.0 in susi-tools; drop susi-vendor-mcp and susi-vendor-jsonschema"
+      },
+      {
+        "task": "T-BUDGET-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-BUDGET-1.json",
+        "commits": 2,
+        "latest_commit": "73cd169838564f0232030266b4a1ec8bd78baecb",
+        "title": "Enforce host contract latency budgets in CI"
+      },
+      {
+        "task": "T-CICONF-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CICONF-1.json",
+        "commits": 3,
+        "latest_commit": "b14b56a5b14309f21936e2d247a5fa1a5286214f",
+        "title": "Run the host contract conformance suite in CI"
+      },
+      {
+        "task": "T-CIPERF-2",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CIPERF-2.json",
+        "commits": 1,
+        "latest_commit": "83f87c6aab3920e7894c94aeb4b449bdbe63e69f",
+        "title": "Close T-CLAUDECCRC9F023D1SDLJMO-2 locally"
+      },
+      {
+        "task": "T-CLAUDECLAIMGEN-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CLAUDECLAIMGEN-1.json",
+        "commits": 1,
+        "latest_commit": "849b0b4b6ad5051c4c658fda8a9fd87b1818a853",
+        "title": "push-policy: accept the claim generation counter so task claims publish again"
+      },
+      {
+        "task": "T-CLAUDEFASTHOOKS-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CLAUDEFASTHOOKS-1.json",
+        "commits": 1,
+        "latest_commit": "f55756dc1bf5798635b3ba4951247fed90f870bf",
+        "title": "Local git hooks must not slow the dev workflow"
+      },
+      {
+        "task": "T-CLAUDEGEMICEILING-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CLAUDEGEMICEILING-1.json",
+        "commits": 1,
+        "latest_commit": "e52dd0abb54e41842f3164590e777b319d02aaad",
+        "title": "Keep susi-gemi under its lean-core line ceiling: move the openrouter provider test out of src"
+      },
+      {
+        "task": "T-CLAUDENOGITHUB-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CLAUDENOGITHUB-1.json",
+        "commits": 1,
+        "latest_commit": "992e7539d1be7069e9b182e73a2245ef3f21fbcb",
+        "title": "Zero GitHub dependency: remove the GitHub hook files and refuse their return"
+      },
+      {
+        "task": "T-CLAUDERELADAPTER-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CLAUDERELADAPTER-1.json",
+        "commits": 1,
+        "latest_commit": "5a0e36229f54e87551fb38ab1587cb627c3ce972",
+        "title": "Native exact-tree release qualification adapter: release-qualify + push-policy release tags"
+      },
+      {
+        "task": "T-CLAUDETESTFIX-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CLAUDETESTFIX-1.json",
+        "commits": 1,
+        "latest_commit": "364600b9559a3c0c6ef0468e46c06017bcd3176b",
+        "title": "Root-fix the susi-gemi openrouter_ext provider test race"
+      },
+      {
+        "task": "T-CODEXAGENTNATIVE20261101-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CODEXAGENTNATIVE20261101-1.json",
+        "commits": 1,
+        "latest_commit": "eb4b644089180ecb7381756c903f54143facbbff",
+        "title": "Use native disk evidence and portable process fixtures on Windows"
+      },
+      {
+        "task": "T-CODEXCEOMANDATES20261101-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CODEXCEOMANDATES20261101-1.json",
+        "commits": 1,
+        "latest_commit": "8fb6676e3b04233defd498f20a6b2dd0b704a6a9",
+        "title": "Make CEO mandates canonical across runtime delegation and agent directives"
+      },
+      {
+        "task": "T-CODEXCEOMANDATES20261101-2",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CODEXCEOMANDATES20261101-2.json",
+        "commits": 1,
+        "latest_commit": "630f8e2f0ecadaa11fdeb8c8f7816234ca6d938c",
+        "title": "Persist CEO authority for agent commits pushes and merges"
+      },
+      {
+        "task": "T-CODEXFULLACCESS-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-CODEXFULLACCESS-1.json",
+        "commits": 2,
+        "latest_commit": "bd6e8b8b533bd586742779e88de697f4453c3ccf",
+        "title": "Run Codex sub-agents with full access instead of the removed --full-auto flag"
+      },
+      {
+        "task": "T-CODEXNATIVE20261101-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CODEXNATIVE20261101-1.json",
+        "commits": 10,
+        "latest_commit": "0bde6af78a35b9afd27c222e2752fc81ca9a2fe7",
+        "title": "Migrate Susi to native Rust, local agent development and strict permissive licenses"
+      },
+      {
+        "task": "T-CODEXNATIVEPOLICY20261101-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CODEXNATIVEPOLICY20261101-1.json",
+        "commits": 1,
+        "latest_commit": "af237ffa9f436e839ad2c0fdf354be6aeed024cc",
+        "title": "Assert actual native runtime dependency graph rather than historical facade names"
+      },
+      {
+        "task": "T-CODEXNATIVETLS20261101-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CODEXNATIVETLS20261101-1.json",
+        "commits": 3,
+        "latest_commit": "20edffb7fc859a45e5a0715f1fa8e183a14879be",
+        "title": "Move Windows TLS to native Schannel with isolated owned key lifetime"
+      },
+      {
+        "task": "T-CODEXPRODUCTIONPOLICY20261101-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CODEXPRODUCTIONPOLICY20261101-1.json",
+        "commits": 1,
+        "latest_commit": "2acf5a1a74157efaeafcff6fb096ed573e9cc902",
+        "title": "Align promotion contract regression with evidence-qualified local production"
+      },
+      {
+        "task": "T-CODEXSTEP1GOAL20261101-12",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CODEXSTEP1GOAL20261101-12.json",
+        "commits": 2,
+        "latest_commit": "2aaab9312315cc372dcd45c7f123fee116ce04c7",
+        "title": "Remove unused harness memory module and heavyweight dependencies"
+      },
+      {
+        "task": "T-CODEXWASMILIMITS20261101-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CODEXWASMILIMITS20261101-1.json",
+        "commits": 1,
+        "latest_commit": "72908c7c44789cdc39237965d493ae2915988ad9",
+        "title": "Bound per-store Wasmi resources and queued host payloads"
+      },
+      {
+        "task": "T-COMPILE2-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-COMPILE2-1.json",
+        "commits": 2,
+        "latest_commit": "3b2208d691d7d78fa988621b4a7aafd265553603",
+        "title": "Compile budget: the swarm-cell server without tokio"
+      },
+      {
+        "task": "T-CONFORMANCE-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-CONFORMANCE-1.json",
+        "commits": 11,
+        "latest_commit": "558dc437476026fb3a73297d1d4d1e615b769f3e",
+        "title": "Black-box host contract conformance suite and the contract fixes it found"
+      },
+      {
+        "task": "T-CORENET-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-CORENET-1.json",
+        "commits": 1,
+        "latest_commit": "faeacccb4446c664224bec34d0a51d7fc1996165",
+        "title": "susi-core off the async runtime and the HTTP stack"
+      },
+      {
+        "task": "T-DEVWF-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DEVWF-1.json",
+        "commits": 1,
+        "latest_commit": "e1d862574c133f52b845e3b5ea891f9c46a13b47",
+        "title": "Developer workflow (admin module) leaves open core for Susi Commercial Apps"
+      },
+      {
+        "task": "T-DOTADVISORYFIX-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTADVISORYFIX-1.json",
+        "commits": 1,
+        "latest_commit": "b6de2f277580502d4f783c696e3df178aee14c3e",
+        "title": "Make advisory test scratch directories collision-safe"
+      },
+      {
+        "task": "T-DOTAGY-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTAGY-1.json",
+        "commits": 1,
+        "latest_commit": "ddc7277f4e17f412cc9a50dc3e9c89cfcc4e97b1",
+        "title": "Correct Antigravity CLI model, invocation and discovery contract"
+      },
+      {
+        "task": "T-DOTASTRAFAILFAST-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTASTRAFAILFAST-1.json",
+        "commits": 1,
+        "latest_commit": "3cebe3585c763955dff1020f78db3c90b6b286f5",
+        "title": "Stop weighted runners after gate failure"
+      },
+      {
+        "task": "T-DOTCASEFIX-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTCASEFIX-1.json",
+        "commits": 1,
+        "latest_commit": "fe895c9f8326b44c87abcdc431cb3ffa6a993f1e",
+        "title": "Avoid staging missing already-staged paths"
+      },
+      {
+        "task": "T-DOTCOMMERCIALRECEIPTTESTS-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTCOMMERCIALRECEIPTTESTS-1.json",
+        "commits": 1,
+        "latest_commit": "3cebe3585c763955dff1020f78db3c90b6b286f5",
+        "title": "Verify receipt evidence and isolate replay registry environment"
+      },
+      {
+        "task": "T-DOTFASTGIT-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTFASTGIT-1.json",
+        "commits": 1,
+        "latest_commit": "81877e145d70ed17614d4bedad1d3476f02f4be5",
+        "title": "Batch native commit operation path resolution"
+      },
+      {
+        "task": "T-DOTGITPUBLISHER-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTGITPUBLISHER-1.json",
+        "commits": 1,
+        "latest_commit": "f92a9c6b598851e511f1f7373de7e3dee1e698c8",
+        "title": "Publish portable development source"
+      },
+      {
+        "task": "T-DOTGMCPCLEANUP-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTGMCPCLEANUP-1.json",
+        "commits": 1,
+        "latest_commit": "fe895c9f8326b44c87abcdc431cb3ffa6a993f1e",
+        "title": "Bound five native Windows GMCP cleanup helpers"
+      },
+      {
+        "task": "T-DOTHARNESSNATIVE-1",
+        "status": "in_progress",
+        "record": ".agents/tasks/T-DOTHARNESSNATIVE-1.json",
+        "commits": 1,
+        "latest_commit": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+        "title": "Qualify standalone harness native Windows entry"
+      },
+      {
+        "task": "T-DOTHOSTMETRICS-1",
+        "status": "in_progress",
+        "record": ".agents/tasks/T-DOTHOSTMETRICS-1.json",
+        "commits": 1,
+        "latest_commit": "798747545e9684dbcab6ec4a55ca5e3db8c1125c",
+        "title": "Preserve statvfs numeric semantics under Linux strict Clippy"
+      },
+      {
+        "task": "T-DOTMODELPUBLISH-1",
+        "status": "in_progress",
+        "record": ".agents/tasks/T-DOTMODELPUBLISH-1.json",
+        "commits": 1,
+        "latest_commit": "1c1a7640bb4eebb0967e87f871d425dcdc08ae19",
+        "title": "Unify model publication with fail-closed readiness and rollback"
+      },
+      {
+        "task": "T-DOTOPENSSL-1",
+        "status": "in_progress",
+        "record": ".agents/tasks/T-DOTOPENSSL-1.json",
+        "commits": 1,
+        "latest_commit": "466a15ad60b7e86e458fd41b9525d9add28841c2",
+        "title": "Discover trusted native system OpenSSL libraries"
+      },
+      {
+        "task": "T-DOTPEERLOG-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTPEERLOG-1.json",
+        "commits": 1,
+        "latest_commit": "ddc7277f4e17f412cc9a50dc3e9c89cfcc4e97b1",
+        "title": "Bound replay refusal diagnostic synchronization"
+      },
+      {
+        "task": "T-DOTPROOF-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTPROOF-1.json",
+        "commits": 1,
+        "latest_commit": "95bbe34878eb92f45c72ae9e8548d997e9221288",
+        "title": "Fail-closed workspace proof completion before parallel-gate expansion"
+      },
+      {
+        "task": "T-DOTPUBLISHCORE-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTPUBLISHCORE-1.json",
+        "commits": 1,
+        "latest_commit": "c7b666029f5a614a2240000bdf20efd1d621d424",
+        "title": "Publish reviewed desktop integration"
+      },
+      {
+        "task": "T-DOTRACE-001",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTRACE-001.json",
+        "commits": 1,
+        "latest_commit": "ddc7277f4e17f412cc9a50dc3e9c89cfcc4e97b1",
+        "title": "Handle exited CIM rows without weakening release ownership"
+      },
+      {
+        "task": "T-DOTRELEASE-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTRELEASE-1.json",
+        "commits": 1,
+        "latest_commit": "ddc7277f4e17f412cc9a50dc3e9c89cfcc4e97b1",
+        "title": "Match exact busy PID lines in Windows promotion regression"
+      },
+      {
+        "task": "T-DOTREUSE-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTREUSE-1.json",
+        "commits": 1,
+        "latest_commit": "74d74c89bc4ff77368c848a9a61ef6d50b81e301",
+        "title": "Preserve truthful native gate provenance and bounded Windows execution"
+      },
+      {
+        "task": "T-DOTREVOKE-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTREVOKE-1.json",
+        "commits": 1,
+        "latest_commit": "0d81c804c87a58b6ed5e36f60c866edeb2010829",
+        "title": "Persist revocation tombstones for every subject"
+      },
+      {
+        "task": "T-DOTSCHEDULER-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTSCHEDULER-1.json",
+        "commits": 1,
+        "latest_commit": "0d81c804c87a58b6ed5e36f60c866edeb2010829",
+        "title": "Bound test-runner libtest threads by acquired lanes"
+      },
+      {
+        "task": "T-DOTSTATE-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTSTATE-1.json",
+        "commits": 1,
+        "latest_commit": "b6de2f277580502d4f783c696e3df178aee14c3e",
+        "title": "Reuse locked workflow identity within source batches"
+      },
+      {
+        "task": "T-DOTTESTORDER-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTTESTORDER-1.json",
+        "commits": 1,
+        "latest_commit": "1c1a7640bb4eebb0967e87f871d425dcdc08ae19",
+        "title": "Start unchanged critical-path qualification test earlier"
+      },
+      {
+        "task": "T-DOTWALLTIME-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-DOTWALLTIME-1.json",
+        "commits": 1,
+        "latest_commit": "9bb9eaed1212a47815ddc61068d63de8b348e127",
+        "title": "Report actual outer workflow elapsed time"
+      },
+      {
+        "task": "T-EXTVALIDATE-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-EXTVALIDATE-1.json",
+        "commits": 2,
+        "latest_commit": "488a52c11939ab58b0e2a40ac0c10e8cc3b7fdf8",
+        "title": "Author-side extension pack validation"
+      },
+      {
+        "task": "T-GATECOLOR-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-GATECOLOR-1.json",
+        "commits": 2,
+        "latest_commit": "d9e3c93f16b2d6e43a7416a20b9d59f1b57da4cb",
+        "title": "Native gate evidence parses coloured cargo output"
+      },
+      {
+        "task": "T-GAWDMODSC4T1104-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-GAWDMODSC4T1104-1.json",
+        "commits": 1,
+        "latest_commit": "cb8ab859e62a2572e0fbe185a265f9c64c580d29",
+        "title": "Expand final 6 crates/susi-gawd/src/*.rs modules to 4 unit tests each"
+      },
+      {
+        "task": "T-GAWDTESTS5TB1104-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-GAWDTESTS5TB1104-1.json",
+        "commits": 1,
+        "latest_commit": "1417d9813ac9304e678514467f4346af4d227f6e",
+        "title": "test(susi-gawd): advance 16 Wave B test suites to 5 unit tests each (#330)"
+      },
+      {
+        "task": "T-GEMINI-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-GEMINI-1.json",
+        "commits": 2,
+        "latest_commit": "adb95413a35d818f335a73e2063be412f5fe91c9",
+        "title": "Lean-core wave: parking_lot, dashmap and flume replaced by std::sync in the pillar crates"
+      },
+      {
+        "task": "T-GROK-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-GROK-1.json",
+        "commits": 1,
+        "latest_commit": "66ba1a1c0f39cbf2ef8d5c1ca7ffce640196100d",
+        "title": "Docs: agent handoff and rescue rules for unfinished work"
+      },
+      {
+        "task": "T-GROKPLATFORM1104-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-GROKPLATFORM1104-1.json",
+        "commits": 1,
+        "latest_commit": "c93037a2a03f742e877f8257f7ead5b156f3b18c",
+        "title": "Record that core CI does not run Windows ARM"
+      },
+      {
+        "task": "T-GROKSOCKET1104-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-GROKSOCKET1104-1.json",
+        "commits": 1,
+        "latest_commit": "dd10e9d9c54224d5891788dfcb0c5d901dfc781c",
+        "title": "Record the open-source socket boundary"
+      },
+      {
+        "task": "T-GUIDE-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-GUIDE-1.json",
+        "commits": 2,
+        "latest_commit": "435f53071df02f8499d26a99ca826c7cb04c73ce",
+        "title": "Integration guide for products built on the host contract"
+      },
+      {
+        "task": "T-HOMECLUSTER-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-HOMECLUSTER-1.json",
+        "commits": 2,
+        "latest_commit": "f2a00a36e0dbc862ded1482323baae2b4b453f45",
+        "title": "Zero-config home-LAN peer key preservation and attested status fallback"
+      },
+      {
+        "task": "T-HOSTONLY-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-HOSTONLY-1.json",
+        "commits": 1,
+        "latest_commit": "92f7ee498ac9103ee2e4bd2a86f0a646a20443ad",
+        "title": "host_only privacy mode: confine Susi to this machine alone"
+      },
+      {
+        "task": "T-LEAFBOOT-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-LEAFBOOT-1.json",
+        "commits": 2,
+        "latest_commit": "dfcab957f938cd8ac48da30a6e42ffdd48638fb3",
+        "title": "Start the five leaf services together"
+      },
+      {
+        "task": "T-LEAN-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-LEAN-1.json",
+        "commits": 9,
+        "latest_commit": "6dc0762aedb74c07ac834b6f1e781e116a2c915e",
+        "title": "Lean-core program: ceilings, plan, and the first dependency cuts in the pillars"
+      },
+      {
+        "task": "T-LEAN2-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-LEAN2-1.json",
+        "commits": 2,
+        "latest_commit": "bb17af4697a4d67c322162d18ea53464a53e9007",
+        "title": "Lean-core wave 2: std JSON Schema validation in GMCP, OS probes without sysinfo"
+      },
+      {
+        "task": "T-LINUXBYOK-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-LINUXBYOK-1.json",
+        "commits": 1,
+        "latest_commit": "d7d7b563469e682cdd5febb0b76bea384b9a82f0",
+        "title": "Linux BYOK: daemon keys, current Kimi and SiliconFlow defaults, truthful local model"
+      },
+      {
+        "task": "T-LINUXPUB-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-LINUXPUB-1.json",
+        "commits": 1,
+        "latest_commit": "52b23b36f240b4922eb858c94a6781c51020cb5d",
+        "title": "Validate the Git storage publisher on Linux and test it through the real pre-push hook"
+      },
+      {
+        "task": "T-LINUXPUB-2",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-LINUXPUB-2.json",
+        "commits": 1,
+        "latest_commit": "72ab56ee74d212c34dc61d973e5562359962f1e2",
+        "title": "Restore the xtask binary build and parse Windows gate logs on Linux"
+      },
+      {
+        "task": "T-LOCALREPORT-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-LOCALREPORT-1.json",
+        "commits": 3,
+        "latest_commit": "dc60e9f786be6599cb75630e3b13eefa90e3b39e",
+        "title": "Local reports skip the CLI composition root"
+      },
+      {
+        "task": "T-MAINFIX-1",
+        "status": "in_progress",
+        "record": ".agents/tasks/T-MAINFIX-1.json",
+        "commits": 4,
+        "latest_commit": "d771008a39d6557dcdb485bf62f3642fcd0a0d31",
+        "title": "Repair main's clippy, guard-test and capacity-race failures"
+      },
+      {
+        "task": "T-MERGERESTORE-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-MERGERESTORE-1.json",
+        "commits": 8,
+        "latest_commit": "8663a8b6f7c0ef915d2f64d7d92a3c24d420952b",
+        "title": "Restore work discarded by one-sided merges on main"
+      },
+      {
+        "task": "T-NOGH-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-NOGH-1.json",
+        "commits": 2,
+        "latest_commit": "691b8dfa84c4d469608bdf6c4a9fc27190ef20fd",
+        "title": "GitHub is storage only: release records in git, installers and release sync build tags from source, gate tool posts no commit statuses"
+      },
+      {
+        "task": "T-NOMCPSDK-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-NOMCPSDK-1.json",
+        "commits": 1,
+        "latest_commit": "732caf7d273fe8555ebeb0fc21cbcaff128e0df3",
+        "title": "Compile budget: GMCP serves MCP without the rmcp SDK"
+      },
+      {
+        "task": "T-NOWINDOW-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-NOWINDOW-1.json",
+        "commits": 1,
+        "latest_commit": "fe895c9f8326b44c87abcdc431cb3ffa6a993f1e",
+        "title": "No console window from unattended console launches"
+      },
+      {
+        "task": "T-OPENCORE-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-OPENCORE-1.json",
+        "commits": 1,
+        "latest_commit": "18a540f95ee0b7b16f221e58be4f6b8dab4e2704",
+        "title": "State the open-core boundary in the governing contract"
+      },
+      {
+        "task": "T-PEERCHAN-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-PEERCHAN-1.json",
+        "commits": 1,
+        "latest_commit": "c70d17be15cfa774b8f0369ceeaa43957d35529a",
+        "title": "Sealed peer channel: identity-keyed members across NAT through one hub port"
+      },
+      {
+        "task": "T-PEERSEC-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-PEERSEC-1.json",
+        "commits": 8,
+        "latest_commit": "c69836217a0591e735225bfc1a67e221f1ee3105",
+        "title": "Peer credential hardening: attested targets only, bound discovery pings, no plaintext credentials off-host, honest local_only wording"
+      },
+      {
+        "task": "T-PEERSTATUS-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-PEERSTATUS-1.json",
+        "commits": 1,
+        "latest_commit": "e3795c9fed41a74fb9da75a529f8d6fecea5becc",
+        "title": "susi peers status shows a live but unreachable member as live, not offline"
+      },
+      {
+        "task": "T-PORTFALLBACK-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-PORTFALLBACK-1.json",
+        "commits": 4,
+        "latest_commit": "9db9f3d477d845b4568af3cfad71f3a5a297bf16",
+        "title": "Automatic host-contract port fallback to the first free block of 100"
+      },
+      {
+        "task": "T-PR1674-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-PR1674-1.json",
+        "commits": 1,
+        "latest_commit": "45a5cdcbbe0b64f0aacd6d776a40f442e010c11e",
+        "title": "Adopt pull request #1674: pii_redact Wasm reflex example in docs/extension-pack.md, with a review fix"
+      },
+      {
+        "task": "T-PROBES-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-PROBES-1.json",
+        "commits": 2,
+        "latest_commit": "b85ddd394d33003b939407bdef87578a967b2780",
+        "title": "Probe local service and contract ports concurrently"
+      },
+      {
+        "task": "T-PRUNECLOSEDADAPTERS-3",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-PRUNECLOSEDADAPTERS-3.json",
+        "commits": 6,
+        "latest_commit": "f95b91f821f9fc9b9e10e6bfd6aaaed764878730",
+        "title": "Cut v0.21.28 and speed the release gate"
+      },
+      {
+        "task": "T-PTEST-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-PTEST-1.json",
+        "commits": 2,
+        "latest_commit": "0876ae1073554ba3971b6b07f6cc5250db176d34",
+        "title": "Run the local gate's test binaries concurrently, each in a private home"
+      },
+      {
+        "task": "T-README-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-README-1.json",
+        "commits": 1,
+        "latest_commit": "3415f4ba493a69bec31b7ce63319926b1259fffd",
+        "title": "Front door restructure: landing-page README, docs/architecture.md, docs/evidence.md"
+      },
+      {
+        "task": "T-RECEIPTLINK-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-RECEIPTLINK-1.json",
+        "commits": 1,
+        "latest_commit": "421cf209e09aeed614b74b92d1641d7b29ca9ee2",
+        "title": "The README links the gate receipts and their verifier"
+      },
+      {
+        "task": "T-RECEIPTS-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-RECEIPTS-1.json",
+        "commits": 3,
+        "latest_commit": "0edc66c48741d1e7740008ba75c645f77d3b6680",
+        "title": "Gated landings leave a third-party re-runnable receipt in the tree"
+      },
+      {
+        "task": "T-RECEIPTS2-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-RECEIPTS2-1.json",
+        "commits": 3,
+        "latest_commit": "25c460976188749a43d39653059d6d683ff238f3",
+        "title": "Gate receipts: harness lists for serial test gates; a verifier that re-runs clippy, survives long Windows paths and checks out the committed bytes"
+      },
+      {
+        "task": "T-RELEASE45-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-RELEASE45-1.json",
+        "commits": 2,
+        "latest_commit": "1ea49971a796fa6dd72f1cb5ec26d3c0118613ee",
+        "title": "Release Susi 0.21.45"
+      },
+      {
+        "task": "T-RELEASE46-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-RELEASE46-1.json",
+        "commits": 2,
+        "latest_commit": "d1617425258020d4e3309ee8213657c3d2bd2a62",
+        "title": "Release Susi 0.21.46"
+      },
+      {
+        "task": "T-RELEASE47-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-RELEASE47-1.json",
+        "commits": 8,
+        "latest_commit": "797e37081cb0a56cfa69d60f31cafda1ec6f8edf",
+        "title": "Release Susi 0.21.47 as the installed Windows production release"
+      },
+      {
+        "task": "T-RELEASE48-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-RELEASE48-1.json",
+        "commits": 5,
+        "latest_commit": "b285e114d0b52709aea52c7b9f455d9197a10ea6",
+        "title": "Cut Susi 0.21.48: bump the engine version and hand the tagged build to release.yml"
+      },
+      {
+        "task": "T-RELEASE53-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-RELEASE53-1.json",
+        "commits": 1,
+        "latest_commit": "afdbc3a995dc1c7f27505155344bb614d724d46f",
+        "title": "Cut Susi core 0.21.53: bump the engine version for the three-laptop cluster cutover"
+      },
+      {
+        "task": "T-RELEASE53REC-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-RELEASE53REC-1.json",
+        "commits": 1,
+        "latest_commit": "a9f0b95e19b242fd9ed74a238709ae1c1b6c6c32",
+        "title": "Record Susi core v0.21.53: the committed release record of the tag"
+      },
+      {
+        "task": "T-ROOTTESTS5TB1104-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-ROOTTESTS5TB1104-1.json",
+        "commits": 1,
+        "latest_commit": "434a6f18a682e4ff5d556fd32804fc82bf02e54b",
+        "title": "Advance root tests/*.rs Wave B integration suites to 5 unit tests each (#335)"
+      },
+      {
+        "task": "T-SOCKFIX-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-SOCKFIX-1.json",
+        "commits": 1,
+        "latest_commit": "c60bb469f2d7b64fef7d50a571080ec34cdf236c",
+        "title": "Gossip honours bind_address"
+      },
+      {
+        "task": "T-SOCKFIX2-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-SOCKFIX2-1.json",
+        "commits": 1,
+        "latest_commit": "86516953bc777eefa7a6f6869f8022bc67f5aabe",
+        "title": "Leaf teardown is in-process and wakes on shutdown"
+      },
+      {
+        "task": "T-SOCKFIX3-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-SOCKFIX3-1.json",
+        "commits": 1,
+        "latest_commit": "aae59f4c2681a8545805e9da42d6cd730ac3f0b3",
+        "title": "A dead daemon's ports are free"
+      },
+      {
+        "task": "T-STEP1D-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-STEP1D-1.json",
+        "commits": 1,
+        "latest_commit": "bc154dd246049009d4b0be309d39208e662e799e",
+        "title": "Let slow downloads finish and judge a tool-free local recovery answer like the first attempt"
+      },
+      {
+        "task": "T-STEP1RELEASE-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-STEP1RELEASE-1.json",
+        "commits": 3,
+        "latest_commit": "7c25c4824ce2a4dfcf3f17e6342bfdaae75a2747",
+        "title": "Enforce measured native release health and Step 1 acceptance"
+      },
+      {
+        "task": "T-SUBSTRATE-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-SUBSTRATE-1.json",
+        "commits": 2,
+        "latest_commit": "fbdfec2565e40f909a4130a6fe926b14a0da3615",
+        "title": "Faster susi substrate on a stopped host"
+      },
+      {
+        "task": "T-SWARMMOVE-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-SWARMMOVE-1.json",
+        "commits": 2,
+        "latest_commit": "8ced33ef5c21eb05c6354994a087b18bd1d0fceb",
+        "title": "Swarm product modules leave the open core (parallel roadmap agents to Susi Frontier Lab)"
+      },
+      {
+        "task": "T-SYNCFIX-1",
+        "status": "in_progress/in_progress",
+        "record": ".agents/tasks/T-SYNCFIX-1.json",
+        "commits": 1,
+        "latest_commit": "46c9abe747d495bddee8463651170e2c901e96f7",
+        "title": "Release sync swaps while the daemon runs"
+      },
+      {
+        "task": "T-VENDORSMALLCRATES4T1104-1",
+        "status": "(no status field)",
+        "record": ".agents/tasks/T-VENDORSMALLCRATES4T1104-1.json",
+        "commits": 1,
+        "latest_commit": "5452400649ef6179fd7f6a00c6d0d2ea515fc153",
+        "title": "test(vendor): expand inline unit tests to 4 in rcgen, wasmtime, mcp-server, and windows-runtime"
+      }
+    ]
+  },
+  "shipped_but_record_open_since_v0.21.53": [
+    "T-CLAUDECLAIMGEN-1",
+    "T-CLAUDEFASTHOOKS-1",
+    "T-CLAUDEGEMICEILING-1",
+    "T-CLAUDENOGITHUB-1",
+    "T-CLAUDERELADAPTER-1",
+    "T-CLAUDETESTFIX-1",
+    "T-CODEXFULLACCESS-1",
+    "T-DOTADVISORYFIX-1",
+    "T-DOTAGY-1",
+    "T-DOTASTRAFAILFAST-1",
+    "T-DOTCASEFIX-1",
+    "T-DOTCOMMERCIALRECEIPTTESTS-1",
+    "T-DOTFASTGIT-1",
+    "T-DOTGITPUBLISHER-1",
+    "T-DOTGMCPCLEANUP-1",
+    "T-DOTHARNESSNATIVE-1",
+    "T-DOTHOSTMETRICS-1",
+    "T-DOTMODELPUBLISH-1",
+    "T-DOTOPENSSL-1",
+    "T-DOTPEERLOG-1",
+    "T-DOTPROOF-1",
+    "T-DOTPUBLISHCORE-1",
+    "T-DOTRACE-001",
+    "T-DOTRELEASE-1",
+    "T-DOTREUSE-1",
+    "T-DOTREVOKE-1",
+    "T-DOTSCHEDULER-1",
+    "T-DOTSTATE-1",
+    "T-DOTTESTORDER-1",
+    "T-DOTWALLTIME-1",
+    "T-LINUXBYOK-1",
+    "T-LINUXPUB-1",
+    "T-LINUXPUB-2",
+    "T-MAINFIX-1",
+    "T-NOWINDOW-1",
+    "T-RELEASE53REC-1",
+    "T-SYNCFIX-1"
+  ],
+  "implemented_not_closed": [
+    {
+      "commits": 1,
+      "latest_commit": "3cebe3585c763955dff1020f78db3c90b6b286f5",
+      "record": ".agents/tasks/T-DOTREGISTRYISOLATION-1.json",
+      "status": "implemented_pending_integration",
+      "task": "T-DOTREGISTRYISOLATION-1",
+      "title": "Isolate native qualification from persistent Windows credentials"
+    },
+    {
+      "commits": 1,
+      "latest_commit": "d898071514bf68540aac0e7f517e8f8c329b08e1",
+      "record": ".agents/tasks/T-GROKPUBLINUX-1.json",
+      "status": "implemented/implemented",
+      "task": "T-GROKPUBLINUX-1",
+      "title": "Validate the Git storage publisher natively on Linux x86_64"
+    },
+    {
+      "commits": 1,
+      "latest_commit": "725131db00e53f9eee72205babc7878b3443746f",
+      "record": ".agents/tasks/T-GROKSTEP1LINUX-2.json",
+      "status": "implemented/implemented",
+      "task": "T-GROKSTEP1LINUX-2",
+      "title": "Measure the CEO 60-second goal on the CachyOS laptop against current main"
+    },
+    {
+      "commits": 1,
+      "latest_commit": "1c0565252a2abf33aee576a21906bce04d4de91b",
+      "record": ".agents/tasks/T-STEP1WIN-1.json",
+      "status": "implemented_pending_integration",
+      "task": "T-STEP1WIN-1",
+      "title": "Step 1 on native Windows x86_64: verify #1668 and #114 on main, close T-GROK-2, record what qualification needs"
+    }
+  ],
+  "tasks_without_record": [
+    {
+      "commits": 2,
+      "latest_commit": "0a6dd3e6b0891103ec314e064f6898748be250a8",
+      "task": "T-CODEXROOTINTEGRATION20261101-1"
+    },
+    {
+      "commits": 3,
+      "latest_commit": "35e27cc871e02b3f38146d87182bb7d7809ca7f8",
+      "task": "T-CODEXSTEP120261101-4"
+    },
+    {
+      "commits": 3,
+      "latest_commit": "80adf88da1cf03ff8519ea9f285a5b0a1ce6c32d",
+      "task": "T-CODEXSTEP120261101-5"
+    },
+    {
+      "commits": 2,
+      "latest_commit": "e27288f9aeb3db8106d87e2d5730dee557dc9be0",
+      "task": "T-CODEXSTEP1GOAL20261101-10"
+    },
+    {
+      "commits": 2,
+      "latest_commit": "3585b06a0fcb17867d7ddfa252a3b9c94237455c",
+      "task": "T-CODEXSTEP1GOAL20261101-11"
+    },
+    {
+      "commits": 4,
+      "latest_commit": "f013a3afd508e0c4acfec64058ec779510e75668",
+      "task": "T-CODEXSTEP1GOAL20261101-9"
+    },
+    {
+      "commits": 4,
+      "latest_commit": "9654d4b3889e76a555503c6fb5cb916fb1c4e198",
+      "task": "T-CODEXSTEP1NATIVESPEED20261101-4"
+    },
+    {
+      "commits": 6,
+      "latest_commit": "06642c0ebda9190a8caca876711f7ce9c739a6cb",
+      "task": "T-CODEXSTEP1NATIVESPEED20261101-5"
+    },
+    {
+      "commits": 2,
+      "latest_commit": "1f59930259ad4a31f9a4b69869804a60f6a5a684",
+      "task": "T-ROOTTESTS5TE1104-1"
+    },
+    {
+      "commits": 1,
+      "latest_commit": "cf86a3bb91f9527d259bd52b1c0a080a2d8afd04",
+      "task": "T-STEP1ATTRIBUTION-1"
+    }
+  ],
+  "commits_outside_task_scopes_since_v0.21.53": [
+    {
+      "commit": "992e7539d1be7069e9b182e73a2245ef3f21fbcb",
+      "file_count": 1,
+      "files": [
+        "AGENTS.md"
+      ],
+      "subject": "Zero GitHub dependency: remove the .github hook files and refuse their return",
+      "tasks": [
+        "T-CLAUDENOGITHUB-1"
+      ]
+    },
+    {
+      "commit": "c7b666029f5a614a2240000bdf20efd1d621d424",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/a28e3b6205161bfef5c72f1226a5b08db99906ce.json"
+      ],
+      "subject": "receipt: gated landing a28e3b6205161bfef5c72f1226a5b08db99906ce",
+      "tasks": [
+        "T-DOTPUBLISHCORE-1"
+      ]
+    },
+    {
+      "commit": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/eb67d94d48c49672bf644d81fc3389355be2b208.json"
+      ],
+      "subject": "receipt: gated landing eb67d94d48c49672bf644d81fc3389355be2b208",
+      "tasks": [
+        "T-DOTHARNESSNATIVE-1"
+      ]
+    },
+    {
+      "commit": "3cebe3585c763955dff1020f78db3c90b6b286f5",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/3a0d9c217b394f63e52b4d4c0135e7198a04cadf.json"
+      ],
+      "subject": "receipt: gated landing 3a0d9c217b394f63e52b4d4c0135e7198a04cadf",
+      "tasks": [
+        "T-DOTASTRAFAILFAST-1",
+        "T-DOTCOMMERCIALRECEIPTTESTS-1",
+        "T-DOTREGISTRYISOLATION-1"
+      ]
+    },
+    {
+      "commit": "1c1a7640bb4eebb0967e87f871d425dcdc08ae19",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/93889365b6987b90dc0a22068c0e06be81661668.json"
+      ],
+      "subject": "receipt: gated landing 93889365b6987b90dc0a22068c0e06be81661668",
+      "tasks": [
+        "T-DOTMODELPUBLISH-1",
+        "T-DOTTESTORDER-1"
+      ]
+    },
+    {
+      "commit": "fe895c9f8326b44c87abcdc431cb3ffa6a993f1e",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/dc23513661c70ccfb0a39f27e5780862b107d0f2.json"
+      ],
+      "subject": "receipt: gated landing dc23513661c70ccfb0a39f27e5780862b107d0f2",
+      "tasks": [
+        "T-DOTCASEFIX-1",
+        "T-DOTGMCPCLEANUP-1",
+        "T-NOWINDOW-1"
+      ]
+    },
+    {
+      "commit": "0d81c804c87a58b6ed5e36f60c866edeb2010829",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/2ae050b534aa10f5ed4195aa50ca3c33987f46fe.json"
+      ],
+      "subject": "receipt: gated landing 2ae050b534aa10f5ed4195aa50ca3c33987f46fe",
+      "tasks": [
+        "T-DOTREVOKE-1",
+        "T-DOTSCHEDULER-1"
+      ]
+    },
+    {
+      "commit": "b6de2f277580502d4f783c696e3df178aee14c3e",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/674dcc121fd339d6cfcd99860cefe20be87a3887.json"
+      ],
+      "subject": "receipt: gated landing 674dcc121fd339d6cfcd99860cefe20be87a3887",
+      "tasks": [
+        "T-DOTADVISORYFIX-1",
+        "T-DOTSTATE-1"
+      ]
+    },
+    {
+      "commit": "9bb9eaed1212a47815ddc61068d63de8b348e127",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/1e5ea21a6a381ecad2caa5bf323c1cf079e66bd7.json"
+      ],
+      "subject": "receipt: gated landing 1e5ea21a6a381ecad2caa5bf323c1cf079e66bd7",
+      "tasks": [
+        "T-DOTWALLTIME-1"
+      ]
+    },
+    {
+      "commit": "81877e145d70ed17614d4bedad1d3476f02f4be5",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/59bc7e25375967a1b79b6c4418a2f599a6b79d65.json"
+      ],
+      "subject": "receipt: gated landing 59bc7e25375967a1b79b6c4418a2f599a6b79d65",
+      "tasks": [
+        "T-DOTFASTGIT-1"
+      ]
+    },
+    {
+      "commit": "74d74c89bc4ff77368c848a9a61ef6d50b81e301",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/056ece72aabe3410e1919c598c28958db97a504f.json"
+      ],
+      "subject": "receipt: gated landing 056ece72aabe3410e1919c598c28958db97a504f",
+      "tasks": [
+        "T-DOTREUSE-1"
+      ]
+    },
+    {
+      "commit": "95bbe34878eb92f45c72ae9e8548d997e9221288",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/630f845d7aaeb94031a1d098cd926286009a6566.json"
+      ],
+      "subject": "receipt: gated landing 630f845d7aaeb94031a1d098cd926286009a6566",
+      "tasks": [
+        "T-DOTPROOF-1"
+      ]
+    },
+    {
+      "commit": "ddc7277f4e17f412cc9a50dc3e9c89cfcc4e97b1",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/9bc8ed365c3f1b010294fb8b0a36555471777b37.json"
+      ],
+      "subject": "receipt: gated landing 9bc8ed365c3f1b010294fb8b0a36555471777b37",
+      "tasks": [
+        "T-DOTAGY-1",
+        "T-DOTPEERLOG-1",
+        "T-DOTRACE-001",
+        "T-DOTRELEASE-1"
+      ]
+    },
+    {
+      "commit": "46c9abe747d495bddee8463651170e2c901e96f7",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/548451b04284a6ef98de65f653cbbc8d608882e0.json"
+      ],
+      "subject": "receipt: gated landing 548451b04284a6ef98de65f653cbbc8d608882e0",
+      "tasks": [
+        "T-SYNCFIX-1"
+      ]
+    },
+    {
+      "commit": "a9f0b95e19b242fd9ed74a238709ae1c1b6c6c32",
+      "file_count": 1,
+      "files": [
+        ".agents/receipts/d02589b9391c5c8327e0e357889033e5de1390ee.json"
+      ],
+      "subject": "receipt: gated landing d02589b9391c5c8327e0e357889033e5de1390ee",
+      "tasks": [
+        "T-RELEASE53REC-1"
+      ]
+    }
+  ],
+  "commits_without_task_trailer_since_v0.21.53": [
+    {
+      "commit": "0b579245da77c4e4dc3cfcbf9500d2a5de19dc74",
+      "subject": "chore(tasks): open T-CODEXFULLACCESS-1"
+    },
+    {
+      "commit": "09af4ec43a9f442c936809a3f2b4e781267bd952",
+      "subject": "chore(tasks): open T-CODEXFULLACCESS-1"
+    },
+    {
+      "commit": "a358d6f6dba88c142dec70d972db6177f699afdd",
+      "subject": "test: clear the two Linux-only clippy errors in hook test suites"
+    },
+    {
+      "commit": "11310b3e22cea6b9c178a2e1524ca4894c2631d2",
+      "subject": "fix(config): carry the Linux statvfs clippy allowance from linuxbyok"
+    },
+    {
+      "commit": "8bc97e9de62fa2c0cd0c6b7d3abd06d4c6a419f0",
+      "subject": "fix(gemi): native fallback detects local engines without running them"
+    },
+    {
+      "commit": "c7496ae97a1c64345c9d5dd9c8326d9b2c9e9f41",
+      "subject": "wip: snapshot of uncommitted local-agent/dot-openssl worktree edits (unreviewed)"
+    },
+    {
+      "commit": "bec7018b769639b1f64cd8d681d53a6fb35dbe88",
+      "subject": "wip: snapshot of uncommitted local-agent/dot-git-publisher worktree edits (unreviewed)"
+    },
+    {
+      "commit": "0e59c4a3fb94984e423356cd52dc22bb6a2d24d8",
+      "subject": "Wip/dot icu78 (#1688)"
+    },
+    {
+      "commit": "96a30758655fbd94a384d1619ec0be056954921d",
+      "subject": "Wip/dotstdiodesk20261110 (#1687)"
+    },
+    {
+      "commit": "4638bfbc63db1b13126a06a0e6345b954799d6c2",
+      "subject": "fix: backfill available weighted test lanes (#1686)"
+    },
+    {
+      "commit": "1cab1066cc49931ae5904a5301e05851de040fba",
+      "subject": "Wip/dotunixfixturesdesk20261110 (#1685)"
+    },
+    {
+      "commit": "b9fe328742e6181ed3e88e9b58e9fb9a78b79f89",
+      "subject": "Wip/dot opus workspace runner local tip (#1684)"
+    },
+    {
+      "commit": "97c3fe90d58eb89fe820ffd5d4853d0651ccdb26",
+      "subject": "Wip/dot git publisher (#1683)"
+    },
+    {
+      "commit": "66ecc0335f8677294043033893d5d2837fffc1df",
+      "subject": "Wip/dotwarmdesk20261110 (#1682)"
+    },
+    {
+      "commit": "487c36292a7131ca94d8a03d3834e5aba8e6d247",
+      "subject": "Wip/dotobservedesk20261110 (#1681)"
+    },
+    {
+      "commit": "6a7b1bab76a6ddb2f88703feb1628cccb4f9dee6",
+      "subject": "wip: snapshot of uncommitted local-agent/dot-host-metrics worktree edits (unreviewed) (#1680)"
+    },
+    {
+      "commit": "5607cc09dba14c34310ff984b5d1f4aed648e0be",
+      "subject": "Wip/dot opus workspace runner (#1679)"
+    },
+    {
+      "commit": "aeebca7695917555ccc320e392a77eed600daf61",
+      "subject": "Fix/codex full access flags (#1678)"
+    },
+    {
+      "commit": "45a18395376561859113ecd9f82d2278f7d07d7f",
+      "subject": "Wip/dot parallel capacity (#1677)"
+    },
+    {
+      "commit": "7697b4d59e19b8105dffce5b7e963d54e95587ff",
+      "subject": "Wip/dot provider neutral (#1676)"
+    },
+    {
+      "commit": "8ba18e788e1621fb5af8b27de5f5a2d2c5308ccc",
+      "subject": "Wip/dot retire handoff (#1675)"
+    }
+  ],
+  "limitations": [
+    "tasks_without_scopes is high in full history (most older closed records never declared scopes, and `tasks close` drops the field); only local claim refs fill the gap.",
+    "Merge commits are not linted.",
+    "Claim refs are read from this clone; another clone may have different claim refs, changing only scope findings for scope-less records.",
+    "`Task: LOCAL-<name>` commits are reported separately: labelled, but not distillable from records."
+  ]
+}

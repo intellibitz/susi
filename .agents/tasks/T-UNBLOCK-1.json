@@ -1,0 +1,57 @@
+{
+  "id": "T-UNBLOCK-1",
+  "title": "Linux local-workflow claims, explicit lock release, and two race fixes",
+  "goal": "Make cargo local-workflow usable on Linux when the shared claim state holds claims recorded on Windows, release every try-locked guard explicitly instead of by close, and fix the two intermittent xtask unit tests at their root.",
+  "size": "M",
+  "deps": [],
+  "created_by": "unblock",
+  "created_unix": 1794344346,
+  "status": "done",
+  "base": "d771008a39ffb3ad9e8b0ac0a49d2ad73e3c16d0",
+  "scopes": [
+    ".agents/tasks/T-UNBLOCK-1.json",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/dev_capacity.rs",
+    "xtask/src/native_provenance.rs",
+    "src/installed_channel/transaction.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "--bin",
+      "xtask"
+    ]
+  },
+  "decisions": {
+    "foreign_claims": "The claim directory lives in the shared .git, which this checkout exposes to both Windows and Linux. A claim whose worktree is absolute on some host (Unix root, Windows drive root or UNC root) but not on this one is read as a foreign-host claim: it is listed (marked [other host] in list/status, \"local\": false in status --json) and its scopes still reserve paths for start and extend. Operations that act on a claim's own worktree (release, commit, finish-merge, extend/shrink, integrate, ship) refuse a foreign claim with 'recorded on another host; run this from that host'. A relative path is still refused. The existing claim files were not edited.",
+    "start_location": "start derived the primary checkout from --show-toplevel, so running it from an agent worktree (agents never run in the primary) created <agent-worktree>-agent-<name>. It now uses the parent of the git common dir, the rule candidate_path already uses, with --show-toplevel as the fallback for a non-standard common dir.",
+    "claim_base_not_changed": "start bases a new claim on refs/susi/integration/current when present (on this host eb67d94d4, 2026-11-10 01:26), which is older than origin/main under the fast-main mandate. ship's admission check requires claim bases rooted in that ref, so this was not changed; an agent merges origin/main into its branch after start.",
+    "explicit_unlock": "A flock lives on the open file description. A process forked by another thread of the same process holds a copy of every descriptor until it execs, so closing the file does not release the lock at once. Fixed the same way as dev_capacity (T-MAINFIX-1): local-workflow Lock and HostGate (host gate and ship slots) unlock in Drop, the reclaim and busy-slot probes unlock before closing, dev_capacity::try_lock returns the unlocking Held guard (this covers local_dev.rs gate.lock), and the installed-channel transaction holds admitted-install.lock in an InstallLock guard. Sites that take a blocking lock() (dev_instance, install_cli, gmcp_evidence, local-release, mac_policy) only wait for the window and refuse nothing, so they were not changed; WorkerLease in susi-gawd-agents already unlocked; plane_bus_ipc's probes only see a dead owner or skip one sweep.",
+    "store_blob": "native_provenance::store_blob wrote stdin with ? before reading Git's status. A Git that refuses early (not a repository) closes the pipe first, so under load the error was 'Broken pipe (os error 32)' instead of Git's diagnosis, failing a_failed_blob_write_reports_gits_reason. The write result is now checked after Git's exit status."
+  },
+  "results": {
+    "host": "CachyOS Linux x86_64, 28 logical CPUs, busy shared dev laptop; tests with HOME/XDG_*/SUSI_HOME in a throwaway directory, *_API_KEY/HF_TOKEN/GITHUB_TOKEN unset, CARGO_HOME/RUSTUP_HOME real",
+    "live_claims": "cargo local-workflow list against the shared claim state (4 Windows claims with F:/ paths, files untouched): exit 0, all four listed with [other host]. ./target/debug/local-workflow start unblock2 --scope docs/unblock2-probe.md: exit 0, status showed 5 claims; release unblock2: exit 0; the probe worktree and branch were then removed.",
+    "disk_reclaim_race": "local-workflow unit binary, default parallel threads: on unmodified d771008a3 4 of 10 runs passed (all 6 failures disk_reclaim_frees_idle_caches_and_keeps_busy_and_current_ones); with the fix 20 of 20 runs passed (183 tests each, 184 with the lock test).",
+    "blob_write_race": "xtask unit binary: before the fix 2 of 12 runs failed a_failed_blob_write_reports_gits_reason with 'Broken pipe (os error 32)'; after, 20 of 20 runs passed (106 tests each).",
+    "xtask": "cargo test --offline --locked --no-fail-fast -p xtask: exit 0, 508 passed, 0 failed, 0 ignored",
+    "susi": "cargo test --offline --locked -p susi --bin susi -- install_lock dispatcher_path: 2 passed",
+    "fmt": "cargo fmt --all --check: exit 0",
+    "clippy": "cargo clippy --offline --locked --all-targets -p xtask -p susi -- -D warnings: exit 0, 1 min 53 s"
+  },
+  "limitations": "Windows behaviour of the unlock-on-drop guards was reasoned from std's File::unlock (UnlockFile on Windows) and not run on Windows. The new claim test exercises the Windows branch (a Linux-path claim read on Windows) only when compiled on Windows.",
+  "provenance": {
+    "host": "CachyOS Linux x86_64 (CEO laptop)",
+    "agent": "unblock (Cursor subagent)",
+    "worktree": "susi-agent-unblock",
+    "branch": "local-agent/unblock",
+    "local_workflow_start": "Created with git worktree add -b local-agent/unblock from origin/main d771008a3, because cargo local-workflow start was the tool being fixed."
+  }
+}

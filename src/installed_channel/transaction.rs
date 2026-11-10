@@ -323,6 +323,18 @@ fn version_output(exe: &Path) -> Result<String> {
     Ok(version)
 }
 
+/// The installation lock, released explicitly when the transaction ends.
+/// Closing the file alone is not enough: a process spawned concurrently by
+/// another thread holds a copy of every open descriptor until it execs, and
+/// that copy keeps a `flock` held, so the next transaction would be refused.
+struct InstallLock(fs::File);
+
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 fn check_version(package: &Package) -> Result<()> {
     version_output(&package.executable()).map(|_| ())
 }
@@ -347,6 +359,7 @@ fn apply(
         .write(true)
         .open(lock_path)?;
     lock.try_lock()?;
+    let _lock = InstallLock(lock);
     let requested = package.map(|(source, _)| source.release.clone());
     if let Some(pending) = get::<Transition>(&root.join(PENDING))? {
         // A retry of an interrupted rollback must complete its recorded target,
@@ -610,6 +623,37 @@ mod tests;
 mod cross_os_tests {
     use super::super::package::{expected_host_target_triple, QUALIFICATION_POLICY, SIDECARS};
     use super::*;
+
+    #[test]
+    fn the_install_lock_returns_while_a_descriptor_copy_is_alive() {
+        let path = env::temp_dir().join(format!(
+            "susi-install-lock-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let open = || {
+            OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(&path)
+                .unwrap()
+        };
+        let held = open();
+        held.try_lock().unwrap();
+        let held = InstallLock(held);
+        let copy = held.0.try_clone().unwrap();
+        assert!(open().try_lock().is_err());
+        drop(held);
+        let next = open();
+        assert!(next.try_lock().is_ok(), "a descriptor copy kept the lock");
+        drop((next, copy));
+        let _ = fs::remove_file(&path);
+    }
 
     #[test]
     fn dispatcher_path_and_entry_stamp_work_across_platforms() {

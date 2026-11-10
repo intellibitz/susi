@@ -2511,6 +2511,9 @@ dependencies = [
 [[package]]
 name = "susi-build-os-ucrt"
 version = "0.1.0"
+dependencies = [
+ "susi-vendor-sha2",
+]
 
 [[package]]
 name = "susi-build-policy"

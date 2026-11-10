@@ -5,7 +5,7 @@ use std::{io, path::Path};
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::other(message.into())
 }
-pub(crate) fn entry_address(bytes: &[u8]) -> io::Result<u64> {
+pub fn entry_address(bytes: &[u8]) -> io::Result<u64> {
     let word = |offset: usize| -> io::Result<u32> {
         Ok(u32::from_le_bytes(
             bytes
@@ -24,7 +24,7 @@ pub(crate) fn entry_address(bytes: &[u8]) -> io::Result<u64> {
     }
     // The entry evidence names a native executable: its COFF Machine must be
     // this host's architecture (AMD64 on x64, ARM64 on aarch64).
-    super::pe_imports::require_native_machine(bytes).map_err(invalid)?;
+    crate::pe_imports::require_native_machine(bytes).map_err(invalid)?;
     let optional = pe + 24;
     if bytes.get(optional..optional + 2) != Some(&[0x0b, 0x02]) {
         return Err(invalid("native Rust entry requires PE32+"));
@@ -39,7 +39,7 @@ pub(crate) fn entry_address(bytes: &[u8]) -> io::Result<u64> {
     base.checked_add(u64::from(word(optional + 16)?))
         .ok_or_else(|| invalid("PE entry address overflow"))
 }
-pub(crate) fn validate_map(entry: u64, map: &str) -> io::Result<String> {
+pub fn validate_map(entry: u64, map: &str) -> io::Result<String> {
     validate_reader(
         entry,
         std::io::Cursor::new(map.as_bytes()),
@@ -50,7 +50,7 @@ pub(crate) fn validate_map(entry: u64, map: &str) -> io::Result<String> {
 
 /// Streaming diagnostics admit the measured 231MB debug map without retaining
 /// it or manufacturing a production receipt. Each individual line is bounded.
-pub(crate) fn validate_reader(
+pub fn validate_reader(
     entry: u64,
     mut reader: impl io::BufRead,
     limit: u64,
@@ -144,7 +144,7 @@ pub(crate) fn validate_reader(
         let rust = origin.ends_with(".rcgu.o");
         let os = origin
             .rsplit_once(':')
-            .is_some_and(|(_, member)| super::pe_imports::os_dll(&member.to_ascii_lowercase()));
+            .is_some_and(|(_, member)| crate::pe_imports::os_dll(&member.to_ascii_lowercase()));
         if !metadata && !rust && !os {
             return Err(invalid(format!(
                 "unadmitted linker implementation origin: {origin} ({symbol})"
@@ -167,7 +167,7 @@ pub(crate) fn validate_reader(
             .collect::<String>(),
     ))
 }
-pub(crate) fn find_map(profile: &Path, binary: &str) -> io::Result<std::path::PathBuf> {
+pub fn find_map(profile: &Path, binary: &str) -> io::Result<std::path::PathBuf> {
     let map = profile
         .join("deps")
         .join(format!("{}.map", binary.replace('-', "_")));
@@ -186,7 +186,12 @@ mod tests {
     fn streamed_map_hash_and_limits_match_exact_evidence() {
         let (_, hash) =
             validate_reader(0x140001020, std::io::Cursor::new(MAP), MAP.len() as u64).unwrap();
-        assert_eq!(hash, super::super::digest(MAP.as_bytes()));
+        use sha2::{Digest, Sha256};
+        let expected: String = Sha256::digest(MAP.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        assert_eq!(hash, expected);
         assert!(
             validate_reader(0x140001020, std::io::Cursor::new(MAP), MAP.len() as u64 - 1).is_err()
         );
@@ -207,12 +212,12 @@ mod tests {
         image[88..90].copy_from_slice(&0x20b_u16.to_le_bytes());
         image[88 + 16..88 + 20].copy_from_slice(&0x1020_u32.to_le_bytes());
         image[88 + 24..88 + 32].copy_from_slice(&0x1_4000_0000_u64.to_le_bytes());
-        let native = super::super::pe_imports::native_machine().unwrap();
+        let native = crate::pe_imports::native_machine().unwrap();
         image[68..70].copy_from_slice(&native.to_le_bytes());
         assert_eq!(entry_address(&image).unwrap(), 0x1_4000_1020);
         for foreign in [
-            super::super::pe_imports::MACHINE_AMD64,
-            super::super::pe_imports::MACHINE_ARM64,
+            crate::pe_imports::MACHINE_AMD64,
+            crate::pe_imports::MACHINE_ARM64,
             0x014c,
         ] {
             if foreign != native {

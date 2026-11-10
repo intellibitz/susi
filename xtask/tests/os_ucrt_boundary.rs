@@ -1,9 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(all(windows, any(target_arch = "x86_64", target_arch = "aarch64")))]
-use susi_build_os_ucrt as os_ucrt;
-#[path = "../src/pe_imports.rs"]
-mod pe_imports;
 use std::{fs, path::Path, process::Command};
+use susi_build_os_ucrt as os_ucrt;
+use susi_build_os_ucrt::pe_imports;
 fn compile(root: &Path, name: &str, library: &Path, abort: bool) {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/ucrt")

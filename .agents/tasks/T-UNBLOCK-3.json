@@ -1,0 +1,47 @@
+{
+  "id": "T-UNBLOCK-3",
+  "title": "Serialise the signed-audit tests with the env swaps that move their HMAC key",
+  "goal": "Fix the intermittent susi-sandbox-client test audit_retention_prune_full_segment_rotates_and_attests (found by the full Linux workspace run) at its root: every test that writes or verifies signed audit records holds the crate's env lock.",
+  "size": "S",
+  "deps": [],
+  "created_by": "unblock",
+  "created_unix": 1794345474,
+  "status": "done",
+  "base": "e81099fef5844fe29460617ec9a671aad76d05b8",
+  "scopes": [
+    ".agents/tasks/T-UNBLOCK-3.json",
+    "crates/susi-sandbox-client/src/audit_fidelity.rs",
+    "crates/susi-sandbox-client/src/lib.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-sandbox-client",
+      "--lib"
+    ]
+  },
+  "decisions": {
+    "root_cause": "The audit chain's HMAC key is read from SusiDirs::substrate_home()/audit.hmac.key, which follows the process's SUSI_HOME. sandbox_service_client_routes_all_five_endpoints_and_honors_local_override swaps SUSI_HOME under crate::env_test_lock(), but nine tests that sign (SusiAuditLogger::log_event, append_signed_entry) or verify (verify_chain) records did not take that lock, so a record could be signed under one home's key and verified, or chained, under another's. signed_entries_verify_and_detect_tamper already held the lock for exactly this reason.",
+    "fix": "The lock is taken by the five audit_payload_free_policy tests that log events, the three audit_retention_prune tests that log events, and append_waits_for_the_cross_process_chain_lock. No assertion, bound or behaviour changed.",
+    "gemi_ceiling": "The same full run failed lean_core_ceilings::pillar_source_does_not_grow on susi-gemi (21,305 > 21,290, from 364600b95). A fix was prepared here, but claudegemiceiling landed its own (e52dd0abb) first, so it was dropped and main's is kept."
+  },
+  "results": {
+    "host": "CachyOS Linux x86_64, busy shared laptop; tests with throwaway HOME/XDG_*/SUSI_HOME, *_API_KEY/HF_TOKEN/GITHUB_TOKEN unset, CARGO_HOME/RUSTUP_HOME real",
+    "full_run": "cargo test --offline --locked --workspace --no-fail-fast on e81099fef: 290 test binaries, 5,409 passed, 2 failed, 14 ignored, 5 min 52 s; the failures were this test and the susi-gemi line ceiling",
+    "repeat_before": "susi-sandbox-client lib test binary, unmodified, 20 runs: 19 passed, 1 failed (audit_retention_prune_full_segment_rotates_and_attests)",
+    "repeat_after": "same binary with the fix, 20 runs: 20 passed (60 tests each)",
+    "clippy": "cargo clippy --offline --locked --all-targets -p susi-gemi -p susi-sandbox-client -- -D warnings: exit 0",
+    "fmt": "cargo fmt --all --check: exit 0"
+  },
+  "limitations": "The race is timing-dependent; 20 green runs bound but do not prove its absence. The fix follows the crate's documented rule for tests that read SusiDirs-derived paths.",
+  "provenance": {
+    "host": "CachyOS Linux x86_64 (CEO laptop)",
+    "agent": "unblock (Cursor subagent)",
+    "worktree": "susi-agent-unblock",
+    "branch": "local-agent/unblock"
+  }
+}

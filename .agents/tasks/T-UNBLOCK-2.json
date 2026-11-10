@@ -1,0 +1,58 @@
+{
+  "id": "T-UNBLOCK-2",
+  "title": "Move the PE import and link-map inspectors into susi-build-os-ucrt",
+  "goal": "Remove the two cross-crate #[path] mounts (crates/susi-harness/tests/native_link.rs -> xtask/src/{native_link,pe_imports}.rs) so architecture_tests::cross_crate_source_mounts_only_decrease passes at its ceiling of 0, by giving the inspectors an owning crate that both users depend on, without changing what they check.",
+  "size": "S",
+  "deps": ["T-UNBLOCK-1"],
+  "created_by": "unblock",
+  "created_unix": 1794345580,
+  "status": "done",
+  "base": "fec0ce97bb1824aca122f26458aa70fbb00111de",
+  "scopes": [
+    ".agents/tasks/T-UNBLOCK-2.json",
+    "Cargo.lock",
+    "crates/susi-build-os-ucrt",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-harness/tests/native_link.rs",
+    "xtask/Cargo.toml",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/native_link.rs",
+    "xtask/src/pe_imports.rs",
+    "xtask/tests/os_ucrt_boundary.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-build-os-ucrt",
+      "--features",
+      "link-map",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "decisions": {
+    "owner": "susi-build-os-ucrt is the crate described as the 'OS-UCRT and native linker boundary configuration'; xtask (normal and build dependency) and susi-harness (build dependency) already depend on it. pe_imports.rs and native_link.rs moved there with git mv, unchanged except pub(crate) -> pub, super:: -> crate:: paths, the removed #[allow(dead_code)] on now-public items, and native_link's map-hash test computing its expected SHA-256 itself instead of borrowing local-release's digest().",
+    "feature": "native_link hashes the map with sha2, so it sits behind a link-map feature (optional susi-vendor-sha2). Build scripts never enable it: cargo tree shows susi-build-os-ucrt with no features in the build closure of susi and susi-harness, so the core compile budget and the pillar dependency reach do not change. xtask enables it on its normal dependency; susi-harness enables it on a new dev-dependency. Cargo.lock gains one edge (susi-build-os-ucrt -> susi-vendor-sha2).",
+    "users": "xtask/src/bin/local-release.rs (check-native-link, check-pe, the release proof) and xtask/tests/os_ucrt_boundary.rs now use susi_build_os_ucrt::{native_link, pe_imports}; crates/susi-harness/tests/native_link.rs does the same and drops its digest() helper and sha2 import, which only the mounted modules' unit tests used."
+  },
+  "results": {
+    "host": "CachyOS Linux x86_64; tests with throwaway HOME/XDG_*/SUSI_HOME, *_API_KEY/HF_TOKEN/GITHUB_TOKEN unset, CARGO_HOME/RUSTUP_HOME real",
+    "architecture_tests": "cargo test --offline --locked --test architecture_tests: 43 passed, 0 failed (was 42 passed, 1 failed: cross_crate_source_mounts_only_decrease)",
+    "inspector_tests": "cargo test --offline --locked -p susi-build-os-ucrt --features link-map: 10 passed (the moved pe_imports and native_link unit tests run here now)",
+    "local_release": "cargo test --offline --locked -p xtask --features release-tooling --bin local-release: 97 passed, 0 failed, 2 ignored (ignores pre-existing)",
+    "clippy": "cargo clippy --offline --locked --all-targets -p susi-build-os-ucrt -- -D warnings: exit 0; cargo clippy --offline --locked --all-targets -p susi-build-os-ucrt -p xtask -p susi-harness --features xtask/release-tooling,susi-build-os-ucrt/link-map -- -D warnings: exit 0",
+    "fmt": "cargo fmt --all --check: exit 0",
+    "other_guards": "orphan_sources, core_docs_promise_no_ui_or_plugins, task_records pass. lean_core_ceilings::pillar_source_does_not_grow fails on susi-gemi 21,305 > 21,290 lines, unrelated to this change: origin/main 364600b95 (T-CLAUDETESTFIX-1) added 15 lines to an inline test in crates/susi-gemi/src/openrouter_ext.rs."
+  },
+  "limitations": "crates/susi-harness/tests/native_link.rs and xtask/tests/os_ucrt_boundary.rs compile only on Windows MSVC, so their one-line import changes were not compiled on this Linux host; the modules they import compile and pass their unit tests here, and the functions they call are now pub with unchanged signatures. Owed for a Windows session: cargo test -p susi-harness --test native_link and cargo test -p xtask --test os_ucrt_boundary.",
+  "provenance": {
+    "host": "CachyOS Linux x86_64 (CEO laptop)",
+    "agent": "unblock (Cursor subagent)",
+    "worktree": "susi-agent-unblock",
+    "branch": "local-agent/unblock"
+  }
+}

@@ -38,12 +38,8 @@ mod elf_imports;
 mod gmcp_evidence;
 #[path = "../installed_delivery.rs"]
 mod installed_delivery;
-#[path = "../native_link.rs"]
-mod native_link;
 #[path = "../native_openssl.rs"]
 mod native_openssl;
-#[path = "../pe_imports.rs"]
-mod pe_imports;
 #[path = "../prepare_release.rs"]
 mod prepare_release;
 #[path = "../product_features.rs"]
@@ -58,6 +54,7 @@ mod sysroot_sources;
 mod trusted_sysroot;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
+use susi_build_os_ucrt::{native_link, pe_imports};
 use susi_build_policy as vendor_regressions;
 
 fn text(path: &Path) -> Result<&str> {

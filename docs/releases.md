@@ -49,20 +49,38 @@ version, and the tag must point at the record's commit.
 
 ## Cutting a release
 
-1. Land the version bump through the gate and tag the landed commit
-   `vX.Y.Z` (annotated); push the tag with `git push origin vX.Y.Z`.
-2. Build the reference binaries from a fresh clone of the tag with the release
-   command (today `cargo build --locked --profile dist -p susi-harness -p susi
-   --features susi/local-engine` with `CARGO_PROFILE_DIST_LTO=false` and
-   `CARGO_PROFILE_DIST_CODEGEN_UNITS=16`), on each released target you have a
-   host for.
-3. Run the release checks, then write `releases/<tag>.json` with the digests,
-   the checks and their results, and every target that has no build in
-   `missing_targets`. Say "not locally qualified" when that is true.
-4. Land the record through the gate like any other change.
+Main is unqualified development. A release is cut from a snapshot of it and
+qualified on the exact tree it ships (CEO mandate 73):
 
-Where the reference binaries themselves are stored is a CEO decision that is
-still open; the record names digests, never a download location.
+1. Snapshot main and take the release branch locally:
+   `cargo run -p xtask --bin local-snapshot -- cut vX-Y-Z-rcN` (publishes the
+   immutable `refs/tags/susi-snapshot/vX-Y-Z-rcN` and creates the local branch
+   `release/vX-Y-Z-rcN`).
+2. On that branch, commit only the version bump (the engine manifests,
+   `Cargo.lock`, the README badge and the governance ledgers) with its task
+   record. A defect found from here on is fixed on main and the snapshot is cut
+   again (`rcN+1`); the release branch takes nothing else.
+3. Qualify: `cargo run -p xtask --bin release-qualify -- vX.Y.Z [--jobs N]` from
+   the clean release checkout. It runs `format`, `check`, `clippy`, `licenses`,
+   `tests` (the whole workspace), `build` (the reference binaries, profile
+   `dist` with `CARGO_PROFILE_DIST_LTO=false` and
+   `CARGO_PROFILE_DIST_CODEGEN_UNITS=16`) and `smoke` (each binary answers
+   `--version` with the release version from a private home). Only when every
+   gate passes does it write `releases/qualification/<tag>.json` (schema
+   `susi-release-qualification/v1`: the qualified commit and tree, the
+   `Cargo.lock` digest, the toolchain, the host, every gate's command, exit
+   code, duration and log digest, the test counts, each asset's sha256 and
+   `--version` answer, and the platforms still owed), commit that one file,
+   verify the commit and create the annotated tag locally. A failing gate
+   writes nothing.
+4. Publish: `git push origin vX.Y.Z`. The pre-push `push-policy` admits a
+   `vX.Y.Z` tag only when the tagged commit adds exactly its record to the
+   qualified tree and the record shows every gate at exit 0 with tests run
+   and none failed (`xtask/src/release_qualification.rs`). Every other tag
+   name, and any tag replacement or deletion, is refused.
+5. Write `releases/<tag>.json` (the record below) with the reference digests
+   and land it on main. A platform with no qualification yet is listed under
+   `missing_targets` and in the qualification record's `owed_platforms`.
 
 ## Installing and upgrading
 

@@ -14,6 +14,13 @@
     )
 )]
 
+/// Bind a linked PE entry point to its original Rust symbol through the
+/// linker map; needs the `link-map` feature (it hashes the map).
+#[cfg(feature = "link-map")]
+pub mod native_link;
+/// Inventory a linked PE image's imports against the OS boundary.
+pub mod pe_imports;
+
 use std::{
     env, fs, io,
     path::{Path, PathBuf},

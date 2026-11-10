@@ -6,5 +6,13 @@ license = "Apache-2.0"
 publish = false
 description = "OS-UCRT and native linker boundary configuration for Susi build scripts"
 
+[dependencies]
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2", optional = true }
+
+[features]
+# The linker-map inspector, for release tooling and tests; build scripts
+# never enable it, so they gain no dependency.
+link-map = ["dep:sha2"]
+
 [lints]
 workspace = true
