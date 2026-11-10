@@ -1,0 +1,57 @@
+{
+  "id": "T-CARBONLEAN-10",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-10",
+  "title": "Lean core: replace tokio full/tracing features with minimal runtime set (-5 Cargo.lock pkgs, THIRD_PARTY_CEILING 122 -> 117)",
+  "goal": "Replace tokio's umbrella full and tracing features in crates/susi-vendor-tokio/Cargo.toml and workspace Cargo.toml with the exact used runtime feature set (io-std, io-util, macros, net, rt, rt-multi-thread, signal, sync, time), eliminating unused tokio/parking_lot, tokio/fs, tokio/process, and tokio/tracing, removing 5 third-party packages from Cargo.lock (lock_api, parking_lot, parking_lot_core, redox_syscall, scopeguard; 144 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..10), and ratcheting THIRD_PARTY_CEILING down by 5 crates (122 -> 117).",
+  "status": "in_progress",
+  "state": "in_progress",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794390900,
+  "size": "s",
+  "deps": [
+    "T-CARBONLEAN-9",
+    "T-CLAUDEREL56-2"
+  ],
+  "base": "9be919018e0bcd83921f065a86d113ae4cbda5b4",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-10.json",
+    ".agents/tasks/done/T-CARBONLEAN-10.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-vendor-tokio/Cargo.toml",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "task_records"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo clippy --offline --locked -p susi-vendor-tokio -p susi-gawd-swarm -p susi-gawd-a2a -p susi-gemi -p susi-gmcp -p susi-harness -p susi-http-transport -p susi-leaf-services -p susi-server -p susi-daemon -p susi-daemon-runtime --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-harness -p susi-gemi -p susi-http-transport --lib",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ],
+  "limitations": [
+    "Verified on native Linux x86_64 host only per current-host workflow; dual-OS production tag qualification stays separate from accept_verified_candidate local release/* and immutable refs/tags/susi-distill/* distillation."
+  ]
+}
