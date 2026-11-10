@@ -31,25 +31,8 @@ pub use susi_core;
 pub mod catalog;
 pub mod content;
 pub mod direct_call;
-#[cfg(feature = "tools-rich")]
 pub mod embed_provider;
 pub mod extensions;
-#[cfg(not(feature = "tools-rich"))]
-pub mod embed_provider {
-    /// No fastembed in this build — the embed surface refuses rather
-    /// than fabricating vectors.
-    pub fn register_local_embed_provider() {}
-
-    /// The `install embeddings` source, accepted so the CLI can refuse it.
-    pub const INSTALL_SOURCE: &str = "embeddings";
-
-    /// No fastembed in this build: the explicit install refuses.
-    pub fn install_on_request() -> crate::susi_error::EaiResult<String> {
-        Err(crate::susi_error::EaiError::process(
-            "this build has no semantic-search engine (tools-rich disabled)",
-        ))
-    }
-}
 pub mod jsonrpc_gate;
 pub mod mcp_call_budgets;
 pub mod mcp_probe;

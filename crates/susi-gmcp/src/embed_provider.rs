@@ -119,11 +119,15 @@ impl Provider for LocalEmbedProvider {
 }
 
 /// Self-register into this copy's `CapabilityRegistry` — idempotent.
-pub fn register_local_embed_provider() {
-    let registry = crate::susi_core::registry::CapabilityRegistry::global();
+fn register_into(registry: &crate::susi_core::registry::CapabilityRegistry) {
     if registry.get_provider("susi-fastembed").is_none() {
         registry.register_provider(LocalEmbedProvider);
     }
+}
+
+/// Self-register into the process-wide `CapabilityRegistry` — idempotent.
+pub fn register_local_embed_provider() {
+    register_into(crate::susi_core::registry::CapabilityRegistry::global());
 }
 
 #[cfg(test)]
@@ -190,17 +194,17 @@ mod inline_tests {
 
     #[test]
     fn register_local_embed_provider_is_idempotent_and_exposes_install_source() {
-        register_local_embed_provider();
-        register_local_embed_provider();
-        let registry = crate::susi_core::registry::CapabilityRegistry::global();
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        register_into(&registry);
+        register_into(&registry);
         assert!(registry.get_provider("susi-fastembed").is_some());
         assert_eq!(INSTALL_SOURCE, "embeddings");
     }
 
     #[test]
     fn registered_local_embed_provider_rejects_generate_through_capability_registry() {
-        register_local_embed_provider();
-        let registry = crate::susi_core::registry::CapabilityRegistry::global();
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        register_into(&registry);
         let provider = registry
             .get_provider("susi-fastembed")
             .expect("registered susi-fastembed provider");
