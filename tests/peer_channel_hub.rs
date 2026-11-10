@@ -360,6 +360,10 @@ fn recording_forwarder(
             let Ok(upstream) = TcpStream::connect_timeout(&target, Duration::from_secs(5)) else {
                 continue;
             };
+            // Match the channel sockets: the forwarding fixture must not
+            // add Nagle/delayed-ACK stalls between encrypted request frames.
+            client.set_nodelay(true).unwrap();
+            upstream.set_nodelay(true).unwrap();
             let index = {
                 let mut c = cap.lock().unwrap();
                 c.connections.push(Vec::new());
