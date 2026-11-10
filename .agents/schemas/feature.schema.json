@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intellibitz.com/susi/schemas/feature.schema.json",
+  "title": "susi-distill-plan/v1",
+  "description": "A feature or release selection as planned by `xtask --bin distill -- plan`: requested task ids, their dependency closure and the verdict for each. Plan only: it does not prove that a composed tree builds, tests or qualifies.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "plan_only", "base", "requested", "closure_size", "summary", "included", "deferred", "rejected", "conflicts", "warnings", "unreadable_records", "not_implemented"],
+  "$defs": {
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "requested", "status", "raw_status", "record", "title", "deps", "scopes", "accept_cmd", "commits", "reasons", "notes"],
+      "properties": {
+        "id": { "type": "string" },
+        "requested": { "type": "boolean" },
+        "status": { "enum": ["closed", "implemented", "open", "abandoned", null] },
+        "raw_status": { "type": ["string", "null"] },
+        "record": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "deps": { "type": "array", "items": { "type": "string" } },
+        "scopes": { "type": "array", "items": { "type": "string" } },
+        "accept_cmd": { "type": "array", "items": { "type": "string" } },
+        "commits": { "type": "array", "items": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" } },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "properties": {
+    "schema": { "const": "susi-distill-plan/v1" },
+    "plan_only": { "const": true },
+    "base": {
+      "type": "object",
+      "required": ["rev", "commit"],
+      "properties": { "rev": { "type": "string" }, "commit": { "type": "string" } }
+    },
+    "requested": { "type": "array", "items": { "type": "string" } },
+    "closure_size": { "type": "integer", "minimum": 0 },
+    "summary": {
+      "type": "object",
+      "required": ["included", "deferred", "rejected", "conflicts"],
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "included": { "type": "array", "items": { "$ref": "#/$defs/outcome" } },
+    "deferred": { "type": "array", "items": { "$ref": "#/$defs/outcome" } },
+    "rejected": { "type": "array", "items": { "$ref": "#/$defs/outcome" } },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "a", "b", "paths", "resolution"],
+        "properties": {
+          "kind": { "enum": ["unordered_overlap", "entangled_unselected"] },
+          "a": { "type": "string" },
+          "b": { "type": "string" },
+          "paths": { "type": "array", "items": { "type": "string" } },
+          "resolution": { "type": "string" }
+        }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "unreadable_records": { "type": "array", "items": { "type": "string" } },
+    "range_comparison": { "type": "object" },
+    "not_implemented": { "type": "string" }
+  }
+}
