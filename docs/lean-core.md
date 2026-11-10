@@ -1135,4 +1135,13 @@ config, core and the tail.
   `worker::is_seat`. Measured through the daemon with the plug host and the
   starter model: a weather question with `requires: "tools"` went from 152 s
   and an unrelated tool call to 12 s and a plain answer.
+- 2026-11-12 (T-CLAUDEACPGAWD-1, Linux x86_64, CEO laptop), **CEO direction
+  "Integrate ACP into gawd layer"**: ACP turns on 9094 run as GAWD missions.
+  The A2A server mounted ACP with `AcpEngine::default()`, whose
+  `SubstrateAcpExecutor` answered every `session/prompt` with
+  `acp-ack[<session>]: <prompt>`; no agent ever saw an ACP prompt.
+  `susi-gawd-a2a`'s `GawdAcpExecutor` runs each turn as the mission an A2A
+  task runs, with the same untrusted-content gate, in-flight capacity permit
+  and reply redaction, and the server runs turns on a blocking thread. No
+  dependency added; the `susi-gawd-a2a` ceiling ratchets `3,619 -> 3,588`.
 

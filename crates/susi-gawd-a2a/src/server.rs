@@ -20,7 +20,10 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::executor::GawdA2AExecutor;
 use crate::protocol::{AgentCard, AgentExecutor, Handler, WELL_KNOWN_AGENT_CARD_PATH};
-use crate::susi_core::acp::{AcpEngine, ACP_RPC_PATH, ACP_STREAM_PATH, WELL_KNOWN_ACP_PATH};
+use crate::susi_core::acp::{
+    AcpAdmissionPolicy, AcpEngine, AcpTurnExecutor, ACP_RPC_PATH, ACP_STREAM_PATH,
+    WELL_KNOWN_ACP_PATH,
+};
 use crate::task_store::TaskStore;
 
 use susi_http_transport::dual_transport::negotiate_blocking;
@@ -95,6 +98,11 @@ fn health() -> Response {
     response
 }
 
+/// The reply when an ACP turn's blocking thread itself failed (a panic).
+fn acp_internal_error() -> Vec<u8> {
+    br#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"ACP turn failed"}}"#.to_vec()
+}
+
 fn acp_discovery(acp: &AcpEngine) -> MethodRouter {
     let body = Arc::new(serde_json::to_string(&acp.discovery_document()).unwrap_or_default());
     get(move |_: Request| {
@@ -120,12 +128,13 @@ fn acp_discovery(acp: &AcpEngine) -> MethodRouter {
 /// path is.
 fn app(
     executor: Arc<dyn AgentExecutor>,
+    acp_executor: Arc<dyn AcpTurnExecutor>,
     card: AgentCard,
     store: Arc<TaskStore>,
     verifier: Verifier,
 ) -> Router {
     let handler = Arc::new(Handler::new(executor, card.clone(), store));
-    let acp = Arc::new(AcpEngine::default());
+    let acp = Arc::new(AcpEngine::new(AcpAdmissionPolicy::default(), acp_executor));
     let acp_rpc = Arc::clone(&acp);
     let acp_sse = Arc::clone(&acp);
     crate::protocol::router(handler)
@@ -134,7 +143,12 @@ fn app(
             post(move |request: Request| {
                 let engine = Arc::clone(&acp_rpc);
                 async move {
-                    let reply = engine.handle_jsonrpc_bytes(&request.body);
+                    // A turn runs a whole GAWD mission: keep it off the worker.
+                    let reply = tokio::task::spawn_blocking(move || {
+                        engine.handle_jsonrpc_bytes(&request.body)
+                    })
+                    .await
+                    .unwrap_or_else(|_| acp_internal_error());
                     let mut response = Response::new(Body::from(reply));
                     response.headers_mut().insert(
                         header::CONTENT_TYPE,
@@ -149,7 +163,12 @@ fn app(
             post(move |request: Request| {
                 let engine = Arc::clone(&acp_sse);
                 async move {
-                    match engine.handle_sse_stream_bytes(&request.body) {
+                    let streamed = tokio::task::spawn_blocking(move || {
+                        engine.handle_sse_stream_bytes(&request.body)
+                    })
+                    .await
+                    .unwrap_or_else(|_| Err(acp_internal_error()));
+                    match streamed {
                         Ok(frames) => {
                             let mut response = Response::new(Body::from(frames.concat()));
                             response.headers_mut().insert(
@@ -258,7 +277,13 @@ pub fn serve(
         // advertises only what is served.
         let store = Arc::new(TaskStore::new());
         tokio::spawn(crate::task_store::reaper(Arc::clone(&store)));
-        let app = app(Arc::new(executor), card, store, verifier);
+        let app = app(
+            Arc::new(executor),
+            Arc::new(crate::executor::GawdAcpExecutor::new()),
+            card,
+            store,
+            verifier,
+        );
         eprintln!(
             "[A2A] HTTP available: JSON-RPC /, SSE /stream, card /.well-known/agent-card.json"
         );

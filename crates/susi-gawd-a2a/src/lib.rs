@@ -41,6 +41,9 @@ pub use capabilities::GawdCapabilities;
 pub use executor::GawdA2AExecutor;
 
 #[cfg(test)]
+#[path = "tests/acp_gawd.rs"]
+mod acp_gawd_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::protocol::{

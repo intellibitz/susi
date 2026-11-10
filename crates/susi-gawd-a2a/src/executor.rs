@@ -10,9 +10,10 @@ use crate::protocol::{
 };
 use std::collections::BTreeMap;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use susi_core::acp::{AcpContentBlock, AcpTurnContext, AcpTurnExecutor};
 use susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
 
 /// Time-windowed operating-layer Service Level Objective (SLO) sample
@@ -179,6 +180,68 @@ async fn run_mission(
     });
     rx.await
         .unwrap_or_else(|_| Err("mission thread dropped".to_string()))
+}
+
+/// ACP turns (`session/prompt` on 9094 and the stdio transport) answered by
+/// the same GAWD mission an A2A task runs: the same untrusted-content gate,
+/// the same in-flight capacity, the same reply redaction. Replaces core's
+/// `SubstrateAcpExecutor`, which only echoed the prompt back.
+pub struct GawdAcpExecutor {
+    runner: MissionRunner,
+}
+
+impl Default for GawdAcpExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GawdAcpExecutor {
+    /// Executor that answers ACP turns with real GAWD missions.
+    pub fn new() -> Self {
+        Self::with_runner(Arc::new(plane_bus_mission))
+    }
+
+    /// Executor with an injected mission runner (tests, embedding hosts).
+    pub fn with_runner(runner: MissionRunner) -> Self {
+        Self { runner }
+    }
+}
+
+impl AcpTurnExecutor for GawdAcpExecutor {
+    /// Blocks for the whole mission: callers on an async runtime run it on a
+    /// blocking thread. A mission cannot be interrupted midway; a turn
+    /// cancelled while it runs reports cancelled and drops the answer.
+    fn execute_turn(
+        &self,
+        ctx: &AcpTurnContext,
+        cancelled: &AtomicBool,
+        emit_delta: &mut dyn FnMut(&str),
+    ) -> std::result::Result<Vec<AcpContentBlock>, String> {
+        let content = ctx.joined_prompt_text();
+        if content.trim().is_empty() {
+            return Err("ACP prompt carried no text to run as a mission".to_string());
+        }
+        // An authenticated ACP session does not make the prompt trusted: gate
+        // it before the mission can dispatch consequential tools.
+        let content = enforce_action(
+            &wrap_tool_output("acp:request", &content),
+            ActionClass::Consequential,
+        )?;
+        if cancelled.load(Ordering::SeqCst) {
+            return Ok(Vec::new());
+        }
+        let _permit = InflightPermit::try_acquire()
+            .ok_or_else(|| "Request rejected: fleet at capacity".to_string())?;
+        let answer = (self.runner)(&content)
+            .map_err(|error| wrap_tool_output("acp:mission-error", &error).redacted_for_sink())?;
+        if cancelled.load(Ordering::SeqCst) {
+            return Ok(Vec::new());
+        }
+        let answer = wrap_tool_output("acp:mission-reply", &answer).redacted_for_sink();
+        emit_delta(&answer);
+        Ok(vec![AcpContentBlock::text(answer)])
+    }
 }
 
 /// susi-gawd's A2A protocol executor
