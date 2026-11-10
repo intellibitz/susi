@@ -589,3 +589,12 @@ config, core and the tail.
   36.9/39.9/50.3 s change is inside the load noise and not claimed. The same
   runs give the first low-load Linux numbers (28.3 s at load 3), section
   "Linux x86_64".
+- 2026-11-11 (T-CORECUT-2, Linux x86_64, CEO laptop): `susi-vendor-wasmtime`
+  compiles wasmparser 0.259 and wasm-encoder 0.259 with `std` only; the cell
+  facade uses just their core-module reader and encoder (memory cap before
+  Wasmi validates), so the default validator, component model and serde
+  support are no longer built. Components are still refused as cells (the
+  version header parses without the component model). Three alternated cold
+  pairs against `871425ffa` (load 5-14): wasmparser 0.259 4.7/7.8/7.9 s ->
+  2.0/4.0/5.1 s, units 396 -> 386; whole-build wall 26.4/36.3/37.6 s vs
+  34.5/36.4/36.3 s is inside the load noise and not claimed.
