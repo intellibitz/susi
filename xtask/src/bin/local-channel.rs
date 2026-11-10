@@ -153,7 +153,7 @@ fn write_state(state_path: &Path, value: &Value) -> Result<()> {
 }
 
 fn probe_version(binary: &Path) -> Result<String> {
-    let out = Command::new(binary).arg("--version").output()?;
+    let out = run_version_probe(binary)?;
     if !out.status.success() {
         return Err("version probe exited non-zero".into());
     }
@@ -162,6 +162,35 @@ fn probe_version(binary: &Path) -> Result<String> {
         return Err(format!("unexpected version output: {version}").into());
     }
     Ok(version)
+}
+
+/// Spawn attempts before an ETXTBSY is reported.
+const TEXT_BUSY_ATTEMPTS: u32 = 40;
+
+/// Runs `<binary> --version`.
+///
+/// The probed file has usually just been written: the staged copy of a fresh
+/// build, or a test fixture. While any process still holds it open for
+/// writing, `exec` fails with ETXTBSY ("Text file busy"). In a multi-threaded
+/// process that holder can be a sibling thread's child that was forked while
+/// the file was open and has not reached its own `exec` yet, so the condition
+/// clears within milliseconds. The spawn is retried a bounded number of
+/// times for that error only; any other error, or a file still busy after
+/// the last attempt, is returned unchanged.
+fn run_version_probe(binary: &Path) -> std::io::Result<std::process::Output> {
+    let mut attempt = 1;
+    loop {
+        match Command::new(binary).arg("--version").output() {
+            Err(e)
+                if e.kind() == std::io::ErrorKind::ExecutableFileBusy
+                    && attempt < TEXT_BUSY_ATTEMPTS =>
+            {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            other => return other,
+        }
+    }
 }
 
 fn set_executable_if_unix(path: &Path) -> Result<()> {
@@ -195,8 +224,9 @@ fn stage_candidate_into_slot(
     if sha256_file(&candidate)? != digest {
         return Err("Local candidate checksum mismatch.".into());
     }
-    let version = probe_version(&candidate)
-        .map_err(|_| "Local candidate version check failed; current channel unchanged.")?;
+    let version = probe_version(&candidate).map_err(|e| {
+        format!("Local candidate version check failed ({e}); current channel unchanged.")
+    })?;
     Ok((candidate, digest, version))
 }
 
@@ -225,8 +255,9 @@ fn rollback_channel(channel_root: &Path, channel: &str) -> Result<Value> {
     if !is_lower_hex_sha256(expected) || expected != digest {
         return Err("Previous local executable checksum changed; rollback refused.".into());
     }
-    let version = probe_version(&prev_path)
-        .map_err(|_| "Previous local executable version check failed; rollback refused.")?;
+    let version = probe_version(&prev_path).map_err(|e| {
+        format!("Previous local executable version check failed ({e}); rollback refused.")
+    })?;
     let old_current = state.get("current").cloned().unwrap_or(Value::Null);
     if let Some(obj) = state.as_object_mut() {
         obj.insert("current".to_string(), Value::String(prev_str));
@@ -1633,6 +1664,33 @@ mod tests {
         let loaded = read_state(&state_path)?.ok_or("state must exist")?;
         assert_eq!(loaded, expected);
 
+        let _ = fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
+    /// A writer that still holds the staged file open makes `exec` fail with
+    /// ETXTBSY; the probe waits for it instead of failing the staging.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn version_probe_waits_out_a_writer_that_still_holds_the_file() -> Result<()> {
+        let dir = env::temp_dir().join(format!("susi-local-text-busy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let binary = dir.join(exe_name());
+        write_mock_susi_binary(&binary, "0.21.58")?;
+        let writer = fs::OpenOptions::new().write(true).open(&binary)?;
+        let busy = Command::new(&binary).arg("--version").output();
+        assert_eq!(
+            busy.as_ref().map_err(std::io::Error::kind).err(),
+            Some(std::io::ErrorKind::ExecutableFileBusy),
+            "an open writer must make exec fail with ETXTBSY: {busy:?}"
+        );
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            drop(writer);
+        });
+        let version = probe_version(&binary);
+        release.join().map_err(|_| "writer thread panicked")?;
+        assert_eq!(version?, "susi 0.21.58");
         let _ = fs::remove_dir_all(&dir);
         Ok(())
     }

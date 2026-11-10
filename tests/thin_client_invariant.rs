@@ -28,20 +28,18 @@ const ALLOWED_WIRE_CLIENT: &[&str] = &[
     "zmij",
 ];
 
-/// Cross-platform packages in `susi-cli-defs`'s `clap` closure.
-const ALLOWED_CLI_DEFS_COMMON: &[&str] = &[
-    "anstream",
+/// Packages in `susi-cli-defs`'s `clap` closure, the same on both targets.
+/// `susi-vendor-clap` builds clap without default features (T-CARBONLEAN-12),
+/// so the terminal colour stack (`anstream` and its Windows console packages)
+/// is not linked; `anstyle` stays as a dependency of `clap_builder`.
+const ALLOWED_CLI_DEFS: &[&str] = &[
     "anstyle",
-    "anstyle-parse",
-    "anstyle-query",
     "clap",
     "clap_builder",
     "clap_derive",
     "clap_lex",
-    "colorchoice",
     "heck",
     "idna_adapter",
-    "is_terminal_polyfill",
     "proc-macro2",
     "quote",
     "strsim",
@@ -49,15 +47,6 @@ const ALLOWED_CLI_DEFS_COMMON: &[&str] = &[
     "susi-vendor-clap",
     "syn",
     "unicode-ident",
-    "utf8parse",
-];
-
-/// Windows-only console styling packages pulled by `anstream` on `x86_64-pc-windows-msvc`.
-const ALLOWED_CLI_DEFS_WINDOWS_ONLY: &[&str] = &[
-    "anstyle-wincon",
-    "once_cell_polyfill",
-    "windows-link",
-    "windows-sys",
 ];
 
 /// Package names in the normal and build graph of `package` on `target`.
@@ -118,14 +107,7 @@ fn wire_client_links_only_std_and_json() {
 
 #[test]
 fn cli_defs_links_only_the_clap_closure() {
-    let mut win_allowed = ALLOWED_CLI_DEFS_COMMON.to_vec();
-    win_allowed.extend_from_slice(ALLOWED_CLI_DEFS_WINDOWS_ONLY);
-    assert_closure_on_target("susi-cli-defs", "x86_64-pc-windows-msvc", &win_allowed);
-    assert_closure_on_target(
-        "susi-cli-defs",
-        "x86_64-unknown-linux-gnu",
-        ALLOWED_CLI_DEFS_COMMON,
-    );
+    assert_closure("susi-cli-defs", ALLOWED_CLI_DEFS);
 }
 
 /// The conformance suite reuses the wire client's HTTP framing and stays a
