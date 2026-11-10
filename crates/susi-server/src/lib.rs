@@ -39,12 +39,12 @@ use hyper::body::{Bytes, Frame, Incoming};
 use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
 use serde_json::json;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
 use susi_http_transport::http_body::{self as http_body_util, BodyExt, Full};
+use susi_http_transport::http_conn::TokioIo;
 
 use susi_core::context_graph::ContextGraph;
 use susi_core::plane_bus::{gawd, gemi, tools as plane_tools};
