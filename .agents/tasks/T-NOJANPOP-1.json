@@ -11,6 +11,7 @@
   "scopes": [
     "crates/susi-gemi/src/engines/runtime_native.rs",
     "crates/susi-gemi/tests/native_fallback_runs_no_engine.rs",
+    "crates/susi-config/src/host_metrics.rs",
     ".agents/tasks/T-NOJANPOP-1.json"
   ],
   "accept": {
