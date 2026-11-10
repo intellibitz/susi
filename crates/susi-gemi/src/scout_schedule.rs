@@ -262,7 +262,7 @@ pub fn finish_run(
         .unwrap_or_default();
     mark_retired(&drift);
     if let Err(e) = append(journal, &run) {
-        tracing::warn!("brain scout journal append failed: {e}");
+        eprintln!("susi-gemi: brain scout journal append failed: {e}");
     }
     // The capability matrix is refreshed by the scout, not remembered: the
     // union of registered candidates and providers with evidence, ranked
@@ -279,7 +279,7 @@ pub fn finish_run(
     let matrix = crate::capability_matrix::build_in(&store, &matrix_names, now);
     let matrix_path = journal.with_file_name("brain_capability_matrix.json");
     if let Err(e) = crate::capability_matrix::persist(&matrix_path, &matrix) {
-        tracing::warn!("brain capability matrix persist failed: {e}");
+        eprintln!("susi-gemi: brain capability matrix persist failed: {e}");
     }
     // Re-elect the primary per class over the same fresh evidence — a dead
     // provider, a moved price or a changed capability elects a new primary
@@ -291,7 +291,7 @@ pub fn finish_run(
     };
     let elections_path = journal.with_file_name("brain_elections.jsonl");
     if let Err(e) = crate::primary_election::append(&elections_path, &ballot) {
-        tracing::warn!("brain election journal append failed: {e}");
+        eprintln!("susi-gemi: brain election journal append failed: {e}");
     }
     (run, drift)
 }

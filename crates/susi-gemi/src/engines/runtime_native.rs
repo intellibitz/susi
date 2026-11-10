@@ -140,8 +140,6 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         callback: &dyn Fn(String),
         _selected_model: Option<&str>,
     ) -> EaiResult<String> {
-        tracing::debug!("[SUSI Federated Router] Requesting remote consensus quorum...");
-
         // Prefer CapabilityRegistry cloud/local HTTP providers (keys + protocols
         // already resolved by zero-config / config registration).
         crate::engines::http_provider::register_configured_cloud_endpoints(
@@ -190,14 +188,6 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         } else {
             endpoint.model.clone()
         };
-
-        tracing::debug!(
-            "[SUSI Federated Router] Edge Delegation Active: {} ({}) model={} protocol={:?}",
-            endpoint.name,
-            endpoint.api_base,
-            model,
-            protocol
-        );
 
         let provider = crate::engines::http_provider::HttpProvider {
             name: format!("federated-{}", endpoint.name.to_ascii_lowercase()),

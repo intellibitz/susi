@@ -663,12 +663,8 @@ impl SwarmTaskManager {
                     {
                         c.store(true, Ordering::Release);
                     }
-                    tracing::warn!(
-                        target: "susi.task_manager",
-                        task_id = %task_id,
-                        idle_ms,
-                        threshold_ms,
-                        "LEASE_EXPIRED — cancelled by watchdog"
+                    eprintln!(
+                        "susi.task_manager: task_id={task_id} idle_ms={idle_ms} threshold_ms={threshold_ms} LEASE_EXPIRED — cancelled by watchdog"
                     );
                 }
             }

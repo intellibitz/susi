@@ -13,7 +13,6 @@ susi-paths = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
-tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 
 # Owner-only ACL on the plane-bus secret, set through Win32 (no `icacls`
