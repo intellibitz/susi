@@ -1,7 +1,7 @@
 {
   "id": "T-DOTOBSERVEDESK20261110-1",
-  "title": "Reject failed dev-delivery observations",
-  "goal": "Require a successful exit from the promoted executable observation before recording a successful dev delivery. Preserve the selected dev state and surface the failed observation; do not claim rollback or production qualification.",
+  "title": "Improve dev delivery checks and test builds",
+  "goal": "Require successful delivery observations and reduce measured test compilation cost without changing test inventory, dev or release profiles, or native gates.",
   "created_by": "dotobservedesk20261110",
   "created_unix": 1794292624,
   "agent": "Codex",
@@ -10,21 +10,19 @@
   "deps": [],
   "scopes": [
     ".agents/tasks/t-dotobservedesk20261110-1.json",
+    "cargo.toml",
     "xtask/src/bin/local-channel.rs"
   ],
   "accept": {
     "cmd": [
       "cargo",
       "test",
-      "-p",
-      "xtask",
-      "--bin",
-      "local-channel",
+      "--workspace",
       "--offline",
       "--locked"
     ]
   },
-  "checkpoint": "Scoped implementation and verification complete; queued for serialized combined-tree gate. Not integrated, pushed, production-promoted or timed as an end-to-end delivery.",
+  "checkpoint": "Scoped candidates pending serialized full native gate. Focused checks and build-profile experiments are not integration, publication, production promotion or an under-60-second end-to-end delivery.",
   "verification": {
     "platform": "x86_64-pc-windows-msvc",
     "toolchain": "1.99.0",
@@ -36,6 +34,35 @@
     "review": "Independent read-only agent review found no blocking issue. Static review confirms all three observations propagate failure before successful delivery evidence writes.",
     "limits": "Regression exercises the observation helper, not a complete delivery or rollback transaction. Post-promotion observation failure leaves the new dev selection active and says so. Previous-build observation failure during rollback proof leaves the previous selection active. Full native gate, publication, production qualification and under-60-second delivery remain unverified.",
     "source_sha256": "18a7261e91acca4e520c5c20f41ae948fe9ce0e321d9ae06f12549e25d4837bc",
-    "source_guards": "Exact source compiled standalone with this worktree private dependencies: task schema 3 passed, orphan 3 passed, lean ceilings 2 passed, documentation 5 passed. Architecture standalone compilation did not run tests because susi_core and susi_sandbox_client were not built in the narrow dependency cache; full Cargo architecture verification remains pending. No source-test failure was hidden."
+    "source_guards": "Task schema 3, orphan 3, lean ceilings 2 and documentation 5 passed. The previously unavailable architecture test now passed all 41 cases using Cargo-built native-qualified profile16 binaries, and local-channel passed all 29 tests with that profile. Full workspace tests remain pending.",
+    "test_profile_experiment": {
+      "jobs": 8,
+      "inventory": "197 identical test executable keys per profile; 4679 tracked files restored byte-for-byte after the scoped source-change probe.",
+      "source": "33ff37fc64b5283d3b080584db2a6bd1f5c15b1d",
+      "old_warm_cargo_seconds": 3.587,
+      "new_warm_cargo_seconds": 3.616,
+      "limits": "Cold target does not mean cold OS caches; incremental measurement covers one owned diagnostic edit, not every change class. Initial interrupted16 run and failed helper setup excluded, preserved in private evidence. Linux independently reports the same direction on a different frozen composition. Full candidate acceptance and end-to-end delivery remain unverified.",
+      "new_codegen_units": 16,
+      "toolchain": "1.99.0",
+      "restored_source_cargo_seconds": {
+        "old": 5.277,
+        "new": 4.903
+      },
+      "method": "Compile-only --workspace --offline --locked --features xtask/release-tooling --target x86_64-pc-windows-msvc --no-run --message-format=json --timings, separate empty private targets, native sysroot prepare/apply/recheck. Two paired cold-target runs in opposite order. Sysroot preparation measured separately. No compile-probe tests executed.",
+      "scoped_source_edit_cargo_seconds": {
+        "old": 5.063,
+        "new": 4.923
+      },
+      "platform": "x86_64-pc-windows-msvc",
+      "old_cold_cargo_seconds": [
+        393.365,
+        375.008
+      ],
+      "old_codegen_units": 256,
+      "new_cold_cargo_seconds": [
+        316.882,
+        308.954
+      ]
+    }
   }
 }
