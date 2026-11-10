@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXPEERISOLATION-1",
+  "feature": "F-CORE-PEER-CHANNEL-TEST-ISOLATION-1",
+  "feature_id": "F-CORE-PEER-CHANNEL-TEST-ISOLATION-1",
+  "title": "Isolate process-global peer links between channel integration tests",
+  "goal": "Ensure the two peer-channel integration tests cannot reuse links to stopped daemons when the test runner executes them in one process.",
+  "size": "s",
+  "deps": ["T-CODEXPEERCHANNEL-1"],
+  "native_worker": "codex-peer-isolation",
+  "created_by": "COMPLIANCERECORDCLOSE",
+  "created_unix": 1794506009,
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "peer_channel_hub"]
+  },
+  "results": {
+    "fmt": "cargo fmt --all passed",
+    "peer_channel_hub": "2 passed, 0 failed",
+    "isolation": "peer_channel_link::close_links called at both test boundaries"
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXPEERISOLATION-1.json",
+    "tests/peer_channel_hub.rs"
+  ]
+}
