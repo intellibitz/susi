@@ -1873,7 +1873,7 @@ Commands:
   route-reset   Re-admit a repaired cloud provider after routing quarantine
   manage        Unified lifecycle facade for local AI ecosystem components
   provision     Explicit cloud/local host provision. The 30s OS tick runs no operator CLI; probe/list/apply run only on request — that is the OS contract, not a silent cloud API
-  capabilities  The unified capability bus: discover every A2A/MCP/HTTP/adapter capability through one typed catalog, or dispatch one through its permission/timeout/cost contract (Mcp tools only today)
+  capabilities  The unified capability bus: discover every A2A/MCP/HTTP/adapter capability through one typed catalog, dispatch one through its permission/timeout/cost contract (Mcp tools only today), or issue a host-signed envelope another component nests its calls under
   help          Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2405,7 +2405,7 @@ Options:
   -h, --help  Print help
 
 === susi os capabilities ===
-The unified capability bus: discover every A2A/MCP/HTTP/adapter capability through one typed catalog, or dispatch one through its permission/timeout/cost contract (Mcp tools only today)
+The unified capability bus: discover every A2A/MCP/HTTP/adapter capability through one typed catalog, dispatch one through its permission/timeout/cost contract (Mcp tools only today), or issue a host-signed envelope another component nests its calls under
 
 Usage: susi os capabilities [COMMAND]
 

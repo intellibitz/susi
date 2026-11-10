@@ -582,6 +582,29 @@ nothing was promoted. Two warm-up deliveries took 212 s and 126 s: their diffs
 included the tool itself (all `xtask` binary tests) and other agents' shipped
 changes, compiling those test targets for the first time.
 
+### Linux x86_64, tests concurrent with the build (T-CLAUDELOOP10-1, 2026-11-11)
+
+`deliver` now compiles the owning packages' unit tests in their own warm
+target directory (`<target>/deliver-tests`), runs them as soon as they are
+compiled and builds the dev executable at the same time. Before, the test
+compile, the test run and the build ran one after another, two of them on
+one Cargo build lock. Nothing is staged until both have finished and every
+test has passed; a failure prints the failing log's tail and promotes
+nothing. Measured in a 4-vCPU cloud container (Rust 1.99.0, warm registry),
+each a real commit with `--prove-rollback`:
+
+| Change | sequential (before) | concurrent (now) |
+| --- | --- | --- |
+| CLI help text + snapshot (root package) | 8.5, 7.3, 6.9 s | **5.1, 5.0 s** |
+| function body in `susi-core` | 21.1, 16.6, 16.1 s | **9.6, 9.6 s** |
+
+Cold build of the `susi` binary into an empty target: 60.2 s. Warm edit to
+binary: 2.4-7.8 s by crate. The first delivery after this change pays a
+one-time 94.6 s and 2.4 GB to fill `deliver-tests`; a delivery whose diff spans
+root and core runs both suites (18.4-18.6 s). A stale snapshot in the root
+package was refused with the channel digest and `refs/susi/dev-live`
+unchanged. Evidence: `.agents/evidence/loop10-T-CLAUDELOOP10-1.json`.
+
 What this does and does not establish:
 
 - The Mandate 62 criterion, a genuine source change reaching the verified live
