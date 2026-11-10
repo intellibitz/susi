@@ -1200,6 +1200,50 @@ pub mod gawd {
         .to_string()
     }
 
+    /// Solve a mission while carrying the caller's cooperative cancellation
+    /// flag through the watched PlaneBus request and into the GAWD handler.
+    pub fn solve_mission_cancellable(
+        intent: &str,
+        workspace: &Path,
+        version: &str,
+        cancel: crate::progress::Cancel,
+    ) -> String {
+        crate::progress::with_cancel(Some(cancel), || {
+            req_watched(
+                topics::GAWD_SOLVE,
+                json!({
+                    "intent": intent,
+                    "workspace": workspace.display().to_string(),
+                    "version": version,
+                    "model": null
+                }),
+            )
+        })
+        .unwrap_or_else(|e| json!({ "error": e }))
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+    }
+
+    /// Solve a mission for an ACP/A2A caller, preserving the active cancel
+    /// scope and refusing an empty or unreachable GAWD answer.
+    pub fn solve_mission_for_acp(
+        intent: &str,
+        workspace: &Path,
+        version: &str,
+    ) -> Result<String, String> {
+        let answer = crate::progress::current_cancel().map_or_else(
+            || solve_mission(intent, workspace, version),
+            |cancel| solve_mission_cancellable(intent, workspace, version, cancel),
+        );
+        if answer.trim().is_empty() {
+            Err("mission produced no result (GAWD plane unreachable or empty answer)".to_string())
+        } else {
+            Ok(answer)
+        }
+    }
+
     /// The user's own mission, as `susi <goal>` runs it in process, for a
     /// caller that forwards the goal to the daemon (`mission_run`). The
     /// handler may start a stopped local engine on demand, and the answer
