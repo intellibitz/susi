@@ -129,19 +129,6 @@ impl ModelManager {
             .is_some_and(|failed| failed.elapsed().as_secs() < cooldown)
     }
 
-    pub(crate) fn fits_memory(
-        size_gb: f32,
-        available_gb: f32,
-        reserve_gb: f32,
-        overhead: f32,
-    ) -> bool {
-        [size_gb, available_gb, reserve_gb, overhead]
-            .iter()
-            .all(|n| n.is_finite())
-            && size_gb > 0.0
-            && size_gb * overhead.max(1.0) <= (available_gb - reserve_gb.max(0.0)).max(0.0)
-    }
-
     pub(crate) fn is_complete_model_file(path: &Path, minimum_bytes: u64) -> bool {
         path.metadata()
             .map(|metadata| metadata.len() >= minimum_bytes)

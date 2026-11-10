@@ -21,20 +21,6 @@ pub struct ModelDownloadProgress {
 }
 
 impl ModelDownloadProgress {
-    /// Percentage of expected bytes downloaded, clamped to `0.0..=100.0`
-    /// (`100.0` when `status == "COMPLETED"` and `expected_bytes == 0`, else `0.0`).
-    #[must_use]
-    pub fn computed_percentage(&self) -> f32 {
-        if self.expected_bytes > 0 {
-            ((self.bytes_downloaded as f64 / self.expected_bytes as f64) * 100.0).clamp(0.0, 100.0)
-                as f32
-        } else if self.status == "COMPLETED" {
-            100.0
-        } else {
-            0.0
-        }
-    }
-
     /// True when the download has reached a terminal lifecycle state.
     #[must_use]
     pub fn is_terminal(&self) -> bool {
@@ -223,7 +209,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn model_download_progress_percentage_terminal_and_serde_roundtrip() {
+    fn model_download_progress_terminal_and_serde_roundtrip() {
         let running = ModelDownloadProgress {
             model_name: "qwen3-0.6b.gguf".to_string(),
             target_url: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0.6b.gguf"
@@ -233,37 +219,11 @@ mod tests {
             percentage: 25.0,
             status: "RUNNING".to_string(),
         };
-        assert!((running.computed_percentage() - 25.0).abs() < f32::EPSILON);
         assert!(!running.is_terminal());
 
         let json = serde_json::to_string(&running).unwrap();
         let roundtrip: ModelDownloadProgress = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtrip, running);
-
-        let zero_expected_running = ModelDownloadProgress {
-            expected_bytes: 0,
-            bytes_downloaded: 100,
-            status: "RUNNING".to_string(),
-            ..running.clone()
-        };
-        assert_eq!(zero_expected_running.computed_percentage(), 0.0);
-
-        let zero_expected_completed = ModelDownloadProgress {
-            expected_bytes: 0,
-            bytes_downloaded: 0,
-            status: "COMPLETED".to_string(),
-            ..running.clone()
-        };
-        assert_eq!(zero_expected_completed.computed_percentage(), 100.0);
-        assert!(zero_expected_completed.is_terminal());
-
-        let over_reported = ModelDownloadProgress {
-            bytes_downloaded: 500,
-            expected_bytes: 200,
-            status: "RUNNING".to_string(),
-            ..running.clone()
-        };
-        assert_eq!(over_reported.computed_percentage(), 100.0);
 
         for (status, terminal) in [
             ("RUNNING", false),

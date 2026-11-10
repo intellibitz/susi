@@ -300,19 +300,6 @@ pub fn configured_targets() -> Vec<CredentialTarget> {
         .collect()
 }
 
-/// Enumerate, probe, classify and record. Failure evidence feeds the
-/// eligibility store so failover steers around dead keys; a probe success
-/// is recorded in the report only — usability stays inference-earned.
-#[must_use]
-pub fn scout_configured(call: &dyn CheapCall) -> ScoutReport {
-    let targets = configured_targets();
-    let report = scout_targets(call, &targets);
-    for (target, verdict) in targets.iter().zip(&report.verdicts) {
-        record_verdict(target, verdict);
-    }
-    report
-}
-
 /// Feed one probed verdict to the eligibility store.
 fn record_verdict(target: &CredentialTarget, verdict: &CredentialVerdict) {
     susi_gemi_models::cloud_eligibility::record_probe(

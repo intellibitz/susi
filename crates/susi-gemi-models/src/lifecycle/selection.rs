@@ -11,50 +11,7 @@ use crate::hardware::HardwareProfiler;
 use super::types::ModelProvenance;
 use super::ModelManager;
 
-static RESIDENCY_PROBE: std::sync::OnceLock<fn(&Path) -> bool> = std::sync::OnceLock::new();
-
 impl ModelManager {
-    /// The inference owner supplies its typed cache identity check. Model
-    /// discovery alone cannot know whether weights already occupy memory.
-    pub fn register_residency_probe(probe: fn(&Path) -> bool) {
-        let _ = RESIDENCY_PROBE.set(probe);
-    }
-
-    fn resident(path: &Path) -> bool {
-        RESIDENCY_PROBE.get().is_some_and(|probe| probe(path))
-    }
-
-    /// Allocation accounting only; callers still perform model admission and
-    /// capability filtering. Resident weights are not a second allocation.
-    pub fn weight_allocation_fits_memory(
-        path: &Path,
-        available_gb: f32,
-        reserve_gb: f32,
-        overhead: f32,
-    ) -> bool {
-        if !available_gb.is_finite() || available_gb < 0.0 {
-            return false;
-        }
-        // Compatibility API for callers that already supply coarse GiB.
-        // Production admission below observes bytes directly.
-        if !Self::resident(path) {
-            return path.metadata().is_ok_and(|metadata| {
-                Self::fits_memory(
-                    metadata.len() as f32 / 1_073_741_824.0,
-                    available_gb,
-                    reserve_gb,
-                    overhead,
-                )
-            });
-        }
-        Self::weight_allocation_fits_memory_bytes(
-            path,
-            (f64::from(available_gb) * 1_073_741_824.0) as u64,
-            reserve_gb,
-            overhead,
-        )
-    }
-
     /// Retain the configured reserve while accounting in bytes, including the
     /// fractional GiB that the human-readable hardware profile omits.
     pub(crate) fn inference_headroom_bytes(available: u64, reserve_gb: f32) -> u64 {
@@ -98,30 +55,11 @@ impl ModelManager {
         let Ok(metadata) = path.metadata() else {
             return false;
         };
-        // Existing weights need inference workspace, not another weights+OS
-        // reservation. Preserve the configured overhead, with a 64MiB floor
-        // for incremental work; zero/invalid free memory never admits reuse.
         Self::allocation_fits_available_bytes(
             metadata.len(),
             available,
             reserve_gb,
             overhead,
-            Self::resident(path),
-        )
-    }
-
-    /// Recheck the unchanged cold-allocation budget immediately before a load.
-    /// A residency observation is not a reservation against concurrent eviction.
-    pub fn cold_load_fits_memory(path: &Path) -> bool {
-        let Ok(metadata) = path.metadata() else {
-            return false;
-        };
-        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        Self::allocation_fits_available_bytes(
-            metadata.len(),
-            HardwareProfiler::determine_available_ram_bytes(),
-            cfg.model_scoring_heuristics().system_ram_buffer_gb,
-            cfg.model_lifecycle().memory_overhead_ratio,
             false,
         )
     }

@@ -165,13 +165,6 @@ impl AgentManager {
         self
     }
 
-    /// Cadence long-polling adapters sleep between status refreshes.
-    /// Tests tighten it so polls are deterministic, not wall-clock bound.
-    pub fn with_poll_interval(mut self, interval: std::time::Duration) -> Self {
-        self.poll_interval = interval;
-        self
-    }
-
     pub fn poll_interval(&self) -> std::time::Duration {
         self.poll_interval
     }
