@@ -8,8 +8,10 @@ duet, another agent or a capability-verified Susi harness. Driver/engine recursi
 applies to every container component with explicit contracts, budgets, cycle
 detection and no delegated permission expansion. Cloud
 sessions are independent and autonomous within user authorization. Susi's master
-brain owns distillation, task/feature manifests, branch composition and exact-tree
-integration. Verified main contributions have no fixed push cadence or arbitrary
+brain owns distillation, task/feature manifests, branch composition and serialized
+integration/publication. Main is unqualified development with no mandatory push
+gates. Full exact-tree gates apply to release branches and snapshots. Main
+contributions use normal fast-forward updates, with no fixed push cadence or arbitrary
 agent-count limit; measured host capacity and serialized publication govern.
 Git is portable storage, not a GitHub API or hosted-workflow dependency. Branches
 may advance; published release tags are immutable. Access controls, private
@@ -18,10 +20,11 @@ commercial boundaries, production gates and rollback remain unchanged.
 The older decisions and incident notes below describe history, design and older
 implementation. They are not proof that distributed claims, adoption or receipts
 are deployed. In particular, fixed gate-cycle cooldowns and a single-laptop-only
-publication role are superseded. Existing `IntegrationPolicy` restrictions must
-be migrated in a reviewed, tested change; never bypass them or change repository
-permissions merely because the intended workflow is broader. Keep incident
-safeguards, native exact-tree gates and honest origin evidence.
+publication role and mandatory main-push gates are superseded. Existing `IntegrationPolicy` main-gate restrictions must
+be migrated with honest validation. Authorized normal history-preserving main
+publication may proceed while that tooling is updated. Never bypass live access
+or security controls, weaken release gates, or change repository permissions. Keep incident
+safeguards, release exact-tree gates and honest origin evidence.
 
 ## Historical design and implementation notes
 

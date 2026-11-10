@@ -5,7 +5,9 @@ or cloud, and the implementation contract for the Susi master brain. It
 consolidates the CEO's prior vision with the three-laptop plan. Mandate 73 in
 `.agents/identity.json` records it; `AGENTS.md` remains the engineering entry
 point. Existing mandates remain binding except the fixed remote push cadence
-and single-laptop publication restriction explicitly superseded below.
+single-laptop publication restriction and mandatory main-push gates explicitly
+superseded below. The CEO's latest direction is: no mandatory gates for main;
+full qualification belongs on release branches and release snapshots.
 Requirements are not evidence of completed implementation.
 
 ## 1. The CEO sets direction; agents deliver
@@ -68,31 +70,38 @@ isolation and idempotent retries, and propagate failure rather than manufacture
 success. These are implementation requirements, not claims that Susi already
 matches every other agent or that recursive adapters are deployed.
 
-## 3. Fast main: unlimited contributions through Susi
+## 3. Fast main: unrestricted development publication, gated releases
 
-Agents may commit, push and merge verified Susi work without routine CEO approval.
-They may contribute to `main` as often as verified work is ready. Remove arbitrary
-cooldowns, fixed twenty-minute cycles and artificial agent quotas from the
-intended fast workflow. Each contribution still enters through the Susi native
-workflow and its serialized exact-tree integration gate. Independent raw pushes
-racing to `main` are not the fast workflow.
+Agents may commit, push and merge Susi work without routine CEO approval. The
+CEO explicitly directs **no mandatory gates for main branch pushes**. Main is an
+**unqualified development integration stream**, not a production or release
+attestation. Agents may contribute as often as work is ready; no fixed push
+cooldown, artificial agent quota or mandatory pre-push test queue applies.
+Focused development checks remain useful and their results must be reported
+honestly, but they do not become a hidden main-push prerequisite.
 
-The Susi master brain plans, distills and coordinates; deterministic workflow
-checks decide whether a candidate may advance. Before publishing, reconcile the
-current target head, preserve accepted work, verify the actual combined tree and
-advance the expected head atomically with a normal fast-forward. If it moved,
-reconcile and obtain valid evidence for the new combined tree. Never treat a
-clean merge, an agent opinion or a stale test receipt as acceptance. Never rewrite
-shared history, force-push a shared branch or lower a gate to win a race.
+Susi's master brain coordinates distillation, branch composition and serialized
+integration/publication. Preserve every accepted contribution, reconcile the
+current target head, and use an atomic normal fast-forward update. If the target
+moves, reconcile against it and retry without overwriting history. No force-push,
+blind ref reset, destructive overwrite or touching another worker's claim.
+A clean merge does not qualify a release, and main may contain unfinished work;
+keep its status and known failures visible to other agents.
 
-Use the currently available native commands in `AGENTS.md`. An agent that cannot
-run or access the authorized main publication gate publishes only its permitted
-isolated contribution branch and leaves a complete handoff for Susi adoption.
-That is an implementation/access limit to report and repair, not a permanent
-cloud-agent role restriction. This mandate does not change repository rulesets,
-branch protection, account privileges or authentication. Do not bypass a denial
-or silently substitute a credential, identity, remote or permission setting.
+**Release branches and release snapshots require the full exact-tree gates.**
+Susi selects and distills development contributions into an identified release
+candidate, then verifies that exact combined tree with the tests, audits,
+provenance and artifact evidence below. Never move an unqualified main artifact
+over installed production or imply that a successful push is a release.
 
+Existing `cargo local-workflow ship` and `IntegrationPolicy` may still encode
+mandatory main gates or branch-only publication. This is implementation drift
+to migrate, not the CEO's current policy. A normal authorized Git publication
+that preserves history may carry the development change while that tooling is
+updated. Repository access controls remain binding: do not alter branch
+protection, rulesets, identities, authentication or credentials, and do not
+route around a denied action. If live controls prevent publication, report the
+exact blocker and retain the isolated contribution for later integration.
 ## 4. Portable Git storage, native coordination
 
 Git is the portable shared storage and history format. GitHub, when used, is
@@ -131,10 +140,10 @@ silent capability loss. Preserve source authorship, licenses and attribution.
 
 ## 6. Pristine branches and immutable release snapshots
 
-Development `main` is the fast, tested integration stream. Susi derives feature,
+Development `main` is the fast, unqualified integration stream. Susi derives feature,
 distillation and release-candidate branches from explicit manifests and exact
-source commits. Branches are **versioned and may advance through verified
-changes**. A release tag is an **immutable snapshot**: never move, overwrite or
+source commits. Branches are **versioned and may advance through changes**; release branches
+advance only with the required qualification evidence. A release tag is an **immutable snapshot**: never move, overwrite or
 reuse a published tag. A corrected release gets a new tag and release record.
 Do not describe an advancing branch as an immutable tagged snapshot.
 
@@ -171,9 +180,10 @@ does not relicense foreign code or prove the shipped artifact compliant.
 
 Use focused checks and compatible immutable caches for development feedback.
 Reuse evidence only when its source, dependency closure, environment, toolchain,
-features and required checks are still valid. The final gate verifies the exact
-combined tree. Unknown impact fails closed to the wider check; zero executed
-tests is not a pass. Keep production qualification distinct from development.
+features and required checks are still valid. The release gate verifies the exact
+combined tree. For release qualification, unknown impact fails closed to the wider
+check; zero executed tests is not a pass. Main publication is not release
+qualification and has no mandatory pre-push gate.
 Measure cold and warm latency, queue time, build, test, startup, useful response
 and end-to-end delivery separately. Report counts, inputs and failures honestly.
 
@@ -193,9 +203,10 @@ master brain cannot self-approve missing permissions or certify its own success.
 3. Maintain the task/feature records, implement, review and run meaningful checks
    in private scratch state. Keep independent work moving without heavy-build
    contention. Report exact blockers instead of inventing capabilities.
-4. Submit verified work through the native integration workflow. Reconcile and
-   validate the combined tree, then verify the target origin contains the commit
-   before reporting it landed. Report local-only or pending work as such.
+4. Integrate development work without mandatory main-push gates. Preserve other
+   contributions, reconcile the current head and use a normal fast-forward push.
+   Verify the target origin contains the commit before reporting it landed.
+   Report main as unqualified, and local-only or pending work as such.
 5. Distill and release only with the manifest, provenance and immutable-tag
    requirements above. Preserve working production and rollback. Close the claim
    only after acceptance; leave an actionable handoff if unfinished, including
@@ -204,11 +215,13 @@ master brain cannot self-approve missing permissions or certify its own success.
 ## Supersession and implementation truth
 
 This 2026-11-10 direction supersedes the fixed remote push cadence and the
-single-CEO-laptop-only integration role in the 2026-11-08 remote mandate. Its
-incident safeguards remain: owned identity, scoped changes, exact-tree tests,
+single-CEO-laptop-only integration role in the 2026-11-08 remote mandate, and
+mandatory main-push gates in earlier workflow language. Full exact-tree gates
+now apply to release branches and release snapshots. Its
+incident safeguards remain: owned identity, scoped changes, release exact-tree tests,
 destination-first migration, no stubs, preserved history and honest reporting.
 Existing branch-only `IntegrationPolicy` checks and other older implementation
 restrictions may still be present. Agents must update them through a scoped,
-reviewed and tested change, while obeying live access controls. This document
+reviewed change with honest validation, while obeying live access controls. This document
 itself launches no agents, changes no security settings, deploys no runtime and
 certifies no feature as complete.

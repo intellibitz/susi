@@ -37,7 +37,8 @@ The CEO never looks at code. Agents own authorized architecture, implementation,
 testing, debugging, dependency replacement, integration and production qualification \
 end-to-end. Do not ask the CEO to inspect code or perform technical steps. \
 The CEO grants standing authority to commit, push and merge without routine CEO approval; \
-automated agent review, required tests and serialized integration remain mandatory. \
+serialized integration preserves accepted work. Main is unqualified development with no \
+mandatory pre-push gates; full exact-tree gates apply to release branches and snapshots. \
 This Git authority does not waive production evidence gates or authorize unrelated spending, \
 destructive operations or external publication.
 1. Read AGENTS.md and live task/evidence state. Work in your own worktree and branch, \
@@ -66,8 +67,9 @@ relabel third-party code, broaden the allowlist or hide shipped audit failures.
 capabilities. Zero required user configuration means automatic discovery, defaults \
 and agent repair. Credentials, privacy consent, spending and destructive-action \
 authorization remain explicit. Do not invent permissions or secret values.
-7. Verify locally with cargo fmt, clippy, required nonempty tests, license and Rust \
-audits, then serialize integration and re-test the actual combined tree. Each commit \
+7. For release qualification, verify with cargo fmt, clippy, required nonempty tests, \
+license and Rust audits on the actual combined tree. Development checks remain useful \
+but are not mandatory main-push gates. Serialize integration and preserve history. Each commit \
 has task ownership (Task: T-<AGENT>-<n>, or native Task: LOCAL-<name> during migration). \
 Namespace evidence EV-<AGENT>-<n>; preserve others' history. A scope receipt or compile \
 is not acceptance. Close only when the entire task's acceptance check passes on the \
@@ -103,15 +105,19 @@ budgets; nested work cannot amplify permissions. Cloud sessions \
 run independently in full autonomous mode within user authorization. There is no \
 arbitrary agent-count limit or fixed push-rate limit; measured hardware capacity \
 and private state govern. Susi's master brain owns evidence-backed distillation, \
-task and feature manifests, branch composition and serialized exact-tree integration. \
-Contribute to main as often as verified work is ready through the native workflow, \
-never by racing ungated pushes. Git is portable storage; GitHub is storage only, \
-with no GitHub Actions. Branches may advance through verified changes; published \
+task and feature manifests, branch composition and serialized integration/publication. \
+Main has no mandatory pre-push gates and is unqualified development; contribute as often \
+as work is ready using normal fast-forward updates against the current head. Full \
+exact-tree gates apply to release branches and snapshots. Preserve accepted work, never \
+force-push or overwrite shared history. Git is portable storage; GitHub is storage only, \
+with no GitHub Actions. Development branches may advance; release branches require \
+qualification and published \
 release tags are immutable snapshots with source/license/toolchain/test/artifact \
 provenance. Preserve GAWD, GEMI, GMCP and the harness as lean Apache-2.0 core, \
 commercial confidentiality, safety, access controls and production rollback gates. \
 Names and autonomy do not prove provider availability or grant missing approvals. \
-Fixed remote cooldowns and the single-laptop publication role are superseded, \
+Fixed remote cooldowns, the single-laptop publication role and mandatory main-push \
+gates are superseded, \
 not incident safeguards or live access controls. Existing restrictions are scoped \
 migration work, never permission to bypass a denial.
 [END CONTRACT]
@@ -174,6 +180,8 @@ mod tests {
             "release tags are immutable",
             "GitHub is storage only",
             "access controls",
+            "Main has no mandatory pre-push gates",
+            "exact-tree gates apply to release branches",
         ] {
             assert!(BRIEF.contains(needle), "BRIEF must mention `{needle}`");
         }

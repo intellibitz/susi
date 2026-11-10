@@ -7,23 +7,27 @@ Three isolated laptops each have **dot, opus, carbon and grok**. An **available 
 dot, duet, another agent, or Susi harness when its capabilities are verified.
 Cloud sessions are independent and fully autonomous
 within the user's authorization. Susi's master brain owns distillation, task and
-feature manifests, branch composition and serialized exact-tree integration.
+feature manifests, branch composition and serialized integration/publication.
 The recursion adapter applies to every Susi container component: a driver can
 be an engine and an engine a driver, nested through capability contracts with
 cycle/termination checks, resource budgets and no permission amplification.
-There is no arbitrary agent-count limit or fixed push-rate limit. Admit work
+**Main has no mandatory pre-push gates and is unqualified development. Full
+exact-tree gates apply to release branches and snapshots.** There is no arbitrary
+agent-count limit or fixed push-rate limit. Admit work
 against measured hardware capacity, and keep private worktrees, targets, runtime
-homes and identities. Agents may contribute to main as often as verified work is
-ready through the native workflow, never through racing ungated pushes.
+homes and identities. Agents may contribute to main as often as work is ready. Reconcile current heads,
+preserve accepted work and publish with normal atomic fast-forward updates.
 Git is portable storage; GitHub is storage only, with no GitHub Actions.
-Branches may advance through verified changes; published release tags are
+Development branches may advance without a mandatory gate; release branches
+require qualification and published release tags are
 immutable snapshots with source, license, toolchain, tests and artifact provenance.
 Preserve GAWD, GEMI, GMCP and the harness as lean Apache-2.0 core, commercial
 confidentiality, existing access controls, safety, production health and rollback.
 This is a mandate, not a claim that all agents, providers or workflow features
 are deployed. No security setting, credential grant or branch protection changes
 are authorized by this document. The complete contract identifies superseded
-remote cooldown/single-laptop restrictions and preserves their incident safeguards.
+remote cooldown/single-laptop/main-gate restrictions and preserves release gates,
+access controls and history-preservation safeguards.
 # CEO vision and governing contract
 
 The CEO never looks at code. Susi is an RSI AI OS for the local and cloud AI
@@ -52,7 +56,7 @@ These are requirements, **not claims of completed implementation**. Consult
 | 62 | Agent-only end-to-end delivery; no CEO code inspection or technical repair. |
 | 63 | Rust-only Susi runtime, build/install/release tooling and shipped implementation dependencies. Rust facades do not turn C/C++ into Rust. |
 | 64 | Native Windows is first-class: MSVC and native OS APIs, no Bash/WSL/MSYS/Python/Node/container prerequisite. |
-| 65 | Parallel agents with private source, build and runtime state, disjoint scopes, serialized tested integration and measured speed. |
+| 65 | Parallel agents with private source, build and runtime state, disjoint scopes, serialized integration, gated releases and measured speed. |
 | 66 | Development, integration and debug releases work locally without GitHub; hosting/publication are optional. |
 | 67 | Separate debug and optimized production artifacts; evidence-gated atomic promotion, health checks and verified rollback. |
 | 68 | Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause only for distributed components; correct SPDX interpretation, preserved notices and no audit exclusions hiding shipped violations. |
@@ -60,7 +64,7 @@ These are requirements, **not claims of completed implementation**. Consult
 | 70 | Zero required user-written configuration; discovery, defaults and repair are agents' responsibility. |
 | 71 | **Susi: AI that earns its next upgrade.** Promote demonstrated improvement, with durable evidence and rollback. |
 | 72 | **Platform scope, licensing and budget:** Susi core is Apache-2.0 and free forever, with releases and CI on vanilla Windows x86_64 and Linux x86_64 only (portable source kept); Susi Commercial Apps is private/paid and also builds, tests and releases for x86_64 Windows and Linux only; its macOS/ARM64 support is paused (CEO decision 2026-11-05) until the CEO reopens it. |
-| 73 | **Independent agents and Susi integration:** three isolated laptops with an available authorized local driver, recursive driver/engine adapters across container components, independent autonomous cloud sessions, capacity-based unlimited verified contributions, master-brain distillation, portable Git storage and immutable release snapshots. |
+| 73 | **Independent agents and Susi integration:** three isolated laptops with an available authorized local driver, recursive driver/engine adapters across container components, independent autonomous cloud sessions, capacity-based unlimited development contributions, master-brain distillation, portable Git storage and immutable release snapshots. |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
@@ -145,22 +149,20 @@ and `cargo fmt --all --check` on the exact tree, and ship through the gate.
    `Task: T-<AGENT>-<n>`. These receipts identify ownership, not test success.
    Never disable shared hooks globally. Legacy network hooks are not the local
    correctness gate; use the native command instead of handing work to GitHub.
-6. Serialize integration, validate against the current local integration head,
-   run acceptance on the **actual combined tree**, and publish it atomically.
-   A clean Git merge is insufficient. A missing integration command or failed
-   gate remains an open task; do not invent success or bypass checks. Preserve
-   both workers' changes and resolve conflicts as agents. Local completion must
-   not depend on `origin/main`, a pull request, remote CI, or human code review.
-   When the work should land on `origin`, `cargo local-workflow ship <name> [<name> ...]`
-   is the serialized push and merge. Agents keep committing in parallel.
-   `ship` runs the local gate once for the batch, fast-forwards `refs/heads/main`
-   on `origin` directly to the verified local integration head plus its gate
-   receipt commit (`.agents/receipts/`, the record of the landing), and
-   synchronizes local `main`. It uses git push and fetch only: no commit
-   statuses, pull requests, Actions or API calls (CEO mandate 2026-11-09:
-   GitHub is storage only). `ship --retry` republishes a verified integration
-   head after a failed push. Releases are tags plus committed records
-   (`releases/<tag>.json`, `docs/releases.md`).
+6. Serialize integration and publication; reconcile the current main head and
+   preserve all accepted work. Main is explicitly unqualified development and
+   has no mandatory pre-push gates under Mandate 73. Use normal atomic
+   fast-forward updates, never force-push or reset shared history. Verify the
+   target origin contains the commit before reporting it landed. Ordinary
+   development checks remain useful but cannot become a hidden main gate.
+   Existing `cargo local-workflow ship <name> [<name> ...]` still runs its older
+   local gate before publishing; that is implementation drift to migrate.
+   Authorized normal Git publication may carry a main change in the meantime,
+   without modifying hooks globally, authentication, rulesets or branch access.
+   Full exact-tree tests/audits/provenance gates belong on release branches and
+   snapshots. Do not install or claim a main artifact as qualified production.
+   Releases remain immutable tags plus committed records (`releases/<tag>.json`,
+   `docs/releases.md`); no GitHub Actions or hosted-workflow prerequisites.
 7. Close only after acceptance and integrated-tree verification succeed for the
    complete task. Zero executed tests do not count. Release ownership deliberately;
    `cargo local-workflow release <name>` preserves the branch/worktree and refuses
@@ -182,10 +184,12 @@ previous verified artifact, check health, and roll back on failure. Test the
 promotion/rollback path, including Windows file locks and interruption.
 
 The CEO grants standing authority to **commit, push and merge** Susi work at
-agents' discretion. Agents perform automated review and required testing; the
-integrator serializes merges and verifies the actual combined tree. Do not ask
+agents' discretion. Agents own review and meaningful testing; the
+integrator serializes merges and preserves accepted work. Main has no mandatory
+pre-push gates and is unqualified development. Full exact-tree verification gates
+apply to release branches, release snapshots and production qualification. Do not ask
 for routine CEO approval of those Git actions. Preserve other agents' work and
-never force-push or bypass evidence gates. GitHub publication remains optional
+never force-push or bypass release evidence gates or access controls. GitHub publication remains optional
 and is not a local-development prerequisite.
 
 This Git authority does not authorize paid services, destructive operations or
@@ -316,7 +320,7 @@ chat, or agent memory.
 ## Platform and CI policy (CEO decisions 2026-11-03, 2026-11-05 and 2026-11-06)
 
 - **Susi core (`intellibitz/susi`) is free, open (Apache-2.0 forever), and ships only for vanilla Windows x86_64 and vanilla Linux x86_64** for budget reasons. Do not publish core release or download artifacts for macOS, ARM64 or any other platform. Releases are qualified and built locally; the GitHub Actions release workflows were removed (CEO decision 2026-11-06), and GitHub Actions stays disabled at the repository level (CEO decision 2026-11-05).
-- **Zero GitHub Actions; the gate is local and current-host only** (CEO decision 2026-11-05). No hosted CI runs for core. Verification is `cargo local-workflow check` in the agent's own worktree and the serialized `cargo local-workflow ship` gate, both on the current native host (`x86_64-pc-windows-msvc` or `x86_64-unknown-linux-gnu`). All GitHub Actions workflow definitions were removed (CEO decision 2026-11-06); `xtask/tests/ci_workflow_perf.rs` (`no_github_actions_workflow_returns`) keeps `.github/workflows/` from returning. Never add, enable or trigger GitHub Actions, and never add macOS, ARM64 or other-platform compile checks, native tests, nightly runs or release legs unless the CEO explicitly asks.
+- **Zero GitHub Actions; the gate is local and current-host only** (CEO decision 2026-11-05). No hosted CI runs for core. Development verification can use `cargo local-workflow check` in the agent's own worktree; the existing serialized `cargo local-workflow ship` also runs its older gate. Mandate 73 removes mandatory main-push gates and retains full release-branch qualification. Run checks on the current native host (`x86_64-pc-windows-msvc` or `x86_64-unknown-linux-gnu`). All GitHub Actions workflow definitions were removed (CEO decision 2026-11-06); `xtask/tests/ci_workflow_perf.rs` (`no_github_actions_workflow_returns`) keeps `.github/workflows/` from returning. Never add, enable or trigger GitHub Actions, and never add macOS, ARM64 or other-platform compile checks, native tests, nightly runs or release legs unless the CEO explicitly asks.
 - **Keep core source portable.** Do not delete code that already works on other platforms (including ARM64 Windows runtime/link-layer source support, `deny.toml` targets, and `tests/zc_matrix.rs` dependency-graph checks that run on x86_64). Portable code costs nothing; building and testing other platforms in core does.
 - **Commercial Apps (`intellibitz/susi-commercial-apps`) macOS/ARM64 support is paused** (CEO decision 2026-11-05) until the CEO reopens it: no every-OS release qualification and no Susi Certified macOS/ARM core builds run in either repository meanwhile. If it is reopened, commercial owns that qualification and must never depend on core CI evidence for macOS or ARM64.
 
@@ -373,11 +377,13 @@ saying where you stopped.
 
 The 2026-11-08 rules responded to ungated remote pushes, broken main, unproven
 commercial migrations and stubbed capabilities. Mandate 73 now supersedes their
-fixed push cadence and single-CEO-laptop-only publication role. It preserves:
+fixed push cadence, single-CEO-laptop-only publication role and mandatory main
+push gates. It preserves:
 
 - Own authorized identity; no impersonation, shared credentials or bypass.
 - Isolated claims and task records with task trailers; preserve other agents' work.
-- Required exact-tree verification and serialized integration before main advances.
+- Serialized integration and normal fast-forward main updates without overwrites.
+- Full exact-tree verification for release branches and snapshots, not main pushes.
 - Destination-first commercial migration, actual wiring/tests and no error stubs.
 - No force-push of shared history, and no modification of access controls.
 - Actual origin evidence before claiming landing; honest test commands and counts.

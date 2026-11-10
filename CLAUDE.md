@@ -9,7 +9,7 @@ The CEO never inspects code. Agents own implementation, verification, integratio
 and production qualification. Requirements are not claims of current compliance.
 
 The CEO authorizes agents to commit, push and merge without routine CEO approval.
-Follow AGENTS.md automated review, required tests and serialized integration;
+Follow AGENTS.md serialized integration and history-preserving publication;
 this authority does not waive production gates or authorize unrelated spending,
 destructive actions or external publication.
 
@@ -18,6 +18,8 @@ another agent or capable Susi harness) coordinates each laptop. Cloud sessions
 are independently autonomous within user authorization. Driver/engine recursion
 applies to every container component through capability contracts and budgets;
 nested work cannot amplify permissions or bypass cycle/termination checks.
-Susi owns distillation and serialized exact-tree integration. No arbitrary
+Susi owns distillation and serialized integration. Main is unqualified development
+with no mandatory pre-push gates; full exact-tree gates apply to release branches
+and snapshots, with normal fast-forward updates and no shared-history overwrite. No arbitrary
 agent-count or push-rate limit; measured hardware capacity and evidence govern.
 Published release tags are immutable. Preserve confidentiality and access controls.
