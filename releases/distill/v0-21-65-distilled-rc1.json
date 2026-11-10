@@ -1,0 +1,1162 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--test",
+        "git_publisher_native_hook"
+      ],
+      "exit_code": 0,
+      "output_sha256": "b69095d5b3a5a5c765f2432e72ab564bb176475a158015d715429880cfcaa27e",
+      "passed": true,
+      "task_id": "T-CODEXGATEFLAKE-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "exit_code": 0,
+      "output_sha256": "d7c9adfe6494df0bc2f042a415bfc8029ad0e0d6128e17a107f51e925a5324d8",
+      "passed": true,
+      "task_id": "T-CODEXHARNESSRPC-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "exit_code": 0,
+      "output_sha256": "ae95de67474125fd8979426ecb459ea32d85f2420bbee4c34eefc85b62a1f7b5",
+      "passed": true,
+      "task_id": "T-CODEXHARNESSERROR-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "exit_code": 0,
+      "output_sha256": "ce02d09198940ea6cb8b82fd8a1fb66462c0baf617cb136ff7498e8eadfaee92",
+      "passed": true,
+      "task_id": "T-CODEXHARNESSSTDIO-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "exit_code": 0,
+      "output_sha256": "61f8847193367e5d73d8b4c712f6b2da93b64ef366da3c755b80d29d7b5c52a4",
+      "passed": true,
+      "task_id": "T-CODEXHARNESSINIT-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "exit_code": 0,
+      "output_sha256": "605c38f5dec17a4495d030d18b04993a804a27879d2f6470ec7a04f1b50b6728",
+      "passed": true,
+      "task_id": "T-CODEXHARNESSVERSION-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "exit_code": 0,
+      "output_sha256": "4e0a504052d8761a0ce2a5331775305a0b119bca19ebd86a5fbf91299e559837",
+      "passed": true,
+      "task_id": "T-CODEXHARNESSCLOSE-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "exit_code": 0,
+      "output_sha256": "9b7872c5590d90a5197234d3f057e493f42bc03af6db56e0b0d12c14c9ebbe87",
+      "passed": true,
+      "task_id": "T-CODEXHARNESSTIMEOUT-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "exit_code": 0,
+      "output_sha256": "71181f2a21f8ac4c829d2dffa6580974c1badcab0cff3908f09fd8eef382cc97",
+      "passed": true,
+      "task_id": "T-CODEXHARNESSTUDIOCLOSE-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "local-distill"
+      ],
+      "exit_code": 0,
+      "output_sha256": "fe6b3eac674602fbe907414bcc9e7baee5a4f12c815f96a91e212ca0138ececa",
+      "passed": true,
+      "task_id": "T-CODEXDISTILLPULL-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-a2a",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "output_sha256": "58ffb231151fec7be239f323dbd9933850bb877c552849657f54d07998473878",
+      "passed": true,
+      "task_id": "T-CODEXACPWORKSPACE-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gmcp",
+        "--lib",
+        "embed_provider"
+      ],
+      "exit_code": 0,
+      "output_sha256": "f06881eec11aca442982a1b0216125f943b90f42ade2d97e5cb87a3fefc9468c",
+      "passed": true,
+      "task_id": "T-CODEXEMBEDBUS-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-a2a",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "output_sha256": "21bec5efab77941a3004f3f76665f2d8008f9a01cd31d5c1bccef05491e6118a",
+      "passed": true,
+      "task_id": "T-CODEXACPCANCEL-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-a2a",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "output_sha256": "e0470ecb4e5ed369b8a52a1b815c6a622d658bb377fdabf7913084502c042614",
+      "passed": true,
+      "task_id": "T-CODEXACPLIVESTREAM-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "no_github_coupling"
+      ],
+      "exit_code": 0,
+      "output_sha256": "752d1052b39f0cd97111db60861b6a68ea31f8c818eb952ff01e7d6dc7ee4dae",
+      "passed": true,
+      "task_id": "T-CLAUDENOGHCR-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "no_github_coupling"
+      ],
+      "exit_code": 0,
+      "output_sha256": "246f7de2ad120d1738e2cf9734fb553be3bbd7c12602b2b746c05dd0f886ce0e",
+      "passed": true,
+      "task_id": "T-CLAUDEHOOKDOCS-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-core",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "output_sha256": "ce7f6237a33b118067ae401e1c5cd3fb2e571beadfc4e36202f11405c52887f0",
+      "passed": true,
+      "task_id": "T-CODEXACPCLIENTSTREAM-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "xtask",
+        "--",
+        "fast_release"
+      ],
+      "exit_code": 0,
+      "output_sha256": "7d683b4d2136d52f329939990aa296706931b570465bfdf9a9ca03695720e1a6",
+      "passed": true,
+      "task_id": "T-CTOWINSPEED-1"
+    }
+  ],
+  "adopted_host_commits": {},
+  "base_commit": "799ec716127f97f24af2e34478950dc51263f070",
+  "base_tree": "17baf767dfdb0e7f26ae83b64a639ee24b5c175e",
+  "branch_ref": "refs/heads/release/v0-21-65-distilled-rc1",
+  "closure_order": [
+    "T-CODEXGATEFLAKE-1",
+    "T-CODEXSTRUCTUREDCHAT-1",
+    "T-CODEXHARNESSRPC-1",
+    "T-CODEXHARNESSERROR-1",
+    "T-CODEXHARNESSSTDIO-1",
+    "T-CODEXHARNESSINIT-1",
+    "T-CODEXHARNESSVERSION-1",
+    "T-CODEXHARNESSCLOSE-1",
+    "T-CODEXHARNESSTIMEOUT-1",
+    "T-CODEXHARNESSTUDIOCLOSE-1",
+    "T-CODEXBUILDTIME-1",
+    "T-CODEXDISTILLPULL-1",
+    "T-CODEXACPWORKSPACE-1",
+    "T-CODEXEMBEDBUS-1",
+    "T-CODEXACPCANCEL-1",
+    "T-CODEXACPLIVESTREAM-1",
+    "T-CLAUDENOGHCR-1",
+    "T-CODEXACPLIVESTREAM-2",
+    "T-CLAUDEHOOKDOCS-1",
+    "T-CODEXACPCLIENTSTREAM-1",
+    "T-CTOWINSPEED-1",
+    "T-CODEXACPLIVESTREAM-REC-1"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "7b4a74cd54f25de198d72d2717b12034bb57d8c8",
+  "final_tree": "5c4be6b811a2a62464d9f8a1e129317caefd99ba",
+  "functional_only": true,
+  "git_host_created_in_stream": [],
+  "git_host_identities": [
+    "noreply@github.com"
+  ],
+  "harvest_audit": {
+    "findings": [],
+    "harvest_commits_checked": 0,
+    "manifest_ids": [],
+    "manifests": [],
+    "manifests_verified": 0,
+    "passed": true,
+    "schema": "susi-harvest-audit-v1"
+  },
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--test",
+        "git_publisher_native_hook"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXGATEFLAKE-1.json",
+        "tests/peer_channel_hub.rs",
+        "xtask/tests/git_publisher_native_hook.rs"
+      ],
+      "composed_commit": "e997e9fa0834ea43a67fe6e07906cef138533d89",
+      "composed_tree": "c16f04742fda7e593917891910e80b20d4610ec3",
+      "deps": [],
+      "goal": "Prevent concurrent native integration fixtures from colliding across the local gate: serialize shared publisher helpers and reserve the peer-channel forwarder block machine-wide.",
+      "owner": "codex",
+      "patch_id": "5870d1fc6eabd0d0e9b383f5f3b1dadfe6d0eca0",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "xtask/tests/git_publisher_native_hook.rs",
+        "tests/peer_channel_hub.rs",
+        ".agents/tasks/T-CODEXGATEFLAKE-1.json"
+      ],
+      "source_commits": [
+        "9b64aa5b6d352d35d1dcd76cf008cad70c2c1267",
+        "17b3e61fc7f16dd569f65f07fac6732721698533"
+      ],
+      "task_id": "T-CODEXGATEFLAKE-1",
+      "title": "Serialize the native publisher hook fixture tests"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXHARNESSRPC-1.json",
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs"
+      ],
+      "composed_commit": "fa5f062fec158bec48249ddd50e7a78f38a84bab",
+      "composed_tree": "aa399af49e306657cde7e7d4ee3ff214e61370dd",
+      "deps": [],
+      "goal": "Reject stale, cross-request, or malformed JSON-RPC responses in the Core harness MCP client instead of accepting any result or error as the current request's answer.",
+      "owner": "codex",
+      "patch_id": "db207590f69c41963b79538221789a6ae227bebf",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        ".agents/tasks/T-CODEXHARNESSRPC-1.json"
+      ],
+      "source_commits": [
+        "ac94cff94a886a13560a02be6ea2e2bb2049d8f9",
+        "ad7446bb54ce61c06b8df5a6d643a6575d6c2e60"
+      ],
+      "task_id": "T-CODEXHARNESSRPC-1",
+      "title": "Correlate harness MCP responses with JSON-RPC request ids"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXHARNESSERROR-1.json",
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs"
+      ],
+      "composed_commit": "59c639c4741fb16b9fc4edd941f0ac470b328428",
+      "composed_tree": "d1a3130cade5684c9416fde70a8375f8ae4142d9",
+      "deps": [],
+      "goal": "Make the Core harness MCP client honor the MCP tools/call isError result flag so a failed external tool cannot be presented to the model or caller as a successful tool result.",
+      "owner": "codex",
+      "patch_id": "824ed9e91204556c34f2deff023dbb02b3f39582",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        ".agents/tasks/T-CODEXHARNESSERROR-1.json"
+      ],
+      "source_commits": [
+        "cfaecc6dec7702b78744e1d28dd09ed947d87bcd"
+      ],
+      "task_id": "T-CODEXHARNESSERROR-1",
+      "title": "Propagate MCP tool-call failures instead of treating them as successful text"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXHARNESSSTDIO-1.json",
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs"
+      ],
+      "composed_commit": "17c987cd82f501a44a34c281cd08779affeb3267",
+      "composed_tree": "b13226b55cd6073802e33a1b682e1fc09059a276",
+      "deps": [],
+      "goal": "Allow the Core harness MCP stdio transport to ignore valid server notifications before a response while preserving malformed JSON and mismatched response-id failures.",
+      "owner": "codex",
+      "patch_id": "064fce187eebcc98b9e25e0f876983c384c1248e",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        ".agents/tasks/T-CODEXHARNESSSTDIO-1.json"
+      ],
+      "source_commits": [
+        "371b34daf645f76100a9ad6cbd3ff845921609b9"
+      ],
+      "task_id": "T-CODEXHARNESSSTDIO-1",
+      "title": "Skip interleaved MCP stdio notifications"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXHARNESSINIT-1.json",
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs"
+      ],
+      "composed_commit": "cb828acc3bd78e5583f9f7e49cb79f6f14199771",
+      "composed_tree": "d82ec0623d53ecdb85a2a41ddbb592311fdcae78",
+      "deps": [],
+      "goal": "Make the Core harness MCP handshake fail closed when the server omits the required protocolVersion while preserving known and explicitly unsupported non-empty revisions.",
+      "owner": "codex",
+      "patch_id": "f55f5bb659d3424b051961e5dde7222bc7391bd3",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        ".agents/tasks/T-CODEXHARNESSINIT-1.json"
+      ],
+      "source_commits": [
+        "c98707428b5e551d23e303938f41e9258c42b624"
+      ],
+      "task_id": "T-CODEXHARNESSINIT-1",
+      "title": "Reject an MCP initialize result without protocolVersion"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXHARNESSVERSION-1.json",
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs"
+      ],
+      "composed_commit": "84893fc007d931ebc8e3cfd107a79b161a19dec4",
+      "composed_tree": "f3a49f145c8ab2eca468260649ae4c7d4306e7ac",
+      "deps": [],
+      "goal": "Have the Core harness request the current 2025-11-25 MCP legacy session revision that Core's wire client and GMCP contract use, while preserving the supported-version registry and modern stateless path.",
+      "owner": "codex",
+      "patch_id": "df4dce5e1fec38a81f619a5e3569326a976c408a",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        ".agents/tasks/T-CODEXHARNESSVERSION-1.json"
+      ],
+      "source_commits": [
+        "eb69dc22bd1f9f319f3aae81a0b7935781dab3fa"
+      ],
+      "task_id": "T-CODEXHARNESSVERSION-1",
+      "title": "Align the harness MCP handshake revision"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXHARNESSCLOSE-1.json",
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs"
+      ],
+      "composed_commit": "63c0f33c63947147bc800d6dcabd777ba52fceb0",
+      "composed_tree": "5f4fc6cc6ac233e8552157400fb2a8c6aa7f3b59",
+      "deps": [],
+      "goal": "Give the Core harness MCP client an idempotent explicit close and best-effort drop cleanup so streamable-HTTP sessions are released with DELETE /mcp.",
+      "owner": "codex",
+      "patch_id": "ffeae951ce96e26eb61c975a06b343dd9a9424c4",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        ".agents/tasks/T-CODEXHARNESSCLOSE-1.json"
+      ],
+      "source_commits": [
+        "805aa3aeed38ab78574f2574b582915293d2305c"
+      ],
+      "task_id": "T-CODEXHARNESSCLOSE-1",
+      "title": "Close Core harness streamable-HTTP MCP sessions"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXHARNESSTIMEOUT-1.json",
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs"
+      ],
+      "composed_commit": "87d2cec0b5e30f0142c4751c6cc939629d20919e",
+      "composed_tree": "5767594e954a83a43484eb046348293cb998980a",
+      "deps": [],
+      "goal": "Prevent an unresponsive MCP stdio child from holding a harness worker forever while preserving notification skipping and sequential JSON-RPC responses.",
+      "owner": "codex",
+      "patch_id": "ff276ab663fb1d01b9d39f7b5b150e43394e6969",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        ".agents/tasks/T-CODEXHARNESSTIMEOUT-1.json"
+      ],
+      "source_commits": [
+        "c113221da16e8e95abcfee4d3d04b663e741b554"
+      ],
+      "task_id": "T-CODEXHARNESSTIMEOUT-1",
+      "title": "Bound Core harness MCP stdio response waits"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib",
+        "mcp"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXHARNESSTUDIOCLOSE-1.json",
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs"
+      ],
+      "composed_commit": "4e055f47b6eeb504a7ae1e69e547f9c497f4457d",
+      "composed_tree": "7753263f9220f6944fc4d33763641deb1a80fc2b",
+      "deps": [
+        "T-CODEXHARNESSCLOSE-1"
+      ],
+      "goal": "Ensure an explicit MCP client close releases a stdio child immediately instead of waiting for the client object to be dropped.",
+      "owner": "codex",
+      "patch_id": "5b8bcf4c6b6516bfa3626298635dc271aa6b1f34",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        ".agents/tasks/T-CODEXHARNESSTUDIOCLOSE-1.json"
+      ],
+      "source_commits": [
+        "3b1069663e54e438c03a29daecb5667c399e8608"
+      ],
+      "task_id": "T-CODEXHARNESSTUDIOCLOSE-1",
+      "title": "Make explicit Core harness MCP client close stop stdio children"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "local-distill"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXDISTILLPULL-1.json",
+        "xtask/src/distill_compose.rs"
+      ],
+      "composed_commit": "ec51530d9b041c519640a967635a373521458c4b",
+      "composed_tree": "c0521f03521147d472d6f6971baee9b3b758f137",
+      "deps": [],
+      "goal": "Make local-distill --pull resolve published snapshot and handoff refs from the configured origin without manual refspec fetches, while refusing arbitrary revisions and immutable-ref replacement.",
+      "owner": "codex",
+      "patch_id": "e9486b9829c567feedac747dbab06c08621be082",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "xtask/src/distill_compose.rs",
+        ".agents/tasks/T-CODEXDISTILLPULL-1.json"
+      ],
+      "source_commits": [
+        "491898470c4cf95ee1f4259272f9c96b8ba4cc9d"
+      ],
+      "task_id": "T-CODEXDISTILLPULL-1",
+      "title": "Fetch explicit remote refs during local distillation pull"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-a2a",
+        "--lib"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXACPWORKSPACE-1.json",
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs"
+      ],
+      "composed_commit": "39de00e4cadba173f7cdea6724474fa32ae2b2f3",
+      "composed_tree": "cc94e7f100b0c0613985f700a40bbd0f8d92f723",
+      "deps": [],
+      "goal": "Ensure a GAWD-backed ACP turn runs against the validated workspace selected when the ACP session was opened, while preserving the existing test runner seam and confinement checks.",
+      "owner": "codex",
+      "patch_id": "fb8df5969c06cf958dc75fc9d0c55288016c10cd",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+        ".agents/tasks/T-CODEXACPWORKSPACE-1.json"
+      ],
+      "source_commits": [
+        "4a3549f82756f26c3724df4becda12bee73e5c4b"
+      ],
+      "task_id": "T-CODEXACPWORKSPACE-1",
+      "title": "Pass ACP session workspaces into GAWD missions"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gmcp",
+        "--lib",
+        "embed_provider"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXEMBEDBUS-1.json",
+        "crates/susi-gmcp/src/embed_provider.rs",
+        "crates/susi-gmcp/src/lib.rs"
+      ],
+      "composed_commit": "f225bdb5c9661ec02b571555addb1eb1d02cfb02",
+      "composed_tree": "b5907069e25adfe8ac33ab8013dbd455c3cde0b2",
+      "deps": [],
+      "goal": "Make the existing bus-only local embedding provider available in the lean default susi-gmcp build so an attached Commercial gpu_fabric.embed.texts plug can serve embeddings without enabling tools-rich or moving the embedding engine into Core.",
+      "owner": "codex",
+      "patch_id": "09f8079c929c07e8d2fabc4133e53ff939ca6831",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-gmcp/src/lib.rs",
+        "crates/susi-gmcp/src/embed_provider.rs",
+        ".agents/gmcp/evidence",
+        ".agents/tasks/T-CODEXEMBEDBUS-1.json"
+      ],
+      "source_commits": [
+        "cfc09e0bb004a90154c94a1a1df7d5bb0d4e1d56"
+      ],
+      "task_id": "T-CODEXEMBEDBUS-1",
+      "title": "Keep the default Core embedding port wired to the Commercial bus plug"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-a2a",
+        "--lib"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXACPCANCEL-1.json",
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/plane_bus.rs",
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+        "crates/susi-gawd/src/plane_handler.rs"
+      ],
+      "composed_commit": "bf5db518c4adce70583a9df4e01388588e255bd6",
+      "composed_tree": "fa09434a7d700f1382d216cda419b5781f25ad5a",
+      "deps": [],
+      "goal": "Carry the live ACP turn cancellation token through the GAWD-backed mission runner and watched PlaneBus request so a running session/cancel reaches cooperative GAWD mission checkpoints.",
+      "owner": "codex",
+      "patch_id": "0ad5a31c14dece412ef6a3be6bfa73393880b6b4",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/plane_bus.rs",
+        "crates/susi-gawd/src/plane_handler.rs",
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+        ".agents/tasks/t-codexacpcancel-1.json"
+      ],
+      "source_commits": [
+        "e21fee9f620bf15f78d992f09090fb455b351bad"
+      ],
+      "task_id": "T-CODEXACPCANCEL-1",
+      "title": "Propagate ACP cancellation into GAWD missions"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-a2a",
+        "--lib"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXACPLIVESTREAM-1.json",
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-gawd-a2a/src/server.rs",
+        "crates/susi-gawd-a2a/src/tests/server_routes.rs"
+      ],
+      "composed_commit": "8f61895516b9dc6853366ea854a4183fd36123df",
+      "composed_tree": "921f36095e58b3c3b9817e53c1db2144f9dc6b65",
+      "deps": [
+        "T-CODEXACPCANCEL-1",
+        "T-CODEXACPWORKSPACE-1"
+      ],
+      "goal": "Replace the buffered ACP SSE response path with a bounded callback-backed stream so clients receive turn lifecycle and delta events while the mission is still running, without weakening validation, authorization or cancellation.",
+      "owner": "codex",
+      "patch_id": "f4e5fb8688c01d1f2bb7f7b989b67210f18843b4",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-gawd-a2a/src/server.rs",
+        "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+        ".agents/tasks/T-CODEXACPLIVESTREAM-1.json"
+      ],
+      "source_commits": [
+        "4c75ea31d8b5fdf414ebfc13cbceccafba19a7bb"
+      ],
+      "task_id": "T-CODEXACPLIVESTREAM-1",
+      "title": "Emit ACP SSE mission events live"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "no_github_coupling"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CLAUDENOGHCR-1.json",
+        "deploy/compose/docker-compose.yml",
+        "tests/no_github_coupling.rs"
+      ],
+      "composed_commit": "7695b03e0ca052630cbc540da0c3b0dcd61a9fc0",
+      "composed_tree": "618660f680414a1f33c60076fdca5927cab10824",
+      "deps": [],
+      "goal": "Zero-GitHub audit (board item 296): the compose stack tagged Susi's image ghcr.io/intellibitz/susi:latest, a GitHub Container Registry address that breaks when the ecosystem moves host. Compose now tags the image it builds from source as ${SUSI_IMAGE:-susi:local}, and tests/no_github_coupling.rs refuses the literal ghcr.io/intellibitz so it cannot return. Other projects' images on ghcr.io (the GitHub MCP server) are user features and stay.",
+      "owner": "claude",
+      "patch_id": "155ba6827a96953d2346596fe6da229d1314095c",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "deploy/compose/docker-compose.yml",
+        "tests/no_github_coupling.rs",
+        ".agents/tasks/T-CLAUDENOGHCR-1.json"
+      ],
+      "source_commits": [
+        "d02926173fc6774f3bd05bfa72d4be41d738dc53"
+      ],
+      "task_id": "T-CLAUDENOGHCR-1",
+      "title": "Susi's own images name no GitHub registry, and the guard refuses one"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "no_github_coupling"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CLAUDEHOOKDOCS-1.json",
+        ".githooks/commit-msg"
+      ],
+      "composed_commit": "d55a5484f01f52bede8c3238ec2b8e49286886ba",
+      "composed_tree": "b2f5aed5af0b4de4d2bfaeb207bb82e4f83df32c",
+      "deps": [],
+      "goal": "Hook verification (board item 300): .githooks/commit-msg said a server-side 'Workflow Compliance' CI job backs the local check; there is no CI (GitHub is storage only). Name what does: distill lint --strict and the gated landing refuse a commit without a task trailer. Comment only.",
+      "owner": "claude",
+      "patch_id": "46ff5a491cc910d76cccefb469a5e206af757262",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".githooks/commit-msg",
+        ".agents/tasks/T-CLAUDEHOOKDOCS-1.json"
+      ],
+      "source_commits": [
+        "9fb74337fb5db41819fe55e52259e90fb7eaafc2"
+      ],
+      "task_id": "T-CLAUDEHOOKDOCS-1",
+      "title": "commit-msg names the checks that back it, not a CI job"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-core",
+        "--lib"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CODEXACPCLIENTSTREAM-1.json",
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/plain_http.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs"
+      ],
+      "composed_commit": "71a6bfc5cd24f4c3a66c8187c9e8dd92c9b17bf5",
+      "composed_tree": "17776b91066be43c1ecb63480ef85323ade80396",
+      "deps": [
+        "T-CODEXACPLIVESTREAM-1"
+      ],
+      "goal": "Add a bounded callback-backed AcpSocketClient stream API so ACP clients observe lifecycle and delta frames before a running mission completes, while preserving the collecting wrapper and plain HTTP limits.",
+      "owner": "codex",
+      "patch_id": "ec34dc41129767f3629c0b1d81ff07d588772fe9",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-core/src/plain_http.rs",
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        ".agents/tasks/T-CODEXACPCLIENTSTREAM-1.json"
+      ],
+      "source_commits": [
+        "0489d2e0320bcba1cf6ad375eb2ab520b3cc2591"
+      ],
+      "task_id": "T-CODEXACPCLIENTSTREAM-1",
+      "title": "Let Core ACP clients consume SSE frames live"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "xtask",
+        "--",
+        "fast_release"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CTOWINSPEED-1.json",
+        "crates/susi-harness/src/tests/mcp.rs",
+        "xtask/src/fast_release.rs"
+      ],
+      "composed_commit": "7b4a74cd54f25de198d72d2717b12034bb57d8c8",
+      "composed_tree": "5c4be6b811a2a62464d9f8a1e129317caefd99ba",
+      "deps": [],
+      "goal": "Achieve <10s warm inner-loop build + test + release execution (`cargo fast-release` `total_ms < 10_000`) on Windows x86_64 (`x86_64-pc-windows-msvc`): preserve `CARGO_HOME` and `RUSTUP_HOME` across isolated test sandboxes so child `cargo`/`rustc` invocations never re-download the toolchain; skip redundant 50 MB PE binary overwrites in `stage_one_binary` when byte-identical to avoid Windows Defender synchronous re-scan overhead; collapse `read_git_provenance` into a single `git rev-parse` process; and filter Windows multi-second OS-process (`tasklist`, `netstat`, `git`, `rustc`), NTFS `FlushFileBuffers` loop, and loopback TCP SYN-retransmit timeout soak tests into `skipped_soak_tests` (`--full-soak` runs all of them).",
+      "owner": "core-release",
+      "patch_id": "d770136dd5f13c9aa6b3aa66e6138135449b3b1a",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CTOWINSPEED-1.json",
+        "crates/susi-harness/src/tests/mcp.rs",
+        "xtask/src/fast_release.rs"
+      ],
+      "source_commits": [
+        "537fb6451e63cd7772e67d15276243c616ab5fc8"
+      ],
+      "task_id": "T-CTOWINSPEED-1",
+      "title": "Sub-10s warm cargo fast-release on Windows x86_64 via toolchain env preservation, idempotent binary staging, and OS-process soak filters"
+    }
+  ],
+  "lanes": [
+    {
+      "changed_files": [
+        "tests/peer_channel_hub.rs",
+        "xtask/tests/git_publisher_native_hook.rs"
+      ],
+      "lane_id": "lane-01",
+      "patch_ids": {
+        "T-CODEXGATEFLAKE-1": "5870d1fc6eabd0d0e9b383f5f3b1dadfe6d0eca0"
+      },
+      "scopes": [
+        "tests/peer_channel_hub.rs",
+        "xtask/tests/git_publisher_native_hook.rs"
+      ],
+      "tasks": [
+        "T-CODEXGATEFLAKE-1"
+      ]
+    },
+    {
+      "changed_files": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        "xtask/src/fast_release.rs"
+      ],
+      "lane_id": "lane-02",
+      "patch_ids": {
+        "T-CODEXHARNESSCLOSE-1": "ffeae951ce96e26eb61c975a06b343dd9a9424c4",
+        "T-CODEXHARNESSERROR-1": "824ed9e91204556c34f2deff023dbb02b3f39582",
+        "T-CODEXHARNESSINIT-1": "f55f5bb659d3424b051961e5dde7222bc7391bd3",
+        "T-CODEXHARNESSRPC-1": "db207590f69c41963b79538221789a6ae227bebf",
+        "T-CODEXHARNESSSTDIO-1": "064fce187eebcc98b9e25e0f876983c384c1248e",
+        "T-CODEXHARNESSTIMEOUT-1": "ff276ab663fb1d01b9d39f7b5b150e43394e6969",
+        "T-CODEXHARNESSTUDIOCLOSE-1": "5b8bcf4c6b6516bfa3626298635dc271aa6b1f34",
+        "T-CODEXHARNESSVERSION-1": "df4dce5e1fec38a81f619a5e3569326a976c408a",
+        "T-CTOWINSPEED-1": "d770136dd5f13c9aa6b3aa66e6138135449b3b1a"
+      },
+      "scopes": [
+        "crates/susi-harness/src/mcp.rs",
+        "crates/susi-harness/src/tests/mcp.rs",
+        "xtask/src/fast_release.rs"
+      ],
+      "tasks": [
+        "T-CODEXHARNESSRPC-1",
+        "T-CODEXHARNESSERROR-1",
+        "T-CODEXHARNESSSTDIO-1",
+        "T-CODEXHARNESSINIT-1",
+        "T-CODEXHARNESSVERSION-1",
+        "T-CODEXHARNESSCLOSE-1",
+        "T-CODEXHARNESSTIMEOUT-1",
+        "T-CODEXHARNESSTUDIOCLOSE-1",
+        "T-CTOWINSPEED-1"
+      ]
+    },
+    {
+      "changed_files": [
+        "xtask/src/distill_compose.rs"
+      ],
+      "lane_id": "lane-03",
+      "patch_ids": {
+        "T-CODEXDISTILLPULL-1": "e9486b9829c567feedac747dbab06c08621be082"
+      },
+      "scopes": [
+        "xtask/src/distill_compose.rs"
+      ],
+      "tasks": [
+        "T-CODEXDISTILLPULL-1"
+      ]
+    },
+    {
+      "changed_files": [
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/plain_http.rs",
+        "crates/susi-core/src/plane_bus.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-gawd-a2a/src/server.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+        "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+        "crates/susi-gawd/src/plane_handler.rs"
+      ],
+      "lane_id": "lane-04",
+      "patch_ids": {
+        "T-CODEXACPCANCEL-1": "0ad5a31c14dece412ef6a3be6bfa73393880b6b4",
+        "T-CODEXACPCLIENTSTREAM-1": "ec34dc41129767f3629c0b1d81ff07d588772fe9",
+        "T-CODEXACPLIVESTREAM-1": "f4e5fb8688c01d1f2bb7f7b989b67210f18843b4",
+        "T-CODEXACPWORKSPACE-1": "fb8df5969c06cf958dc75fc9d0c55288016c10cd"
+      },
+      "scopes": [
+        "crates/susi-core/src/acp.rs",
+        "crates/susi-core/src/plain_http.rs",
+        "crates/susi-core/src/plane_bus.rs",
+        "crates/susi-core/src/tests/acp_conformance.rs",
+        "crates/susi-gawd-a2a/src/executor.rs",
+        "crates/susi-gawd-a2a/src/server.rs",
+        "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+        "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+        "crates/susi-gawd/src/plane_handler.rs"
+      ],
+      "tasks": [
+        "T-CODEXACPWORKSPACE-1",
+        "T-CODEXACPCANCEL-1",
+        "T-CODEXACPLIVESTREAM-1",
+        "T-CODEXACPCLIENTSTREAM-1"
+      ]
+    },
+    {
+      "changed_files": [
+        "crates/susi-gmcp/src/embed_provider.rs",
+        "crates/susi-gmcp/src/lib.rs"
+      ],
+      "lane_id": "lane-05",
+      "patch_ids": {
+        "T-CODEXEMBEDBUS-1": "09f8079c929c07e8d2fabc4133e53ff939ca6831"
+      },
+      "scopes": [
+        ".agents/gmcp/evidence",
+        "crates/susi-gmcp/src/embed_provider.rs",
+        "crates/susi-gmcp/src/lib.rs"
+      ],
+      "tasks": [
+        "T-CODEXEMBEDBUS-1"
+      ]
+    },
+    {
+      "changed_files": [
+        "deploy/compose/docker-compose.yml",
+        "tests/no_github_coupling.rs"
+      ],
+      "lane_id": "lane-06",
+      "patch_ids": {
+        "T-CLAUDENOGHCR-1": "155ba6827a96953d2346596fe6da229d1314095c"
+      },
+      "scopes": [
+        "deploy/compose/docker-compose.yml",
+        "tests/no_github_coupling.rs"
+      ],
+      "tasks": [
+        "T-CLAUDENOGHCR-1"
+      ]
+    },
+    {
+      "changed_files": [
+        ".githooks/commit-msg"
+      ],
+      "lane_id": "lane-07",
+      "patch_ids": {
+        "T-CLAUDEHOOKDOCS-1": "46ff5a491cc910d76cccefb469a5e206af757262"
+      },
+      "scopes": [
+        ".githooks/commit-msg"
+      ],
+      "tasks": [
+        "T-CLAUDEHOOKDOCS-1"
+      ]
+    }
+  ],
+  "mode": "compose",
+  "name": "v0-21-65-distilled-rc1",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "207944f97e9802f44b2e11718d2e70881a942a027cc5612092673327b5618ee5",
+  "rejected": [],
+  "reland_claims_not_honoured": [],
+  "relanded_host_commits_in_stream": {},
+  "requested_tasks": [
+    "T-CODEXGATEFLAKE-1",
+    "T-CODEXSTRUCTUREDCHAT-1",
+    "T-CODEXHARNESSRPC-1",
+    "T-CODEXHARNESSERROR-1",
+    "T-CODEXHARNESSSTDIO-1",
+    "T-CODEXHARNESSINIT-1",
+    "T-CODEXHARNESSVERSION-1",
+    "T-CODEXHARNESSCLOSE-1",
+    "T-CODEXHARNESSTIMEOUT-1",
+    "T-CODEXHARNESSTUDIOCLOSE-1",
+    "T-CODEXBUILDTIME-1",
+    "T-CODEXDISTILLPULL-1",
+    "T-CODEXACPWORKSPACE-1",
+    "T-CODEXEMBEDBUS-1",
+    "T-CODEXACPCANCEL-1",
+    "T-CODEXACPLIVESTREAM-1",
+    "T-CLAUDENOGHCR-1",
+    "T-CODEXACPLIVESTREAM-REC-1",
+    "T-CODEXACPLIVESTREAM-2",
+    "T-CLAUDEHOOKDOCS-1",
+    "T-CODEXACPCLIENTSTREAM-1",
+    "T-CTOWINSPEED-1"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "task T-CODEXSTRUCTUREDCHAT-1 is already present in base 799ec716127f97f24af2e34478950dc51263f070 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CODEXSTRUCTUREDCHAT-1"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "skipped_non_functional_tasks": [
+    "T-CODEXACPLIVESTREAM-2",
+    "T-CODEXACPLIVESTREAM-REC-1",
+    "T-CODEXBUILDTIME-1"
+  ],
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0-21-65-distilled-rc1",
+  "source_stream_commit": "537fb6451e63cd7772e67d15276243c616ab5fc8",
+  "source_stream_tree": "0ea0caa78ff49aa62bf1840a41ab2f6426d3d00b"
+}
