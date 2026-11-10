@@ -468,3 +468,13 @@ table once the clean baseline is recorded.
   the same backoff ticks while real HTTP, validation and durable publication run.
   A shorter explicit real-lock fixture budget preserves forward-progress and
   stalled-deadline assertions. Native Windows timing remains unverified.
+
+- 2026-11-10 T-DOTWORKERLEASE-1 (external agent test organization):
+  move the complete unchanged external unit-test module into the established
+  same-crate `src/tests/` layout, retaining `external::unit_tests` paths and all
+  assertions, including the new worker-lease regressions. The existing counting
+  policy excludes that standalone test directory. Pin susi-gawd-agents from
+  11,495 to 11,263 measured lines in the counted source directories. This is
+  test organization, not a production-code reduction: the explicit-unlock lease
+  guard remains unchanged, and no capability, test, or proof is removed. No build
+  speed or executable-size improvement is claimed from the move.
