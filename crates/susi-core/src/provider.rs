@@ -21,6 +21,16 @@ pub trait Provider: Send + Sync + 'static {
     /// Generates text from the given prompt.
     fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>>;
 
+    /// Generates from a normalized chat payload when the provider supports it.
+    /// Prompt-only providers retain their existing behavior by default.
+    fn generate_with_chat(
+        &self,
+        prompt: &str,
+        _chat: Option<&serde_json::Value>,
+    ) -> BoxFuture<'_, EaiResult<String>> {
+        self.generate(prompt)
+    }
+
     /// Generates embeddings for the given text.
     fn embed(&self, text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>>;
 

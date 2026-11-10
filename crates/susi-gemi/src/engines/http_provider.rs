@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use crate::susi_core::provider::{run_blocking, BoxFuture, Provider};
+use serde_json::Value;
 use susi_adapters_llm::inference_wire as wire;
 
 pub use susi_adapters_llm::inference_wire::InferenceProtocol;
@@ -127,20 +128,32 @@ fn healthy_blocking(
     }
 }
 
+fn openai_reply(json: &Value) -> Result<String, String> {
+    if let Some(reply) = wire::openai_chat_tool_reply(json)? {
+        return Ok(format!(
+            "{}{reply}",
+            crate::susi_core::plane_bus::gemi::CALLER_TOOL_CALLS
+        ));
+    }
+    wire::openai_chat_text(json)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn generate_blocking(
     api_base: &str,
     model: &str,
     api_key: &str,
     protocol: InferenceProtocol,
     prompt: &str,
+    chat: Option<&Value>,
 ) -> Result<String, String> {
     match protocol {
         InferenceProtocol::OpenAiChat => {
             let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-            let body = wire::openai_chat_body(model, prompt, 2048);
+            let body = wire::chat_request_body(model, prompt, chat);
             let owned = openai_headers(api_key, api_base);
             let refs = header_refs(&owned);
-            wire::openai_chat_text(&wire::post_json_timeout(&url, &refs, &body, 120)?)
+            openai_reply(&wire::post_json_timeout(&url, &refs, &body, 120)?)
         }
         InferenceProtocol::OpenAiCompletions => {
             let url = format!("{}/completions", api_base.trim_end_matches('/'));
@@ -154,11 +167,8 @@ fn generate_blocking(
                 return Err("ANTHROPIC_API_KEY (or api_key_env) not set".into());
             }
             let url = format!("{}/messages", api_base);
-            let body = serde_json::json!({
-                "model": model,
-                "max_tokens": 2048,
-                "messages": [{"role": "user", "content": prompt}]
-            });
+            let openai = wire::chat_request_body(model, prompt, chat);
+            let body = wire::openai_to_anthropic_messages(&openai)?;
             let json = wire::post_json_timeout(
                 &url,
                 &[
@@ -169,7 +179,7 @@ fn generate_blocking(
                 &body,
                 120,
             )?;
-            wire::anthropic_text(&json)
+            openai_reply(&wire::anthropic_to_openai_chat(&json, model)?)
         }
         InferenceProtocol::Gemini => {
             if api_key.is_empty() {
@@ -220,7 +230,16 @@ impl Provider for HttpProvider {
         &self,
         prompt: &str,
     ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<String>> {
+        self.generate_with_chat(prompt, None)
+    }
+
+    fn generate_with_chat(
+        &self,
+        prompt: &str,
+        chat: Option<&Value>,
+    ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<String>> {
         let prompt = prompt.to_string();
+        let chat = chat.cloned();
         let api_base = self.api_base.trim_end_matches('/').to_string();
         let model = self.model.clone();
         let api_key = self.api_key.clone();
@@ -241,7 +260,14 @@ impl Provider for HttpProvider {
             let outcome_model = model.clone();
             let outcome_key = api_key.clone();
             let result = run_blocking(move || {
-                generate_blocking(&api_base, &model, &api_key, protocol, &prompt)
+                generate_blocking(
+                    &api_base,
+                    &model,
+                    &api_key,
+                    protocol,
+                    &prompt,
+                    chat.as_ref(),
+                )
             })
             .await
             .map_err(|e| {
