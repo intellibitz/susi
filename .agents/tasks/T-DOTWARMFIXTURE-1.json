@@ -1,0 +1,24 @@
+{
+  "id": "T-DOTWARMFIXTURE-1",
+  "title": "Avoid the default wait in the held-lock fixture",
+  "goal": "Preserve real filesystem exclusion, closure-result and post-release acquisition assertions while replacing an unnecessary default three-second contention wait with a zero-duration real attempt. Add zero-timeout coverage and strengthen existing positive-duration deadline coverage. Production lock code and deadlines remain unchanged. Native Windows execution and combined integration remain pending.",
+  "size": "s",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-DOTWARMFIXTURE-1.json",
+    "crates/susi-config/src/file_lock.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "DOTWARMFIXTURE",
+  "created_unix": 1794276868
+}
