@@ -134,6 +134,17 @@ mod inline_tests {
 
     #[test]
     fn provider_reflects_manager_doctor_state_and_formats_provider_name() {
+        // doctor() and provider() each resolve the key and the endpoint from
+        // the process environment and the config under HOME. Without the
+        // crate's env lock a sibling test that moves HOME between the two
+        // calls made them disagree (flaky under a full workspace run), and the
+        // operator's real key store was read. Isolated home, fixed test key.
+        let _guard = crate::engines::env_test_lock();
+        let home = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", home.path())
+            .set("SUSI_HOME", home.path().join(".susi"))
+            .set("OPENROUTER_API_KEY", "sk-or-test-not-a-real-key");
         let manager = OpenRouterManager::new().expect("manager init");
         match manager.doctor() {
             Ok(_) => {
@@ -146,6 +157,10 @@ mod inline_tests {
                 assert!(provider(&manager).is_err());
             }
         }
+        // Without a key, doctor and provider both refuse.
+        env.remove("OPENROUTER_API_KEY");
+        assert!(manager.doctor().is_err());
+        assert!(provider(&manager).is_err());
     }
 
     #[test]
