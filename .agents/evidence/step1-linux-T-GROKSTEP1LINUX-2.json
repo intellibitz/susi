@@ -1,0 +1,365 @@
+{
+  "schema": "susi/step1-host-evidence/v1",
+  "task": "T-GROKSTEP1LINUX-2",
+  "owner": "grok",
+  "agent_identity": "GROKSTEP1LINUX2",
+  "recorded_ist": "2026-11-11 02:14 IST",
+  "scope": "Fresh Linux x86_64 measurement of the CEO 60-second goal (Mandate item 10) on the CEO's CachyOS laptop, using the T-CLAUDE-STEP1LINUX-1 method. Debug development instance only. Not release qualification, not a full gate, not production promotion.",
+  "dependencies": [],
+  "changed_scope": [
+    ".agents/evidence/step1-linux-T-GROKSTEP1LINUX-2.json",
+    ".agents/tasks/T-GROKSTEP1LINUX-2.json"
+  ],
+  "source": {
+    "origin_main": "de22ea776612ec69dab4f8d0b79f7bbe41fd0070",
+    "tree": "15ab9d106da2cf0c57e660f84c5a66b6f5ed675c",
+    "relation": "measured tree == origin/main (clean worktree; loop edits applied and reverted in the working tree, never committed)",
+    "version": "0.21.53",
+    "cargo_lock_sha256": "04c2ff102009fb02dc1d95fc5dc0862714ce6e382af1b487f19797fe9b6d458d",
+    "mandate": {
+      "path": "docs/ceo-agent-mandate.md",
+      "revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311"
+    }
+  },
+  "host": {
+    "machine": "CEO CachyOS laptop (cachyos-x8664)",
+    "kernel": "Linux 7.3.3-1-cachyos",
+    "target": "x86_64-unknown-linux-gnu",
+    "rustc": "1.99.0 (b940084d7 2026-09-28), pinned by rust-toolchain.toml",
+    "cargo": "1.99.0 (5f94df478 2026-08-27)",
+    "cpus": 28,
+    "memory_gib": 219,
+    "cargo_jobs": 8,
+    "kind": "physical laptop shared with other active agents (Claude, Codex, other SUSI workers); 1-minute load average 5-22 during measurement; wall-clock numbers include that contention",
+    "isolation": "private worktree /mnt/shared/src/github.com/intellibitz/susi-agent-grok-step1linux2; fresh empty CARGO_TARGET_DIR /mnt/shared/tmp/grok-step1linux2-target; private HOME, SUSI_HOME, XDG_* and TMPDIR under /tmp/grok-step1linux2; scrubbed tokens/proxies; SUSI_PORT_OFFSET=1700 (10790-10794), verified free before start and released after"
+  },
+  "build": {
+    "cold_debug": {
+      "command": "cargo build --offline --locked -j 8 -p susi --bin susi",
+      "precondition": "empty private target; registry sources already in the Cargo home; default features",
+      "elapsed_ms": 71815,
+      "crates_compiled": 296,
+      "exit": 0,
+      "artifact_bytes": 132110096,
+      "artifact_sha256": "db5fdfebe95c3fdae38a9314fef5fee600d7bda6c31fb052be75fe3f54f411c4",
+      "load1_range": [
+        13.09,
+        14.87
+      ]
+    },
+    "warm_noop_debug_ms": [
+      3479,
+      213,
+      227
+    ],
+    "warm_noop_note": "first no-op 3.5 s includes cargo re-checking fingerprints right after the cold build; steady state ~0.2 s",
+    "warm_noop_load1": 5.24,
+    "incremental_touch": {
+      "change": "touch crates/susi-daemon/src/server.rs (mtime only)",
+      "ms": [
+        3279,
+        3344,
+        3799
+      ],
+      "load1": [
+        5.24,
+        5.22,
+        6.01
+      ],
+      "artifact_unchanged": true
+    },
+    "version_command_ms": 15
+  },
+  "focused_tests": {
+    "command": "cargo test --offline --locked -j 8 -p susi-daemon --lib host_contract",
+    "tests": [
+      "server::tests::host_contract_endpoint_report_lists_effective_ports",
+      "server::tests::wait_for_host_contract_times_out_when_nothing_listens"
+    ],
+    "first_run": {
+      "ms": 52090,
+      "passed": 2,
+      "failed": 0,
+      "filtered_out": 368,
+      "note": "includes first compile of the susi-daemon test profile",
+      "load1": 5.77
+    },
+    "warm_runs_ms": [
+      520,
+      514,
+      508
+    ],
+    "warm_passed": 2,
+    "load1": 9.95,
+    "fmt": {
+      "command": "cargo fmt --all --check",
+      "ms": 4491,
+      "exit": 0
+    }
+  },
+  "startup": {
+    "cold_fresh_home": {
+      "susi_home_entries_before": 0,
+      "start_return_ms": 390,
+      "start_to_health_200_ms": 416,
+      "load1": 9.64
+    },
+    "warm_cycles": [
+      {
+        "stop_ms": 426,
+        "start_return_ms": 255,
+        "start_to_health_200_ms": 271
+      },
+      {
+        "stop_ms": 417,
+        "start_return_ms": 267,
+        "start_to_health_200_ms": 285
+      },
+      {
+        "stop_ms": 414,
+        "start_return_ms": 261,
+        "start_to_health_200_ms": 276
+      },
+      {
+        "stop_ms": 409,
+        "start_return_ms": 268,
+        "start_to_health_200_ms": 284
+      },
+      {
+        "stop_ms": 419,
+        "start_return_ms": 266,
+        "start_to_health_200_ms": 281
+      },
+      {
+        "stop_ms": 412,
+        "start_return_ms": 262,
+        "start_to_health_200_ms": 277
+      }
+    ],
+    "warm_start_to_health_median_ms": 279,
+    "warm_load1": [
+      9.27,
+      9.64
+    ],
+    "status_command_ms": 18,
+    "endpoints": {
+      "10790 /health": "200",
+      "10791 /health": "200",
+      "10793 /health": "200",
+      "10794 /.well-known/agent.json": "401 without bearer token (auth enforced)"
+    },
+    "daemon_exe_matches_build": true,
+    "final_stop": "stopped; 10790 refused afterwards; ports 10790-10794 released",
+    "not_measured": "goal acknowledgment, first useful model output and goal completion (default build has no local engine)"
+  },
+  "delivery_loop": {
+    "change": "crates/susi-daemon/src/server.rs host-contract report gains a 'Health http://127.0.0.1:<gmcp>/health' line plus a test assertion (same change as the Nov 6 record); alternately applied with git apply and reverted with git checkout in the working tree. Not committed.",
+    "steps": "edit -> cargo build -p susi --bin susi -> cargo fmt --all --check + cargo test -p susi-daemon --lib host_contract (2 tests) -> susi restart (offset 1700) -> /health 200 -> susi start output shows/hides the line AND /proc/<daemon pid>/exe sha256 equals the rebuilt binary",
+    "repetitions": [
+      {
+        "rep": 1,
+        "kind": "apply",
+        "edit_ms": 53,
+        "build_ms": 4241,
+        "fmt_test_ms": 9493,
+        "restart_to_health_ms": 967,
+        "observe_ms": 441,
+        "total_ms": 15212,
+        "observed": "present",
+        "exe_sha256_prefix": "e92767436f3ccc11",
+        "tests": "2 passed, 0 failed",
+        "load1_start": 7.52,
+        "load1_after_build": 7.32,
+        "load1_after_test": 8.52,
+        "result": "PASS"
+      },
+      {
+        "rep": 2,
+        "kind": "revert",
+        "edit_ms": 37,
+        "build_ms": 4353,
+        "fmt_test_ms": 8044,
+        "restart_to_health_ms": 793,
+        "observe_ms": 390,
+        "total_ms": 13636,
+        "observed": "absent",
+        "exe_sha256_prefix": "db5fdfebe95c3fda",
+        "tests": "2 passed, 0 failed",
+        "load1_start": 8.52,
+        "load1_after_build": 9.2,
+        "load1_after_test": 8.78,
+        "result": "PASS"
+      },
+      {
+        "rep": 3,
+        "kind": "apply",
+        "edit_ms": 14,
+        "build_ms": 3950,
+        "fmt_test_ms": 8126,
+        "restart_to_health_ms": 791,
+        "observe_ms": 385,
+        "total_ms": 13286,
+        "observed": "present",
+        "exe_sha256_prefix": "e92767436f3ccc11",
+        "tests": "2 passed, 0 failed",
+        "load1_start": 8.64,
+        "load1_after_build": 8.64,
+        "load1_after_test": 7.54,
+        "result": "PASS"
+      },
+      {
+        "rep": 4,
+        "kind": "revert",
+        "edit_ms": 27,
+        "build_ms": 3984,
+        "fmt_test_ms": 8440,
+        "restart_to_health_ms": 825,
+        "observe_ms": 553,
+        "total_ms": 13848,
+        "observed": "absent",
+        "exe_sha256_prefix": "db5fdfebe95c3fda",
+        "tests": "2 passed, 0 failed",
+        "load1_start": 7.54,
+        "load1_after_build": 7.09,
+        "load1_after_test": 7.25,
+        "result": "PASS"
+      },
+      {
+        "rep": 5,
+        "kind": "apply",
+        "edit_ms": 4,
+        "build_ms": 4643,
+        "fmt_test_ms": 8060,
+        "restart_to_health_ms": 783,
+        "observe_ms": 381,
+        "total_ms": 13892,
+        "observed": "present",
+        "exe_sha256_prefix": "e92767436f3ccc11",
+        "tests": "2 passed, 0 failed",
+        "load1_start": 7.25,
+        "load1_after_build": 7.31,
+        "load1_after_test": 6.65,
+        "result": "PASS"
+      },
+      {
+        "rep": 6,
+        "kind": "revert",
+        "edit_ms": 44,
+        "build_ms": 9810,
+        "fmt_test_ms": 25843,
+        "restart_to_health_ms": 1138,
+        "observe_ms": 736,
+        "total_ms": 37618,
+        "observed": "absent",
+        "exe_sha256_prefix": "db5fdfebe95c3fda",
+        "tests": "2 passed, 0 failed",
+        "load1_start": 6.65,
+        "load1_after_build": 13.24,
+        "load1_after_test": 22.21,
+        "result": "PASS"
+      }
+    ],
+    "total_ms_median": 13870.0,
+    "total_ms_min": 13286,
+    "total_ms_max": 37618,
+    "failures": 0,
+    "rollback": "each revert rep restores prior behaviour on the live daemon; reverted exe is byte-identical to the cold build (db5fdfeb...), apply builds identical to each other (e9276743...)",
+    "under_60_s": "yes for this inner loop: all 6 reps 13.3-37.6 s, median 13.9 s; rep 6 (37.6 s) coincided with another agent's load spike (1-min load 6.7 -> 22.2)",
+    "difference_from_nov6": "Nov 6 included a git commit step (106-188 ms) per rep; this run edits the working tree only (4-53 ms) per the brief. Otherwise identical steps."
+  },
+  "publish_step": {
+    "note": "Publishing this record to development main via local-snapshot submit is timed separately and reported in the task handoff; it is not part of the inner loop above."
+  },
+  "comparison_with_T-CLAUDE-STEP1LINUX-1_2026-11-06": {
+    "host_difference": "Nov 6 ran in a 4-CPU/15 GiB cloud container on source 784518e4 (0.21.51); this run is the 28-CPU/219 GiB CachyOS laptop on de22ea776 (0.21.53) with -j 8 under load 5-22. Numbers are comparable in method, not in hardware.",
+    "cold_build_s": {
+      "nov6": 119.47,
+      "now": 71.8,
+      "crates": {
+        "nov6": 378,
+        "now": 296
+      }
+    },
+    "artifact_mib": {
+      "nov6": 272.9,
+      "now": 126.0
+    },
+    "warm_noop_ms": {
+      "nov6": [
+        353,
+        461,
+        430
+      ],
+      "now_steady": [
+        213,
+        227
+      ]
+    },
+    "cold_start_return_ms": {
+      "nov6": 399,
+      "now": 390
+    },
+    "warm_start_to_health_ms": {
+      "nov6": "144-145",
+      "now": "271-285"
+    },
+    "stop_ms": {
+      "nov6": "291-301",
+      "now": "409-426"
+    },
+    "loop_total_ms": {
+      "nov6": [
+        18657,
+        19340,
+        18329,
+        21015
+      ],
+      "now": [
+        15212,
+        13636,
+        13286,
+        13848,
+        13892,
+        37618
+      ],
+      "median_nov6": 18998.5,
+      "median_now": 13870.0
+    },
+    "loop_build_ms": {
+      "nov6": "7255-9813",
+      "now": "3950-4643 (9810 under load spike)"
+    },
+    "loop_fmt_test_ms": {
+      "nov6": "8925-9677",
+      "now": "8044-9493 (25843 under load spike)"
+    },
+    "loop_restart_to_health_ms": {
+      "nov6": "663-738",
+      "now": "783-967 (1138 under load spike)"
+    }
+  },
+  "mandate_10_verdict": "The inner change-to-useful-result loop for a one-file core change is under 60 s on this host today (median 13.9 s, worst 37.6 s under a load spike). The full mandate loop through publication to main, distillation, release qualification and promotion to a verified live executable was NOT measured and is not claimed. Warm start-to-healthy regressed ~2x vs Nov 6 (271-285 ms vs 144-145 ms) and stop is ~40% slower; cause not investigated (different host, load, 2 releases of changes).",
+  "issues_found": [
+    {
+      "id": "claim-blocked-by-push-policy",
+      "summary": "`susi tasks claim` (installed 0.21.20) failed again with 'claimed concurrently' after 58 s; same root cause as recorded in .agents/evidence/publisher-linux-T-GROKPUBLINUX-1.json (push-policy rejects refs/claim-generation/current). Not bypassed; task proceeded unclaimed on two exact files."
+    },
+    {
+      "id": "warm-start-regression",
+      "summary": "warm start-to-health 271-285 ms and stop 409-426 ms vs 144-145 / 291-301 ms on Nov 6; not root-caused; may be host/load or code change."
+    }
+  ],
+  "limitations": [
+    "Heavy, variable host load from other agents (1-min load 5-22); rep 6 shows its effect.",
+    "Debug build, default features (no local engine); no model output measured.",
+    "Only 2 focused tests in the loop; local-workflow affected selection and full gate not run.",
+    "No optimized/production build, qualification, promotion or rollback of an installed release.",
+    "Different hardware from the Nov 6 record."
+  ],
+  "provenance": {
+    "produced_by": "Grok Bot executor on the CEO's CachyOS laptop",
+    "branch": "local-agent/grok-step1linux2",
+    "scripts": "/tmp/grok-step1linux2/{env.sh,lib.sh,cold.sh,stage.sh,loop.sh,loop-change.diff} on the host",
+    "logs": "/tmp/grok-step1linux2/logs/ on the host"
+  }
+}
