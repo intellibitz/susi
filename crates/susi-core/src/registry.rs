@@ -298,9 +298,34 @@ impl CapabilityRegistry {
             .map_err(CapabilityError::Delegation)
     }
 
+    /// Cancel a live signed envelope level in this host process's
+    /// [`crate::delegation::DelegationAuthority`] ledger, along with every
+    /// child scope opened under it. Later presentations of `envelope_id` are
+    /// refused as cancelled until expiry.
+    pub fn revoke_delegation(
+        &self,
+        envelope_id: &str,
+    ) -> Result<bool, crate::capability_bus::CapabilityError> {
+        use crate::capability_bus::CapabilityError;
+        use crate::delegation::{DelegationAuthority, DelegationError};
+
+        let id = envelope_id.trim();
+        if id.is_empty() || id.chars().any(char::is_control) {
+            return Err(CapabilityError::Delegation(
+                DelegationError::InvalidIdentity(
+                    "envelope id must be non-empty without control characters".into(),
+                ),
+            ));
+        }
+        DelegationAuthority::host()
+            .map(|authority| authority.revoke(id))
+            .map_err(CapabilityError::Delegation)
+    }
+
     /// One entry for the socket and the CLI: `invoke` dispatches (a
-    /// [`crate::capability_bus::CapabilityReceipt`]) and `delegate` issues a
-    /// signed envelope, both under the optional `delegation` envelope.
+    /// [`crate::capability_bus::CapabilityReceipt`]), `delegate` issues a
+    /// signed envelope (both under the optional `delegation` envelope), and
+    /// `revoke` cancels a signed envelope id in this host's ledger.
     #[allow(clippy::too_many_arguments)] // One call shape for the socket and CLI: the action plus `dispatch_nested`'s five inputs.
     pub fn serve_nested(
         &self,
@@ -316,9 +341,17 @@ impl CapabilityRegistry {
                 serde_json::to_value(self.dispatch_nested(delegation, request, args, workspace)?)
             }
             "delegate" => serde_json::to_value(self.issue_delegation(delegation, request)?),
+            "revoke" => {
+                let id = args
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&request.capability_id);
+                let revoked = self.revoke_delegation(id)?;
+                Ok(serde_json::json!({ "id": id.trim(), "revoked": revoked }))
+            }
             other => {
                 return Err(CapabilityError::InvalidDescriptor(format!(
-                    "unknown capabilities action `{other}` (expected discover, invoke or delegate)"
+                    "unknown capabilities action `{other}` (expected discover, invoke, delegate or revoke)"
                 )))
             }
         };
@@ -623,5 +656,78 @@ mod tests {
         );
         assert!(registry.unregister_provider("stub-llm"));
         assert!(!registry.unregister_provider("stub-llm"));
+    }
+
+    #[test]
+    fn serve_nested_issues_invokes_and_revokes_signed_envelopes() {
+        use crate::capability_bus::{CapabilityError, CapabilityRequest};
+        use crate::delegation::DelegationError;
+
+        let registry = CapabilityRegistry::new();
+        struct EchoTool;
+        impl Tool for EchoTool {
+            fn name(&self) -> &str {
+                "echo_tool"
+            }
+            fn description(&self) -> &str {
+                "echo"
+            }
+            fn execute(
+                &self,
+                _args: &serde_json::Value,
+                _workspace: &std::path::Path,
+            ) -> crate::susi_error::EaiResult<String> {
+                Ok("nested-ok".into())
+            }
+        }
+        registry.register_tool(EchoTool);
+        let ws = std::path::Path::new(".");
+        let empty = serde_json::json!({});
+
+        let delegate_req = CapabilityRequest::new(
+            "plan",
+            "driver-alpha",
+            ["capability:tool".into()],
+            30_000,
+            200,
+        );
+        let envelope = registry
+            .serve_nested("delegate", None, &delegate_req, &empty, ws)
+            .unwrap();
+        let envelope_id = envelope["id"].as_str().unwrap().to_string();
+
+        let invoke_req = CapabilityRequest::new(
+            "echo_tool",
+            "engine-beta",
+            ["capability:tool".into()],
+            5_000,
+            50,
+        );
+        let invoked = registry
+            .serve_nested("invoke", Some(&envelope), &invoke_req, &empty, ws)
+            .unwrap();
+        assert_eq!(invoked["output"], serde_json::json!("nested-ok"));
+
+        let revoked = registry
+            .serve_nested(
+                "revoke",
+                None,
+                &invoke_req,
+                &serde_json::json!({ "id": envelope_id }),
+                ws,
+            )
+            .unwrap();
+        assert_eq!(revoked["revoked"], serde_json::json!(true));
+
+        assert!(matches!(
+            registry.serve_nested("invoke", Some(&envelope), &invoke_req, &empty, ws),
+            Err(CapabilityError::Delegation(DelegationError::Cancelled(_)))
+        ));
+        assert!(matches!(
+            registry.revoke_delegation("  "),
+            Err(CapabilityError::Delegation(
+                DelegationError::InvalidIdentity(_)
+            ))
+        ));
     }
 }
