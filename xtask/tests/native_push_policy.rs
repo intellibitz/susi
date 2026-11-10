@@ -1,0 +1,214 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Test assertions.
+#[path = "../src/push_policy.rs"]
+mod push_policy;
+use std::path::PathBuf;
+use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+const ZERO: &str = "0000000000000000000000000000000000000000";
+struct Repo(PathBuf);
+impl Repo {
+    fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "susi-native-push-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let r = Self(root);
+        r.git(&["init", "-q", "-b", "main"]);
+        r.commit("first");
+        r
+    }
+    fn git(&self, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .current_dir(&self.0)
+            .args(args)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_COMMON_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+            )
+            .env("GIT_AUTHOR_NAME", "fixture")
+            .env("GIT_AUTHOR_EMAIL", "fixture@localhost")
+            .env("GIT_COMMITTER_NAME", "fixture")
+            .env("GIT_COMMITTER_EMAIL", "fixture@localhost")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap().trim().to_owned()
+    }
+    fn commit(&self, text: &str) -> String {
+        std::fs::write(self.0.join("source"), text).unwrap();
+        self.git(&["add", "source"]);
+        self.git(&["commit", "-qm", text]);
+        self.git(&["rev-parse", "HEAD"])
+    }
+    fn check(&self, input: &str) -> Result<(), String> {
+        push_policy::validate(&self.0, input)
+    }
+}
+impl Drop for Repo {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+#[test]
+fn main_create_and_fast_forward_use_supplied_refs_not_head_or_tracking_state() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    let new = r.commit("second");
+    assert!(r
+        .check(&format!("{new} {new} refs/heads/main {ZERO}\n"))
+        .is_ok());
+    r.git(&["checkout", "--detach", &old]);
+    assert!(r
+        .check(&format!("refs/heads/main {new} refs/heads/main {old}\n"))
+        .is_ok());
+}
+#[test]
+fn branch_deletion_non_fast_forward_missing_old_and_stale_local_are_rejected() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    let new = r.commit("second");
+    for input in [
+        format!("(delete) {ZERO} refs/heads/main {new}"),
+        format!("{old} {old} refs/heads/main {new}"),
+        format!("HEAD {old} refs/heads/main {ZERO}"),
+        format!("HEAD {new} refs/heads/main {}", "1".repeat(40)),
+        format!("(delete) {ZERO} refs/heads/topic {new}"),
+    ] {
+        assert!(r.check(&input).is_err(), "accepted {input}");
+    }
+}
+#[test]
+fn mixed_transaction_invalid_record_is_not_hidden_by_valid_main() {
+    let r = Repo::new();
+    let head = r.git(&["rev-parse", "HEAD"]);
+    let valid = format!("HEAD {head} refs/heads/main {ZERO}\n");
+    for bad in [
+        format!("HEAD {head} refs/heads/main {ZERO}"),
+        format!("HEAD {head} refs/unknown/value {ZERO}"),
+        "bad input".into(),
+        format!("HEAD {head} refs/heads/../bad {ZERO}"),
+    ] {
+        assert!(r.check(&(valid.clone() + &bad)).is_err());
+    }
+    assert!(r.check("").is_ok());
+}
+#[test]
+fn snapshots_are_commit_bound_immutable_and_release_creation_fails_closed() {
+    let r = Repo::new();
+    let head = r.git(&["rev-parse", "HEAD"]);
+    assert!(r
+        .check(&format!("HEAD {head} refs/tags/susi-snapshot/rc1 {ZERO}"))
+        .is_ok());
+    r.git(&["tag", "-a", "susi-snapshot/annotated", "-m", "snapshot"]);
+    let tag = r.git(&["rev-parse", "refs/tags/susi-snapshot/annotated"]);
+    assert!(r
+        .check(&format!(
+            "refs/tags/susi-snapshot/annotated {tag} refs/tags/susi-snapshot/annotated {ZERO}"
+        ))
+        .is_ok());
+    for input in [
+        format!("HEAD {head} refs/tags/susi-snapshot/rc1 {head}"),
+        format!("(delete) {ZERO} refs/tags/susi-snapshot/rc1 {head}"),
+        format!("HEAD {head} refs/tags/v1.0.0 {ZERO}"),
+        format!("HEAD {head} refs/tags/release/latest {ZERO}"),
+    ] {
+        assert!(r.check(&input).is_err());
+    }
+}
+#[test]
+fn metadata_blob_create_replace_delete_do_not_require_branch_builds() {
+    let r = Repo::new();
+    let head = r.git(&["rev-parse", "HEAD"]);
+    let blob = r.git(&["rev-parse", "HEAD:source"]);
+    for namespace in ["claims", "claim-agents", "closed"] {
+        let reference = format!("refs/{namespace}/T-FIXTURE-1");
+        for old in [ZERO, &blob] {
+            assert!(r.check(&format!("{blob} {blob} {reference} {old}")).is_ok());
+        }
+        assert!(r
+            .check(&format!("(delete) {ZERO} {reference} {blob}"))
+            .is_ok());
+        assert!(r.check(&format!("HEAD {head} {reference} {ZERO}")).is_err());
+    }
+    assert!(r
+        .check(&format!(
+            "{blob} {blob} refs/tags/susi-snapshot/blob {ZERO}"
+        ))
+        .is_err());
+}
+
+#[test]
+fn real_git_push_runs_native_hook_and_preserves_remote_on_rejection() {
+    let binary = option_env!("CARGO_BIN_EXE_push-policy")
+        .expect("test requires built native push-policy binary");
+    let r = Repo::new();
+    let remote = r.0.join("remote.git");
+    r.git(&["init", "--bare", "-q", remote.to_str().unwrap()]);
+    r.git(&["remote", "add", "fixture", remote.to_str().unwrap()]);
+    let hook = r.0.join(".git/hooks/pre-push");
+    std::fs::write(&hook, include_str!("../../.githooks/pre-push")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let push = |args: &[&str]| {
+        let mut path = vec![std::path::Path::new(binary).parent().unwrap().to_owned()];
+        path.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        Command::new("git")
+            .current_dir(&r.0)
+            .arg("push")
+            .args(args)
+            .env("PATH", std::env::join_paths(path).unwrap())
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_COMMON_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+            )
+            .output()
+            .unwrap()
+    };
+    let first = r.git(&["rev-parse", "HEAD"]);
+    assert!(push(&["fixture", "HEAD:refs/heads/main"]).status.success());
+    let second = r.commit("second");
+    assert!(push(&["fixture", "HEAD:refs/heads/main"]).status.success());
+    let refusal = push(&["--force", "fixture", &format!("{first}:refs/heads/main")]);
+    assert!(!refusal.status.success());
+    assert!(String::from_utf8_lossy(&refusal.stderr).contains("pre-push:"));
+    assert!(!push(&["fixture", ":refs/heads/main"]).status.success());
+    assert!(!push(&["fixture", "HEAD:refs/tags/v1.0.0"]).status.success());
+    assert!(push(&["fixture", "HEAD:refs/tags/susi-snapshot/fixture"])
+        .status
+        .success());
+    assert!(!push(&["fixture", ":refs/tags/susi-snapshot/fixture"])
+        .status
+        .success());
+    assert_eq!(
+        r.git(&[
+            "--git-dir",
+            remote.to_str().unwrap(),
+            "rev-parse",
+            "refs/heads/main"
+        ]),
+        second
+    );
+    assert!(!remote.join("refs/tags/v1.0.0").exists());
+}
