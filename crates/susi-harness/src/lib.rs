@@ -97,6 +97,7 @@ pub mod pricing;
 pub mod providers;
 pub mod queue;
 pub mod ratelimit;
+pub mod recursive;
 pub mod roi;
 pub mod scheduler;
 pub mod secrets;
