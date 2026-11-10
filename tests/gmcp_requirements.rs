@@ -298,16 +298,69 @@ fn assert_bound_to_tested_commit(
             at_commit, head_digest,
             "{requirement}: tested_artifacts does not describe {commit}"
         );
-        let ancestor = Command::new("git")
-            .args(["merge-base", "--is-ancestor", commit, "HEAD"])
-            .current_dir(root)
-            .status()
-            .is_ok_and(|status| status.success());
         assert!(
-            ancestor,
+            in_tested_history(root, commit),
             "{requirement}: tested_commit {commit} is not in HEAD's history"
         );
     }
+}
+
+/// Whether `commit` is in HEAD's history, directly or through distillation.
+///
+/// A distilled release branch (`local-distill compose`,
+/// docs/release-distillation.md) re-applies each selected task's commits
+/// onto an older release base, so the development commits evidence was
+/// recorded on are not HEAD's ancestors there. Each composed commit names its
+/// sources in `Source-Commits:` beside a `Distilled-Task:` line; evidence
+/// recorded on (an ancestor of) one of those sources is in the release's
+/// provenance. The digest checks above still require the evidence's files to
+/// be byte-identical at the tested commit and at HEAD.
+fn in_tested_history(root: &Path, commit: &str) -> bool {
+    let is_ancestor = |descendant: &str| {
+        Command::new("git")
+            .args(["merge-base", "--is-ancestor", commit, descendant])
+            .current_dir(root)
+            .status()
+            .is_ok_and(|status| status.success())
+    };
+    if is_ancestor("HEAD") {
+        return true;
+    }
+    distilled_sources(root)
+        .iter()
+        .any(|source| is_ancestor(source))
+}
+
+/// Source commits named by the distillation commits in HEAD's history.
+fn distilled_sources(root: &Path) -> Vec<String> {
+    let Ok(output) = Command::new("git")
+        .args(["log", "--format=%B%x00", "HEAD"])
+        .current_dir(root)
+        .output()
+    else {
+        return Vec::new();
+    };
+    let log = String::from_utf8_lossy(&output.stdout);
+    let mut sources = std::collections::BTreeSet::new();
+    for message in log.split('\0') {
+        if !message
+            .lines()
+            .any(|line| line.starts_with("Distilled-Task: "))
+        {
+            continue;
+        }
+        for line in message.lines() {
+            if let Some(list) = line.strip_prefix("Source-Commits: ") {
+                sources.extend(
+                    list.split(',')
+                        .map(str::trim)
+                        .filter(|oid| oid.len() == 40 && oid.chars().all(|c| c.is_ascii_hexdigit()))
+                        .map(str::to_string),
+                );
+            }
+        }
+    }
+    sources.into_iter().collect()
 }
 
 /// Whether this clone is shallow (the CI test shards): it cannot look up an
@@ -14501,4 +14554,67 @@ fn gmcp_req_203_010_06_operations() {
     drop(wire);
 
     let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// Evidence recorded on development main stays valid on a distilled release
+/// branch only through the composed commits' `Source-Commits:` provenance;
+/// a bare `Source-Commits:` line without `Distilled-Task:` grants nothing.
+#[test]
+fn tested_commit_history_follows_distillation_provenance() {
+    let dir = std::env::temp_dir().join(format!(
+        "susi-gmcp-provenance-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| -> String {
+        let out = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@localhost"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(&dir)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", dir.join(".absent"))
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "base"]);
+    let base = git(&["rev-parse", "HEAD"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "dev work"]);
+    let tested = git(&["rev-parse", "HEAD"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "unselected"]);
+    let unrelated = git(&["rev-parse", "HEAD"]);
+
+    // A forged provenance line without the distillation marker.
+    git(&["checkout", "-q", "--detach", &base]);
+    git(&[
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        &format!("not distilled\n\nSource-Commits: {tested}"),
+    ]);
+    assert!(!in_tested_history(&dir, &tested));
+    assert!(in_tested_history(&dir, &base), "a direct ancestor counts");
+
+    // The composed release commit names its source.
+    git(&["checkout", "-q", "--detach", &base]);
+    git(&[
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        &format!(
+            "Distill task T-X-1: x\n\nDistilled-Task: T-X-1\nSource-Commits: {tested}\nDistill-Base: {base}"
+        ),
+    ]);
+    assert!(in_tested_history(&dir, &tested));
+    assert!(!in_tested_history(&dir, &unrelated));
+    let _ = std::fs::remove_dir_all(&dir);
 }
