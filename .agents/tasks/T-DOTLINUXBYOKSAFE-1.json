@@ -33,7 +33,44 @@
   },
   "source_commit": "d7d7b563469e682cdd5febb0b76bea384b9a82f0",
   "source_task": "T-LINUXBYOK-1",
-  "verification_status": "Static review and whitespace checks only so far; native tests and combined-tree gate pending.",
+  "verification_status": "Native Windows development checks passed on aeea86295c2814ac86994cd7f419d3735469e702: formatting, 666 library tests passed with 10 existing ignored and zero failures, strict clippy for the three touched Rust packages. Full 21-package affected gate and composed-tree ceiling guard remain pending. This is not a release attestation.",
   "native_worker": "dot-linuxbyok-safe",
-  "claimed_by": "dot-linuxbyok-safe"
+  "claimed_by": "dot-linuxbyok-safe",
+  "verification": {
+    "source_commit": "aeea86295c2814ac86994cd7f419d3735469e702",
+    "source_tree": "8cc65065b60c1401b18f0a71e173a6bc059cf730",
+    "host": "x86_64-pc-windows-msvc",
+    "format": {
+      "exit": 0,
+      "command": "cargo fmt --all --check"
+    },
+    "libraries": {
+      "server": {
+        "ignored": 0,
+        "passed": 49
+      },
+      "wall_seconds": 415.9657402,
+      "daemon": {
+        "ignored": 5,
+        "passed": 367
+      },
+      "exit": 0,
+      "passed": 666,
+      "ignored": 10,
+      "command": "cargo test --offline --locked -j 2 -p susi-daemon -p susi-gemi-models -p susi-server --lib",
+      "failed": 0,
+      "gemi_models": {
+        "ignored": 5,
+        "passed": 250
+      }
+    },
+    "clippy": {
+      "wall_seconds": 141.6701343,
+      "command": "cargo clippy --offline --locked -j 2 -p susi-daemon -p susi-gemi-models -p susi-server --all-targets -- -D warnings",
+      "exit": 0
+    },
+    "affected_gate_packages": 21,
+    "combined_gate_passed": false,
+    "credential_handoff_included": false
+  }
 }
