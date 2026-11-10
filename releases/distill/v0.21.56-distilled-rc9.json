@@ -1,0 +1,35 @@
+{
+  "accept_verification": [],
+  "base_commit": "6519f8fed24a66bf1ea7ecc00c93cd6b45c18f9d",
+  "base_tree": "f4b01e02eaafc52b612e55e685e212417c24ac00",
+  "branch_ref": "refs/heads/release/v0.21.56-distilled-rc9",
+  "closure_order": [
+    "T-CODEXRECORDS-1"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "6519f8fed24a66bf1ea7ecc00c93cd6b45c18f9d",
+  "final_tree": "f4b01e02eaafc52b612e55e685e212417c24ac00",
+  "included": [],
+  "mode": "orchestrate",
+  "name": "v0.21.56-distilled-rc9",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "f74073252b41b66acd97e8212860bea731ec63d1c382d40e75f0bef153cce0fd",
+  "rejected": [],
+  "requested_tasks": [
+    "T-CODEXRECORDS-1"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "task T-CODEXRECORDS-1 is already present in base 6519f8fed24a66bf1ea7ecc00c93cd6b45c18f9d with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CODEXRECORDS-1"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.56-distilled-rc9",
+  "source_stream_commit": "6519f8fed24a66bf1ea7ecc00c93cd6b45c18f9d",
+  "source_stream_tree": "f4b01e02eaafc52b612e55e685e212417c24ac00"
+}
