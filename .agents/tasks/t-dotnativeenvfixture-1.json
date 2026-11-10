@@ -29,7 +29,7 @@
   "verification": {
     "platform": "x86_64-pc-windows-msvc",
     "toolchain": "1.99.0",
-    "source_sha256": "d64d340b6b6ddb9131aa49929dc5cb9a549fbebeeaa6cfadf3c7eb4e0386d791a",
+    "source_sha256": "d64d340b6b6ddb9131aa49929dc5cb9a549fbebeaa6cfadf3c7eb4e0386d791a",
     "red": "Preserved combined-gate run: 283 passed, 1 failed, 3 ignored; hermetic process fixture could not spawn missing shell.",
     "checks": [
       "cargo fmt --all --check: passed",
