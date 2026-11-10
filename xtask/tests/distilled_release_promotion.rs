@@ -668,3 +668,66 @@ fn push_policy_refuses_a_distilled_release_whose_tree_moved_past_the_bump() {
         "got {error:?}"
     );
 }
+
+/// A release branch re-records the GMCP vector evidence on the candidate
+/// (`docs/release-distillation.md`): `*.jsonl` files directly in the evidence
+/// directory may be added, changed or removed after the envelope, and the
+/// block lists them; the tag check proves that list from the tree. Anything
+/// else in that directory is still refused.
+#[test]
+fn a_gmcp_evidence_rerecord_after_the_candidate_is_admitted_and_named() {
+    let plain = candidate(|_| {}, false, |_| {});
+    assert!(verdict(&plain)
+        .unwrap()
+        .get("gmcp_evidence_rerecorded")
+        .is_none());
+
+    let c = candidate(
+        |_| {},
+        false,
+        |r| {
+            r.write(
+                ".agents/gmcp/evidence/VC-203-009.jsonl",
+                "{\"tested_commit\":\"b\"}\n",
+            );
+            r.write(
+                ".agents/gmcp/evidence/VC-203-001.jsonl",
+                "{\"tested_commit\":\"a\"}\n",
+            );
+        },
+    );
+    let block = verdict(&c).unwrap();
+    assert_eq!(
+        block["gmcp_evidence_rerecorded"],
+        json!([
+            ".agents/gmcp/evidence/VC-203-001.jsonl",
+            ".agents/gmcp/evidence/VC-203-009.jsonl"
+        ])
+    );
+    assert_eq!(tag_verdict(&c.repo, |_| {}), Ok(()));
+    // The list is proven from the tree, not taken from the record.
+    let forged = tag_verdict(&c.repo, |rec| {
+        rec["distillation"]["gmcp_evidence_rerecorded"] =
+            json!([".agents/gmcp/evidence/VC-203-001.jsonl"]);
+    });
+    assert!(forged.is_err(), "{forged:?}");
+
+    for (file, needle) in [
+        (
+            ".agents/gmcp/evidence/README.md",
+            "README.md (A) is not part of a version bump",
+        ),
+        (
+            ".agents/gmcp/evidence/nested/VC-203-001.jsonl",
+            "nested/VC-203-001.jsonl (A) is not part of a version bump",
+        ),
+        (
+            ".agents/gmcp/VC-203-001.jsonl",
+            "gmcp/VC-203-001.jsonl (A) is not part of",
+        ),
+    ] {
+        let c = candidate(|_| {}, false, |r| r.write(file, "{}\n"));
+        let error = verdict(&c).expect_err(file);
+        assert!(error.contains(needle), "expected {needle:?}, got {error:?}");
+    }
+}

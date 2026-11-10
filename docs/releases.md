@@ -102,7 +102,9 @@ candidate:
    one envelope commit that adds only its receipt `releases/distill/<name>.json`
    (`docs/release-distillation.md`).
 2. On that branch, commit only the version bump, exactly as in "Cutting a
-   release" step 2.
+   release" step 2. If the candidate's tasks change what the GMCP evidence
+   checks, re-record it there as well (`scripts/gmcp-record-evidence.sh`, then
+   `--mastery`, each on a committed tree; `docs/release-distillation.md`).
 3. Qualify: `cargo run -p xtask --bin release-qualify -- vX.Y.Z --from-distill
    <name> [--jobs N]`. Before any gate runs it refuses, with the reason, unless
    all of these hold (`verify_distilled_source` in
@@ -125,7 +127,13 @@ candidate:
      `Cargo.toml` files, `Cargo.lock`, `README.md`,
      `.agents/{evidence,identity,roadmap}.json`), each changed only by the old
      version becoming the new one on a line, plus at most one added task record
-     directly under `.agents/tasks/`. Nothing deleted, nothing else.
+     directly under `.agents/tasks/`; and the GMCP evidence re-record:
+     `*.jsonl` files directly in `.agents/gmcp/evidence/` added, changed or
+     removed. Nothing else, and nothing else deleted. The evidence admits no
+     unchecked content: no shipped binary embeds it, and the `tests` gate runs
+     `tests/gmcp_requirements.rs`, which fails on evidence that is stale or
+     names another tree. The block then lists those files as
+     `gmcp_evidence_rerecorded` (absent when none changed, as in v0.21.56).
 
    It also checks the local refs that name the candidate when they exist:
    `susi-distill/<name>` must be the composed commit,

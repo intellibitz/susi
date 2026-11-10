@@ -21,7 +21,9 @@
 //! against the tree itself, before any gate runs and again when the tag is
 //! pushed: the receipt's digest, its verdict, no rejected or deferred task, no
 //! unadopted host commit, every acceptance command passed, E an ancestor of P,
-//! and nothing between E and P but the version bump ([`BUMP_FILES`]). Records
+//! and nothing between E and P but the version bump ([`BUMP_FILES`]) and a
+//! re-record of the GMCP evidence the candidate's tests check
+//! ([`GMCP_EVIDENCE_DIR`]; the block then lists those files). Records
 //! written before `source` existed (v0.21.54, v0.21.55) carry neither field and
 //! stay valid as snapshot releases.
 use serde_json::Value;
@@ -58,6 +60,22 @@ pub const BUMP_FILES: [&str; 12] = [
     "crates/susi-server/Cargo.toml",
 ];
 pub const BUMP_TASK_DIR: &str = ".agents/tasks/";
+
+/// GMCP vector evidence (`VC-203-*.jsonl`). Each record names the commit it
+/// was made on, so `docs/release-distillation.md` has a release branch
+/// re-record it on the candidate (`scripts/gmcp-record-evidence.sh`, then
+/// `--mastery`) before `release-qualify`. After the envelope, a distilled
+/// release may therefore also add, change or remove `*.jsonl` files directly
+/// in this directory. That admits no unchecked content: the evidence is data
+/// no shipped binary embeds, and the `tests` gate runs
+/// `tests/gmcp_requirements.rs`, which fails on evidence that is stale, names
+/// another tree, or does not match the requirements ledger.
+pub const GMCP_EVIDENCE_DIR: &str = ".agents/gmcp/evidence/";
+
+fn gmcp_evidence_file(file: &str) -> bool {
+    file.strip_prefix(GMCP_EVIDENCE_DIR)
+        .is_some_and(|name| !name.contains('/') && name.ends_with(".jsonl"))
+}
 
 /// The committed record of `tag`, relative to the repository root.
 pub fn record_path(tag: &str) -> String {
@@ -340,10 +358,10 @@ pub fn verify_distilled_source(root: &Path, name: &str, head: &str) -> Result<Va
             "the envelope commit {envelope} is not an ancestor of {head}"
         ));
     }
-    verify_bump_only(root, &envelope, &head)?;
+    let evidence = verify_bump_only(root, &envelope, &head)?;
     let mut adopted_ids: Vec<&str> = adopted.keys().map(String::as_str).collect();
     adopted_ids.sort_unstable();
-    Ok(serde_json::json!({
+    let mut block = serde_json::json!({
         "candidate": name,
         "receipt_path": path,
         "receipt_sha256": recorded,
@@ -353,14 +371,24 @@ pub fn verify_distilled_source(root: &Path, name: &str, head: &str) -> Result<Va
         "final_tree": final_tree,
         "included_tasks": included,
         "adopted_host_commits": adopted_ids,
-    }))
+    });
+    // Present only when the evidence was re-recorded, so a block written
+    // before this field existed (v0.21.56) is still exactly what its tree
+    // proves.
+    if !evidence.is_empty() {
+        block["gmcp_evidence_rerecorded"] = serde_json::json!(evidence);
+    }
+    Ok(block)
 }
 
-/// Check that `head` differs from `from` only by a version bump: modified
-/// files are in [`BUMP_FILES`] and each changed line differs only by the old
-/// package version becoming the new one; at most one file is added, the
-/// bump's task record directly under [`BUMP_TASK_DIR`]; nothing is deleted.
-pub fn verify_bump_only(root: &Path, from: &str, head: &str) -> Result<(), String> {
+/// Check that `head` differs from `from` only by a version bump and a GMCP
+/// evidence re-record: modified files are in [`BUMP_FILES`] and each changed
+/// line differs only by the old package version becoming the new one; at most
+/// one file is added outside the evidence, the bump's task record directly
+/// under [`BUMP_TASK_DIR`]; nothing else is deleted. Evidence files
+/// ([`GMCP_EVIDENCE_DIR`]) may be added, modified or deleted; their sorted
+/// paths are returned.
+pub fn verify_bump_only(root: &Path, from: &str, head: &str) -> Result<Vec<String>, String> {
     let version_at = |rev: &str| -> Result<String, String> {
         let manifest = git_text(root, &["cat-file", "blob", &format!("{rev}:Cargo.toml")])?;
         package_version(&manifest).ok_or_else(|| format!("Cargo.toml of {rev} names no version"))
@@ -379,11 +407,13 @@ pub fn verify_bump_only(root: &Path, from: &str, head: &str) -> Result<(), Strin
         ],
     )?;
     let mut task_records = 0;
+    let mut evidence = Vec::new();
     for line in status.lines() {
         let (kind, file) = line
             .split_once('\t')
             .ok_or_else(|| format!("unexpected diff line: {line}"))?;
         match kind {
+            "A" | "M" | "D" if gmcp_evidence_file(file) => evidence.push(file.to_owned()),
             "M" if BUMP_FILES.contains(&file) => {
                 let read =
                     |rev: &str| git_bytes(root, &["cat-file", "blob", &format!("{rev}:{file}")]);
@@ -418,12 +448,13 @@ pub fn verify_bump_only(root: &Path, from: &str, head: &str) -> Result<(), Strin
             }
             _ => {
                 return Err(format!(
-                    "{file} ({kind}) is not part of a version bump; a distilled candidate takes nothing but the bump before qualification"
+                    "{file} ({kind}) is not part of a version bump or a GMCP evidence re-record; a distilled candidate takes nothing else before qualification"
                 ));
             }
         }
     }
-    Ok(())
+    evidence.sort_unstable();
+    Ok(evidence)
 }
 
 /// Check the record's `source` and, for a distilled release, that its
