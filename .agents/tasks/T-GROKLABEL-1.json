@@ -1,0 +1,106 @@
+{
+  "id": "T-GROKLABEL-1",
+  "title": "Distillation-ready labelling: distill lint, labelling rule, shipped-but-open report",
+  "goal": "Make labelled, scoped, closed task records the standard workflow so the next release can be assembled from records: add `distill lint` (commits without Task: trailers, tasks landed but still open, commits outside declared scopes), document the rule in AGENTS.md and docs/distillation.md, locate the `tasks close` field loss, and report shipped-but-still-open records for owners without editing them.",
+  "status": "implemented",
+  "owner": "grok",
+  "created_by": "grok",
+  "created_unix": 1794345691,
+  "size": "m",
+  "deps": [],
+  "base_commit": "eba6c9fbae98773ee9f96f376344ecee413fa4f3",
+  "scopes": [
+    "xtask/src/distill.rs",
+    "xtask/src/distill/lint.rs",
+    "docs/distillation.md",
+    "AGENTS.md",
+    ".agents/evidence/labels-T-GROKLABEL-1.json",
+    ".agents/tasks/T-GROKLABEL-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "distill"
+    ]
+  },
+  "acceptance": [
+    "cargo test --offline --locked -p xtask --bin distill",
+    "cargo clippy --offline --locked -p xtask --bin distill --all-targets -- -D warnings",
+    "cargo fmt -p xtask --check",
+    "distill lint --range origin/main --base origin/main (real run, deterministic across 3 runs)"
+  ],
+  "claimed_by": "GROKLABEL",
+  "claim": {
+    "agent": "GROKLABEL",
+    "result": "claimed",
+    "tool": "susi-commercial tasks claim (built from susi-commercial-apps origin/main 87cac0f)",
+    "note": "First attempt refused because the worktree was 3 commits behind origin/main; fast-forwarded to eba6c9fba and the claim succeeded. The closed T-GROKDISTILL-1 claim (overlapping xtask/src/distill.rs, docs/distillation.md) did not block."
+  },
+  "base_note": "Started from 222f83a1a; fast-forwarded to eba6c9fba before claiming.",
+  "evidence": [
+    ".agents/evidence/labels-T-GROKLABEL-1.json"
+  ],
+  "results": {
+    "unit_tests": "19/19 passed (8 new lint tests + 11 existing planner tests), cargo test --offline --locked -p xtask --bin distill",
+    "clippy": "clean, cargo clippy --offline --locked -p xtask --bin distill --all-targets -- -D warnings",
+    "fmt": "clean, cargo fmt -p xtask --check",
+    "real_run_full_history": {
+      "commits": 7326,
+      "seconds": [
+        4.675,
+        2.884,
+        3.19
+      ],
+      "deterministic_3_runs": true,
+      "load_average": [
+        "45.06",
+        "41.58",
+        "35.16"
+      ]
+    },
+    "shipped_but_record_open": 102,
+    "shipped_but_record_open_since_v0.21.53": 37,
+    "implemented_not_closed": 4,
+    "since_v0.21.53_summary": {
+      "commits": 218,
+      "commits_touching_files_outside_task_scopes": 15,
+      "commits_with_local_label_only": 158,
+      "commits_with_malformed_trailer": 0,
+      "commits_with_task_trailer": 39,
+      "commits_without_task_trailer": 21,
+      "files_outside_task_scopes": 15,
+      "findings": 73,
+      "local_labels": 55,
+      "tasks_landed_but_record_implemented_not_closed": 3,
+      "tasks_landed_but_record_open": 37,
+      "tasks_named": 44,
+      "tasks_scoped_by_claim_ref_only": 1,
+      "tasks_without_record": 0,
+      "tasks_without_scopes": 0
+    },
+    "tasks_close_field_loss": "Owned by Susi Commercial Apps, crates/susi-dev-workflow/src/admin/tasks.rs: struct Task has no catch-all field, so close re-serialises only id,title,goal,size,deps,accept,created_by,created_unix,closed. Not fixed here; noted for the commercial workstream (fix: #[serde(flatten)] extra map plus a close round-trip test).",
+    "publisher_integration": "Not done by design: local-snapshot/git_publish.rs (Dot, T-DOTGITPUBLISHER-1) untouched. The rule is documented and `distill lint --range origin/main..HEAD --strict` is the advisory pre-publish check."
+  },
+  "limitations": [
+    "Lint is advisory; nothing on main enforces it (Mandate 73: no mandatory main gate).",
+    "Merge commits are not linted.",
+    "Scope fallback uses this clone's refs/claims; other clones may differ.",
+    "Most historical closed records have no scopes (never declared, or dropped by tasks close), so full-history tasks_without_scopes is large (1387).",
+    "The tasks close field loss remains until the commercial fix lands; this task's own done/ record will lose these fields when closed (full record stays in history).",
+    "Shipped-but-open records were reported, not edited; some may legitimately have more work to come."
+  ],
+  "provenance": {
+    "branch": "local-agent/grok-label",
+    "worktree": "/mnt/shared/src/github.com/intellibitz/susi-wt-grok-label",
+    "target_dir": "/mnt/shared/tmp/grok-label-target",
+    "toolchain": "1.99.0",
+    "host": "CachyOS Linux x86_64",
+    "board_note": "workspace AGENTS.md item 125 (outside Git)"
+  }
+}

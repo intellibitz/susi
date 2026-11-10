@@ -13,6 +13,9 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+#[path = "distill/lint.rs"]
+mod lint;
+
 type Result<T> = std::result::Result<T, String>;
 
 pub const SCHEMA: &str = "susi-distill-plan/v1";
@@ -1221,7 +1224,7 @@ pub struct Args {
     pub isolate: bool,
 }
 
-const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- plan [--tasks <id>...] [--tasks-from-range <from>..<to>] [--base <rev>] [--out <file>] [--json] [--isolate]\n";
+const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- plan [--tasks <id>...] [--tasks-from-range <from>..<to>] [--base <rev>] [--out <file>] [--json] [--isolate]\n       cargo run --offline --locked -p xtask --bin distill -- lint --range <from>..<to> | --range <to> [--base <rev>] [--out <file>] [--json] [--strict]\n";
 
 pub fn parse_args(args: &[String]) -> Result<Args> {
     let mut it = args.iter().peekable();
@@ -1273,6 +1276,9 @@ pub fn parse_args(args: &[String]) -> Result<Args> {
 }
 
 pub fn run(root: &Path, args: &[String]) -> Result<String> {
+    if args.first().map(String::as_str) == Some("lint") {
+        return lint::run_lint(root, &args[1..]);
+    }
     let a = parse_args(args)?;
     let git = Git { root };
     let mut range = None;
