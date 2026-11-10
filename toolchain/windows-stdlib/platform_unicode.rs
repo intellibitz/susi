@@ -66,10 +66,12 @@ mod linux_icu {
     use crate::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
     /// Qualified OS ICU majors, newest first, with the exact Unicode version
-    /// each must report: ICU 76 (Debian 13), ICU 74 (Ubuntu 24.04 LTS), and
+    /// each must report: ICU 78 (Unicode 17), ICU 76 (Debian 13),
+    /// ICU 74 (Ubuntu 24.04 LTS), and
     /// ICU 72 (Debian 12 Bookworm).
-    /// Adding a major requires running the consumer qualification against it.
-    pub const QUALIFIED: [(u8, (u8, u8, u8)); 3] = [
+    /// Adding a major requires differential and private-stdlib consumer qualification.
+    pub const QUALIFIED: [(u8, (u8, u8, u8)); 4] = [
+        (78, (17, 0, 0)),
         (76, (16, 0, 0)),
         (74, (15, 1, 0)),
         (72, (15, 0, 0)),
@@ -169,7 +171,7 @@ mod linux_icu {
             }
         }
         panic!(
-            "no qualified OS ICU (libicuuc.so.76, libicuuc.so.74, or libicuuc.so.72) in a system library directory"
+            "no qualified OS ICU (libicuuc.so.78, libicuuc.so.76, libicuuc.so.74, or libicuuc.so.72) in a system library directory"
         );
     }
 
@@ -425,7 +427,17 @@ pub mod conversions {
         convert(c, 1)
     }
     pub fn to_title(c: char) -> [char; 3] {
-        convert(c, 2)
+        // ICU word-title starts at letters, numbers, symbols or private-use
+        // scalars. A lone combining mark is skipped (notably U+0345), whereas
+        // scalar titlecase defaults to uppercase outside these categories.
+        // Keep letter title mappings: Georgian Mkhedruli deliberately stays
+        // lowercase, and titlecase letters and expansions differ from uppercase.
+        // The pinned-repertoire scalar audit checks this distinction exhaustively.
+        if matches!(super::category(c), 1..=5 | 9..=11 | 17 | 24..=27) {
+            convert(c, 2)
+        } else {
+            convert(c, 1)
+        }
     }
     pub fn to_casefold(c: char) -> [char; 3] {
         convert(c, 3)

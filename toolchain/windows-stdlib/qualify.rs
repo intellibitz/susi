@@ -85,5 +85,21 @@ fn main() {
     // These are aggregate qualification measurements, not character tables.
     // A changed OS/compiler repertoire must receive a fresh differential review.
     assert_eq!(examined, 287346);
-    assert_eq!(mismatches, 71);
+    // A native before/after rerun removed only the U+0345 scalar-title mismatch;
+    // the remaining 70 difference lines are identical, with no coverage change.
+    assert_eq!(mismatches, 70);
+    assert_eq!(
+        platform::conversions::to_title('\u{345}'),
+        ['\u{399}', '\0', '\0']
+    );
+    for value in (0x10d0..=0x10fa).chain(0x10fd..=0x10ff) {
+        let c = char::from_u32(value).unwrap();
+        assert_eq!(platform::conversions::to_title(c), [c, '\0', '\0']);
+    }
+    assert_eq!(
+        platform::conversions::to_title('\u{1c5}'),
+        ['\u{1c5}', '\0', '\0']
+    );
+    assert_eq!(platform::conversions::to_title('\u{df}'), ['S', 's', '\0']);
+    assert_eq!(platform::conversions::to_title('\u{fb03}'), ['F', 'f', 'i']);
 }
