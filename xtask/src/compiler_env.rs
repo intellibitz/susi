@@ -162,21 +162,7 @@ pub(crate) fn configure_system_openssl(
     command: &mut std::process::Command,
     target: &str,
 ) -> Result<(), String> {
-    let multiarch = match target {
-        "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
-        "aarch64-unknown-linux-gnu" => "aarch64-linux-gnu",
-        _ => return Err("system OpenSSL configuration requires reviewed Linux target".into()),
-    };
-    let libdir = std::path::Path::new("/usr/lib").join(multiarch);
-    for name in ["libssl.so", "libcrypto.so"] {
-        let resolved = libdir
-            .join(name)
-            .canonicalize()
-            .map_err(|_| "system OpenSSL development libraries missing")?;
-        if !resolved.starts_with("/usr/lib") && !resolved.starts_with("/lib") {
-            return Err("OpenSSL library resolves outside OS directories".into());
-        }
-    }
+    let libdir = system_openssl_libdir(target, |path| path.canonicalize())?;
     let keys: Vec<_> = std::env::vars_os()
         .map(|(key, _)| key)
         .chain(command.get_envs().map(|(key, _)| key.to_os_string()))
@@ -203,9 +189,149 @@ pub(crate) fn configure_system_openssl(
     Ok(())
 }
 
+fn system_openssl_libdir(
+    target: &str,
+    mut resolve: impl FnMut(&Path) -> io::Result<PathBuf>,
+) -> Result<PathBuf, String> {
+    let (multiarch, native_arch) = match target {
+        "x86_64-unknown-linux-gnu" => ("x86_64-linux-gnu", cfg!(target_arch = "x86_64")),
+        "aarch64-unknown-linux-gnu" => ("aarch64-linux-gnu", cfg!(target_arch = "aarch64")),
+        _ => return Err("system OpenSSL configuration requires reviewed Linux target".into()),
+    };
+    // Prefer the existing Debian layout. Arch-family distributions install
+    // their native development libraries directly in /usr/lib. Never consult
+    // caller paths, and do not use native libraries for a different target.
+    let directories = [
+        Path::new("/usr/lib").join(multiarch),
+        PathBuf::from("/usr/lib"),
+    ];
+    for libdir in directories
+        .into_iter()
+        .take(if native_arch { 2 } else { 1 })
+    {
+        let mut missing = false;
+        for name in ["libssl.so", "libcrypto.so"] {
+            match resolve(&libdir.join(name)) {
+                Ok(resolved) => {
+                    if !resolved.starts_with("/usr/lib") && !resolved.starts_with("/lib") {
+                        return Err("OpenSSL library resolves outside OS directories".into());
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => missing = true,
+                Err(error) => {
+                    return Err(format!("cannot resolve system OpenSSL library: {error}"))
+                }
+            }
+        }
+        if !missing {
+            return Ok(libdir);
+        }
+    }
+    Err("system OpenSSL development libraries missing".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn openssl_prefers_complete_multiarch_directory() {
+        let selected =
+            system_openssl_libdir("x86_64-unknown-linux-gnu", |path| Ok(path.into())).unwrap();
+        assert_eq!(selected, Path::new("/usr/lib").join("x86_64-linux-gnu"));
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn openssl_accepts_complete_native_flat_directory() {
+        let selected = system_openssl_libdir("x86_64-unknown-linux-gnu", |path| {
+            if path.parent() == Some(Path::new("/usr/lib")) {
+                Ok(path.into())
+            } else {
+                Err(io::ErrorKind::NotFound.into())
+            }
+        })
+        .unwrap();
+        assert_eq!(selected, Path::new("/usr/lib"));
+    }
+
+    #[test]
+    fn openssl_requires_both_libraries_in_one_directory() {
+        let result = system_openssl_libdir("x86_64-unknown-linux-gnu", |path| {
+            let multiarch = path.parent() == Some(&Path::new("/usr/lib").join("x86_64-linux-gnu"));
+            if multiarch == (path.file_name() == Some(OsStr::new("libssl.so"))) {
+                Ok(path.into())
+            } else {
+                Err(io::ErrorKind::NotFound.into())
+            }
+        });
+        assert_eq!(
+            result.unwrap_err(),
+            "system OpenSSL development libraries missing"
+        );
+    }
+
+    #[test]
+    fn openssl_rejects_escaped_library_without_falling_back() {
+        for outside in [
+            "/tmp/libssl.so",
+            "/usr/library/libssl.so",
+            "/library/libssl.so",
+        ] {
+            let mut calls = 0;
+            let result = system_openssl_libdir("x86_64-unknown-linux-gnu", |_| {
+                calls += 1;
+                Ok(PathBuf::from(outside))
+            });
+            assert_eq!(
+                result.unwrap_err(),
+                "OpenSSL library resolves outside OS directories"
+            );
+            assert_eq!(calls, 1);
+        }
+    }
+
+    #[test]
+    fn openssl_rejects_unreadable_library_without_falling_back() {
+        let mut calls = 0;
+        let result = system_openssl_libdir("x86_64-unknown-linux-gnu", |_| {
+            calls += 1;
+            Err(io::ErrorKind::PermissionDenied.into())
+        });
+        assert!(result
+            .unwrap_err()
+            .starts_with("cannot resolve system OpenSSL library:"));
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn openssl_does_not_use_flat_native_libraries_for_foreign_architecture() {
+        let mut paths = Vec::new();
+        let result = system_openssl_libdir("aarch64-unknown-linux-gnu", |path| {
+            paths.push(path.to_owned());
+            Err(io::ErrorKind::NotFound.into())
+        });
+        assert!(result.is_err());
+        assert_eq!(paths.len(), 2);
+        assert!(paths
+            .iter()
+            .all(|path| path.parent() == Some(&Path::new("/usr/lib").join("aarch64-linux-gnu"))));
+    }
+
+    #[test]
+    fn openssl_rejects_unreviewed_target_before_discovery() {
+        let mut inspected = false;
+        let result = system_openssl_libdir("x86_64-pc-windows-msvc", |_| {
+            inspected = true;
+            Err(io::ErrorKind::NotFound.into())
+        });
+        assert_eq!(
+            result.unwrap_err(),
+            "system OpenSSL configuration requires reviewed Linux target"
+        );
+        assert!(!inspected);
+    }
+
     #[test]
     fn inherited_static_crt_flags_and_target_overrides_cannot_reach_cargo() {
         let mut command = Command::new("cargo");
