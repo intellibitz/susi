@@ -43,10 +43,21 @@ fn records() -> Vec<(PathBuf, String, Value)> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(&dir).expect("releases/ holds the committed release records") {
         let path = entry.unwrap().path();
-        // releases/qualification/<tag>.json are the exact-tree qualification
-        // records push-policy reads (schema susi-release-qualification/v1);
-        // each belongs to a release record here, checked below.
-        if path.is_dir() && path.file_name().and_then(|n| n.to_str()) == Some("qualification") {
+        // These directories hold host-neutral release metadata, not the
+        // top-level release records checked by this suite:
+        //
+        // * releases/qualification/<tag>.json are the exact-tree
+        //   qualification records push-policy reads (schema
+        //   susi-release-qualification/v1); each belongs to a release record
+        //   here, checked below.
+        // * releases/distill/<name>.json are the immutable distillation
+        //   envelopes that describe a release-branch candidate.
+        if path.is_dir()
+            && matches!(
+                path.file_name().and_then(|n| n.to_str()),
+                Some("qualification" | "distill")
+            )
+        {
             continue;
         }
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
