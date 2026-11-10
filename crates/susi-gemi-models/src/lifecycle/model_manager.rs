@@ -339,6 +339,7 @@ impl ModelManager {
             task_handle,
             &Self::get_models_dir(),
             |path| receipt.record(path),
+            std::thread::sleep,
         )
     }
 
@@ -355,24 +356,9 @@ impl ModelManager {
         }
     }
 
-    fn execute_download_stream_in(
-        source: &DownloadSource<'_>,
-        task_handle: &TaskHandle,
-        models_dir: &Path,
-        record: impl FnOnce(&Path) -> Result<(), String>,
-    ) -> Result<(), String> {
-        Self::execute_download_stream_with_sleep(
-            source,
-            task_handle,
-            models_dir,
-            record,
-            std::thread::sleep,
-        )
-    }
-
     // Inject only the retry clock, not transfer, validation, publication or
     // cancellation. Production always uses the real sleeper above.
-    fn execute_download_stream_with_sleep(
+    fn execute_download_stream_in(
         source: &DownloadSource<'_>,
         task_handle: &TaskHandle,
         models_dir: &Path,
@@ -388,8 +374,7 @@ impl ModelManager {
             }
         };
         Self::save_download_progress(&file_name, requested, 0, 0, "RUNNING");
-        let result =
-            Self::stage_and_record(source, task_handle, models_dir, &file_name, record, sleep);
+        let result = Self::stage_and_record(source, task_handle, models_dir, record, sleep);
         match result {
             Ok((size, message)) => {
                 Self::save_download_progress(&file_name, requested, size, size, "COMPLETED");
@@ -408,11 +393,12 @@ impl ModelManager {
         source: &DownloadSource<'_>,
         task_handle: &TaskHandle,
         models_dir: &Path,
-        file_name: &str,
         record: impl FnOnce(&Path) -> Result<(), String>,
         sleep: impl Fn(std::time::Duration),
     ) -> Result<(u64, &'static str), String> {
         let target = source.resolved;
+        let file_name = crate::download::artifact_name(target)?;
+        let file_name = file_name.as_str();
         let requested = source.requested;
         let admitted_sha256 = source.publisher_sha256;
         fs::create_dir_all(models_dir).map_err(|e| e.to_string())?;

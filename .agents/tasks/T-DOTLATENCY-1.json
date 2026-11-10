@@ -1,7 +1,7 @@
 {
   "id": "T-DOTLATENCY-1",
   "title": "Remove measured local verification latency",
-  "goal": "Preserve real transfer, publisher digest, transaction lock, durable publication and cancellation checks while measuring retry budgets without sleeping through them; production sleep policy stays unchanged. Preserve real progress and stall deadlines with explicit elapsed assertions. Reduce recording-forwarder Nagle latency without changing any channel or privacy assertion. Native scoped claim only; no integration or production qualification. The exploratory sandbox changes were rejected and restored byte-for-byte after no whole-library speed gain was measured. Preserve all model-manager tests by moving the existing unit suite to src/tests, lower the fixed gemi source ceiling from16737 to15952, and retain companion guard changes in diagnostic composition.",
+  "goal": "Preserve real transfer, publisher digest, transaction lock, durable publication and cancellation checks while measuring retry budgets without sleeping through them; production sleep policy stays unchanged. Preserve real progress and stall deadlines with explicit elapsed assertions. Reduce recording-forwarder Nagle latency without changing any channel or privacy assertion. Native scoped claim only; no integration or production qualification. The exploratory sandbox changes were rejected and restored byte-for-byte after no whole-library speed gain was measured. Preserve all model-manager tests by moving the existing unit suite to src/tests, lower the fixed gemi source ceiling from 16,737 to 15,938, and retain companion guard changes in diagnostic composition.",
   "size": "s",
   "deps": [],
   "scopes": [

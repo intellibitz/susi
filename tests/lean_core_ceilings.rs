@@ -55,7 +55,7 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 20;
 /// memory, swap and uptime through host_metrics; T-NOWINDOW-1).
 /// 2026-11-09: 16,743 -> 16,737 after shared scan/cache predicates and
 /// fail-closed model publication consolidation (T-DOTMODELPUBLISH-1).
-/// 2026-11-10: gemi-models 16,737 -> 15,952: move the unchanged model-manager
+/// 2026-11-10: gemi-models 16,737 -> 15,938: move the unchanged model-manager
 /// unit suite to src/tests while adding explicit retry-clock assertions
 /// (T-DOTLATENCY-1). Test organization, not removed runtime capability.
 const LINE_CEILINGS: [(&str, usize); 8] = [
@@ -64,7 +64,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd-agents", 11_495),
     ("susi-gawd-a2a", 2_113),
     ("susi-gemi", 21_290),
-    ("susi-gemi-models", 15_952),
+    ("susi-gemi-models", 15_938),
     ("susi-gmcp", 25_900),
     ("susi-harness", 40_790),
 ];

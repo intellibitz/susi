@@ -140,6 +140,7 @@ fn managed_download_waits_for_publication_and_reuses_verified_artifact() {
             &task,
             &worker_models,
             |_| Ok(()),
+            std::thread::sleep,
         ))
         .unwrap();
     });
@@ -594,7 +595,7 @@ fn fixture_download_with_sleep(
     pin: Option<&str>,
     sleep: impl Fn(std::time::Duration),
 ) -> Result<(), String> {
-    ModelManager::execute_download_stream_with_sleep(
+    ModelManager::execute_download_stream_in(
         &DownloadSource {
             requested: url,
             resolved: url,
@@ -682,6 +683,7 @@ fn failed_staging_manifest_does_not_record_a_license_or_complete_the_task() {
             recorded = true;
             Ok(())
         },
+        std::thread::sleep,
     );
     transport.join().unwrap();
     assert!(result.is_err());
@@ -744,6 +746,7 @@ fn receipt_storage_failure_cannot_report_completion_even_when_reusing_published_
                 crate::susi_config::atomic_write_json_pretty(&sidecar, &digest)
                     .map_err(|error| error.to_string())
             },
+            std::thread::sleep,
         );
         assert_eq!(result.is_ok(), should_pass);
         let (expected_progress, expected_task) = if should_pass {
@@ -840,7 +843,7 @@ fn cancellation_during_retry_backoff_stops_without_publishing() {
         .register_task("cancel_retry_backoff", &url);
     let ticks = std::cell::RefCell::new(Vec::new());
     let recorded = std::cell::Cell::new(false);
-    let result = ModelManager::execute_download_stream_with_sleep(
+    let result = ModelManager::execute_download_stream_in(
         &DownloadSource {
             requested: &url,
             resolved: &url,
