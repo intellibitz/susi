@@ -2346,7 +2346,6 @@ dependencies = [
  "susi-vendor-sha2",
  "susi-vendor-syn",
  "susi-vendor-tempfile",
- "susi-vendor-tokio",
 ]
 
 [[package]]
