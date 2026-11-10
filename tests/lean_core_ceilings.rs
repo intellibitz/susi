@@ -62,7 +62,11 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// Cargo.lock, and `tempfile`, `fastrand`, `rustix` and `linux-raw-sys` leave
 /// the pillar closure when `susi-vendor-tempfile` and `vendor/native-tls`
 /// replace external `tempfile` with pure-std exclusive `DirBuilder` guards).
-const THIRD_PARTY_CEILING: usize = 124;
+/// 2026-11-11: 124 -> 122 (T-CARBONLEAN-9: deduplicate `susi-vendor-sha2` onto
+/// `sha2 0.10.9` and `susi-vendor-getrandom` onto `getrandom 0.2`, removing 9
+/// packages from Cargo.lock and dropping `hybrid-array` and `r-efi` from the
+/// pillar closure).
+const THIRD_PARTY_CEILING: usize = 122;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
@@ -172,6 +176,11 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// (3,702 -> 3,619), susi-gemi (21,171 -> 21,145) and susi-harness (39,446 ->
 /// 37,604) alongside dropping susi-vendor-tracing from the pillar closure
 /// (T-AGYWIN-1).
+/// 2026-11-11: susi-harness 37,604 -> 37,439 (T-CARBONLEAN-9, measured):
+/// T-AGYFURY-1 added src/git_governor.rs alongside T-AGYWIN-1's 37,604 re-pin;
+/// move the unchanged providers.rs inline unit suite (1,206 lines) to
+/// src/tests/providers.rs, the crate's convention. Test organization, not
+/// removed runtime capability.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
     ("susi-gawd-swarm", 20_116),
@@ -180,7 +189,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gemi", 21_145),
     ("susi-gemi-models", 15_945),
     ("susi-gmcp", 25_860),
-    ("susi-harness", 37_604),
+    ("susi-harness", 37_439),
 ];
 
 fn workspace_root() -> PathBuf {

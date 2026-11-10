@@ -7,7 +7,7 @@ publish = false
 description = "SUSI vendor facade: sole workspace owner of `sha2`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
 
 [dependencies]
-sha2 = { version = "0.11.0" }
+sha2 = { version = "0.10.9" }
 
 [lints]
 workspace = true
