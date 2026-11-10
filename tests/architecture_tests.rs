@@ -130,6 +130,8 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-gawd-a2a", 8),
     ("susi-harness", 9),
     ("susi-gawd", 9),
+    // Daemon host runtime with no pillar edge (supervision, NAT, TLS, ...).
+    ("susi-daemon-runtime", 4),
     ("susi-daemon", 10),
     ("susi", 11),
 ];

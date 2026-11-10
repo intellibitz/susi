@@ -177,7 +177,7 @@ fn brain_scout_schedule_production_wiring() {
     );
     let sched = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../susi-daemon/src/eco_probe_scheduler.rs"
+        "/../susi-daemon-runtime/src/eco_probe_scheduler.rs"
     ))
     .expect("eco_probe_scheduler.rs readable");
     assert!(

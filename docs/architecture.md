@@ -199,7 +199,7 @@ susi start` brings up a complete sibling node.
 Prometheus server, and 9092-9094 are the ports Kafka brokers commonly listen
 on, so a developer machine often has one of them taken. The daemon binds six
 ports as one block, the five contract ports and gossip 9095
-(`crates/susi-daemon/src/port_fallback.rs`). Before it binds, it probes each
+(`crates/susi-daemon-runtime/src/port_fallback.rs`). Before it binds, it probes each
 with a real bind on every address it will use, offers each held port to the
 stale-susi reclaim (only a susi process of this instance with the trusted
 binary hash is evicted), and then:

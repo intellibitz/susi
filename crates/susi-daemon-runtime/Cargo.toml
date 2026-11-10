@@ -1,0 +1,40 @@
+[package]
+name = "susi-daemon-runtime"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2024"
+description = "Susi daemon host runtime that needs no pillar crate: supervision, watchdogs, NAT, TLS, port fallback, resource governance."
+publish = false
+
+[dependencies]
+susi-abi = { workspace = true }
+susi-sandbox-client = { workspace = true }
+susi-config = { workspace = true }
+susi-error = { workspace = true }
+susi-paths = { workspace = true }
+susi-core = { workspace = true }
+susi-http-transport = { workspace = true }
+libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
+getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
+# RFC 5389 long-term TURN credentials (nat.rs): MD5(user:realm:pass) then
+# HMAC-SHA1 MESSAGE-INTEGRITY. Crypto primitives, not vendor SDKs.
+sha1 = { package = "susi-vendor-sha1", path = "../susi-vendor-sha1" }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
+tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
+rcgen = { package = "susi-vendor-rcgen", path = "../susi-vendor-rcgen" }
+
+[dev-dependencies]
+# test-util enables #[tokio::test(start_paused)] for virtual-clock tests.
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio", features = ["test-util"] }
+
+[target."cfg(windows)".dependencies]
+winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
+
+[lints]
+workspace = true

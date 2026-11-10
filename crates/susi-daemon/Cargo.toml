@@ -14,6 +14,8 @@ libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 susi-core = { workspace = true }
+# Host runtime without pillar dependencies; compiles beside the pillars.
+susi-daemon-runtime = { workspace = true }
 susi-gemi = { workspace = true }
 susi-gawd = { workspace = true }
 # The A2A port (9094 + offset) is served from here: susi-gawd does not
@@ -23,21 +25,14 @@ susi-gmcp = { workspace = true }
 susi-server = { workspace = true }
 susi-tools = { workspace = true }
 susi-harness = { workspace = true }
-dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
-susi-http-transport = { workspace = true }
 susi-vendor-wasmtime = { workspace = true }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
-# RFC 5389 long-term TURN credentials: MD5(user:realm:pass) then HMAC-SHA1
-# MESSAGE-INTEGRITY. Crypto primitives, not vendor SDKs / HTTP clients.
-sha1 = { package = "susi-vendor-sha1", path = "../susi-vendor-sha1" }
 
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
 signal-hook = { package = "susi-vendor-signal-hook", path = "../susi-vendor-signal-hook" }
-tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
-rcgen = { package = "susi-vendor-rcgen", path = "../susi-vendor-rcgen" }
 
 [features]
 default = []
