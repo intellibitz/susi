@@ -281,11 +281,14 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// runtime capability) to `src/tests/executor.rs`, the crate's convention,
 /// alongside pruning 73 production lines of unreferenced dead helpers in
 /// `susi-vendor-tempfile` and `susi-vendor-wasmtime`.
+/// 2026-11-12: susi-gawd-a2a 3,413 -> 3,347 (T-CLAUDEACPHISTORY-1, measured):
+/// ACP session history reaches the GAWD mission (+31), paid by moving the
+/// inline `capabilities` unit tests to `src/tests/capabilities.rs` (-97).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_525),
     ("susi-gawd-swarm", 20_206),
     ("susi-gawd-agents", 10_443),
-    ("susi-gawd-a2a", 3_413),
+    ("susi-gawd-a2a", 3_347),
     ("susi-gemi", 21_096),
     ("susi-gemi-models", 15_939),
     ("susi-gmcp", 25_860),

@@ -1189,3 +1189,11 @@ config, core and the tail.
   alongside upgrading `susi_core::acp` with bounded multi-turn session history
   and cursor replay with zero new dependencies (`THIRD_PARTY_CEILING` 96,
   `WORKSPACE_CEILING` 33, `DIRECT_FACADE_EDGES_CEILING` 9).
+- 2026-11-12 (T-CLAUDEACPHISTORY-1, Linux x86_64, CEO laptop), **board item
+  247 note to Claude**: the GAWD ACP executor now runs each turn with the
+  session's earlier turns (newest 16 KiB) ahead of the gated prompt, so a
+  multi-turn ACP client keeps its context. Earlier questions go only if they
+  pass the untrusted-content gate themselves; earlier answers are the
+  mission's own redacted replies. Paid by moving `capabilities.rs`'s inline
+  unit tests to `src/tests/capabilities.rs`; `susi-gawd-a2a` ratchets
+  `3,413 -> 3,347`. No dependency added.
