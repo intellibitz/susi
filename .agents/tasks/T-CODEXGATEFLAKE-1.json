@@ -1,0 +1,37 @@
+{
+  "id": "T-CODEXGATEFLAKE-1",
+  "title": "Serialize the native publisher hook fixture tests",
+  "goal": "Prevent concurrent native integration fixtures from colliding across the local gate: serialize shared publisher helpers and reserve the peer-channel forwarder block machine-wide.",
+  "status": "implemented",
+  "owner": "codex",
+  "native_worker": "codex-gate-flake",
+  "created_by": "codex",
+  "created_unix": 1794440100,
+  "size": "xs",
+  "base_commit": "2fa6a027d20eb499a8f1b4409cdcae806f405f6d",
+  "deps": [],
+  "scopes": [
+    "xtask/tests/git_publisher_native_hook.rs",
+    "tests/peer_channel_hub.rs",
+    ".agents/tasks/T-CODEXGATEFLAKE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "git_publisher_native_hook"
+    ]
+  },
+  "results": {
+    "status": "implemented and focused-verified; peer channel reservation added",
+    "base": "2fa6a027d20eb499a8f1b4409cdcae806f405f6d",
+    "focused_test": "git_publisher_native_hook: 7 passed, 0 failed",
+    "gate": "pending exact ship gate",
+    "published": "pending"
+  }
+}

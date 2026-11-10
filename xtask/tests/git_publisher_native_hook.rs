@@ -5,9 +5,22 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 const PUBLISHER: &str = env!("CARGO_BIN_EXE_local-snapshot");
 const POLICY: &str = env!("CARGO_BIN_EXE_push-policy");
+
+// Every test launches the same native publisher and policy helpers. Keep the
+// fixture processes apart: on Linux, a sibling test can otherwise try to
+// exec a copied helper while another thread still has that path open for
+// replacement, yielding ETXTBSY instead of a meaningful test result.
+static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn test_lock() -> MutexGuard<'static, ()> {
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// The inherited search path without the build directory, so the hook can only
 /// find `push-policy` through the publisher's adjacent-helper discovery.
@@ -172,11 +185,13 @@ fn text(out: &Output) -> String {
 
 #[test]
 fn built_publisher_and_policy_are_adjacent() {
+    let _lock = test_lock();
     assert_eq!(Path::new(PUBLISHER).parent(), Path::new(POLICY).parent());
 }
 
 #[test]
 fn submit_composes_divergent_main_through_the_real_hook_and_adjacent_policy() {
+    let _lock = test_lock();
     let f = Fixture::new();
     let worker = f.clone_worker("worker");
     let source = f.commit(&worker, "worker.txt", "worker change");
@@ -203,6 +218,7 @@ fn submit_composes_divergent_main_through_the_real_hook_and_adjacent_policy() {
 
 #[test]
 fn missing_adjacent_policy_fails_closed_and_retry_publishes_the_pinned_source() {
+    let _lock = test_lock();
     let f = Fixture::new();
     let worker = f.clone_worker("worker");
     let source = f.commit(&worker, "worker.txt", "worker change");
@@ -230,6 +246,7 @@ fn missing_adjacent_policy_fails_closed_and_retry_publishes_the_pinned_source() 
 
 #[test]
 fn snapshot_tag_passes_the_real_hook_and_is_adopted_by_a_fresh_clone() {
+    let _lock = test_lock();
     let f = Fixture::new();
     let worker = f.clone_worker("worker");
     let main = f.remote_main();
@@ -259,6 +276,7 @@ fn snapshot_tag_passes_the_real_hook_and_is_adopted_by_a_fresh_clone() {
 
 #[test]
 fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immutable() {
+    let _lock = test_lock();
     const DISTILL: &str = env!("CARGO_BIN_EXE_local-distill");
     assert_eq!(Path::new(DISTILL).parent(), Path::new(POLICY).parent());
 
@@ -430,6 +448,7 @@ fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immu
 
 #[test]
 fn every_submit_witnesses_the_remote_and_reports_lost_history_without_blocking() {
+    let _lock = test_lock();
     let f = Fixture::new();
     let seed = f.remote_main();
     let worker = f.clone_worker("worker");
@@ -475,6 +494,7 @@ fn every_submit_witnesses_the_remote_and_reports_lost_history_without_blocking()
 /// shipping clone witnesses the storage remote afterwards.
 #[test]
 fn a_ship_witnesses_the_remote_whatever_its_result() {
+    let _lock = test_lock();
     let f = Fixture::new();
     let worker = f.clone_worker("worker");
     let record = "refs/susi-guard/origin/heads/main";
