@@ -196,6 +196,18 @@ fn stdio_transport_times_out_and_reaps_an_unresponsive_child() {
     assert!(error.contains("mcp response timed out after"), "{error}");
 }
 
+#[cfg(unix)]
+#[test]
+fn closing_an_mcp_client_reaps_its_stdio_child_immediately() {
+    let script = "while IFS= read -r line; do :; done";
+    let transport = StdioTransport::spawn("sh", &["-c".into(), script.into()]).unwrap();
+    let mut client = McpClient::new(transport);
+    client.close().unwrap();
+    assert!(client.closed);
+    assert!(client.transport.child.try_wait().unwrap().is_some());
+    client.close().unwrap();
+}
+
 #[test]
 fn mcp_surfaces_a_json_rpc_error() {
     let transport = Scripted::new(vec![
