@@ -22,6 +22,8 @@ use std::process::{Command, Output, Stdio};
 
 #[path = "distill/hostmerge.rs"]
 mod hostmerge;
+#[path = "distill/mandate74.rs"]
+mod mandate74;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -32,7 +34,7 @@ const MAX_CLOSURE_DEPTH: usize = 256;
 const ZERO_SHA1: &str = "0000000000000000000000000000000000000000";
 const ZERO_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose|orchestrate> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--tasks-from-range <A..B>] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--verify-accept] [--publish-snapshot] [--release-candidate] [--strict] [--adopt-host-commit <full-commit-id>]... [--receipt-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|status> <name> [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- submit-main [--rev <rev>] [--max-attempts <n>] [--json]\nDistillation composes an audited candidate from labelled contributions. Release candidates stay local; publish pushes only immutable snapshot tags. Full release qualification gates remain separate.";
+const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose|orchestrate> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--tasks-from-range <A..B>] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--verify-accept] [--publish-snapshot] [--release-candidate] [--strict] [--adopt-host-commit <full-commit-id>]... [--receipt-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|status> <name> [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- submit-main [--rev <rev>] [--max-attempts <n>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- verify-harvest [--rev <rev>] [--range <A..B>] [--strict] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- quarantine-fetch <url> <sha> --slug <slug> [--json]\nDistillation composes an audited candidate from labelled contributions. Release candidates stay local; publish pushes only immutable snapshot tags. Full release qualification gates remain separate.";
 const RELEASE_BRANCH_STORAGE_ONLY: &str = "release branch publication is disabled: release candidates are local-only; GitHub is storage only; use `publish <name>` for an immutable refs/tags/susi-distill/<name> snapshot";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,11 +82,29 @@ struct SubmitMainArgs {
 }
 
 #[derive(Clone, Debug)]
+struct VerifyHarvestArgs {
+    rev: Option<String>,
+    range: Option<String>,
+    strict: bool,
+    json_output: bool,
+}
+
+#[derive(Clone, Debug)]
+struct QuarantineFetchArgs {
+    url: String,
+    sha: String,
+    slug: String,
+    json_output: bool,
+}
+
+#[derive(Clone, Debug)]
 enum ParsedCli {
     Help,
     Distill(DistillArgs),
     Inspect(InspectArgs),
     SubmitMain(SubmitMainArgs),
+    VerifyHarvest(VerifyHarvestArgs),
+    QuarantineFetch(QuarantineFetchArgs),
 }
 
 #[derive(Clone, Debug)]
@@ -154,6 +174,7 @@ struct IncludedEntry {
     source_commits: Vec<String>,
     composed_commit: String,
     composed_tree: String,
+    patch_id: Option<String>,
     changed_files: Vec<String>,
 }
 
@@ -1132,6 +1153,12 @@ fn parse_cli(args: &[String]) -> Result<ParsedCli> {
     if args[0] == "submit-main" {
         return parse_submit_main_flags(&args[1..]);
     }
+    if args[0] == "verify-harvest" {
+        return parse_verify_harvest_flags(&args[1..]);
+    }
+    if args[0] == "quarantine-fetch" {
+        return parse_quarantine_fetch_flags(&args[1..]);
+    }
     if args[0] == "publish-branch" {
         return Err(RELEASE_BRANCH_STORAGE_ONLY.to_owned());
     }
@@ -1198,6 +1225,74 @@ fn parse_submit_main_flags(rest: &[String]) -> Result<ParsedCli> {
     Ok(ParsedCli::SubmitMain(SubmitMainArgs {
         rev,
         max_attempts,
+        json_output,
+    }))
+}
+
+fn parse_verify_harvest_flags(rest: &[String]) -> Result<ParsedCli> {
+    let mut rev: Option<String> = None;
+    let mut range: Option<String> = None;
+    let mut strict = false;
+    let mut json_output = false;
+    let mut idx = 0usize;
+    while idx < rest.len() {
+        match rest[idx].as_str() {
+            "--rev" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if rev.replace(val.clone()).is_some() {
+                    return Err("duplicate --rev".to_owned());
+                }
+            }
+            "--range" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if range.replace(val.clone()).is_some() {
+                    return Err("duplicate --range".to_owned());
+                }
+            }
+            "--strict" => strict = true,
+            "--json" => json_output = true,
+            _ => return Err(USAGE.to_owned()),
+        }
+        idx += 1;
+    }
+    Ok(ParsedCli::VerifyHarvest(VerifyHarvestArgs {
+        rev,
+        range,
+        strict,
+        json_output,
+    }))
+}
+
+fn parse_quarantine_fetch_flags(rest: &[String]) -> Result<ParsedCli> {
+    if rest.len() < 4 {
+        return Err(USAGE.to_owned());
+    }
+    let url = rest[0].clone();
+    let sha = rest[1].clone();
+    let mut slug: Option<String> = None;
+    let mut json_output = false;
+    let mut idx = 2usize;
+    while idx < rest.len() {
+        match rest[idx].as_str() {
+            "--slug" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if slug.replace(val.clone()).is_some() {
+                    return Err("duplicate --slug".to_owned());
+                }
+            }
+            "--json" => json_output = true,
+            _ => return Err(USAGE.to_owned()),
+        }
+        idx += 1;
+    }
+    let slug = slug.ok_or_else(|| "missing --slug <slug>".to_owned())?;
+    Ok(ParsedCli::QuarantineFetch(QuarantineFetchArgs {
+        url,
+        sha,
+        slug,
         json_output,
     }))
 }
@@ -2443,6 +2538,7 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         };
         match compose_task_onto(git, &cursor, task, &attributed)? {
             Ok(composed) => {
+                let patch_id = mandate74::compute_commit_patch_id(root, &composed.commit)?;
                 current_commit = composed.commit.clone();
                 current_tree = composed.tree.clone();
                 included.push(IncludedEntry {
@@ -2456,6 +2552,7 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
                     source_commits: commit_oids,
                     composed_commit: composed.commit,
                     composed_tree: composed.tree,
+                    patch_id,
                     changed_files: composed.changed_files,
                 });
                 outcomes.insert(key.clone(), TaskOutcome::Included);
@@ -2481,6 +2578,29 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
 
     let branch_ref = resolve_branch_ref(args, feature.as_ref())?;
     let endpoint_digest = git.endpoint_optional()?.map(|e| e.digest);
+    let lane_inputs: Vec<mandate74::LaneTaskInput> = included
+        .iter()
+        .map(|i| mandate74::LaneTaskInput {
+            task_id: i.task_id.clone(),
+            deps: i.deps.clone(),
+            scopes: i.scopes.clone(),
+            changed_files: i.changed_files.clone(),
+            patch_id: i.patch_id.clone(),
+        })
+        .collect();
+    let lanes = mandate74::partition_disjoint_lanes(&lane_inputs);
+    let selected_source_commits: Vec<String> = included
+        .iter()
+        .flat_map(|i| i.source_commits.iter().cloned())
+        .collect();
+    let harvest_audit =
+        mandate74::verify_harvest_for_commits(root, &current_commit, &selected_source_commits)?;
+    if !harvest_audit.passed && (args.strict || args.release_candidate) {
+        return Err(format!(
+            "disallowed_or_unattributed_harvest: {}",
+            harvest_audit.findings.join("; ")
+        ));
+    }
     let has_deferred_or_rejected = !deferred.is_empty() || !rejected.is_empty();
     let accept_verification = if args.verify_accept && !(args.strict && has_deferred_or_rejected) {
         Some(verify_composed_accept_commands(
@@ -2518,6 +2638,8 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         "plan_manifest_sha256": plan_spec.as_ref().map(|p| &p.sha256),
         "requested_tasks": requested,
         "closure_order": closure.order,
+        "lanes": lanes.iter().map(mandate74::DisjointLane::to_json).collect::<Vec<_>>(),
+        "harvest_audit": harvest_audit.to_json(),
         "feature": feature.as_ref().map(|f| json!({
             "id": f.id,
             "title": f.title,
@@ -2538,6 +2660,7 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             "source_commits": i.source_commits,
             "composed_commit": i.composed_commit,
             "composed_tree": i.composed_tree,
+            "patch_id": i.patch_id,
             "changed_files": i.changed_files,
             "reason_code": "selected_and_composed",
         })).collect::<Vec<_>>(),
@@ -3244,12 +3367,56 @@ fn format_submit_main_result(payload: &Value, json_output: bool) -> Result<Strin
     ))
 }
 
+fn run_verify_harvest_command(root: &Path, args: &VerifyHarvestArgs) -> Result<String> {
+    let git = Git { root };
+    git.require_original_history()?;
+    let resolved_rev = match args.rev.as_deref() {
+        Some(r) => Some(git.resolve_commit(r)?),
+        None => None,
+    };
+    let report = mandate74::verify_harvest_tree_and_range(
+        root,
+        resolved_rev.as_deref(),
+        args.range.as_deref(),
+    )?;
+    if args.strict && !report.passed {
+        return Err(format!(
+            "harvest audit failed ({} finding(s)): {}",
+            report.findings.len(),
+            report.findings.join("; ")
+        ));
+    }
+    if args.json_output {
+        return serde_json::to_string_pretty(&report.to_json()).map_err(|e| e.to_string());
+    }
+    if report.passed {
+        Ok(format!(
+            "Harvest audit passed: manifests_verified={} harvest_commits_checked={}",
+            report.manifests_verified, report.harvest_commits_checked
+        ))
+    } else {
+        Ok(format!(
+            "Harvest audit FAILED ({} finding(s)): {}",
+            report.findings.len(),
+            report.findings.join("; ")
+        ))
+    }
+}
+
 pub fn run(root: &Path, args: &[String]) -> Result<String> {
     match parse_cli(args)? {
         ParsedCli::Help => Ok(USAGE.to_owned()),
         ParsedCli::Distill(distill_args) => run_distill_command(root, &distill_args),
         ParsedCli::Inspect(inspect_args) => run_inspect_command(root, &inspect_args),
         ParsedCli::SubmitMain(submit_args) => run_submit_main_command(root, &submit_args),
+        ParsedCli::VerifyHarvest(vh_args) => run_verify_harvest_command(root, &vh_args),
+        ParsedCli::QuarantineFetch(qf_args) => mandate74::quarantine_fetch(
+            root,
+            &qf_args.url,
+            &qf_args.sha,
+            &qf_args.slug,
+            qf_args.json_output,
+        ),
     }
 }
 
@@ -4413,5 +4580,201 @@ mod tests {
             .merge_three_way_synthetic_base(&base, &ours, &theirs_conflict)
             .unwrap();
         assert!(matches!(conflict, ThreeWayMerge::Conflict(_)));
+    }
+
+    #[test]
+    fn disjoint_lanes_and_stable_patch_ids_are_recorded_on_distill_receipts() {
+        let fx = Fixture::new();
+        fx.write("README.md", "base\n");
+        let base = fx.commit_all("initial base");
+
+        fx.write("crates/alpha/lib.rs", "pub fn a1() {}\n");
+        fx.write_task("T-ALPHA-1", &[], &["crates/alpha"]);
+        fx.commit_all("feat: alpha 1\n\nTask: T-ALPHA-1");
+
+        fx.write("crates/beta/lib.rs", "pub fn b1() {}\n");
+        fx.write_task("T-BETA-1", &[], &["crates/beta"]);
+        fx.commit_all("feat: beta 1\n\nTask: T-BETA-1");
+
+        fx.write("crates/alpha/mod2.rs", "pub fn a2() {}\n");
+        fx.write_task("T-ALPHA-2", &[], &["crates/alpha"]);
+        fx.commit_all("feat: alpha 2\n\nTask: T-ALPHA-2");
+
+        let out = fx
+            .run_args(&[
+                "compose",
+                "--name",
+                "lanes-check",
+                "--base",
+                &base,
+                "--from",
+                "HEAD",
+                "--select",
+                "T-ALPHA-1,T-BETA-1,T-ALPHA-2",
+                "--strict",
+                "--json",
+            ])
+            .unwrap();
+        let receipt: Value = serde_json::from_str(&out).unwrap();
+        let lanes = receipt["lanes"].as_array().unwrap();
+        assert_eq!(lanes.len(), 2, "{receipt}");
+        assert_eq!(
+            lanes[0]["tasks"],
+            json!(["T-ALPHA-1", "T-ALPHA-2"]),
+            "{lanes:?}"
+        );
+        assert_eq!(lanes[1]["tasks"], json!(["T-BETA-1"]), "{lanes:?}");
+        for entry in receipt["included"].as_array().unwrap() {
+            let pid = entry["patch_id"].as_str().unwrap();
+            assert_eq!(pid.len(), 40);
+        }
+    }
+
+    #[test]
+    fn harvest_audit_admits_attributed_apache2_and_refuses_unattributed_or_copyleft_commits() {
+        let fx = Fixture::new();
+        fx.write("LICENSE", "Apache License 2.0\n");
+        fx.write(
+            "THIRD_PARTY_NOTICES",
+            "Portions Copyright 2026 Upstream Project.\n",
+        );
+        let base = fx.commit_all("initial base with license");
+
+        // 1. Valid attributed Apache-2.0 harvest
+        fx.write(
+            "crates/harvested/lib.rs",
+            "// Modified by Susi contributors, 2026-11-11: std port.\npub fn ported() {}\n",
+        );
+        let manifest = json!({
+            "schema": "susi-harvest-manifest-v1",
+            "id": "H-WORKER-1",
+            "source_url": "https://gitlab.com/example/upstream.git",
+            "source_commit": "0123456789abcdef0123456789abcdef01234567",
+            "source_paths": ["src/lib.rs"],
+            "destination_paths": ["crates/harvested/lib.rs"],
+            "spdx_license": "Apache-2.0",
+            "license_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+            "copyright_holders": ["Upstream Project"],
+            "notice_text": "Portions Copyright 2026 Upstream Project.",
+            "import_mode": "rust-port",
+            "modified": true,
+            "modification_summary": "Ported to std-only Rust.",
+            "agent": "test-worker",
+            "date": "2026-11-11",
+            "task_id": "T-HARV-1"
+        });
+        fx.write(
+            ".agents/harvest/H-WORKER-1.json",
+            &format!("{}\n", serde_json::to_string_pretty(&manifest).unwrap()),
+        );
+        fx.write_task(
+            "T-HARV-1",
+            &[],
+            &["crates/harvested", ".agents/harvest/H-WORKER-1.json"],
+        );
+        fx.commit_all(
+            "feat: harvest upstream\n\nTask: T-HARV-1\nHarvest: H-WORKER-1\nOrigin: https://gitlab.com/example/upstream.git@0123456789abcdef0123456789abcdef01234567:src/lib.rs\nOrigin-License: Apache-2.0",
+        );
+
+        let ok_out = fx
+            .run_args(&[
+                "compose",
+                "--name",
+                "harvest-ok",
+                "--base",
+                &base,
+                "--from",
+                "HEAD",
+                "--select",
+                "T-HARV-1",
+                "--strict",
+                "--json",
+            ])
+            .unwrap();
+        let ok_receipt: Value = serde_json::from_str(&ok_out).unwrap();
+        assert_eq!(ok_receipt["harvest_audit"]["passed"], json!(true));
+        assert_eq!(ok_receipt["harvest_audit"]["manifests_verified"], json!(1));
+        assert_eq!(
+            ok_receipt["harvest_audit"]["harvest_commits_checked"],
+            json!(1)
+        );
+
+        let vh_out = fx
+            .run_args(&[
+                "verify-harvest",
+                "--range",
+                &format!("{base}..HEAD"),
+                "--strict",
+                "--json",
+            ])
+            .unwrap();
+        let vh_json: Value = serde_json::from_str(&vh_out).unwrap();
+        assert_eq!(vh_json["passed"], json!(true));
+
+        // 2. Unattributed GPL Origin commit -> refused under --strict
+        fx.write("crates/bad/lib.rs", "pub fn bad() {}\n");
+        fx.write_task("T-BADHARV-1", &[], &["crates/bad"]);
+        fx.commit_all(
+            "feat: bad harvest\n\nTask: T-BADHARV-1\nOrigin: https://example.org/gpl.git@fedcba9876543210fedcba9876543210fedcba98\nOrigin-License: GPL-3.0-only",
+        );
+        let refused = fx.run_args(&[
+            "compose",
+            "--name",
+            "harvest-bad",
+            "--base",
+            &base,
+            "--from",
+            "HEAD",
+            "--select",
+            "T-BADHARV-1",
+            "--strict",
+            "--json",
+        ]);
+        let err = refused.unwrap_err();
+        assert!(err.contains("disallowed_or_unattributed_harvest"), "{err}");
+    }
+
+    #[test]
+    fn quarantine_fetch_isolates_upstream_commit_under_refs_susi_upstream_without_hooks() {
+        let fx = Fixture::new();
+        fx.write("README.md", "base\n");
+        let _base = fx.commit_all("initial");
+
+        let upstream_dir = fx.dir.join("upstream-repo");
+        fs::create_dir_all(&upstream_dir).unwrap();
+        let up_git = Git {
+            root: &upstream_dir,
+        };
+        up_git.text(&["init", "--initial-branch=main"]).unwrap();
+        fs::write(upstream_dir.join("lib.rs"), "pub fn up() -> u32 { 7 }\n").unwrap();
+        up_git.text(&["add", "-A"]).unwrap();
+        up_git
+            .text(&[
+                "-c",
+                "user.name=Upstream",
+                "-c",
+                "user.email=up@localhost",
+                "commit",
+                "-m",
+                "upstream commit",
+            ])
+            .unwrap();
+        let up_sha = up_git.resolve_commit("HEAD").unwrap();
+
+        let q_out = fx
+            .run_args(&[
+                "quarantine-fetch",
+                upstream_dir.to_str().unwrap(),
+                &up_sha,
+                "--slug",
+                "upstream-demo",
+                "--json",
+            ])
+            .unwrap();
+        let q_json: Value = serde_json::from_str(&q_out).unwrap();
+        assert_eq!(q_json["status"], json!("quarantined"));
+        let expected_ref = format!("refs/susi/upstream/upstream-demo/{up_sha}");
+        assert_eq!(q_json["quarantine_ref"], json!(expected_ref));
+        assert_eq!(fx.git().resolve_commit(&expected_ref).unwrap(), up_sha);
     }
 }
