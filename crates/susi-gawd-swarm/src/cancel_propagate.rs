@@ -441,45 +441,13 @@ fn terminate_process_group(child: &mut Child, child_id: u32) {
     #[cfg(windows)]
     {
         use susi_paths::console::background_command;
-        let _ = child.kill();
-        // taskkill /T kills the whole process tree (the group kill above, on Windows).
+        // Keep the owned root alive until taskkill has discovered its tree.
+        // Killing it first loses the ancestry needed to find descendants.
         let _ = background_command("taskkill")
             .args(["/PID", &child_id.to_string(), "/T", "/F"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
-        // MSYS2 background jobs (`sh -c "cmd &"`) fork via an intermediate
-        // process that exits immediately, breaking the Win32 ParentProcessId
-        // chain before `taskkill /T` runs. Reap any MSYS2 child whose MSYS2
-        // PPID was just terminated by `taskkill` (PPID > 1 and no longer in
-        // `ps`) in a single `kill -9` call.
-        if let Ok(out) = background_command("ps").stderr(Stdio::null()).output() {
-            let text = String::from_utf8_lossy(&out.stdout);
-            let rows: Vec<(u32, u32)> = text
-                .lines()
-                .skip(1)
-                .filter_map(|line| {
-                    let mut nums = line
-                        .split_whitespace()
-                        .filter_map(|tok| tok.parse::<u32>().ok());
-                    Some((nums.next()?, nums.next()?))
-                })
-                .collect();
-            let live: std::collections::BTreeSet<u32> = rows.iter().map(|(pid, _)| *pid).collect();
-            let orphans: Vec<String> = rows
-                .into_iter()
-                .filter(|(_, ppid)| *ppid > 1 && !live.contains(ppid))
-                .map(|(pid, _)| pid.to_string())
-                .collect();
-            if !orphans.is_empty() {
-                let _ = Command::new("kill")
-                    .arg("-9")
-                    .args(&orphans)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
-            }
-        }
     }
     let _ = child.kill();
 }

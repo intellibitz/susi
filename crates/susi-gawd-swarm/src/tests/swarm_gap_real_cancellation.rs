@@ -28,6 +28,8 @@ fn test_dir(tag: &str) -> PathBuf {
 fn swarm_gap_real_cancellation_kills_process_descendants() {
     let dir = test_dir("process");
     let marker = dir.join("pids");
+    #[cfg(windows)]
+    let mut unrelated = UnrelatedTestProcess::start();
     let command = descendant_command(&marker);
     let handle = CancellationHandle::with_deadline_after(Duration::from_secs(30));
     let worker_handle = handle.clone();
@@ -68,6 +70,8 @@ fn swarm_gap_real_cancellation_kills_process_descendants() {
         );
     }
 
+    #[cfg(windows)]
+    unrelated.assert_alive();
     let started = Instant::now();
     handle.cancel();
     let result = worker.join().unwrap().unwrap();
@@ -106,6 +110,8 @@ fn swarm_gap_real_cancellation_kills_process_descendants() {
             "descendant process {child_pid} survived group cancellation"
         );
     }
+    #[cfg(windows)]
+    unrelated.assert_alive();
     // Best-effort cleanup: a spawned descendant may still hold a handle to the
     // temp dir, so "Directory not empty" on remove must not fail the test.
     let _ = fs::remove_dir_all(dir);
@@ -369,4 +375,48 @@ fn observe_windows_descendant(dir: &std::path::Path, pids: &str) -> std::process
     );
     assert_eq!(fs::read_to_string(ready).unwrap(), "alive");
     observer
+}
+
+/// A sibling of the cancellable root, never a member of its process tree.
+#[cfg(windows)]
+struct UnrelatedTestProcess(std::process::Child);
+
+#[cfg(windows)]
+impl UnrelatedTestProcess {
+    fn start() -> Self {
+        use std::process::{Command, Stdio};
+        Self(
+            Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-WindowStyle",
+                    "Hidden",
+                    "-Command",
+                    "Start-Sleep -Seconds 30",
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        )
+    }
+
+    fn assert_alive(&mut self) {
+        assert!(
+            self.0.try_wait().unwrap().is_none(),
+            "unrelated process {} must survive cancellation",
+            self.0.id()
+        );
+    }
+}
+
+#[cfg(windows)]
+impl Drop for UnrelatedTestProcess {
+    fn drop(&mut self) {
+        // Only the process handle returned by our own spawn is acted on.
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
