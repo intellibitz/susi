@@ -1,0 +1,50 @@
+{
+  "id": "T-CARBONLEAN-11",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-11",
+  "title": "Lean core: trim hyper to server-only features (-2 Cargo.lock pkgs want/try-lock, THIRD_PARTY_CEILING 117 -> 115) and sync README Mandate 74",
+  "goal": "Replace hyper features = [\"full\"] in crates/susi-vendor-hyper/Cargo.toml with [\"http1\", \"http2\", \"server\"] and replace the single test-only hyper::client::conn::http2::handshake in crates/susi-http-transport/src/http_conn.rs with raw RFC 9113 HTTP/2 prior-knowledge frames, removing want 0.3.2 and try-lock 0.2.5 from Cargo.lock (146 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..11), lowering THIRD_PARTY_CEILING 117 -> 115, and updating README.md to Mandates 49–74.",
+  "status": "in_progress",
+  "state": "in_progress",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794392200,
+  "size": "s",
+  "deps": [
+    "T-CARBONLEAN-10",
+    "T-CLAUDEMANDATE74-1"
+  ],
+  "base": "082bcdbbaae9af055b7609b45e1a147562701851",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-11.json",
+    ".agents/tasks/done/T-CARBONLEAN-11.json",
+    "Cargo.lock",
+    "README.md",
+    "crates/susi-http-transport/src/http_conn.rs",
+    "crates/susi-vendor-hyper/Cargo.toml",
+    "docs/ceo-mandate-74.md",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-http-transport",
+      "--lib"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo clippy --offline --locked -p susi-vendor-hyper -p susi-http-transport -p susi-gemi -p susi-gmcp -p susi-harness -p susi-gawd-a2a -p susi-leaf-services -p susi-server --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-http-transport -p susi-gmcp -p susi-server --lib",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ],
+  "limitations": [
+    "Verified on native Linux x86_64 host only per current-host workflow; dual-OS production tag qualification stays separate from accept_verified_candidate local release/* and immutable refs/tags/susi-distill/* distillation."
+  ]
+}

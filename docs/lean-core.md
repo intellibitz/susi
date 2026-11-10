@@ -974,5 +974,15 @@ config, core and the tail.
   `parking_lot 0.12.5`, `parking_lot_core 0.9.12`, `redox_syscall 0.5.18`,
   `scopeguard 1.2.0`; 144 cumulative `Cargo.lock` packages removed across
   T-CARBONLEAN-1..10) and lowers `THIRD_PARTY_CEILING` 122 -> 117.
+- 2026-11-11 (T-CARBONLEAN-11, Linux x86_64, CEO laptop): replace `hyper`
+  `features = ["full"]` in `crates/susi-vendor-hyper/Cargo.toml` with
+  `["http1", "http2", "server"]` and replace the single test-only
+  `hyper::client::conn::http2::handshake` in
+  `crates/susi-http-transport/src/http_conn.rs` with raw RFC 9113 HTTP/2
+  prior-knowledge frames (`H2_PREFACE` + `SETTINGS` + static-HPACK `HEADERS` +
+  `GOAWAY`), removing `try-lock 0.2.5` and `want 0.3.2` from `Cargo.lock` (146
+  cumulative `Cargo.lock` packages removed across T-CARBONLEAN-1..11) and
+  lowering `THIRD_PARTY_CEILING` 117 -> 115. Also synchronize `README.md` to
+  Mandates 49–74 after Mandate 74 landed in `.agents/identity.json`.
 
 

@@ -374,10 +374,10 @@ pub fn connection_builder() -> Builder<TokioExecutor> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_body::{BodyExt, Full};
+    use crate::http_body::Full;
     use hyper::body::Bytes;
     use hyper::service::service_fn;
-    use hyper::{Request, Response, StatusCode};
+    use hyper::{Request, Response};
     use std::convert::Infallible;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -442,23 +442,81 @@ mod tests {
         assert!(h1_reply.starts_with("HTTP/1.1 200 OK"), "{h1_reply}");
         assert!(h1_reply.ends_with("HTTP/1.1"), "{h1_reply}");
 
-        // 2. HTTP/2 prior-knowledge request
-        let h2_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-        let (mut sender, conn) =
-            hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(h2_stream))
-                .await
-                .unwrap();
-        tokio::spawn(async move {
-            let _ = conn.await;
-        });
-        let req = Request::builder()
-            .uri("http://localhost/h2")
-            .body(Full::new(Bytes::new()))
-            .unwrap();
-        let resp = sender.send_request(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        // 2. HTTP/2 prior-knowledge request using raw RFC 9113 frames so
+        // `susi-vendor-hyper` only enables `server` (`http1` + `http2`) and
+        // never pulls `hyper/client` (`want` + `try-lock`).
+        let mut h2_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let hpack_get_h2: &[u8] = &[
+            0x82, // :method = GET (RFC 7541 static index 2)
+            0x86, // :scheme = http (RFC 7541 static index 6)
+            0x41, 0x09, b'l', b'o', b'c', b'a', b'l', b'h', b'o', b's', b't', // :authority
+            0x44, 0x03, b'/', b'h', b'2', // :path = /h2
+        ];
+        let mut client_wire = Vec::new();
+        client_wire.extend_from_slice(H2_PREFACE);
+        // Empty client SETTINGS frame (type = 0x04, flags = 0x00, stream = 0).
+        client_wire.extend_from_slice(&[0, 0, 0, 0x04, 0x00, 0, 0, 0, 0]);
+        // HEADERS frame on stream 1 with END_STREAM | END_HEADERS (0x05).
+        let hlen = hpack_get_h2.len() as u32;
+        client_wire.extend_from_slice(&[
+            ((hlen >> 16) & 0xff) as u8,
+            ((hlen >> 8) & 0xff) as u8,
+            (hlen & 0xff) as u8,
+            0x01,
+            0x05,
+            0,
+            0,
+            0,
+            1,
+        ]);
+        client_wire.extend_from_slice(hpack_get_h2);
+        h2_stream.write_all(&client_wire).await.unwrap();
+
+        let mut got_status_200 = false;
+        let mut body = Vec::new();
+        loop {
+            let mut hdr = [0u8; 9];
+            h2_stream.read_exact(&mut hdr).await.unwrap();
+            let len = ((hdr[0] as usize) << 16) | ((hdr[1] as usize) << 8) | (hdr[2] as usize);
+            let frame_type = hdr[3];
+            let flags = hdr[4];
+            let stream_id = u32::from_be_bytes([hdr[5] & 0x7f, hdr[6], hdr[7], hdr[8]]);
+            let mut payload = vec![0u8; len];
+            if len > 0 {
+                h2_stream.read_exact(&mut payload).await.unwrap();
+            }
+            match frame_type {
+                0x04 if (flags & 0x01) == 0 => {
+                    // Acknowledge server SETTINGS.
+                    h2_stream
+                        .write_all(&[0, 0, 0, 0x04, 0x01, 0, 0, 0, 0])
+                        .await
+                        .unwrap();
+                }
+                0x01 if stream_id == 1 => {
+                    // RFC 7541 static index 8 (`0x88`) encodes `:status: 200`.
+                    assert_eq!(payload.first().copied(), Some(0x88));
+                    got_status_200 = true;
+                    if (flags & 0x01) != 0 {
+                        break;
+                    }
+                }
+                0x00 if stream_id == 1 => {
+                    body.extend_from_slice(&payload);
+                    if (flags & 0x01) != 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(got_status_200);
         assert_eq!(&body[..], b"HTTP/2.0");
+        // Graceful GOAWAY (type = 0x07, stream = 0, last_stream_id = 0, NO_ERROR = 0).
+        let _ = h2_stream
+            .write_all(&[0, 0, 8, 0x07, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+            .await;
+        let _ = h2_stream.shutdown().await;
 
         server.await.unwrap();
     }
