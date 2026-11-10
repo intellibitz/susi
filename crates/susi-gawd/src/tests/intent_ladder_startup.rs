@@ -289,17 +289,37 @@ fn intent_ladder_startup_process_runner_env_is_hermetic() {
     // A stub binary that dumps its environment to stdout — ProcessRunner
     // captures it, so the scrub is asserted end to end.
     let root = tmp("proc");
-    let script = root.join("env-dump.sh");
-    std::fs::write(&script, "#!/bin/sh\nenv\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let source = root.join("env_dump.rs");
+    let binary_name = format!("env-dump{}", std::env::consts::EXE_SUFFIX);
+    let binary = root.join(&binary_name);
+    // Use the installed compiler rather than requiring a shell or env utility.
+    std::fs::write(
+        &source,
+        r#"fn main() {
+    for (key, value) in std::env::vars_os() {
+        println!("{}={}", key.to_string_lossy(), value.to_string_lossy());
     }
+}
+"#,
+    )
+    .unwrap();
+    let compiled =
+        std::process::Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+            .args(["--edition=2021", "--crate-name", "susi_env_dump"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&binary)
+            .output()
+            .unwrap();
+    assert!(
+        compiled.status.success(),
+        "native environment dump must compile: {}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
     // A credential-shaped variable in OUR env must not survive into the run.
     std::env::set_var("SUSI_LADDER_SECRET_LEAK", "topsecret");
 
-    let runner = intent_ladder::ProcessRunner { susi_bin: script };
+    let runner = intent_ladder::ProcessRunner { susi_bin: binary };
     let runs = root.join("runs");
     let env = RunEnv {
         home: runs.join("h"),
@@ -344,7 +364,7 @@ fn intent_ladder_startup_process_runner_env_is_hermetic() {
         "a credential leaked into the hermetic env: {}",
         out.output
     );
-    assert!(out.worker.contains("env-dump.sh@"));
+    assert!(out.worker.contains(&format!("{binary_name}@")));
 }
 
 #[test]
