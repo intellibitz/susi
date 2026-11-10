@@ -51,6 +51,19 @@ fn rs_files(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// The daemon's sources and those of `susi-daemon-runtime`, whose modules
+/// (`supervisor`, `service_supervision`, `watchdog`, ...) the daemon
+/// re-exports under their old paths.
+fn runtime_src() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../susi-daemon-runtime/src")
+}
+
+fn daemon_rs_files() -> Vec<PathBuf> {
+    let mut files = rs_files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"));
+    files.extend(rs_files(&runtime_src()));
+    files
+}
+
 /// Production text of a source file: everything before the `#[cfg(test)]`
 /// tail, so test-only helpers (e.g. the STUN stub server in nat.rs) are
 /// not mistaken for production workers.
@@ -101,10 +114,9 @@ fn vc_202_010_mastery_leaf_services_run_under_bounded_supervision() {
 /// remains.
 #[test]
 fn vc_202_010_mastery_no_unsupervised_thread_spawn_remains() {
-    let daemon_src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut bare: Vec<String> = Vec::new();
     let mut registered = 0usize;
-    for file in rs_files(&daemon_src) {
+    for file in daemon_rs_files() {
         let name = file.to_string_lossy().replace('\\', "/");
         // The supervisor's own internals own the only spawner.
         if name.ends_with("service_supervision.rs") {
@@ -149,7 +161,7 @@ fn vc_202_010_mastery_supervisor_is_driven_and_watchdogfed() {
     // Heartbeats come from inside the worker loops — a wedged loop is
     // detected rather than assumed dead only when its thread exits.
     let mut heartbeat_sites = 0usize;
-    for file in rs_files(&daemon_src) {
+    for file in daemon_rs_files() {
         heartbeat_sites += production_text(&file)
             .matches("service_supervision::heartbeat(")
             .count();
@@ -166,7 +178,7 @@ fn vc_202_010_mastery_supervisor_is_driven_and_watchdogfed() {
         composition.contains("attach_watchdog"),
         "the swarm watchdog feeds worker health verdicts"
     );
-    let registry = read(&daemon_src.join("service_supervision.rs"));
+    let registry = read(&runtime_src().join("service_supervision.rs"));
     assert!(
         registry.contains("register_cell") && registry.contains("find_dead_cells"),
         "the supervisor registers watchdog cells and consumes dead-cell findings"
@@ -179,7 +191,7 @@ fn vc_202_010_mastery_supervisor_is_driven_and_watchdogfed() {
 /// (joined by name on shutdown).
 #[test]
 fn vc_202_010_mastery_restart_is_bounded_logged_and_covers_the_monitor() {
-    let registry = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src/service_supervision.rs"));
+    let registry = read(&runtime_src().join("service_supervision.rs"));
     assert!(
         registry.contains("max_restarts") && registry.contains("RestartEvent"),
         "restarts are bounded and recorded in order"
@@ -189,7 +201,7 @@ fn vc_202_010_mastery_restart_is_bounded_logged_and_covers_the_monitor() {
         "restart and hang decisions go to the shared supervisor log"
     );
 
-    let supervisor = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src/supervisor.rs"));
+    let supervisor = read(&runtime_src().join("supervisor.rs"));
     assert!(
         supervisor.contains("leaf-service-monitor"),
         "even the process supervisor's monitor thread is registered"
@@ -205,7 +217,7 @@ fn vc_202_010_mastery_restart_is_bounded_logged_and_covers_the_monitor() {
 /// for out-of-process readers and folded into `susi os` output.
 #[test]
 fn vc_202_010_mastery_status_surface_reports_every_worker() {
-    let registry = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src/service_supervision.rs"));
+    let registry = read(&runtime_src().join("service_supervision.rs"));
     assert!(
         registry.contains("supervision.json") && registry.contains("pub fn status"),
         "one persisted status surface covers every registered worker"

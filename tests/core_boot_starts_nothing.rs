@@ -176,7 +176,7 @@ const WALKED: [&str; 6] = [
     "crates/susi-daemon/src/runtime_admin.rs",
     "crates/susi-daemon/src/estate_loop.rs",
     "crates/susi-daemon/src/auto_discovery.rs",
-    "crates/susi-daemon/src/supervisor.rs",
+    "crates/susi-daemon-runtime/src/supervisor.rs",
 ];
 
 /// Process spawns the boot path may reach, by `module::fn`: first-party
@@ -353,7 +353,7 @@ fn allow_listed_spawns_run_only_first_party_or_os_programs() {
     let auto = fns("crates/susi-daemon/src/auto_discovery.rs");
     let cell = code_only(body_of(&auto, "spawn_cell"));
     assert!(cell.contains("susi-universal-cell"), "{cell}");
-    let sup = fns("crates/susi-daemon/src/supervisor.rs");
+    let sup = fns("crates/susi-daemon-runtime/src/supervisor.rs");
     let service = code_only(body_of(&sup, "spawn_service"));
     assert!(service.contains("service-run"), "{service}");
     for (name, body) in sup.iter().filter(|(n, _)| n == "signal") {

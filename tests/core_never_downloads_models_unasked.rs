@@ -303,7 +303,7 @@ const DAEMON: [&str; 6] = [
     "crates/susi-daemon/src/runtime_admin.rs",
     "crates/susi-daemon/src/estate_loop.rs",
     "crates/susi-daemon/src/auto_discovery.rs",
-    "crates/susi-daemon/src/supervisor.rs",
+    "crates/susi-daemon-runtime/src/supervisor.rs",
 ];
 
 /// The model-lifecycle modules every walk descends into: where the download
