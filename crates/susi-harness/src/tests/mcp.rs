@@ -186,6 +186,7 @@ fn mcp_tools_turn_into_registry_specs() {
 
 #[test]
 fn supported_versions_list_the_modern_revisions_and_keep_the_offered_one() {
+    assert_eq!(PROTOCOL_VERSION, "2025-11-25");
     assert_eq!(
         SUPPORTED_PROTOCOL_VERSIONS,
         &["2026-07-28", "2025-11-25", "2024-11-05"]
