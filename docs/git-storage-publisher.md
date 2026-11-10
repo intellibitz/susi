@@ -150,9 +150,34 @@ rejection, conflicting intents/branches, destination changes and malformed input
 Fixtures have isolated Git configuration and never use real runtime homes or keys.
 Passing these focused tests is not a full workspace gate or production approval.
 
+The built executables are also exercised together, through this repository's
+own `.githooks/pre-push`, with the build directory removed from `PATH` so the
+hook can reach `push-policy` only through the publisher's adjacent discovery:
+
+```text
+cargo test --offline --locked -p xtask --test git_publisher_native_hook
+```
+
+It covers a divergent-main `submit` composed and verified on the remote,
+idempotent `status-main`/`retry-main`, a publisher copied away from its helper
+(the hook declines, main is unchanged, and a later `retry-main` publishes the
+originally pinned source, not a newer HEAD), and `cut`/`adopt` of a snapshot tag
+through the hook. With discovery disabled, three of its four tests fail.
+
+A hook that declines locally leaves `git push --porcelain` with no ref status,
+which the publisher cannot tell from a connection lost mid-push; it therefore
+reports an unknown outcome and points to `status-main`, never a success.
+
 Measured on native Windows x86_64 with pinned Rust 1.99.0: all 24 tests passed
 (75.32 seconds), strict binary clippy passed (1.356 seconds), native binary build
 passed (1.888 seconds), workspace format check passed (22.356 seconds), and the
-actual executable's help entrypoint passed. Linux publisher execution and full
-release qualification remain pending. The implementation adds no dependency;
-the existing xtask package still has its pre-existing dependency graph.
+actual executable's help entrypoint passed.
+
+Measured on native Linux x86_64 (CachyOS, Rust 1.99.0, Git 2.56.0) on the
+combined tree, the graft guard and push-policy discovery included
+(`T-LINUXPUB-1`): all 26 `local-snapshot` tests, the 4 hook tests and the 10
+`native_push_policy` tests passed; strict clippy of the publisher, helper and
+hook test passed; `cargo fmt --all --check` passed. The real executable then
+published `69e4e958e` to `origin/main` with `submit`. Full release qualification
+remains pending. The implementation adds no dependency; the existing xtask
+package still has its pre-existing dependency graph.
