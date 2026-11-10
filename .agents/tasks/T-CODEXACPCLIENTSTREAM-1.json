@@ -1,0 +1,34 @@
+{
+  "id": "T-CODEXACPCLIENTSTREAM-1",
+  "title": "Let Core ACP clients consume SSE frames live",
+  "goal": "Add a bounded callback-backed AcpSocketClient stream API so ACP clients observe lifecycle and delta frames before a running mission completes, while preserving the collecting wrapper and plain HTTP limits.",
+  "status": "claimed",
+  "owner": "codex",
+  "native_worker": "acp-client-stream",
+  "created_by": "codex",
+  "created_unix": 1794457247,
+  "size": "m",
+  "base_commit": "9fb74337fb5db41819fe55e52259e90fb7eaafc2",
+  "deps": ["T-CODEXACPLIVESTREAM-1"],
+  "scopes": [
+    "crates/susi-core/src/plain_http.rs",
+    "crates/susi-core/src/acp.rs",
+    "crates/susi-core/src/tests/acp_conformance.rs",
+    ".agents/tasks/T-CODEXACPCLIENTSTREAM-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib"
+    ]
+  },
+  "results": {
+    "status": "claimed",
+    "boundary": "Core ACP client transport only; no new dependency, Commercial, Minijinja, release, harvest, Windows, Jan artifact or credential change"
+  }
+}
