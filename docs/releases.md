@@ -36,6 +36,17 @@ JSON parser. The test therefore also pins the layout: the scalar fields sit on
 lines of their own, `env` is one line, each asset is one line, and every value
 passed to cargo is a plain word.
 
+### Which release a host installs
+
+The installed Susi is the stable copy and tracks the latest release qualified
+for the host it runs on (CEO Mandate 48). A record lists every released target
+either with a reference build under `assets` or under `missing_targets`, so a
+release whose record has no reference build for a host was not qualified there.
+`scripts/susi-release-sync.sh` therefore installs the newest tag whose record
+has a reference build for this host and skips newer ones that do not; `--check`
+prints both. An explicit `--tag` of a release not qualified for the host is
+refused unless `SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST=1` is set knowingly.
+
 ### What the sha256 means
 
 The `sha256` of an asset is the digest of the **reference build**: the binary
