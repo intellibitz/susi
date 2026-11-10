@@ -14618,3 +14618,402 @@ fn tested_commit_history_follows_distillation_provenance() {
     assert!(!in_tested_history(&dir, &unrelated));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// One newline-delimited JSON-RPC client over any byte pipe, for the
+/// transport adapter equivalence test: a write sink plus a channel of
+/// parsed lines, whatever carries the bytes underneath.
+type AdapterSink = Box<dyn FnMut(&[u8])>;
+
+struct AdapterClient {
+    write: AdapterSink,
+    rx: std::sync::mpsc::Receiver<serde_json::Value>,
+    pending: Vec<serde_json::Value>,
+}
+
+impl AdapterClient {
+    const WAIT: std::time::Duration = std::time::Duration::from_secs(300);
+
+    fn send(&mut self, message: &serde_json::Value) {
+        let mut line = serde_json::to_vec(message).expect("request must serialize");
+        line.push(b'\n');
+        (self.write)(&line);
+    }
+
+    /// The first message `wanted` accepts; everything else waits its turn.
+    fn take(
+        &mut self,
+        what: &str,
+        wanted: impl Fn(&serde_json::Value) -> bool,
+    ) -> serde_json::Value {
+        if let Some(pos) = self.pending.iter().position(&wanted) {
+            return self.pending.remove(pos);
+        }
+        let deadline = std::time::Instant::now() + Self::WAIT;
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let value = self
+                .rx
+                .recv_timeout(remaining)
+                .unwrap_or_else(|e| panic!("no {what} within the bound: {e}"));
+            if wanted(&value) {
+                return value;
+            }
+            self.pending.push(value);
+        }
+    }
+
+    fn answer(&mut self, id: &str) -> serde_json::Value {
+        self.take(id, |value| value["id"] == id)
+    }
+
+    fn call(&mut self, id: &str, method: &str, params: serde_json::Value) -> serde_json::Value {
+        self.send(&serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": method, "params": params
+        }));
+        self.answer(id)
+    }
+
+    /// The gate's verdict on a line it could not correlate with a request.
+    fn rejection(&mut self) -> serde_json::Value {
+        self.take("uncorrelated rejection", |value| {
+            value["id"].is_null() && value["error"].is_object()
+        })
+    }
+}
+
+/// The script every adapter must answer identically. The transcript holds
+/// each step's observable outcome, so two adapters agree exactly when their
+/// transcripts are equal.
+fn transport_adapter_script(client: &mut AdapterClient) -> Vec<(&'static str, serde_json::Value)> {
+    let mut transcript = Vec::new();
+
+    let initialize = client.call(
+        "init",
+        "initialize",
+        serde_json::json!({
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "gmcp-007-03", "version": "1"}
+        }),
+    );
+    assert!(
+        initialize["result"]["capabilities"].is_object(),
+        "initialize must return capabilities: {initialize}"
+    );
+    transcript.push(("initialize", initialize["result"].clone()));
+    client.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    let ping = client.call("ping-1", "ping", serde_json::json!({}));
+    assert_eq!(
+        ping["result"],
+        serde_json::json!({}),
+        "ping must answer: {ping}"
+    );
+    transcript.push(("ping", ping["result"].clone()));
+
+    let tools = client.call("tools", "tools/list", serde_json::json!({}));
+    let mut names: Vec<String> = tools["result"]["tools"]
+        .as_array()
+        .unwrap_or_else(|| panic!("tools/list must list tools: {tools}"))
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(!names.is_empty(), "the served registry must not be empty");
+    names.sort();
+    transcript.push(("tools/list", serde_json::json!(names)));
+
+    // Error equivalence: an unknown method, bad parameters and a line that
+    // is not JSON earn the same typed error whatever carried them.
+    let unknown = client.call("unknown", "transport/does-not-exist", serde_json::json!({}));
+    assert!(
+        unknown["error"]["code"].is_i64(),
+        "unknown method must be refused: {unknown}"
+    );
+    transcript.push(("unknown method", unknown["error"]["code"].clone()));
+
+    let invalid = client.call("invalid", "tools/call", serde_json::json!({"arguments": 7}));
+    assert!(
+        invalid["error"]["code"].is_i64(),
+        "bad params must be refused: {invalid}"
+    );
+    transcript.push((
+        "tools/call without a name",
+        invalid["error"]["code"].clone(),
+    ));
+
+    (client.write)(b"{\"jsonrpc\":\"2.0\",\n");
+    let malformed = client.rejection();
+    transcript.push(("malformed line", malformed["error"]["code"].clone()));
+
+    // Cancellation: cancelling a request that is not in flight changes
+    // nothing, and the session keeps serving.
+    client.send(&serde_json::json!({
+        "jsonrpc": "2.0", "method": "notifications/cancelled",
+        "params": {"requestId": "never-sent", "reason": "adapter equivalence"}
+    }));
+
+    // Ordering: pipelined requests are each answered exactly once, and a
+    // request sent after them is still answered.
+    for n in 0..8 {
+        client.send(&serde_json::json!({
+            "jsonrpc": "2.0", "id": format!("pipe-{n}"), "method": "ping", "params": {}
+        }));
+    }
+    let mut answered = Vec::new();
+    for n in 0..8 {
+        let id = format!("pipe-{n}");
+        let answer = client.answer(&id);
+        assert_eq!(
+            answer["result"],
+            serde_json::json!({}),
+            "{id} must be answered: {answer}"
+        );
+        answered.push(id);
+    }
+    assert!(
+        client.pending.iter().all(|value| !value["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("pipe-"))),
+        "no pipelined request may be answered twice: {:?}",
+        client.pending
+    );
+    transcript.push(("pipelined", serde_json::json!(answered)));
+
+    let after = client.call("ping-2", "ping", serde_json::json!({}));
+    transcript.push(("ping after faults", after["result"].clone()));
+    transcript
+}
+
+/// GMCP-203-007-03: one implementation behind every transport adapter.
+///
+/// The transport SPI (`susi_gmcp::mcp::transport`) admits any byte pipe, so
+/// this test serves the production `GmcpService` behind the production
+/// envelope gate on two adapters the shipped binary does not use itself, an
+/// embedded in-process duplex and a Unix-domain socket pair, and drives the
+/// shipped stdio entry point (`susi mcp serve`) beside them. One script runs
+/// on all three and their transcripts must be equal: the handshake, the
+/// tool registry, ordering of pipelined requests, cancellation, and every
+/// error code. The per-message limit is the adapter's own, so the two SPI
+/// adapters are given the same small limit and must refuse an oversized
+/// line identically and keep serving. Closing the client's side ends each
+/// served session within a bound, with no cancellation needed.
+///
+/// Named pipes and WebSocket are not served here: core ships no adapter
+/// for either, and this test does not claim one.
+#[test]
+fn gmcp_req_203_007_03_integration() {
+    use susi_gmcp::mcp::service::QuitReason;
+    use susi_gmcp::mcp::ServiceExt;
+    use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt};
+
+    const LIMIT: usize = 64 * 1024;
+    type Session = tokio::task::JoinHandle<Result<QuitReason, String>>;
+
+    let (_lock, _env, home) = gmcp_http_home_guard("007-int");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // The composition `susi mcp serve` itself runs before it serves: the
+    // embedded adapters stand on the same wiring as the shipped entry point.
+    susi_daemon::composition::wire_mcp_serve_substrate(&home.join(".susi"));
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("runtime");
+
+    // The production service behind the production gate, on any byte pipe.
+    fn serve<R, W>(runtime: &tokio::runtime::Runtime, root: &Path, read: R, write: W) -> Session
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        let service = susi_gmcp::protocol::GmcpService::new(root.to_path_buf());
+        susi_gmcp::catalog::install(&service).expect("the catalog must install");
+        runtime.spawn(async move {
+            let transport = susi_gmcp::jsonrpc_gate::StdioGate::new(
+                susi_gmcp::stdio::BoundedLines::new(read, LIMIT),
+                write,
+            );
+            let running = service
+                .serve(transport)
+                .await
+                .map_err(|e| format!("negotiation failed: {e:?}"))?;
+            running.waiting().await.map_err(|e| e.to_string())
+        })
+    }
+
+    // An oversized line is refused once and the session keeps serving.
+    fn limit_step(client: &mut AdapterClient) -> serde_json::Value {
+        let mut line = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0", "id": "big", "method": "ping",
+            "params": {"pad": "x".repeat(LIMIT + 1024)}
+        }))
+        .unwrap();
+        line.push(b'\n');
+        (client.write)(&line);
+        let refused = client.rejection();
+        let after = client.call("ping-3", "ping", serde_json::json!({}));
+        assert_eq!(
+            after["result"],
+            serde_json::json!({}),
+            "the session must survive: {after}"
+        );
+        refused["error"]["code"].clone()
+    }
+
+    let ended = |session: Session, adapter: &str| {
+        let reason = runtime
+            .block_on(async {
+                tokio::time::timeout(std::time::Duration::from_secs(30), session).await
+            })
+            .unwrap_or_else(|_| panic!("{adapter}: the session must end when its client closes"))
+            .expect("the session task must not panic")
+            .unwrap_or_else(|e| panic!("{adapter}: {e}"));
+        assert!(
+            matches!(reason, QuitReason::Closed),
+            "{adapter}: a closed pipe ends the session as Closed, got {reason:?}"
+        );
+    };
+
+    // Adapter 1: embedded, in-process. No socket, no process boundary.
+    let (client_half, server_half) = tokio::io::duplex(LIMIT);
+    let (server_read, server_write) = tokio::io::split(server_half);
+    let embedded_session = serve(&runtime, root, server_read, server_write);
+    let (client_read, mut client_write) = tokio::io::split(client_half);
+    let (line_tx, line_rx) = std::sync::mpsc::channel();
+    runtime.spawn(async move {
+        let mut lines = tokio::io::BufReader::new(client_read).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(value) = serde_json::from_str(&line) {
+                if line_tx.send(value).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    let (byte_tx, mut byte_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    runtime.spawn(async move {
+        while let Some(bytes) = byte_rx.recv().await {
+            if client_write.write_all(&bytes).await.is_err() {
+                break;
+            }
+        }
+        let _ = client_write.shutdown().await;
+    });
+    let mut embedded = AdapterClient {
+        write: Box::new(move |bytes| {
+            let _ = byte_tx.send(bytes.to_vec());
+        }),
+        rx: line_rx,
+        pending: Vec::new(),
+    };
+    let embedded_transcript = transport_adapter_script(&mut embedded);
+    let embedded_limit = limit_step(&mut embedded);
+    drop(embedded);
+    ended(embedded_session, "in-process");
+
+    // Adapter 2: a Unix-domain socket pair.
+    #[cfg(unix)]
+    {
+        use std::io::Write as _;
+        let (client_end, server_end) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+        server_end.set_nonblocking(true).expect("nonblocking");
+        let server_end = {
+            let _guard = runtime.enter();
+            tokio::net::UnixStream::from_std(server_end).expect("tokio socket")
+        };
+        let (server_read, server_write) = server_end.into_split();
+        let socket_session = serve(&runtime, root, server_read, server_write);
+        let reader = client_end.try_clone().expect("clone");
+        let (line_tx, line_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(reader).lines() {
+                let Ok(line) = line else { break };
+                if let Ok(value) = serde_json::from_str(&line) {
+                    if line_tx.send(value).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let mut writer = client_end.try_clone().expect("clone");
+        let mut socket = AdapterClient {
+            write: Box::new(move |bytes| {
+                writer.write_all(bytes).expect("the socket must accept");
+            }),
+            rx: line_rx,
+            pending: Vec::new(),
+        };
+        let socket_transcript = transport_adapter_script(&mut socket);
+        assert_eq!(
+            socket_transcript, embedded_transcript,
+            "the Unix-domain socket adapter must answer exactly as the in-process one"
+        );
+        assert_eq!(
+            limit_step(&mut socket),
+            embedded_limit,
+            "both adapters must refuse an oversized line with the same code"
+        );
+        drop(socket);
+        client_end
+            .shutdown(std::net::Shutdown::Both)
+            .expect("shutdown");
+        ended(socket_session, "unix socket");
+    }
+
+    // The shipped entry point: `susi mcp serve` over real stdio.
+    let mut child = susi_command(root, &home, &["mcp", "serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("the susi binary must spawn `mcp serve`");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let stdout = child.stdout.take().expect("stdout");
+    let (line_tx, line_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            if let Ok(value) = serde_json::from_str(&line) {
+                if line_tx.send(value).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    let mut stdio = AdapterClient {
+        write: Box::new(move |bytes| {
+            stdin
+                .write_all(bytes)
+                .and_then(|()| stdin.flush())
+                .expect("the server must accept stdin");
+        }),
+        rx: line_rx,
+        pending: Vec::new(),
+    };
+    let stdio_transcript = transport_adapter_script(&mut stdio);
+    // Dropping the client closes stdin: the shipped server must exit by
+    // itself, without a kill.
+    drop(stdio);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("wait") {
+            break status;
+        }
+        if std::time::Instant::now() > deadline {
+            stop_test_server(&mut child);
+            panic!("`susi mcp serve` must exit when its stdin closes");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert!(status.success(), "a closed stdin is a clean exit: {status}");
+    assert_eq!(
+        stdio_transcript, embedded_transcript,
+        "the shipped stdio entry point must answer exactly as the embedded adapter"
+    );
+
+    assert!(
+        embedded_limit.is_i64(),
+        "an oversized line earns a typed error: {embedded_limit}"
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}
