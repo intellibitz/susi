@@ -10,8 +10,6 @@ description = "Async native OS TLS and PEM identity validation; legacy package n
 native-tls = { version = "0.2.18", features = ["alpn", "alpn-accept"] }
 tokio-native-tls = "0.3"
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
-rustls-pki-types = { version = "1", features = ["std"] }
-x509-cert = { version = "0.2", features = ["pem"] }
 
 [dev-dependencies]
 pkcs1 = { version = "0.7", features = ["pem", "alloc", "pkcs8"] }
