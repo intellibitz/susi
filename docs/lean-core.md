@@ -490,3 +490,15 @@ table once the clean baseline is recorded.
   the standalone latency worktree still has 20,673 swarm lines and cannot pass
   the reduced source guard until the swarm repair is composed. Combined-tree
   verification remains required; this record is not a gate or release receipt.
+
+- 2026-11-10 T-DOTLINUXBYOKSAFE-1 (CEO-approved Kimi compatibility budget):
+  the CEO approved adding only 12 lines to whichever current ceiling is lower.
+  Preserve the latency reduction to 15,938 rather than main's older 16,737;
+  the paired susi-gemi-models ceiling is therefore 15,950. Safe split commit
+  aeea86295c2814ac86994cd7f419d3735469e702 adds exactly 12 counted lines in
+  cloud.rs: four production lines remap retired Moonshot model identifiers,
+  and eight inline test lines cover retired and current identifiers. No counting
+  exclusions or other ceilings change. This ratchet depends on that exact safe
+  split in the serialized combined gate. Credential handoff changes are excluded.
+  Standalone owner source does not contain the split; prior standalone evidence
+  is not proof that the combined candidate passes. Integration remains pending.

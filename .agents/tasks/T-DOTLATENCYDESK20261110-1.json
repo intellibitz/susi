@@ -5,7 +5,8 @@
   "status": "in_progress",
   "native_worker": "dotlatencydesk20261110",
   "deps": [
-    "T-DOTSWARMFIXTURES20261110-1"
+    "T-DOTSWARMFIXTURES20261110-1",
+    "T-DOTLINUXBYOKSAFE-1"
   ],
   "scopes": [
     ".agents/tasks/t-dotlatency-1.json",
@@ -77,5 +78,16 @@
     "verification": "The committed swarm source was recounted at 20,641 lines. Our standalone worktree retains 20,673 lines and cannot pass the lowered source guard. No swarm-owned paths were imported or claimed. The paired six-claim serialized combined-tree gate remains required."
   },
   "created_by": "dotlatencydesk20261110",
-  "created_unix": 1794290332
+  "created_unix": 1794290332,
+  "kimi_ceiling_dependency": {
+    "task": "T-DOTLINUXBYOKSAFE-1",
+    "commit": "aeea86295c2814ac86994cd7f419d3735469e702",
+    "tree": "8cc65065b60c1401b18f0a71e173a6bc059cf730",
+    "source_commit": "d7d7b563469e682cdd5febb0b76bea384b9a82f0",
+    "current_lower_ceiling": 15938,
+    "approved_delta": 12,
+    "composed_ceiling": 15950,
+    "authorization": "User: On the line ceiling: agreed, start from whichever value is currently lower on main and add only the 12 lines.",
+    "review": "Exact committed cloud.rs diff adds 12 lines and removes none: four production lines and eight inline test lines. Preserve swarm 20,641 and agents 11,263. No split-owned paths imported. Combined source verification remains the integrator responsibility; no standalone combined-tree pass is claimed."
+  }
 }
