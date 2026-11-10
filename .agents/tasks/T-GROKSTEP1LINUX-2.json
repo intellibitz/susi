@@ -1,0 +1,39 @@
+{
+  "id": "T-GROKSTEP1LINUX-2",
+  "title": "Measure the CEO 60-second goal on the CachyOS laptop against current main",
+  "goal": "Fresh Linux x86_64 measurement of cold/warm/incremental build, focused tests, cold and warm startup to healthy, and the edit->build->fmt+test->restart->healthy loop on origin/main de22ea776, using the T-CLAUDE-STEP1LINUX-1 method so the numbers compare with the 2026-11-06 record. Evidence only; trivial loop edits are reverted, not committed.",
+  "state": "implemented",
+  "status": "implemented",
+  "claimed_by": null,
+  "native_worker": "GROKSTEP1LINUX2",
+  "created_by": "grok",
+  "created_unix": 1794342948,
+  "size": "S",
+  "deps": [],
+  "scope": [
+    ".agents/evidence/step1-linux-T-GROKSTEP1LINUX-2.json",
+    ".agents/tasks/T-GROKSTEP1LINUX-2.json"
+  ],
+  "scopes": [
+    ".agents/evidence/step1-linux-T-GROKSTEP1LINUX-2.json",
+    ".agents/tasks/T-GROKSTEP1LINUX-2.json"
+  ],
+  "acceptance": "Evidence JSON records each timing separately with load averages; cargo test -p susi-daemon --lib host_contract passes on Linux.",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "host_contract"
+    ]
+  },
+  "updated_unix": 1794343477,
+  "claim_note": "Claim attempted once as GROKSTEP1LINUX2 on the two exact files; refused ('claimed concurrently', 58 s) by the same push-policy refs/claim-generation bug recorded for T-GROKPUBLINUX-1. Not bypassed.",
+  "evidence": ".agents/evidence/step1-linux-T-GROKSTEP1LINUX-2.json",
+  "base_commit": "de22ea776612ec69dab4f8d0b79f7bbe41fd0070",
+  "checkpoint": "CachyOS, Rust 1.99.0, -j 8, load 5-22: cold build 71.8 s (296 crates), no-op 0.21 s, touch rebuild 3.3-3.8 s, focused tests 2/2 (first 52.1 s incl. compile, warm 0.51 s), cold start-to-health 416 ms, warm 271-285 ms, edit->build->fmt+test->restart->healthy loop 6/6 PASS median 13.9 s (13.3-37.6 s). Inner loop under 60 s; full publish/qualify/promote loop not measured."
+}
