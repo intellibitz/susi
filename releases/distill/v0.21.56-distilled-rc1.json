@@ -1,0 +1,283 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "local-distill",
+        "--test",
+        "native_push_policy",
+        "--test",
+        "git_publisher_native_hook"
+      ],
+      "exit_code": 0,
+      "output_sha256": "ec9817e8792aebc3d44d7852a1fbfc003f406d656c25be17d341673981210c92",
+      "passed": true,
+      "task_id": "T-CARBONRELBRANCH-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources"
+      ],
+      "exit_code": 0,
+      "output_sha256": "e653226de70e0d717e752af8132f3a1ae5c3a97e79df5f3fd258708f39bc310f",
+      "passed": true,
+      "task_id": "T-AGYCLOUD-4"
+    }
+  ],
+  "base_commit": "334ce99bce0c94372720060e18d379636bcee8e8",
+  "base_tree": "b8bff8dca7b3d91634c8c200069762d3298cbed7",
+  "branch_ref": "refs/heads/release/v0.21.56-distilled-rc1",
+  "closure_order": [
+    "T-CLAUDELOOP10-1",
+    "T-CLAUDENOA2ASDK-1",
+    "T-CLAUDERECURSE-1",
+    "T-CLAUDESIGNENV-1",
+    "T-CLAUDEDISTILL-1",
+    "T-CLAUDEREL55REC-1",
+    "T-CLAUDEWASMSTD-1",
+    "T-CLAUDEBUILDIDLE-1",
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CARBONRELBRANCH-1",
+    "T-AGYCLOUD-2",
+    "T-AGYCLOUD-3",
+    "T-AGYCLOUD-4"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "3c72d69d289077872d6325741265be0973e52d77",
+  "final_tree": "c9ec6f28cc3e2d9bd296c25c5989a4556fd2a874",
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "local-distill",
+        "--test",
+        "native_push_policy",
+        "--test",
+        "git_publisher_native_hook"
+      ],
+      "changed_files": [
+        ".agents/tasks/done/T-CARBONRELBRANCH-1.json",
+        "docs/release-distillation.md",
+        "xtask/src/distill_compose.rs",
+        "xtask/src/push_policy.rs",
+        "xtask/tests/git_publisher_native_hook.rs",
+        "xtask/tests/native_push_policy.rs"
+      ],
+      "composed_commit": "cf53a806e1161971e37d658c7183e3a6ac2a015e",
+      "composed_tree": "a5964e14e52c8f6a7e2d864c8eca048a9a229acd",
+      "deps": [
+        "T-CARBONDRIVER-1"
+      ],
+      "goal": "Admit accept-verified functional distillations onto `refs/heads/release/<name>` in Susi Core without weakening `vX.Y.Z` production release tag qualification: wrap `--release-candidate` compositions in a deterministic single-parent envelope commit adding only `releases/distill/<name>.json`, verify canonical `susi-distillation-receipt-v1` SHA-256 + `accept_verified_candidate` + zero-rejected + passing `accept.cmd` evidence inside `xtask/src/push_policy.rs`, and add `publish-branch` / `--publish-release-branch` to `local-distill`.",
+      "owner": "carbon-cachyos-distill",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CARBONRELBRANCH-1.json",
+        ".agents/tasks/done/T-CARBONRELBRANCH-1.json",
+        "docs/release-distillation.md",
+        "xtask/src/distill_compose.rs",
+        "xtask/src/push_policy.rs",
+        "xtask/tests/git_publisher_native_hook.rs",
+        "xtask/tests/native_push_policy.rs"
+      ],
+      "source_commits": [
+        "e2bde1569a919049f2f03c905039e7824c67a9f1",
+        "04e886c9d3506efc2d765b4cb7956ae25d561e26"
+      ],
+      "task_id": "T-CARBONRELBRANCH-1",
+      "title": "Native distilled release/* branch receipt envelope, push-policy verification, and local-distill publish-branch"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources"
+      ],
+      "changed_files": [
+        ".agents/tasks/done/T-AGYCLOUD-4.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-gawd-agents/Cargo.toml",
+        "crates/susi-gawd-agents/src/accountability.rs",
+        "crates/susi-gemi/Cargo.toml",
+        "crates/susi-gemi/src/engines/local_plug.rs",
+        "crates/susi-gemi/src/tests/usage_accounting.rs",
+        "crates/susi-gemi/src/usage_accounting.rs",
+        "crates/susi-harness/Cargo.toml",
+        "crates/susi-harness/src/cockpit.rs",
+        "crates/susi-harness/src/gateway.rs",
+        "crates/susi-harness/src/ingress.rs",
+        "crates/susi-harness/src/lib.rs",
+        "crates/susi-harness/src/tests/money.rs",
+        "crates/susi-server/Cargo.toml",
+        "crates/susi-server/src/lib.rs",
+        "crates/susi-vendor-bytes/Cargo.toml",
+        "crates/susi-vendor-bytes/src/lib.rs",
+        "crates/susi-vendor-futures/Cargo.toml",
+        "crates/susi-vendor-futures/src/lib.rs",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "composed_commit": "3c72d69d289077872d6325741265be0973e52d77",
+      "composed_tree": "c9ec6f28cc3e2d9bd296c25c5989a4556fd2a874",
+      "deps": [
+        "T-CLAUDEREL55REC-1",
+        "T-AGYCLOUD-3"
+      ],
+      "goal": "Shrink Susi core's workspace facade count, third-party reach, direct pillar facade edges, and pillar line ceilings without removing runtime capabilities: delete `crates/susi-vendor-futures` and `crates/susi-vendor-bytes`, replace `susi-harness`'s `futures::stream::poll_fn` body streams with a `hyper::body::Body` adapter (`poll_body`), switch `susi-server` to `hyper::body::Bytes`, replace `susi-gemi`'s sole `parking_lot::RwLock` with `std::sync::RwLock`, replace `susi-gawd-agents`'s sole `regex::Regex` word-boundary check with std character splitting, and ratchet `WORKSPACE_CEILING` (46 -> 45), `THIRD_PARTY_CEILING` (184 -> 180), `DIRECT_FACADE_EDGES_CEILING` (20 -> 19), and `LINE_CEILINGS`.",
+      "owner": "agycloud-20261110",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-AGYCLOUD-4.json",
+        ".agents/tasks/done/T-AGYCLOUD-4.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-gawd-agents/Cargo.toml",
+        "crates/susi-gawd-agents/src/accountability.rs",
+        "crates/susi-gemi/Cargo.toml",
+        "crates/susi-gemi/src/engines/local_plug.rs",
+        "crates/susi-gemi/src/tests/usage_accounting.rs",
+        "crates/susi-gemi/src/usage_accounting.rs",
+        "crates/susi-harness/Cargo.toml",
+        "crates/susi-harness/src/cockpit.rs",
+        "crates/susi-harness/src/gateway.rs",
+        "crates/susi-harness/src/ingress.rs",
+        "crates/susi-harness/src/lib.rs",
+        "crates/susi-harness/src/tests/money.rs",
+        "crates/susi-server/Cargo.toml",
+        "crates/susi-server/src/lib.rs",
+        "crates/susi-vendor-bytes/Cargo.toml",
+        "crates/susi-vendor-bytes/src/lib.rs",
+        "crates/susi-vendor-futures/Cargo.toml",
+        "crates/susi-vendor-futures/src/lib.rs",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "source_commits": [
+        "5b6b04d225df3aec4af3da1076c0413d77cc7f58",
+        "e39ec4468356afca259784c68af8cacd53d2a5b5"
+      ],
+      "task_id": "T-AGYCLOUD-4",
+      "title": "Delete susi-vendor-futures and susi-vendor-bytes facades and ratchet all four lean-core ceilings"
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0.21.56-distilled-rc1",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "55dea95a901477b33995f8e7338240ccb897d701dd231dbbbbbc8c1f15d3ce27",
+  "rejected": [],
+  "requested_tasks": [
+    "T-CARBONRELBRANCH-1",
+    "T-AGYCLOUD-4"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "closed task record for T-CLAUDELOOP10-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDELOOP10-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDENOA2ASDK-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDENOA2ASDK-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDERECURSE-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDERECURSE-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDESIGNENV-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDESIGNENV-1"
+    },
+    {
+      "detail": "task T-CLAUDEDISTILL-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEDISTILL-1"
+    },
+    {
+      "detail": "task T-CLAUDEREL55REC-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEREL55REC-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDEWASMSTD-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEWASMSTD-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDEBUILDIDLE-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEBUILDIDLE-1"
+    },
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDRIVER-1 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-2 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-2"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-3 is already present in base 334ce99bce0c94372720060e18d379636bcee8e8 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-3"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.56-distilled-rc1",
+  "source_stream_commit": "86abf7f2d258daf57c0f0b136a0ae47a674a3379",
+  "source_stream_tree": "c7435e658643a468e3a846741eb622d05baf2788"
+}
