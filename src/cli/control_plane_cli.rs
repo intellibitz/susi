@@ -225,7 +225,7 @@ pub(crate) fn dispatch_mcp(
             apply_plane_prep(PlanePrep::Ecosystem(catalogs));
             Ok(plane_exit(
                 env::current_dir()
-                    .map_err(anyhow::Error::from)
+                    .map_err(crate::anyhow::Error::from)
                     .and_then(|cwd| mcp_cli::execute(action, &cwd).map(|_| ())),
             ))
         }
@@ -355,12 +355,12 @@ fn report_auth_token() {
 /// spawn mode. Each arm is the same `serve` entry the standalone
 /// `susi-<name>` binary calls, so the staged `susi` binary can fill any
 /// leaf role without sibling binaries on disk.
-fn service_run(name: &str, port: Option<u16>) -> anyhow::Result<()> {
+fn service_run(name: &str, port: Option<u16>) -> crate::anyhow::Result<()> {
     let Some(svc) = susi_core::service_table::LEAF_SERVICES
         .iter()
         .find(|s| s.name == name)
     else {
-        return Err(anyhow::anyhow!(
+        return Err(crate::anyhow::anyhow!(
             "unknown leaf service '{name}' — expected one of {}",
             susi_core::service_table::LEAF_SERVICES
                 .iter()
@@ -370,5 +370,5 @@ fn service_run(name: &str, port: Option<u16>) -> anyhow::Result<()> {
         ));
     };
     let port = port.unwrap_or_else(|| svc.port());
-    susi_leaf_services::serve(name, port).map_err(anyhow::Error::from)
+    susi_leaf_services::serve(name, port).map_err(crate::anyhow::Error::from)
 }

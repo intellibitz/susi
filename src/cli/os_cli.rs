@@ -6,7 +6,7 @@
 //! healthy right now?" — ledger/peers are persisted kernel state (accurate
 //! even when the daemon is down); swarm host is the in-process composition.
 
-use anyhow::Result;
+use crate::anyhow::Result;
 use std::path::Path;
 
 pub use susi_cli_defs::os::*;
@@ -82,13 +82,13 @@ fn capabilities(
             json,
         } => {
             let args: serde_json::Value = serde_json::from_str(&args)
-                .map_err(|e| anyhow::anyhow!("--args is not valid JSON: {e}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("--args is not valid JSON: {e}"))?;
             let request =
                 CapabilityRequest::new(id, subject, [permission], timeout_ms, budget_micros);
             let delegation = parse_delegation(delegation)?;
             let receipt = registry
                 .dispatch_nested(delegation.as_ref(), &request, &args, workspace)
-                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("{e:?}"))?;
             if json || top_json {
                 println!("{}", serde_json::to_string_pretty(&receipt)?);
             } else {
@@ -113,7 +113,7 @@ fn capabilities(
             let parent = parse_delegation(delegation)?;
             let envelope = registry
                 .issue_delegation(parent.as_ref(), &request)
-                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("{e:?}"))?;
             // The envelope is the output either way: it is what the driver
             // hands to the component that will run under it.
             println!("{}", serde_json::to_string(&envelope)?);
@@ -122,11 +122,11 @@ fn capabilities(
         OsCapabilitiesAction::Revoke { id, json } => {
             let id = id.trim();
             if id.is_empty() {
-                anyhow::bail!("envelope id must not be empty");
+                crate::anyhow::bail!("envelope id must not be empty");
             }
             let revoked = registry
                 .revoke_delegation(id)
-                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("{e:?}"))?;
             if json || top_json {
                 println!(
                     "{}",
@@ -149,7 +149,7 @@ fn capabilities(
 fn parse_delegation(text: Option<String>) -> Result<Option<serde_json::Value>> {
     text.map(|text| serde_json::from_str::<serde_json::Value>(&text))
         .transpose()
-        .map_err(|e| anyhow::anyhow!("--delegation is not valid JSON: {e}"))
+        .map_err(|e| crate::anyhow::anyhow!("--delegation is not valid JSON: {e}"))
 }
 
 fn provision(action: OsProvisionAction, top_json: bool) -> Result<()> {
@@ -179,7 +179,7 @@ fn provision(action: OsProvisionAction, top_json: bool) -> Result<()> {
         }
         OsProvisionAction::List { kind, json } => {
             let report =
-                susi_daemon::os_provision::list_report(&kind).map_err(anyhow::Error::msg)?;
+                susi_daemon::os_provision::list_report(&kind).map_err(crate::anyhow::Error::msg)?;
             if json || top_json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -188,7 +188,8 @@ fn provision(action: OsProvisionAction, top_json: bool) -> Result<()> {
         }
         OsProvisionAction::Apply { kind, manifest } => {
             let text = std::fs::read_to_string(&manifest)?;
-            let out = susi_daemon::os_provision::apply(&kind, &text).map_err(anyhow::Error::msg)?;
+            let out = susi_daemon::os_provision::apply(&kind, &text)
+                .map_err(crate::anyhow::Error::msg)?;
             println!("{out}");
         }
     }
@@ -198,11 +199,11 @@ fn provision(action: OsProvisionAction, top_json: bool) -> Result<()> {
 fn route_reset(provider: &str, json: bool, workspace: &Path) -> Result<()> {
     let provider = provider.trim();
     if !susi_gemi::susi_core::plane_bus::gemi::valid_provider_id(provider) {
-        anyhow::bail!("provider must be 1-256 printable non-whitespace ASCII characters");
+        crate::anyhow::bail!("provider must be 1-256 printable non-whitespace ASCII characters");
     }
     let cleared =
         susi_gemi::susi_core::plane_bus::gemi::ModelManager::clear_provider_cooldown(provider)
-            .map_err(anyhow::Error::msg)?;
+            .map_err(crate::anyhow::Error::msg)?;
     if cleared {
         susi_gemi::susi_sandbox::manager::SusiAuditLogger::log_event(
             workspace,
@@ -309,7 +310,7 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
                         susi_gemi::models::ModelManager::install_starter_model_on_request(workspace)
                     })?;
                     if let Some(reason) = outcome.terminal_reason() {
-                        anyhow::bail!("{reason}");
+                        crate::anyhow::bail!("{reason}");
                     }
                     println!("{}", outcome.summary());
                     return Ok(());
@@ -331,7 +332,7 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
                 OsModelAction::Install { source } => {
                     let installed =
                         susi_gemi::models::ModelManager::install_model_foreground(&source)
-                            .map_err(anyhow::Error::msg)?;
+                            .map_err(crate::anyhow::Error::msg)?;
                     println!("{installed}");
                     return Ok(());
                 }
@@ -347,7 +348,7 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
                         &serde_json::json!({ "model": name }),
                         susi_gmcp::server::MAX_TOOL_CALL_SECS,
                     )
-                    .map_err(anyhow::Error::msg)?;
+                    .map_err(crate::anyhow::Error::msg)?;
                     println!(
                         "loaded {}",
                         result["loaded"].as_str().unwrap_or(name.as_str())
@@ -360,7 +361,7 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
                         &serde_json::json!({ "model": name }),
                         30,
                     )
-                    .map_err(anyhow::Error::msg)?;
+                    .map_err(crate::anyhow::Error::msg)?;
                     let path = result["path"].as_str().unwrap_or(name.as_str());
                     match (result["unloaded"].as_bool(), result["in_flight_users"].as_u64()) {
                         (Some(true), Some(0) | None) => println!("unloaded {path}"),
@@ -511,7 +512,7 @@ fn uninstall_managed_model(name: &str) -> Result<()> {
     let loaded: &dyn Fn() -> Result<serde_json::Value, String> =
         &super::os_runtime::daemon_loaded_models;
     let doc = susi_daemon::host_views::model_uninstall(name, daemon_running.then_some(loaded))
-        .map_err(anyhow::Error::msg)?;
+        .map_err(crate::anyhow::Error::msg)?;
     println!("{}", doc["message"].as_str().unwrap_or_default());
     Ok(())
 }
@@ -521,7 +522,7 @@ fn uninstall_managed_model(name: &str) -> Result<()> {
 fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
     let body =
         susi_daemon::ecosystem_view::report(workspace, super::os_runtime::daemon_loaded_models)
-            .map_err(anyhow::Error::msg)?;
+            .map_err(crate::anyhow::Error::msg)?;
     let summary = &body["summary"];
     let unhealthy_installed = summary["unhealthy_installed_runtimes"]
         .as_u64()
@@ -584,7 +585,9 @@ fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
         println!("Manage: `susi os manage <service|model|mcp|agent|framework> …`");
     }
     if doctor && unhealthy_installed > 0 {
-        anyhow::bail!("{unhealthy_installed} installed AI runtime(s) failed their version probe");
+        crate::anyhow::bail!(
+            "{unhealthy_installed} installed AI runtime(s) failed their version probe"
+        );
     }
     Ok(())
 }

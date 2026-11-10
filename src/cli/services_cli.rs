@@ -3,7 +3,7 @@
 //! `restart` SIGTERMs a supervised pid; the daemon's supervisor notices
 //! the death on its next probe and respawns it.
 
-use anyhow::{bail, Result};
+use crate::anyhow::{bail, Result};
 use std::path::Path;
 use susi_core::service_table;
 
@@ -81,7 +81,8 @@ fn status(json: bool) -> Result<()> {
 /// supervised-only and daemon-running guards and terminates with the
 /// platform's own process tool on every OS.
 fn control(action: &str, name: &str) -> Result<()> {
-    let report = susi_daemon::service_control::control(action, name).map_err(anyhow::Error::msg)?;
+    let report =
+        susi_daemon::service_control::control(action, name).map_err(crate::anyhow::Error::msg)?;
     println!("{}", report["message"].as_str().unwrap_or_default());
     Ok(())
 }
@@ -132,11 +133,11 @@ fn logs(name: &str, lines: usize) -> Result<()> {
     let truncated = size > TAIL_BYTES;
     if truncated {
         file.seek(SeekFrom::End(-(TAIL_BYTES as i64)))
-            .map_err(|e| anyhow::anyhow!("seek log: {e}"))?;
+            .map_err(|e| crate::anyhow::anyhow!("seek log: {e}"))?;
     }
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)
-        .map_err(|e| anyhow::anyhow!("read log: {e}"))?;
+        .map_err(|e| crate::anyhow::anyhow!("read log: {e}"))?;
     let text = String::from_utf8_lossy(&buf);
     let all: Vec<&str> = text.lines().collect();
     // Drop the first partial line when we started mid-file.

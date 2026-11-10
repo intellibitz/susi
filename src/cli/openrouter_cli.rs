@@ -1,6 +1,6 @@
 //! Deterministic OpenRouter control plane (no daemon required).
+use crate::anyhow::{Error, Result};
 use crate::cli_json::print_json;
-use anyhow::{Error, Result};
 
 pub use susi_cli_defs::openrouter::*;
 

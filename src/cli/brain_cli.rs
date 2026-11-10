@@ -1,8 +1,8 @@
 //! `susi brain`: which model susi will trust for which kind of work, and why.
 //! Rankings come from recorded outcomes (`brain_evidence.json`), not a fixed
 //! vendor order.
+use crate::anyhow::{Error, Result};
 use crate::cli_json::print_json;
-use anyhow::{Error, Result};
 pub use susi_cli_defs::brain::BrainCommands;
 use susi_daemon::provider_ops as ops;
 use susi_gemi::engines::brain::{self, TaskClass};

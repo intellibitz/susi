@@ -42,7 +42,7 @@ fn prime_plane_catalogs(substrate: &Path, catalogs: Catalogs) {
     });
 }
 
-pub(crate) fn plane_exit(result: anyhow::Result<()>) -> std::process::ExitCode {
+pub(crate) fn plane_exit(result: crate::anyhow::Result<()>) -> std::process::ExitCode {
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
@@ -54,19 +54,19 @@ pub(crate) fn plane_exit(result: anyhow::Result<()>) -> std::process::ExitCode {
 
 pub(crate) fn run_plane_cwd(
     prep: PlanePrep,
-    f: impl FnOnce(&Path) -> anyhow::Result<()>,
+    f: impl FnOnce(&Path) -> crate::anyhow::Result<()>,
 ) -> std::process::ExitCode {
     apply_plane_prep(prep);
     plane_exit(
         env::current_dir()
-            .map_err(anyhow::Error::from)
+            .map_err(crate::anyhow::Error::from)
             .and_then(|cwd| f(&cwd)),
     )
 }
 
 pub(crate) fn run_plane(
     prep: PlanePrep,
-    f: impl FnOnce() -> anyhow::Result<()>,
+    f: impl FnOnce() -> crate::anyhow::Result<()>,
 ) -> std::process::ExitCode {
     apply_plane_prep(prep);
     plane_exit(f())

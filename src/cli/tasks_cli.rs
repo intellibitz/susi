@@ -2,8 +2,8 @@
 //! queue (`.agents/tasks/`, claims as git refs, gated closes) moved to Susi
 //! Commercial Apps in the lean-core program and is `susi-commercial tasks`;
 //! every queue verb is refused here with that command named.
+use crate::anyhow::{bail, Result};
 use crate::cli_json::print_json;
-use anyhow::{bail, Result};
 use std::path::Path;
 
 pub use susi_cli_defs::tasks::*;
@@ -22,14 +22,14 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
         Some(TaskCommands::EvalCorpus { corpus, input }) => {
             let root = susi_daemon::host_views::repo_root(cwd);
             let corpus_json = std::fs::read_to_string(&corpus)
-                .map_err(|e| anyhow::anyhow!("{}: {e}", corpus.display()))?;
+                .map_err(|e| crate::anyhow::anyhow!("{}: {e}", corpus.display()))?;
             let corpus = susi_gawd::rsi_corpus::RsiCorpus::from_json(&corpus_json)
-                .map_err(|e| anyhow::anyhow!("corpus {}: {e}", corpus.display()))?;
+                .map_err(|e| crate::anyhow::anyhow!("corpus {}: {e}", corpus.display()))?;
             let input_json = std::fs::read_to_string(&input)
-                .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+                .map_err(|e| crate::anyhow::anyhow!("{}: {e}", input.display()))?;
             let run_input: susi_gawd::eval_separation::EvalRunInput =
                 serde_json::from_str(&input_json)
-                    .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+                    .map_err(|e| crate::anyhow::anyhow!("{}: {e}", input.display()))?;
             let evidence =
                 susi_gawd::eval_separation::evaluate_and_record(&root, &corpus, &run_input)?;
             print_json(&evidence)?;

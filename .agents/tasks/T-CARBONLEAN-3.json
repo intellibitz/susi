@@ -1,0 +1,65 @@
+{
+  "id": "T-CARBONLEAN-3",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-3",
+  "title": "Lean core: delete anyhow and proptest facades; pure-std CLI error chaining and deterministic SplitMix64 property generators",
+  "goal": "Remove two more workspace vendor facades (susi-vendor-anyhow and susi-vendor-proptest) and 25 Cargo.lock packages (23 third-party crates including anyhow, proptest, rand, rand_core, rand_xorshift, chacha20, borsh, proc-macro borsh-derive, toml_edit, winnow, rusty-fork, wait-timeout, num-traits, bit-set, bit-vec, plus susi-vendor-anyhow and susi-vendor-proptest; cargo tree -p susi host packages 229 -> 227, host build units 297 -> 294), replace CLI anyhow usage with #![forbid(unsafe_code)] pure-std src/anyhow.rs, and replace proptest! in susi-abi and susi-core with deterministic SplitMix64 property generators (1,024-4,096 generated cases per property plus boundary vectors).",
+  "status": "in_progress",
+  "state": "claimed",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794380795,
+  "size": "m",
+  "deps": [
+    "T-CARBONLEAN-2"
+  ],
+  "base": "ad640e3bd9203fe00afa20636100b6fb5c2fe59d",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-3.json",
+    ".agents/tasks/done/T-CARBONLEAN-3.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-abi",
+    "crates/susi-core",
+    "crates/susi-error/Cargo.toml",
+    "crates/susi-gawd-swarm/proptest-regressions",
+    "crates/susi-gemi-models/Cargo.toml",
+    "crates/susi-vendor-anyhow",
+    "crates/susi-vendor-proptest",
+    "docs/lean-core.md",
+    "src/anyhow.rs",
+    "src/cli",
+    "src/cli_json.rs",
+    "src/main.rs",
+    "tests/architecture_tests.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "task_records"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo clippy --offline --locked -p susi -p susi-abi -p susi-core -p susi-error -p susi-gemi-models --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-abi --lib",
+    "cargo test --offline --locked -p susi-core --lib",
+    "cargo test --offline --locked -p susi-error --lib",
+    "cargo test --offline --locked --bin susi",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ]
+}

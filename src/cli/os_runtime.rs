@@ -71,7 +71,7 @@ pub(crate) fn view() -> serde_json::Value {
     susi_daemon::runtime_view::view(daemon_loaded_models)
 }
 
-pub(crate) fn print(json: bool) -> anyhow::Result<()> {
+pub(crate) fn print(json: bool) -> crate::anyhow::Result<()> {
     let body = view();
     if json {
         println!("{}", serde_json::to_string_pretty(&body)?);

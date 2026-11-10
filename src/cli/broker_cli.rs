@@ -1,5 +1,5 @@
 //! Inter-app permission and message broker CLI.
-use anyhow::{bail, Result};
+use crate::anyhow::{bail, Result};
 use std::path::Path;
 pub use susi_cli_defs::broker::BrokerCommands;
 
@@ -43,7 +43,7 @@ pub fn execute(action: Option<BrokerCommands>, workspace: &Path) -> Result<()> {
             }
             let resolved = broker
                 .negotiate(&request_id, &actor, approve, Some(workspace))
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
             println!("{}", serde_json::to_string_pretty(&resolved)?);
         }
         Some(BrokerCommands::Pending { grantor }) => {
@@ -98,10 +98,10 @@ pub fn execute(action: Option<BrokerCommands>, workspace: &Path) -> Result<()> {
             payload,
         }) => {
             let payload: serde_json::Value = serde_json::from_str(&payload)
-                .map_err(|e| anyhow::anyhow!("invalid payload JSON: {e}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("invalid payload JSON: {e}"))?;
             let msg = broker
                 .send(&from, &to, &topic, payload)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
             println!("{}", serde_json::to_string_pretty(&msg)?);
         }
         Some(BrokerCommands::Receive { recipient, limit }) => {

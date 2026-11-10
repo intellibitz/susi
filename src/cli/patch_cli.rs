@@ -1,14 +1,14 @@
 //! Apply a patch and run tests, with rollback on failure.
-use anyhow::{bail, Result};
+use crate::anyhow::{bail, Result};
 use std::path::Path;
 
 pub use susi_cli_defs::patch::*;
 
 pub fn execute(args: PatchApplyArgs, workspace: &Path) -> Result<()> {
     let text = std::fs::read_to_string(&args.file)
-        .map_err(|e| anyhow::anyhow!("cannot read patch file: {e}"))?;
+        .map_err(|e| crate::anyhow::anyhow!("cannot read patch file: {e}"))?;
     let request: susi_gawd::patch_cycle::PatchRequest = serde_json::from_str(&text)
-        .map_err(|e| anyhow::anyhow!("invalid patch request JSON: {e}"))?;
+        .map_err(|e| crate::anyhow::anyhow!("invalid patch request JSON: {e}"))?;
     if request.files.is_empty() {
         bail!("patch request contains no files");
     }

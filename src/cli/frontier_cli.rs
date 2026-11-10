@@ -1,6 +1,6 @@
 //! Deterministic top frontier model control plane (no daemon for list/doctor/setup).
+use crate::anyhow::{bail, Error, Result};
 use crate::cli_json::print_json;
-use anyhow::{bail, Error, Result};
 pub use susi_cli_defs::frontier::FrontierCommands;
 
 pub fn execute(action: Option<FrontierCommands>) -> Result<()> {

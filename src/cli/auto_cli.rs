@@ -1,6 +1,6 @@
 //! Zero-config auto substrate status (packs, MCP, models, peers).
+use crate::anyhow::Result;
 use crate::cli_json::print_json;
-use anyhow::Result;
 use std::path::Path;
 pub use susi_cli_defs::auto::AutoCommands;
 
@@ -9,8 +9,8 @@ pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
         AutoCommands::Status => {
             // `susi_daemon::host_views` builds the snapshot; the MCP
             // `auto_status` tool returns the same document.
-            let status =
-                susi_daemon::host_views::auto_status(workspace).map_err(anyhow::Error::msg)?;
+            let status = susi_daemon::host_views::auto_status(workspace)
+                .map_err(crate::anyhow::Error::msg)?;
             print_json(&status)?;
             if status.local_models_installed.is_empty() {
                 eprintln!("local model: {}", status.local_model);

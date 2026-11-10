@@ -1,7 +1,7 @@
 //! Shared launch / worker helpers for catalog control planes
 //! (`susi agents`, `susi frameworks`, and single-agent wrappers).
 
-use anyhow::{bail, Result};
+use crate::anyhow::{bail, Result};
 use std::process::{Command, Stdio};
 use susi_gawd::external::{AgentManager, RunStatus};
 
