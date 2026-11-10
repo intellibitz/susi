@@ -165,9 +165,18 @@ mod tests {
         let guard = crate::SUSI_HOME_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let dir = std::env::temp_dir().join(format!("susi_agents_test_{}", std::process::id()));
+        // A fresh directory per call: the process-wide MAC policy binds to
+        // whichever home is current when first touched and reads its grants
+        // from there, so a home is never deleted once it has been current.
+        let dir = std::env::temp_dir().join(format!(
+            "susi_agents_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
         std::env::set_var("SUSI_HOME", &dir);
-        let _ = std::fs::remove_dir_all(&dir);
         guard
     }
 
