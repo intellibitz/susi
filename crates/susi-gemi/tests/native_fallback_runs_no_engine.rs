@@ -8,6 +8,7 @@
 
 use std::os::unix::fs::PermissionsExt;
 use susi_gemi::engines::runtime::{NativeInferenceEngine, SusiGgufEngine};
+use susi_paths::test_env::EnvGuard;
 
 #[test]
 fn local_fallback_runs_no_installed_engine_binary() {
@@ -51,14 +52,15 @@ fn local_fallback_runs_no_installed_engine_binary() {
     .join(",");
     // This file holds a single test, so its process environment is its own.
     let home = root.path().join("home");
-    std::env::set_var("HOME", &home);
-    std::env::set_var("SUSI_HOME", home.join(".susi"));
-    std::env::set_var("XDG_CACHE_HOME", home.join(".cache"));
-    std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
-    std::env::set_var("XDG_DATA_HOME", home.join(".local/share"));
-    std::env::set_var("PATH", &bin);
-    std::env::set_var("SUSI_ENGINE_PORTS", ports);
-    std::env::remove_var("SUSI_TEST_MOCK_INFERENCE");
+    let mut env = EnvGuard::isolated();
+    env.set("HOME", &home)
+        .set("SUSI_HOME", home.join(".susi"))
+        .set("XDG_CACHE_HOME", home.join(".cache"))
+        .set("XDG_CONFIG_HOME", home.join(".config"))
+        .set("XDG_DATA_HOME", home.join(".local/share"))
+        .set("PATH", &bin)
+        .set("SUSI_ENGINE_PORTS", ports)
+        .remove("SUSI_TEST_MOCK_INFERENCE");
 
     let result = SusiGgufEngine.run_inference("hello");
 

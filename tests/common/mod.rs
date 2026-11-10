@@ -120,7 +120,7 @@ pub const SCRIPT_BOUND: std::time::Duration = std::time::Duration::from_secs(120
 /// with what it printed. Both pipes are drained on their own threads, and read
 /// with a deadline, so neither a full pipe nor a grandchild that keeps one open
 /// can stall the test.
-pub fn output_within(
+pub fn run_script_bounded(
     command: &mut std::process::Command,
     stdin: &[u8],
     bound: std::time::Duration,

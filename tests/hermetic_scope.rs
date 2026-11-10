@@ -92,7 +92,7 @@ impl World {
             .env_remove("SUSI_HERMETIC_RUNNER")
             .env_remove("SUSI_HERMETIC_RETRIES")
             .envs(envs.iter().copied());
-        let out = common::output_within(&mut command, b"", common::SCRIPT_BOUND);
+        let out = common::run_script_bounded(&mut command, b"", common::SCRIPT_BOUND);
         (
             out.status.code().unwrap_or(-1),
             format!(

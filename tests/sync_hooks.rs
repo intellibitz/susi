@@ -40,7 +40,7 @@ fn run(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
         cmd.env(k, v);
     }
     // A commit runs the sync hooks, which fetch: bounded, so a hang fails.
-    let out = common::output_within(&mut cmd, b"", common::SCRIPT_BOUND);
+    let out = common::run_script_bounded(&mut cmd, b"", common::SCRIPT_BOUND);
     (
         out.status.code().unwrap_or(-1),
         format!(
@@ -60,7 +60,7 @@ fn make_executable(path: &Path) {
     {
         let mut chmod = Command::new(common::posix_shell());
         chmod.args(["-c", "chmod +x \"$1\"", "sh"]).arg(path);
-        let out = common::output_within(&mut chmod, b"", common::SCRIPT_BOUND);
+        let out = common::run_script_bounded(&mut chmod, b"", common::SCRIPT_BOUND);
         assert!(out.status.success(), "chmod +x {path:?}");
     }
 }
@@ -405,7 +405,7 @@ fn assert_hook_executable(hooks: &Path, name: &str) {
     let mut ls = Command::new("git");
     ls.args(["ls-files", "--stage", "--", &path])
         .current_dir(root);
-    let out = common::output_within(&mut ls, b"", common::SCRIPT_BOUND);
+    let out = common::run_script_bounded(&mut ls, b"", common::SCRIPT_BOUND);
     assert!(
         out.status.success(),
         "git ls-files {path}: {}",

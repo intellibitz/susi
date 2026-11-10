@@ -151,8 +151,7 @@ fn metadata_blob_create_replace_delete_do_not_require_branch_builds() {
 
 #[test]
 fn real_git_push_runs_native_hook_and_preserves_remote_on_rejection() {
-    let binary = option_env!("CARGO_BIN_EXE_push-policy")
-        .expect("test requires built native push-policy binary");
+    let binary = env!("CARGO_BIN_EXE_push-policy");
     let r = Repo::new();
     let remote = r.0.join("remote.git");
     r.git(&["init", "--bare", "-q", remote.to_str().unwrap()]);
@@ -278,7 +277,7 @@ fn graft_environment_override_fails_closed_even_when_file_is_missing() {
     use std::process::Stdio;
     let r = Repo::new();
     let head = r.git(&["rev-parse", "HEAD"]);
-    let binary = option_env!("CARGO_BIN_EXE_push-policy").unwrap();
+    let binary = env!("CARGO_BIN_EXE_push-policy");
     let mut child = Command::new(binary)
         .current_dir(&r.0)
         .env("GIT_GRAFT_FILE", r.0.join("nonexistent-graft"))

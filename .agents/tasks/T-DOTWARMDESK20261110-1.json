@@ -4,6 +4,8 @@
   "title": "Adopt warm fixtures on native Windows",
   "status": "in_progress",
   "native_worker": "dotwarmdesk20261110",
+  "created_by": "dotwarmdesk20261110",
+  "created_unix": 1794339651,
   "deps": [],
   "scopes": [
     ".agents/tasks/t-dotwarmdesk20261110-1.json",

@@ -81,7 +81,7 @@ impl World {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-release-tag.sh");
         let mut command = script_command(&script);
         command.arg(tag).current_dir(&self.repo);
-        let out = common::output_within(&mut command, b"", common::SCRIPT_BOUND);
+        let out = common::run_script_bounded(&mut command, b"", common::SCRIPT_BOUND);
         (
             out.status.code().unwrap_or(-1),
             format!(

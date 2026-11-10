@@ -3,6 +3,7 @@
   "title": "Verify provider-neutral qualification inputs",
   "goal": "Accept independently approved advisory mirror identities and locally verifiable upstream Git object proofs without weakening source, freshness, checksum or license checks.",
   "created_by": "dot-provider-neutral",
+  "created_unix": 1794339472,
   "state": "in_progress",
   "status": "in_progress",
   "native_worker": "dot-provider-neutral",

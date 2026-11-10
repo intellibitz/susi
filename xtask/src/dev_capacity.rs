@@ -60,6 +60,19 @@ pub(crate) fn try_lock(path: &Path) -> io::Result<Option<File>> {
     }
 }
 
+/// A held lock that is released explicitly on drop. Closing the file alone is
+/// not enough: a process spawned concurrently by another thread holds a copy
+/// of every open descriptor until it execs, and that copy keeps a `flock`
+/// held, so a dropped token would stay spent for that window.
+#[derive(Debug)]
+struct Held(File);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 /// Leave a logical CPU free; cap at the established Linux job limit of 16.
 /// This bounds cooperating Cargo jobs, not memory or arbitrary test subprocesses.
 pub(crate) fn default_capacity(cpus: usize) -> usize {
@@ -74,7 +87,7 @@ pub(crate) struct Pool {
 
 #[derive(Debug)]
 pub(crate) struct Lease {
-    _slots: Vec<File>,
+    _slots: Vec<Held>,
     markers: Vec<PathBuf>,
 }
 
@@ -89,7 +102,7 @@ impl Pool {
         let started = Instant::now();
         let _guard = loop {
             if let Some(lock) = try_lock(&root.join("admission.lock"))? {
-                break lock;
+                break Held(lock);
             }
             if started.elapsed() >= Duration::from_secs(2) {
                 return Err(io::Error::new(
@@ -140,13 +153,13 @@ impl Pool {
                 "requested jobs exceed the coordinator capacity",
             ));
         }
-        let Some(_guard) = try_lock(&self.root.join("admission.lock"))? else {
+        let Some(_guard) = try_lock(&self.root.join("admission.lock"))?.map(Held) else {
             return Ok(None);
         };
         let mut slots = Vec::with_capacity(jobs);
         let mut markers = Vec::with_capacity(jobs);
         for index in 0..self.capacity {
-            if let Some(file) = try_lock(&self.root.join(format!("slot-{index}.lock")))? {
+            if let Some(slot) = try_lock(&self.root.join(format!("slot-{index}.lock")))?.map(Held) {
                 if self
                     .root
                     .join(format!("slot-{index}.running"))
@@ -154,7 +167,7 @@ impl Pool {
                 {
                     continue;
                 }
-                slots.push(file);
+                slots.push(slot);
                 markers.push(self.root.join(format!("slot-{index}.running")));
                 if slots.len() == jobs {
                     return Ok(Some(Lease {
@@ -288,6 +301,24 @@ mod tests {
             waves += 1;
         }
         assert_eq!(waves, 34);
+    }
+
+    /// A process spawned by another thread holds a copy of every descriptor
+    /// until it execs; a `try_clone` shares the same open file description,
+    /// so it stands in for that copy without depending on timing.
+    #[test]
+    fn dropped_tokens_return_while_a_descriptor_copy_is_alive() {
+        let scratch = Scratch::new();
+        let pool = Pool::open(&scratch.0, 2).unwrap();
+        let lease = pool.try_acquire(2).unwrap().unwrap();
+        let copies: Vec<File> = lease
+            ._slots
+            .iter()
+            .map(|slot| slot.0.try_clone().unwrap())
+            .collect();
+        drop(lease);
+        assert!(pool.try_acquire(2).unwrap().is_some());
+        drop(copies);
     }
 
     #[test]

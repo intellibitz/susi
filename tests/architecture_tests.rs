@@ -1338,16 +1338,37 @@ fn worktree_workflow_guard_is_wired_into_every_hook() {
         .permissions()
         .mode();
     assert!(mode & 0o111 != 0, "workflow-guard must be executable");
-    for (hook, stage) in [
-        ("pre-commit", "commit"),
-        ("pre-merge-commit", "merge"),
-        ("pre-push", "push"),
-    ] {
+    for (hook, stage) in [("pre-commit", "commit"), ("pre-merge-commit", "merge")] {
         let body = std::fs::read_to_string(root.join(".githooks").join(hook))
             .unwrap_or_else(|_| panic!("{hook} missing (Mandate 49)"));
         assert!(
             body.contains(&format!("workflow-guard\" {stage}")),
             "{hook} must call workflow-guard {stage} (Mandate 49)"
+        );
+    }
+    // Main is unqualified development with no mandatory pre-push gate
+    // (docs/ceo-agent-mandate.md, section 3), so pre-push no longer runs the
+    // workflow guard's task-compliance and sync checks. It keeps the push
+    // safety that guard gave: the native transport policy refuses branch
+    // deletion, non-fast-forward branch updates and moved or deleted tags.
+    let pre_push = std::fs::read_to_string(root.join(".githooks/pre-push"))
+        .expect("pre-push missing (Mandate 49)");
+    assert!(
+        pre_push
+            .lines()
+            .any(|line| line.trim() == "exec push-policy \"$@\""),
+        "pre-push must exec the native push-policy"
+    );
+    let policy = std::fs::read_to_string(root.join("xtask/src/push_policy.rs"))
+        .expect("xtask/src/push_policy.rs missing");
+    for rule in [
+        "branch deletion prohibited",
+        "\"merge-base\", \"--is-ancestor\"",
+        "tags are immutable",
+    ] {
+        assert!(
+            policy.contains(rule),
+            "push-policy no longer enforces `{rule}`"
         );
     }
     // The guard is a stub for `susi workflow guard`: the rules are Rust's,
@@ -1415,7 +1436,11 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
     // Existing machinery must be named accurately; the constitution must not
     // pretend an implementation gap is a working gate.
     for (id, phrase, artifact) in [
-        (49, "atomic per task", "xtask/src/bin/local-workflow.rs"),
+        (
+            49,
+            "Reserve disjoint file/directory scopes",
+            "xtask/src/bin/local-workflow.rs",
+        ),
         (49, "CLAUDE.md", "CLAUDE.md"),
         (50, "Task: T-<AGENT>-<n>", "xtask/src/bin/local-workflow.rs"),
         (
@@ -1595,7 +1620,9 @@ fn agents_md_opens_with_start_here_and_the_workflow_check() {
         "cargo local-workflow",
         "cargo local-build debug",
         "Task: T-<AGENT>-<n>",
-        "actual combined tree",
+        // Main is unqualified development (Mandate 73); exact-tree gates
+        // belong to release branches and snapshots.
+        "exact-tree gates apply to release branches",
         "CEO never looks at code",
     ] {
         assert!(

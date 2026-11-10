@@ -1,0 +1,67 @@
+{
+  "id": "T-MAINFIX-1",
+  "title": "Repair main's clippy, guard-test and capacity-race failures",
+  "goal": "Make development main pass strict clippy and its tree guard tests again: native push-policy clippy, the pre-push wiring guard under the fast-main mandate, task-record schema debt, child HOME isolation, the console-helper name guard, and the racy dev_capacity tests, each fixed at the root.",
+  "size": "M",
+  "deps": [],
+  "created_by": "mainfix",
+  "created_unix": 1794342516,
+  "status": "in_progress",
+  "base": "fd6739c63c52b0b1d98788fdccbbd7e49a8732db",
+  "mandate_revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311",
+  "scopes": [
+    ".agents/tasks/T-MAINFIX-1.json",
+    ".agents/tasks/T-DOTNATIVEPUSH-1.json",
+    ".agents/tasks/T-DOTPROVIDERNEUTRAL-1.json",
+    ".agents/tasks/T-DOTSTDIODESK20261110-1.json",
+    ".agents/tasks/T-DOTWARMDESK20261110-1.json",
+    ".agents/tasks/t-dotretirehandoff-1.json",
+    "xtask/tests/native_push_policy.rs",
+    "xtask/src/dev_capacity.rs",
+    "crates/susi-gemi/tests/native_fallback_runs_no_engine.rs",
+    "tests/common/mod.rs",
+    "tests/agent_bootstrap.rs",
+    "tests/hermetic_scope.rs",
+    "tests/hook_enforcement.rs",
+    "tests/release_tag_provenance.rs",
+    "tests/sync_hooks.rs",
+    "tests/architecture_tests.rs",
+    "README.md"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "child_home_isolation",
+      "--test",
+      "no_console_window",
+      "--test",
+      "task_records",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  },
+  "decisions": {
+    "pre_push_hook": "The hook is not given the workflow-guard call back. docs/ceo-agent-mandate.md section 3 (Mandate 73) directs no mandatory gates for main pushes; the guard's push stage ran task-compliance and sync-before-push checks, a pre-push gate, and needs susi-commercial, which this repository does not ship. Its push safety (no main deletion, no force or non-fast-forward push) is kept by the native push-policy the hook now execs, which refuses branch deletion, non-fast-forward branch updates and moved or deleted tags. xtask/tests/native_push_policy.rs installs the hook verbatim into a fixture repository and runs real pushes through it, so a guard call there would also break that test. architecture_tests::worktree_workflow_guard_is_wired_into_every_hook now keeps the guard on pre-commit and pre-merge-commit and requires pre-push to exec push-policy and push_policy.rs to keep those three refusals.",
+    "wording_pins": "Commit 6a5bde015 (Dot, applying the CEO fast-main policy) removed 'atomic per task' from Mandate 49 and 'run acceptance on the actual combined tree' from AGENTS.md's START HERE block. The two architecture tests pinned those phrases, which describe a main gate the current mandate removes. They now pin the current text: Mandate 49's 'Reserve disjoint file/directory scopes' (enforced by local-workflow start --scope) and AGENTS.md's 'exact-tree gates apply to release branches'. The mandate text itself was not edited.",
+    "task_record_debt": "Missing fields were added with values from each record's own history: created_unix is the author time of the commit that added the record (f9174e655, 7697b4d59, 96a30758, 66ecc033, 8ba18e78); created_by is the record's own worker identity (native_worker / claimed_by), or its existing value; T-DOTNATIVEPUSH-1's accept runs its two named test targets (native_push_policy, ci_workflow_perf)."
+  },
+  "results": "pending",
+  "limitations": "pending",
+  "provenance": {
+    "host": "CachyOS Linux x86_64 (CEO laptop)",
+    "agent": "mainfix (Claude subagent in Cursor)",
+    "worktree": "susi-agent-mainfix",
+    "branch": "local-agent/mainfix",
+    "local_workflow_start": "cargo local-workflow start mainfix --scope .githooks/pre-push failed with 'local-workflow: claim worktree must be absolute' (board item 110); worktree created with git worktree add -b local-agent/mainfix from origin/main fd6739c63."
+  }
+}

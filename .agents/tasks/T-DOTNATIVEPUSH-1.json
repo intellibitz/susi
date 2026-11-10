@@ -5,7 +5,23 @@
   "status": "in_progress",
   "claimed_by": "dot-native-push",
   "native_worker": "dot-native-push",
+  "created_by": "dot-native-push",
+  "created_unix": 1794332236,
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "native_push_policy",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
   "scope": [
     ".githooks/pre-push",
     "xtask/src/push_policy.rs",

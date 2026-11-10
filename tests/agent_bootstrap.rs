@@ -24,7 +24,7 @@ fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32,
     for (k, v) in envs {
         cmd.env(k, v);
     }
-    let out = common::output_within(&mut cmd, b"", common::SCRIPT_BOUND);
+    let out = common::run_script_bounded(&mut cmd, b"", common::SCRIPT_BOUND);
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),

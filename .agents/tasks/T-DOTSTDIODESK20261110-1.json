@@ -4,6 +4,8 @@
   "title": "Adopt and verify stdio handshake on native Windows",
   "status": "in_progress",
   "native_worker": "dotstdiodesk20261110",
+  "created_by": "dotstdiodesk20261110",
+  "created_unix": 1794339886,
   "deps": [],
   "scopes": [
     ".agents/tasks/t-dotstdio-1.json",

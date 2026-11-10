@@ -39,7 +39,7 @@ fn command(
     for (k, v) in envs {
         cmd.env(k, v);
     }
-    let out = common::output_within(&mut cmd, stdin.as_bytes(), common::SCRIPT_BOUND);
+    let out = common::run_script_bounded(&mut cmd, stdin.as_bytes(), common::SCRIPT_BOUND);
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
