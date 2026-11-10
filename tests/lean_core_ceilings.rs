@@ -75,7 +75,9 @@ const THIRD_PARTY_CEILING: usize = 128;
 /// 2026-11-11: 37 -> 36 (susi-vendor-http-body-util deleted, T-CARBONLEAN-5).
 /// 2026-11-11: 36 -> 35 (susi-vendor-hex deleted, T-CARBONLEAN-6).
 /// 2026-11-11: 35 -> 34 (susi-vendor-hyper-util deleted, T-CARBONLEAN-7).
-const WORKSPACE_CEILING: usize = 34;
+/// 2026-11-11: 34 -> 33 (susi-vendor-tracing leaves the pillar closure across
+/// susi-core, susi-gemi and susi-sandbox-client, T-AGYWIN-1).
+const WORKSPACE_CEILING: usize = 33;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
@@ -96,7 +98,8 @@ const WORKSPACE_CEILING: usize = 34;
 /// replaced by `susi_paths::hex`, T-CARBONLEAN-6).
 /// 2026-11-11: 11 -> 10 (susi-gmcp -> susi-vendor-hyper-util replaced by
 /// `susi_http_transport::http_conn`, T-CARBONLEAN-7).
-const DIRECT_FACADE_EDGES_CEILING: usize = 10;
+/// 2026-11-11: 10 -> 9 (susi-gemi -> susi-vendor-tracing removed, T-AGYWIN-1).
+const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
 /// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
@@ -161,15 +164,19 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 10;
 /// `tower_service::Service` wrapper on `StreamableHttpService` and call
 /// `StreamableHttpService::handle` directly; delete `susi-vendor-tower-service`
 /// (host packages 229 -> 228).
+/// 2026-11-11: ratify current shipped line reductions across susi-gawd-a2a
+/// (3,702 -> 3,619), susi-gemi (21,171 -> 21,145) and susi-harness (39,446 ->
+/// 37,604) alongside dropping susi-vendor-tracing from the pillar closure
+/// (T-AGYWIN-1).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
     ("susi-gawd-swarm", 20_116),
     ("susi-gawd-agents", 10_443),
-    ("susi-gawd-a2a", 3_702),
-    ("susi-gemi", 21_171),
+    ("susi-gawd-a2a", 3_619),
+    ("susi-gemi", 21_145),
     ("susi-gemi-models", 15_945),
     ("susi-gmcp", 25_860),
-    ("susi-harness", 39_446),
+    ("susi-harness", 37_604),
 ];
 
 fn workspace_root() -> PathBuf {

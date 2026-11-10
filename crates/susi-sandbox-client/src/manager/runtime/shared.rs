@@ -112,15 +112,6 @@ impl SusiAuditLogger {
         }
         let audit_file = workspace.join(".susi/audit.log");
 
-        tracing::info!(
-            target: "susi_audit",
-            event_type = event_type,
-            level = ?level,
-            workspace = %workspace.display(),
-            details = details,
-            "audit_event"
-        );
-
         // Retention (VC-202-018): rotate a full segment and prune expired
         // archives before this write lands — the policy bounds the tier,
         // and a rotation attests the archived tip in the new segment's
@@ -146,11 +137,7 @@ impl SusiAuditLogger {
             details,
             std::process::id(),
         ) {
-            tracing::warn!(
-                target: "susi_audit",
-                "failed to append signed audit entry: {}",
-                e
-            );
+            eprintln!("susi_audit: failed to append signed audit entry: {e}");
         }
         // The measured cost of observation: bytes persisted + the overhead
         // of persisting them, attributed to the agent like any other spend.

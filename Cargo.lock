@@ -1270,7 +1270,6 @@ dependencies = [
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
  "susi-vendor-tempfile",
- "susi-vendor-tracing",
  "susi-vendor-winapi",
 ]
 
@@ -1426,7 +1425,6 @@ dependencies = [
  "susi-vendor-sha2",
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
- "susi-vendor-tracing",
 ]
 
 [[package]]
@@ -1542,7 +1540,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-tracing",
 ]
 
 [[package]]

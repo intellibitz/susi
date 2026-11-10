@@ -71,10 +71,7 @@ impl SwarmEvent {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
         if version != u64::from(SWARM_EVENT_SCHEMA_V1) {
-            tracing::warn!(
-                schema_version = version,
-                "swarm bus: dropping event with unknown schema_version"
-            );
+            eprintln!("susi-core: swarm bus: dropping event with unknown schema_version={version}");
             return Ok(None);
         }
         serde_json::from_value(envelope).map(Some)

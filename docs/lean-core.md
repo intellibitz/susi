@@ -924,4 +924,14 @@ config, core and the tail.
   the third consecutive wave: third-party 138 -> 128 (-10 crates), workspace
   35 -> 34, direct facade edges 11 -> 10 (`susi-gmcp` shipped lines unchanged at
   25,860). GMCP requirement and `--mastery` evidence re-recorded in both phases.
+- 2026-11-11 (T-AGYWIN-1, Windows x86_64, CEO workstation): `susi-vendor-tracing`
+  leaves the four-pillar workspace closure across `susi-core`, `susi-gemi` and
+  `susi-sandbox-client`, replacing the remaining diagnostic macros in those three
+  crates with direct `std::io::stderr` reporting (`eprintln!`). Pillar workspace
+  reach ratchets 34 -> 33 and direct facade edges ratchet 10 -> 9 (`tracing` and
+  `tracing-core` remain in third-party reach only through Hyper/H2 internal spans
+  until the std HTTP cut), while `LINE_CEILINGS` ratify the current shipped line
+  reductions across `susi-gawd-a2a` (3,702 -> 3,619), `susi-gemi` (21,171 ->
+  21,145) and `susi-harness` (39,446 -> 37,604).
+
 
