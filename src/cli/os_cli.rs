@@ -119,6 +119,29 @@ fn capabilities(
             println!("{}", serde_json::to_string(&envelope)?);
             Ok(())
         }
+        OsCapabilitiesAction::Revoke { id, json } => {
+            let id = id.trim();
+            if id.is_empty() {
+                anyhow::bail!("envelope id must not be empty");
+            }
+            let revoked = registry
+                .revoke_delegation(id)
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            if json || top_json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "envelope_id": id,
+                        "revoked": revoked,
+                    }))?
+                );
+            } else if revoked {
+                println!("Revoked delegation envelope `{id}`.");
+            } else {
+                println!("Delegation envelope `{id}` was not live in this process ledger.");
+            }
+            Ok(())
+        }
     }
 }
 
@@ -659,5 +682,102 @@ mod download_progress_tests {
     fn with_download_progress_returns_closure_output_immediately() {
         let out = super::with_download_progress(|| 42usize);
         assert_eq!(out, 42);
+    }
+}
+
+#[cfg(test)]
+mod capabilities_revoke_tests {
+    use super::{capabilities, OsCapabilitiesAction};
+    use std::path::Path;
+    use susi_core::capability_bus::{CapabilityError, CapabilityRequest};
+    use susi_core::registry::{CapabilityRegistry, Tool};
+
+    struct RevokeProbeTool;
+    impl Tool for RevokeProbeTool {
+        fn name(&self) -> &str {
+            "cli_revoke_probe"
+        }
+        fn description(&self) -> &str {
+            "probe for cli delegation revocation"
+        }
+        fn execute(
+            &self,
+            args: &serde_json::Value,
+            _workspace: &Path,
+        ) -> susi_core::susi_error::EaiResult<String> {
+            Ok(args.to_string())
+        }
+    }
+
+    #[test]
+    fn capabilities_revoke_rejects_blank_id_and_cancels_issued_envelope() {
+        let ws = std::env::temp_dir();
+        let err = capabilities(
+            Some(Box::new(OsCapabilitiesAction::Revoke {
+                id: "   ".to_string(),
+                json: true,
+            })),
+            false,
+            &ws,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("must not be empty"));
+
+        // Ensure host MAC key exists in current SUSI_HOME so host DelegationAuthority is active.
+        let _ =
+            susi_core::mac_policy::MacPolicy::global().derive_key(b"susi-delegation-envelope/v1");
+        let registry = CapabilityRegistry::global();
+        registry.register_tool(RevokeProbeTool);
+
+        let request = CapabilityRequest::new(
+            "cli_revoke_probe",
+            "worker-cli-revoke",
+            ["capability:tool".to_string()],
+            30_000,
+            1_000,
+        );
+        let envelope = registry
+            .issue_delegation(None, &request)
+            .expect("host authority issues signed envelope");
+        let envelope_val = serde_json::to_value(&envelope).expect("envelope serializes");
+        let envelope_id = envelope_val["id"]
+            .as_str()
+            .expect("signed envelope carries id")
+            .to_string();
+
+        capabilities(
+            Some(Box::new(OsCapabilitiesAction::Revoke {
+                id: envelope_id.clone(),
+                json: true,
+            })),
+            false,
+            &ws,
+        )
+        .expect("revoke command succeeds");
+
+        // Second revoke on an already-cancelled id is idempotent (`revoked: false`, still Ok).
+        capabilities(
+            Some(Box::new(OsCapabilitiesAction::Revoke {
+                id: envelope_id,
+                json: false,
+            })),
+            false,
+            &ws,
+        )
+        .expect("idempotent revoke command succeeds");
+
+        let child_req = CapabilityRequest::new(
+            "cli_revoke_probe",
+            "nested-worker",
+            ["capability:tool".to_string()],
+            10_000,
+            100,
+        );
+        let refused =
+            registry.dispatch_nested(Some(&envelope_val), &child_req, &serde_json::json!({}), &ws);
+        assert!(
+            matches!(refused, Err(CapabilityError::Delegation(_))),
+            "expected revoked envelope to fail Delegation check, got {refused:?}"
+        );
     }
 }

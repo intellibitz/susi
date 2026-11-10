@@ -110,9 +110,10 @@ layers it over `susi_core::delegation`:
   within its bounds until it expires.
 - The replay ledger and revocation are per process. Two processes admitting
   the same envelope each start from its full budget; the daemon socket is the
-  intended single admitting process. The `susi os capabilities` CLI subcommand
-  does not expose a dedicated `revoke` subcommand yet (revocation is served in
-  `CapabilityRegistry::serve_nested` and `daemon.harness`).
+  intended single admitting process. `susi os capabilities revoke <id>` revokes
+  an envelope id in the invoking CLI process's ledger, while daemon-hosted runs
+  are revoked over `daemon.harness` (`revoke_delegation`) or `serve_nested`
+  (`action: "revoke"`).
 - Envelopes do not cross hosts: another host's key refuses them. A cluster-key
   variant is future work.
 - Cancellation crosses an envelope only through revocation in the admitting

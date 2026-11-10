@@ -1,0 +1,71 @@
+{
+  "id": "T-AGYCLOUD-6",
+  "native_worker": "agycloud-20261110",
+  "owner": "agycloud-20261110",
+  "title": "Expose susi os capabilities revoke CLI subcommand for signed delegation envelopes",
+  "goal": "Complete CLI parity for host-signed Mandate 73 `susi-delegation/v1` envelope revocation: add `OsCapabilitiesAction::Revoke` (`susi os capabilities revoke <id> [--json]`) in `crates/susi-cli-defs/src/os.rs` and `src/cli/os_cli.rs` backed by `CapabilityRegistry::revoke_delegation`, synchronize `tests/fixtures/cli_help_snapshot.txt`, add unit tests covering blank-id refusal, live revocation, idempotency, and post-revocation `dispatch_nested` refusal, and update `docs/recursive-delegation.md`.",
+  "feature": "recursive-delegation",
+  "size": "s",
+  "created_by": "agycloud-20261110",
+  "created_unix": 1794376270,
+  "state": "done",
+  "status": "done",
+  "base": "8f75369d49a0d4400771a2fedc49aa4e9aa7e56b",
+  "mandate_revision": "286e653ab06677ef0aefee8a54bffc26455127af",
+  "deps": [
+    "T-CLAUDEREL55REC-1",
+    "T-AGYCLOUD-2",
+    "T-AGYCLOUD-5"
+  ],
+  "scopes": [
+    ".agents/tasks/T-AGYCLOUD-6.json",
+    ".agents/tasks/done/T-AGYCLOUD-6.json",
+    "crates/susi-cli-defs/src/os.rs",
+    "docs/recursive-delegation.md",
+    "src/cli/os_cli.rs",
+    "tests/fixtures/cli_help_snapshot.txt"
+  ],
+  "evidence": [
+    "crates/susi-cli-defs/src/os.rs",
+    "docs/recursive-delegation.md",
+    "src/cli/os_cli.rs",
+    "tests/fixtures/cli_help_snapshot.txt"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--bin",
+      "susi",
+      "--",
+      "capabilities_revoke_rejects_blank_id_and_cancels_issued_envelope"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu (Debian 12, Linux 6.12.105+, git 2.39.5, rustc 1.99.0)",
+    "fmt_check": "pass (0 diffs)",
+    "clippy_check": "pass (0 warnings across susi-cli-defs and susi --bin susi)",
+    "tests_passed": 61,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "cli_help_and_version_match_snapshot": 1,
+      "capabilities_revoke_tests": 1,
+      "socket_parity": 5,
+      "capability_bus": 5,
+      "architecture_tests": 43,
+      "orphan_sources": 3,
+      "task_records": 3
+    },
+    "timings_ms": {
+      "verify_and_clippy_ms": 32580
+    }
+  },
+  "limitations": [
+    "Because the replay and revocation ledger is per process, `susi os capabilities revoke <id>` revokes an envelope in the CLI process's ledger; daemon-hosted runs are revoked through `daemon.harness` (`revoke_delegation`) or `serve_nested` (`action: \"revoke\"`).",
+    "Windows x86_64 release qualification remains owed on a native Windows host."
+  ]
+}
