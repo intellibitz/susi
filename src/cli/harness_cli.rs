@@ -180,21 +180,28 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             attempts,
             adapter_state,
             susi,
+            delegation,
         } => {
+            let (run_scope, effective_timeout) =
+                open_harness_run_scope(delegation.as_deref(), &budget_usd, timeout)?;
+            let ledger_path = ledger.unwrap_or_else(|| fleet::default_ledger(cwd));
+            let now_before = operator::now_unix_ms();
+            let spent_before =
+                operator::spent_today(&ledger_path, now_before, &mut |_: String| {}).micros();
             let opts = operator::RunOptions {
                 plan,
                 repo,
                 state,
                 gateway,
                 model,
-                timeout,
+                timeout: effective_timeout,
                 parallel,
                 prefix,
                 workers,
                 budget_usd,
                 catalogue,
                 daily_usd,
-                ledger: ledger.unwrap_or_else(|| fleet::default_ledger(cwd)),
+                ledger: ledger_path.clone(),
                 controls,
                 rsi_log,
                 attempts,
@@ -204,6 +211,14 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
                 }),
             };
             let outcome = operator::run(&opts, cwd, &mut notes);
+            let now_after = operator::now_unix_ms();
+            let spent_after =
+                operator::spent_today(&ledger_path, now_after, &mut |_: String| {}).micros();
+            let actual_spend = spent_after
+                .saturating_sub(spent_before)
+                .min(run_scope.remaining_micros());
+            let _ = run_scope.charge(actual_spend);
+            let scope_postcheck = run_scope.check();
             // The report prints first, then the budget line, whether or not
             // the run succeeded.
             let result = outcome
@@ -211,6 +226,9 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
                 .map_err(crate::anyhow::Error::from)
                 .and_then(|report| {
                     println!("{}", serde_json::to_string_pretty(&report)?);
+                    if let Err(cancelled) = scope_postcheck {
+                        return Err(crate::anyhow::anyhow!(cancelled.to_string()));
+                    }
                     match operator::mission_failure(&report) {
                         Some(failure) => Err(crate::anyhow::anyhow!(failure)),
                         None => Ok(()),
@@ -227,6 +245,106 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             python,
         } => scorecard(&events, &task, json, require_complete, &python, cwd),
     }
+}
+
+const HARNESS_RUN_PERMISSION: &str = "harness:run";
+const HARNESS_CLI_COMPONENT: &str = "susi-harness";
+const HARNESS_CLI_RUN_CAPABILITY: &str = "harness.cli.run";
+
+/// Open a [`susi_core::delegation::DelegationScope`] for `susi harness run`,
+/// either nested under a host-signed `susi-delegation/v1` envelope (`inline`
+/// JSON or `@<path>`) or from a bounded CLI operator root scope. Returns the
+/// active child scope (which refunds unspent micro-USD on drop) and the
+/// per-turn timeout clamped to the scope's remaining deadline.
+fn open_harness_run_scope(
+    delegation_arg: Option<&str>,
+    budget_usd: &str,
+    timeout_secs: u64,
+) -> Result<(susi_core::delegation::DelegationScope, u64)> {
+    open_harness_run_scope_with(delegation_arg, budget_usd, timeout_secs, None)
+}
+
+fn open_harness_run_scope_with(
+    delegation_arg: Option<&str>,
+    budget_usd: &str,
+    timeout_secs: u64,
+    authority_override: Option<&susi_core::delegation::DelegationAuthority>,
+) -> Result<(susi_core::delegation::DelegationScope, u64)> {
+    use std::collections::BTreeSet;
+    use susi_core::delegation::{
+        DelegationAuthority, DelegationEnvelope, DelegationHop, DelegationLimits,
+        DelegationRequest, DelegationScope,
+    };
+
+    let Some(budget) = MicroUsd::parse_usd(budget_usd) else {
+        bail!("invalid --budget-usd {budget_usd:?}: expected a non-negative dollar amount");
+    };
+    let requested_budget = budget.micros();
+    let requested_timeout_ms = timeout_secs.saturating_mul(1_000);
+
+    let parent = match delegation_arg {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                bail!("--delegation must not be empty");
+            }
+            let json_text = if let Some(path_str) = trimmed.strip_prefix('@') {
+                let path = path_str.trim();
+                if path.is_empty() {
+                    bail!("--delegation @<file> path must not be empty");
+                }
+                std::fs::read_to_string(path)
+                    .with_context(|| format!("read --delegation file {path}"))?
+            } else {
+                trimmed.to_string()
+            };
+            let envelope: DelegationEnvelope = serde_json::from_str(&json_text)
+                .map_err(|e| crate::anyhow::anyhow!("invalid --delegation JSON: {e}"))?;
+            match authority_override {
+                Some(auth) => auth
+                    .admit(&envelope)
+                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?,
+                None => DelegationAuthority::host()
+                    .and_then(|auth| auth.admit(&envelope))
+                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?,
+            }
+        }
+        None => {
+            let root_hop = DelegationHop::new("cli-operator", "root")
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+            DelegationScope::root(
+                root_hop,
+                [HARNESS_RUN_PERMISSION.to_string()],
+                requested_budget,
+                (requested_timeout_ms > 0).then_some(requested_timeout_ms),
+                DelegationLimits::default(),
+            )
+            .map_err(|e| crate::anyhow::anyhow!("{e}"))?
+        }
+    };
+
+    let mut child_perms = BTreeSet::new();
+    child_perms.insert(HARNESS_RUN_PERMISSION.to_string());
+    let hop = DelegationHop::new(HARNESS_CLI_COMPONENT, HARNESS_CLI_RUN_CAPABILITY)
+        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+    let child = parent
+        .delegate(DelegationRequest {
+            hop,
+            permissions: child_perms,
+            budget_micros: requested_budget,
+            timeout_ms: requested_timeout_ms,
+        })
+        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+    child.check().map_err(|e| crate::anyhow::anyhow!("{e}"))?;
+
+    let effective_timeout = match child.remaining_time() {
+        Some(rem) if rem.is_zero() => {
+            bail!("delegation deadline passed before harness run started");
+        }
+        Some(rem) if timeout_secs > 0 => timeout_secs.min(rem.as_secs().max(1)),
+        Some(_) | None => timeout_secs,
+    };
+    Ok((child, effective_timeout))
 }
 
 /// Run the repository's scorecard against the lifecycle ledger.
@@ -805,5 +923,123 @@ mod tests {
             susi_harness::operator::mission_alternates(&fleet),
             vec!["deepseek-flash", "deepseek-pro", "gemini-flash"]
         );
+    }
+
+    #[test]
+    fn harness_run_admits_signed_delegation_clamps_timeout_and_refunds_unspent_budget() {
+        use susi_core::delegation::{
+            DelegationAuthority, DelegationHop, DelegationLimits, DelegationRequest,
+            DelegationScope,
+        };
+
+        let authority = DelegationAuthority::from_secret(&[0x3Cu8; 32]);
+        let parent_scope = DelegationScope::root(
+            DelegationHop::new("fleet-driver", "root").unwrap(),
+            ["harness:run".to_string()],
+            4_000_000,
+            Some(45_000),
+            DelegationLimits::default(),
+        )
+        .unwrap();
+        let envelope = authority.issue(&parent_scope).unwrap();
+        let envelope_json = serde_json::to_string(&envelope).unwrap();
+
+        let dir = std::env::temp_dir().join(format!(
+            "susi-harness-run-delegation-{}-{}",
+            std::process::id(),
+            susi_harness::operator::now_unix_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let env_file = dir.join("envelope.json");
+        std::fs::write(&env_file, &envelope_json).unwrap();
+
+        // `@file` envelope admission clamps 900s `--timeout` to <= 45s remaining and reserves $2.50.
+        let (child_scope, effective_timeout) = super::open_harness_run_scope_with(
+            Some(&format!("@{}", env_file.display())),
+            "2.50",
+            900,
+            Some(&authority),
+        )
+        .expect("signed envelope admits run");
+        assert!((1..=45).contains(&effective_timeout));
+        assert_eq!(child_scope.remaining_micros(), 2_500_000);
+
+        // While the first `$2.50` run is live, a concurrent `$2.00` sibling run exceeds the `$4.00` envelope!
+        let over =
+            super::open_harness_run_scope_with(Some(&envelope_json), "2.00", 60, Some(&authority))
+                .unwrap_err();
+        assert!(over.to_string().contains("exceeds"));
+
+        // Charge `$1.00` actual spend and drop `child_scope` -> `$1.50` refunds, leaving `$3.00` available!
+        child_scope.charge(1_000_000).unwrap();
+        drop(child_scope);
+
+        let (second_scope, _) =
+            super::open_harness_run_scope_with(Some(&envelope_json), "3.00", 30, Some(&authority))
+                .expect("unspent budget refunded to envelope");
+        assert_eq!(second_scope.remaining_micros(), 3_000_000);
+        drop(second_scope);
+
+        // Revoking the envelope refuses further presentations.
+        assert!(authority.revoke(envelope.id.as_deref().unwrap()));
+        let revoked =
+            super::open_harness_run_scope_with(Some(&envelope_json), "0.50", 30, Some(&authority))
+                .unwrap_err();
+        assert!(revoked.to_string().contains("cancelled"));
+
+        // Missing `harness:run` permission, tampered signature, cycle, and malformed `--budget-usd` fail closed.
+        let read_only_root = DelegationScope::root(
+            DelegationHop::new("readonly-driver", "root").unwrap(),
+            ["harness:read".to_string()],
+            5_000_000,
+            Some(60_000),
+            DelegationLimits::default(),
+        )
+        .unwrap();
+        let read_only_env =
+            serde_json::to_string(&authority.issue(&read_only_root).unwrap()).unwrap();
+        let amplified =
+            super::open_harness_run_scope_with(Some(&read_only_env), "1.00", 30, Some(&authority))
+                .unwrap_err();
+        assert!(amplified.to_string().contains("amplify permissions"));
+
+        let fresh_parent = DelegationScope::root(
+            DelegationHop::new("fleet-driver", "root").unwrap(),
+            ["harness:run".to_string()],
+            4_000_000,
+            Some(45_000),
+            DelegationLimits::default(),
+        )
+        .unwrap();
+        let mut tampered = authority.issue(&fresh_parent).unwrap();
+        tampered.budget_micros = 99_000_000;
+        let tampered_err = super::open_harness_run_scope_with(
+            Some(&serde_json::to_string(&tampered).unwrap()),
+            "1.00",
+            30,
+            Some(&authority),
+        )
+        .unwrap_err();
+        assert!(tampered_err.to_string().contains("unverified"));
+
+        let cycle_child = fresh_parent
+            .delegate(DelegationRequest {
+                hop: DelegationHop::new("susi-harness", "harness.cli.run").unwrap(),
+                permissions: ["harness:run".to_string()].into_iter().collect(),
+                budget_micros: 1_000_000,
+                timeout_ms: 30_000,
+            })
+            .unwrap();
+        let cycle_env = serde_json::to_string(&authority.issue(&cycle_child).unwrap()).unwrap();
+        let cycle_err =
+            super::open_harness_run_scope_with(Some(&cycle_env), "0.50", 10, Some(&authority))
+                .unwrap_err();
+        assert!(cycle_err.to_string().contains("cycle"));
+
+        let bad_budget =
+            super::open_harness_run_scope_with(None, "not-a-dollar", 30, None).unwrap_err();
+        assert!(bad_budget.to_string().contains("invalid --budget-usd"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
