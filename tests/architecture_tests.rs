@@ -2153,7 +2153,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=73).collect::<Vec<_>>(),
+        (1..=74).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2169,6 +2169,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (71, "earns its next upgrade"),
         (72, "vanilla Windows x86_64 and vanilla Linux x86_64"),
         (73, "Three isolated laptops"),
+        (74, "Dump to main, distill releases, harvest"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -2239,6 +2240,52 @@ fn ceo_independent_agents_mandate_is_discoverable_and_preserves_boundaries() {
     let entry = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
     assert!(!entry.contains("One push per gated cycle (about 20 minutes"));
     assert!(!entry.contains("the gate identity is the only pusher on `main`"));
+}
+
+/// Mandate 74 (CEO 2026-11-11): dump to main, Susi-managed distillation,
+/// GitHub as storage only and attributed Apache-2.0 harvesting.
+#[test]
+fn ceo_mandate_74_is_discoverable_and_keeps_release_and_license_safeguards() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "crates/susi-core/src/self_build.rs",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-mandate-74.md"),
+            "{path}: Mandate 74 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-74.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "No gates.",
+        "be distillable",
+        "GitHub never merges",
+        "atomic create-if-absent",
+        "git cherry-pick -x",
+        "full exact-tree gates",
+        "Never force.",
+        "GitHub is a storage bucket",
+        "Moving clouds is one operation",
+        "**Apache-2.0**",
+        "Apache-2.0 section 4 obligations",
+        "Quarantine fetch",
+        "Reject: GPL",
+        "needs CEO authorization",
+        "Code never flows from commercial into core",
+        "earned, not declared",
+        "Implementation truth",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 74 lost requirement: {phrase}"
+        );
+    }
 }
 
 #[test]
