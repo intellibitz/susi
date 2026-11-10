@@ -1,0 +1,58 @@
+{
+  "created_unix": 1794302041,
+  "checkpoint": "Independent review passed. The paired median first-useful-output improvement is 88.685 ms for fresh homes and 104.270 ms for reused homes. Serialized integration, the full workspace gate, publication, and production qualification remain pending. No production-budget or under-60-second delivery claim is made.",
+  "status": "in_progress",
+  "goal": "Avoid repeated existing-parent preparation only for unsynced atomic metadata writes while retaining complete publication, permissions, errors and atomicity; measure end-to-end benefit.",
+  "deps": [],
+  "title": "Reduce registry publication filesystem overhead",
+  "created_by": "dotregistrypub20261110",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "agent": "Codex",
+  "scopes": [
+    ".agents/tasks/t-dotregistrypub20261110-1.json",
+    "crates/susi-config/src/json_util.rs"
+  ],
+  "native_worker": "dotregistrypub20261110",
+  "id": "T-DOTREGISTRYPUB20261110-1",
+  "verification": {
+    "lock_sha256": "04c2ff102009fb02dc1d95fc5dc0862714ce6e382af1b487f19797fe9b6d458d",
+    "guards": "Architecture: 41 passed; documentation: 5 passed; lean ceilings: 2 passed; orphan sources: 3 passed; task records: 3 passed.",
+    "platform": "x86_64-pc-windows-msvc",
+    "regressions": "susi-core registry IPC: 5 passed; cross-copy: 2 passed; handler errors: 1 passed; prefix routing: 1 passed.",
+    "format": "cargo fmt --all --check passed",
+    "config_library": "317 passed, 0 failed, and 2 existing ignored tests: a Windows symlink-privilege fixture and a subprocess helper.",
+    "runtime": {
+      "reused_paired_useful_saving_ms": 104.26975,
+      "all_measured_pairs_faster": true,
+      "fresh_paired_useful_saving_ms": 88.68545,
+      "nonce": "Every full per-run unique nonce returned in stdout and mission SUCCESS trace",
+      "baseline_sha256": "27759f8859f83e7fdac3e3cf049d456c13353f3f8d311d1e20bab1d452481677",
+      "inventory": "Each run had 439 metadata files plus an empty owner.lock, with exact normalized bytes and registered inventory matching the baseline.",
+      "measured_pairs_per_home_mode": 6,
+      "fresh_paired_registry_saving_ms": 88.5,
+      "successes": 26,
+      "candidate_sha256": "1929ccf3a0602df465872020bf8c815285f97f4b4b6c4ee4d3e88be1fb087df0",
+      "runs": 26,
+      "reused_paired_registry_saving_ms": 90.5
+    },
+    "profile": "Native-admitted host-mode dev opt0, lto=false, incremental=true, and dev/test codegen units 16.",
+    "source_base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "lint": "cargo clippy -p susi-config --all-targets --offline --locked -- -D warnings passed",
+    "toolchain": "1.99.0",
+    "limitations": "Windows-only scoped verification; the Unix 0600 regression was not executed. Two seeding runs were excluded, including candidate first-launch spawn overhead. OS caches were not cold; other desktop load was uncontrolled. Runtime evidence binds the recorded source hash before the final task-metadata update, not a later commit. Build scripts do not embed task records. The full workspace gate, integration, and production qualification remain pending; no production budget pass is claimed.",
+    "native_admission": "Current tracked trusted_sysroot prepare/apply/recheck was held across every Cargo phase. Baseline and candidate compiler evidence and all 20 sysroot archive hashes match.",
+    "modified_source_sha256": "92e66e4246b3d528d5b6bb2d57a4a9ad1e64ee7138ed59ed4228931e44ee3579",
+    "baseline_runtime_source": "114ee195ee647ca50050e5d9280f34ff0f662ff4",
+    "focused": "9 atomic-write tests passed, 0 failed, including five new Windows-applicable regressions."
+  }
+}

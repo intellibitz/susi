@@ -282,8 +282,22 @@ fn replace_bytes(path: &Path, bytes: &[u8], sync: bool) -> std::io::Result<()> {
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         Some(_) | None => Path::new("."),
     };
-    fs::create_dir_all(dir)?;
-    let (tmp_path, mut file) = create_staging_file(dir, path)?;
+    let (tmp_path, mut file) = if sync {
+        fs::create_dir_all(dir)?;
+        create_staging_file(dir, path)?
+    } else {
+        // Rebuildable endpoint publications usually share an existing parent.
+        // Try the same unique staging create first, avoiding a directory probe
+        // per file. On failure, preserve the original preparation/error path;
+        // a parent removed since the last publication is recreated as before.
+        match create_staging_file(dir, path) {
+            Ok(staged) => staged,
+            Err(_) => {
+                fs::create_dir_all(dir)?;
+                create_staging_file(dir, path)?
+            }
+        }
+    };
     let result = file
         .write_all(bytes)
         .and_then(|()| if sync { file.sync_all() } else { Ok(()) });
@@ -481,6 +495,139 @@ mod tests {
         atomic_replace_unsynced(&path, b"{}").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"{}");
         assert_eq!(entries(&dir.join("nested")), ["endpoint.json"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_replace_unsynced_recreates_a_removed_parent() {
+        let dir = scratch("unsynced-recreate");
+        let parent = dir.join("nested").join("endpoints");
+        let path = parent.join("tool.json");
+        atomic_replace_unsynced(&path, b"first").unwrap();
+        fs::remove_file(&path).unwrap();
+        fs::remove_dir(&parent).unwrap();
+
+        atomic_replace_unsynced(&path, b"recreated").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"recreated");
+        assert_eq!(entries(&parent), ["tool.json"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_replace_unsynced_preserves_invalid_parent_errors() {
+        let dir = scratch("unsynced-invalid-parent");
+        let parent = dir.join("blocker");
+        fs::write(&parent, b"leave this file intact").unwrap();
+        let path = parent.join("endpoint.json");
+
+        let expected = atomic_write_bytes(&path, b"never published").unwrap_err();
+        let actual = atomic_replace_unsynced(&path, b"never published").unwrap_err();
+        assert_eq!(actual.kind(), expected.kind());
+        assert_eq!(fs::read(&parent).unwrap(), b"leave this file intact");
+        assert_eq!(entries(&dir), ["blocker"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_replace_unsynced_cleans_staging_after_rename_failure() {
+        let dir = scratch("unsynced-rename-failure");
+        let path = dir.join("destination-directory");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("kept"), b"unchanged").unwrap();
+
+        assert!(atomic_replace_unsynced(&path, b"never published").is_err());
+        assert_eq!(fs::read(path.join("kept")).unwrap(), b"unchanged");
+        assert_eq!(entries(&dir), ["destination-directory"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_replace_unsynced_concurrent_readers_only_observe_complete_files() {
+        use std::sync::Barrier;
+
+        let dir = scratch("unsynced-concurrent");
+        let path = dir.join("endpoint.json");
+        const LENGTH: usize = 16 * 1024;
+        atomic_replace_unsynced(&path, &vec![b'0'; LENGTH]).unwrap();
+        let active = AtomicUsize::new(4);
+        let ready = Barrier::new(5);
+        std::thread::scope(|scope| {
+            for marker in b'1'..=b'4' {
+                let path = &path;
+                let active = &active;
+                let ready = &ready;
+                scope.spawn(move || {
+                    let bytes = vec![marker; LENGTH];
+                    ready.wait();
+                    let result = (|| -> std::io::Result<()> {
+                        for _ in 0..16 {
+                            atomic_replace_unsynced(path, &bytes)?;
+                        }
+                        Ok(())
+                    })();
+                    // Release the reader even if an I/O error fails this writer.
+                    active.fetch_sub(1, Ordering::Release);
+                    result.unwrap();
+                });
+            }
+            ready.wait();
+            loop {
+                let bytes = fs::read(&path).unwrap();
+                assert_eq!(bytes.len(), LENGTH);
+                assert!((b'0'..=b'4').contains(&bytes[0]));
+                assert!(bytes.iter().all(|byte| *byte == bytes[0]));
+                if active.load(Ordering::Acquire) == 0 {
+                    break;
+                }
+                std::thread::yield_now();
+            }
+        });
+        assert_eq!(entries(&dir), ["endpoint.json"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_replace_unsynced_keeps_new_and_replaced_files_private() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = scratch("unsynced-permissions");
+        let path = dir.join("nested").join("endpoint.json");
+        atomic_replace_unsynced(&path, b"first").unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        atomic_replace_unsynced(&path, b"replacement").unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(entries(path.parent().unwrap()), ["endpoint.json"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_replace_unsynced_preserves_readonly_destination_on_failure() {
+        let dir = scratch("unsynced-readonly");
+        let path = dir.join("endpoint.json");
+        atomic_replace_unsynced(&path, b"keep readonly content").unwrap();
+        let original = fs::metadata(&path).unwrap().permissions();
+        let mut readonly = original.clone();
+        readonly.set_readonly(true);
+        fs::set_permissions(&path, readonly).unwrap();
+
+        let result = atomic_replace_unsynced(&path, b"never published");
+        let still_readonly = fs::metadata(&path).unwrap().permissions().readonly();
+        let content = fs::read(&path).unwrap();
+        let remaining = entries(&dir);
+        fs::set_permissions(&path, original).unwrap();
+        assert!(result.is_err());
+        assert!(still_readonly);
+        assert_eq!(content, b"keep readonly content");
+        assert_eq!(remaining, ["endpoint.json"]);
         let _ = fs::remove_dir_all(&dir);
     }
 
