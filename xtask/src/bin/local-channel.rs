@@ -430,11 +430,23 @@ fn dev_cargo(repo: &Path) -> Command {
     cmd
 }
 
-fn build_dev_executable(repo: &Path) -> Result<PathBuf> {
-    let target_dir = env::var_os("CARGO_TARGET_DIR")
+/// The worktree's Cargo target directory.
+fn target_dir(repo: &Path) -> PathBuf {
+    env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .map(|p| if p.is_absolute() { p } else { repo.join(p) })
-        .unwrap_or_else(|| repo.join("target"));
+        .unwrap_or_else(|| repo.join("target"))
+}
+
+/// A persistent target directory of its own for delivery test builds, so
+/// they hold a different Cargo build lock than the dev executable's build
+/// and the two compile at the same time. It stays warm between deliveries.
+fn delivery_test_target_dir(repo: &Path) -> PathBuf {
+    target_dir(repo).join("deliver-tests")
+}
+
+fn build_dev_executable(repo: &Path) -> Result<PathBuf> {
+    let target_dir = target_dir(repo);
     let status = dev_cargo(repo)
         .args([
             "build",
@@ -714,24 +726,28 @@ fn unit_test_args(package: &PackageTargets) -> Option<Vec<String>> {
     Some(args)
 }
 
-/// Run each owning package's unit tests with credentials, Susi settings and
-/// user homes removed, as the integration gate does.
-fn run_owner_tests(repo: &Path, scratch: &Path, owners: &[PackageTargets]) -> Result<Vec<Value>> {
-    const SECRET_PARTS: &[&str] = &[
-        "TOKEN",
-        "SECRET",
-        "PASSWORD",
-        "CREDENTIAL",
-        "API_KEY",
-        "ACCESS_KEY",
-        "API_BASE",
-        "BASE_URL",
-        "API_URL",
-        "CUSTOM_HEADERS",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "ALL_PROXY",
-    ];
+/// Environment names removed from every owner-test process: credentials,
+/// endpoints and proxies, plus everything `SUSI_*`.
+const SECRET_PARTS: &[&str] = &[
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "CREDENTIAL",
+    "API_KEY",
+    "ACCESS_KEY",
+    "API_BASE",
+    "BASE_URL",
+    "API_URL",
+    "CUSTOM_HEADERS",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+];
+
+/// Strip credentials and Susi settings from `cmd` and give it a private
+/// home under `home`, as the integration gate does. Cargo and rustup keep
+/// the caller's homes so the warm toolchain and registry are reused.
+fn isolate(cmd: &mut Command, home: &Path) -> Result<()> {
     let user_home = env::var_os("USERPROFILE")
         .or_else(|| env::var_os("HOME"))
         .map(PathBuf::from)
@@ -742,42 +758,95 @@ fn run_owner_tests(repo: &Path, scratch: &Path, owners: &[PackageTargets]) -> Re
     let rustup_home = env::var_os("RUSTUP_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| user_home.join(".rustup"));
+    for (key, _) in env::vars_os() {
+        let name = key.to_string_lossy().to_ascii_uppercase();
+        if name.starts_with("SUSI_") || SECRET_PARTS.iter().any(|part| name.contains(part)) {
+            cmd.env_remove(key);
+        }
+    }
+    cmd.env("HOME", home)
+        .env("USERPROFILE", home)
+        .env("SUSI_HOME", home.join("susi"))
+        .env("SUSI_NO_REGISTRY_ENV", "1")
+        .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("XDG_CACHE_HOME", home.join("cache"))
+        .env("APPDATA", home.join("appdata"))
+        .env("LOCALAPPDATA", home.join("localappdata"))
+        .env("CARGO_HOME", &cargo_home)
+        .env("RUSTUP_HOME", &rustup_home);
+    Ok(())
+}
+
+/// One compiled unit-test executable of an owning package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TestBinary {
+    package: String,
+    target: String,
+    executable: PathBuf,
+    manifest_dir: PathBuf,
+}
+
+/// The unit-test executables `cargo test --no-run --message-format=json`
+/// reported for `package`: test-profile compiler artifacts with an
+/// executable. Lines that are not JSON (cargo's own) are skipped.
+fn test_binaries(package: &str, cargo_json: &str) -> Vec<TestBinary> {
+    cargo_json
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|msg| msg["reason"] == "compiler-artifact" && msg["profile"]["test"] == true)
+        .filter_map(|msg| {
+            let executable = PathBuf::from(msg["executable"].as_str()?);
+            let manifest = PathBuf::from(msg["manifest_path"].as_str()?);
+            Some(TestBinary {
+                package: package.to_string(),
+                target: msg["target"]["name"]
+                    .as_str()
+                    .unwrap_or(package)
+                    .to_string(),
+                executable,
+                manifest_dir: manifest.parent()?.to_path_buf(),
+            })
+        })
+        .collect()
+}
+
+/// Compile each owning package's unit tests (library and binaries) without
+/// running them, in [`delivery_test_target_dir`].
+fn compile_owner_tests(
+    repo: &Path,
+    scratch: &Path,
+    owners: &[PackageTargets],
+) -> Result<(Vec<TestBinary>, Vec<Value>)> {
+    let mut binaries = Vec::new();
     let mut records = Vec::new();
     for package in owners {
-        let Some(args) = unit_test_args(package) else {
+        let Some(mut args) = unit_test_args(package) else {
             records.push(json!({
                 "package": package.member.name,
                 "skipped": "no library or binary target",
             }));
             continue;
         };
+        args.extend(["--no-run", "--message-format=json-render-diagnostics"].map(String::from));
         let home = scratch.join(&package.member.name);
         fs::create_dir_all(&home)?;
         let mut cmd = dev_cargo(repo);
-        for (key, _) in env::vars_os() {
-            let name = key.to_string_lossy().to_ascii_uppercase();
-            if name.starts_with("SUSI_") || SECRET_PARTS.iter().any(|part| name.contains(part)) {
-                cmd.env_remove(key);
-            }
-        }
+        isolate(&mut cmd, &home)?;
+        cmd.env("CARGO_TARGET_DIR", delivery_test_target_dir(repo));
         let started = Instant::now();
-        let status = cmd
-            .args(&args)
-            .env("HOME", &home)
-            .env("USERPROFILE", &home)
-            .env("SUSI_HOME", home.join("susi"))
-            .env("SUSI_NO_REGISTRY_ENV", "1")
-            .env("XDG_CONFIG_HOME", home.join("config"))
-            .env("XDG_DATA_HOME", home.join("data"))
-            .env("XDG_CACHE_HOME", home.join("cache"))
-            .env("APPDATA", home.join("appdata"))
-            .env("LOCALAPPDATA", home.join("localappdata"))
-            .env("CARGO_HOME", &cargo_home)
-            .env("RUSTUP_HOME", &rustup_home)
-            .status()?;
-        if !status.success() {
+        let out = cmd.args(&args).stderr(Stdio::inherit()).output()?;
+        if !out.status.success() {
             return Err(format!(
-                "Unit tests of `{}` failed ({status}); nothing was promoted.",
+                "Unit tests of `{}` did not compile ({}); nothing was promoted.",
+                package.member.name, out.status
+            )
+            .into());
+        }
+        let found = test_binaries(&package.member.name, &String::from_utf8_lossy(&out.stdout));
+        if found.is_empty() {
+            return Err(format!(
+                "cargo reported no unit-test executable for `{}`; nothing was promoted.",
                 package.member.name
             )
             .into());
@@ -785,10 +854,94 @@ fn run_owner_tests(repo: &Path, scratch: &Path, owners: &[PackageTargets]) -> Re
         records.push(json!({
             "package": package.member.name,
             "args": args,
-            "ms": millis(started.elapsed()),
+            "compile_ms": millis(started.elapsed()),
+            "executables": found.len(),
+        }));
+        binaries.extend(found);
+    }
+    Ok((binaries, records))
+}
+
+/// A started owner-test executable and where its output goes.
+struct RunningTest {
+    binary: TestBinary,
+    child: std::process::Child,
+    log: PathBuf,
+    started: Instant,
+}
+
+/// Start every compiled unit-test executable the way `cargo test` runs it
+/// (from the package directory, with `CARGO_MANIFEST_DIR` and
+/// `CARGO_PKG_NAME`), isolated like the compile, output to a log file.
+fn spawn_owner_tests(binaries: &[TestBinary], scratch: &Path) -> Result<Vec<RunningTest>> {
+    let mut running = Vec::new();
+    for binary in binaries {
+        let home = scratch.join(&binary.package);
+        fs::create_dir_all(&home)?;
+        let log = home.join(format!("{}.log", binary.target));
+        let out = fs::File::create(&log)?;
+        let err = out.try_clone()?;
+        let mut cmd = Command::new(&binary.executable);
+        isolate(&mut cmd, &home)?;
+        let child = cmd
+            .arg("-q")
+            .current_dir(&binary.manifest_dir)
+            .env("CARGO_MANIFEST_DIR", &binary.manifest_dir)
+            .env("CARGO_PKG_NAME", &binary.package)
+            .stdin(Stdio::null())
+            .stdout(out)
+            .stderr(err)
+            .spawn()?;
+        running.push(RunningTest {
+            binary: binary.clone(),
+            child,
+            log,
+            started: Instant::now(),
+        });
+    }
+    Ok(running)
+}
+
+/// Wait for every started test. Any failure fails the delivery, after all
+/// of them have finished, with the failing log's tail.
+fn wait_owner_tests(running: Vec<RunningTest>) -> Result<Vec<Value>> {
+    let mut records = Vec::new();
+    let mut failures = Vec::new();
+    for mut test in running {
+        let status = test.child.wait()?;
+        let ms = millis(test.started.elapsed());
+        if !status.success() {
+            let text = fs::read_to_string(&test.log).unwrap_or_default();
+            let tail: String = text
+                .lines()
+                .rev()
+                .take(40)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n");
+            failures.push(format!(
+                "Unit tests `{}` of `{}` failed ({status}); log {}:\n{tail}",
+                test.binary.target,
+                test.binary.package,
+                test.log.display()
+            ));
+        }
+        records.push(json!({
+            "package": test.binary.package,
+            "target": test.binary.target,
+            "executable": test.binary.executable.to_string_lossy(),
+            "log": test.log.to_string_lossy(),
+            "passed": status.success(),
+            "ms": ms,
         }));
     }
-    Ok(records)
+    if failures.is_empty() {
+        Ok(records)
+    } else {
+        Err(format!("{}\nNothing was promoted.", failures.join("\n")).into())
+    }
 }
 
 /// The channel's current executable, after re-checking its recorded digest.
@@ -926,13 +1079,34 @@ fn deliver(channel_root: &Path, channel: &str, opts: &DeliverOptions) -> Result<
     let delivery_dir = channel_root
         .join("deliveries")
         .join(format!("{stamp}-{}", head.get(..12).unwrap_or(&head)));
-    let tests = run_owner_tests(&repo, &delivery_dir.join("test-home"), &owners)?;
-    clock.mark("test");
-
+    // The owners' unit tests compile (in their own target directory) and run
+    // while the dev executable builds; nothing is staged until every test
+    // has passed.
+    let test_home = delivery_dir.join("test-home");
     let build_started = Instant::now();
-    let built = build_dev_executable(&repo)?;
+    let (built, test_result) = std::thread::scope(|scope| {
+        // Errors cross the thread as text: the boxed error type is not Send.
+        let tests = scope.spawn(|| -> std::result::Result<Value, String> {
+            let run = || -> Result<Value> {
+                let (binaries, compiles) = compile_owner_tests(&repo, &test_home, &owners)?;
+                let runs = wait_owner_tests(spawn_owner_tests(&binaries, &test_home)?)?;
+                Ok(json!({ "compile": compiles, "runs": runs }))
+            };
+            run().map_err(|error| error.to_string())
+        });
+        let built = build_dev_executable(&repo);
+        let tests: Result<Value> = match tests.join() {
+            Ok(Ok(tests)) => Ok(tests),
+            Ok(Err(error)) => Err(error.into()),
+            Err(_) => Err("the owner-test thread panicked; nothing was promoted.".into()),
+        };
+        (built, tests)
+    });
     let build_seconds = (build_started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
-    clock.mark("build");
+    clock.mark("build-and-test");
+    let built = built?;
+    let mut tests = test_result?;
+    tests["concurrent_with_build"] = json!(true);
     let (candidate, digest, version) = stage_candidate_into_slot(channel_root, &built)?;
     clock.mark("stage");
     let startup_started = Instant::now();
@@ -1308,6 +1482,28 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_binaries_reads_only_test_profile_executables() {
+        let cargo = [
+            r#"{"reason":"compiler-artifact","profile":{"test":false},"target":{"name":"susi_core"},"executable":null,"manifest_path":"/w/crates/susi-core/Cargo.toml"}"#,
+            r#"{"reason":"compiler-artifact","profile":{"test":true},"target":{"name":"susi_core"},"executable":"/w/target/debug/deps/susi_core-1","manifest_path":"/w/crates/susi-core/Cargo.toml"}"#,
+            r#"{"reason":"compiler-artifact","profile":{"test":true},"target":{"name":"susi"},"executable":"/w/target/debug/deps/susi-2","manifest_path":"/w/Cargo.toml"}"#,
+            r#"{"reason":"build-finished","success":true}"#,
+            "not json",
+        ]
+        .join("\n");
+        let found = test_binaries("pkg", &cargo);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].target, "susi_core");
+        assert_eq!(
+            found[0].executable,
+            PathBuf::from("/w/target/debug/deps/susi_core-1")
+        );
+        assert_eq!(found[0].manifest_dir, PathBuf::from("/w/crates/susi-core"));
+        assert_eq!(found[1].manifest_dir, PathBuf::from("/w"));
+        assert!(test_binaries("pkg", "").is_empty());
+    }
 
     #[test]
     fn isolated_children_disable_registry_environment() {
