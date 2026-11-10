@@ -151,7 +151,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-criterion",
     "susi-vendor-dashmap",
     "susi-vendor-ed25519-dalek",
-    "susi-vendor-flume",
     "susi-vendor-futures",
     "susi-vendor-getrandom",
     "susi-vendor-hex",

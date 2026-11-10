@@ -1,0 +1,77 @@
+{
+  "id": "T-AGYCLOUD-3",
+  "native_worker": "agycloud-20261110",
+  "owner": "agycloud-20261110",
+  "title": "Delete unreferenced susi-vendor-flume workspace facade and ratchet pillar ceilings",
+  "goal": "Complete the pending lean-core workspace cleanup left by T-DOTHARNESSNATIVE-1: delete the unreferenced `crates/susi-vendor-flume` facade (`Cargo.toml`, `Cargo.lock`, `VENDOR_FACADES` in `tests/architecture_tests.rs`), dropping `susi-vendor-flume` and `flume 0.12.0` (and its `fastrand`/`getrandom` `wasm_js` and `spin` `lock_api` workspace feature unification) from `Cargo.lock`, ratchet `THIRD_PARTY_CEILING` from 191 to 184, ratify accumulated pillar source reductions in `LINE_CEILINGS` (-1,045 counted lines across `susi-gawd-swarm`, `susi-gawd-agents`, `susi-gemi`, and `susi-harness`), and record the wave in `docs/lean-core.md`.",
+  "feature": "lean-core",
+  "size": "s",
+  "created_by": "agycloud-20261110",
+  "created_unix": 1794366200,
+  "state": "done",
+  "status": "done",
+  "base": "8e88b9fd03b7760d6bc0bec7a37d0cdc9e112229",
+  "mandate_revision": "286e653ab06677ef0aefee8a54bffc26455127af",
+  "deps": [
+    "T-CLAUDENOA2ASDK-1",
+    "T-CLAUDEBUILDIDLE-1",
+    "T-AGYCLOUD-2"
+  ],
+  "scopes": [
+    ".agents/tasks/T-AGYCLOUD-3.json",
+    ".agents/tasks/done/T-AGYCLOUD-3.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-vendor-flume/Cargo.toml",
+    "crates/susi-vendor-flume/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "evidence": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu (Debian 12, Linux 6.12.105+, git 2.39.5, rustc 1.99.0)",
+    "fmt_check": "pass (0 diffs)",
+    "pillar_reach": {
+      "workspace": 46,
+      "third_party": 184,
+      "direct_facades": 20
+    },
+    "line_ceilings_delta": -1045,
+    "tests_passed": 51,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "architecture_tests": 43,
+      "lean_core_ceilings": 2,
+      "orphan_sources": 3,
+      "task_records": 3
+    },
+    "timings_ms": {
+      "guard_suites_first_compile_and_run_ms": 64470,
+      "guard_suites_warm_ms": 2434,
+      "clippy_tests_ms": 35571
+    }
+  },
+  "limitations": [
+    "No host `cargo build -p susi` wall-clock or executable-size reduction is claimed because no binary or pillar crate depended directly on `susi-vendor-flume` after T-DOTHARNESSNATIVE-1.",
+    "Windows x86_64 release qualification remains owed on a native Windows host."
+  ]
+}

@@ -662,3 +662,16 @@ config, core and the tail.
   units fewer; on 4 threads the build is CPU-bound (217 CPU-s / 4 = 54 s floor),
   so wall moves with CPU-seconds there, while on the 28-thread laptop the
   serial path (macro front, susi-config, susi-core, daemon, binary) sets it.
+- 2026-11-11 (T-AGYCLOUD-3, Linux x86_64, 2-vCPU cloud VM): delete the
+  unreferenced `crates/susi-vendor-flume` workspace facade left pending by
+  T-DOTHARNESSNATIVE-1 (`Cargo.toml`, `Cargo.lock`, `VENDOR_FACADES` in
+  `tests/architecture_tests.rs`). `susi-vendor-flume` and `flume 0.12.0` leave
+  `Cargo.lock` and `--workspace` builds, dropping `flume`'s workspace feature
+  unification on `fastrand`, `getrandom` (`js-sys` / `wasm-bindgen`), and `spin`
+  (`lock_api`). Pillar reach ratchets from 191 to 184 third-party crates (46
+  workspace crates and 20 direct facade edges unchanged; `cargo build -p susi`
+  host unit count stays 342 on x86_64 Linux). Ratify accumulated source
+  reductions in `LINE_CEILINGS` (`susi-gawd-swarm` 20,641 -> 20,635,
+  `susi-gawd-agents` 11,263 -> 10,447, `susi-gemi` 21,290 -> 21,263,
+  `susi-harness` 40,790 -> 40,594; -1,045 counted lines total). No host
+  build-time or executable-size reduction is claimed.
