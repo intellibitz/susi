@@ -1,0 +1,38 @@
+{
+  "schema": "susi-release-record/v1",
+  "product": "susi",
+  "version": "0.21.54",
+  "tag": "v0.21.54",
+  "commit": "b626d435c6bbae9a89a10c091fd7819fbe3b3910",
+  "tagged": "2026-11-11T03:03:31+05:30",
+  "build": {
+    "toolchain": "1.99.0",
+    "host": "x86_64-unknown-linux-gnu",
+    "source": "the release-qualify build gate on the qualified tree 36a55dd0d (the tagged commit adds only releases/qualification/v0.21.54.json), Cargo.lock unchanged",
+    "profile": "dist",
+    "features": "susi/local-engine",
+    "env": ["CARGO_PROFILE_DIST_LTO=false", "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"],
+    "command": "cargo build --offline --locked --profile dist -p susi-harness -p susi --features susi/local-engine -j 16"
+  },
+  "reproducible": false,
+  "assets": [
+    { "file": "susi-linux-x86_64", "target": "x86_64-unknown-linux-gnu", "package": "susi", "bin": "susi", "sha256": "bdc842efd9de20f1f3a3274c3e04fee74f0140f8e3eadd755d9c0f90dadb0d68" },
+    { "file": "susi-harness-linux-x86_64", "target": "x86_64-unknown-linux-gnu", "package": "susi-harness", "bin": "susi-harness", "sha256": "d7b4b348c03bc0ef2ff9f4eaeab68301632106e678c5b7cfc7bbf272295a568c" }
+  ],
+  "missing_targets": [
+    { "target": "x86_64-pc-windows-msvc", "reason": "cut and qualified on a Linux host; the Windows x86_64 reference build and qualification are owed (owed_platforms in the qualification record)" }
+  ],
+  "checks": {
+    "qualification_record": "releases/qualification/v0.21.54.json",
+    "release_qualify": { "gates": ["format", "check", "clippy", "licenses", "tests", "build", "smoke"], "all_exit_0": true },
+    "workspace_tests": { "binaries": 293, "passed": 5427, "failed": 0, "ignored": 14 },
+    "e2e_checks": "the tests/release_e2e_checks.rs checks ran inside the tests gate against the debug build of the same tree and passed; the dist binaries were checked with --version only",
+    "locally_qualified": true,
+    "qualification_note": "qualified on x86_64-unknown-linux-gnu with release-qualify (every gate exit 0, 5427 tests passed, 0 failed); Windows x86_64 is not qualified yet"
+  },
+  "provenance": [
+    "commit and tagged time: the annotated tag v0.21.54 (git cat-file -p v0.21.54; git for-each-ref --format=%(taggerdate:iso-strict))",
+    "sha256: the build and smoke gates of release-qualify (xtask/src/bin/release-qualify.rs) on CachyOS Linux x86_64, recorded in releases/qualification/v0.21.54.json with each gate log digest",
+    "source: snapshot refs/tags/susi-snapshot/v0-21-54-rc2 = development main 5a0e36229 plus the version bump 36a55dd0d (task T-RELEASE54-1)"
+  ]
+}
