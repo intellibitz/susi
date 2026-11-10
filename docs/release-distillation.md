@@ -18,13 +18,20 @@ From a Susi checkout or isolated agent worktree:
 cargo build --offline --locked -p xtask --bin local-distill --bin push-policy
 cargo run --offline --locked -p xtask --bin local-distill -- plan --name 2026-11-11-rc1 --base <base-rev> --from <stream-rev> --select T-EXAMPLE-1 --json
 cargo run --offline --locked -p xtask --bin local-distill -- compose --name 2026-11-11-rc1 --base <base-rev> --from <stream-rev> --select T-EXAMPLE-1 --verify-accept --release-candidate --strict
-cargo run --offline --locked -p xtask --bin local-distill -- compose --name 2026-11-11-rc1 --base <base-rev> --plan-manifest plan.json --strict
+cargo run --offline --locked -p xtask --bin local-distill -- orchestrate --name 2026-11-11-rc1 --base <base-rev> --from <stream-rev> --tasks-from-range <base-rev>..<stream-rev> --verify-accept --publish-snapshot --strict
+cargo run --offline --locked -p xtask --bin local-distill -- submit-main --rev HEAD --json
 cargo run --offline --locked -p xtask --bin local-distill -- status 2026-11-11-rc1
 cargo run --offline --locked -p xtask --bin local-distill -- publish 2026-11-11-rc1
 ```
 
-`local-distill` complements the plan-only `distill` binary (`docs/distillation.md`)
-and can directly consume a `susi-distill-plan/v1` JSON file via `--plan-manifest <path>`.
+`local-distill` complements the plan-only `distill` binary (`docs/distillation.md`),
+can directly consume a `susi-distill-plan/v1` JSON file via `--plan-manifest <path>`,
+and supports self-contained `orchestrate` + `--tasks-from-range <A..B>` automatic
+`Task:` trailer discovery and `submit-main` non-force object-store reconciliation
+onto `refs/heads/main` with zero dependency on any external agent or coordinator.
+In `susi-harness`, `susi_harness::recursive` (`susi-recursive-container-v1`) lets
+any verified container act as Driver (coordinator), Engine (worker), or both across
+nested waves with isolated sandboxes and `IntegrationPolicy::fast_main()` freedom.
 Feature manifests (`schema: "susi-feature-manifest-v1"`) can also drive selection
 via `--feature <path-or-rev:path>`, binding `id`, `title`, `license`,
 `destination_branch`, `enabled_capabilities`, `disabled_capabilities`, `tasks`
