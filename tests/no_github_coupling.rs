@@ -53,12 +53,15 @@ const GH_SUBCOMMANDS: [&str; 18] = [
     "workflow",
 ];
 
-/// Literal markers of a GitHub API or release-page dependency.
-const LITERALS: [&str; 4] = [
+/// Literal markers of a GitHub API, release-page or registry dependency. Susi's
+/// own images name no GitHub registry (`ghcr.io`); other projects' images
+/// there, such as the GitHub MCP server, are user features, not coupling.
+const LITERALS: [&str; 5] = [
     "api.github.com",
     "/statuses/",
     "releases/latest/download",
     "new(\"gh\")",
+    "ghcr.io/intellibitz",
 ];
 
 /// The `gh <subcommand>` invocation on `line`, if any: `gh` as a whole word
@@ -226,6 +229,7 @@ fn the_matcher_finds_couplings_and_ignores_prose() {
         "let mut command = Command::new(\"gh\");",
         "curl -L https://example.invalid/o/r/releases/latest/download/susi",
         "https://api.github.com/repos/o/r",
+        "    image: ghcr.io/intellibitz/susi:latest",
     ] {
         assert!(!couplings(line).is_empty(), "missed: {line}");
     }
@@ -236,6 +240,7 @@ fn the_matcher_finds_couplings_and_ignores_prose() {
         "\"gh\",",
         "git push origin vX.Y.Z",
         "git ls-remote --tags origin",
+        "package: \"ghcr.io/github/github-mcp-server\"",
     ] {
         assert!(couplings(line).is_empty(), "false positive: {line}");
     }
