@@ -5,5 +5,6 @@ fn main() -> std::io::Result<()> {
         "local-release",
         "ci-release-only",
         "susi-dev",
+        "local-snapshot",
     ])
 }

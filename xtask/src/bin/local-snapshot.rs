@@ -1,4 +1,4 @@
-//! Freeze an exact main commit for later qualification, using Git storage only.
+//! Submit development source and freeze qualification candidates using Git only.
 #![forbid(unsafe_code)]
 
 #[cfg(windows)]

@@ -1,9 +1,50 @@
 # Git storage publisher: first portable slice
 
-Status: implementation candidate, not a replacement for the integration or
-production qualification gates. Source publication remains `local-workflow ship`.
+Main is unqualified development storage. The CEO's 2026-11-10 direction removes
+mandatory test gates from main admission and retains full release qualification.
+This command does not run a test gate before a main submission.
 No GitHub API, Actions, server extension or new Rust dependency is introduced.
 The new implementation uses Rust's standard library and the installed Git tool.
+An ordinary configured Git remote is required, not GitHub: a local bare repository,
+self-hosted Git or any compatible hosted Git service works. No third-party cloud,
+GitHub account, API, Actions, webhook, status check or PR is a runtime prerequisite.
+
+## Submit development source from any agent session
+
+Reserve an isolated worktree and commit scoped work normally, then run:
+
+```text
+cargo run --offline --locked -p xtask --bin local-snapshot -- submit worker-unique-change
+cargo run --offline --locked -p xtask --bin local-snapshot -- status-main worker-unique-change
+cargo run --offline --locked -p xtask --bin local-snapshot -- retry-main worker-unique-change
+```
+
+`submit` pins the clean committed HEAD, tree and resolved destination in an
+immutable main-submission intent. It fetches current remote main. If necessary,
+Git `merge-tree` combines source and main without touching the worker's checkout,
+then `commit-tree` creates a merge with both histories as parents. Conflicts stop
+without changing either branch; resolve them in the owned worker checkout and
+submit a new unique name. Local source/attempt refs retain objects for recovery.
+
+Publication is an ordinary fast-forward push. Git's receive-pack checks the
+advertised old ref atomically, so one worker cannot overwrite another's commits.
+After every attempt the command reads/fetches main and checks ancestry. An
+accepted-but-error response is successful only when remote history contains the
+candidate/source. Unreadable outcomes stop for reconciliation. Confirmed policy
+rejections stop without an alternative bypass. A confirmed competing fast-forward
+causes recomposition, bounded to three attempts; further contention returns a
+safe retry command. Retries never select a newer HEAD silently.
+
+Existing server policies and credential permissions are honored, not modified.
+A server requiring old admission checks may reject this command until its owner
+authorizes an appropriate policy change. This is an optional host policy, not a
+Susi/GitHub service dependency. No force option is used.
+
+This is cooperative fast-forward publication, not protection from administrators
+who rewrite or delete main. Missing main at observation stops; deletion between
+observation and push advertisement could permit ordinary Git to recreate it.
+An absolute no-recreation guarantee requires a remote guard. `status-main` can
+fetch missing objects for ancestry checks but never pushes or changes local refs.
 
 ## Snapshot now, qualify separately
 
@@ -74,15 +115,16 @@ requires investigation rather than selecting a different source under that name.
 The production gate still requires exact-tree Windows x86_64 and Linux x86_64
 qualification, security and license evidence, artifact identity, atomic promotion,
 health checks and rollback. A snapshot is **not** qualification or a release.
-Existing main integration still runs its current gates. This slice does not
-introduce a shortcut that accepts a caller-supplied “passed” receipt.
+The legacy `local-workflow ship` retains its old gates; the new `submit` path is
+the explicitly ungated development admission route. Neither produces a release
+attestation or accepts a caller-supplied "passed" qualification receipt.
 
-The agreed next layer is one logical Susi main publisher: compose ready agent
-commits with the latest main, run the required fast checks on that actual tree,
-publish only a fast-forward, and fetch/recompose/recheck after a competing main
-update. Release qualification works on the frozen snapshot without blocking
-agent development. Wiring that layer requires coordinated ownership of the
-existing `local-workflow` implementation; it is not switched on by this change.
+Main composition and snapshot recovery are implemented here. Automatic dual-host
+release qualification, qualified release-branch/tag publication, release merge
+orchestration and master-brain distillation are not implemented by this slice.
+The existing release tooling must still complete its full checks before any
+production promotion. New sessions can invoke this CLI directly; this change
+does not install a daemon, scheduled job or cross-laptop coordinator.
 
 ## Verification
 
@@ -92,8 +134,16 @@ The `local-snapshot` binary owns unit and real bare-Git integration tests. Run:
 cargo test --offline --locked -p xtask --bin local-snapshot
 ```
 
-Tests cover exact-source retries after main advances, fresh-clone adoption, ordinary tag replacement
-rejection, two simultaneous publishers, interrupted/uncertain push responses,
-conflicting intents and local branches, destination changes, and malformed input.
+Tests cover independent-clone main submissions, history-preserving composition,
+conflict refusal, exact-source retries, bounded contention, accepted-but-error
+and unreadable-main responses, fresh-clone snapshot adoption, tag replacement
+rejection, conflicting intents/branches, destination changes and malformed input.
 Fixtures have isolated Git configuration and never use real runtime homes or keys.
 Passing these focused tests is not a full workspace gate or production approval.
+
+Measured on native Windows x86_64 with pinned Rust 1.99.0: all 24 tests passed
+(75.32 seconds), strict binary clippy passed (1.356 seconds), native binary build
+passed (1.888 seconds), workspace format check passed (22.356 seconds), and the
+actual executable's help entrypoint passed. Linux publisher execution and full
+release qualification remain pending. The implementation adds no dependency;
+the existing xtask package still has its pre-existing dependency graph.

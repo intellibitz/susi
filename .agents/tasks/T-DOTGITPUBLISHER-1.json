@@ -1,7 +1,7 @@
 {
   "id": "T-DOTGITPUBLISHER-1",
-  "title": "Freeze portable Git release snapshots",
-  "goal": "Implement an exact-source snapshot publisher with durable retry evidence, safe concurrent publication and no GitHub dependency, without weakening existing main or production qualification gates.",
+  "title": "Publish portable development source",
+  "goal": "Follow the CEO's 2026-11-10 ungated-main direction with pinned committed source, history-preserving concurrent Git publication and frozen qualification snapshots. Retain full release qualification and add no GitHub service dependency.",
   "created_by": "dot-git-publisher",
   "created_unix": 1794317569,
   "state": "in_progress",
@@ -10,13 +10,22 @@
   "claimed_by": "dot-git-publisher",
   "deps": [],
   "scopes": [
+    "xtask/build.rs",
     "xtask/src/git_publish.rs",
     "xtask/src/bin/local-snapshot.rs",
     "docs/git-storage-publisher.md",
     ".agents/tasks/T-DOTGITPUBLISHER-1.json"
   ],
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--bin", "local-snapshot"]
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--features", "release-tooling", "--bin", "local-snapshot"]
   },
-  "checkpoint": "Isolated implementation candidate; 15 regression tests written but compilation/execution waits for the shared gate owner. Rustfmt passed. Independent source review found endpoint routing, complete-file sync and push URL parsing races; fixes and regressions are present but not yet executed. Native runtime import added; required xtask/build.rs local-snapshot entry remains blocked by another frozen claim. Main publisher wiring, workspace checks and production qualification are not claimed. Remote immutable snapshot uses a standard tag; release branch creation is local only because force flags are prohibited."
+  "checkpoint": "Native Windows candidate verified: 24 tests passed (75.32s harness, 77.686s outer), strict bin clippy -D warnings passed (1.356s), native build passed (1.888s), cargo fmt --all --check passed (22.356s), executable --help smoke passed. Independent source review completed. Real concurrent Git tests caught the incorrect-old-value CAS response; explicit regression now passes. Origin publication and configured legacy push-hook migration remain pending. No Linux publisher qualification, automatic dual-host release orchestration, release attestation or production promotion is claimed.",
+  "evidence": {
+    "toolchain": "Rust 1.99.0 x86_64-pc-windows-msvc",
+    "module_sha256": "d49aff61c1369bc5770ba7c2fd73392d7534fd303f7403f88d467c7ec220ac15",
+    "native_binary_sha256": "837595462f5d508246e8d925a8fa5fc87ff45860884d13a82d9a5c46f3b48cd5",
+    "tests_passed": 24,
+    "tests_failed": 0,
+    "tests_ignored": 0
+  }
 }

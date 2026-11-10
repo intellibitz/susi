@@ -1,4 +1,4 @@
-//! Portable, dependency-free snapshot publication. No main push or qualification.
+//! Portable Git development submissions and frozen qualification candidates.
 //!
 //! Git's ordinary tag push is create-only (without a force option). Local branch
 //! creation uses update-ref's old-object compare-and-swap. An immutable intent
@@ -10,6 +10,7 @@ use std::process::{Command, Output, Stdio};
 
 type Result<T> = std::result::Result<T, String>;
 const SCHEMA: &str = "susi-git-snapshot-v1";
+const MAIN_SCHEMA: &str = "susi-git-main-submission-v1";
 
 struct Git<'a> {
     root: &'a Path,
@@ -173,6 +174,10 @@ impl Git<'_> {
     }
 
     fn intent_path(&self, name: &str) -> Result<PathBuf> {
+        self.state_path("snapshots", name)
+    }
+
+    fn state_path(&self, area: &str, name: &str) -> Result<PathBuf> {
         valid_name(name)?;
         let common = self.text(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
         let common = PathBuf::from(common);
@@ -181,16 +186,21 @@ impl Git<'_> {
         }
         Ok(common
             .join("susi-publisher")
-            .join("snapshots")
+            .join(area)
             .join(format!("{name}.intent")))
     }
 
     fn ensure_branch(&self, intent: &Intent) -> Result<()> {
         let reference = intent.branch_ref();
-        let output = self.output(&["show-ref", "--verify", "--hash", &reference], None)?;
+        self.ensure_ref(&reference, &intent.commit)
+    }
+
+    fn ensure_ref(&self, reference: &str, commit: &str) -> Result<()> {
+        valid_oid(commit)?;
+        let output = self.output(&["show-ref", "--verify", "--hash", reference], None)?;
         if output.status.success() {
             let oid = String::from_utf8(output.stdout).map_err(|_| "invalid local branch")?;
-            if oid.trim() == intent.commit {
+            if oid.trim() == commit {
                 return Ok(());
             }
             return Err(
@@ -201,15 +211,68 @@ impl Git<'_> {
             return Err("cannot inspect local release branch".to_owned());
         }
         // No force: another writer wins instead of having its branch overwritten.
-        let zero = "0".repeat(intent.commit.len());
-        let result = self.output(&["update-ref", &reference, &intent.commit, &zero], None)?;
+        let zero = "0".repeat(commit.len());
+        let result = self.output(&["update-ref", reference, commit, &zero], None)?;
         if result.status.success() {
             return Ok(());
         }
-        if self.text(&["show-ref", "--verify", "--hash", &reference])? == intent.commit {
+        if self.text(&["show-ref", "--verify", "--hash", reference])? == commit {
             return Ok(());
         }
         Err("local release branch creation raced; no branch was overwritten".to_owned())
+    }
+
+    fn fetch_commit(&self, endpoint: &Endpoint, commit: &str) -> Result<()> {
+        valid_oid(commit)?;
+        self.text(&[
+            "fetch",
+            "--no-tags",
+            "--no-write-fetch-head",
+            "--recurse-submodules=no",
+            "--",
+            &endpoint.address,
+            commit,
+        ])?;
+        self.tree(commit)?;
+        Ok(())
+    }
+
+    fn ancestor(&self, ancestor: &str, descendant: &str) -> Result<bool> {
+        valid_oid(ancestor)?;
+        valid_oid(descendant)?;
+        let output = self.output(&["merge-base", "--is-ancestor", ancestor, descendant], None)?;
+        match output.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err("cannot verify Git ancestry".to_owned()),
+        }
+    }
+
+    fn compose(&self, base: &str, source: &str, name: &str) -> Result<String> {
+        if self.ancestor(base, source)? {
+            return Ok(source.to_owned());
+        }
+        let tree = self.text(&["merge-tree", "--write-tree", base, source])
+            .map_err(|_| "source conflicts with current main or has unrelated history; resolve in the agent worktree and submit a new name".to_owned())?;
+        valid_oid(&tree)?;
+        let message = format!("Susi development submission {name}\n\nUnqualified development main. Release qualification remains separate.\nSource: {source}\nMain-Base: {base}\nTask: LOCAL-{name}\n");
+        let output = self.output(
+            &["commit-tree", &tree, "-p", base, "-p", source, "-F", "-"],
+            Some(message.as_bytes()),
+        )?;
+        if !output.status.success() {
+            return Err(
+                "cannot create composed development commit; check Git author/signing configuration"
+                    .to_owned(),
+            );
+        }
+        let commit = String::from_utf8(output.stdout).map_err(|_| "invalid composed commit")?;
+        let commit = commit.trim().to_owned();
+        valid_oid(&commit)?;
+        if !self.ancestor(base, &commit)? || !self.ancestor(source, &commit)? {
+            return Err("composed candidate does not preserve both histories".to_owned());
+        }
+        Ok(commit)
     }
 }
 
@@ -318,6 +381,7 @@ fn parse_remote_ref(output: &str, reference: &str) -> Result<Option<String>> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Intent {
+    schema: &'static str,
     name: String,
     commit: String,
     tree: String,
@@ -327,14 +391,14 @@ struct Intent {
 impl Intent {
     fn render(&self) -> String {
         format!(
-            "{SCHEMA}\n{}\n{}\n{}\n{}\n",
-            self.name, self.commit, self.tree, self.endpoint
+            "{}\n{}\n{}\n{}\n{}\n",
+            self.schema, self.name, self.commit, self.tree, self.endpoint
         )
     }
 
     fn parse(text: &str, name: &str) -> Result<Self> {
         let fields: Vec<_> = text.lines().collect();
-        if fields.len() != 5 || fields[0] != SCHEMA || fields[1] != name || !text.ends_with('\n') {
+        if fields.len() != 5 || fields[1] != name || !text.ends_with('\n') {
             return Err("incomplete or invalid snapshot intent; refusing to guess".to_owned());
         }
         valid_name(name)?;
@@ -342,6 +406,11 @@ impl Intent {
             valid_oid(oid)?;
         }
         Ok(Self {
+            schema: match fields[0] {
+                SCHEMA => SCHEMA,
+                MAIN_SCHEMA => MAIN_SCHEMA,
+                _ => return Err("unknown publication intent schema".to_owned()),
+            },
             name: name.to_owned(),
             commit: fields[2].to_owned(),
             tree: fields[3].to_owned(),
@@ -478,8 +547,15 @@ fn publish(transport: &mut impl Transport, expected: &str) -> Publication {
 }
 
 pub fn run(root: &Path, args: &[String]) -> Result<String> {
+    const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-snapshot -- <submit|retry-main|status-main|cut|adopt|retry|status> <name>\nMain is unqualified development storage. Snapshots require separate release qualification.";
+    if args == ["--help"] {
+        return Ok(USAGE.to_owned());
+    }
+    if args.len() == 2 && matches!(args[0].as_str(), "submit" | "retry-main" | "status-main") {
+        return submit_main(root, &args[0], &args[1]);
+    }
     if args.len() != 2 || !matches!(args[0].as_str(), "cut" | "adopt" | "retry" | "status") {
-        return Err("usage: cargo run --offline --locked -p xtask --bin local-snapshot -- <cut|adopt|retry|status> <name>".to_owned());
+        return Err(USAGE.to_owned());
     }
     let name = &args[1];
     valid_name(name)?;
@@ -511,6 +587,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
             &commit,
         ])?;
         let intent = Intent {
+            schema: SCHEMA,
             name: name.to_owned(),
             tree: git.tree(&commit)?,
             commit,
@@ -526,6 +603,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
             ready_intent(&path, name)?
         }
     };
+    if intent.schema != SCHEMA {
+        return Err("expected a snapshot intent, not a main submission".to_owned());
+    }
     let endpoint = intent.validate(&git)?;
     let status = if args[0] == "status" {
         classify(git.remote_ref(&endpoint, &intent.tag_ref()), &intent.commit)
@@ -555,6 +635,192 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
         Publication::Conflict => Err(format!("remote snapshot name points elsewhere; left unchanged: {evidence}")),
         Publication::Unknown => Err(format!("publication outcome is unknown: {evidence}; check status before retrying, never select a new source")),
     }
+}
+
+fn submit_main(root: &Path, command: &str, name: &str) -> Result<String> {
+    valid_name(name)?;
+    let git = Git { root };
+    let path = git.state_path("submissions", name)?;
+    let intent = if command == "submit" {
+        if path.try_exists().map_err(|e| e.to_string())? {
+            return Err(
+                "submission name already reserved; use retry-main or status-main".to_owned(),
+            );
+        }
+        if !git
+            .text(&["status", "--porcelain", "--untracked-files=normal"])?
+            .is_empty()
+        {
+            return Err(
+                "commit the scoped source first; main submission never publishes uncommitted files"
+                    .to_owned(),
+            );
+        }
+        let commit = git.text(&["rev-parse", "--verify", "HEAD^{commit}"])?;
+        let intent = Intent {
+            schema: MAIN_SCHEMA,
+            name: name.to_owned(),
+            tree: git.tree(&commit)?,
+            commit,
+            endpoint: git.endpoint()?.digest,
+        };
+        store_intent(&path, &intent)?;
+        intent
+    } else if command == "status-main" {
+        read_intent(&path, name)?
+    } else {
+        ready_intent(&path, name)?
+    };
+    if intent.schema != MAIN_SCHEMA {
+        return Err("expected a main submission, not a snapshot intent".to_owned());
+    }
+    intent.validate(&git)?;
+    if command != "status-main" {
+        git.ensure_ref(
+            &format!("refs/susi-publisher/submissions/{name}/source"),
+            &intent.commit,
+        )?;
+    }
+    publish_main(
+        &mut GitMain {
+            git: &git,
+            intent: &intent,
+        },
+        &intent.commit,
+        name,
+        command == "status-main",
+    )
+}
+
+trait MainTransport {
+    fn observe(&mut self) -> Result<String>;
+    fn ancestor(&mut self, source: &str, head: &str) -> Result<bool>;
+    fn compose(&mut self, base: &str) -> Result<String>;
+    fn push(&mut self, candidate: &str) -> MainPush;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MainPush {
+    Accepted,
+    Raced,
+    Rejected,
+    Unknown,
+}
+
+struct GitMain<'a, 'b> {
+    git: &'a Git<'b>,
+    intent: &'a Intent,
+}
+
+impl MainTransport for GitMain<'_, '_> {
+    fn observe(&mut self) -> Result<String> {
+        let endpoint = self.intent.validate(self.git)?;
+        let head = self
+            .git
+            .remote_ref(&endpoint, "refs/heads/main")?
+            .ok_or("remote main is missing at observation; no push attempted")?;
+        self.git.fetch_commit(&endpoint, &head)?;
+        Ok(head)
+    }
+    fn ancestor(&mut self, source: &str, head: &str) -> Result<bool> {
+        self.git.ancestor(source, head)
+    }
+    fn compose(&mut self, base: &str) -> Result<String> {
+        let candidate = self
+            .git
+            .compose(base, &self.intent.commit, &self.intent.name)?;
+        self.git.ensure_ref(
+            &format!(
+                "refs/susi-publisher/submissions/{}/attempts/{candidate}",
+                self.intent.name
+            ),
+            &candidate,
+        )?;
+        Ok(candidate)
+    }
+    fn push(&mut self, candidate: &str) -> MainPush {
+        let Ok(endpoint) = self.intent.validate(self.git) else {
+            return MainPush::Rejected;
+        };
+        let refspec = format!("{candidate}:refs/heads/main");
+        let result = self.git.output(
+            &[
+                "push",
+                "--porcelain",
+                "--no-follow-tags",
+                "--recurse-submodules=no",
+                "--",
+                &endpoint.address,
+                &refspec,
+            ],
+            None,
+        );
+        let Ok(output) = result else {
+            return MainPush::Unknown;
+        };
+        if output.status.success() {
+            return MainPush::Accepted;
+        }
+        let status = String::from_utf8_lossy(&output.stdout);
+        rejected_main_push(&status)
+    }
+}
+
+fn rejected_main_push(status: &str) -> MainPush {
+    let rejection = status.lines().find(|line| line.starts_with("!\t"));
+    match rejection {
+        Some(line)
+            if (line.contains("[rejected]")
+                && (line.contains("(fetch first)") || line.contains("(non-fast-forward)")))
+                || (line.contains("[remote rejected]")
+                    && (line.contains("(failed to update ref)")
+                        || line.contains("(incorrect old value provided)"))) =>
+        {
+            MainPush::Raced
+        }
+        Some(_) => MainPush::Rejected,
+        None => MainPush::Unknown,
+    }
+}
+
+fn publish_main(
+    transport: &mut impl MainTransport,
+    source: &str,
+    name: &str,
+    status_only: bool,
+) -> Result<String> {
+    for _ in 0..3 {
+        let base = transport.observe()?;
+        if transport.ancestor(source, &base)? {
+            return Ok(format!("Development source {source} is verified on main at {base}. Main is unqualified; no release was created."));
+        }
+        if status_only {
+            return Err(format!("development source {source} is not yet on main; retry-main {name} preserves the original source"));
+        }
+        let candidate = transport.compose(&base)?;
+        // Ordinary fast-forward only. Git receive-pack CAS checks the advertised
+        // old tip. Competing source can never be discarded by this command.
+        let pushed = transport.push(&candidate);
+        let observed = transport.observe()
+            .map_err(|_| format!("main publication outcome is unknown for {candidate}; use status-main {name} before retrying"))?;
+        if transport.ancestor(&candidate, &observed)? || transport.ancestor(source, &observed)? {
+            return Ok(format!("Development source {source} is verified on main at {observed}; composed candidate {candidate}. Main is unqualified; no release was created."));
+        }
+        match pushed {
+            MainPush::Rejected => return Err(format!("main push was rejected; resolve authentication or server policy without bypassing it, then retry-main {name}")),
+            MainPush::Unknown => return Err(format!("main publication outcome is unknown for {candidate}; use status-main {name} before retrying")),
+            MainPush::Accepted => return Err(format!("main changed unexpectedly after accepted push {candidate}; inspect before retry-main {name}")),
+            MainPush::Raced => {},
+        }
+        if observed == base || !transport.ancestor(&base, &observed)? {
+            return Err(format!("main race did not produce a verified fast-forward advance; inspect before retry-main {name}"));
+        }
+        // A verified competing update moved main. Recompose rather than force,
+        // with a bounded loop so one caller cannot monopolize a busy publisher.
+    }
+    Err(format!(
+        "main advanced during three publication attempts; source is preserved, retry-main {name}"
+    ))
 }
 
 #[cfg(test)]
@@ -668,6 +934,7 @@ mod tests {
     #[test]
     fn intent_requires_complete_exact_evidence() {
         let intent = Intent {
+            schema: SCHEMA,
             name: "rc1".into(),
             commit: A.into(),
             tree: B.into(),
@@ -859,6 +1126,7 @@ mod tests {
         let repo = Repo::new();
         let path = repo.git().intent_path("rc1").unwrap();
         let original = Intent {
+            schema: SCHEMA,
             name: "rc1".into(),
             commit: A.into(),
             tree: B.into(),
@@ -882,6 +1150,7 @@ mod tests {
         let second = repo.commit("two");
         let endpoint = git.endpoint().unwrap();
         let intents = [first, second].map(|commit| Intent {
+            schema: SCHEMA,
             name: "race".into(),
             tree: git.tree(&commit).unwrap(),
             commit,
@@ -982,6 +1251,7 @@ mod tests {
         let path = repo.git().intent_path("rc1").unwrap();
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let intent = Intent {
+            schema: SCHEMA,
             name: "rc1".into(),
             commit: A.into(),
             tree: B.into(),
@@ -1028,5 +1298,261 @@ mod tests {
             .contains("push URL rewrite"));
         assert!(matching_push_rewrite("key with spaces\nprefix\0", "prefix/suffix").unwrap());
         assert!(matching_push_rewrite("incomplete record", "prefix").is_err());
+    }
+
+    #[test]
+    fn main_submission_and_retry_pin_the_committed_source() {
+        let repo = Repo::new();
+        let source = repo.commit("agent source");
+        assert!(repo
+            .run("submit", "main-one")
+            .unwrap()
+            .contains("Main is unqualified"));
+        let intent = read_intent(
+            &repo.git().state_path("submissions", "main-one").unwrap(),
+            "main-one",
+        )
+        .unwrap();
+        assert_eq!(intent.schema, MAIN_SCHEMA);
+        assert_eq!(intent.commit, source);
+        let newer = repo.commit("not submitted");
+        assert!(repo.run("retry-main", "main-one").is_ok());
+        assert!(repo.run("status-main", "main-one").is_ok());
+        let remote = repo
+            .git()
+            .remote_ref(&repo.git().endpoint().unwrap(), "refs/heads/main")
+            .unwrap()
+            .unwrap();
+        assert_eq!(remote, source);
+        assert!(!repo.git().ancestor(&newer, &remote).unwrap());
+    }
+
+    #[test]
+    fn divergent_main_is_composed_without_touching_the_worker_checkout() {
+        let repo = Repo::new();
+        let base = repo.git().text(&["rev-parse", "HEAD"]).unwrap();
+        let remote = repo.commit("remote source");
+        repo.git().text(&["push", "origin", "main"]).unwrap();
+        repo.git().text(&["checkout", "--detach", &base]).unwrap();
+        fs::write(repo.work.join("agent.txt"), "worker change").unwrap();
+        repo.git().text(&["add", "agent.txt"]).unwrap();
+        repo.git().text(&["commit", "-m", "worker source"]).unwrap();
+        let source = repo.git().text(&["rev-parse", "HEAD"]).unwrap();
+        repo.run("submit", "composed").unwrap();
+        let published = repo
+            .git()
+            .remote_ref(&repo.git().endpoint().unwrap(), "refs/heads/main")
+            .unwrap()
+            .unwrap();
+        assert!(repo.git().ancestor(&remote, &published).unwrap());
+        assert!(repo.git().ancestor(&source, &published).unwrap());
+        assert_eq!(
+            repo.git()
+                .text(&["show", &format!("{published}:source.txt")])
+                .unwrap(),
+            "remote source"
+        );
+        assert_eq!(
+            repo.git()
+                .text(&["show", &format!("{published}:agent.txt")])
+                .unwrap(),
+            "worker change"
+        );
+        assert_eq!(repo.git().text(&["rev-parse", "HEAD"]).unwrap(), source);
+        assert!(repo
+            .git()
+            .text(&["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn main_conflicts_and_dirty_sources_never_publish() {
+        let repo = Repo::new();
+        let base = repo.git().text(&["rev-parse", "HEAD"]).unwrap();
+        let remote = repo.commit("remote edit");
+        repo.git().text(&["push", "origin", "main"]).unwrap();
+        repo.git().text(&["checkout", "--detach", &base]).unwrap();
+        repo.commit("conflicting worker edit");
+        assert!(repo
+            .run("submit", "conflict")
+            .unwrap_err()
+            .contains("conflicts"));
+        assert_eq!(
+            repo.git()
+                .remote_ref(&repo.git().endpoint().unwrap(), "refs/heads/main")
+                .unwrap(),
+            Some(remote)
+        );
+        fs::write(repo.work.join("uncommitted.txt"), "not committed").unwrap();
+        assert!(repo
+            .run("submit", "dirty")
+            .unwrap_err()
+            .contains("commit the scoped source"));
+        assert!(!repo
+            .git()
+            .state_path("submissions", "dirty")
+            .unwrap()
+            .exists());
+    }
+
+    #[test]
+    fn concurrent_main_submissions_preserve_both_workers() {
+        let repo = Repo::new();
+        let endpoint = repo.git().endpoint().unwrap();
+        let mut workers = Vec::new();
+        for name in ["worker-a", "worker-b"] {
+            let work = repo.root.join(name);
+            repo.git()
+                .text(&[
+                    "clone",
+                    "--no-checkout",
+                    &endpoint.address,
+                    work.to_str().unwrap(),
+                ])
+                .unwrap();
+            let git = Git { root: &work };
+            git.text(&["config", "user.name", "Snapshot Test"]).unwrap();
+            git.text(&["config", "user.email", "snapshot@test.invalid"])
+                .unwrap();
+            git.text(&["config", "commit.gpgsign", "false"]).unwrap();
+            git.text(&["config", "core.hooksPath", ".no-test-hooks"])
+                .unwrap();
+            git.text(&["checkout", "-b", name, "origin/main"]).unwrap();
+            fs::write(work.join(format!("{name}.txt")), name).unwrap();
+            git.text(&["add", "."]).unwrap();
+            git.text(&["commit", "-m", name]).unwrap();
+            let source = git.text(&["rev-parse", "HEAD"]).unwrap();
+            workers.push((work, name, source));
+        }
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = workers
+                .iter()
+                .map(|(work, name, _)| {
+                    scope.spawn(move || run(work, &["submit".into(), (*name).into()]))
+                })
+                .collect();
+            for handle in handles {
+                handle.join().unwrap().unwrap();
+            }
+        });
+        let published = repo
+            .git()
+            .remote_ref(&endpoint, "refs/heads/main")
+            .unwrap()
+            .unwrap();
+        repo.git().fetch_commit(&endpoint, &published).unwrap();
+        for (_, name, source) in workers {
+            assert!(repo.git().ancestor(&source, &published).unwrap());
+            assert_eq!(
+                repo.git()
+                    .text(&["show", &format!("{published}:{name}.txt")])
+                    .unwrap(),
+                name
+            );
+        }
+    }
+
+    struct FakeMain {
+        observations: VecDeque<Result<String>>,
+        pushes: usize,
+        result: MainPush,
+    }
+    impl MainTransport for FakeMain {
+        fn observe(&mut self) -> Result<String> {
+            self.observations.pop_front().unwrap()
+        }
+        fn ancestor(&mut self, source: &str, head: &str) -> Result<bool> {
+            Ok(source == head
+                || (source.starts_with("base") && head.starts_with("base") && source < head))
+        }
+        fn compose(&mut self, _: &str) -> Result<String> {
+            Ok("candidate".into())
+        }
+        fn push(&mut self, _: &str) -> MainPush {
+            self.pushes += 1;
+            self.result
+        }
+    }
+
+    #[test]
+    fn main_accepted_but_error_is_reconciled_without_another_push() {
+        let mut transport = FakeMain {
+            observations: [Ok("base".into()), Ok("candidate".into())].into(),
+            pushes: 0,
+            result: MainPush::Unknown,
+        };
+        assert!(publish_main(&mut transport, "source", "operation", false).is_ok());
+        assert_eq!(transport.pushes, 1);
+    }
+
+    #[test]
+    fn main_unreadable_readback_stops_with_unknown_outcome() {
+        let mut transport = FakeMain {
+            observations: [Ok("base".into()), Err("offline".into())].into(),
+            pushes: 0,
+            result: MainPush::Unknown,
+        };
+        assert!(publish_main(&mut transport, "source", "operation", false)
+            .unwrap_err()
+            .contains("outcome is unknown"));
+        assert_eq!(transport.pushes, 1);
+    }
+
+    #[test]
+    fn main_repeated_races_stop_after_three_attempts() {
+        let mut transport = FakeMain {
+            observations: ["base1", "base2", "base2", "base3", "base3", "base4"]
+                .map(|s| Ok(s.into()))
+                .into(),
+            pushes: 0,
+            result: MainPush::Raced,
+        };
+        assert!(publish_main(&mut transport, "source", "operation", false)
+            .unwrap_err()
+            .contains("three publication attempts"));
+        assert_eq!(transport.pushes, 3);
+    }
+
+    #[test]
+    fn main_rejected_push_and_status_never_loop() {
+        let mut rejected = FakeMain {
+            observations: [Ok("base".into()), Ok("base".into())].into(),
+            pushes: 0,
+            result: MainPush::Rejected,
+        };
+        assert!(publish_main(&mut rejected, "source", "operation", false)
+            .unwrap_err()
+            .contains("was rejected"));
+        assert_eq!(rejected.pushes, 1);
+        let mut status = FakeMain {
+            observations: [Ok("base".into())].into(),
+            pushes: 0,
+            result: MainPush::Unknown,
+        };
+        assert!(publish_main(&mut status, "source", "operation", true).is_err());
+        assert_eq!(status.pushes, 0);
+    }
+
+    #[test]
+    fn git_porcelain_cas_races_are_distinct_from_policy_rejections() {
+        for reason in [
+            "[rejected] (fetch first)",
+            "[rejected] (non-fast-forward)",
+            "[remote rejected] (failed to update ref)",
+            "[remote rejected] (incorrect old value provided)",
+        ] {
+            assert_eq!(
+                rejected_main_push(&format!("!\tcommit:refs/heads/main\t{reason}\n")),
+                MainPush::Raced
+            );
+        }
+        assert_eq!(
+            rejected_main_push(
+                "!\tcommit:refs/heads/main\t[remote rejected] (protected branch hook declined)\n"
+            ),
+            MainPush::Rejected
+        );
+        assert_eq!(rejected_main_push("connection lost"), MainPush::Unknown);
     }
 }
