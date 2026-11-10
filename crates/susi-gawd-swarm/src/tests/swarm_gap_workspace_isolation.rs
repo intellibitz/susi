@@ -13,7 +13,6 @@ use crate::writer_isolation::{FoldOutcome, WriterIsolation};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -57,20 +56,25 @@ fn scoped_tool(name: &str, args: &Value, workspace: &Path) -> EaiResult<String> 
             "test exec_command refused a path outside the worker scope",
         ));
     }
-    let output = Command::new("sh")
-        .args(["-c", command])
-        .current_dir(workspace)
-        .output()
-        .map_err(|error| EaiError::process(format!("test exec_command: {error}")))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    } else {
-        Err(EaiError::process(format!(
-            "test exec_command exited {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        )))
+    // This injected provider implements only the four model fixture commands.
+    // Actual writes still occur in the workspace handed down by the production
+    // DAG. No shell is needed to exercise admission, intent persistence, private
+    // scopes, conflict detection, folding, or completion truth gates.
+    for (path, content) in [
+        ("left.txt", "left\n"),
+        ("right.txt", "right\n"),
+        ("shared.txt", "node-zero\n"),
+        ("shared.txt", "node-one\n"),
+    ] {
+        let script = format!("printf '{content}' > {path}");
+        let expected = format!("sh -c '{}'", script.replace('\'', "'\\''"));
+        if command == expected {
+            std::fs::write(workspace.join(path), content)
+                .map_err(|error| EaiError::filesystem(format!("test scoped write: {error}")))?;
+            return Ok(String::new());
+        }
     }
+    Err(EaiError::protocol("unsupported test exec_command"))
 }
 
 fn backends() -> (DagModelGenerator, DagToolExecutor) {
@@ -234,5 +238,45 @@ fn swarm_gap_workspace_isolation_scoped_tool_rejects_unknown_tool_and_parent_esc
         &workspace
     )
     .is_err());
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[test]
+fn swarm_gap_workspace_isolation_scoped_tool_writes_exact_bytes_and_rejects_other_commands() {
+    let workspace = temp_dir("tool-writes");
+    for (path, content) in [
+        ("left.txt", "left\n"),
+        ("right.txt", "right\n"),
+        ("shared.txt", "node-zero\n"),
+        ("shared.txt", "node-one\n"),
+    ] {
+        let script = format!("printf '{content}' > {path}");
+        let command = format!("sh -c '{}'", script.replace('\'', "'\\''"));
+        scoped_tool(
+            "exec_command",
+            &serde_json::json!({"command": command}),
+            &workspace,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(workspace.join(path)).unwrap(),
+            content.as_bytes()
+        );
+    }
+    for command in [
+        "echo unsupported",
+        "printf 'escape' > ../escape.txt",
+        "printf 'escape' > /escape.txt",
+        "printf 'escape' > C:\\escape.txt",
+        "printf 'escape' > ..\\escape.txt",
+    ] {
+        assert!(scoped_tool(
+            "exec_command",
+            &serde_json::json!({"command": command}),
+            &workspace
+        )
+        .is_err());
+    }
+    assert!(scoped_tool("exec_command", &serde_json::json!({}), &workspace).is_err());
     let _ = std::fs::remove_dir_all(workspace);
 }

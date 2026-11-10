@@ -1,0 +1,36 @@
+{
+  "id": "T-DOTSWARMFIXTURES20261110-1",
+  "title": "Make swarm fixtures native",
+  "goal": "Remove Unix-shell prerequisites from injected DAG workspace fixtures and exercise real native Windows descendant cancellation with positive, creation-time-bound process liveness and owned-handle cleanup. Preserve production isolation, conflict, and cancellation assertions.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "dotswarmfixtures20261110",
+  "native_worker": "dotswarmfixtures20261110",
+  "created_by": "dotswarmfixtures20261110",
+  "created_unix": 1794306734,
+  "size": "S",
+  "deps": [],
+  "scope": [
+    ".agents/tasks/t-dotswarmfixtures20261110-1.json",
+    "crates/susi-gawd-swarm/src/tests/swarm_gap_real_cancellation.rs",
+    "crates/susi-gawd-swarm/src/tests/swarm_gap_workspace_isolation.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-dotswarmfixtures20261110-1.json",
+    "crates/susi-gawd-swarm/src/tests/swarm_gap_real_cancellation.rs",
+    "crates/susi-gawd-swarm/src/tests/swarm_gap_workspace_isolation.rs"
+  ],
+  "acceptance": "All susi-gawd-swarm library tests pass on native Windows without sh/ps/kill in PATH; both persisted DAG mutation cases preserve exact bytes and conflict evidence, and the cancellation regression observes a live identified descendant become exited through the real production runner.",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "progress": "Original failures reproduced: workspace fixtures 3 passed, 2 failed; cancellation 0 passed, 1 failed. Injected native filesystem backend: 6 workspace tests passed. Stronger native descendant regression exposed a real production termination-order defect and remains failing pending the separate production repair. No test was skipped or weakened. Formatting and affected-crate strict Clippy passed."
+}
