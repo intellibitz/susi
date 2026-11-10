@@ -11,20 +11,21 @@ Windows uses the existing OS ICU ABI and Unicode 15.1 contract. Linux does not
 link ICU. At the first Unicode operation it loads the newest qualified OS ICU
 present in a standard absolute system library directory (the same directory
 policy as the vendored IDNA and regex adapters) and resolves its `_<major>`
-C symbols. The qualified Linux contracts are ICU 76 with Unicode 16.0 (Debian 13), ICU 74
-with Unicode 15.1 (Ubuntu 24.04 LTS), and ICU 72 with Unicode 15.0 (Debian 12
-Bookworm). The selected library must report exactly its recorded Unicode
+C symbols. The Linux contracts are ICU 78 with Unicode 17.0, ICU 76 with
+Unicode 16.0 (Debian 13), ICU 74 with Unicode 15.1 (Ubuntu 24.04 LTS), and
+ICU 72 with Unicode 15.0 (Debian 12 Bookworm). The selected library must report exactly its recorded Unicode
 version; a host with none stops with a message naming the qualified libraries.
 On Linux `char::UNICODE_VERSION` reports 15.0.0, the oldest qualified
 repertoire (Windows reports 15.1.0). No ICU code or Unicode tables are copied into the
 distribution, and shipped executables carry no ICU DT_NEEDED entry. The
 consumer test reads `/proc/self/maps` to identify the ICU this process loaded
 and verifies its repertoire, normalization-sensitive case conversion,
-threading and unwinding. Other ICU majors require adding a contract to
-`linux_icu::QUALIFIED` and running the consumer against that library.
+threading, simultaneous first use and unwinding. Other ICU majors require
+differential review before adding a contract to `linux_icu::QUALIFIED`, then
+running the consumer against a freshly built private standard library.
 
 Prerequisites are the pinned compiler with rust-src, a C compiler driver and
-LLD, system ICU 76, 74, or 72, and system OpenSSL 3 development headers/shared libraries.
+LLD, system ICU 78, 76, 74, or 72, and system OpenSSL 3 development headers/shared libraries.
 On x86_64 Rust supplies LLD; aarch64 needs a native installed LLD. Dependency
 provisioning happens before the offline native build. Retain toolchain/package
 caches in the cloud snapshot; do not rebuild the full workspace in install or
@@ -32,7 +33,11 @@ publication scripts.
 
 `cargo local-release prepare-sysroot` authenticates the upstream sources,
 executes the tracked builder, inventories target archives, and runs the consumer
-with ordinary stable rustc. `cargo local-build debug` uses that sysroot for an
+with ordinary stable rustc. Linux cache hits recompile and execute this consumer
+against the admitted archives, then recheck source identity and archive hashes:
+OS ICU can change without changing the source/compiler cache key. Failed
+consumer checks fail admission and retain their private diagnostic output.
+`cargo local-build debug` uses that sysroot for an
 isolated development build. Neither command qualifies or promotes production.
 Linux archive handles and pre/post hashes detect mutation; unlike Windows read
 handles, they do not provide mandatory write exclusion.
@@ -57,3 +62,28 @@ Dependent agent changes can be integrated together with `cargo local-workflow
 integrate <name> [name ...]`. Each source retains its scope guard; the merged
 tree runs the full gates once, and all receipts are published in one Git
 transaction. Failed verification keeps every reservation and candidate.
+
+## ICU 78 differential audit
+
+`qualify_linux.rs` is an audit-only executable, not a shipped runtime input.
+Compile it with the unchanged pinned Rust 1.99.0 compiler and stock sysroot:
+
+```text
+RUSTC_BOOTSTRAP=1 rustc +1.99.0 --edition 2021 -O toolchain/windows-stdlib/qualify_linux.rs -o /private/audit/qualify-linux
+/private/audit/qualify-linux
+```
+
+Bootstrap is restricted to this stock-internals audit; the product consumer
+continues to use ordinary stable rustc. The audit requires actual ICU 78 and
+stock Unicode 17. It compares all 1,112,064 Unicode scalars, all eleven replaced
+properties, and lower/upper/title/fold mappings, including conversion bounds.
+It fails on every mismatch or panic, without an accepted mismatch count. Stock
+ASCII and Cn table-domain fast paths are evaluated through their public caller
+contracts rather than calling a partial table outside its intended domain.
+The existing Windows `qualify.rs` and its OS-specific measurements are separate.
+
+An ICU 78 pass on a rolling distribution is host evidence, not a portable Linux
+release baseline. Final ELF/link-map/license checks, actual required GLIBC symbol
+versions, CPU requirements, and oldest-supported-distribution execution remain
+mandatory for the final shipped artifact. Weak GLIBC imports are not hard
+minimum-version requirements. No ICU/data DT_NEEDED entry is admitted.

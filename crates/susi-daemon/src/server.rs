@@ -904,6 +904,15 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                     (k.starts_with("SUSI_") || k.starts_with("XDG_"))
                         .then(|| format!("--setenv={k}={}", v.to_string_lossy()))
                 }));
+            // Provider keys ride in an owner-only file, never on argv
+            // (`provider_key_env_body`); it is removed once the daemon is up.
+            let key_env_file = substrate_home.join(DAEMON_KEY_ENV_FILE);
+            if write_provider_key_env_file(&key_env_file) {
+                run.arg(format!(
+                    "--property=EnvironmentFile=-{}",
+                    key_env_file.display()
+                ));
+            }
             let spawned_via_systemd = run
                 .arg(format!(
                     "--property=MemoryMax={}G",
@@ -933,8 +942,10 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                 if !Self::wait_for_host_contract(Duration::from_secs(10)) {
                     warn!("[SusiDaemon] spawned via systemd but host contract never came up");
                 }
+                let _ = fs::remove_file(&key_env_file);
                 return;
             }
+            let _ = fs::remove_file(&key_env_file);
         }
 
         #[cfg(unix)]
@@ -2543,6 +2554,76 @@ fn udp_port_bound(target: std::net::SocketAddr, wait: Duration) -> bool {
     }
 }
 
+/// File in the substrate home that carries provider keys into a
+/// `systemd-run` unit; it lives only until the daemon is up.
+#[cfg(target_os = "linux")]
+const DAEMON_KEY_ENV_FILE: &str = ".daemon-start.env";
+
+/// The `EnvironmentFile=` body that hands the caller's provider keys
+/// (`*_API_KEY`) to a `systemd-run` unit, or `None` when there are none.
+///
+/// A transient unit gets the user manager's environment, not the caller's,
+/// so a key exported in the shell that ran `susi start` never reached GEMI
+/// on Linux (the double-fork path inherits it). Keys go through a file, never
+/// `--setenv` on argv, where any local user could read them from
+/// `/proc/<pid>/cmdline`. A value systemd would parse differently (a quote,
+/// backslash or control character) is skipped by name, never written altered.
+#[cfg(any(target_os = "linux", test))]
+fn provider_key_env_body(vars: impl IntoIterator<Item = (String, String)>) -> Option<String> {
+    let mut keys: Vec<(String, String)> = vars
+        .into_iter()
+        .filter(|(name, value)| {
+            let named = name.len() > "_API_KEY".len()
+                && name.ends_with("_API_KEY")
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+            let plain = !value.is_empty()
+                && !value
+                    .chars()
+                    .any(|c| c.is_control() || matches!(c, '\'' | '"' | '\\'));
+            if named && !plain && !value.is_empty() {
+                warn!("[SusiDaemon] {name} not passed to the daemon: its value has a quote, backslash or control character");
+            }
+            named && plain
+        })
+        .collect();
+    if keys.is_empty() {
+        return None;
+    }
+    keys.sort();
+    Some(
+        keys.iter()
+            .map(|(name, value)| format!("{name}='{value}'\n"))
+            .collect(),
+    )
+}
+
+/// Write [`provider_key_env_body`] for this process to `path`, readable by
+/// the owner only. Returns whether the unit should read it.
+#[cfg(target_os = "linux")]
+fn write_provider_key_env_file(path: &Path) -> bool {
+    use std::os::unix::fs::OpenOptionsExt;
+    let vars = std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)));
+    let Some(body) = provider_key_env_body(vars) else {
+        return false;
+    };
+    let _ = fs::remove_file(path);
+    let written = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .and_then(|mut file| file.write_all(body.as_bytes()));
+    if let Err(error) = written {
+        warn!("[SusiDaemon] provider keys not passed to the daemon: {error}");
+        let _ = fs::remove_file(path);
+        return false;
+    }
+    true
+}
+
 /// A clone of a daemon socket that no child process inherits.
 ///
 /// On Windows `try_clone` duplicates a socket through `WSADuplicateSocketW`,
@@ -2599,6 +2680,30 @@ fn forbid_inheritance(socket: &impl std::os::windows::io::AsRawSocket) -> std::i
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_keys_reach_a_systemd_unit_through_a_quoted_env_file() {
+        let vars = [
+            ("MOONSHOT_API_KEY", "sk-moon_2.x"),
+            ("DEEPSEEK_API_KEY", "sk-deep"),
+            ("PATH", "/usr/bin"),
+            ("GITHUB_TOKEN", "ghp-not-a-provider-key"),
+            ("_API_KEY", "nameless"),
+            ("lower_api_key", "lowercase"),
+            ("EMPTY_API_KEY", ""),
+            ("QUOTED_API_KEY", "it's"),
+            ("NEWLINE_API_KEY", "a\nB_API_KEY=injected"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        assert_eq!(
+            provider_key_env_body(vars).as_deref(),
+            Some("DEEPSEEK_API_KEY='sk-deep'\nMOONSHOT_API_KEY='sk-moon_2.x'\n")
+        );
+        assert_eq!(
+            provider_key_env_body([("PATH".to_string(), "/bin".to_string())]),
+            None
+        );
+    }
 
     /// The daemon half of [`a_dead_daemons_ports_are_free_while_its_child_lives`]:
     /// binds a TCP listener and a UDP socket, serves clones of them the way

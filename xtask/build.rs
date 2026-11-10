@@ -5,6 +5,7 @@ fn main() -> std::io::Result<()> {
         "push-policy",
         "local-release",
         "ci-release-only",
+        "check-gmcp-roadmap",
         "susi-dev",
         "local-snapshot",
     ])

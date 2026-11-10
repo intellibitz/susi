@@ -162,14 +162,6 @@ impl World {
         }
     }
 
-    fn origin_advances(&self) {
-        git(
-            &self.other,
-            &["commit", "--allow-empty", "--quiet", "-m", "newer"],
-        );
-        git(&self.other, &["push", "--quiet", "origin", "HEAD:main"]);
-    }
-
     fn commit_in_worktree(&self, envs: &[(&str, &str)]) -> i32 {
         run(
             &self.wt,
@@ -239,9 +231,11 @@ impl Drop for World {
 const FG: (&str, &str) = ("SUSI_SYNC_FOREGROUND", "1");
 
 #[test]
-fn hooks_sync_primary_is_wired_into_every_git_activity_hook() {
+fn hooks_sync_primary_is_wired_into_post_activity_hooks() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join(".githooks");
-    for h in ["post-commit", "post-merge", "post-checkout", "pre-push"] {
+    // Source publication must not mutate or synchronize the checkout as a prerequisite.
+    // Native push-policy tests cover publication separately.
+    for h in ["post-commit", "post-merge", "post-checkout"] {
         let text = std::fs::read_to_string(repo.join(h)).unwrap();
         assert!(text.contains("sync-primary"), "{h} must call sync-primary");
         // Windows has no exec bit — Git for Windows runs hooks via sh anyway.

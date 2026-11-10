@@ -1,0 +1,35 @@
+{
+  "id": "T-DOTDEVSETUP-1",
+  "title": "Repair native Windows development setup",
+  "goal": "Configure repository hooks and both existing merge drivers without launching a setup shell on Windows, preserving guarded best-effort setup and explicit failure/retry behavior.",
+  "created_by": "dot-dev-setup",
+  "created_unix": 1794316561,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-dev-setup",
+  "claimed_by": "dot-dev-setup",
+  "deps": [],
+  "scopes": [
+    "xtask/src/main.rs",
+    ".agents/tasks/T-DOTDEVSETUP-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "xtask"
+    ]
+  },
+  "checkpoint": "Windows development verification: original regression failed 0/1 on base 956332c4de6d30acb560ffb615d8b611a7c8a45b (main.rs SHA256 ca86d92a425133101cdcf551ed666d7e4133bb9a3afda6fa3a5be2d4ede159ed). Fixed focused tests pass 5/5; complete xtask main binary passes 62/62; xtask all-target check and clippy -D warnings plus workspace fmt pass. Standalone Rust 2021 root guards pass 3/2/5 as development feedback only. Full composed Cargo/architecture gates remain pending. Existing ledger/roadmap driver commands and their shell/jq execution dependencies are unchanged. Ready for independent review; no integration or publication.",
+  "admission_correction": {
+    "previous_id": "T-DOT-DEVSETUP-1",
+    "preserved_commit": "0858c5d72cf7d5d4551b598105954639215fe352",
+    "reason": "Native task admission requires exactly T-<ASCII uppercase-or-digit agent>-<digits>; the previous agent segment contained an extra hyphen.",
+    "outcome": "Corrected metadata only after the first composed admission stopped before tests. The reviewed setup source and its development evidence are unchanged. Composed admission and full gate remain pending."
+  }
+}

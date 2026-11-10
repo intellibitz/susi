@@ -58,6 +58,9 @@ pub struct RoutingSection {
     pub cooled: Vec<(String, u64)>,
     /// The local floor model that would serve a request now.
     pub chosen_local_model: Option<String>,
+    /// The model selected for routing (`selected_model_override.txt`),
+    /// local or cloud.
+    pub selected_model: Option<String>,
     /// GGUF files present in the model directories (names only: no load,
     /// no admission, no download).
     pub installed_local_models: Vec<String>,
@@ -421,6 +424,49 @@ fn read_brain(now: u64) -> BrainSection {
 }
 
 /// The user's explicit local model selection (`susi models select`), if any.
+/// Model ids served by a remote cloud endpoint: each endpoint's default, and
+/// every coding-model and frontier catalog entry whose engine is one.
+fn cloud_model_ids() -> Vec<String> {
+    use susi_gemi::models::{cloud, coding_models::CodingModelManager, frontier::FrontierManager};
+    let remote: Vec<_> = cloud::effective_inference_endpoints()
+        .into_iter()
+        .filter(|e| cloud::is_remote_cloud(&e.api_base))
+        .collect();
+    let on_cloud = |engine: &str| remote.iter().any(|e| e.name.eq_ignore_ascii_case(engine));
+    let mut ids: Vec<String> = remote.iter().map(|e| e.model.clone()).collect();
+    for def in CodingModelManager::catalog().unwrap_or_default() {
+        if on_cloud(&def.engine) {
+            ids.push(def.model);
+        }
+    }
+    for def in FrontierManager::catalog().unwrap_or_default() {
+        for variant in &def.variants {
+            let engine = if variant.engine.is_empty() {
+                &def.engine
+            } else {
+                &variant.engine
+            };
+            if on_cloud(engine) {
+                ids.push(variant.model.clone());
+            }
+        }
+        if on_cloud(&def.engine) {
+            ids.push(def.model);
+        }
+    }
+    ids
+}
+
+/// Whether `model` is a remote cloud endpoint's model, by its own id or the
+/// `<endpoint>-<model>` id GEMI lists it under. Case-insensitive.
+fn names_cloud_model(model: &str, cloud_models: &[String]) -> bool {
+    let model = model.to_ascii_lowercase();
+    cloud_models.iter().any(|cloud| {
+        let cloud = cloud.to_ascii_lowercase();
+        !cloud.is_empty() && (model == cloud || model.ends_with(&format!("-{cloud}")))
+    })
+}
+
 fn selected_local_model() -> Option<String> {
     std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("selected_model_override.txt"))
         .ok()
@@ -438,7 +484,13 @@ fn read_routing(now: u64) -> RoutingSection {
     // probes the GPU (nvidia-smi, ~2 s cold on Windows) and re-authenticates
     // publisher licenses over the network. The goal path still admits and
     // ranks models before any load.
-    let chosen_local_model = selected_local_model();
+    // The selection may name a cloud model (coding-model auto-prefer and
+    // `susi model frontier` write one); reporting that as the local model told
+    // the desktop a local model was installed when none was.
+    let selected_model = selected_local_model();
+    let chosen_local_model = selected_model
+        .clone()
+        .filter(|m| !names_cloud_model(m, &cloud_model_ids()));
     let installed_local_models = crate::host_views::opening_model_inventory(
         &susi_paths::SusiDirs::config_dir(),
         &susi_paths::SusiDirs::data_dir(),
@@ -449,6 +501,7 @@ fn read_routing(now: u64) -> RoutingSection {
         auto_switched_from: pref.auto_switched_from,
         cooled,
         chosen_local_model,
+        selected_model,
         installed_local_models,
         budget_label: cost::Budget::from_env().label(),
     }
@@ -764,6 +817,7 @@ pub fn measured_json(cwd: &Path, global_dir: &Path) -> std::io::Result<serde_jso
         "executable": { "path": executable, "sha256": sha256, "bytes": bytes },
         "daemon": { "running": status.daemon_pid.is_some(), "pid": status.daemon_pid },
         "local_model": status.routing.chosen_local_model,
+        "selected_model": status.routing.selected_model,
         "local_models_installed": status.routing.installed_local_models,
         "local_model_status": local_model_line(&status.routing),
         "missions_in_flight": status.missions.len(),
@@ -796,6 +850,17 @@ mod inline_tests {
 
         r.chosen_local_model = Some("qwen.gguf".into());
         assert_eq!(local_model_line(&r), "local model: qwen.gguf");
+    }
+
+    #[test]
+    fn a_cloud_selection_is_not_reported_as_the_local_model() {
+        let cloud = vec!["glm-4.6".to_string(), "kimi-k3".to_string(), String::new()];
+        assert!(names_cloud_model("glm-4.6", &cloud));
+        assert!(names_cloud_model("GLM-4.6", &cloud));
+        assert!(names_cloud_model("zhipu-glm-4.6", &cloud));
+        assert!(!names_cloud_model("qwen2.5:7b", &cloud));
+        assert!(!names_cloud_model("qwen.gguf", &cloud));
+        assert!(!names_cloud_model("glm-4.6-local.gguf", &cloud));
     }
 
     #[test]
@@ -841,6 +906,7 @@ mod inline_tests {
                 auto_switched_from: Some("anthropic".into()),
                 cooled: vec![("gemini".into(), 15)],
                 chosen_local_model: Some("local.gguf".into()),
+                selected_model: Some("local.gguf".into()),
                 installed_local_models: vec!["local.gguf".into()],
                 budget_label: "unlimited",
             },

@@ -1,6 +1,7 @@
 //! Native inference engines and the process-wide engine registry.
 
 use super::GemiEngine;
+use crate::models::local_ecosystem;
 use crate::susi_core::registry::DynamicServiceRegistry;
 use crate::susi_error::{EaiError, EaiResult};
 use std::sync::{Arc, OnceLock};
@@ -103,7 +104,7 @@ impl SusiGgufEngine {
                 return Ok(text.to_string());
             }
         }
-        let eco = crate::models::local_ecosystem::scan(&crate::models::local_ecosystem::HostProbe);
+        let eco = local_ecosystem::scan(&local_ecosystem::DetectOnlyProbe::default());
         for eng in eco.engines.iter().filter(|e| e.running) {
             if let Some(endpoint) = &eng.endpoint {
                 let model = selected_model

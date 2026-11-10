@@ -271,7 +271,7 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     assert!(gate.contains("clippy_args=(--locked --all-targets $lsel -- -D warnings)"));
     assert!(gate.contains("timed_step clippy cargo clippy \"$@\""));
     let hook = read(".githooks/pre-push");
-    assert!(hook.contains("cargo clippy --workspace --all-targets --locked -- -D warnings"));
+    assert!(!hook.contains("cargo clippy"));
     // Worktrees are seeded, by the scripts and by `workflow start` alike;
     // scripts/susi-worktree.sh is the stub for `workflow start` (Susi
     // Commercial Apps' dev workflow since the lean-core move), which seeds in
@@ -328,11 +328,7 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
         "sync must seed after the merge that may bring the seeding"
     );
     assert!(gate.contains("\"${BASH:-bash}\" \"$root/scripts/seed-target.sh\" \"$root\""));
-    assert!(
-        at(&hook, "scripts/seed-target.sh\" \"$top\"", "pre-push")
-            < at(&hook, "cargo clippy", "pre-push"),
-        "pre-push must seed before clippy"
-    );
+
     let shim_code: Vec<&str> = shim
         .lines()
         .filter(|line| !line.trim_start().starts_with('#'))
@@ -394,10 +390,6 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     // bare `bash` can be WSL's.
     for (path, needle) in [
         (
-            ".githooks/pre-push",
-            "\"${BASH:-bash}\" \"$top/scripts/seed-target.sh\"",
-        ),
-        (
             // The stub execs `workflow start` (susi-commercial), which seeds
             // in the background itself.
             "scripts/susi-worktree.sh",
@@ -412,30 +404,25 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     }
 }
 
-/// The pre-push hook lints what the finish gate lints, with the same command
-/// line, so its run is a cache hit. `--workspace` compiled every other crate's
-/// test targets too - a cold build the gate never needed - on every Rust push.
+/// Routine publication is transport safety only; qualification is separate.
 #[test]
-fn the_pre_push_hook_lints_the_gates_scoped_set_not_the_whole_workspace() {
+fn pre_push_uses_only_native_transport_policy() {
     let hook = read(".githooks/pre-push");
-    assert!(
-        hook.contains("ci-changed-crates.sh\" --dependents"),
-        "pre-push must resolve the changed crates and their dependents, as the gate does"
-    );
-    assert!(
-        hook.contains(
-            "cargo clippy --locked --all-targets $(printf ' -p %s' $LINT_PKGS) -- -D warnings"
-        ),
-        "the scoped lint must use the gate's exact command line, or it is a second compile"
-    );
-    let gate = read("scripts/parallel-workflow.sh");
-    assert!(
-        gate.contains("clippy_args=(--locked --all-targets $lsel -- -D warnings)")
-            && gate.contains("timed_step clippy cargo clippy \"$@\""),
-        "the gate's scoped lint changed; the hook must change with it so the run stays a cache hit"
-    );
+    assert!(hook.contains("exec push-policy"));
+    for forbidden in [
+        "workflow-guard",
+        "sync-primary",
+        "clippy",
+        "ci-branch-handoff",
+        "SUSI_RELEASE_PUSH",
+        "susi-commercial",
+    ] {
+        assert!(
+            !hook.contains(forbidden),
+            "legacy push prerequisite: {forbidden}"
+        );
+    }
 }
-
 /// Cargo resolves a relative `linker` in `.cargo/config.toml` to an absolute path
 /// inside the current worktree and passes it as `-C linker=...`, and that path is
 /// part of every unit's fingerprint: so no two worktrees could share a compiled
@@ -1758,11 +1745,7 @@ fn workflow_finish_and_merge_gate_skip_redundant_tests_compiles_and_network_trip
         "`check-hermetic-tests.sh` must skip `cargo test --doc` when `--test` filters integration test binaries \
          and retry failed tests alone (`NEXTEST_TEST_THREADS=1`) when parallel load causes a flake"
     );
-    let pre_push = read(".githooks/pre-push").replace("\r\n", "\n");
-    assert!(
-        pre_push.contains("SUSI_RELEASE_PUSH"),
-        "`.githooks/pre-push` must honor `SUSI_RELEASE_PUSH=1` after the release gate has already verified the tree"
-    );
+
     let sweep = read("scripts/kill-leftover-service-runs.sh").replace("\r\n", "\n");
     assert!(
         sweep.contains("tasklist.exe /FI \"IMAGENAME eq susi.exe\""),

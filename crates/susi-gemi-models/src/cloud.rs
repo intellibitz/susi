@@ -355,6 +355,10 @@ fn remap_retired_endpoint_model(
         ) => {
             endpoint.model = "gemini-3.6-flash".into();
         }
+        // Moonshot serves only kimi-* ids now (2026-11-10); moonshot-v1 calls all failed.
+        ("kimi" | "moonshot", model) if model.starts_with("moonshot-v1-") => {
+            endpoint.model = "kimi-k3".into();
+        }
         _ => {}
     }
 }
@@ -624,6 +628,14 @@ mod tests {
         };
         remap_retired_endpoint_model(&mut gemini);
         assert_eq!(gemini.model, "gemini-3.6-flash");
+
+        // A retired Moonshot id moves to the current Kimi model; a current one stays.
+        gemini.name = "Kimi".into();
+        for (old, new) in [("moonshot-v1-auto", "kimi-k3"), ("kimi-k3", "kimi-k3")] {
+            gemini.model = old.into();
+            remap_retired_endpoint_model(&mut gemini);
+            assert_eq!(gemini.model, new);
+        }
     }
 
     #[test]

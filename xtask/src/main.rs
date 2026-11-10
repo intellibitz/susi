@@ -269,7 +269,28 @@ fn detected_features_for_os(os: &str) -> Vec<String> {
     }
 }
 
-/// Best-effort: enable the repo's git hooks and ledger merge driver once per
+// Keep these values identical to scripts/setup-dev.sh. Windows configures Git
+// directly, without requiring a shell just to enable development setup. The
+// legacy merge drivers themselves still require their existing shell/jq tools.
+// Write hooks last: a failed driver configuration must not mark setup complete.
+const DEV_SETUP_CONFIG: [(&str, &str); 5] = [
+    (
+        "merge.ledger.name",
+        "union of appended .agents/evidence.json entries",
+    ),
+    ("merge.ledger.driver", "sh scripts/merge-ledger.sh %O %A %B"),
+    (
+        "merge.roadmap.name",
+        "per-vector merge of .agents/roadmap.json",
+    ),
+    (
+        "merge.roadmap.driver",
+        "sh scripts/merge-roadmap.sh %O %A %B",
+    ),
+    ("core.hooksPath", ".githooks"),
+];
+
+/// Best-effort: enable the repo's git hooks and both merge drivers once per
 /// clone (config is shared by every worktree) so parallel agents and users
 /// get the same pre-commit/pre-push gate without remembering to opt in.
 fn ensure_dev_setup() {
@@ -277,26 +298,54 @@ fn ensure_dev_setup() {
 }
 
 fn ensure_dev_setup_in(dir: &Path) {
-    let configured = Command::new("git")
-        .current_dir(dir)
-        .args(["config", "--get", "core.hooksPath"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == ".githooks")
-        .unwrap_or(false);
-    if configured || !dir.join("scripts/setup-dev.sh").is_file() {
-        return;
+    match dev_setup_in(dir) {
+        Ok(true) => println!("xtask: enabled git hooks + ledger/roadmap merge drivers."),
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!("xtask: could not configure development setup ({error}; skipping).")
+        }
     }
-    // On Windows ash may resolve to the WSL launcher (whose /bin/bash is absent);
-    // the repository's scripts are POSIX and run with Git's sh everywhere else.
-    let shell = if cfg!(windows) { "sh" } else { "bash" };
-    match Command::new(shell)
-        .current_dir(dir)
-        .arg("scripts/setup-dev.sh")
-        .status()
-    {
-        Ok(s) if s.success() => println!("xtask: enabled git hooks + ledger merge driver."),
-        Ok(_) | Err(_) => eprintln!("xtask: could not run scripts/setup-dev.sh (skipping)."),
+}
+
+fn dev_setup_in(dir: &Path) -> Result<bool, String> {
+    if !dir.join("scripts/setup-dev.sh").is_file() {
+        return Ok(false);
     }
+    let configured = DEV_SETUP_CONFIG.iter().all(|(key, value)| {
+        Command::new("git")
+            .current_dir(dir)
+            .args(["config", "--local", "--get", key])
+            .output()
+            .is_ok_and(|o| {
+                o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == *value
+            })
+    });
+    if configured {
+        return Ok(false);
+    }
+    if cfg!(windows) {
+        for (key, value) in DEV_SETUP_CONFIG {
+            let status = Command::new("git")
+                .current_dir(dir)
+                .args(["config", "--local", key, value])
+                .status()
+                .map_err(|error| format!("git config {key}: {error}"))?;
+            if !status.success() {
+                return Err(format!("git config {key}: {status}"));
+            }
+        }
+    } else {
+        // Preserve the existing POSIX setup script and its failure behavior.
+        let status = Command::new("bash")
+            .current_dir(dir)
+            .arg("scripts/setup-dev.sh")
+            .status()
+            .map_err(|error| format!("scripts/setup-dev.sh: {error}"))?;
+        if !status.success() {
+            return Err(format!("scripts/setup-dev.sh: {status}"));
+        }
+    }
+    Ok(true)
 }
 
 fn main() {
@@ -459,9 +508,10 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_xtask_bin_forward_command, detected_features_for_os, ensure_dev_setup_in,
-        requests_retired_backend, run_extension_watch_on_files, sync_workspace_version_and_badge,
-        with_detected_features, xtask_bin_subcommand,
+        build_xtask_bin_forward_command, detected_features_for_os, dev_setup_in,
+        ensure_dev_setup_in, requests_retired_backend, run_extension_watch_on_files,
+        sync_workspace_version_and_badge, with_detected_features, xtask_bin_subcommand,
+        DEV_SETUP_CONFIG,
     };
     use serde_json::Value;
     use std::process::Command;
@@ -537,32 +587,103 @@ mod tests {
     }
 
     fn hooks_path(dir: &std::path::Path) -> String {
+        git_config(dir, "core.hooksPath")
+    }
+
+    fn git_config(dir: &std::path::Path, key: &str) -> String {
         let out = Command::new("git")
             .current_dir(dir)
-            .args(["config", "--get", "core.hooksPath"])
+            .args(["config", "--local", "--get", key])
             .output()
             .unwrap();
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     }
 
     #[test]
-    fn dev_setup_runs_the_script_once_when_hooks_are_off() {
-        let dir = scratch_repo("on", "git config core.hooksPath .githooks\n");
+    fn dev_setup_configures_hooks_and_both_drivers_once() {
+        let dir = scratch_repo("on", include_str!("../../scripts/setup-dev.sh"));
         assert_eq!(hooks_path(&dir), "");
         ensure_dev_setup_in(&dir);
         assert_eq!(hooks_path(&dir), ".githooks");
+        for (key, value) in DEV_SETUP_CONFIG {
+            assert_eq!(git_config(&dir, key), value, "{key}");
+        }
+        let before = std::fs::read(dir.join(".git/config")).unwrap();
+        std::fs::write(dir.join(".git/config.lock"), "held by regression\n").unwrap();
         ensure_dev_setup_in(&dir); // already configured: no-op
+        assert!(!dev_setup_in(&dir).unwrap()); // must not try a locked write
+        assert_eq!(std::fs::read(dir.join(".git/config")).unwrap(), before);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn dev_setup_tolerates_a_failing_or_missing_script() {
         let dir = scratch_repo("fail", "exit 3\n");
+        // Windows configures Git directly; fail that real operation rather than
+        // requiring an unavailable shell to execute the POSIX failure fixture.
+        #[cfg(windows)]
+        std::fs::write(dir.join(".git/config.lock"), "held by regression\n").unwrap();
         ensure_dev_setup_in(&dir);
         assert_eq!(hooks_path(&dir), "");
+        assert!(dev_setup_in(&dir).is_err());
+        #[cfg(windows)]
+        std::fs::remove_file(dir.join(".git/config.lock")).unwrap();
         std::fs::remove_file(dir.join("scripts/setup-dev.sh")).unwrap();
         ensure_dev_setup_in(&dir);
+        assert_eq!(hooks_path(&dir), "");
+        assert!(!dev_setup_in(&dir).unwrap());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dev_setup_repairs_partial_configuration() {
+        let dir = scratch_repo("partial", include_str!("../../scripts/setup-dev.sh"));
+        assert!(Command::new("git")
+            .current_dir(&dir)
+            .args(["config", "--local", "core.hooksPath", ".githooks"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .current_dir(&dir)
+            .args(["config", "--local", "merge.ledger.driver", "stale-driver"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(dev_setup_in(&dir).unwrap());
+        for (key, value) in DEV_SETUP_CONFIG {
+            assert_eq!(git_config(&dir, key), value, "{key}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dev_setup_retries_after_git_configuration_is_unlocked() {
+        let dir = scratch_repo("retry", include_str!("../../scripts/setup-dev.sh"));
+        std::fs::write(dir.join(".git/config.lock"), "held by regression\n").unwrap();
+        assert!(dev_setup_in(&dir).is_err());
+        for (key, _) in DEV_SETUP_CONFIG {
+            assert_eq!(git_config(&dir, key), "", "{key}");
+        }
+        std::fs::remove_file(dir.join(".git/config.lock")).unwrap();
+        assert!(dev_setup_in(&dir).unwrap());
+        for (key, value) in DEV_SETUP_CONFIG {
+            assert_eq!(git_config(&dir, key), value, "{key}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dev_setup_native_values_match_the_legacy_script() {
+        let script = include_str!("../../scripts/setup-dev.sh");
+        for (key, value) in DEV_SETUP_CONFIG {
+            let quoted = format!("git config {key} \"{value}\"");
+            let plain = format!("git config {key} {value}");
+            assert!(
+                script.lines().any(|line| line == quoted || line == plain),
+                "native value for {key} drifted from scripts/setup-dev.sh"
+            );
+        }
     }
 
     #[test]

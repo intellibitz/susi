@@ -487,11 +487,32 @@ pub struct GateRecord {
     pub tests: Option<Counts>,
     pub log_sha256: Option<String>,
     pub binaries: Vec<BinaryResult>,
+    /// Present only for the typed complete-inventory protocol. Absent means
+    /// historical Cargo/nextest semantics, never an inferred binary run.
+    pub execution: Option<BinaryExecution>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BinaryExecution;
+
+impl BinaryExecution {
+    fn to_json(&self) -> Value {
+        json!({"schema":crate::test_binary_evidence::SCHEMA,
+            "doctest_gate":"doc-tests","runtime":"windows-native-v1"})
+    }
+
+    fn from_json(value: &Value) -> Result<Self> {
+        let expected = Self.to_json();
+        if value != &expected {
+            return Err("unknown or malformed binary execution descriptor".into());
+        }
+        Ok(Self)
+    }
 }
 
 impl GateRecord {
     fn to_json(&self) -> Value {
-        json!({
+        let mut value = json!({
             "id": self.id,
             "argv": self.argv,
             "isolated_target_dir": self.isolated_target_dir,
@@ -500,7 +521,11 @@ impl GateRecord {
             "tests": self.tests.map_or(Value::Null, Counts::to_json),
             "log_sha256": self.log_sha256,
             "binaries": self.binaries.iter().map(BinaryResult::to_json).collect::<Vec<_>>(),
-        })
+        });
+        if let Some(mode) = &self.execution {
+            value["execution"] = mode.to_json();
+        }
+        value
     }
 
     fn from_json(value: &Value) -> Result<Self> {
@@ -551,6 +576,10 @@ impl GateRecord {
                 .and_then(Value::as_str)
                 .map(str::to_owned),
             binaries,
+            execution: value
+                .get("execution")
+                .map(BinaryExecution::from_json)
+                .transpose()?,
         })
     }
 
@@ -618,6 +647,7 @@ pub fn gates_from_evidence(evidence: &[String]) -> Vec<GateRecord> {
                 tests: None,
                 log_sha256: None,
                 binaries: Vec::new(),
+                execution: None,
             }
         })
         .collect()
@@ -634,6 +664,20 @@ pub fn gates_from_native(root: &Path, native: &Value) -> Result<Vec<GateRecord>>
         .ok_or("native gate plan has no gates")?;
     let mut records = Vec::with_capacity(gates.len());
     for gate in gates {
+        if gate.get("execution").is_some() {
+            let plan = native
+                .get("plan")
+                .and_then(Value::as_array)
+                .ok_or("missing native binary gate plan")?;
+            let planned: Vec<_> = plan.iter().filter(|p| p["id"] == gate["id"]).collect();
+            if planned.len() != 1
+                || planned[0]["argv"] != gate["argv"]
+                || planned[0]["execution"] != json!({"schema":crate::test_binary_evidence::SCHEMA})
+            {
+                return Err("unplanned or substituted native binary execution".into());
+            }
+            crate::native_provenance::verify_binary_execution(root, gate, gates)?;
+        }
         let id = gate
             .get("id")
             .and_then(Value::as_str)
@@ -701,9 +745,48 @@ pub fn gates_from_native(root: &Path, native: &Value) -> Result<Vec<GateRecord>>
             tests,
             log_sha256,
             binaries,
+            execution: match gate.get("execution") {
+                None => None,
+                Some(value) if value["schema"] == crate::test_binary_evidence::SCHEMA => {
+                    Some(BinaryExecution)
+                }
+                Some(_) => return Err("unknown native gate execution mode".into()),
+            },
         });
     }
+    validate_executions(&records)?;
     Ok(records)
+}
+
+/// Validate the typed binary/docs pair before executing even the first command.
+/// The public descriptor is path-free and carries no local object-store refs.
+fn validate_executions(gates: &[GateRecord]) -> Result<()> {
+    for gate in gates {
+        if gate.execution.is_some() {
+            if gate.id != "workspace-tests" || !gate.isolated_target_dir || gate.exit_code != 0 {
+                return Err("binary execution attached to an invalid gate".into());
+            }
+            let logical = crate::test_binary_evidence::test_argv(&gate.argv)?;
+            let docs = crate::test_binary_evidence::doc_argv(&logical)?;
+            let companions: Vec<_> = gates.iter().filter(|g| g.id == "doc-tests").collect();
+            if companions.len() != 1
+                || companions[0].argv != docs
+                || !companions[0].isolated_target_dir
+                || companions[0].execution.is_some()
+                || companions[0].exit_code != 0
+            {
+                return Err("binary execution lacks its exact successful doctest companion".into());
+            }
+        } else if gate.argv.get(1).is_some_and(|a| a == "test")
+            && gate
+                .argv
+                .iter()
+                .any(|a| a == "--no-run" || a.starts_with("--message-format"))
+        {
+            return Err("build-only test argv has no typed execution descriptor".into());
+        }
+    }
+    Ok(())
 }
 
 /// What `rustc -vV` reports, run from `dir` so a pinned toolchain applies.
@@ -800,6 +883,12 @@ pub fn build(landing: &Landing<'_>) -> Result<Value> {
         Some(native) => gates_from_native(root, native)?,
         None => gates_from_evidence(evidence),
     };
+    // The fallback path is not allowed to turn a successful compilation into
+    // an untyped test receipt when native-gates.json is missing.
+    validate_executions(&gates)?;
+    if gates.iter().any(|g| g.execution.is_some()) {
+        crate::test_binary_evidence::require_supported_source_inputs()?;
+    }
     if gates.is_empty() {
         return Err("no gate results to record".into());
     }
@@ -1295,6 +1384,19 @@ pub fn rerun_gate(
     home: &Path,
     log_path: &Path,
 ) -> Result<GateRecord> {
+    if recorded.execution.is_some() {
+        crate::test_binary_evidence::require_supported_source_inputs()?;
+    }
+    Ok(rerun_gate_retained(recorded, worktree, target_dir, home, log_path)?.0)
+}
+
+fn rerun_gate_retained(
+    recorded: &GateRecord,
+    worktree: &Path,
+    target_dir: &Path,
+    home: &Path,
+    log_path: &Path,
+) -> Result<(GateRecord, Option<crate::test_binary_evidence::Execution>)> {
     if recorded.argv.first().map(String::as_str) != Some("cargo") {
         return Err(format!("gate {} is not a cargo command", recorded.id).into());
     }
@@ -1302,7 +1404,10 @@ pub fn rerun_gate(
         .to_str()
         .ok_or("target directory must be valid UTF-8")?
         .to_owned();
-    let argv = if recorded.isolated_target_dir {
+    let argv = if recorded.execution.is_some() {
+        let logical = crate::test_binary_evidence::test_argv(&recorded.argv)?;
+        crate::test_binary_evidence::build_argv(&with_target_dir(&logical, &target_text))?
+    } else if recorded.isolated_target_dir {
         with_target_dir(&recorded.argv, &target_text)
     } else {
         recorded.argv.clone()
@@ -1328,11 +1433,71 @@ pub fn rerun_gate(
         command.env("CARGO_TARGET_DIR", &target_text);
     }
     let started = Instant::now();
-    let status = command
-        .status()
-        .map_err(|error| format!("cannot run cargo for gate {}: {error}", recorded.id))?;
+    let mut retained = None;
+    let exit_code = if recorded.execution.is_some() {
+        for key in [
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_TARGET_DIR",
+            "CARGO_BUILD_BUILD_DIR",
+        ] {
+            command.env(key, target_dir);
+        }
+        let homes = home.join("binaries");
+        let durations = home.join("durations.json");
+        let heavy = crate::test_runner::heavy_binaries(worktree);
+        let settings = crate::test_runner::Settings {
+            concurrency: 2,
+            total_test_threads: 4,
+            build_jobs: 2,
+            home_root: &homes,
+            target_dir,
+            triple: option_value(&argv, "--target"),
+            durations: &durations,
+            heavy: &heavy,
+            log: log_path,
+        };
+        let launch = |binary: &crate::test_runner::Binary, private_home: &Path| {
+            let mut child = Command::new(&binary.executable);
+            isolated_env(&mut child, private_home);
+            crate::compiler_env::apply_checked(&mut child)?;
+            for key in [
+                "CARGO_TARGET_DIR",
+                "CARGO_BUILD_TARGET_DIR",
+                "CARGO_BUILD_BUILD_DIR",
+            ] {
+                child.env(key, private_home.join("target"));
+            }
+            Ok(child)
+        };
+        let execution = crate::test_binary_evidence::execute(
+            crate::test_binary_evidence::ExecutionSpec {
+                root: worktree,
+                argv: &argv,
+                settings: &settings,
+                callback_source: include_bytes!("gate_receipt.rs"),
+            },
+            &mut command,
+            &launch,
+            &|_, _, _| Ok(()),
+        )?;
+        execution.recheck()?;
+        retained = Some(execution);
+        0
+    } else {
+        if recorded.argv.get(1).is_some_and(|a| a == "test")
+            && recorded.argv.iter().any(|a| a == "--no-run")
+        {
+            return Err("refusing untyped build-only receipt replay".into());
+        }
+        i64::from(
+            command
+                .status()
+                .map_err(|error| format!("cannot run cargo for gate {}: {error}", recorded.id))?
+                .code()
+                .unwrap_or(-1),
+        )
+    };
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    let exit_code = i64::from(status.code().unwrap_or(-1));
     let bytes = fs::read(log_path)?;
     let text = String::from_utf8_lossy(&bytes);
     let (tests, binaries) = if recorded.runs_tests() {
@@ -1352,16 +1517,20 @@ pub fn rerun_gate(
     } else {
         (None, Vec::new())
     };
-    Ok(GateRecord {
-        id: recorded.id.clone(),
-        argv: recorded.argv.clone(),
-        isolated_target_dir: recorded.isolated_target_dir,
-        exit_code,
-        elapsed_ms,
-        tests,
-        log_sha256: Some(sha256_hex(&bytes)),
-        binaries,
-    })
+    Ok((
+        GateRecord {
+            id: recorded.id.clone(),
+            argv: recorded.argv.clone(),
+            isolated_target_dir: recorded.isolated_target_dir,
+            exit_code,
+            elapsed_ms,
+            tests,
+            log_sha256: Some(sha256_hex(&bytes)),
+            binaries,
+            execution: recorded.execution.clone(),
+        },
+        retained,
+    ))
 }
 
 /// `argv` with `--target-dir <dir>` added where Cargo reads it: before the
@@ -1657,6 +1826,7 @@ pub fn verify(root: &Path, commit: &str, options: &Options) -> Result<Report> {
         .iter()
         .map(GateRecord::from_json)
         .collect::<Result<Vec<_>>>()?;
+    validate_executions(&gates)?;
     report.checks.push(Check::new(
         "gates recorded",
         format!("{} gates, all exit code 0", gates.len()),
@@ -1739,6 +1909,19 @@ fn rerun_all(
     options: &Options,
     report: &mut Report,
 ) -> Result<()> {
+    validate_executions(gates)?;
+    if gates.iter().any(|g| g.execution.is_some()) {
+        crate::test_binary_evidence::require_supported_source_inputs()?;
+    }
+    if !options.only.is_empty()
+        && gates.iter().any(|g| {
+            g.execution.is_some()
+                && options.only.contains(&g.id)
+                && !options.only.iter().any(|id| id == "doc-tests")
+        })
+    {
+        return Err("typed binary replay requires selecting its doc-tests companion too".into());
+    }
     let (rustc, host) = rustc_version(worktree)?;
     let recorded_rustc = string_at(receipt, &["toolchain", "rustc_sha256"]).unwrap_or("");
     let recorded_host = string_at(receipt, &["toolchain", "host"]).unwrap_or("");
@@ -1760,6 +1943,7 @@ fn rerun_all(
         }
         return Ok(());
     }
+    let mut retained_executions = Vec::new();
     for gate in gates {
         if !options.only.is_empty() && !options.only.contains(&gate.id) {
             report.checks.push(Check::skipped(
@@ -1775,12 +1959,28 @@ fn rerun_all(
             gate.argv.join(" ")
         );
         let log_path = logs.join(format!("{}.log", gate.id.replace([':', '/', '\\'], "_")));
-        let observed = rerun_gate(gate, worktree, target_dir, home, &log_path)?;
+        // Each gate has its own home, so a later doc gate never removes a live
+        // binary guard's home. Outer runtime artifacts stay pinned throughout.
+        let gate_home = home.join(gate.id.replace([':', '/', '\\'], "_"));
+        let (observed, execution) =
+            rerun_gate_retained(gate, worktree, target_dir, &gate_home, &log_path)?;
+        if let Some(execution) = execution {
+            retained_executions.push(execution);
+        }
         let checks = compare_gate(gate, &observed);
         for check in &checks {
             eprintln!("verify-receipt: {}", check.render());
         }
         report.checks.extend(checks);
+    }
+    for execution in retained_executions {
+        execution.recheck()?;
+        // This enclosing measurement includes the final guard pass and the
+        // companion gates; per-gate Cargo times remain informational only.
+        eprintln!(
+            "verify-receipt: complete binary replay including final input checks: {} ms",
+            execution.elapsed_ms()
+        );
     }
     Ok(())
 }
@@ -1871,6 +2071,157 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
+
+    fn typed_binary_pair() -> Vec<GateRecord> {
+        let logical = ["cargo", "test", "--workspace", "--offline", "--locked"]
+            .map(str::to_owned)
+            .to_vec();
+        let binary = GateRecord {
+            id: "workspace-tests".into(),
+            argv: crate::test_binary_evidence::build_argv(&logical).unwrap(),
+            execution: Some(BinaryExecution),
+            isolated_target_dir: true,
+            exit_code: 0,
+            elapsed_ms: 1,
+            tests: None,
+            log_sha256: None,
+            binaries: Vec::new(),
+        };
+        let docs = GateRecord {
+            id: "doc-tests".into(),
+            argv: crate::test_binary_evidence::doc_argv(&logical).unwrap(),
+            execution: None,
+            ..binary.clone()
+        };
+        vec![binary, docs]
+    }
+
+    #[test]
+    fn typed_replay_rejects_missing_forged_or_weakened_modes_before_execution() {
+        let pair = typed_binary_pair();
+        validate_executions(&pair).unwrap();
+        assert_eq!(GateRecord::from_json(&pair[0].to_json()).unwrap(), pair[0]);
+        assert!(validate_executions(&pair[..1]).is_err());
+        let mut changed = pair.clone();
+        changed[0].execution = None;
+        assert!(validate_executions(&changed).is_err());
+        let mut changed = pair.clone();
+        changed[1].argv.push("--no-default-features".into());
+        assert!(validate_executions(&changed).is_err());
+        let mut changed = pair.clone();
+        changed.push(pair[1].clone());
+        assert!(validate_executions(&changed).is_err());
+        let mut changed = pair.clone();
+        changed[1].exit_code = 101;
+        assert!(validate_executions(&changed).is_err());
+        let mut changed = pair[0].to_json();
+        changed["execution"]["schema"] = json!("unknown/v1");
+        assert!(GateRecord::from_json(&changed).is_err());
+        let mut changed = pair[0].to_json();
+        changed["execution"] = Value::Null;
+        assert!(GateRecord::from_json(&changed).is_err());
+        // Absent descriptors retain both historical serial and nextest modes.
+        for argv in [
+            vec!["cargo", "test", "--workspace"],
+            vec!["cargo", "nextest", "run", "--workspace"],
+        ] {
+            let legacy = GateRecord {
+                argv: argv.into_iter().map(str::to_owned).collect(),
+                execution: None,
+                ..pair[0].clone()
+            };
+            assert!(legacy.to_json().get("execution").is_none());
+            assert_eq!(GateRecord::from_json(&legacy.to_json()).unwrap(), legacy);
+            validate_executions(&[legacy]).unwrap();
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn typed_replay_runs_in_fresh_clone_without_private_evidence_objects() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::create_dir_all(repo.join("tests")).unwrap();
+        fs::write(repo.join("Cargo.toml"),"[package]\nname=\"replay_fixture\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[workspace]\n").unwrap();
+        fs::write(repo.join("src/lib.rs"),"/// ```\n/// assert_eq!(replay_fixture::value(),3);\n/// ```\npub fn value()->u32 {3}\n#[test] fn unit(){assert_eq!(value(),3);}\n").unwrap();
+        fs::write(
+            repo.join("tests/integration.rs"),
+            "#[test] fn integration(){assert_eq!(replay_fixture::value(),3);}\n",
+        )
+        .unwrap();
+        let mut cargo = Command::new("cargo");
+        crate::compiler_env::apply_checked(&mut cargo).unwrap();
+        assert!(cargo
+            .current_dir(&repo)
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap()
+            .status
+            .success());
+        git(&repo, &["add", "."]).unwrap();
+        git(
+            &repo,
+            &["-c", "core.hooksPath=", "commit", "-qm", "fixture"],
+        )
+        .unwrap();
+        let blob = String::from_utf8(
+            git_output(
+                &repo,
+                &["hash-object", "-w", "--stdin"],
+                Some(b"private historical evidence"),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+        .trim()
+        .to_owned();
+        git(
+            &repo,
+            &["update-ref", "refs/susi/provenance/fixture", &blob],
+        )
+        .unwrap();
+        let clone = scratch.0.join("clone");
+        git(
+            &scratch.0,
+            &[
+                "clone",
+                "--no-local",
+                "--quiet",
+                repo.to_str().unwrap(),
+                clone.to_str().unwrap(),
+            ],
+        )
+        .unwrap();
+        assert!(git_output(&clone, &["cat-file", "blob", &blob], None).is_err());
+        drop(cargo);
+        fs::remove_dir_all(&repo).unwrap();
+        let pair = typed_binary_pair();
+        validate_executions(&pair).unwrap();
+        let target = scratch.0.join("target");
+        let (binary, guard) = rerun_gate_retained(
+            &pair[0],
+            &clone,
+            &target,
+            &scratch.0.join("binary-home"),
+            &scratch.0.join("binary.log"),
+        )
+        .unwrap();
+        assert_eq!(binary.exit_code, 0);
+        assert_eq!(binary.tests.unwrap().passed, 2);
+        assert_eq!(binary.binaries.len(), 2);
+        let docs = rerun_gate(
+            &pair[1],
+            &clone,
+            &target,
+            &scratch.0.join("doc-home"),
+            &scratch.0.join("docs.log"),
+        )
+        .unwrap();
+        assert_eq!(docs.exit_code, 0);
+        assert_eq!(docs.tests.unwrap().passed, 1);
+        guard.unwrap().recheck().unwrap();
+    }
 
     struct Scratch(PathBuf);
     impl Scratch {
@@ -2335,6 +2686,19 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("did not pass"));
+        let compile_only=vec!["cargo test --workspace --offline --locked --no-run --message-format=json => exit code: 0; elapsed-ms=1".into()];
+        let fallback = Landing {
+            root: &repo,
+            head: &head,
+            origin_main: &base,
+            sources: vec![],
+            native_gates: None,
+            evidence: &compile_only,
+        };
+        assert!(build(&fallback)
+            .unwrap_err()
+            .to_string()
+            .contains("no typed execution descriptor"));
         let empty: Vec<String> = vec!["gate-selection=workspace:x".into()];
         let landing = Landing {
             root: &repo,
@@ -2544,6 +2908,30 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("invalid log blob"));
+    }
+
+    #[test]
+    fn native_conversion_rejects_schema_only_and_missing_binary_evidence() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let argv = crate::test_binary_evidence::build_argv(&[
+            "cargo".into(),
+            "test".into(),
+            "--workspace".into(),
+        ])
+        .unwrap();
+        let mode = json!({"schema":crate::test_binary_evidence::SCHEMA});
+        let mut native = json!({"plan":[{"id":"workspace-tests","argv":argv,"execution":mode}],
+            "gates":[{"id":"workspace-tests","argv":argv,"execution":mode}]});
+        assert!(gates_from_native(&repo, &native)
+            .unwrap_err()
+            .to_string()
+            .contains("plan_blob"));
+        for field in ["plan_blob", "raw_blob", "metadata_blob", "result_blob"] {
+            native["gates"][0]["execution"][field] =
+                json!("0000000000000000000000000000000000000000");
+        }
+        assert!(gates_from_native(&repo, &native).is_err());
     }
 
     #[test]
@@ -2814,6 +3202,7 @@ mod tests {
     fn compare_gate_reports_exit_code_total_and_harness_differences() {
         let recorded = GateRecord {
             id: "workspace-tests".into(),
+            execution: None,
             argv: vec!["cargo".into(), "test".into()],
             isolated_target_dir: true,
             exit_code: 0,
@@ -2932,6 +3321,7 @@ mod tests {
         // `cargo --version` needs no project and no network.
         let recorded = GateRecord {
             id: "probe".into(),
+            execution: None,
             argv: vec!["cargo".into(), "--version".into()],
             isolated_target_dir: false,
             exit_code: 0,
@@ -2985,6 +3375,7 @@ mod tests {
         assert!(observed.iter().any(|b| b.source == "doc-tests"));
         let binaries_only = GateRecord {
             id: "workspace-tests".into(),
+            execution: None,
             argv: vec!["cargo".into(), "test".into()],
             isolated_target_dir: true,
             exit_code: 0,

@@ -256,7 +256,12 @@ pub fn build_invocation(
             ),
             CliToolKind::Codex => (
                 vec!["codex", "codex.exe"],
-                owned(&["exec", "--full-auto", "-"]),
+                owned(&[
+                    "exec",
+                    "--dangerously-bypass-approvals-and-sandbox",
+                    "--skip-git-repo-check",
+                    "-",
+                ]),
                 Some("-m"),
             ),
             CliToolKind::Gemini => (

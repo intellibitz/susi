@@ -1,0 +1,102 @@
+{
+  "id": "T-DOTOBSERVEDESK20261110-1",
+  "title": "Improve dev delivery checks and test builds",
+  "goal": "Require successful delivery observations, reduce measured test compilation cost and preserve delivery-local test-to-dev dependency reuse without changing test inventory, global dev or release profiles, or native gates.",
+  "created_by": "dotobservedesk20261110",
+  "created_unix": 1794292624,
+  "agent": "Codex",
+  "native_worker": "dotobservedesk20261110",
+  "status": "in_progress",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/t-dotobservedesk20261110-1.json",
+    "cargo.toml",
+    "xtask/src/bin/local-channel.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "checkpoint": "Profile-only114ee195e requires the delivery-local alignment correction: dev_cargo now explicitly uses16 codegen units for both tests and dev builds. Scoped candidates remain pending the serialized full native gate, integration and publication. No under-60-second end-to-end delivery is claimed.",
+  "verification": {
+    "platform": "x86_64-pc-windows-msvc",
+    "toolchain": "1.99.0",
+    "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "regression": "Exact source compiled with pinned rustc and immutable baseline dependencies: original observer 0 passed/1 failed; patched observer 1 passed/0 failed. Real fixture exits 42.",
+    "unit_tests": "Final alignment source:30 local-channel tests passed,0 failed,0 ignored, using native-qualified Cargo-built test binary. Includes the new explicit command-environment regression and the prior observation failure regression.",
+    "format": "cargo fmt --all --check passed",
+    "lint": "cargo clippy -p xtask --bin local-channel --tests --offline --locked -- -D warnings passed",
+    "review": "Independent read-only review found no blocking issue. Alignment changes only the shared local-channel Cargo helper and regression; local-channel build and deliver both receive it. Test selection, isolation and verification remain unchanged.",
+    "limits": "Regression exercises the observation helper, not a complete delivery or rollback transaction. Post-promotion observation failure leaves the new dev selection active and says so. Previous-build observation failure during rollback proof leaves the previous selection active. Full native gate, publication, production qualification and under-60-second delivery remain unverified.",
+    "source_sha256": "28e85b0e38d6d71f03643d0bc7fbabd0e52e5bfa7aa9db9a15458721bb014519",
+    "source_guards": "Final alignment checks passed: architecture41, task schema3, orphan3, lean ceilings2, documentation5, CI/performance contracts6 and local-channel30; total90 passed,0 failed,0 ignored. Full native workspace-test execution and integration remain pending.",
+    "test_profile_experiment": {
+      "jobs": 8,
+      "inventory": "197 identical test executable keys per profile; 4679 tracked files restored byte-for-byte after the scoped source-change probe.",
+      "source": "33ff37fc64b5283d3b080584db2a6bd1f5c15b1d",
+      "old_warm_cargo_seconds": 3.587,
+      "new_warm_cargo_seconds": 3.616,
+      "limits": "Cold target does not mean cold OS caches; incremental measurement covers one owned diagnostic edit, not every change class. Initial interrupted16 run and failed helper setup excluded, preserved in private evidence. Linux independently reports the same direction on a different frozen composition. Full candidate acceptance and end-to-end delivery remain unverified.",
+      "new_codegen_units": 16,
+      "toolchain": "1.99.0",
+      "restored_source_cargo_seconds": {
+        "old": 5.277,
+        "new": 4.903
+      },
+      "method": "Compile-only --workspace --offline --locked --features xtask/release-tooling --target x86_64-pc-windows-msvc --no-run --message-format=json --timings, separate empty private targets, native sysroot prepare/apply/recheck. Two paired cold-target runs in opposite order. Sysroot preparation measured separately. No compile-probe tests executed.",
+      "scoped_source_edit_cargo_seconds": {
+        "old": 5.063,
+        "new": 4.923
+      },
+      "platform": "x86_64-pc-windows-msvc",
+      "old_cold_cargo_seconds": [
+        393.365,
+        375.008
+      ],
+      "old_codegen_units": 256,
+      "new_cold_cargo_seconds": [
+        316.882,
+        308.954
+      ]
+    },
+    "delivery_profile_alignment": {
+      "method": "Native-admitted host-mode compile-only root-owner cargo test -p susi --lib --bins --no-run, then cargo build --bin susi --profile dev. Separate initially empty private targets, same sanitized homes,8jobs, native prepare/apply/recheck, no tests or services executed by the performance probe.",
+      "limits": "Compilation phases only, not complete delivery or full workspace tests. Windows has one paired comparison; Linux repeats use a different frozen composition. Other feature/profile differences may still require recompilation. Standalone-helper admission times are not native-tool performance claims.",
+      "scope": "Only local-channel shared dev_cargo commands; global profile.dev and profile.release remain unchanged. Both DEV_CODEGEN_UNITS and TEST_CODEGEN_UNITS are explicitly16.",
+      "linux_independent_composition": {
+        "regression": "Exact added command-configuration test fails against the old helper and passes with the two explicit environment settings. Full Linux local-channel target29 passed on its separate source composition.",
+        "balanced_repetitions_per_arm": 3,
+        "median_cargo_pair_seconds": {
+          "test16_dev16": 28.491604,
+          "test16_dev256": 50.3847,
+          "test256_dev256": 30.760242
+        }
+      },
+      "windows": {
+        "test16_dev16": {
+          "dev_seconds": 13.853,
+          "dev_artifacts": 348,
+          "test_seconds": 158.058,
+          "rebuilt_libraries": 0,
+          "rebuilt_artifacts": 1
+        },
+        "test_artifacts": 349,
+        "test_executables": 2,
+        "test16_dev256": {
+          "dev_seconds": 169.973,
+          "dev_artifacts": 348,
+          "test_seconds": 155.731,
+          "rebuilt_libraries": 277,
+          "rebuilt_artifacts": 278
+        },
+        "repetitions_per_arm": 1
+      },
+      "measured_source": "114ee195ee647ca50050e5d9280f34ff0f662ff4"
+    }
+  }
+}

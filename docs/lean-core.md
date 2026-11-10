@@ -458,3 +458,47 @@ table once the clean baseline is recorded.
   not a measured host build-time or total executable-size improvement. Standalone
   diagnostic PE/link-map evidence is separate from full production qualification;
   the source-bound GMCP evidence must be renewed in both phases before integration.
+
+- 2026-11-10 T-DOTLATENCY-1 (measured test latency, no production deadline cut):
+  move the model-manager unit suite from its production file into the existing
+  excluded src/tests layout, preserving all cases and adding cancellation evidence.
+  The gemi-models source ceiling falls from 16,737 to 15,938. This is test
+  organization, not runtime code removal, dependency reduction or production
+  qualification. Production retry sleeping remains unchanged; fixtures record
+  the same backoff ticks while real HTTP, validation and durable publication run.
+  A shorter explicit real-lock fixture budget preserves forward-progress and
+  stalled-deadline assertions. Native Windows timing remains unverified.
+
+- 2026-11-10 T-DOTWORKERLEASE-1 (external agent test organization):
+  move the complete unchanged external unit-test module into the established
+  same-crate `src/tests/` layout, retaining `external::unit_tests` paths and all
+  assertions, including the new worker-lease regressions. The existing counting
+  policy excludes that standalone test directory. Pin susi-gawd-agents from
+  11,495 to 11,263 measured lines in the counted source directories. This is
+  test organization, not a production-code reduction: the explicit-unlock lease
+  guard remains unchanged, and no capability, test, or proof is removed. No build
+  speed or executable-size improvement is claimed from the move.
+
+- 2026-11-10 T-DOTSWARMFIXTURES20261110-1 (native Windows cancellation):
+  lower the susi-gawd-swarm source ceiling from 20,673 to 20,641, paired with
+  swarm commit 278b0d2504977d93d5f5e450284aa2acbf565382. The repair keeps the
+  owned root alive until taskkill discovers its descendants, retains the direct
+  child fallback, and removes the unscoped MSYS orphan sweep. Unix behavior is
+  unchanged. The 32-line reduction is measured under the existing counting rules;
+  no build-time or executable-size improvement is claimed. This owner-scoped
+  ratchet depends on that swarm commit in the same serialized integration batch:
+  the standalone latency worktree still has 20,673 swarm lines and cannot pass
+  the reduced source guard until the swarm repair is composed. Combined-tree
+  verification remains required; this record is not a gate or release receipt.
+
+- 2026-11-10 T-DOTLINUXBYOKSAFE-1 (CEO-approved Kimi compatibility budget):
+  the CEO approved adding only 12 lines to whichever current ceiling is lower.
+  Preserve the latency reduction to 15,938 rather than main's older 16,737;
+  the paired susi-gemi-models ceiling is therefore 15,950. Safe split commit
+  aeea86295c2814ac86994cd7f419d3735469e702 adds exactly 12 counted lines in
+  cloud.rs: four production lines remap retired Moonshot model identifiers,
+  and eight inline test lines cover retired and current identifiers. No counting
+  exclusions or other ceilings change. This ratchet depends on that exact safe
+  split in the serialized combined gate. Credential handoff changes are excluded.
+  Standalone owner source does not contain the split; prior standalone evidence
+  is not proof that the combined candidate passes. Integration remains pending.
