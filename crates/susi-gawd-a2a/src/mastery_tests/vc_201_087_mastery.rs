@@ -9,8 +9,8 @@
 //!   * Duplicate task delivery (same task_id) can be detected at the protocol level
 
 use crate::executor::GawdA2AExecutor;
-use ra2a::server::{AgentExecutor, EventQueue, RequestContext};
-use ra2a::types::{Message, Part, TaskState};
+use crate::protocol::{AgentExecutor, EventQueue, RequestContext};
+use crate::protocol::{Message, Part, TaskState};
 
 /// Drives a future to completion on the bare test thread.
 fn block_on<F: std::future::Future>(fut: F) -> F::Output {
@@ -45,9 +45,7 @@ fn vc_201_087_mastery_task_identity_is_preserved() {
 
     block_on(executor.execute(&ctx, &queue)).expect("execute");
 
-    let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
-        panic!("expected Task event");
-    };
+    let task = rx.try_recv().expect("task event");
     // Task identity must match request identity: these are the recovery keys.
     assert_eq!(
         task.id.to_string(),
@@ -74,9 +72,7 @@ fn vc_201_087_mastery_status_transitions_are_accurate() {
 
     block_on(executor.execute(&ctx, &queue)).expect("execute");
 
-    let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
-        panic!("expected Task event");
-    };
+    let task = rx.try_recv().expect("task event");
     assert_eq!(task.status.state, TaskState::Completed);
     assert!(task.status.message.is_some());
 }
@@ -95,9 +91,7 @@ fn vc_201_087_mastery_failure_status_is_distinct() {
 
     block_on(executor.execute(&ctx, &queue)).expect("execute");
 
-    let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
-        panic!("expected Task event");
-    };
+    let task = rx.try_recv().expect("task event");
     assert_eq!(task.status.state, TaskState::Failed);
     let msg = task.status.message.expect("failed task carries message");
     assert!(!msg.parts.is_empty());
@@ -117,9 +111,7 @@ fn vc_201_087_mastery_cancellation_produces_canceled_state() {
 
     block_on(executor.cancel(&ctx, &queue)).expect("cancel");
 
-    let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
-        panic!("expected Task event");
-    };
+    let task = rx.try_recv().expect("task event");
     assert_eq!(task.status.state, TaskState::Canceled);
     assert_eq!(task.id.to_string(), task_id);
     assert_eq!(task.context_id.to_string(), context_id);
@@ -144,9 +136,7 @@ fn vc_201_087_mastery_events_published_for_recovery() {
 
     // Recovery: the executor publishes a Task event.
     let event = rx.try_recv().expect("task event published");
-    let ra2a::types::StreamResponse::Task(task) = event else {
-        panic!("expected Task event for recovery");
-    };
+    let task = event;
     assert_eq!(task.id.to_string(), "event-task-1");
     assert_eq!(task.status.state, TaskState::Completed);
 }
@@ -154,7 +144,7 @@ fn vc_201_087_mastery_events_published_for_recovery() {
 /// Unknown remote outcomes (network failure after task execution starts):
 /// the executor publishes task outcomes to the queue. If the queue is lost
 /// before subscriber retrieval, the publisher guarantees that the outcome
-/// is recoverable: the task store retains it (via ra2a's InMemoryTaskStore),
+/// is recoverable: the task store retains it (the A2A task store),
 /// so recovery code can call tasks/get to reconstruct the state.
 /// This test verifies that the executor respects the contract by always
 /// producing an event, even under error conditions.
@@ -174,15 +164,13 @@ fn vc_201_087_mastery_unknown_outcome_handled_by_event_publishing() {
     // Even on failure, an event is published; recovery code can extract
     // the outcome from the queue or task store.
     let event = rx.try_recv().expect("event published even on failure");
-    let ra2a::types::StreamResponse::Task(task) = event else {
-        panic!("expected Task event");
-    };
+    let task = event;
     assert_eq!(task.status.state, TaskState::Failed);
 }
 
 /// Duplicate deliveries at the protocol level: if a caller retransmits the
 /// same request (same task_id), the executor will execute it again. Recovery
-/// is handled by the ra2a protocol layer: the task store prevents duplicate
+/// is handled by the A2A protocol layer: the task store prevents duplicate
 /// authoritative completion by tracking task_id → latest_state. A second
 /// execute call with the same task_id overwrites the prior state, so only
 /// the final outcome is visible (idempotency at the protocol level, not
@@ -213,9 +201,7 @@ fn vc_201_087_mastery_duplicate_delivery_idempotent_at_protocol_level() {
     ctx1.message = Some(Message::user(vec![Part::text("query")]));
     block_on(executor.execute(&ctx1, &queue)).expect("execute 1");
     let event1 = rx.try_recv().expect("event 1");
-    let ra2a::types::StreamResponse::Task(task1) = event1 else {
-        panic!("expected Task event");
-    };
+    let task1 = event1;
     assert_eq!(task1.id.to_string(), dup_task_id);
 
     // Second execution with the same task_id (simulating network retry).
@@ -223,13 +209,11 @@ fn vc_201_087_mastery_duplicate_delivery_idempotent_at_protocol_level() {
     ctx2.message = Some(Message::user(vec![Part::text("retry")]));
     block_on(executor.execute(&ctx2, &queue)).expect("execute 2");
     let event2 = rx.try_recv().expect("event 2");
-    let ra2a::types::StreamResponse::Task(task2) = event2 else {
-        panic!("expected Task event");
-    };
+    let task2 = event2;
     assert_eq!(task2.id.to_string(), dup_task_id);
 
     // The executor ran the mission twice (it has no executor-level dedup),
-    // but both events carry the same task_id. The task store (ra2a protocol
+    // but both events carry the same task_id. The task store (A2A protocol
     // layer) will keep only the latest state for this task_id, ensuring no
     // silent duplicate completion: the second result is authoritative.
     assert_eq!(

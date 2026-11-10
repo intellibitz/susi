@@ -4,8 +4,8 @@
 //! latency, and recovery duration from actual events; publish windows and
 //! denominators with explicit unknowns when samples are insufficient.
 
-use ra2a::server::{AgentExecutor, EventQueue, RequestContext};
-use ra2a::types::{Message, Part, TaskState};
+use crate::protocol::{AgentExecutor, EventQueue, RequestContext};
+use crate::protocol::{Message, Part, TaskState};
 
 /// Drives a future to completion on the bare test thread.
 fn block_on<F: std::future::Future>(fut: F) -> F::Output {
@@ -45,9 +45,7 @@ fn vc_201_092_mastery_availability_measured_from_events_with_window_and_denomina
     ctx.message = Some(Message::user(vec![Part::text("task")]));
     block_on(executor.execute(&ctx, &queue)).expect("execute");
 
-    let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
-        panic!("expected Task event");
-    };
+    let task = rx.try_recv().expect("task event");
     assert_eq!(task.status.state, TaskState::Completed);
 
     let sample = executor.slo_sample(300);
@@ -77,9 +75,7 @@ fn vc_201_092_mastery_task_success_measured_from_events() {
     ctx1.message = Some(Message::user(vec![Part::text("succeed")]));
     block_on(executor.execute(&ctx1, &queue)).expect("execute 1");
     let ev1 = rx.try_recv().expect("event 1");
-    let ra2a::types::StreamResponse::Task(task1) = ev1 else {
-        panic!("expected Task event");
-    };
+    let task1 = ev1;
     assert_eq!(task1.status.state, TaskState::Completed);
 
     // Failed task
@@ -87,9 +83,7 @@ fn vc_201_092_mastery_task_success_measured_from_events() {
     ctx2.message = Some(Message::user(vec![Part::text("fail")]));
     block_on(executor.execute(&ctx2, &queue)).expect("execute 2");
     let ev2 = rx.try_recv().expect("event 2");
-    let ra2a::types::StreamResponse::Task(task2) = ev2 else {
-        panic!("expected Task event");
-    };
+    let task2 = ev2;
     assert_eq!(task2.status.state, TaskState::Failed);
 
     let sample = executor.slo_sample(300);
@@ -117,9 +111,7 @@ fn vc_201_092_mastery_queue_delay_measured_from_events() {
 
     block_on(executor.execute(&ctx, &queue)).expect("execute");
 
-    let ra2a::types::StreamResponse::Task(_task) = rx.try_recv().expect("task event") else {
-        panic!("expected Task event");
-    };
+    let _task = rx.try_recv().expect("task event");
 
     let sample = executor.slo_sample(60);
     assert_eq!(sample.queue_delay_samples, 1);
@@ -148,9 +140,7 @@ fn vc_201_092_mastery_inference_latency_measured_from_events() {
 
     block_on(executor.execute(&ctx, &queue)).expect("execute");
 
-    let ra2a::types::StreamResponse::Task(_task) = rx.try_recv().expect("task event") else {
-        panic!("expected Task event");
-    };
+    let _task = rx.try_recv().expect("task event");
 
     let sample = executor.slo_sample(60);
     assert_eq!(sample.inference_latency_samples, 1);
@@ -179,9 +169,7 @@ fn vc_201_092_mastery_recovery_duration_measured_from_events() {
 
     // 1. Cancel task (starts recovery timer for task_id)
     block_on(executor.cancel(&ctx, &queue)).expect("cancel");
-    let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
-        panic!("expected Task event");
-    };
+    let task = rx.try_recv().expect("task event");
     assert_eq!(task.status.state, TaskState::Canceled);
 
     std::thread::sleep(std::time::Duration::from_millis(2));
@@ -190,10 +178,7 @@ fn vc_201_092_mastery_recovery_duration_measured_from_events() {
     let mut retry_ctx = RequestContext::new(task_id, context_id);
     retry_ctx.message = Some(Message::user(vec![Part::text("retry mission")]));
     block_on(executor.execute(&retry_ctx, &queue)).expect("execute recovery");
-    let ra2a::types::StreamResponse::Task(recovered_task) = rx.try_recv().expect("recovered event")
-    else {
-        panic!("expected Task event");
-    };
+    let recovered_task = rx.try_recv().expect("recovered event");
     assert_eq!(recovered_task.status.state, TaskState::Completed);
 
     let sample = executor.slo_sample(120);

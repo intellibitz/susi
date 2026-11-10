@@ -1,0 +1,571 @@
+{
+  "agent_card": {
+    "body": "{\"name\":\"susi-gawd\",\"description\":\"SUSI GAWD: AI agent orchestrator and swarm supervisor\",\"supportedInterfaces\":[{\"url\":\"/\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"version\":\"0.21.54\",\"documentationUrl\":\"https://github.com/intellibitz/susi\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":true},\"securitySchemes\":{\"bearer\":{\"http\":{\"scheme\":\"Bearer\"}}},\"securityRequirements\":[{\"schemes\":{\"bearer\":[]}}],\"defaultInputModes\":[\"text/plain\"],\"defaultOutputModes\":[\"text/plain\"],\"skills\":[{\"id\":\"missions\",\"name\":\"missions\",\"description\":\"Run a natural-language goal as a GAWD mission: planned, dispatched to tools and agents, and answered only with evidence-gated results.\",\"tags\":[\"missions\",\"orchestration\"],\"examples\":[\"Summarize the open tasks in this workspace\"],\"inputModes\":[\"text/plain\"],\"outputModes\":[\"text/plain\"]},{\"id\":\"agents\",\"name\":\"agents\",\"description\":\"Missions that hand work to the external task executors installed on this host (the agents managed by `susi agents`; MCP tools `agents_list`, `agents_run`).\",\"tags\":[\"agents\",\"delegation\"],\"examples\":[\"Use an installed coding agent to fix the failing test\"],\"inputModes\":[\"text/plain\"],\"outputModes\":[\"text/plain\"]},{\"id\":\"frameworks\",\"name\":\"frameworks\",\"description\":\"Missions that run through the agent frameworks/engines installed on this host, such as LangGraph or CrewAI (managed by `susi frameworks`; MCP tools `frameworks_list`, `frameworks_run`).\",\"tags\":[\"frameworks\",\"engines\"],\"inputModes\":[\"text/plain\"],\"outputModes\":[\"text/plain\"]},{\"id\":\"models\",\"name\":\"models\",\"description\":\"Missions answered through GEMI model routing: local open-weight models and configured cloud providers, chosen by placement policy.\",\"tags\":[\"models\",\"inference\"],\"inputModes\":[\"text/plain\"],\"outputModes\":[\"text/plain\"]},{\"id\":\"harness\",\"name\":\"harness\",\"description\":\"Missions and autonomous budget/pareto optimization governed by the SUSI Harness and Bayesian UCB1 / SCIS / SOVA routing (managed by `susi harness` and `susi brain`; MCP tools `harness_*`, `brain_pareto`).\",\"tags\":[\"harness\",\"brain\",\"routing\"],\"inputModes\":[\"text/plain\"],\"outputModes\":[\"text/plain\"]},{\"id\":\"extensions\",\"name\":\"extensions\",\"description\":\"Missions that validate, inspect, or admit signed/checksum-bound extension packs and Wasm reflexes (managed by `susi extensions`; MCP tools `extensions_*`).\",\"tags\":[\"extensions\",\"wasm\",\"reflex\"],\"inputModes\":[\"text/plain\"],\"outputModes\":[\"text/plain\"]},{\"id\":\"agent_orchestration\",\"name\":\"agent_orchestration\",\"description\":\"Orchestrate multi-agent missions and task delegation\",\"tags\":[\"orchestration\",\"swarm\"],\"inputModes\":[\"text/plain\"],\"outputModes\":[\"text/plain\"]},{\"id\":\"task_delegation\",\"name\":\"task_delegation\",\"description\":\"Delegate tasks to specialized agents\",\"tags\":[\"delegation\",\"coordination\"],\"inputModes\":[\"text/plain\"],\"outputModes\":[\"text/plain\"]}]}",
+    "headers": {
+      "access-control-allow-origin": "*",
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "batch_array": {
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Invalid JSON payload\"}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "cancel_task_missing": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"task not found: no-such-task\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "create_push_config_1_0_name": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"id\":\"$PUSH1\",\"taskId\":\"$TASK1\",\"url\":\"http://127.0.0.1:9/hook\",\"token\":\"tok\"}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "create_push_config_bad_scheme": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"invalid params: push config URL must be http or https\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "create_push_config_empty_url": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"invalid params: push config URL cannot be empty\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "create_push_config_missing_url": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `url`\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "create_push_config_unknown_task": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"task not found: no-such-task\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "create_push_config_with_id": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"tenant\":\"tenant-a\",\"id\":\"cfg-2\",\"taskId\":\"$TASK1\",\"url\":\"https://127.0.0.1:9/b\",\"authentication\":{\"scheme\":\"Basic\",\"credentials\":\"Zm9vOmJhcg==\"}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "delete_push_config": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":null}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "delete_push_config_slash_name": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":null}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "fractional_id": {
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Invalid JSON payload\"}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "get_deleted_push_config": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"invalid params: push config not found\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "get_extended_card_1_0_name": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"extended card not configured\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "get_extended_card_slash_name": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"extended card not configured\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "get_on_rpc_route": {
+    "body": "",
+    "headers": {
+      "allow": "POST"
+    },
+    "status": 405
+  },
+  "get_push_config": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"id\":\"cfg-2\",\"taskId\":\"$TASK1\",\"url\":\"https://127.0.0.1:9/b\",\"authentication\":{\"scheme\":\"Basic\",\"credentials\":\"Zm9vOmJhcg==\"}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "get_push_config_slash_name": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"id\":\"$PUSH1\",\"taskId\":\"$TASK1\",\"url\":\"http://127.0.0.1:9/hook\",\"token\":\"tok\"}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "get_streamed_task": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"task not found: $STREAM1\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "get_task_1_0_name_history_zero": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"id\":\"$TASK2\",\"contextId\":\"$CTX2\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG2\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to ping two\"}]},\"timestamp\":\"<rfc3339>\"}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "health": {
+    "body": "{\"status\":\"ok\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "invalid_utf8": {
+    "body": "Request body didn't contain valid UTF-8: invalid utf-8 sequence of 1 bytes from index 6",
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "status": 400
+  },
+  "list_push_configs_after_delete": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"configs\":[{\"tenant\":\"tenant-b\",\"id\":\"cfg-2\",\"taskId\":\"$TASK1\",\"url\":\"https://127.0.0.1:9/b\",\"authentication\":{\"scheme\":\"Basic\",\"credentials\":\"Zm9vOmJhcg==\"}}]}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "list_push_configs_empty_slash_name": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"configs\":[]}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "list_tasks_1_0_name_page": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"tasks\":[{\"id\":\"$TASK3\",\"contextId\":\"golden-ctx\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG3\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to in context\"}]},\"timestamp\":\"<rfc3339>\"}}],\"nextPageToken\":\"\",\"pageSize\":1,\"totalSize\":1}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "message_send": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"$TASK1\",\"contextId\":\"$CTX1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG1\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to ping\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "message_stream": {
+    "events": [
+      "data: {\"id\":7,\"jsonrpc\":\"2.0\",\"result\":{\"task\":{\"contextId\":\"$SCTX1\",\"id\":\"$STREAM1\",\"status\":{\"message\":{\"messageId\":\"$SMSG1\",\"parts\":[{\"text\":\"answer to stream ping\"}],\"role\":\"ROLE_AGENT\"},\"state\":\"TASK_STATE_COMPLETED\",\"timestamp\":\"<rfc3339>\"}}}}\n\n"
+    ],
+    "headers": {
+      "cache-control": "no-cache",
+      "content-type": "text/event-stream"
+    },
+    "status": 200
+  },
+  "message_stream_on_rpc_route": {
+    "body": "{\"error\":{\"code\":-32600,\"message\":\"Streaming methods must be called via the SSE endpoint\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "missing_id": {
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Invalid JSON payload\"}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "missing_method": {
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Invalid JSON payload\"}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "not_json": {
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Invalid JSON payload\"}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "null_id": {
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Invalid JSON payload\"}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "push_deliveries": [
+    {
+      "body": "{\"id\":\"$TASK10\",\"contextId\":\"$CTX10\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG10\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to notify me\"}]},\"timestamp\":\"<rfc3339>\"}}",
+      "headers": {
+        "authorization": "Bearer cred",
+        "content-type": "application/json",
+        "x-a2a-notification-token": "push-token"
+      },
+      "request_line": "POST /hook HTTP/1.1"
+    }
+  ],
+  "resubscribe_missing": {
+    "body": "{\"error\":{\"code\":-32001,\"message\":\"task not found: no-such-task\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_bad_role": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `user`, expected one of `ROLE_USER`, `ROLE_AGENT`, `ROLE_UNSPECIFIED`\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_blocking_with_history_length": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"$TASK9\",\"contextId\":\"$CTX9\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG9\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to blocking\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_client_task_id": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"client-task-1\",\"contextId\":\"client-ctx\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG4\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to client ids\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_data_part_first": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"$TASK7\",\"contextId\":\"$CTX7\",\"status\":{\"state\":\"TASK_STATE_FAILED\",\"message\":{\"messageId\":\"$MSG7\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"A2A message carried no text part to run as a mission\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_empty_message_id": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"invalid params: message ID is required\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_empty_parts": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"invalid params: message parts is required\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_failing_mission": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"$TASK5\",\"contextId\":\"$CTX5\",\"status\":{\"state\":\"TASK_STATE_FAILED\",\"message\":{\"messageId\":\"$MSG5\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"mission failed for: please fail now\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_injection": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"$TASK6\",\"contextId\":\"$CTX6\",\"status\":{\"state\":\"TASK_STATE_FAILED\",\"message\":{\"messageId\":\"$MSG6\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"[UNTRUSTED_CONTENT_BLOCKED source=a2a:request] embedded instruction refused\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_message_1_0_name": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"$TASK2\",\"contextId\":\"$CTX2\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG2\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to ping two\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_missing_message": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `message`\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_missing_message_id": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `messageId`\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_params_not_object": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"text\\\", expected struct SendMessageRequest\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_part_without_content": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: Part must contain one of: text, raw, url, data\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_raw_bad_last_symbol": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: Invalid last symbol 57, offset 6.\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_raw_bad_length": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: Invalid input length: 5\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_raw_bad_padding": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: Invalid padding\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_raw_bad_symbol": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: Invalid symbol 33, offset 3.\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_raw_early_padding": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: Invalid symbol 61, offset 1.\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_raw_padding_inside": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: Invalid symbol 61, offset 2.\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_streaming_message_1_0_name": {
+    "events": [
+      "data: {\"id\":7,\"jsonrpc\":\"2.0\",\"result\":{\"task\":{\"contextId\":\"$SCTX2\",\"id\":\"$STREAM2\",\"status\":{\"message\":{\"messageId\":\"$SMSG2\",\"parts\":[{\"text\":\"mission failed for: please fail in stream\"}],\"role\":\"ROLE_AGENT\"},\"state\":\"TASK_STATE_FAILED\",\"timestamp\":\"<rfc3339>\"}}}}\n\n"
+    ],
+    "headers": {
+      "cache-control": "no-cache",
+      "content-type": "text/event-stream"
+    },
+    "status": 200
+  },
+  "send_streaming_message_on_rpc_route": {
+    "body": "{\"error\":{\"code\":-32600,\"message\":\"Streaming methods must be called via the SSE endpoint\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_to_terminal_task": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"invalid params: Task client-task-1 is in terminal state: Completed\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_to_unknown_task_without_context": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"task not found: client-task-unknown\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_valid_raw_and_url_parts": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"$TASK8\",\"contextId\":\"$CTX8\",\"status\":{\"state\":\"TASK_STATE_FAILED\",\"message\":{\"messageId\":\"$MSG8\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"A2A message carried no text part to run as a mission\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_with_context": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"$TASK3\",\"contextId\":\"golden-ctx\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG3\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to in context\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "send_with_push_config": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"task\":{\"id\":\"$TASK10\",\"contextId\":\"$CTX10\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG10\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to notify me\"}]},\"timestamp\":\"<rfc3339>\"}}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "stream_bad_params": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `messageId`\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "stream_empty_parts": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"invalid params: message parts is required\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "stream_missing_params": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Missing params\"},\"id\":\"s1\",\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "stream_not_json": {
+    "body": "{\"error\":{\"code\":-32700,\"message\":\"Invalid JSON payload\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "stream_unknown_method": {
+    "body": "{\"error\":{\"code\":-32601,\"message\":\"Method 'tasks/get' not found\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "string_id": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"task not found: x\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "subscribe_on_rpc_route": {
+    "body": "{\"error\":{\"code\":-32600,\"message\":\"Streaming methods must be called via the SSE endpoint\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "subscribe_to_terminal_task": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"invalid params: Task $TASK1 is in terminal state: Completed\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "tasks_cancel_terminal": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"task cannot be canceled: $TASK1\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "tasks_get": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"id\":\"$TASK1\",\"contextId\":\"$CTX1\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG1\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to ping\"}]},\"timestamp\":\"<rfc3339>\"}}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "tasks_get_missing": {
+    "body": "{\"error\":{\"code\":-32603,\"message\":\"task not found: no-such-task\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "tasks_get_missing_field": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `id`\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "tasks_get_no_params": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Missing params\"},\"id\":8,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "tasks_get_wrong_type": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"x\\\", expected i32\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "tasks_list_bad_status": {
+    "body": "{\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `WORKING`, expected one of `TASK_STATE_UNSPECIFIED`, `TASK_STATE_SUBMITTED`, `TASK_STATE_WORKING`, `TASK_STATE_COMPLETED`, `TASK_STATE_FAILED`, `TASK_STATE_CANCELED`, `TASK_STATE_INPUT_REQUIRED`, `TASK_STATE_REJECTED`, `TASK_STATE_AUTH_REQUIRED`\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "tasks_list_by_context": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"tasks\":[{\"id\":\"$TASK3\",\"contextId\":\"golden-ctx\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"message\":{\"messageId\":\"$MSG3\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"answer to in context\"}]},\"timestamp\":\"<rfc3339>\"}}],\"nextPageToken\":\"\",\"pageSize\":50,\"totalSize\":1}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "tasks_list_status_filter": {
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"tasks\":[],\"nextPageToken\":\"\",\"pageSize\":50,\"totalSize\":0}}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "unauthenticated": {
+    "body": "",
+    "headers": {
+      "www-authenticate": "Bearer realm=\"susi-a2a\""
+    },
+    "status": 401
+  },
+  "unknown_method": {
+    "body": "{\"error\":{\"code\":-32601,\"message\":\"Method 'x/unknown' not found\"},\"id\":7,\"jsonrpc\":\"2.0\"}",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "unknown_path": {
+    "body": "",
+    "headers": {},
+    "status": 404
+  }
+}

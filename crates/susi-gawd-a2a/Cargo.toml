@@ -12,7 +12,7 @@ susi-http-transport = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
-ra2a = { package = "susi-vendor-ra2a", path = "../susi-vendor-ra2a" }
+hyper = { package = "susi-vendor-hyper", path = "../susi-vendor-hyper" }
 axum = { package = "susi-vendor-axum", path = "../susi-vendor-axum" }
 tower = { package = "susi-vendor-tower", path = "../susi-vendor-tower" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }

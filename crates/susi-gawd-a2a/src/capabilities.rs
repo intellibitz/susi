@@ -30,8 +30,8 @@ impl GawdCapabilities {
     }
 
     /// Get A2A capabilities for agent card
-    pub fn as_capabilities(&self) -> ra2a::types::AgentCapabilities {
-        ra2a::types::AgentCapabilities {
+    pub fn as_capabilities(&self) -> crate::protocol::AgentCapabilities {
+        crate::protocol::AgentCapabilities {
             streaming: Some(self.streaming),
             push_notifications: Some(self.push_notifications),
             ..Default::default()
@@ -83,10 +83,9 @@ mod tests {
             assert!(dbg.contains("GawdCapabilities"));
 
             let a2a_caps = cloned.as_capabilities();
-            let default_a2a = ra2a::types::AgentCapabilities::default();
+            let default_a2a = crate::protocol::AgentCapabilities::default();
             assert_eq!(a2a_caps.streaming, Some(streaming));
             assert_eq!(a2a_caps.push_notifications, Some(push_notifications));
-            assert_eq!(a2a_caps.extensions.len(), default_a2a.extensions.len());
             assert_eq!(
                 a2a_caps.extended_agent_card,
                 default_a2a.extended_agent_card
@@ -103,7 +102,7 @@ mod tests {
 
         let a2a = orch.as_capabilities();
         let val = serde_json::to_value(&a2a).expect("AgentCapabilities must serialize");
-        let decoded: ra2a::types::AgentCapabilities =
+        let decoded: crate::protocol::AgentCapabilities =
             serde_json::from_value(val).expect("AgentCapabilities must deserialize");
         assert_eq!(decoded.streaming, Some(true));
         assert_eq!(decoded.push_notifications, Some(true));
@@ -120,12 +119,10 @@ mod tests {
         assert_eq!(first.streaming, Some(false));
         assert_eq!(first.push_notifications, Some(true));
         assert_eq!(first.extended_agent_card, None);
-        assert!(first.extensions.is_empty());
 
         assert_eq!(second.streaming, Some(false));
         assert_eq!(second.push_notifications, Some(false));
         assert_eq!(second.extended_agent_card, None);
-        assert!(second.extensions.is_empty());
     }
 
     #[test]
@@ -136,7 +133,7 @@ mod tests {
         };
         let a2a = disabled.as_capabilities();
         let json = serde_json::to_string(&a2a).expect("serialize capabilities");
-        let roundtrip: ra2a::types::AgentCapabilities =
+        let roundtrip: crate::protocol::AgentCapabilities =
             serde_json::from_str(&json).expect("deserialize capabilities");
         assert_eq!(roundtrip.streaming, Some(false));
         assert_eq!(roundtrip.push_notifications, Some(false));
