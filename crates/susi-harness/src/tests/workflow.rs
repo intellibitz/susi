@@ -374,8 +374,6 @@ fn fast_main_policy_grants_autonomous_main_freedom_while_protecting_releases_and
         "refs/heads/distill/2026-11-11-rc1",
         "refs/heads/release-staging/v0.21.56",
         "refs/heads/wip/experiment",
-        "refs/candidates/release/v0.21.56-rc14",
-        "refs/candidates/distill/2026-11-11-rc4",
         "refs/tags/susi-distill/2026-11-11-rc4",
     ] {
         assert_eq!(
@@ -383,6 +381,12 @@ fn fast_main_policy_grants_autonomous_main_freedom_while_protecting_releases_and
             Err(PolicyViolation::ProtectedReleaseRef(protected.into()))
         );
     }
+    assert_eq!(
+        policy.check_push_target("carbon", "refs/candidates/release/v0.21.56-rc14"),
+        Err(PolicyViolation::NotAnAgentBranch(
+            "refs/candidates/release/v0.21.56-rc14".into()
+        ))
+    );
     assert_eq!(
         policy.check_push_target("carbon", "refs/tags/v0.21.55"),
         Err(PolicyViolation::ProtectedReleaseRef(
