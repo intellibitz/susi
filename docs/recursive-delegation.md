@@ -39,27 +39,72 @@ parse). `CapabilityBus::dispatch` keeps its signature and runs from a root scope
 built from the request, so every existing production dispatch now runs under the
 contract.
 
-`CapabilityRegistry::dispatch_capability_in` and a `delegation` argument on the
-`os_capabilities` MCP tool and `susi os capabilities invoke --delegation <json>`
-let a driver in another process continue the nesting: it sends
-`DelegationScope::envelope()` (`susi-delegation/v1`: path, permissions,
-remaining budget and time, limits), and the receiver rebuilds the ancestry with
-`DelegationScope::from_envelope`, so depth and cycle checks keep counting.
-Malformed, cyclic, too-deep or over-limit envelopes and unknown fields are
-refused.
+## Signed envelopes across processes (T-CLAUDESIGNENV-1)
+
+A driver in another process continues the nesting with a
+`susi-delegation/v1` envelope: path, permissions, budget, limits, a random
+128-bit `id`, an absolute `expires_unix_ms` and an HMAC-SHA256 `signature`.
+Only a `DelegationAuthority` issues or admits one; there is no public way to
+turn an unsigned envelope into a scope.
+
+- **Key.** `DelegationAuthority::host()` derives its key from the host's shared
+  MAC policy key (`substrate_home/mac.hmac.key`) with
+  `MacPolicy::derive_key(b"susi-delegation-envelope/v1")`, so the daemon, its
+  cells and the CLI of one host verify each other's envelopes, and the key
+  verifies no other kind of token. A process that only has a private fallback
+  key refuses to issue or admit.
+- **Issue.** `os_capabilities` with `action: "delegate"` (CLI:
+  `susi os capabilities delegate <id> --subject <component> --permission <p>
+  [--budget-micros N] [--timeout-ms N] [--delegation <parent>]`) opens the level
+  `subject:id` under the parent envelope, or under a fresh root for the subject,
+  with every check in the table above, and returns it signed. Its lifetime is
+  the scope's remaining time, at most one hour. The issuing process keeps the
+  level in its ledger until expiry, so the budget it reserved from its parent
+  stays reserved while the envelope can be used.
+- **Admit.** `invoke` with `delegation` verifies the signature in constant time
+  and the expiry before anything else; an unsigned, tampered (wider
+  permissions, larger budget, later expiry, other id, shorter path, deeper
+  limits) or foreign-host envelope is `Unverified`, a late one `Expired`.
+  Even a correctly signed envelope is rebuilt only if its path, identities,
+  limits and permissions are valid.
+- **Replay.** Within one process every presentation of an id continues the
+  same level: replaying an envelope shares its remaining budget and fan-out
+  instead of resetting them. The ledger holds at most 4,096 live envelopes.
+- **Revoke.** `DelegationAuthority::revoke(id)` cancels the level and
+  everything opened under it in that process; later presentations are refused
+  as cancelled.
+
+## Overlap to reconcile
+
+`crates/susi-harness/src/recursive.rs` (`bc78d05a2`, carbon, landed minutes
+after this slice) implements a second Mandate 73 recursion adapter at the
+harness level: its own grant attenuation, `(component_id, task_key)` cycle
+detection, cooperative cancellation, `MicroUsd` budgets and SHA-256
+provenance receipts, plus per-worker workspace, target, home and port
+isolation. On 2026-11-11 it is declared (`pub mod recursive`) but has no
+production caller. This contract is the one wired into capability dispatch,
+the `os_capabilities` socket tool and the CLI, with signed cross-process
+envelopes. Distillation should keep one attenuation core: the harness
+runtime's isolation and receipts layered over `susi_core::delegation`
+(`DelegationScope` for permissions, budget, deadline, depth, fan-out, cycles
+and cancellation), wired into the supervisor. Neither change was made here,
+to avoid overwriting live work.
 
 ## Limits (not claimed)
 
-- **Envelopes are unsigned.** They bound cooperating components. A caller can
-  present any envelope, just as it can present any `permission` to the bus
-  today; authority over the socket still comes from the host MAC policy.
-  Signing envelopes with a node key is future work.
-- Cancellation does not cross an envelope; the remaining deadline does.
-- Budget accounting is per process. A remote child's spending is not refunded
-  to, or charged against, the sender's in-memory scope.
+- Any process holding the host key (any Susi process of the same host user)
+  is trusted to issue. The envelope is bound to the host key, not to the
+  transport or caller presenting it: whoever holds an envelope can use it
+  within its bounds until it expires.
+- The replay ledger and revocation are per process. Two processes admitting
+  the same envelope each start from its full budget; the daemon socket is the
+  intended single admitting process. `revoke` has no socket or CLI action yet.
+- Envelopes do not cross hosts: another host's key refuses them. A cluster-key
+  variant is future work.
+- Cancellation crosses an envelope only through revocation in the admitting
+  process; the issuer cancelling its own level does not reach another process.
 - Only capability dispatch uses the contract. Harness missions, GEMI worker
-  delegation and GAWD swarm hand-offs do not open scopes yet; wiring each is
-  separate work.
+  delegation and GAWD swarm hand-offs do not open scopes yet.
 - Deadlines are checked when a scope is opened or `check()`ed; a running
   handler is not pre-empted. The existing elapsed-time check still applies.
 
@@ -67,6 +112,11 @@ refused.
 
 ```text
 cargo test --offline --locked -p susi-core --lib -- delegation capability_bus registry
+cargo test --offline --locked -p susi-gmcp --test os_capabilities_delegation
 cargo test --offline --locked -p susi-gmcp --lib -- os_capabilities
 cargo clippy --offline --locked -p susi-core -p susi-gmcp -p susi-cli-defs --all-targets -- -D warnings
 ```
+
+The GMCP test re-runs itself as three child processes on scratch `SUSI_HOME`
+directories: one issues through `delegate`, one sharing its home admits through
+`invoke`, one on another home refuses.

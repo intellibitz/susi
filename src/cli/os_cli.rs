@@ -85,10 +85,7 @@ fn capabilities(
                 .map_err(|e| anyhow::anyhow!("--args is not valid JSON: {e}"))?;
             let request =
                 CapabilityRequest::new(id, subject, [permission], timeout_ms, budget_micros);
-            let delegation = delegation
-                .map(|text| serde_json::from_str::<serde_json::Value>(&text))
-                .transpose()
-                .map_err(|e| anyhow::anyhow!("--delegation is not valid JSON: {e}"))?;
+            let delegation = parse_delegation(delegation)?;
             let receipt = registry
                 .dispatch_nested(delegation.as_ref(), &request, &args, workspace)
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -103,7 +100,33 @@ fn capabilities(
             }
             Ok(())
         }
+        OsCapabilitiesAction::Delegate {
+            id,
+            subject,
+            permission,
+            timeout_ms,
+            budget_micros,
+            delegation,
+        } => {
+            let request =
+                CapabilityRequest::new(id, subject, [permission], timeout_ms, budget_micros);
+            let parent = parse_delegation(delegation)?;
+            let envelope = registry
+                .issue_delegation(parent.as_ref(), &request)
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            // The envelope is the output either way: it is what the driver
+            // hands to the component that will run under it.
+            println!("{}", serde_json::to_string(&envelope)?);
+            Ok(())
+        }
     }
+}
+
+/// `--delegation` text as JSON; the registry verifies the envelope itself.
+fn parse_delegation(text: Option<String>) -> Result<Option<serde_json::Value>> {
+    text.map(|text| serde_json::from_str::<serde_json::Value>(&text))
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--delegation is not valid JSON: {e}"))
 }
 
 fn provision(action: OsProvisionAction, top_json: bool) -> Result<()> {

@@ -487,7 +487,7 @@ impl CoreTools {
 
     crate::tool_def!(os_capabilities_tool_attr {
         name: "os_capabilities",
-        description: "The typed capability bus, as `susi os capabilities discover|invoke --json`. Args: optional action (default discover); invoke: id, permission, optional subject (default operator), args, timeout_ms (default 30000), budget_micros (default unlimited), delegation (a susi-delegation/v1 envelope from the calling driver: the call nests under it and cannot exceed it). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        description: "The typed capability bus, as `susi os capabilities discover|invoke|delegate --json`. Args: optional action (default discover); invoke: id, permission, optional subject (default operator), args, timeout_ms (default 30000), budget_micros (default unlimited), delegation (a host-signed susi-delegation/v1 envelope: the call nests under it and cannot exceed it); delegate: the same fields, returns a host-signed envelope for subject to exercise id under delegation (or a fresh root). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema: args::typed::<args::OsCapabilities>(),
     });
     pub fn os_capabilities(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
@@ -497,11 +497,11 @@ impl CoreTools {
         let registry = crate::susi_core::registry::CapabilityRegistry::global();
         match optional_str(arg, "action")?.unwrap_or("discover") {
             "discover" => encode(&registry.typed_bus().discover()),
-            "invoke" => {
+            action @ ("invoke" | "delegate") => {
                 let id = required_str(arg, "id")?;
                 let permission = required_str(arg, "permission")?;
                 let subject = optional_str(arg, "subject")?.unwrap_or("operator");
-                let call_args = match arg.get("args") {
+                let args = match arg.get("args") {
                     None | Some(serde_json::Value::Null) => serde_json::json!({}),
                     Some(value @ serde_json::Value::Object(_)) => value.clone(),
                     Some(_) => return Err(EaiError::config("args must be an object")),
@@ -514,12 +514,12 @@ impl CoreTools {
                     optional_u64(arg, "budget_micros")?.unwrap_or(u64::MAX),
                 );
                 let receipt = registry
-                    .dispatch_nested(arg.get("delegation"), &request, &call_args, workspace)
+                    .serve_nested(action, arg.get("delegation"), &request, &args, workspace)
                     .map_err(|e| EaiError::governance(format!("{e:?}")))?;
                 encode(&receipt)
             }
             other => Err(EaiError::config(format!(
-                "unknown capabilities action `{other}` (expected discover or invoke)"
+                "unknown capabilities action `{other}` (expected discover, invoke or delegate)"
             ))),
         }
     }
