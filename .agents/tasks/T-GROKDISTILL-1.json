@@ -1,0 +1,112 @@
+{
+  "id": "T-GROKDISTILL-1",
+  "title": "Plan-only release distillation planner from task records",
+  "goal": "First slice of release distillation (board item 113 step 2 input, owned by Dot): `xtask --bin distill -- plan` reads task records at a Git revision, computes the deps closure, checks status, provenance (closed.commit ancestry or Task: trailers) and evidence, reports scope overlaps, and emits a deterministic included/deferred/rejected manifest. Changes no branch; composition, conflict resolution, accept.cmd runs and qualification are explicitly not implemented.",
+  "state": "implemented",
+  "status": "implemented",
+  "owner": "grok",
+  "claimed_by": "GROKDISTILL",
+  "native_worker": "GROKDISTILL",
+  "created_by": "grok",
+  "created_unix": 1794344513,
+  "size": "m",
+  "deps": [],
+  "base_commit": "8509b7a8ad9785d41ad6f562dba0749b8fa77601",
+  "scope": [
+    "xtask/src/bin/distill.rs",
+    "xtask/src/distill.rs",
+    "docs/distillation.md",
+    ".agents/schemas/task.schema.json",
+    ".agents/schemas/feature.schema.json",
+    ".agents/tasks/T-GROKDISTILL-1.json"
+  ],
+  "scopes": [
+    "xtask/src/bin/distill.rs",
+    "xtask/src/distill.rs",
+    "docs/distillation.md",
+    ".agents/schemas/task.schema.json",
+    ".agents/schemas/feature.schema.json",
+    ".agents/tasks/T-GROKDISTILL-1.json"
+  ],
+  "acceptance": "cargo test --offline --locked -p xtask --bin distill passes; strict clippy and fmt pass; a real plan of v0.21.52..v0.21.53 runs and its differences are recorded.",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "distill"
+    ]
+  },
+  "updated_unix": 1794344856,
+  "base_note": "worktree created at origin/main 57dfb2e78, fast-forwarded to 8509b7a8a before claiming (no conflicts; none of the new commits touch this scope)",
+  "claim": {
+    "agent": "GROKDISTILL",
+    "result": "claimed",
+    "note": "First attempt with a push-policy binary built before 849b0b4b6 failed ('claimed concurrently'); after rebuilding push-policy from 8509b7a8a (which accepts refs/claim-generation) the claim succeeded."
+  },
+  "dependencies_note": "No task dependency. Designed as input for the release-from-task-records step (workspace board item 113, step 2, owner Dot); does not replace it.",
+  "results": {
+    "toolchain": "Rust 1.99.0 x86_64-unknown-linux-gnu (CachyOS), -j 8",
+    "unit_tests": {
+      "cmd": "cargo test --offline --locked -p xtask --bin distill",
+      "passed": 12,
+      "failed": 0,
+      "harness_s": 0.16,
+      "warm_wall_s": 2.4
+    },
+    "clippy": {
+      "cmd": "cargo clippy --offline --locked -p xtask --bin distill --all-targets -- -D warnings",
+      "result": "pass"
+    },
+    "fmt": {
+      "cmd": "cargo fmt -p xtask --check",
+      "result": "pass"
+    },
+    "guards": {
+      "task_records": "3/3",
+      "core_docs_promise_no_ui_or_plugins": "5/5",
+      "no_github_coupling": "5/5",
+      "architecture_tests": "42 passed, 1 failed: cross_crate_source_mounts_only_decrease (pre-existing crates/susi-harness/tests/native_link.rs mounts, item 118; unrelated to this change)"
+    },
+    "v0_21_53_reproduction": {
+      "cmd": "distill plan --tasks-from-range v0.21.52..v0.21.53",
+      "base": "afdbc3a995dc1c7f27505155344bb614d724d46f",
+      "wall_ms": 910,
+      "manifest_sha256": "d17cfbbc2a0865eef0adc67f375d4be5202eb858a168e072fb4da887c8324f76",
+      "deterministic": "repeat run byte-identical",
+      "non_merge_commits": 80,
+      "commits_without_task_trailer": 61,
+      "tasks_named": 15,
+      "included": 0,
+      "deferred": 15,
+      "rejected": 0,
+      "why": "all 15 records still in_progress (or no status) at the tag and at origin/main; T-PEERCHAN-1 and T-PEERSTATUS-1 also blocked by deps",
+      "files_changed": 248,
+      "files_covered_if_all_15_included": 191,
+      "files_with_no_task_scope": 57,
+      "verdict": "v0.21.53 is NOT reproducible from task records: shipped tasks are left open, 61/80 commits carry no Task trailer, and scopes miss 57 changed files"
+    },
+    "real_sample": "12 closed done/ tasks with deps at origin/main: closure 18, 18 included, 0 conflicts (records lack scopes, so the plan warns)"
+  },
+  "limitations": [
+    "Plan only: no branch composition, conflict resolution, accept.cmd/gate runs, qualification, receipts, tags.",
+    "Provenance is commit-level (closed.commit or Task: trailer); it does not verify a task's commits stay within its scope.",
+    "Status mapping of free-text historical statuses is heuristic (documented in task.schema.json).",
+    "entangled_unselected overlap uses done/ location or a Task: trailer as 'already in base'.",
+    "Scopes are optional in history; unscoped tasks cannot be conflict-checked."
+  ],
+  "provenance": {
+    "produced_by": "Grok Bot executor on the CEO's CachyOS laptop",
+    "worktree": "/mnt/shared/src/github.com/intellibitz/susi-agent-grok-distill",
+    "branch": "local-agent/grok-distill",
+    "sha256": {
+      "xtask/src/distill.rs": "44a77b61c6c6d54fec37f86ea9ca2581468e31211d90b984cfa2c764b0c4635d",
+      "xtask/src/bin/distill.rs": "01c30e248f756d45b7ea9c5a77cfd9ee12ed5e2679f467c3e70b44b99ac500df"
+    },
+    "new_dependencies": "none (std + existing serde_json facade, Apache-2.0 workspace crate)"
+  }
+}
