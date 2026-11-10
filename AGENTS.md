@@ -147,6 +147,11 @@ and `cargo fmt --all --check` on the exact tree, and ship through the gate.
    unstaged and untracked edits before committing locally. The current native
    launcher records `Task: LOCAL-<name>`; task-based commits use
    `Task: T-<AGENT>-<n>`. These receipts identify ownership, not test success.
+   Releases are distilled from these labels (docs/distillation.md): every
+   commit carries `Task: <id>`, every task record declares its `scopes`, and
+   the record is closed when its work lands. Check your range before
+   publishing with `cargo run --offline --locked -p xtask --bin distill --
+   lint --range origin/main..HEAD --strict` (fast, advisory, not a main gate).
    Never disable shared hooks globally. Legacy network hooks are not the local
    correctness gate; use the native command instead of handing work to GitHub.
 6. Serialize integration and publication; reconcile the current main head and
