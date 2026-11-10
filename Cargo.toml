@@ -278,7 +278,7 @@ split-debuginfo = "unpacked"
 [profile.test]
 opt-level = 0
 debug = 0
-codegen-units = 256
+codegen-units = 16
 incremental = true
 split-debuginfo = "unpacked"
 
