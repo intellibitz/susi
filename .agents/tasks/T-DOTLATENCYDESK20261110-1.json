@@ -81,13 +81,15 @@
   "created_unix": 1794290332,
   "kimi_ceiling_dependency": {
     "task": "T-DOTLINUXBYOKSAFE-1",
-    "commit": "aeea86295c2814ac86994cd7f419d3735469e702",
-    "tree": "8cc65065b60c1401b18f0a71e173a6bc059cf730",
+    "commit": "60b8cd7af30ebae90e00a1a9bfbd7ea8b2729980",
+    "tree": "b9ddea9b8fbc71dc82b1076b69fdc508da272c2b",
     "source_commit": "d7d7b563469e682cdd5febb0b76bea384b9a82f0",
     "current_lower_ceiling": 15938,
     "approved_delta": 12,
     "composed_ceiling": 15950,
     "authorization": "User: On the line ceiling: agreed, start from whichever value is currently lower on main and add only the 12 lines.",
-    "review": "Exact committed cloud.rs diff adds 12 lines and removes none: four production lines and eight inline test lines. Preserve swarm 20,641 and agents 11,263. No split-owned paths imported. Combined source verification remains the integrator responsibility; no standalone combined-tree pass is claimed."
+    "review": "Exact committed cloud.rs diff adds 12 lines and removes none: four production lines and eight inline test lines. Preserve swarm 20,641 and agents 11,263. No split-owned paths imported. Combined source verification remains the integrator responsibility; no standalone combined-tree pass is claimed.",
+    "tested_source_commit": "aeea86295c2814ac86994cd7f419d3735469e702",
+    "final_pin_note": "Final safe split adds task evidence only. All six source/config blobs remain identical to the tested source commit recorded above and in docs/lean-core.md."
   }
 }
