@@ -1,0 +1,26 @@
+{
+  "id": "T-GROKDISTILL-1",
+  "title": "Plan-only release distillation planner from task records",
+  "goal": "First slice of release distillation (board item 113 step 2 input, owned by Dot): `xtask --bin distill -- plan` reads task records at a Git revision, computes the deps closure, checks status, provenance (closed.commit ancestry or Task: trailers) and evidence, reports scope overlaps, and emits a deterministic included/deferred/rejected manifest. Changes no branch; composition, conflict resolution, accept.cmd runs and qualification are explicitly not implemented.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "distill"
+    ]
+  },
+  "created_by": "grok",
+  "created_unix": 1794344513,
+  "closed": {
+    "at_unix": 1794344905,
+    "commit": "0d80fa5de2fcef4cb0c36f532d41572555ccc587",
+    "by": "GROKDISTILL"
+  }
+}

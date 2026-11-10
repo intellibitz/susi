@@ -316,3 +316,178 @@ fn release_branches_require_qualification_even_for_create_or_fast_forward() {
         assert!(r.check(&format!("HEAD {new} {reference} {old}")).is_ok());
     }
 }
+
+/// A release tree at `version` (package manifest, lockfile, toolchain pin),
+/// committed; returns (commit, tree, lockfile sha256).
+fn release_tree(r: &Repo, version: &str) -> (String, String, String) {
+    use sha2::{Digest, Sha256};
+    let lock = b"# lock\n";
+    std::fs::write(
+        r.0.join("Cargo.toml"),
+        format!("[package]\nname = \"susi\"\nversion = \"{version}\"\n"),
+    )
+    .unwrap();
+    std::fs::write(r.0.join("Cargo.lock"), lock).unwrap();
+    std::fs::write(
+        r.0.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"1.99.0\"\n",
+    )
+    .unwrap();
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-qm", "release tree"]);
+    let digest: String = Sha256::digest(lock)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    (
+        r.git(&["rev-parse", "HEAD"]),
+        r.git(&["rev-parse", "HEAD^{tree}"]),
+        digest,
+    )
+}
+
+fn release_record(
+    tag: &str,
+    version: &str,
+    commit: &str,
+    tree: &str,
+    lock: &str,
+) -> serde_json::Value {
+    let gate =
+        |name: &str| serde_json::json!({"name": name, "argv": ["cargo", name], "exit_code": 0});
+    let mut gates: Vec<serde_json::Value> =
+        ["format", "check", "clippy", "licenses", "build", "smoke"]
+            .iter()
+            .map(|name| gate(name))
+            .collect();
+    let mut tests = gate("tests");
+    tests["tests"] = serde_json::json!({"binaries": 3, "passed": 40, "failed": 0, "ignored": 1});
+    gates.push(tests);
+    serde_json::json!({
+        "schema": "susi-release-qualification/v1",
+        "product": "susi",
+        "tag": tag,
+        "version": version,
+        "qualified_commit": commit,
+        "qualified_tree": tree,
+        "cargo_lock_sha256": lock,
+        "toolchain": {"channel": "1.99.0", "rustc": "rustc 1.99.0"},
+        "host": "x86_64-unknown-linux-gnu",
+        "gates": gates,
+        "assets": [{"file": "susi", "bytes": 1, "sha256": "a".repeat(64), "version_output": format!("susi {version}")}],
+    })
+}
+
+/// Qualify a fresh release tree with `edit` applied to its record and return
+/// push-policy's verdict on creating the annotated release tag.
+fn release_tag_verdict(
+    edit: impl FnOnce(&mut serde_json::Value),
+    extra_file: bool,
+) -> Result<(), String> {
+    let r = Repo::new();
+    let (commit, tree, lock) = release_tree(&r, "1.2.3");
+    let mut record = release_record("v1.2.3", "1.2.3", &commit, &tree, &lock);
+    edit(&mut record);
+    std::fs::create_dir_all(r.0.join("releases/qualification")).unwrap();
+    std::fs::write(
+        r.0.join("releases/qualification/v1.2.3.json"),
+        serde_json::to_string_pretty(&record).unwrap(),
+    )
+    .unwrap();
+    if extra_file {
+        std::fs::write(r.0.join("source"), "changed after qualification").unwrap();
+    }
+    r.git(&["add", "-A"]);
+    r.git(&[
+        "commit",
+        "-qm",
+        "chore: release v1.2.3 qualification record",
+    ]);
+    r.git(&["tag", "-a", "v1.2.3", "-m", "release"]);
+    let tag = r.git(&["rev-parse", "refs/tags/v1.2.3"]);
+    r.check(&format!("refs/tags/v1.2.3 {tag} refs/tags/v1.2.3 {ZERO}"))
+}
+
+#[test]
+fn a_release_tag_with_its_exact_tree_record_is_admitted() {
+    assert_eq!(release_tag_verdict(|_| {}, false), Ok(()));
+}
+
+/// One way a release record can be wrong, named for the failure message.
+type RecordEdit = (&'static str, Box<dyn FnOnce(&mut serde_json::Value)>);
+
+#[test]
+fn a_release_tag_without_a_valid_record_for_its_exact_tree_fails_closed() {
+    let cases: Vec<RecordEdit> = vec![
+        (
+            "tree",
+            Box::new(|r| r["qualified_tree"] = "0".repeat(40).into()),
+        ),
+        (
+            "commit",
+            Box::new(|r| r["qualified_commit"] = "0".repeat(40).into()),
+        ),
+        ("schema", Box::new(|r| r["schema"] = "other".into())),
+        (
+            "lock",
+            Box::new(|r| r["cargo_lock_sha256"] = "b".repeat(64).into()),
+        ),
+        (
+            "toolchain",
+            Box::new(|r| r["toolchain"]["channel"] = "1.98.0".into()),
+        ),
+        (
+            "failed gate",
+            Box::new(|r| r["gates"][2]["exit_code"] = 1.into()),
+        ),
+        (
+            "missing gate",
+            Box::new(|r| {
+                r["gates"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|g| g["name"] != "smoke");
+            }),
+        ),
+        (
+            "test failures",
+            Box::new(|r| r["gates"][6]["tests"]["failed"] = 1.into()),
+        ),
+        (
+            "no tests",
+            Box::new(|r| r["gates"][6]["tests"]["passed"] = 0.into()),
+        ),
+        (
+            "asset version",
+            Box::new(|r| r["assets"][0]["version_output"] = "susi 1.2.2".into()),
+        ),
+        (
+            "no assets",
+            Box::new(|r| r["assets"] = serde_json::json!([])),
+        ),
+    ];
+    for (name, edit) in cases {
+        assert!(
+            release_tag_verdict(edit, false).is_err(),
+            "{name} must be refused"
+        );
+    }
+    assert!(
+        release_tag_verdict(|_| {}, true).is_err(),
+        "a record commit that also changes the tree must be refused"
+    );
+}
+
+#[test]
+fn a_release_tag_must_point_at_the_record_commit_and_never_moves() {
+    let r = Repo::new();
+    let (commit, _, _) = release_tree(&r, "1.2.3");
+    assert!(r
+        .check(&format!("HEAD {commit} refs/tags/v1.2.3 {ZERO}"))
+        .is_err());
+    let other = r.commit("other");
+    assert!(r
+        .check(&format!("HEAD {other} refs/tags/v1.2.3 {commit}"))
+        .unwrap_err()
+        .contains("immutable"));
+}
