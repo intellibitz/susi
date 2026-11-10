@@ -1,0 +1,79 @@
+{
+  "id": "T-AGYCLOUD-9",
+  "native_worker": "agycloud-20261111-w3",
+  "owner": "agycloud-20261111-w3",
+  "title": "CLI sibling-daemon delegation revocation forwarding and susi harness run --delegation DelegationScope admission",
+  "goal": "Close the two Mandate 73 CLI/daemon delegation gaps in `docs/recursive-delegation.md`: (1) forward `susi os capabilities revoke <id>` across live sibling Susi processes on `<cache>/bus/<pid>/` (`daemon.harness` `revoke_delegation`) while preserving instant offline local revocation, reporting `local_revoked`, `daemon_contacted`, `daemon_revoked`, and `cancelled_runs`; and (2) add `--delegation <JSON|@file>` to standalone `susi harness run` (`crates/susi-cli-defs/src/harness.rs`, `src/cli/harness_cli.rs`), opening a `susi_core::delegation::DelegationScope` (`susi-harness:harness.cli.run` requiring `harness:run`), clamping `--timeout` to the envelope's remaining deadline, reserving `--budget-usd` in micro-USD, charging actual ledger spend, and refunding unspent micro-USD on drop.",
+  "feature": "recursive-delegation",
+  "size": "s",
+  "created_by": "agycloud-20261111-w3",
+  "created_unix": 1794385400,
+  "state": "done",
+  "status": "done",
+  "base": "b91a3070e4bab89516cba11b3d76198b5a147ac2",
+  "mandate_revision": "26edc0bfbb18e4c09647633360787722cbafd8e9",
+  "deps": [
+    "T-AGYCLOUD-2",
+    "T-AGYCLOUD-6"
+  ],
+  "scopes": [
+    ".agents/tasks/T-AGYCLOUD-9.json",
+    ".agents/tasks/done/T-AGYCLOUD-9.json",
+    "crates/susi-cli-defs/src/harness.rs",
+    "docs/recursive-delegation.md",
+    "src/cli/harness_cli.rs",
+    "src/cli/os_cli.rs",
+    "tests/fixtures/cli_help_snapshot.txt"
+  ],
+  "evidence": [
+    "crates/susi-cli-defs/src/harness.rs",
+    "docs/recursive-delegation.md",
+    "src/cli/harness_cli.rs",
+    "src/cli/os_cli.rs",
+    "tests/fixtures/cli_help_snapshot.txt"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--bin",
+      "susi",
+      "--",
+      "harness_cli"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu (Debian 12, Linux 6.12.105+, git 2.39.5, rustc 1.99.0)",
+    "fmt_check": "pass (0 diffs)",
+    "clippy": "pass (0 warnings on susi-cli-defs and susi --all-targets -- -D warnings)",
+    "pillar_ceilings": "unchanged (zero pillar lines or facade edges added)",
+    "tests_passed": 79,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "capabilities_revoke_tests": 2,
+      "harness_cli_tests": 15,
+      "cli_help_snapshot": 1,
+      "architecture_tests": 43,
+      "core_docs_promise_no_ui_or_plugins": 5,
+      "lean_core_ceilings": 2,
+      "no_github_coupling": 5,
+      "orphan_sources": 3,
+      "task_records": 3
+    },
+    "timings_ms": {
+      "clippy_cold_ms": 63279,
+      "clippy_warm_ms": 381,
+      "tests_incremental_ms": 11238,
+      "tests_warm_ms": 574,
+      "susi_version_startup_ms": 10
+    }
+  },
+  "limitations": [
+    "`susi os capabilities revoke <id>` reaches live sibling Susi processes registered on `<cache>/bus/<pid>/` (such as the daemon), not standalone processes without a registered plane-bus listener.",
+    "GEMI worker delegation and GAWD swarm hand-offs remain future `DelegationScope` slices; Windows x86_64 release qualification remains owed on a native Windows host."
+  ]
+}

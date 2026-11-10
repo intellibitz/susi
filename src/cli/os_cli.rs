@@ -124,25 +124,161 @@ fn capabilities(
             if id.is_empty() {
                 crate::anyhow::bail!("envelope id must not be empty");
             }
-            let revoked = registry
+            let local_revoked = registry
                 .revoke_delegation(id)
                 .map_err(|e| crate::anyhow::anyhow!("{e:?}"))?;
+            let bus_root = susi_paths::SusiDirs::cache_dir().join("bus");
+            let self_pid = std::process::id().to_string();
+            let sibling = revoke_on_sibling_bus(&bus_root, &self_pid, id);
+            let daemon_revoked = (sibling.contacted > 0).then_some(sibling.revoked);
+            let revoked = local_revoked || sibling.revoked;
             if json || top_json {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
                         "envelope_id": id,
                         "revoked": revoked,
+                        "local_revoked": local_revoked,
+                        "daemon_contacted": sibling.contacted,
+                        "daemon_revoked": daemon_revoked,
+                        "cancelled_runs": sibling.cancelled_runs,
                     }))?
+                );
+            } else if revoked && !sibling.cancelled_runs.is_empty() {
+                println!(
+                    "Revoked delegation envelope `{id}` (cancelled {} daemon run(s): {}).",
+                    sibling.cancelled_runs.len(),
+                    sibling.cancelled_runs.join(", ")
                 );
             } else if revoked {
                 println!("Revoked delegation envelope `{id}`.");
+            } else if sibling.contacted > 0 {
+                println!(
+                    "Delegation envelope `{id}` was not live in this process or daemon ledger."
+                );
             } else {
                 println!("Delegation envelope `{id}` was not live in this process ledger.");
             }
             Ok(())
         }
     }
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SiblingRevokeReport {
+    contacted: usize,
+    revoked: bool,
+    cancelled_runs: Vec<String>,
+}
+
+/// Forward `daemon.harness` `revoke_delegation` to every live sibling Susi
+/// process (`pid != self_pid`) registered under `bus_root` (`<cache>/bus`), so
+/// revoking an envelope from the CLI cancels daemon-hosted missions and trees
+/// opened under `id` without hitting the CLI's own in-process prefix handler.
+/// When no sibling bus directory or secret exists, returns immediately with
+/// zero network I/O.
+fn revoke_on_sibling_bus(bus_root: &Path, self_pid: &str, id: &str) -> SiblingRevokeReport {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+
+    let mut report = SiblingRevokeReport::default();
+    let Some(secret) = std::fs::read_to_string(bus_root.join("secret"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.len() == 64)
+    else {
+        return report;
+    };
+    let Ok(entries) = std::fs::read_dir(bus_root) else {
+        return report;
+    };
+    let Ok(body) = serde_json::to_string(&serde_json::json!({
+        "topic": susi_core::plane_bus::topics::DAEMON_HARNESS,
+        "payload": {
+            "action": "revoke_delegation",
+            "id": id,
+        },
+    })) else {
+        return report;
+    };
+
+    let mut pid_dirs: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let text = name.to_str()?;
+            if text.is_empty()
+                || text == self_pid
+                || !text.bytes().all(|b| b.is_ascii_digit())
+                || !entry.file_type().is_ok_and(|ft| ft.is_dir())
+            {
+                return None;
+            }
+            Some(entry.path())
+        })
+        .collect();
+    pid_dirs.sort();
+
+    for pid_dir in pid_dirs {
+        let candidate = [
+            pid_dir.join("topics").join("daemon.harness"),
+            pid_dir.join("prefixes").join("daemon."),
+        ]
+        .into_iter()
+        .find_map(|file| {
+            let raw = std::fs::read_to_string(&file).ok()?;
+            let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
+            let addr: SocketAddr = doc.get("endpoint")?.as_str()?.parse().ok()?;
+            addr.ip().is_loopback().then_some(addr)
+        });
+        let Some(addr) = candidate else { continue };
+
+        let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(200)) else {
+            continue;
+        };
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+        let req = format!(
+            "POST /handle HTTP/1.0\r\nHost: 127.0.0.1\r\nX-Susi-Bus-Key: {secret}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        if stream.write_all(req.as_bytes()).is_err() {
+            continue;
+        }
+        let mut resp = String::new();
+        if stream.read_to_string(&mut resp).is_err() {
+            continue;
+        }
+        let Some(json_body) = resp.split("\r\n\r\n").nth(1) else {
+            continue;
+        };
+        let Ok(envelope) = serde_json::from_str::<serde_json::Value>(json_body) else {
+            continue;
+        };
+        if envelope.get("miss").is_some() {
+            continue;
+        }
+        if let Some(ok) = envelope.get("ok") {
+            let result = ok.get("result").unwrap_or(ok);
+            report.contacted = report.contacted.saturating_add(1);
+            if result.get("revoked").and_then(serde_json::Value::as_bool) == Some(true) {
+                report.revoked = true;
+            }
+            for run in result
+                .get("cancelled_runs")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+            {
+                if !report.cancelled_runs.iter().any(|r| r == run) {
+                    report.cancelled_runs.push(run.to_string());
+                }
+            }
+        }
+    }
+    report
 }
 
 /// `--delegation` text as JSON; the registry verifies the envelope itself.
@@ -782,5 +918,108 @@ mod capabilities_revoke_tests {
             matches!(refused, Err(CapabilityError::Delegation(_))),
             "expected revoked envelope to fail Delegation check, got {refused:?}"
         );
+    }
+
+    #[test]
+    fn revoke_on_sibling_bus_cancels_daemon_envelope_and_stays_noop_offline() {
+        use std::sync::Arc;
+        use susi_core::delegation::{
+            DelegationAuthority, DelegationHop, DelegationLimits, DelegationScope,
+        };
+        use susi_core::plane_bus::{topics, PlaneHandler};
+        use susi_core::plane_bus_ipc::IpcPlaneBus;
+
+        struct SiblingHarnessHandler {
+            authority: Arc<DelegationAuthority>,
+        }
+        impl PlaneHandler for SiblingHarnessHandler {
+            fn handle(
+                &self,
+                topic: &str,
+                payload: serde_json::Value,
+            ) -> std::result::Result<serde_json::Value, String> {
+                assert_eq!(topic, topics::DAEMON_HARNESS);
+                let mut res = susi_daemon::harness_ops::dispatch_with_authority(
+                    &payload,
+                    Some(&self.authority),
+                )?;
+                if res.get("revoked").and_then(serde_json::Value::as_bool) == Some(true) {
+                    res["cancelled_runs"] = serde_json::json!(["mission-under-envelope"]);
+                } else if res
+                    .pointer("/result/revoked")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+                {
+                    res["result"]["cancelled_runs"] = serde_json::json!(["mission-under-envelope"]);
+                }
+                Ok(res)
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "susi-sibling-revoke-{}-{}",
+            std::process::id(),
+            susi_harness::operator::now_unix_ms()
+        ));
+        let bus_root = dir.join("bus");
+
+        // Offline: missing bus_root returns 0 contacted immediately with zero network wait.
+        let offline = super::revoke_on_sibling_bus(&bus_root, "1001", "env-offline");
+        assert_eq!(
+            offline,
+            super::SiblingRevokeReport {
+                contacted: 0,
+                revoked: false,
+                cancelled_runs: Vec::new(),
+            }
+        );
+
+        // Spin up a real sibling IpcPlaneBus under `<bus_root>/999999` with an isolated authority.
+        let authority = Arc::new(DelegationAuthority::from_secret(&[0x5Au8; 32]));
+        let root_scope = DelegationScope::root(
+            DelegationHop::new("daemon-driver", "root").unwrap(),
+            ["harness:run".to_string()],
+            5_000_000,
+            Some(60_000),
+            DelegationLimits::default(),
+        )
+        .unwrap();
+        let issued = authority.issue(&root_scope).unwrap();
+        let env_id = issued.id.clone().expect("signed envelope id");
+
+        let sibling_bus = IpcPlaneBus::with_rendezvous(bus_root.join("999999"));
+        sibling_bus.register_prefix(
+            "daemon.",
+            Arc::new(SiblingHarnessHandler {
+                authority: Arc::clone(&authority),
+            }),
+        );
+
+        // Self pid `999999` is skipped so a CLI never loops back into its own prefix handler.
+        let skipped_self = super::revoke_on_sibling_bus(&bus_root, "999999", &env_id);
+        assert_eq!(skipped_self.contacted, 0);
+        assert!(authority.admit(&issued).is_ok());
+
+        // From CLI pid `1001`, sibling `999999` is contacted and revokes `env_id`.
+        let live = super::revoke_on_sibling_bus(&bus_root, "1001", &env_id);
+        assert_eq!(live.contacted, 1);
+        assert!(live.revoked);
+        assert_eq!(live.cancelled_runs, vec!["mission-under-envelope"]);
+        assert!(
+            authority.admit(&issued).is_err(),
+            "revoked envelope must be refused on subsequent admission in sibling daemon"
+        );
+
+        let idempotent = super::revoke_on_sibling_bus(&bus_root, "1001", &env_id);
+        assert_eq!(idempotent.contacted, 1);
+        assert!(idempotent.revoked);
+
+        let unknown =
+            super::revoke_on_sibling_bus(&bus_root, "1001", "00000000000000000000000000000000");
+        assert_eq!(unknown.contacted, 1);
+        assert!(!unknown.revoked);
+        assert!(unknown.cancelled_runs.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -100,7 +100,17 @@ layers it over `susi_core::delegation`:
 - **Revocation.** `CapabilityRegistry::revoke_delegation` (`serve_nested` with
   `action: "revoke"`) and `daemon.harness` `revoke_delegation` cancel a signed
   envelope id in the admitting process's ledger and propagate cancellation to
-  active harness runs opened under it.
+  active harness runs opened under it. `susi os capabilities revoke <id>`
+  revokes locally and forwards `revoke_delegation` across live sibling Susi
+  processes on `<cache>/bus/<pid>/`, reporting `daemon_revoked` and
+  `cancelled_runs` alongside `local_revoked` (`T-AGYCLOUD-9`).
+- **Standalone CLI `susi harness run --delegation <JSON|@file>` (`T-AGYCLOUD-9`).**
+  `HarnessCommands::Run` opens a `DelegationScope` (`susi-harness:harness.cli.run`
+  requiring `harness:run`), admitting a host-signed `susi-delegation/v1`
+  envelope when `--delegation` is supplied (or a bounded CLI operator root scope
+  when omitted), clamping `--timeout` to the envelope's remaining deadline,
+  reserving `--budget-usd` in micro-USD up front, charging actual ledger spend,
+  and refunding unspent micro-USD on drop.
 
 ## Limits (not claimed)
 
@@ -108,19 +118,20 @@ layers it over `susi_core::delegation`:
   is trusted to issue. The envelope is bound to the host key, not to the
   transport or caller presenting it: whoever holds an envelope can use it
   within its bounds until it expires.
-- The replay ledger and revocation are per process. Two processes admitting
-  the same envelope each start from its full budget; the daemon socket is the
-  intended single admitting process. `susi os capabilities revoke <id>` revokes
-  an envelope id in the invoking CLI process's ledger, while daemon-hosted runs
-  are revoked over `daemon.harness` (`revoke_delegation`) or `serve_nested`
-  (`action: "revoke"`).
+- The replay ledger is per process. Two independent CLI processes admitting the
+  same envelope each start from its full budget unless routed through the single
+  daemon socket; `susi os capabilities revoke <id>` reaches live sibling Susi
+  processes registered on `<cache>/bus/<pid>/`, not standalone processes without
+  a registered plane-bus listener.
 - Envelopes do not cross hosts: another host's key refuses them. A cluster-key
   variant is future work.
 - Cancellation crosses an envelope only through revocation in the admitting
-  process; the issuer cancelling its own level does not reach another process.
-- Capability dispatch and `daemon.harness` missions/trees open `DelegationScope`s;
-  standalone CLI `susi harness run`, GEMI worker delegation, and GAWD swarm
-  hand-offs do not open `DelegationScope`s yet.
+  process (or over `<cache>/bus/<pid>/` via `susi os capabilities revoke <id>`);
+  the issuer cancelling an in-memory scope without revoking its envelope id does
+  not reach another process.
+- Capability dispatch, `daemon.harness` missions/trees, and standalone CLI
+  `susi harness run` open `DelegationScope`s; GEMI worker delegation and GAWD
+  swarm hand-offs do not open `DelegationScope`s yet.
 - Deadlines are checked when a scope is opened or `check()`ed; a running
   handler is not pre-empted. The existing elapsed-time check still applies.
 
