@@ -186,6 +186,58 @@ whole-workspace build already records `timings.jsonl`; the two must agree in
 direction. Ceilings for CPU-seconds and critical-path length go into this
 table once the clean baseline is recorded.
 
+### Linux x86_64 (T-BUILDTIME-1, 2026-11-11, under load)
+
+First measurements on Linux: the CEO laptop under CachyOS (i7-13850HX, 28
+threads, 219 GiB, rustc 1.99.0), with other agents compiling throughout. Load
+average (1 min) ran 7 to 53 and 0 to 36 other rustc processes; every number
+here is **under load**, none is an idle baseline. Base origin/main
+`d771008a3`; "16 units" is `[profile.dev] codegen-units = 16` (`eca904a44`,
+or the same setting by `CARGO_PROFILE_DEV_CODEGEN_UNITS` on the base).
+
+| measure | result |
+| ------- | ------ |
+| cold `cargo build -p susi` (`cargo xtask build-time`), base, 256 units | 82.3, 99.6, 81.0, 148.6, 110.8, 80.5, 78.9, 128.5 s wall; 736-1,256 CPU-s; 395 units |
+| same, 16 units | 98.1, 110.7, 95.3, 76.0, 146.8, 102.5, 75.6, 178.1 s wall; 690-1,190 CPU-s; 395 units |
+| alternated pairs (256 then 16, median load 1 of each) | 148.6 (43) / 110.7 (44); 110.8 (38) / 95.3 (35); 80.5 (30) / 76.0 (30); 78.9 (31) / 75.6 (28); 128.5 (32) / 178.1 (48) |
+| warm no-op `cargo build -p susi` | 0.22, 0.23 s |
+| warm, `touch` a susi-gmcp source | 4.4-8.0 s (256); 4.3, 4.9 s (16) |
+| warm, `touch src/main.rs` | 2.8-8.1 s (256); 2.1, 2.5 s (16) |
+| warm, `touch` susi-core `lib.rs` | 6.5-8.5 s (256); 6.2, 10.4 s (16) |
+| `cargo test -p susi-gmcp --no-run` right after `cargo build -p susi` | **78.2 s, 162 crates recompiled (256)**; **32.6 s, 49 crates (16)** |
+| `cargo test -p susi-gmcp`, warm (222 tests, 4 binaries) | 17.1 s (doc-tests compiling), 5.7 s |
+| change to result: one-line edit in susi-gmcp, `cargo build -p susi`, `cargo test -p susi-gmcp` (both already warm) | 22.6, 29.9, 19.8 s (256); 23.3, 25.4, 19.9 s (16) |
+| `target/debug/susi --version` | 40-61 ms |
+| daemon `susi start` to all ports listening (isolated home, offset 3000) | 0.75 s fresh home, 0.39 s second start; `susi stop` 0.30 s |
+| `susi start` -> MCP `initialize` -> `tools/list` answered | 0.52 s |
+
+Reading: the cold build is 75.6-178.1 s on this laptop under load, against the
+60 s budget; the best runs (75.6-82.3 s) sit with the Windows numbers. The 16-unit
+setting won four of five alternated pairs; the one loss ran at a median load of
+48 against 32. In the two best-matched pairs (load about 30 in both) it was 4-6%
+faster in wall and 6-11% lower in CPU-seconds: within the noise of this
+machine, so it counts as "no regression", not as a cut. The deterministic gain
+is the test step: before, `[profile.test]` had 16 units (`487c36292`) and
+`[profile.dev]` 256, so every dependency had two fingerprints and the first
+`cargo test` after a `cargo build` rebuilt the graph. A separate Linux record
+by another method (`T-GROKSTEP1LINUX-2`, `.agents/evidence/step1-linux-T-GROKSTEP1LINUX-2.json`:
+base `de22ea776`, `-j 8`, load 5-22) reads 71.8 s cold.
+
+Critical path on Linux (timings of a 256-unit run, 81.0 s): syn (host) 2-13 s
+-> serde_derive 13-22 -> serde, susi-error -> susi-config 24-35 (frontend 9.1 s)
+-> susi-core 33-50 (frontend 13.5 s) -> three branches that meet at about 67 s:
+susi-gmcp 47-70 (frontend 19.7 s), gawd-agents -> gawd-swarm -> susi-gawd
+(47-69), susi-gemi 55-67 -> susi-daemon 67.5-75 -> `susi` bin 75-81. Cargo
+pipelines on metadata, so the tool's summed "critical path" (88-202 s) is an
+upper bound, not the wall. Levers, by wall saved: (1) the pillar module moves
+(core, gmcp and config frontends are 42 s of the path; CEO-decided moves in
+"What leaves the pillars"); (2) the proc-macro gate (22 s before the first
+serde-using workspace crate starts; rung 3); (3) the tail after the branches
+meet (daemon 7 s plus the `susi` binary 6 s). Off the path but CPU: syn is
+compiled three times (2.0.119 and 3.0.9 for proc-macros, 3.0.9 again for
+`susi-vendor-syn` in susi-gawd), openssl via native-tls (Linux only, through
+reqwest in ra2a), wasmparser and wasmi.
+
 ## Wave log
 
 - 2026-11-07 wave 1 (T-LEAN-1): ceilings test; `susi_core::parallel` (std
@@ -502,3 +554,12 @@ table once the clean baseline is recorded.
   split in the serialized combined gate. Credential handoff changes are excluded.
   Standalone owner source does not contain the split; prior standalone evidence
   is not proof that the combined candidate passes. Integration remains pending.
+- 2026-11-11 (T-BUILDTIME-1, Linux x86_64, CEO laptop, under load: load
+  average 7-53, other agents' rustc running): first Linux record of the
+  budget, table "Linux x86_64" above. Cold `cargo build -p susi` 75.6-178.1 s
+  wall (best runs 75.6, 76.0, 78.9 s), 395 units, so the 60 s budget is not met
+  on Linux either. `[profile.dev] codegen-units` 256 -> 16 to match
+  `[profile.test]`: the first `cargo test -p susi-gmcp` after a build
+  recompiles 49 crates in 32.6 s instead of 162 in 78.2 s; the cold build
+  measured no regression (4 of 5 alternated pairs faster, within load noise).
+  No dependency or ceiling changes.
