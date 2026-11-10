@@ -1,0 +1,31 @@
+{
+  "id": "T-RELEASE54REC-1",
+  "native_worker": "clauderel54rec",
+  "title": "Record core release v0.21.54 on main",
+  "goal": "Land releases/v0.21.54.json (schema susi-release-record/v1) for the published tag v0.21.54 -> b626d435c (qualification record commit on the qualified tree 36a55dd0d): Linux x86_64 reference-build sha256s from the release-qualify build gate, 5427 workspace tests passed / 0 failed over 293 binaries, Windows x86_64 listed in missing_targets as owed. Main takes the 0.21.54 bump and the qualification record by merging the tag (so no record is newer than the workspace version), and tests/release_records.rs admits the releases/qualification/ subdirectory, checking that each qualification record names a released tag.",
+  "size": "s",
+  "deps": [
+    "T-RELEASE54-1",
+    "T-CLAUDERELADAPTER-1"
+  ],
+  "base": "1454ebd916ba070fb9bf7277315f250158a0a5df",
+  "scopes": [
+    ".agents/tasks/t-release54rec-1.json",
+    "releases/v0.21.54.json",
+    "tests/release_records.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDEREL54REC",
+  "created_unix": 1794346662
+}
