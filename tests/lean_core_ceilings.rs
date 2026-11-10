@@ -97,7 +97,12 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// `chacha20poly1305`, `cipher`, `inout`, `opaque-debug`, `poly1305` and
 /// `universal-hash` from Cargo.lock (193 -> 185) and brings the four-pillar
 /// third-party closure under 100 crates for the first time: 331 -> 99).
-const THIRD_PARTY_CEILING: usize = 99;
+/// 2026-11-11: 99 -> 96 (T-CARBONLEAN-16: back `susi-vendor-x25519-dalek`
+/// directly with `curve25519-dalek` (`EdwardsPoint::mul_base_clamped`,
+/// `MontgomeryPoint::mul_clamped` and constant-time `IsIdentity`) + `zeroize`,
+/// removing `x25519-dalek`, `rand_core` and the `zeroize_derive` proc-macro
+/// from Cargo.lock (185 -> 182) and the four-pillar closure).
+const THIRD_PARTY_CEILING: usize = 96;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
