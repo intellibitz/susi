@@ -1,0 +1,249 @@
+{
+  "id": "T-DOTPARALLELCAPACITY-1",
+  "title": "Bound parallel development feedback",
+  "goal": "Add targeted native development checks with cooperative capacity leases, bounded waits, private runtime state and honest limits while preserving exact-tree integration and release gates.",
+  "created_by": "dot-parallel-capacity",
+  "created_unix": 1794316422,
+  "state": "in_progress",
+  "status": "in_progress",
+  "native_worker": "dot-parallel-capacity",
+  "claimed_by": "dot-parallel-capacity",
+  "deps": [],
+  "scopes": [
+    "xtask/bootstrap/susi-dev.rs",
+    "xtask/src/local_dev.rs",
+    "xtask/src/dev_capacity.rs",
+    "docs/parallel-development.md",
+    ".agents/tasks/T-DOTPARALLELCAPACITY-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "susi-dev"
+    ]
+  },
+  "checkpoint": "Windows diagnostics verified with 25 native tests, strict clippy, executable build and real cold/warm/busy invocations. Exact std-only capacity module also passed 9 Linux tests under verified nice 19. Independent source review found no remaining blocker for this cooperative diagnostic scope. Main publication pending; legacy gate participation and full release qualification are not claimed.",
+  "validation": {
+    "hardware": {
+      "logical_cpus": 8,
+      "physical_memory_bytes": 68492570624
+    },
+    "windows": {
+      "source_state": "Owned uncommitted implementation",
+      "source_sha256": {
+        "xtask/src/local_dev.rs": "7cb36962432b43b9e5a68ec2e28f8d80de04b6ad993e3c420d72ac14c74ad082",
+        "xtask/src/dev_capacity.rs": "55299ff009d3f79754b675179cb767b87bcaf3c15ec4359847e0d49457e39cae",
+        "xtask/bootstrap/susi-dev.rs": "0b98874e01f3dca71d94d01f6b8e5bed77e50791d71a7295bd7a4945adf043f2"
+      },
+      "source_base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+      "ignored": 0,
+      "log": "C:\\Users\\muthu\\susi-private\\parallel-capacity-validation-20261110\\test-139f4a83353b48fda9724c5712412fe5",
+      "failed": 0,
+      "outer_ms": 46968,
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--features",
+        "release-tooling",
+        "--bin",
+        "susi-dev"
+      ],
+      "passed": 22,
+      "test_ms": 2650
+    },
+    "capacity_model": {
+      "kind": "Scheduling model, not100 real builds or timing evidence",
+      "jobs_per_check": 2,
+      "agents": 100,
+      "waves": 34,
+      "parallel_checks": 3,
+      "tokens": 7
+    },
+    "format": {
+      "outer_ms": 19255,
+      "exit_code": 0,
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ]
+    },
+    "clippy": {
+      "exit_code": 101,
+      "finding": "private_env has6arguments vs maximum5; tuple refactor prepared, not rerun",
+      "outer_ms": 17366
+    },
+    "final_windows": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--features",
+        "release-tooling",
+        "--bin",
+        "susi-dev"
+      ],
+      "outer_ms": 11480,
+      "clippy": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--offline",
+          "--locked",
+          "-p",
+          "xtask",
+          "--features",
+          "release-tooling",
+          "--bin",
+          "susi-dev",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "outer_ms": 2938
+      },
+      "test_log": "C:\\Users\\muthu\\susi-private\\parallel-capacity-validation-20261110\\test-740707ccb3a24d2a939d353c12933dfb",
+      "source_sha256": {
+        "xtask/src/dev_capacity.rs": "382153f29a261a19540193abed3da4deeab053dc737d63bd42e10c2021d7e5c4",
+        "xtask/bootstrap/susi-dev.rs": "0b98874e01f3dca71d94d01f6b8e5bed77e50791d71a7295bd7a4945adf043f2",
+        "xtask/src/local_dev.rs": "27d755cfd2a59f0821068d936343eb54e634dab0280ae23a5c43f02547668bbd"
+      },
+      "smoke": [
+        {
+          "state": "C:\\Users\\muthu\\susi-private\\parallel-capacity-validation-20261110\\smoke-capacity-abece4fee52e4715a738d99a456d86a7",
+          "arguments": [
+            "dev",
+            "capacity",
+            "100"
+          ],
+          "outer_ms": 231,
+          "label": "capacity",
+          "exit_code": 0,
+          "launcher_sha256": "58cb4ff62209b24f6bc7e386cfbd8685539c0d68e4070b5e26f7aeafede04c7a"
+        },
+        {
+          "state": "C:\\Users\\muthu\\susi-private\\parallel-capacity-validation-20261110\\smoke-cold-leaf-2c5f4049b5df4fafaae71ce584237a7b",
+          "arguments": [
+            "dev",
+            "test",
+            "susi-build-policy",
+            "--jobs",
+            "2",
+            "--wait-ms",
+            "1000"
+          ],
+          "outer_ms": 3084,
+          "label": "cold-leaf",
+          "exit_code": 0,
+          "launcher_sha256": "58cb4ff62209b24f6bc7e386cfbd8685539c0d68e4070b5e26f7aeafede04c7a"
+        },
+        {
+          "state": "C:\\Users\\muthu\\susi-private\\parallel-capacity-validation-20261110\\smoke-warm-leaf-71a655c8a1ce47a3afb7cce1870e7acd",
+          "arguments": [
+            "dev",
+            "test",
+            "susi-build-policy",
+            "--jobs",
+            "2",
+            "--wait-ms",
+            "1000"
+          ],
+          "outer_ms": 1512,
+          "label": "warm-leaf",
+          "exit_code": 0,
+          "launcher_sha256": "58cb4ff62209b24f6bc7e386cfbd8685539c0d68e4070b5e26f7aeafede04c7a"
+        },
+        {
+          "state": "C:\\Users\\muthu\\susi-private\\parallel-capacity-validation-20261110\\smoke-busy-1eb6ea804e444b56a13f9bcc03ceabea",
+          "arguments": [
+            "dev",
+            "test",
+            "susi-build-policy",
+            "--jobs",
+            "2",
+            "--wait-ms",
+            "75"
+          ],
+          "outer_ms": 402,
+          "label": "busy",
+          "exit_code": 75,
+          "launcher_sha256": "58cb4ff62209b24f6bc7e386cfbd8685539c0d68e4070b5e26f7aeafede04c7a"
+        }
+      ],
+      "ignored": 0,
+      "passed": 25,
+      "failed": 0,
+      "test_ms": 2790,
+      "build": {
+        "outer_ms": 3158,
+        "exit_code": 0
+      },
+      "source_base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+      "notes": "Both real leaf runs executed 5 unit tests and a successful zero-doctest command. The busy smoke returned exit 75 with 77 ms measured wait, launcher bytes unchanged, no leftover running marker. Existing unused fluent-uri patch warning was emitted; all commands passed."
+    },
+    "linux_capacity": {
+      "failed": 0,
+      "scope": "Exact std-only capacity module, not full Linux launcher or release qualification",
+      "source_sha256": "382153f29a261a19540193abed3da4deeab053dc737d63bd42e10c2021d7e5c4",
+      "compiler": "rustc 1.99.0 (b940084d7 2026-09-28), x86_64-unknown-linux-gnu",
+      "source_commit": "cc143901dd8e3a89cd556b383b98b8e5cf123796",
+      "source_path": "xtask/src/dev_capacity.rs",
+      "passed": 9,
+      "compile": [
+        "nice",
+        "-n",
+        "19",
+        "rustc",
+        "+1.99.0",
+        "--edition=2021",
+        "--test",
+        "dev_capacity.rs",
+        "-o",
+        "dev_capacity_tests"
+      ],
+      "verified_niceness": 19,
+      "test_ms": 54,
+      "compile_ms": 219,
+      "evidence": "/home/ramadoss/susi-capacity-linux-check.aCq68HMI",
+      "test": [
+        "nice",
+        "-n",
+        "19",
+        "./dev_capacity_tests",
+        "--test-threads=1"
+      ]
+    }
+  },
+  "review": {
+    "limitations": [
+      "Legacy gates and raw Cargo do not share these tokens",
+      "Separate Cargo homes and separate hosts have separate coordination domains",
+      "Compiler job tokens are a scheduling heuristic, not an OS CPU or memory quota",
+      "Full Linux launcher and full release qualification are not claimed"
+    ],
+    "corrections": [
+      "Removed production sysroot preparation from explicitly stock-toolchain diagnostics; required release qualification unchanged",
+      "Stable launcher enforced without rename/removal",
+      "Partial prelaunch slot and worktree marker writes roll back only owned files",
+      "Clippy helper parameter count corrected"
+    ],
+    "result": "no_remaining_source_review_blocker_for_diagnostic_scope"
+  }
+}
