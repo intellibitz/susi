@@ -90,7 +90,14 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// 2026-11-11: 108 -> 107 (T-CARBONLEAN-14: drop unused `log` dependency from
 /// `vendor/native-tls`, removing `log` from Cargo.lock (194 -> 193) and the
 /// four-pillar closure).
-const THIRD_PARTY_CEILING: usize = 107;
+/// 2026-11-11: 107 -> 99 (T-CARBONLEAN-15: replace external `chacha20poly1305`
+/// in `susi-vendor-chacha20poly1305` with `#![forbid(unsafe_code)]` RFC 8439
+/// ChaCha20-Poly1305 AEAD using constant-time 5x26-bit Poly1305,
+/// `subtle::ConstantTimeEq` and `zeroize::Zeroize`; removes `aead`, `chacha20`,
+/// `chacha20poly1305`, `cipher`, `inout`, `opaque-debug`, `poly1305` and
+/// `universal-hash` from Cargo.lock (193 -> 185) and brings the four-pillar
+/// third-party closure under 100 crates for the first time: 331 -> 99).
+const THIRD_PARTY_CEILING: usize = 99;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
