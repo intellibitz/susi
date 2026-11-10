@@ -11,7 +11,6 @@ susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 hyper = { package = "susi-vendor-hyper", path = "../susi-vendor-hyper" }
-hyper-util = { package = "susi-vendor-hyper-util", path = "../susi-vendor-hyper-util" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
