@@ -12,13 +12,13 @@ use hyper::{
     service::service_fn,
     Method, Request, Response, StatusCode,
 };
-use hyper_util::rt::TokioIo;
 use std::{
     convert::Infallible,
     path::{Path, PathBuf},
     sync::Arc,
 };
 use susi_http_transport::http_body::{self as http_body_util, BodyExt, Full};
+use susi_http_transport::http_conn::TokioIo;
 use tokio_rustls::TlsAcceptor;
 
 use susi_http_transport::dual_transport::negotiate_transport;

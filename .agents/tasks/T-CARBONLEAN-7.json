@@ -1,0 +1,67 @@
+{
+  "id": "T-CARBONLEAN-7",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-7",
+  "title": "Lean core: delete susi-vendor-hyper-util; safe susi_http_transport::http_conn HTTP/1.1+HTTP/2 builder and -10 third-party ceiling drop",
+  "goal": "Remove susi-vendor-hyper-util and 10 transitive third-party crates (hyper-util, tower-layer, tower-service, futures-util, futures-task, ipnet, percent-encoding, core-foundation, system-configuration, system-configuration-sys) from Cargo.lock (-11 packages; 126 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..7; Linux host packages 198 -> 190, -e normal 189 -> 181), provide #![forbid(unsafe_code)] TokioIo, TokioExecutor, TokioTimer, and RFC 9113 HTTP/1.1+HTTP/2 auto-detecting connection Builder in susi_http_transport::http_conn, ratchet all three pillar reach ceilings down simultaneously for the third consecutive wave (THIRD_PARTY_CEILING 138 -> 128, WORKSPACE_CEILING 35 -> 34, DIRECT_FACADE_EDGES_CEILING 11 -> 10), and re-record GMCP requirement and --mastery evidence.",
+  "status": "in_progress",
+  "state": "in_progress",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794387340,
+  "size": "m",
+  "deps": [
+    "T-CARBONLEAN-6"
+  ],
+  "base": "bf6763d1976ec24656746c67705220b69f436639",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CARBONLEAN-7.json",
+    ".agents/tasks/done/T-CARBONLEAN-7.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-gmcp/src/protocol_tests.rs",
+    "crates/susi-gmcp/src/server.rs",
+    "crates/susi-http-transport/Cargo.toml",
+    "crates/susi-http-transport/src/http_conn.rs",
+    "crates/susi-server/Cargo.toml",
+    "crates/susi-server/src/lib.rs",
+    "crates/susi-vendor-hyper-util",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "task_records",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo clippy --offline --locked -p susi-http-transport -p susi-gmcp -p susi-server --all-targets -- -D warnings",
+    "cargo deny --offline --locked check licenses",
+    "cargo test --offline --locked -p susi-http-transport -p susi-gmcp -p susi-server --lib",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records --test gmcp_requirements"
+  ],
+  "limitations": [
+    "Verified on native Linux x86_64 host only per current-host workflow; dual-OS production tag qualification stays separate from accept_verified_candidate release/* distillation."
+  ]
+}

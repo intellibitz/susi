@@ -53,7 +53,12 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// `susi_http_transport::http_body`).
 /// 2026-11-11: 139 -> 138 (T-CARBONLEAN-6: `hex` leaves Cargo.lock and the
 /// pillar closure when `susi-vendor-hex` is replaced by `susi_paths::hex`).
-const THIRD_PARTY_CEILING: usize = 138;
+/// 2026-11-11: 138 -> 128 (T-CARBONLEAN-7: `hyper-util`, `tower-layer`,
+/// `tower-service`, `futures-util`, `futures-task`, `ipnet`,
+/// `percent-encoding`, `core-foundation`, `system-configuration` and
+/// `system-configuration-sys` leave Cargo.lock and the pillar closure when
+/// `susi-vendor-hyper-util` is replaced by `susi_http_transport::http_conn`).
+const THIRD_PARTY_CEILING: usize = 128;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
@@ -69,7 +74,8 @@ const THIRD_PARTY_CEILING: usize = 138;
 /// 2026-11-11: 38 -> 37 (susi-vendor-tower-service deleted, T-AGYCLOUD-8).
 /// 2026-11-11: 37 -> 36 (susi-vendor-http-body-util deleted, T-CARBONLEAN-5).
 /// 2026-11-11: 36 -> 35 (susi-vendor-hex deleted, T-CARBONLEAN-6).
-const WORKSPACE_CEILING: usize = 35;
+/// 2026-11-11: 35 -> 34 (susi-vendor-hyper-util deleted, T-CARBONLEAN-7).
+const WORKSPACE_CEILING: usize = 34;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
@@ -88,7 +94,9 @@ const WORKSPACE_CEILING: usize = 35;
 /// `susi_http_transport::http_body`, T-CARBONLEAN-5).
 /// 2026-11-11: 12 -> 11 (susi-{gawd,gemi,gmcp,harness} -> susi-vendor-hex
 /// replaced by `susi_paths::hex`, T-CARBONLEAN-6).
-const DIRECT_FACADE_EDGES_CEILING: usize = 11;
+/// 2026-11-11: 11 -> 10 (susi-gmcp -> susi-vendor-hyper-util replaced by
+/// `susi_http_transport::http_conn`, T-CARBONLEAN-7).
+const DIRECT_FACADE_EDGES_CEILING: usize = 10;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
 /// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
