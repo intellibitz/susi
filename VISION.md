@@ -8,15 +8,19 @@ and gives AI workloads the contracts an operating layer should provide:
 discovery, admission, placement, identity, capability control, lifecycle,
 coordination, evidence, audit, observability, and recovery.
 
-The free Apache-2.0 core is a pure CLI plus standards socket organized around
-four primary pillars on `susi-core` — `susi-gawd` (evidence-gated swarm and A2A
+The free Apache-2.0 core (`intellibitz/susi`) is a pure CLI plus standards socket
+engineered for a `<10s` warm build+test+release loop and organized around **five
+primary core pillars** on `susi-core` — `susi-gawd` (evidence-gated swarm and A2A
 coordination), `susi-gemi` (local and cloud model inference router), `susi-gmcp`
-(MCP 2025-11-25 protocol server and tool plane), and `susi-harness` (unique
-parallel multi-agent self-build workflow): it has no UI, bundles no plugin
-content, starts no third-party software on its own, and is released only for
-x86_64 Windows and Linux (the source stays portable). The desktop, every visual
-view and curated plugin packs live in Susi Commercial Apps, which reaches core
-through the same public protocols.
+(MCP protocol server and governed tool plane), **ACP** (Agent Client Protocol /
+Agent Communication Protocol standard open socket), and `susi-harness` (recursive
+driver/engine with built-in parallel multi-agent workflow): it has no UI, bundles
+no plugin content, starts no third-party software on its own, and is released
+only for x86_64 Windows and Linux (the source stays portable). Every add-on
+feature, enterprise pack, SSO/RBAC gateway, FinOps plane, corporate fleet
+controller, desktop, and visual view lives in Susi Commercial Apps
+(`intellibitz/susi-commercial-apps` — closed-source, licensed, and paid corporate
+software), which reaches core through the same public protocols.
 
 This document states direction. Current product truth is defined by
 `.agents/identity.json`, verified claims by `.agents/evidence.json`, and
@@ -65,7 +69,7 @@ remote resources:
 
 - OpenAI-compatible, Anthropic, Gemini, OpenRouter, and future provider
   adapters;
-- remote MCP servers and A2A peers;
+- remote MCP servers, ACP agent sessions, and A2A peers;
 - managed external agent and framework processes;
 - capability and privacy admission before data leaves the host;
 - cost, rate, residency, and organization-policy constraints;
