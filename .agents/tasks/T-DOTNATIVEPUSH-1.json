@@ -1,0 +1,19 @@
+{
+  "id": "T-DOTNATIVEPUSH-1",
+  "title": "Migrate native Git push transport policy",
+  "state": "in_progress",
+  "status": "in_progress",
+  "claimed_by": "dot-native-push",
+  "native_worker": "dot-native-push",
+  "deps": [],
+  "scope": [
+    ".githooks/pre-push",
+    "xtask/src/push_policy.rs",
+    "xtask/src/bin/push-policy.rs",
+    "xtask/tests/native_push_policy.rs",
+    "xtask/tests/ci_workflow_perf.rs",
+    ".agents/tasks/T-DOTNATIVEPUSH-1.json"
+  ],
+  "acceptance": "Exact Git input tests cover main create/fast-forward, branch deletion/non-fast-forward rejection, stale/mixed refs, immutable commit-bound snapshots, fail-closed release tags and task blob operations. Publication has no build, commercial product, hosted CI or sync prerequisite. Production release tag adapter remains explicitly incomplete.",
+  "verification": "2026-11-10: hardened exact-source standalone native MSVC/OS-UCRT binary built; native policy9/9 and Windows applicable ci_workflow_perf6/6 passed. Tests include actual bare non-GitHub origin create/FF/refusal pushes at both legacy CI flags0/1, replacement ancestry and graft ancestry in main/linked worktrees, and GIT_GRAFT_FILE override. Strict standalone clippy-driver warnings/panic-path denies and rustfmt passed. Cargo combined candidate verification pending owner build.rs registration. Production release tag qualification adapter intentionally remains unavailable and tags fail closed."
+}
