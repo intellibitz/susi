@@ -18,20 +18,11 @@ mod extension_watch;
 #[allow(dead_code)]
 mod gate_receipt;
 mod local_build;
-// Receipt publication validates retained binary evidence before stripping
-// local object-store references from the portable public representation.
-#[allow(dead_code)]
-mod native_provenance;
 // Shared with the local-release binary, which also uses `select_product_features`;
 // this binary only needs `product_feature_args` (local-build).
 #[allow(dead_code)]
 mod product_features;
 mod sysroot_sources;
-// Shared with the launcher; public receipt replay rebuilds fresh evidence.
-#[allow(dead_code)]
-mod test_binary_evidence;
-#[allow(dead_code)]
-mod test_runner;
 mod trusted_sysroot;
 
 #[cfg(windows)]
