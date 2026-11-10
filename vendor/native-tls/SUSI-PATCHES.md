@@ -54,3 +54,9 @@ rejection and ALPN negotiation. No OS trust store is modified. The native-tls
 owned-container test verifies retention until final owner drop and subsequent
 keyset deletion. Its upstream dev dependencies require temporarily including
 vendor/native-tls as a workspace member; it is not a production workspace member.
+
+Temporary directory guards in `src/imp/security_framework.rs` (`TempKeychainDir`,
+`0o700` exclusive `std::fs::DirBuilder`) and `src/test.rs` use standard-library
+directory reservation rather than the external `tempfile` crate (`T-CARBONLEAN-8`),
+removing `tempfile` and `fastrand` from the workspace lockfile and `tempfile`,
+`fastrand`, `rustix`, and `linux-raw-sys` from the four-pillar dependency closure.

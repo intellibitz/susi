@@ -1,0 +1,69 @@
+{
+  "id": "T-CARBONLEAN-8",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-8",
+  "title": "Lean core: replace external tempfile with pure-std susi-vendor-tempfile and native-tls TempKeychainDir (-4 Cargo.lock & -4 pillar third-party crates)",
+  "goal": "Remove external tempfile and 3 transitive crates (fastrand, linux-raw-sys, rustix) from Cargo.lock (-4 packages; 130 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..8), convert susi-vendor-tempfile into a zero-dependency #![forbid(unsafe_code)] pure-std leaf (TempDir, Builder, tempdir, tempdir_in) backed by atomic std::fs::DirBuilder (0o700 on Unix) with read-only cleanup fallback, replace tempfile in vendor/native-tls (src/imp/security_framework.rs and src/test.rs) with pure-std exclusive directory guards while keeping Apple/Windows/Linux TLS source portability intact, and ratchet THIRD_PARTY_CEILING down by 4 crates (128 -> 124).",
+  "status": "in_progress",
+  "state": "in_progress",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794388500,
+  "size": "m",
+  "deps": [
+    "T-CARBONLEAN-7"
+  ],
+  "base": "7b9572dc22db6d4ca7e06561184be925de4cf87c",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-8.json",
+    ".agents/tasks/done/T-CARBONLEAN-8.json",
+    "Cargo.lock",
+    "crates/susi-vendor-tempfile/Cargo.toml",
+    "crates/susi-vendor-tempfile/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs",
+    "vendor/native-tls/Cargo.toml",
+    "vendor/native-tls/SUSI-PATCHES.md",
+    "vendor/native-tls/src/imp/security_framework.rs",
+    "vendor/native-tls/src/test.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-tempfile",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "task_records"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo clippy --offline --locked -p susi-vendor-tempfile -p susi-core -p susi-gawd -p susi-gemi -p susi-gemi-models -p susi-gmcp -p susi-harness -p susi-leaf-services -p susi-tools --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-vendor-tempfile --lib",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ],
+  "limitations": [
+    "Verified on native Linux x86_64 host only per current-host workflow; dual-OS production tag qualification stays separate from accept_verified_candidate release/* distillation."
+  ],
+  "results": {
+    "lockfile_packages_removed": "4 third-party packages removed from Cargo.lock (fastrand 2.5.0, linux-raw-sys 0.12.1, rustix 1.1.6, tempfile 3.27.0), 0 added; 130 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..8",
+    "pillar_ceiling_ratchet": "THIRD_PARTY_CEILING 128 -> 124 (-4 crates: tempfile, fastrand, rustix, linux-raw-sys); WORKSPACE_CEILING 34, DIRECT_FACADE_EDGES_CEILING 10",
+    "license_and_lint_gates": "cargo deny --offline --locked check licenses -> licenses ok; cargo clippy across 9 consumer/pillar crates --all-targets -- -D warnings -> 0 warnings (29.52 s); cargo fmt --all --check -> 0 diffs",
+    "touched_crate_and_guard_tests": "627 / 627 tests passed: susi-vendor-tempfile 7/7 (including 512-dir 16-thread concurrency, 0700 Unix mode, keep, close, readonly cleanup), susi-core 497/497, susi-tools 60/60, susi-leaf-services 2/2, architecture_tests 43/43, core_docs_promise_no_ui_or_plugins 5/5, lean_core_ceilings 2/2, no_github_coupling 5/5, orphan_sources 3/3, task_records 3/3",
+    "timings": "clean-target offline cold cargo build -p susi -j 24: 65.56 s under parallel multi-agent host load (vs 29.36 s idle baseline); warm no-op cargo build -p susi: 412.9 ms; susi --version startup: 23.80 ms"
+  }
+}

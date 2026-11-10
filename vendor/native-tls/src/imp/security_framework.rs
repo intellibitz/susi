@@ -31,10 +31,52 @@ use security_framework::os::macos::keychain::{self, KeychainSettings, SecKeychai
 use crate::{Protocol, TlsAcceptorBuilder, TlsConnectorBuilder};
 
 #[cfg(target_os = "macos")]
+struct TempKeychainDir(std::path::PathBuf);
+
+#[cfg(target_os = "macos")]
+impl TempKeychainDir {
+    fn new() -> std::io::Result<Self> {
+        use std::os::unix::fs::DirBuilderExt;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(1);
+        let base = std::env::temp_dir();
+        let pid = std::process::id();
+        for _ in 0..1024 {
+            let mut rnd = [0_u8; 8];
+            let _ = getrandom::getrandom(&mut rnd);
+            let n = u64::from_le_bytes(rnd) ^ SEQ.fetch_add(1, Ordering::Relaxed);
+            let candidate = base.join(format!(".native-tls-{pid}-{n:016x}"));
+            let mut b = std::fs::DirBuilder::new();
+            b.mode(0o700);
+            match b.create(&candidate) {
+                Ok(()) => return Ok(Self(candidate)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "unable to reserve temporary keychain directory",
+        ))
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for TempKeychainDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(target_os = "macos")]
 static SET_AT_EXIT: Once = Once::new();
 
 #[cfg(target_os = "macos")]
-static TEMP_KEYCHAIN: Mutex<Option<(SecKeychain, tempfile::TempDir)>> = Mutex::new(None);
+static TEMP_KEYCHAIN: Mutex<Option<(SecKeychain, TempKeychainDir)>> = Mutex::new(None);
 
 fn convert_protocol(protocol: Protocol) -> SslProtocol {
     match protocol {
@@ -90,7 +132,7 @@ impl Identity {
             return Err(Error(base::Error::from(errSecParam)));
         }
 
-        let dir = tempfile::TempDir::new().map_err(|_| Error(base::Error::from(errSecIO)))?;
+        let dir = TempKeychainDir::new().map_err(|_| Error(base::Error::from(errSecIO)))?;
         let keychain = keychain::CreateOptions::new()
             .password(&random_password()?)
             .create(dir.path().join("identity.keychain"))?;
@@ -160,7 +202,7 @@ impl Identity {
             Some((keychain, _)) => keychain.clone(),
             lock @ None => {
                 let dir =
-                    tempfile::TempDir::new().map_err(|_| Error(base::Error::from(errSecIO)))?;
+                    TempKeychainDir::new().map_err(|_| Error(base::Error::from(errSecIO)))?;
 
                 let mut keychain = keychain::CreateOptions::new()
                     .password(pass)
