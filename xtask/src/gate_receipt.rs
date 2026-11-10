@@ -300,16 +300,21 @@ impl OuterBinaries<'_> {
     }
 
     /// The absolute prefix and, when the target directory lies inside `cwd`,
-    /// the cwd-relative one.
+    /// the cwd-relative one. Both separators are accepted on every host: a log
+    /// recorded on Windows is parsed by the Linux gate and verifier too, where
+    /// `Path` would treat `F:\ops\candidate` as one component.
     fn prefixes(&self) -> Vec<String> {
         let mut prefixes = vec![self.with_triple(self.target_dir)];
         if let Some(cwd) = self.cwd {
-            let target = Path::new(self.target_dir);
-            if let Ok(relative) = target.strip_prefix(Path::new(cwd)) {
-                let relative = relative.to_string_lossy();
-                if !relative.is_empty() {
-                    prefixes.push(self.with_triple(&relative));
-                }
+            let target = self.target_dir.replace('\\', "/");
+            let cwd = cwd.replace('\\', "/");
+            let cwd = cwd.trim_end_matches('/');
+            let relative = target
+                .strip_prefix(cwd)
+                .filter(|rest| !cwd.is_empty() && rest.starts_with('/'))
+                .map(|rest| rest.trim_matches('/'));
+            if let Some(relative) = relative.filter(|r| !r.is_empty()) {
+                prefixes.push(self.with_triple(relative));
             }
         }
         prefixes
@@ -2405,6 +2410,21 @@ mod tests {
             cwd: Some("F:\\ops\\candidate"),
         };
         assert_eq!(outside.prefixes().len(), 1);
+        // A sibling sharing the cwd's text is not inside it.
+        let sibling = OuterBinaries {
+            target_dir: "F:\\ops\\candidate-2\\target",
+            ..outside
+        };
+        assert_eq!(sibling.prefixes().len(), 1);
+        let unix = OuterBinaries {
+            target_dir: "/ops/candidate/target/check-gate",
+            triple: None,
+            cwd: Some("/ops/candidate/"),
+        };
+        assert_eq!(
+            unix.prefixes(),
+            ["/ops/candidate/target/check-gate/", "target/check-gate/"]
+        );
     }
 
     #[test]

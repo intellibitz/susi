@@ -35,7 +35,7 @@ fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32,
 #[test]
 fn every_agent_tool_auto_loads_the_same_first_step() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let files = ["CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md"];
+    let files = ["CLAUDE.md", "GEMINI.md"];
     let canonical = std::fs::read_to_string(root.join(files[0])).unwrap();
     for file in files {
         let text = std::fs::read_to_string(root.join(file)).unwrap();
@@ -165,8 +165,10 @@ fn tracked_agent_directives_do_not_reintroduce_legacy_bootstrap() {
             );
         }
     }
+    // CLAUDE.md, GEMINI.md and the tracked tool directories; the Copilot file
+    // left with the .github/ directory (T-CLAUDENOGITHUB-1).
     assert!(
-        inspected >= 4,
+        inspected >= 3,
         "the known agent entrypoints must be inspected"
     );
 }

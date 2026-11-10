@@ -2213,7 +2213,6 @@ fn ceo_independent_agents_mandate_is_discoverable_and_preserves_boundaries() {
         ".agents/identity.json",
         "CLAUDE.md",
         "GEMINI.md",
-        ".github/copilot-instructions.md",
         "crates/susi-core/src/self_build.rs",
     ] {
         let text = std::fs::read_to_string(root.join(path)).unwrap();
@@ -2263,7 +2262,6 @@ fn ceo_git_authority_preserves_evidence_and_scope() {
         ".agents/identity.json",
         "CLAUDE.md",
         "GEMINI.md",
-        ".github/copilot-instructions.md",
         "crates/susi-core/src/self_build.rs",
     ] {
         let text = std::fs::read_to_string(root.join(path)).unwrap();
@@ -2408,10 +2406,10 @@ fn enterprise_capabilities_live_in_commercial_apps() {
 
 /// Directories a zero-UI scan never descends into: build output, patched
 /// upstream sources (`vendor/`), and tool/agent metadata (hidden dirs other
-/// than the project's own CI, hook and cargo configuration).
+/// than the project's own hook and cargo configuration).
 fn zero_ui_skips_dir(name: &str) -> bool {
     matches!(name, "target" | "out" | "vendor" | "node_modules")
-        || (name.starts_with('.') && !matches!(name, ".github" | ".githooks" | ".cargo"))
+        || (name.starts_with('.') && !matches!(name, ".githooks" | ".cargo"))
 }
 
 fn zero_ui_walk(dir: &std::path::Path, skip_vendor_facades: bool, out: &mut Vec<PathBuf>) {

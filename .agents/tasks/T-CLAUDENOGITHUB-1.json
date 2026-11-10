@@ -1,0 +1,36 @@
+{
+  "id": "T-CLAUDENOGITHUB-1",
+  "native_worker": "claudenogithub",
+  "title": "Zero GitHub dependency: remove the GitHub hook files and refuse their return",
+  "goal": "CEO 2026-11-11: \"0 dependency on github, remove all github hooks\". Delete the tracked .github/ directory (issue, pull-request and discussion templates and the Copilot instructions file; workflows were already removed 2026-11-06), drop it from the governance tests and docs that listed it, and add a guard in tests/no_github_coupling.rs that fails when any GitHub-only integration file is tracked. Server-side webhooks: none exist on either repository (read-only listing, 2026-11-11). The .githooks/ git hooks are git-native and reference no GitHub feature, so they stay.",
+  "size": "s",
+  "deps": [],
+  "base": "fd6739c63c52b0b1d98788fdccbbd7e49a8732db",
+  "scopes": [
+    ".agents/tasks/t-claudenogithub-1.json",
+    ".github",
+    "agents.md",
+    "docs/evidence.md",
+    "tests/agent_bootstrap.rs",
+    "tests/architecture_tests.rs",
+    "tests/no_github_coupling.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "agent_bootstrap",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "CLAUDENOGITHUB",
+  "created_unix": 1794342014
+}
