@@ -1,0 +1,44 @@
+{
+  "id": "T-LINUXPUB-2",
+  "title": "Restore the xtask binary build and parse Windows gate logs on Linux",
+  "goal": "The xtask binary compiles again on origin/main: declare the receipt-verification modules gate_receipt.rs already uses (test_binary_evidence, test_runner, native_provenance, added by 5607cc09d without the declarations). Fix gate_receipt's cwd-relative harness prefix, which used Path::strip_prefix and so never matched a Windows-recorded target directory on a Linux host.",
+  "size": "S",
+  "deps": [],
+  "created_by": "LINUXPUB",
+  "created_unix": 1794342444,
+  "owner": "linuxpub (Cursor agent on CachyOS Linux x86_64, CEO laptop)",
+  "base_commit": "fd6739c63c52b0b1d98788fdccbbd7e49a8732db",
+  "scopes": [
+    "xtask/src/main.rs",
+    "xtask/src/gate_receipt.rs",
+    ".agents/tasks/T-LINUXPUB-2.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "gate_receipt"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu, Rust 1.99.0, git 2.56.0, CachyOS",
+    "before": "cargo check -p xtask --bin xtask: exit 101, 17 errors E0433 (13 test_binary_evidence, 3 test_runner, 1 native_provenance). gate_receipt::tests::parse_binaries_reads_cwd_relative_running_paths failed in both binaries that mount gate_receipt.rs (left [] vs the two expected harnesses).",
+    "fmt": "cargo fmt --all --check: exit 0 (4.8 s)",
+    "clippy": "cargo clippy --offline --locked -p xtask --features release-tooling --bins --test git_publisher_native_hook -- -D warnings: exit 0; same with --profile test: exit 0",
+    "acceptance": "gate_receipt filter: local-workflow 22 passed, xtask 21 passed, 0 failed",
+    "xtask_all_targets": "cargo test --offline --locked -p xtask --features release-tooling --all-targets --no-fail-fast: 23 test binaries, 599 passed, 6 failed, 2 ignored, 56.1 s wall under load average ~30. All 6 failures are outside this change: local-workflow tests::disk_reclaim_frees_idle_caches_and_keeps_busy_and_current_ones (pre-existing intermittent), and dev_capacity tests in xtask/src/dev_capacity.rs (reached through bootstrap/susi-dev.rs by the susi-dev binary and tests/native_bootstrap.rs; neither mounts main.rs or gate_receipt.rs). The dev_capacity count varied between runs (1 then 5); that file is owned by agent mainfix."
+  },
+  "limitations": [
+    "xtask/tests/native_push_policy.rs still fails strict clippy (clippy::option_env_unwrap, two sites); that file is mainfix's and is not changed here.",
+    "No full workspace test run; Linux only; no Windows run of this change."
+  ],
+  "provenance": "The same module declarations exist, unlanded, as 7af0670b4 on local-agent/dot-fury-release-20261110 (dot-fury, T-DOTFURYXTASK-1). This commit is written independently on the CEO's instruction to publish the build fix first; a later merge of that branch conflicts only textually in main.rs."
+}
