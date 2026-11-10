@@ -15,7 +15,6 @@ use super::message::*;
 use super::model::*;
 use super::service::{serve_directly, serve_server, CancellationToken, DropGuard, ServerHandler};
 use super::transport::Transport;
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::Bytes;
 use hyper::body::{Body, Frame};
 use hyper::http::{self, HeaderMap, HeaderValue, Method, Request, Response, StatusCode};
@@ -28,6 +27,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
+use susi_http_transport::http_body::{combinators::BoxBody, BodyExt, Empty, Full};
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 pub type BoxResponse = Response<BoxBody<Bytes, Infallible>>;

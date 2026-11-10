@@ -20,6 +20,7 @@
 pub mod client;
 mod connect;
 pub mod dual_transport;
+pub mod http_body;
 pub mod http_conn;
 pub mod server;
 mod wire;
