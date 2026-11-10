@@ -1035,3 +1035,12 @@ config, core and the tail.
   185` packages; 170 cumulative `Cargo.lock` packages removed across
   T-CARBONLEAN-1..15) and lowers `THIRD_PARTY_CEILING` `107 -> 99` (crossing
   under 100 third-party crates across the four pillars from the 331 baseline).
+- 2026-11-11 (T-CARBONLEAN-16, Linux x86_64, CEO laptop): back
+  `crates/susi-vendor-x25519-dalek` directly with `curve25519-dalek 4.1.3`
+  (`EdwardsPoint::mul_base_clamped`, `MontgomeryPoint::mul_clamped`, and
+  constant-time `IsIdentity`, verified against RFC 7748 §6.1 Alice/Bob ECDH test
+  vectors and non-contributory low-order point rejection) + `zeroize`, removing
+  `x25519-dalek 2.0.1`, `rand_core 0.6.4`, and the `zeroize_derive 1.5.0`
+  proc-macro from `Cargo.lock` (`185 -> 182` packages; 173 cumulative
+  `Cargo.lock` packages removed across T-CARBONLEAN-1..16) and lowering
+  `THIRD_PARTY_CEILING` `99 -> 96`.

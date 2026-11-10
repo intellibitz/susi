@@ -137,7 +137,6 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 sha2 = "0.10.9"
 getrandom = "0.2"
 ed25519-dalek = { version = "2.2", default-features = false }
-x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
 tokio = { version = "1.53", features = ["io-std", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
