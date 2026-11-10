@@ -14,7 +14,6 @@ use std::sync::LazyLock;
 use std::{error, fmt, io};
 
 use crate::{Protocol, TlsAcceptorBuilder, TlsConnectorBuilder};
-use log::debug;
 
 static PROBE_RESULT: LazyLock<ProbeResult> = LazyLock::new(openssl_probe::probe);
 
@@ -104,9 +103,7 @@ fn load_android_root_certs(connector: &mut SslContextBuilder) -> Result<(), Erro
             .filter_map(|e| fs::read(e.path()).ok())
             .filter_map(|b| X509::from_pem(&b).ok());
         for cert in certs {
-            if let Err(err) = connector.cert_store_mut().add_cert(cert) {
-                debug!("load_android_root_certs error: {:?}", err);
-            }
+            let _ = connector.cert_store_mut().add_cert(cert);
         }
     }
 
@@ -288,14 +285,10 @@ impl TlsConnector {
 
         // We need to load these separately so an error on one doesn't prevent the other from loading.
         if let Some(cert_file) = &PROBE_RESULT.cert_file {
-            if let Err(e) = connector.load_verify_locations(Some(cert_file), None) {
-                debug!("load_verify_locations cert file error: {:?}", e);
-            }
+            let _ = connector.load_verify_locations(Some(cert_file), None);
         }
         for cert_dir in &PROBE_RESULT.cert_dir {
-            if let Err(e) = connector.load_verify_locations(None, Some(cert_dir)) {
-                debug!("load_verify_locations cert dir error: {:?}", e);
-            }
+            let _ = connector.load_verify_locations(None, Some(cert_dir));
         }
 
         if let Some(ref identity) = builder.identity {
@@ -315,9 +308,7 @@ impl TlsConnector {
         }
 
         for cert in &builder.root_certificates {
-            if let Err(err) = connector.cert_store_mut().add_cert((cert.0).0.clone()) {
-                debug!("add_cert error: {:?}", err);
-            }
+            let _ = connector.cert_store_mut().add_cert((cert.0).0.clone());
         }
 
         #[cfg(feature = "alpn")]

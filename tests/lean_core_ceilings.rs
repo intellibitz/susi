@@ -87,7 +87,10 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// removes `x509-cert`, `tls_codec`, `tls_codec_derive`, `der_derive` and
 /// `flagset` from Cargo.lock (199 -> 194) and additionally removes
 /// `rustls-pki-types` from the four-pillar closure).
-const THIRD_PARTY_CEILING: usize = 108;
+/// 2026-11-11: 108 -> 107 (T-CARBONLEAN-14: drop unused `log` dependency from
+/// `vendor/native-tls`, removing `log` from Cargo.lock (194 -> 193) and the
+/// four-pillar closure).
+const THIRD_PARTY_CEILING: usize = 107;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
