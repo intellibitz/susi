@@ -97,6 +97,69 @@ So the release content is not recoverable from task records today. Reasons:
 This matches item 113's condition 2. Labelling at the time of the change and
 closing records when they land are the prerequisites for distillation.
 
+## Labelling rules and `distill lint` (T-GROKLABEL-1)
+
+A release can only be assembled from records that say what landed. Three
+rules make development main distillable:
+
+1. **Every commit carries `Task: <id>`** (`T-<AGENT>-<n>`; several ids may be
+   comma- or space-separated, or given as repeated trailers). The native
+   launcher's `Task: LOCAL-<name>` is accepted during migration but has no task
+   record, so it cannot be distilled; prefer a real task id.
+2. **Every task declares `scopes`** (repo-relative files or directories, the
+   same scopes it claims) and its commits stay inside them. The task's own
+   record and the evidence files it lists are always in scope.
+3. **Close the record when its work lands** (`susi-commercial tasks close`),
+   so a landed task is not left `in_progress`.
+
+`distill lint` checks these over a commit range, deterministically and without
+changing anything:
+
+```text
+cargo run --offline --locked -p xtask --bin distill -- lint --range origin/main..HEAD [--strict]
+cargo run --offline --locked -p xtask --bin distill -- lint --range v0.21.53..origin/main [--json] [--out report.json]
+cargo run --offline --locked -p xtask --bin distill -- lint --range origin/main            # whole history
+```
+
+- One `git log --no-merges --name-only` pass over the range, one record read
+  at `--base` (default: the range end) through Git, and one batch read of the
+  local claim refs. The working tree is never read; nothing is written except
+  `--out`. Bounded at 50,000 commits. Merge commits are not linted (they carry
+  no authored change).
+- It reports commits without a `Task:` trailer, commits labelled only
+  `LOCAL-<name>`, malformed trailer values, trailers naming a task with no
+  record, tasks whose commits landed while the record is still open
+  (`in_progress`, `open`, or no status in `.agents/tasks/`) or only
+  `implemented`, tasks with no scopes, and commits touching files outside
+  their tasks' scopes. A scope covers itself, everything under it, or (for a
+  glob) everything starting with its literal prefix.
+- Scopes come from the record; when the record has none they come from the
+  task's claim ref `refs/claims/<id>` if the local clone has it.
+- Default exit is success with a report. `--strict` exits non-zero when there
+  is any finding; it is an optional fast check for an author's own range, not a
+  gate on main (Mandate 73: main has no mandatory pre-push gate).
+
+**Run it before publishing your own work:** `distill lint --range
+origin/main..HEAD --strict` takes well under a second. The publisher
+(`local-snapshot submit`, Dot's `T-DOTGITPUBLISHER-1`) is deliberately not
+changed: its receipt and output are part of its tested contract, and a lint
+warning there would not change what it publishes. The rule is documented and
+the check is one command away instead.
+
+**Known gap: `tasks close` drops fields.** The task queue moved to Susi
+Commercial Apps (`crates/susi-dev-workflow/src/admin/tasks.rs`). Its `Task`
+struct has no catch-all field, so close re-serialises only the nine fields it
+knows (`id`, `title`, `goal`, `size`, `deps`, `accept`, `created_by`,
+`created_unix`, `closed`) and drops `scopes`, `results`, `limitations`,
+`provenance` and the rest. The fix belongs to the commercial workstream (keep
+unknown fields with a `#[serde(flatten)]` map and test a close round trip).
+Until then the full record stays in Git history, and `distill lint` falls back
+to the claim ref for scopes.
+
+The first full report is `.agents/evidence/labels-T-GROKLABEL-1.json`: counts
+and the list of tasks whose work is on main while the record is still open,
+for each owner to reconcile. Records were not mass-edited.
+
 ## What is missing (not claimed)
 
 This is **not** a distillation service. Not implemented:

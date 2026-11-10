@@ -1,0 +1,65 @@
+{
+  "id": "T-CARBONDISTILL-1",
+  "native_worker": "carbon-cachyos-distill",
+  "title": "Portable Git-native feature/release branch distillation and snapshot composition",
+  "goal": "Deliver portable Git-native selective branch composition (`local-distill` / `xtask::distill_compose`) implementing CEO Mandate 73 and board item 113 step 2: read task manifests directly from Git commits across `.agents/tasks/{,done/,in-progress/}`, compute dependency closures, consume `distill` (`susi-distill-plan/v1`) or `susi-feature-manifest-v1` inputs, compose conflict-free candidate trees via 3-way `git merge-tree --write-tree` without leaking unselected `main` commits, optionally execute hermetic shell-free `accept.cmd` checks in ephemeral credential-stripped worktrees, publish create-only `refs/tags/susi-distill/<name>` snapshots, and emit fsynced `susi-distillation-receipt-v1` receipts with zero GitHub service dependency.",
+  "size": "m",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794346397,
+  "state": "done",
+  "status": "done",
+  "base": "aa4d69846315f08b61d2a391b31a0ce3d3e9a72a",
+  "mandate_revision": "6a5bde015",
+  "deps": [
+    "T-DOTGITPUBLISHER-1",
+    "T-GROKDISTILL-1"
+  ],
+  "scopes": [
+    ".agents/tasks/T-CARBONDISTILL-1.json",
+    "docs/release-distillation.md",
+    "xtask/build.rs",
+    "xtask/src/bin/local-distill.rs",
+    "xtask/src/distill_compose.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-distill"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu",
+    "fmt_check": "pass (0 diffs)",
+    "clippy_xtask_all_targets": "pass (0 warnings, -D warnings, incremental 1300 ms)",
+    "tests_passed": 103,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "xtask_bin_local_distill": 9,
+      "xtask_bin_distill": 12,
+      "xtask_bin_local_snapshot": 26,
+      "architecture_tests": 43,
+      "no_github_coupling": 5,
+      "orphan_sources": 3,
+      "core_docs_promise_no_ui_or_plugins": 5
+    },
+    "timings_ms": {
+      "xtask_cold_build_ms": 42690,
+      "xtask_3bin_incremental_build_ms": 11200,
+      "xtask_single_bin_edit_build_ms": 1780,
+      "xtask_warm_noop_check_ms": 192,
+      "local_distill_test_harness_ms": 1750,
+      "local_distill_help_startup_ms": 9,
+      "live_repo_distill_compose_ms": 845
+    }
+  },
+  "limitations": [
+    "Distillation composes audited candidate branches and create-only snapshot tags (`refs/tags/susi-distill/<name>`); full dual-host release qualification across Linux x86_64 and Windows x86_64 remains a separate downstream qualification gate on frozen snapshots.",
+    "Pre-existing unrelated `lean_core_ceilings` failure on `susi-gemi` (21305 > 21290 from commit 364600b95) observed on base aa4d69846 and owned by peer branch `local-agent/claudegemiceiling`."
+  ]
+}
