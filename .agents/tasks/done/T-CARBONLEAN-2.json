@@ -1,0 +1,82 @@
+{
+  "id": "T-CARBONLEAN-2",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-2",
+  "title": "Lean core: delete shlex and tracing-appender facades; pure-std POSIX shlex and daily rolling audit writer",
+  "goal": "Remove two more workspace vendor facades (susi-vendor-shlex and susi-vendor-tracing-appender) and 9 Cargo.lock packages (crossbeam-channel, crossbeam-utils, symlink, thiserror, proc-macros thiserror-impl and time-macros, tracing-appender, susi-vendor-shlex, susi-vendor-tracing-appender; cargo tree -p susi host packages 237 -> 229), replace shlex with pure-std #![forbid(unsafe_code)] susi_paths::shlex::split (differential-tested across 500,000 generated inputs with zero mismatches), replace tracing-appender with pure-std bounded daily UTC rolling JSON audit writer (src/audit_writer.rs), ratchet pillar ceilings down (workspace 39 -> 38, direct facade edges 15 -> 14, susi-gmcp lines 25,891 -> 25,889), and re-record GMCP requirement and --mastery evidence.",
+  "status": "done",
+  "state": "done",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794379781,
+  "size": "m",
+  "deps": [
+    "T-CARBONLEAN-1"
+  ],
+  "base": "e12bc9008dc1d2c6be8d98da7523e78664fd604b",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CARBONLEAN-2.json",
+    ".agents/tasks/done/T-CARBONLEAN-2.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-gawd-agents/Cargo.toml",
+    "crates/susi-gawd-agents/src/safety.rs",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-gmcp/src/tools/core.rs",
+    "crates/susi-paths/src/lib.rs",
+    "crates/susi-paths/src/shlex.rs",
+    "crates/susi-vendor-shlex",
+    "crates/susi-vendor-tracing-appender",
+    "docs/lean-core.md",
+    "src/audit_writer.rs",
+    "src/main.rs",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo clippy --offline --locked -p susi -p susi-paths -p susi-gawd-agents -p susi-gmcp --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-paths --lib",
+    "cargo test --offline --locked -p susi-gawd-agents --lib",
+    "cargo test --offline --locked -p susi-gmcp --lib",
+    "cargo test --offline --locked --bin susi audit_writer",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test gmcp_requirements"
+  ],
+  "results": {
+    "lockfile_packages_removed": "9 packages removed from Cargo.lock (crossbeam-channel 0.5.17, crossbeam-utils 0.8.23, symlink 0.1.0, thiserror 2.0.21, proc-macros thiserror-impl 2.0.21 and time-macros 0.2.32, tracing-appender 0.2.5, susi-vendor-shlex, susi-vendor-tracing-appender), 0 added; cargo tree -p susi host packages 237 -> 229 (-e normal: 220)",
+    "pillar_ceilings_lowered": "WORKSPACE_CEILING 39 -> 38; DIRECT_FACADE_EDGES_CEILING 15 -> 14; susi-gmcp shipped lines 25,891 -> 25,889",
+    "shlex_differential_proof": "500,000 generated inputs tested against shlex before removal with 0 mismatches; 59/59 susi-paths lib tests passed",
+    "touched_crate_tests": "susi-gawd-agents 198/198 lib tests passed; susi-gmcp 213/213 lib tests passed; susi audit_writer 2/2 bin tests passed",
+    "guards_and_gmcp_evidence": "architecture_tests 43/43, core_docs_promise_no_ui_or_plugins 5/5, lean_core_ceilings 2/2, no_github_coupling 5/5, orphan_sources 3/3, task_records 3/3, gmcp_requirements 88/88 (after 2-phase gmcp-record-evidence.sh + --mastery)"
+  },
+  "limitations": [
+    "shlex 1.3.0 remains in Cargo.lock solely via cc build-dependencies, so THIRD_PARTY_CEILING (normal+build closure) stays at 141 while WORKSPACE_CEILING (39 -> 38) and DIRECT_FACADE_EDGES_CEILING (15 -> 14) drop.",
+    "cargo-deny is not provisioned on this Linux host, so dual-OS production tag qualification stays separate from accept_verified_candidate release/* distillation."
+  ],
+  "source_commits": [
+    "f15bb007acea275e71e8e0f5f4823cb00a78975a",
+    "9a152d53a4e74924d5de39974e2bbd23dd403a27",
+    "c30f17c5f99513b45892c29d5b9628087c7d4297"
+  ]
+}
