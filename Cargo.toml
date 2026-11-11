@@ -140,7 +140,7 @@ getrandom = "0.2"
 ed25519-dalek = { version = "2.2", default-features = false }
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
-tokio = { version = "1.53", features = ["full", "tracing"] }
+tokio = { version = "1.53", features = ["io-std", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
 ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "crates/susi-vendor-ed25519-dalek" }

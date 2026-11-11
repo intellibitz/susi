@@ -965,5 +965,14 @@ config, core and the tail.
   unchanged to `src/tests/evolution.rs` with T-CLAUDEREL56-1, whose env-lock
   fix for the two audit-asserting tests would otherwise have added shipped
   lines. Test organization, not removed runtime capability.
+- 2026-11-11 (T-CARBONLEAN-10, Linux x86_64, CEO laptop): replace `tokio`
+  `"full"` and `"tracing"` features in `crates/susi-vendor-tokio/Cargo.toml`
+  and root `Cargo.toml` with the exact required runtime feature set (`io-std`,
+  `io-util`, `macros`, `net`, `rt`, `rt-multi-thread`, `signal`, `sync`,
+  `time`), dropping unused `tokio/parking_lot`, `tokio/fs`, `tokio/process`
+  and `tokio/tracing`. Removes 5 packages from `Cargo.lock` (`lock_api 0.4.14`,
+  `parking_lot 0.12.5`, `parking_lot_core 0.9.12`, `redox_syscall 0.5.18`,
+  `scopeguard 1.2.0`; 144 cumulative `Cargo.lock` packages removed across
+  T-CARBONLEAN-1..10) and lowers `THIRD_PARTY_CEILING` 122 -> 117.
 
 
