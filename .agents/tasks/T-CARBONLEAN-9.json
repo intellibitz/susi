@@ -1,0 +1,61 @@
+{
+  "id": "T-CARBONLEAN-9",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-9",
+  "title": "Lean core: deduplicate sha2 0.11 and getrandom 0.4 facades onto workspace 0.10.9/0.2 (-9 Cargo.lock pkgs, THIRD_PARTY_CEILING 124 -> 122) and re-home susi-harness providers unit suite",
+  "goal": "Eliminate the duplicate RustCrypto sha2 0.11.1 stack and duplicate getrandom 0.4.3 stack by unifying susi-vendor-sha2 on sha2 0.10.9 and susi-vendor-getrandom on getrandom 0.2 (preserving getrandom::fill over getrandom::getrandom), removing 9 compiled packages from Cargo.lock (-139 cumulative across T-CARBONLEAN-1..9), lowering THIRD_PARTY_CEILING from 124 to 122, and moving susi-harness/src/providers.rs's unchanged 1,206-line inline unit suite to src/tests/providers.rs so LINE_CEILINGS drops from 37,604 to 37,439 after T-AGYFURY-1's git_governor.rs landed.",
+  "status": "in_progress",
+  "state": "in_progress",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794390000,
+  "size": "m",
+  "deps": [
+    "T-CARBONLEAN-8",
+    "T-AGYWIN-1"
+  ],
+  "base": "995795968f17502f3c85b89f7424a73821457d91",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-9.json",
+    ".agents/tasks/done/T-CARBONLEAN-9.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-harness/src/providers.rs",
+    "crates/susi-harness/src/tests/providers.rs",
+    "crates/susi-vendor-getrandom/Cargo.toml",
+    "crates/susi-vendor-getrandom/src/lib.rs",
+    "crates/susi-vendor-sha2/Cargo.toml",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "no_github_coupling",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--test",
+      "task_records"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo clippy --offline --locked -p susi-vendor-getrandom -p susi-vendor-sha2 -p susi-config -p susi-core -p susi-harness -p susi-daemon -p susi-daemon-runtime -p susi-vendor-rcgen -p susi-vendor-wasmtime --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-vendor-getrandom -p susi-harness --lib",
+    "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ],
+  "limitations": [
+    "Verified on native Linux x86_64 host only per current-host workflow; dual-OS production tag qualification stays separate from accept_verified_candidate local release/* and immutable refs/tags/susi-distill/* distillation."
+  ]
+}

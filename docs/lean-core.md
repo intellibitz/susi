@@ -945,5 +945,20 @@ config, core and the tail.
   exclusive directory guards while keeping Apple/Windows/Linux TLS portability
   intact. Pillar third-party reach drops 4 crates (`THIRD_PARTY_CEILING`
   128 -> 124).
+- 2026-11-11 (T-CARBONLEAN-9, Linux x86_64, CEO laptop): deduplicate the
+  workspace's second RustCrypto `sha2` stack (`susi-vendor-sha2` `0.11.0` ->
+  `0.10.9`) and second `getrandom` stack (`susi-vendor-getrandom` `0.4` ->
+  `0.2`, keeping `getrandom::fill` over `getrandom::getrandom`), removing 9
+  compiled packages from `Cargo.lock` (`block-buffer 0.12.1`,
+  `const-oid 0.10.2`, `cpufeatures 0.3.1`, `crypto-common 0.2.2`,
+  `digest 0.11.3`, `getrandom 0.4.3`, `hybrid-array 0.4.15`, `r-efi 6.0.0`,
+  `sha2 0.11.1`; 139 cumulative `Cargo.lock` packages removed across
+  T-CARBONLEAN-1..9; Linux host distinct packages 190 -> 181, `-e normal`
+  181 -> 172). Pillar third-party reach drops 2 unique crate names
+  (`THIRD_PARTY_CEILING` 124 -> 122 as `hybrid-array` and `r-efi` leave the
+  pillar closure alongside 7 duplicate version compile units), and move
+  `susi-harness/src/providers.rs`'s unchanged 1,206-line inline unit suite to
+  `src/tests/providers.rs` (`susi-harness` `LINE_CEILINGS` 37,604 -> 37,439
+  after `T-AGYFURY-1`'s `git_governor.rs` landed alongside `T-AGYWIN-1`).
 
 
