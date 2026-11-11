@@ -103,6 +103,7 @@ pub mod roi;
 pub mod scheduler;
 pub mod secrets;
 pub mod smart;
+pub mod storage_guard;
 pub mod supervisor;
 pub mod tools;
 pub mod usage;

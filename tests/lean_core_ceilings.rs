@@ -225,6 +225,13 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// measured): T-CLAUDEAGENTREFS-1 removed the JSON `.claim` reader in
 /// `discover_active_claim_branches`, which no writer feeds (claims are
 /// `susi-local-claim-v2` text, read by the existing hazard scan).
+/// 2026-11-11: susi-harness 37,434 -> 37,536 (T-CLAUDESTORAGEGUARD-3,
+/// measured; CEO decision 2026-11-11, "raise it", docs/lean-core.md). The one
+/// rise here that is new capability, not a move: src/storage_guard.rs (347
+/// lines) and 14 lines in operator.rs and lib.rs make every harness
+/// publication witness the storage remote, so storage safety needs no
+/// hosting-provider rule. The crate measured 37,175 before the change, 259
+/// under its ceiling, so the ceiling moves by 102 while the source grows 361.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_523),
     ("susi-gawd-swarm", 20_116),
@@ -233,7 +240,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gemi", 21_145),
     ("susi-gemi-models", 15_945),
     ("susi-gmcp", 25_860),
-    ("susi-harness", 37_434),
+    ("susi-harness", 37_536),
 ];
 
 fn workspace_root() -> PathBuf {

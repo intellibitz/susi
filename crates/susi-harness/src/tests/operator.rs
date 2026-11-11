@@ -228,3 +228,98 @@ fn supervisor_wires_recursive_contracts_and_executes_nested_driver_engine_tree()
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// `submit_main` makes the publishing clone a witness of the storage remote
+/// (`crate::storage_guard`): the record follows main, and history that left
+/// the remote behind this clone's back comes back as a note, not a failure.
+#[test]
+fn a_harness_submission_witnesses_the_remote_and_notes_a_loss() {
+    let root = std::env::temp_dir().join(format!("susi-harness-guard-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let work = root.join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let git = |dir: &Path, args: &[&str]| -> String {
+        let out = std::process::Command::new("git")
+            .current_dir(dir)
+            .args([
+                "-c",
+                "user.name=Guard Test",
+                "-c",
+                "user.email=guard@test.invalid",
+            ])
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=.no-test-hooks",
+            ])
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", root.join(".absent-fixture-config"))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    git(&root, &["init", "-q", "--bare", "remote.git"]);
+    git(&work, &["init", "-q", "-b", "main"]);
+    git(
+        &work,
+        &[
+            "remote",
+            "add",
+            "origin",
+            root.join("remote.git").to_str().unwrap(),
+        ],
+    );
+    let commit = |text: &str| -> String {
+        std::fs::write(work.join("source.txt"), text).unwrap();
+        git(&work, &["add", "source.txt"]);
+        git(&work, &["commit", "-q", "-m", text]);
+        git(&work, &["rev-parse", "HEAD"])
+    };
+    let seed = commit("seed");
+    let other = commit("another agent's work");
+    git(&work, &["push", "-q", "origin", "main"]);
+    let config = crate::git_governor::SubmitMainConfig {
+        repo: work.clone(),
+        rev: "HEAD".to_owned(),
+        remote: "origin".to_owned(),
+        require_task_trailer: false,
+        adopted_host_commits: Default::default(),
+        dry_run: false,
+        max_attempts: 1,
+    };
+    let mut notes = Vec::new();
+    submit_main(&config, &mut |line| notes.push(line)).unwrap();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    let record = "refs/susi-guard/origin/heads/main";
+    assert_eq!(git(&work, &["rev-parse", record]), other);
+
+    // A client with no hook rewinds main; the next submission comes from a
+    // branch that never contained the dropped commit.
+    git(
+        &work,
+        &[
+            "push",
+            "-q",
+            "--force",
+            "origin",
+            &format!("{seed}:refs/heads/main"),
+        ],
+    );
+    git(&work, &["reset", "-q", "--hard", &seed]);
+    commit("later work");
+    notes.clear();
+    submit_main(&config, &mut |line| notes.push(line)).unwrap();
+    assert!(
+        notes.iter().any(|n| n.contains("REWOUND refs/heads/main")),
+        "{notes:?}"
+    );
+    assert_eq!(git(&work, &["rev-parse", record]), other);
+    let _ = std::fs::remove_dir_all(&root);
+}

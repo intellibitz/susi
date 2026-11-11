@@ -112,12 +112,11 @@ contains the dropped commits republishes them with its normal fast-forward. A
 finding remains only when the lost commits are in no later submission, which
 is exactly when someone has to act.
 
-Not covered: the harness's own `submit-main` and `integrate` paths
-(`crates/susi-harness/src/git_governor.rs`) do not start the guard. That crate
-is at its lean-core line ceiling, which only goes down without a CEO decision
-(`docs/lean-core.md`), so the guard was not added there. A clone that
-publishes only through the harness witnesses the remote when someone runs
-`local-snapshot guard` in it.
+The harness publishes the same way. The guard lives in the harness
+(`crates/susi-harness/src/storage_guard.rs`; `local-snapshot` compiles the same
+file), and `submit-main`, `integrate` and `release-promote` run it after every
+live publication, from the command line and through the daemon. A finding
+arrives as a note beside the receipt; the receipt and its digest are unchanged.
 
 ## Hooks are on after a clone's first build
 

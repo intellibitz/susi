@@ -1071,3 +1071,13 @@ config, core and the tail.
   proc-macro from `Cargo.lock` (`185 -> 182` packages; 173 cumulative
   `Cargo.lock` packages removed across T-CARBONLEAN-1..16) and lowering
   `THIRD_PARTY_CEILING` `99 -> 96`.
+- 2026-11-11 (T-CLAUDESTORAGEGUARD-3, Linux x86_64, CEO laptop), **CEO decision
+  "raise it"**: the `susi-harness` line ceiling rises `37,434 -> 37,536`. This
+  is new capability, not a move from a crate leaving core: the storage guard
+  (`crates/susi-harness/src/storage_guard.rs`, 347 lines, standard library and
+  Git only, no new dependency) and 14 lines in `operator.rs` and `lib.rs`. With
+  it the harness's `submit-main`, `integrate` and `release-promote` witness the
+  storage remote after every live publication, so the guarantee that nothing
+  published is lost unnoticed has zero hosting-provider dependency. The crate
+  measured 37,175 lines before the change (259 under its ceiling), so the
+  source grows 361 lines and the ceiling 102. No other ceiling moves.

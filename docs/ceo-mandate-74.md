@@ -447,8 +447,10 @@ Since 2026-11-11 (`T-CLAUDESTORAGEGUARD-1`): the storage guard
 Since `T-CLAUDESTORAGEGUARD-2` every `local-snapshot` publish runs the guard
 afterwards, so each dump to main witnesses the remote without a scheduler.
 
-Still open beyond this wave: starting the storage guard from the harness's own
-`submit-main` and `integrate` paths (blocked by the susi-harness line ceiling); speculative-stack qualification and safe evidence
+Since `T-CLAUDESTORAGEGUARD-3` the harness's `submit-main`, `integrate` and
+`release-promote` do the same.
+
+Still open beyond this wave: speculative-stack qualification and safe evidence
 reuse across trees; claim heartbeats; advisory `main` health records; the
 secondary-mirror portability drill and bundle backups; and the multi-run harness
 parity evaluation for default-driver promotion.
