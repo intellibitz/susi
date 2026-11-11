@@ -610,3 +610,16 @@ config, core and the tail.
   against `4e49f290b`: units 386 -> 374; at load 1.6-5.7 wall 26.2 -> 25.9 s
   and unit CPU 224.5 -> 215.8 s; the second pair (load 7.6-9.3) is noise.
   The removed units cost about 4 CPU-seconds; no wall gain is claimed.
+- 2026-11-11 (T-CLAUDEWASMSTD-1, Linux x86_64, 4-thread cloud container):
+  the cell memory cap (`susi-vendor-wasmtime` `cell.rs`) rewrites the
+  module's memory section with a std-only section walker (LEB128, the four
+  memory-limit flags, custom page sizes, memory64 widths) instead of
+  wasmparser 0.259 + wasm-encoder 0.259, which were a second copy beside
+  Wasmi's own wasmparser 0.228. Same refusals (components, malformed
+  sections, page-size exponent >= 64, initial size above the cap); three new
+  tests pin the byte-exact rewrite, idempotence and the malformed cases.
+  Units 374 -> 371, pillar third-party reach measured 191 (ceiling 196 ->
+  191). Cold `cargo build -p susi` on 4 threads: 228.6 CPU-s / 63.3 s base
+  `68e83f0d8`, 233.6 CPU-s / 64.9 s with the change: the removed units cost
+  about 3 CPU-seconds, inside this machine's run-to-run noise, so no time gain
+  is claimed.

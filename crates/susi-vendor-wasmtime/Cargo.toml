@@ -10,13 +10,9 @@ susi-error = { workspace = true }
 # Pure Rust interpreter: native JIT/compiler/WASI dependencies are not linked.
 wasmi = { version = "=1.0.9", default-features = false, features = ["std", "simd", "extra-checks"] }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
-# In-process cell runtime (`cell.rs`): the declared-max memory-cap rewrite of
-# the module's memory section.
-# Only the core-module reader and encoder are used (cell.rs caps the memory
-# section before Wasmi validates the module); the default validator,
-# component model and serde support are not compiled.
-wasm-encoder = { version = "0.259", default-features = false, features = ["std"] }
-wasmparser = { version = "0.259", default-features = false, features = ["std"] }
+# The declared-max memory cap (`cell.rs`) rewrites the module's memory
+# section with a std-only section walker; no wasm parser or encoder crate is
+# compiled beside Wasmi.
 tracing = { workspace = true }
 
 # The WebAssembly text format is a test-time convenience, never a host input:

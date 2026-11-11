@@ -24,7 +24,9 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// rmcp-macros, schemars, schemars_derive, sse-stream, pastey, darling and
 /// the rest of the SDK's tail left the build).
 /// 2026-11-10: 198 -> 196 after the unused swarm flume edge (and spin) left.
-const THIRD_PARTY_CEILING: usize = 196;
+/// 2026-11-11: 196 -> 191 (measured; wasmparser 0.259 and wasm-encoder 0.259
+/// left with T-CLAUDEWASMSTD-1, the rest had already gone unpinned).
+const THIRD_PARTY_CEILING: usize = 191;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower),
 /// then 47 -> 46 (susi-vendor-mcp-server deleted).
