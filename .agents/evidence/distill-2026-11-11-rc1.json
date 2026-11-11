@@ -1,0 +1,1507 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records"
+      ],
+      "exit_code": 0,
+      "output_sha256": "7503ebbcc9d325e1c8c9859df492098fa03a3141a2b632216e411c28648e2da7",
+      "passed": true,
+      "task_id": "T-BUILDTIME-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-sandbox-client",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "output_sha256": "bec5dd059292547e6ca6ccea7e6c846751403d59c92dee55430d5756da206fc3",
+      "passed": true,
+      "task_id": "T-UNBLOCK-3"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "distill"
+      ],
+      "exit_code": 0,
+      "output_sha256": "9c3f52cb728b6e20ca84ace92755c52454f35ade765b27117bec5c8b8b1e893d",
+      "passed": true,
+      "task_id": "T-GROKLABEL-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-daemon-runtime",
+        "-p",
+        "susi-daemon",
+        "-p",
+        "susi",
+        "--lib",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records",
+        "--test",
+        "core_boot_starts_nothing",
+        "--test",
+        "core_never_downloads_models_unasked",
+        "--test",
+        "vc_201_077_mastery"
+      ],
+      "exit_code": 0,
+      "output_sha256": "0eee5eeb0d9944b059c62efc6196d10f3101e4c4263f55c06aca5c75cb1ece37",
+      "passed": true,
+      "task_id": "T-CORECUT-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-agents",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "output_sha256": "e84b5a46fbb0a74dfb857bb56dcd05625be67f620bdb727f2bd445f52b0a1973",
+      "passed": true,
+      "task_id": "T-UNBLOCK-4"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-vendor-wasmtime",
+        "-p",
+        "susi-leaf-services",
+        "--all-features"
+      ],
+      "exit_code": 0,
+      "output_sha256": "9bb01429220442d4cb5df25a66f4bd2a1d76220186ede9db095d32eaadc40cbb",
+      "passed": true,
+      "task_id": "T-CORECUT-2"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--bins",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records"
+      ],
+      "exit_code": 0,
+      "output_sha256": "9443ae8e4b72dcdae5fbb28ef12cc1283e6dd9d4fcfd78f44605ae3b0dd6f04b",
+      "passed": true,
+      "task_id": "T-CORECUT-3"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "exit_code": 0,
+      "output_sha256": "00796ca77e2510ee2baae921c7f52218257c6ab2d61c8f972834d290f63142e0",
+      "passed": true,
+      "task_id": "T-TRUTHDOCS-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "task_records",
+        "--test",
+        "lean_core_ceilings"
+      ],
+      "exit_code": 0,
+      "output_sha256": "54e62b0acfcf70a7058f707fba8147eb109b6259d2fbe7744f9fa5bc92ed355e",
+      "passed": true,
+      "task_id": "T-ADOPT-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "lean_core_ceilings"
+      ],
+      "exit_code": 0,
+      "output_sha256": "603cb1bc041e2e22d6b9c7559d4db9b1f28857cc7f75b06cddc906a016b1d827",
+      "passed": true,
+      "task_id": "T-CLAUDEHASHDOC-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-core",
+        "--lib",
+        "--",
+        "delegation",
+        "capability_bus",
+        "registry"
+      ],
+      "exit_code": 0,
+      "output_sha256": "97da5f953ba7d1aa08f8e8067e2017688351340f19ad129eca5b9c370e00c97e",
+      "passed": true,
+      "task_id": "T-CLAUDERECURSE-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gemi",
+        "--test",
+        "local_plug_carries_selected_model"
+      ],
+      "exit_code": 0,
+      "output_sha256": "dbb3bbccfccd8f93cc951c5375f30c82aa154ad015b0947fed3a2523d2c5bc58",
+      "passed": true,
+      "task_id": "T-MODELPICK-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "task_records"
+      ],
+      "exit_code": 0,
+      "output_sha256": "64b518bfaa95dc35f22dc727bf7f43a2483492e57b19a6413088389dc74dace1",
+      "passed": true,
+      "task_id": "T-CLAUDECLOSEDOC-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-swarm",
+        "--lib",
+        "cloud_recovery"
+      ],
+      "exit_code": 0,
+      "output_sha256": "02bfe48ee898bc0f69748b078aff06d1f01ba5839f5df8a293b27918293838b5",
+      "passed": true,
+      "task_id": "T-CLAUDENOINBOX-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-core",
+        "--lib",
+        "--",
+        "delegation",
+        "capability_bus",
+        "registry"
+      ],
+      "exit_code": 0,
+      "output_sha256": "a268046ba3620e4675bfc645672e8a790ba0c72c9cb91bf44a9e7427ef553a7d",
+      "passed": true,
+      "task_id": "T-CLAUDESIGNENV-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-vendor-wasmtime"
+      ],
+      "exit_code": 0,
+      "output_sha256": "11fb0f100e3ed15a9073ec7c1eef2dafef3252cc4ec676d4e679f38814fc8d0e",
+      "passed": true,
+      "task_id": "T-CLAUDEWASMSTD-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--lib",
+        "--bins"
+      ],
+      "exit_code": 0,
+      "output_sha256": "ff08ddef35144eb1c31f55f9fdcd06b654e4a8610e37438d8343ebc788165d4e",
+      "passed": true,
+      "task_id": "T-CLAUDELOOP10-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "local-distill"
+      ],
+      "exit_code": 0,
+      "output_sha256": "585df693113ad935bacb4f2545fd0b3fca2b26a3e31a4cf169f5d978760a9fbb",
+      "passed": true,
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "output_sha256": "d93b3f32c0f8fdedf12a7978a75bfb4eb9d63197e8b346df1296d8865d69bb4e",
+      "passed": true,
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "exit_code": 0,
+      "output_sha256": "8b1344b1b393fbb8e38aafb8817d77d568258c40106a0000cb5b26d879d57bcc",
+      "passed": true,
+      "task_id": "T-CLAUDEDISTILLEVID-1"
+    },
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "release_records"
+      ],
+      "exit_code": 0,
+      "output_sha256": "27daf3164819910a9794e1e313285463ed19b682a44faeecc65a27fe7fb01419",
+      "passed": true,
+      "task_id": "T-RELEASE54REC-1"
+    }
+  ],
+  "base_commit": "b626d435c6bbae9a89a10c091fd7819fbe3b3910",
+  "base_tree": "e642d1060945ee6019495f69f0296749de524c67",
+  "branch_ref": "refs/heads/release/2026-11-11-rc1",
+  "closure_order": [
+    "T-BUILDTIME-1",
+    "T-UNBLOCK-3",
+    "T-GROKLABEL-1",
+    "T-CORECUT-1",
+    "T-UNBLOCK-4",
+    "T-CORECUT-2",
+    "T-CORECUT-3",
+    "T-TRUTHDOCS-1",
+    "T-ADOPT-1",
+    "T-CLAUDEHASHDOC-1",
+    "T-CLAUDERECURSE-1",
+    "T-MODELPICK-1",
+    "T-CLAUDECLOSEDOC-1",
+    "T-CLAUDENOINBOX-1",
+    "T-CLAUDESIGNENV-1",
+    "T-CLAUDEWASMSTD-1",
+    "T-CLAUDELOOP10-1",
+    "T-CLAUDECLAIMGEN-1",
+    "T-CLAUDERELADAPTER-1",
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CLAUDEDISTILLEVID-1",
+    "T-RELEASE54-1",
+    "T-RELEASE54REC-1"
+  ],
+  "deferred": [],
+  "endpoint_digest": "ec934e766a38accfaeaf85de9fbb10db10bdee01b4a7686e9bfd81a0f9e913c9",
+  "feature": null,
+  "final_commit": "235ad06595fa01a7bda239f92e2c4b9d73c3c6f7",
+  "final_tree": "434c1c7a2d5e7036513dd99c355d00a6770cd5d9",
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records"
+      ],
+      "changed_files": [
+        ".agents/build-time.jsonl",
+        ".agents/tasks/done/T-BUILDTIME-1.json",
+        "Cargo.toml",
+        "docs/lean-core.md"
+      ],
+      "composed_commit": "e989ab35be4c4138af13003010f799cb151daf01",
+      "composed_tree": "b92334178759346c5753b0d25d810e0ea8f4a10e",
+      "deps": [],
+      "goal": "Measure cold and warm build, test, startup and change-to-useful-result times of Susi core separately on the CEO's Linux x86_64 laptop under real multi-agent load, identify the critical path and levers, land any lever that measures better without removing capability, and record the numbers.",
+      "owner": "buildtime",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-BUILDTIME-1.json",
+        ".agents/build-time.jsonl",
+        "Cargo.toml",
+        "docs/lean-core.md"
+      ],
+      "source_commits": [
+        "eca904a443ee9f99df567251d11d259050f3346a",
+        "38297d8c09725f9a4b72a9818941ba2d744d0319",
+        "929c5461c2f542b50bcc99ed6f9507767671b402",
+        "1224e53f250e673c3e3f6c700a5a378d6a416b27",
+        "ed9710c17440b4011df1ed6a31814e8342d8b590"
+      ],
+      "task_id": "T-BUILDTIME-1",
+      "title": "Measure the 60-second core compile budget on Linux under load and cut what measures as a real lever"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-sandbox-client",
+        "--lib"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-UNBLOCK-3.json",
+        "crates/susi-sandbox-client/src/audit_fidelity.rs",
+        "crates/susi-sandbox-client/src/lib.rs"
+      ],
+      "composed_commit": "e6a20ad1256a806f2a1448f651e35ef299aeb083",
+      "composed_tree": "1e4e53481b29db7249caa2885a90ab8613ebba9d",
+      "deps": [],
+      "goal": "Fix the intermittent susi-sandbox-client test audit_retention_prune_full_segment_rotates_and_attests (found by the full Linux workspace run) at its root: every test that writes or verifies signed audit records holds the crate's env lock.",
+      "owner": "unblock",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-UNBLOCK-3.json",
+        "crates/susi-sandbox-client/src/audit_fidelity.rs",
+        "crates/susi-sandbox-client/src/lib.rs"
+      ],
+      "source_commits": [
+        "4b13f1e7ceeefab87fb15d6812c0ea46394aad20"
+      ],
+      "task_id": "T-UNBLOCK-3",
+      "title": "Serialise the signed-audit tests with the env swaps that move their HMAC key"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "distill"
+      ],
+      "changed_files": [
+        ".agents/evidence/labels-T-GROKLABEL-1.json",
+        ".agents/tasks/done/T-GROKLABEL-1.json",
+        "AGENTS.md",
+        "docs/distillation.md",
+        "xtask/src/distill.rs",
+        "xtask/src/distill/lint.rs"
+      ],
+      "composed_commit": "d84514be5cc35780b72928ce15f4d8c5b7a25df6",
+      "composed_tree": "a6c7ecd02f46a87e53504e81d191a8a2616e8577",
+      "deps": [],
+      "goal": "Make labelled, scoped, closed task records the standard workflow so the next release can be assembled from records: add `distill lint` (commits without Task: trailers, tasks landed but still open, commits outside declared scopes), document the rule in AGENTS.md and docs/distillation.md, locate the `tasks close` field loss, and report shipped-but-still-open records for owners without editing them.",
+      "owner": "grok",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "xtask/src/distill.rs",
+        "xtask/src/distill/lint.rs",
+        "docs/distillation.md",
+        "AGENTS.md",
+        ".agents/evidence/labels-T-GROKLABEL-1.json",
+        ".agents/tasks/T-GROKLABEL-1.json"
+      ],
+      "source_commits": [
+        "08d939d352d7bf7a2b41a90c68c28a705639cdd9",
+        "d5a216f9a3dfbec1a2bfe8a88263007187b0a069"
+      ],
+      "task_id": "T-GROKLABEL-1",
+      "title": "Distillation-ready labelling: distill lint, labelling rule, shipped-but-open report"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-daemon-runtime",
+        "-p",
+        "susi-daemon",
+        "-p",
+        "susi",
+        "--lib",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records",
+        "--test",
+        "core_boot_starts_nothing",
+        "--test",
+        "core_never_downloads_models_unasked",
+        "--test",
+        "vc_201_077_mastery"
+      ],
+      "changed_files": [
+        ".agents/build-time.jsonl",
+        ".agents/tasks/T-CORECUT-1.json",
+        "ARCHITECTURE.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-daemon-runtime/Cargo.toml",
+        "crates/susi-daemon-runtime/src/blackboard.rs",
+        "crates/susi-daemon-runtime/src/boot_trace.rs",
+        "crates/susi-daemon-runtime/src/context_adapters.rs",
+        "crates/susi-daemon-runtime/src/eco_drift_alerts.rs",
+        "crates/susi-daemon-runtime/src/eco_probe_scheduler.rs",
+        "crates/susi-daemon-runtime/src/engine_watchdog.rs",
+        "crates/susi-daemon-runtime/src/hot_reload_coverage.rs",
+        "crates/susi-daemon-runtime/src/lib.rs",
+        "crates/susi-daemon-runtime/src/nat.rs",
+        "crates/susi-daemon-runtime/src/orchestrator.rs",
+        "crates/susi-daemon-runtime/src/os_provision.rs",
+        "crates/susi-daemon-runtime/src/port_fallback.rs",
+        "crates/susi-daemon-runtime/src/resource_governor.rs",
+        "crates/susi-daemon-runtime/src/scheduled_missions.rs",
+        "crates/susi-daemon-runtime/src/security.rs",
+        "crates/susi-daemon-runtime/src/service_supervision.rs",
+        "crates/susi-daemon-runtime/src/sla_monitor.rs",
+        "crates/susi-daemon-runtime/src/supervisor.rs",
+        "crates/susi-daemon-runtime/src/swarm_metrics.rs",
+        "crates/susi-daemon-runtime/src/telemetry.rs",
+        "crates/susi-daemon-runtime/src/tls.rs",
+        "crates/susi-daemon-runtime/src/watchdog.rs",
+        "crates/susi-daemon-runtime/src/zc_daemon_lifecycle.rs",
+        "crates/susi-daemon-runtime/src/zc_keys_health_boot.rs",
+        "crates/susi-daemon-runtime/src/zc_rediscovery_adaptive.rs",
+        "crates/susi-daemon-runtime/src/zc_scorecard.rs",
+        "crates/susi-daemon-runtime/src/zc_startup_autofix.rs",
+        "crates/susi-daemon/Cargo.toml",
+        "crates/susi-daemon/src/blackboard.rs",
+        "crates/susi-daemon/src/boot_trace.rs",
+        "crates/susi-daemon/src/context_adapters.rs",
+        "crates/susi-daemon/src/eco_drift_alerts.rs",
+        "crates/susi-daemon/src/eco_probe_scheduler.rs",
+        "crates/susi-daemon/src/engine_watchdog.rs",
+        "crates/susi-daemon/src/hot_reload_coverage.rs",
+        "crates/susi-daemon/src/lib.rs",
+        "crates/susi-daemon/src/nat.rs",
+        "crates/susi-daemon/src/orchestrator.rs",
+        "crates/susi-daemon/src/os_provision.rs",
+        "crates/susi-daemon/src/port_fallback.rs",
+        "crates/susi-daemon/src/resource_governor.rs",
+        "crates/susi-daemon/src/scheduled_missions.rs",
+        "crates/susi-daemon/src/security.rs",
+        "crates/susi-daemon/src/service_supervision.rs",
+        "crates/susi-daemon/src/sla_monitor.rs",
+        "crates/susi-daemon/src/supervisor.rs",
+        "crates/susi-daemon/src/swarm_metrics.rs",
+        "crates/susi-daemon/src/telemetry.rs",
+        "crates/susi-daemon/src/tests/vc_202_010_mastery.rs",
+        "crates/susi-daemon/src/tls.rs",
+        "crates/susi-daemon/src/watchdog.rs",
+        "crates/susi-daemon/src/zc_daemon_lifecycle.rs",
+        "crates/susi-daemon/src/zc_keys_health_boot.rs",
+        "crates/susi-daemon/src/zc_rediscovery_adaptive.rs",
+        "crates/susi-daemon/src/zc_scorecard.rs",
+        "crates/susi-daemon/src/zc_startup_autofix.rs",
+        "crates/susi-gemi/src/tests/brain_scout_schedule.rs",
+        "docs/architecture.md",
+        "docs/lean-core.md",
+        "docs/threat-model.md",
+        "tests/architecture_tests.rs",
+        "tests/core_boot_starts_nothing.rs",
+        "tests/core_never_downloads_models_unasked.rs"
+      ],
+      "composed_commit": "3372ab94ab12fce970eea2b4992b52ee0da6ff97",
+      "composed_tree": "dc7e89bd1acbd5e6d5c6463eca338a49fc6094fa",
+      "deps": [],
+      "goal": "Shorten the serial critical path of the cold `cargo build -p susi` on Linux x86_64 toward the 60 s budget without removing capability: move the susi-daemon modules that reference no GAWD, GEMI, GMCP, harness, server or tools crate into a new crate, susi-daemon-runtime, that compiles beside the pillar crates; susi-daemon re-exports every module under its old path.",
+      "owner": "corecut",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CORECUT-1.json",
+        ".agents/build-time.jsonl",
+        "ARCHITECTURE.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-daemon-runtime",
+        "crates/susi-daemon/Cargo.toml",
+        "crates/susi-daemon/src",
+        "crates/susi-gemi/src/tests/brain_scout_schedule.rs",
+        "docs/architecture.md",
+        "docs/lean-core.md",
+        "docs/threat-model.md",
+        "tests/architecture_tests.rs",
+        "tests/core_boot_starts_nothing.rs",
+        "tests/core_never_downloads_models_unasked.rs"
+      ],
+      "source_commits": [
+        "2b0f2e1b05fedd878a5615a495a83afdb510653f",
+        "b3d51227a7654e98a7d441ccd6702eeef7435cbd"
+      ],
+      "task_id": "T-CORECUT-1",
+      "title": "Take the daemon's pillar-free host runtime off the serial tail of the cold core build"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-agents",
+        "--lib"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-UNBLOCK-4.json",
+        "crates/susi-gawd-agents/src/agent_meta_registry.rs",
+        "crates/susi-gawd-agents/src/agents/fleet.rs",
+        "crates/susi-gawd-agents/src/tests/fleet.rs"
+      ],
+      "composed_commit": "f111abcb7dad3628a06573395e8fd8ad5439642d",
+      "composed_tree": "e2c53cd0a0598deef35711c1b81f6435872458c1",
+      "deps": [],
+      "goal": "Fix the intermittent susi-gawd-agents lib tests test_external_executor_requires_explicit_invocation (failed in the full Linux workspace run) and openai_chat_peer_requires_api_base (found while repeat-running the crate) at their root: process-global state read from SUSI_HOME must not change or vanish under a test.",
+      "owner": "unblock",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-UNBLOCK-4.json",
+        "crates/susi-gawd-agents/src/agent_meta_registry.rs",
+        "crates/susi-gawd-agents/src/agents/fleet.rs",
+        "crates/susi-gawd-agents/src/tests/fleet.rs"
+      ],
+      "source_commits": [
+        "bde14deb31128a7008a3687b7c5b18e9c72fb21d"
+      ],
+      "task_id": "T-UNBLOCK-4",
+      "title": "Give susi-gawd-agents tests private, never-deleted homes for the global registry and MAC policy"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-vendor-wasmtime",
+        "-p",
+        "susi-leaf-services",
+        "--all-features"
+      ],
+      "changed_files": [
+        ".agents/build-time.jsonl",
+        ".agents/tasks/T-CORECUT-2.json",
+        "Cargo.lock",
+        "crates/susi-vendor-wasmtime/Cargo.toml",
+        "docs/lean-core.md"
+      ],
+      "composed_commit": "1e5d6f00f2b76a5f24f6b0253a1e8f975eeeeb48",
+      "composed_tree": "6d8251fa74ee89afcb92b8ce2fcf4933a73da018",
+      "deps": [
+        "T-CORECUT-1"
+      ],
+      "goal": "Reduce the CPU work of the cold `cargo build -p susi` on Linux x86_64 (what costs wall time when the laptop is loaded) without changing behaviour: susi-vendor-wasmtime uses only wasmparser's core-module reader and wasm-encoder's core-module encoder to cap a cell's memory section, so their default validator, component model, serde and hash-collection features are not compiled.",
+      "owner": "corecut",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CORECUT-2.json",
+        ".agents/build-time.jsonl",
+        "Cargo.lock",
+        "crates/susi-vendor-wasmtime/Cargo.toml",
+        "docs/lean-core.md"
+      ],
+      "source_commits": [
+        "4e49f290b0701ad9fdb9d9af229756f602f679fd"
+      ],
+      "task_id": "T-CORECUT-2",
+      "title": "Compile only the wasmparser and wasm-encoder features the Wasm cell facade uses"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--bins",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "orphan_sources",
+        "--test",
+        "lean_core_ceilings",
+        "--test",
+        "core_docs_promise_no_ui_or_plugins",
+        "--test",
+        "task_records"
+      ],
+      "changed_files": [
+        ".agents/build-time.jsonl",
+        ".agents/tasks/T-CORECUT-3.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/susi-vendor-rayon/Cargo.toml",
+        "crates/susi-vendor-rayon/src/lib.rs",
+        "docs/lean-core.md",
+        "src/cli/defs.rs",
+        "src/main.rs",
+        "tests/fixtures/cli_help_snapshot.txt"
+      ],
+      "composed_commit": "b64ed1a8f224a94e9d55f3d4844d830abd84bccb",
+      "composed_tree": "459cc18fbced474b9488b816a51e80049b458550",
+      "deps": [
+        "T-CORECUT-2"
+      ],
+      "goal": "Reduce the CPU work of the cold `cargo build -p susi` on Linux x86_64 without changing behaviour: the binary built a global rayon thread pool at startup and logged its size, but no crate in its build runs work on rayon (the GAWD crates moved to `susi_core::parallel` on 2026-11-07), so the pool, the `rayon` dependency and the `susi-vendor-rayon` facade go, and rayon, rayon-core, crossbeam-deque and crossbeam-epoch leave the build.",
+      "owner": "corecut",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CORECUT-3.json",
+        ".agents/build-time.jsonl",
+        "Cargo.toml",
+        "Cargo.lock",
+        "crates/susi-vendor-rayon",
+        "src/main.rs",
+        "src/cli/defs.rs",
+        "tests/fixtures/cli_help_snapshot.txt",
+        "docs/lean-core.md"
+      ],
+      "source_commits": [
+        "b3678bfd94a6fb0bfe6df247dd00661627de3c7f"
+      ],
+      "task_id": "T-CORECUT-3",
+      "title": "Drop the unused rayon pool and its facade from the susi binary"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "architecture_tests",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "changed_files": [
+        ".agents/gmcp/evidence/VC-203-001.jsonl",
+        ".agents/gmcp/evidence/VC-203-002.jsonl",
+        ".agents/gmcp/evidence/VC-203-003.jsonl",
+        ".agents/gmcp/evidence/VC-203-004.jsonl",
+        ".agents/gmcp/evidence/VC-203-005.jsonl",
+        ".agents/gmcp/evidence/VC-203-006.jsonl",
+        ".agents/gmcp/evidence/VC-203-008.jsonl",
+        ".agents/gmcp/evidence/VC-203-009.jsonl",
+        ".agents/gmcp/evidence/VC-203-013.jsonl",
+        ".agents/gmcp/requirements-ledger.json",
+        ".agents/gmcp/sources.json",
+        ".agents/identity.json",
+        ".agents/tasks/T-TRUTHDOCS-1.json",
+        "ARCHITECTURE.md",
+        "crates/susi-core/src/capture.rs",
+        "crates/susi-core/src/mcp_client.rs",
+        "crates/susi-daemon/src/crown.rs",
+        "crates/susi-daemon/src/gmcp_bootstrap.rs",
+        "crates/susi-daemon/src/server.rs",
+        "crates/susi-gmcp/src/content.rs",
+        "crates/susi-gmcp/src/protocol_tests.rs",
+        "crates/susi-gmcp/src/tools/args.rs",
+        "crates/susi-gmcp/src/tools/core.rs",
+        "crates/susi-gmcp/src/tools/host_view_tools.rs",
+        "crates/susi-server/src/lib.rs",
+        "crates/susi-wire-client/src/mcp.rs",
+        "crates/susi-wire-client/src/sse.rs",
+        "docs/gmcp-roadmap.md",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs"
+      ],
+      "composed_commit": "9b63b2d8f98e64caf288de906a294446c6a11041",
+      "composed_tree": "9b63f820b6bd2b9211f5599f3eaf1a40c3799cfc",
+      "deps": [],
+      "goal": "Remove stale statements the coordination board lists for core: the deleted susi-vendor-rayon facade in tests/architecture_tests.rs; the GMCP bloat_audit description ('rayon-parallel'; it scans every Rust source under the workspace on std worker threads); the GMCP intent_ladder description (adopt_gap is refused and names susi-commercial) and the docs/gmcp-roadmap.md queue example (susi-commercial tasks/workflow); Mandate 55's did-you-mean example and other rmcp / cell-server / rayon / gawd->a2a statements in .agents/identity.json; rmcp mentions in susi-core mcp_client.rs, susi-wire-client and GMCP comments; ARCHITECTURE.md's susi-gawd -> susi-gawd-a2a edge (the daemon owns it since T-A2ASTD-1). Text only; GMCP evidence re-recorded in both phases.",
+      "owner": "TRUTHDOCS",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/gmcp/evidence",
+        ".agents/gmcp/requirements-ledger.json",
+        ".agents/gmcp/sources.json",
+        ".agents/identity.json",
+        ".agents/tasks/T-TRUTHDOCS-1.json",
+        "ARCHITECTURE.md",
+        "crates/susi-core/src/capture.rs",
+        "crates/susi-core/src/mcp_client.rs",
+        "crates/susi-daemon/src/crown.rs",
+        "crates/susi-daemon/src/gmcp_bootstrap.rs",
+        "crates/susi-daemon/src/server.rs",
+        "crates/susi-gmcp/src/content.rs",
+        "crates/susi-gmcp/src/protocol_tests.rs",
+        "crates/susi-gmcp/src/tools/args.rs",
+        "crates/susi-gmcp/src/tools/core.rs",
+        "crates/susi-gmcp/src/tools/host_view_tools.rs",
+        "crates/susi-server/src/lib.rs",
+        "crates/susi-wire-client/src/mcp.rs",
+        "crates/susi-wire-client/src/sse.rs",
+        "docs/gmcp-roadmap.md",
+        "docs/lean-core.md",
+        "tests/architecture_tests.rs"
+      ],
+      "source_commits": [
+        "7e73f48e5804403a2fdd822079eb006fbd1233a7",
+        "a6002923c69f2c4431ff5d6329d7ecca949ef90c",
+        "fd9d64094a1408e8ccb7c533b1b4cd34d49314dc",
+        "6183e4a607e16aa2f95362c5b954e9139be6d31b",
+        "c01bac5afd48bcd8f3d29b26ed2da6b25a527077",
+        "a76a32e14ea9c8c3ec390d5c6fb6e376349b629d",
+        "941e56c6bf555951632e08d71cc5b587648a917e",
+        "4e48f3ae18d91ebc4c9418ab6b3f764dbafbb4e7",
+        "c75ede5b96f0df92b70b55bbf7746e0678958dda"
+      ],
+      "task_id": "T-TRUTHDOCS-1",
+      "title": "Core comments, docs and GMCP tool descriptions say what the code does today"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "task_records",
+        "--test",
+        "lean_core_ceilings"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-ADOPT-1.json"
+      ],
+      "composed_commit": "8719204a4af126efd976efbc4f6638ad33317a9e",
+      "composed_tree": "efc894fcf0d44271ddca9ea7c002ebe6193a5b74",
+      "deps": [],
+      "goal": "Decide on evidence, for each branch holding work that never reached origin/main, whether to adopt it (merge, keep authorship, verify against current main, land) or retire it with the precise reason. Branches are kept, never deleted.",
+      "owner": "ADOPT",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-ADOPT-1.json",
+        ".agents/tasks/T-DOTSTATUS-1.json"
+      ],
+      "source_commits": [
+        "497062ab3d10148c1990fc0b9dc1c47a42534821"
+      ],
+      "task_id": "T-ADOPT-1",
+      "title": "Adopt or retire five unlanded branches (Dot's discovery consumer and status record, Claude's corewave11/13/14)"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "lean_core_ceilings"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CLAUDEHASHDOC-1.json",
+        "crates/susi-daemon/src/server.rs"
+      ],
+      "composed_commit": "8d975c7cc75686db158d548d1c343727e9cc7c27",
+      "composed_tree": "22e77fedb308a08d3004ae846007f75c53fe997c",
+      "deps": [
+        "T-TRUTHDOCS-1"
+      ],
+      "goal": "crates/susi-daemon/src/server.rs said binary.hash is written by 'susi admin sync (src/daemon/admin.rs)'; that command moved to commercial with T-DEVWF-1. Core writes the anchor itself, trust-on-first-use, in susi-sandbox-client's verify_binary_integrity. Comment-only, line-neutral.",
+      "owner": "claude",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-daemon/src/server.rs",
+        ".agents/tasks/T-CLAUDEHASHDOC-1.json"
+      ],
+      "source_commits": [
+        "732f3059b07722337288c0f42665519374e290cf"
+      ],
+      "task_id": "T-CLAUDEHASHDOC-1",
+      "title": "Daemon comment names the real binary.hash writer"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-core",
+        "--lib",
+        "--",
+        "delegation",
+        "capability_bus",
+        "registry"
+      ],
+      "changed_files": [
+        ".agents/gmcp/evidence/VC-203-001.jsonl",
+        ".agents/gmcp/evidence/VC-203-002.jsonl",
+        ".agents/gmcp/evidence/VC-203-003.jsonl",
+        ".agents/gmcp/evidence/VC-203-004.jsonl",
+        ".agents/gmcp/evidence/VC-203-005.jsonl",
+        ".agents/gmcp/evidence/VC-203-006.jsonl",
+        ".agents/gmcp/evidence/VC-203-008.jsonl",
+        ".agents/gmcp/evidence/VC-203-009.jsonl",
+        ".agents/gmcp/evidence/VC-203-013.jsonl",
+        ".agents/tasks/done/T-CLAUDERECURSE-1.json",
+        "crates/susi-cli-defs/src/os.rs",
+        "crates/susi-core/src/capability_bus.rs",
+        "crates/susi-core/src/delegation.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-core/src/registry.rs",
+        "crates/susi-core/src/tests/delegation.rs",
+        "crates/susi-gmcp/src/tools/args.rs",
+        "crates/susi-gmcp/src/tools/host_ops.rs",
+        "crates/susi-gmcp/tests/os_capabilities_delegation.rs",
+        "docs/recursive-delegation.md",
+        "src/cli/os_cli.rs"
+      ],
+      "composed_commit": "69b020e54f8720f3a89eae27908bdb87b850153f",
+      "composed_tree": "64d20949de886575f5ed2b50fc616b0f08caa4dc",
+      "deps": [],
+      "goal": "Mandate 73 recursion adapter, first slice: a component can be a driver and an engine at once, nested through capability dispatch, with preserved identity/provenance, no permission amplification, parent-reserved budgets, inherited deadlines, depth and fan-out bounds, cycle refusal, cancellation propagation and failure propagation; continue the nesting across the socket with an envelope on os_capabilities and the CLI.",
+      "owner": "claude",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-core/src/delegation.rs",
+        "crates/susi-core/src/tests/delegation.rs",
+        "crates/susi-core/src/capability_bus.rs",
+        "crates/susi-core/src/registry.rs",
+        "crates/susi-core/src/lib.rs",
+        "crates/susi-gmcp/src/tools/args.rs",
+        "crates/susi-gmcp/src/tools/host_ops.rs",
+        "crates/susi-cli-defs/src/os.rs",
+        "src/cli/os_cli.rs",
+        "crates/susi-gmcp/tests/os_capabilities_delegation.rs",
+        "docs/recursive-delegation.md",
+        ".agents/tasks/done/T-CLAUDERECURSE-1.json",
+        ".agents/gmcp/evidence",
+        ".agents/tasks/T-CLAUDERECURSE-1.json"
+      ],
+      "source_commits": [
+        "82429659033c728c39c768cf7ee8da45b35711b4",
+        "ce3f4a157b58d926e34adb5a627e67153111c9ff",
+        "16ea16010c735179f0df1fdc1488b73527833eab",
+        "6182adc2b1903f00ba181d20fa0a5362a5b1b036"
+      ],
+      "task_id": "T-CLAUDERECURSE-1",
+      "title": "Recursive driver/engine delegation contract on the core capability bus"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gemi",
+        "--test",
+        "local_plug_carries_selected_model"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-MODELPICK-1.json",
+        "crates/susi-gemi/src/engines/local_plug.rs",
+        "crates/susi-gemi/src/engines/runtime_native.rs",
+        "crates/susi-gemi/tests/local_plug_carries_selected_model.rs"
+      ],
+      "composed_commit": "b07cf0a40bd1ee50469c36c2ef909b5dcd4ef493",
+      "composed_tree": "906989dcb47a74fc87f0e34cf59e96b94451147a",
+      "deps": [],
+      "goal": "Owed from T-NOFAKES-1: core sending the chosen model to the local engine. Core already sent selected_model (the id) on gpu_fabric.local_engine.infer_stream, but the commercial plug resolves ids differently (exact file name in its own data dir, no .gguf stem match, no SUSI_MODEL_DIR), so a model core selected and loaded could be 'not found' in the plug. The builtin plug now also sends model_path, the file core's ModelManager resolved for selected_model (additive; older plugs ignore it). The unreachable duplicate bus call in SusiGgufEngine is removed (local_engine_plug() is Some whenever that topic is wired), so susi-gemi shrinks. Commercial counterpart: susi-commercial-apps T-MODELPICK-1.",
+      "owner": "MODELPICK",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-MODELPICK-1.json",
+        "crates/susi-gemi/src/engines/local_plug.rs",
+        "crates/susi-gemi/src/engines/runtime_native.rs",
+        "crates/susi-gemi/tests/local_plug_carries_selected_model.rs"
+      ],
+      "source_commits": [
+        "89192c81d0b29a6b85c2a3d676585058d0d9e6b2"
+      ],
+      "task_id": "T-MODELPICK-1",
+      "title": "Local inference: the plug call carries the weights core resolved for the selected model"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "task_records"
+      ],
+      "changed_files": [
+        ".agents/tasks/done/T-CLAUDECLOSEDOC-1.json",
+        "docs/distillation.md"
+      ],
+      "composed_commit": "b3a19e65febce9a9e983dd14353ce22d6e3fd0c3",
+      "composed_tree": "189389d59c5c861ce1239506f92a5a880f52a2a9",
+      "deps": [],
+      "goal": "docs/distillation.md said the commercial Task struct has no catch-all field, so `tasks close` drops scopes, results, limitations and provenance. susi-commercial-apps 4d9f344 (2026-11-11) added `#[serde(flatten)] extra` to Task and the round-trip test close_keeps_every_labelling_field_of_the_record. Replace the Known gap paragraph with a short note naming the fix; keep the claim-ref fallback documented for records closed before it. No other sections change.",
+      "owner": "claude",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "docs/distillation.md",
+        ".agents/tasks/T-CLAUDECLOSEDOC-1.json",
+        ".agents/tasks/done/T-CLAUDECLOSEDOC-1.json"
+      ],
+      "source_commits": [
+        "a4042241ff8fcc0f1c7d90dd54ea9f2d9efc4c54",
+        "7d30b2f46e782a005a8cacfaa9bef9c3af920772"
+      ],
+      "task_id": "T-CLAUDECLOSEDOC-1",
+      "title": "distillation.md no longer reports the fixed tasks-close field loss as open"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-gawd-swarm",
+        "--lib",
+        "cloud_recovery"
+      ],
+      "changed_files": [
+        ".agents/tasks/T-CLAUDENOINBOX-1.json",
+        "crates/susi-gawd-swarm/src/cloud_recovery.rs"
+      ],
+      "composed_commit": "a8a58a6795455deb865f9de730431a1b694ecc28",
+      "composed_tree": "127f15ad0546e671c6e2722c8393d6170d80985b",
+      "deps": [
+        "T-MODELPICK-1"
+      ],
+      "goal": "When failover exhausted cloud and local inference, cloud_recovery wrote '<data>/delegations/{antigravity,codex}_request_<ts>.md' and reported 'Recovery is pending with external agents: antigravity, codex'. No process in core or commercial reads that directory, so the claim described work nobody was doing. Remove the inbox write; antigravity and codex go through the same plane-bus external_run as the other fallback agents.",
+      "owner": "claude",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-gawd-swarm/src/cloud_recovery.rs",
+        ".agents/tasks/T-CLAUDENOINBOX-1.json"
+      ],
+      "source_commits": [
+        "3d3d5c7bfff013f6f9229dcf60022af8f955a682"
+      ],
+      "task_id": "T-CLAUDENOINBOX-1",
+      "title": "Cloud recovery never reports an unread inbox file as a delegation"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-core",
+        "--lib",
+        "--",
+        "delegation",
+        "capability_bus",
+        "registry"
+      ],
+      "changed_files": [
+        ".agents/gmcp/evidence/VC-203-001.jsonl",
+        ".agents/gmcp/evidence/VC-203-002.jsonl",
+        ".agents/gmcp/evidence/VC-203-003.jsonl",
+        ".agents/gmcp/evidence/VC-203-004.jsonl",
+        ".agents/gmcp/evidence/VC-203-005.jsonl",
+        ".agents/gmcp/evidence/VC-203-006.jsonl",
+        ".agents/gmcp/evidence/VC-203-008.jsonl",
+        ".agents/gmcp/evidence/VC-203-009.jsonl",
+        ".agents/gmcp/evidence/VC-203-013.jsonl",
+        ".agents/tasks/done/T-CLAUDESIGNENV-1.json",
+        "crates/susi-cli-defs/src/os.rs",
+        "crates/susi-core/src/delegation.rs",
+        "crates/susi-core/src/mac_policy.rs",
+        "crates/susi-core/src/registry.rs",
+        "crates/susi-core/src/tests/delegation.rs",
+        "crates/susi-gmcp/src/tools/args.rs",
+        "crates/susi-gmcp/src/tools/host_ops.rs",
+        "crates/susi-gmcp/tests/os_capabilities_delegation.rs",
+        "docs/recursive-delegation.md",
+        "src/cli/os_cli.rs",
+        "tests/fixtures/cli_help_snapshot.txt"
+      ],
+      "composed_commit": "1ac8bbf3a4051e9ec95c221fdda696a205d07863",
+      "composed_tree": "18f225984c81d7c10fc12f2d8ada3ff3cf38ce09",
+      "deps": [
+        "T-CLAUDERECURSE-1"
+      ],
+      "goal": "Make the recursion adapter's cross-process envelope unforgeable: only a DelegationAuthority keyed from the host's shared MAC key issues or admits susi-delegation/v1 envelopes (HMAC-SHA256, random id, absolute expiry <= 1 h); tampered, unsigned, expired or foreign-host envelopes are refused; replays in one process continue one level (shared budget and fan-out); revocation cancels a level and its descendants; os_capabilities and the CLI gain a delegate action that issues envelopes under the same bounds.",
+      "owner": "claude",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-core/src/delegation.rs",
+        "crates/susi-core/src/tests/delegation.rs",
+        "crates/susi-core/src/mac_policy.rs",
+        "crates/susi-core/src/registry.rs",
+        "crates/susi-gmcp/src/tools/args.rs",
+        "crates/susi-gmcp/src/tools/host_ops.rs",
+        "crates/susi-gmcp/tests/os_capabilities_delegation.rs",
+        "crates/susi-cli-defs/src/os.rs",
+        "src/cli/os_cli.rs",
+        "docs/recursive-delegation.md",
+        ".agents/gmcp/evidence",
+        ".agents/tasks/done/T-CLAUDESIGNENV-1.json",
+        ".agents/tasks/T-CLAUDESIGNENV-1.json",
+        "tests/fixtures/cli_help_snapshot.txt"
+      ],
+      "source_commits": [
+        "1f2d35e9ca81a912b577f8c1815781e48a859d61",
+        "5ba2cc423d461c2e285b6a7349ef3feb3f47c50e",
+        "955ee42590641841793e66c2d4fd04266e3eaf2f",
+        "7c896d79870792044ded2c8e52609c8638e8de9f",
+        "5e421b72b9c89f5bbf743886d0a40499fe4ce725",
+        "962cd565032a2ddecafca515dbc1286fba9f630d",
+        "b21d4da386ea15a3a2b85cb8a72f5d02f2ef73c8"
+      ],
+      "task_id": "T-CLAUDESIGNENV-1",
+      "title": "Host-signed delegation envelopes: issue, admit, replay ledger and revocation"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-vendor-wasmtime"
+      ],
+      "changed_files": [
+        ".agents/tasks/done/T-CLAUDEWASMSTD-1.json",
+        "Cargo.lock",
+        "crates/susi-vendor-wasmtime/Cargo.toml",
+        "crates/susi-vendor-wasmtime/src/cell.rs",
+        "docs/lean-core.md",
+        "tests/lean_core_ceilings.rs"
+      ],
+      "composed_commit": "6a6c77eb44f78286f317c43390c21ff8b94e7335",
+      "composed_tree": "02e4e3f3a64d2c81de14056db6a9bc5cd8dca7ef",
+      "deps": [],
+      "goal": "CEO: bring Susi core under 30 s. susi-vendor-wasmtime compiled wasmparser 0.259 and wasm-encoder 0.259 only to rewrite one memory section, beside Wasmi's own wasmparser 0.228. Replace them with a std-only section walker with identical refusals; lower the pillar third-party ceiling to the measured value.",
+      "owner": "claude",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-vendor-wasmtime/Cargo.toml",
+        "crates/susi-vendor-wasmtime/src/cell.rs",
+        "Cargo.lock",
+        "tests/lean_core_ceilings.rs",
+        "docs/lean-core.md",
+        ".agents/build-time.jsonl",
+        ".agents/tasks/T-CLAUDEWASMSTD-1.json",
+        ".agents/tasks/done/T-CLAUDEWASMSTD-1.json"
+      ],
+      "source_commits": [
+        "964cf46a87d567e2246c70958a56bb68b0a5d9cc",
+        "f1cd0003fd8612eab2f2a7154a4e12a2802f3f2d"
+      ],
+      "task_id": "T-CLAUDEWASMSTD-1",
+      "title": "Cell memory cap without a second wasm parser/encoder"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--lib",
+        "--bins"
+      ],
+      "changed_files": [
+        ".agents/evidence/loop10-T-CLAUDELOOP10-1.json",
+        ".agents/tasks/done/T-CLAUDELOOP10-1.json",
+        "crates/susi-cli-defs/src/os.rs",
+        "docs/step1-acceptance.md",
+        "tests/fixtures/cli_help_snapshot.txt",
+        "xtask/src/bin/local-channel.rs"
+      ],
+      "composed_commit": "6643bc20083233e88bccb7e211ef0fe02ad93c7e",
+      "composed_tree": "e29bb47b1a076cc1561263c0e4ad5415fa84e3fb",
+      "deps": [],
+      "goal": "CEO direction 2026-11-11: Susi core under 10 s. Measure every phase of a genuine source change reaching the verified live dev-channel executable on Linux x86_64 (local-channel deliver), separately from cold and warm build times, and remove the largest avoidable costs until a root-package change goes live in under 10 s, without dropping its tests or verification.",
+      "owner": "claude",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "crates/susi-cli-defs/src/os.rs",
+        "tests/fixtures/cli_help_snapshot.txt",
+        "xtask/src/bin/local-channel.rs",
+        "docs/step1-acceptance.md",
+        ".agents/evidence/loop10-T-CLAUDELOOP10-1.json",
+        ".agents/tasks/done/T-CLAUDELOOP10-1.json",
+        ".agents/tasks/T-CLAUDELOOP10-1.json"
+      ],
+      "source_commits": [
+        "02b499b149d2906717fffa9a7142608f57987ce4",
+        "c660be9c2ce3f46cd4b1bee383765db8a3b88e18",
+        "e1a29a85a62be076bc58bfc5f8c0e34b5780f84a",
+        "56429b716c960994a679f9db851203a8fba5cc13",
+        "f695e84455601b1f40ae19356447f5ba94691e5e"
+      ],
+      "task_id": "T-CLAUDELOOP10-1",
+      "title": "Change-to-live under 10 seconds: measure the Linux dev-channel loop and cut it"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "xtask",
+        "--bin",
+        "local-distill"
+      ],
+      "changed_files": [
+        ".agents/tasks/done/T-CARBONDISTILL-1.json",
+        "docs/release-distillation.md",
+        "xtask/build.rs",
+        "xtask/src/bin/local-distill.rs",
+        "xtask/src/distill_compose.rs"
+      ],
+      "composed_commit": "150d482010b39bd93cbd50718c0a938ab5ae3007",
+      "composed_tree": "f3c853d926bd10963311f944a9ff6b7380021c70",
+      "deps": [
+        "T-GROKDISTILL-1"
+      ],
+      "goal": "Deliver portable Git-native selective branch composition (`local-distill` / `xtask::distill_compose`) implementing CEO Mandate 73 and board item 113 step 2 with zero dependency on `dot`: read task manifests directly from Git commits across `.agents/tasks/{,done/,in-progress/}`, compute dependency closures, consume `distill` (`susi-distill-plan/v1`) or `susi-feature-manifest-v1` inputs, compose conflict-free candidate trees via 3-way `git merge-tree --write-tree` without leaking unselected `main` commits, optionally execute hermetic shell-free `accept.cmd` checks in ephemeral credential-stripped worktrees, publish create-only `refs/tags/susi-distill/<name>` snapshots, and emit fsynced `susi-distillation-receipt-v1` receipts with zero GitHub service dependency.",
+      "owner": "carbon-cachyos-distill",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-CARBONDISTILL-1.json",
+        ".agents/tasks/done/T-CARBONDISTILL-1.json",
+        "docs/release-distillation.md",
+        "xtask/build.rs",
+        "xtask/src/bin/local-distill.rs",
+        "xtask/src/distill_compose.rs"
+      ],
+      "source_commits": [
+        "5ba0ba9131729ac4a72161246213a8c96db1e527",
+        "3c3dd10ca79c7b11007a244f3c650fa1c8de02e0"
+      ],
+      "task_id": "T-CARBONDISTILL-1",
+      "title": "Portable Git-native feature/release branch distillation and snapshot composition"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi-harness",
+        "--lib"
+      ],
+      "changed_files": [
+        ".agents/tasks/done/T-CARBONDRIVER-1.json",
+        "crates/susi-harness/src/lib.rs",
+        "crates/susi-harness/src/recursive.rs",
+        "crates/susi-harness/src/supervisor.rs",
+        "crates/susi-harness/src/tests/recursive.rs",
+        "crates/susi-harness/src/tests/supervisor.rs",
+        "crates/susi-harness/src/tests/workflow.rs",
+        "crates/susi-harness/src/workflow.rs",
+        "docs/release-distillation.md",
+        "xtask/src/distill_compose.rs"
+      ],
+      "composed_commit": "de4a552a141dfab33fa59d49643c94fa64b21554",
+      "composed_tree": "0bec9e4af036f454ce20eab6f84f7fa69712a528",
+      "deps": [
+        "T-CARBONDISTILL-1"
+      ],
+      "goal": "Implement CEO Mandate 73 Section 2 recursive Driver <-> Engine container adapter (`crates/susi-harness/src/recursive.rs`, `susi-recursive-container-v1`) enabling any verified container to operate as Coordinator (Driver), Engine (worker), or both across nested waves with zero dependency on `dot`, isolated per-worker sandboxes and 5-port socket offsets, monotonic authority/scope/budget/timeout/depth attenuation, cycle detection, cooperative cancellation, idempotency ledger, and SHA-256 provenance receipts; add `IntegrationPolicy::fast_main()` (`PublicationMode::FastMainStream`) in `crates/susi-harness/src/workflow.rs` granting zero-cooldown autonomous development `main` freedom while protecting `refs/susi/*`, `release/*`, `refs/tags/v*`, foreign `local-agent/<other>` branches, and destination-first non-stub migrations; upgrade `local-distill` (`xtask/src/distill_compose.rs`) with self-contained `orchestrate`, `--tasks-from-range <A..B>`, and `submit-main` non-force object-store reconciliation; and close `T-CARBONDISTILL-1` with zero `dot` dependency.",
+      "owner": "carbon-cachyos-distill",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/done/T-CARBONDRIVER-1.json",
+        "crates/susi-harness/src/lib.rs",
+        "crates/susi-harness/src/recursive.rs",
+        "crates/susi-harness/src/supervisor.rs",
+        "crates/susi-harness/src/workflow.rs",
+        "crates/susi-harness/src/tests/recursive.rs",
+        "crates/susi-harness/src/tests/supervisor.rs",
+        "crates/susi-harness/src/tests/workflow.rs",
+        "docs/release-distillation.md",
+        "xtask/src/distill_compose.rs"
+      ],
+      "source_commits": [
+        "bc78d05a243c9eca6a543e05e76c1624fee898cd"
+      ],
+      "task_id": "T-CARBONDRIVER-1",
+      "title": "Autonomous recursive Driver-Engine container runtime, fast-main freedom policy, and dot-free distillation orchestrator"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "gmcp_requirements"
+      ],
+      "changed_files": [
+        ".agents/gmcp/evidence/VC-203-001.jsonl",
+        ".agents/gmcp/evidence/VC-203-002.jsonl",
+        ".agents/gmcp/evidence/VC-203-003.jsonl",
+        ".agents/gmcp/evidence/VC-203-004.jsonl",
+        ".agents/gmcp/evidence/VC-203-005.jsonl",
+        ".agents/gmcp/evidence/VC-203-006.jsonl",
+        ".agents/gmcp/evidence/VC-203-008.jsonl",
+        ".agents/gmcp/evidence/VC-203-009.jsonl",
+        ".agents/gmcp/evidence/VC-203-013.jsonl",
+        ".agents/tasks/done/T-CLAUDEDISTILLEVID-1.json",
+        "docs/release-distillation.md",
+        "tests/gmcp_requirements.rs"
+      ],
+      "composed_commit": "7f6b19b96c5f0d95b5c527c5d6611521ca19255e",
+      "composed_tree": "c360839b8daa47649d6b60c532ca2c85e87e06a2",
+      "deps": [
+        "T-CARBONDISTILL-1"
+      ],
+      "goal": "Distilling the 2026-11-11 release candidate failed accept verification (T-TRUTHDOCS-1's gmcp_requirements) with 'tested_commit ... is not in HEAD's history' for every GMCP vector: local-distill re-applies commits onto the release base, so evidence recorded on main is never an ancestor there and no distilled release could pass. Accept a tested commit reachable from the Source-Commits of HEAD's Distilled-Task commits, keep the byte-identical digest checks, test it on a real Git fixture, and re-record GMCP evidence for the changed test file.",
+      "owner": "claude",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        "tests/gmcp_requirements.rs",
+        ".agents/gmcp/evidence",
+        "docs/release-distillation.md",
+        ".agents/tasks/T-CLAUDEDISTILLEVID-1.json",
+        ".agents/tasks/done/T-CLAUDEDISTILLEVID-1.json"
+      ],
+      "source_commits": [
+        "2f7bbc7d90c027ba5a7474dc2124e4b918a534bb",
+        "8f8e2a20d7650e0cf76bfb8d060f292930c84867",
+        "e078077313ab4eb13f30422cfd268ae4896b3918",
+        "cbab13cb1a7315bdf98d2cccb2347bfc76a98cb4"
+      ],
+      "task_id": "T-CLAUDEDISTILLEVID-1",
+      "title": "GMCP evidence stays valid on distilled release branches"
+    },
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--test",
+        "release_records"
+      ],
+      "changed_files": [
+        ".agents/tasks/done/T-RELEASE54REC-1.json",
+        "releases/v0.21.54.json",
+        "tests/release_records.rs"
+      ],
+      "composed_commit": "235ad06595fa01a7bda239f92e2c4b9d73c3c6f7",
+      "composed_tree": "434c1c7a2d5e7036513dd99c355d00a6770cd5d9",
+      "deps": [
+        "T-RELEASE54-1",
+        "T-CLAUDERELADAPTER-1"
+      ],
+      "goal": "Land releases/v0.21.54.json (schema susi-release-record/v1) for the published tag v0.21.54 -> b626d435c (qualification record commit on the qualified tree 36a55dd0d): Linux x86_64 reference-build sha256s from the release-qualify build gate, 5427 workspace tests passed / 0 failed over 293 binaries, Windows x86_64 listed in missing_targets as owed. Main takes the 0.21.54 bump and the qualification record by merging the tag (so no record is newer than the workspace version), and tests/release_records.rs admits the releases/qualification/ subdirectory, checking that each qualification record names a released tag.",
+      "owner": "CLAUDEREL54REC",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-RELEASE54REC-1.json",
+        ".agents/tasks/done/T-RELEASE54REC-1.json",
+        "releases/v0.21.54.json",
+        "tests/release_records.rs"
+      ],
+      "source_commits": [
+        "f69bc4ba1f550d587f70c5179cb192e6ee4b7e3f",
+        "36ab6d3a35c39d7259c22e89725438d8a9f20db6"
+      ],
+      "task_id": "T-RELEASE54REC-1",
+      "title": "Record core release v0.21.54 on main"
+    }
+  ],
+  "mode": "compose",
+  "name": "2026-11-11-rc1",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "a17afd1a87804cc420b6c5ac42d4676e25d95c08737c97f1f7415bb0132258e2",
+  "rejected": [],
+  "requested_tasks": [
+    "T-BUILDTIME-1",
+    "T-UNBLOCK-3",
+    "T-GROKLABEL-1",
+    "T-CORECUT-1",
+    "T-UNBLOCK-4",
+    "T-CORECUT-2",
+    "T-CORECUT-3",
+    "T-TRUTHDOCS-1",
+    "T-ADOPT-1",
+    "T-CLAUDEHASHDOC-1",
+    "T-CLAUDERECURSE-1",
+    "T-MODELPICK-1",
+    "T-CLAUDECLOSEDOC-1",
+    "T-CLAUDENOINBOX-1",
+    "T-CLAUDESIGNENV-1",
+    "T-CLAUDEWASMSTD-1",
+    "T-CLAUDELOOP10-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-CLAUDEDISTILLEVID-1",
+    "T-RELEASE54REC-1"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "task T-CLAUDECLAIMGEN-1 is already present in base b626d435c6bbae9a89a10c091fd7819fbe3b3910 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDECLAIMGEN-1"
+    },
+    {
+      "detail": "task T-CLAUDERELADAPTER-1 is already present in base b626d435c6bbae9a89a10c091fd7819fbe3b3910 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDERELADAPTER-1"
+    },
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base b626d435c6bbae9a89a10c091fd7819fbe3b3910 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "task T-RELEASE54-1 is already present in base b626d435c6bbae9a89a10c091fd7819fbe3b3910 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-RELEASE54-1"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/2026-11-11-rc1",
+  "source_stream_commit": "cbab13cb1a7315bdf98d2cccb2347bfc76a98cb4",
+  "source_stream_tree": "2bbbaab0f6b118eeb27eed89ebe571c80794c026"
+}
