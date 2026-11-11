@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDEDISTILLEVID-1",
+  "title": "GMCP evidence stays valid on distilled release branches",
+  "goal": "Distilling the 2026-11-11 release candidate failed accept verification (T-TRUTHDOCS-1's gmcp_requirements) with 'tested_commit ... is not in HEAD's history' for every GMCP vector: local-distill re-applies commits onto the release base, so evidence recorded on main is never an ancestor there and no distilled release could pass. Accept a tested commit reachable from the Source-Commits of HEAD's Distilled-Task commits, keep the byte-identical digest checks, test it on a real Git fixture, and re-record GMCP evidence for the changed test file.",
+  "status": "in_progress",
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    ".agents/gmcp/evidence",
+    "docs/release-distillation.md",
+    ".agents/tasks/T-CLAUDEDISTILLEVID-1.json",
+    ".agents/tasks/done/T-CLAUDEDISTILLEVID-1.json"
+  ],
+  "size": "s",
+  "deps": ["T-CARBONDISTILL-1"],
+  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "gmcp_requirements"]},
+  "created_by": "claude",
+  "created_unix": 1794364500,
+  "owner": "claude",
+  "base": "d52ce1b47b4c1d60b40e42544f3007d414537ef3"
+}

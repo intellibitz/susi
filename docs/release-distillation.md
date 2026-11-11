@@ -78,6 +78,18 @@ and `deps`. Feature licenses are checked against Susi's allowlist (`Apache-2.0`,
    zero-old-OID `git update-ref`. `publish` pushes create-only snapshot tag
    `refs/tags/susi-distill/<name>` and verifies the remote ref after push.
 
+## Evidence on distilled branches
+
+Composed commits are new commits on the release base, so development commits
+are not their ancestors. Evidence that binds itself to the commit its check
+ran on (the GMCP records under `.agents/gmcp/evidence`, checked by
+`tests/gmcp_requirements.rs`) follows the composed commits' provenance: a
+`tested_commit` counts as in HEAD's history when it is an ancestor of HEAD or
+of a commit named in a `Source-Commits:` line of a commit that also carries
+`Distilled-Task:`. The evidence's files must still be byte-identical at the
+tested commit and at HEAD, so stale evidence fails on a release branch exactly
+as it does on main.
+
 ## What remains separate
 
 Distillation produces an **unqualified candidate** (`qualification_status:
