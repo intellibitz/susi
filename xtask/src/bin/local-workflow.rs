@@ -21,6 +21,9 @@ mod compiler_env;
 // Shared with the xtask binary, which runs the verifier; the ship tool only
 // writes receipts, so the verification half is unused here.
 #[allow(dead_code)]
+#[path = "../distill_compose.rs"]
+mod distill_compose;
+#[allow(dead_code)]
 #[path = "../gate_receipt.rs"]
 mod gate_receipt;
 #[path = "../native_provenance.rs"]
@@ -2526,6 +2529,393 @@ where
     Ok(head)
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum RemoteFetchState {
+    NoRemoteConfigured,
+    OfflineFallback { cached_main: Option<String> },
+    Fetched { origin_main: String },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AgentSyncMode {
+    NoRemoteConfigured,
+    OfflineFallback,
+    UpToDate,
+    FastForwarded,
+    MergedThreeWay,
+}
+
+impl AgentSyncMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NoRemoteConfigured => "no_remote_configured",
+            Self::OfflineFallback => "offline_fallback",
+            Self::UpToDate => "up_to_date",
+            Self::FastForwarded => "fast_forwarded",
+            Self::MergedThreeWay => "merged_three_way",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AgentSyncReport {
+    claimant: String,
+    mode: AgentSyncMode,
+    previous_head: String,
+    head: String,
+    upstream: Option<String>,
+    claim_base: String,
+}
+
+fn has_origin_remote(root: &Path) -> bool {
+    Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .current_dir(root)
+        .args(["remote", "get-url", "origin"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Offline-safe pure-Git fetch of `origin`'s `main` into `refs/remotes/origin/main`.
+/// Never contacts any host REST API or `gh` CLI; falls back cleanly to local cached
+/// refs when `origin` is absent or temporarily unreachable.
+fn fetch_origin_optional(root: &Path, workflow_state: &Path) -> Result<RemoteFetchState> {
+    if !has_origin_remote(root) {
+        return Ok(RemoteFetchState::NoRemoteConfigured);
+    }
+    let _fetch_lock = Lock::acquire(&workflow_state.join("fetch"))?;
+    let status = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .current_dir(root)
+        .args([
+            "-c",
+            "core.hooksPath=",
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--recurse-submodules=no",
+            "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status {
+        Ok(st) if st.success() => match fetched_main(root)? {
+            Some(oid) if valid_oid(&oid) => Ok(RemoteFetchState::Fetched { origin_main: oid }),
+            cached_main => Ok(RemoteFetchState::OfflineFallback { cached_main }),
+        },
+        _ => Ok(RemoteFetchState::OfflineFallback {
+            cached_main: fetched_main(root)?,
+        }),
+    }
+}
+
+fn can_advance_claim_base(root: &Path, target: &str) -> Result<bool> {
+    match integration_head(root)? {
+        Some(integrated) => Ok(integrated == target || is_ancestor(root, &integrated, target)?),
+        None => Ok(true),
+    }
+}
+
+fn reconcile_primary_with_origin(root: &Path, workflow_state: &Path) -> Result<RemoteFetchState> {
+    let fetch_state = fetch_origin_optional(root, workflow_state)?;
+    if let RemoteFetchState::Fetched { ref origin_main } = fetch_state {
+        if can_advance_claim_base(root, origin_main)? {
+            let local_main_ok = match Command::new("git")
+                .arg("--literal-pathspecs")
+                .env("GIT_NO_REPLACE_OBJECTS", "1")
+                .current_dir(root)
+                .args(["rev-parse", "--verify", "--quiet", "refs/heads/main"])
+                .output()
+            {
+                Ok(out) if out.status.success() => {
+                    let cur = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                    cur.is_empty() || cur == *origin_main || is_ancestor(root, &cur, origin_main)?
+                }
+                _ => true,
+            };
+            if local_main_ok {
+                sync_local_main(root, origin_main);
+            }
+        }
+    }
+    Ok(fetch_state)
+}
+
+fn write_local_claim_atomic(path: &Path, claim: &Claim) -> Result<()> {
+    let data = format!(
+        "susi-local-claim-v2\n{}\n{}\n{}\n{}\n",
+        claim.name,
+        text(&claim.worktree)?,
+        claim.base,
+        claim.scopes.join("\n")
+    );
+    let temporary = path.with_extension("claim-next");
+    let _ = fs::remove_file(&temporary);
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    output.write_all(data.as_bytes())?;
+    output.sync_all()?;
+    drop(output);
+    fs::rename(temporary, path)?;
+    Ok(())
+}
+
+fn reconcile_claimed_worktree_locked(
+    root: &Path,
+    workflow_state: &Path,
+    claimant: &str,
+    fetch_state: &RemoteFetchState,
+) -> Result<AgentSyncReport> {
+    let claim_path = workflow_state
+        .join("claims")
+        .join(format!("{claimant}.claim"));
+    let mut claim = read_local_claim(&claim_path)?;
+    if self::state(&claim.worktree)? != workflow_state
+        || git(&claim.worktree, &["branch", "--show-current"])? != format!("local-agent/{claimant}")
+    {
+        return Err("claim repository or branch does not match".into());
+    }
+    if !git(
+        &claim.worktree,
+        &["status", "--porcelain", "--untracked-files=all"],
+    )?
+    .is_empty()
+    {
+        return Err(
+            "cannot reconcile remote main into a dirty agent worktree; commit or clean first"
+                .into(),
+        );
+    }
+    let markers = [
+        "MERGE_HEAD",
+        "MERGE_AUTOSTASH",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "sequencer",
+        "rebase-merge",
+        "rebase-apply",
+    ];
+    for marker_path in git_paths(&claim.worktree, &markers)? {
+        if marker_path.exists() {
+            return Err("finish the existing Git operation before syncing".into());
+        }
+    }
+
+    let head = git(&claim.worktree, &["rev-parse", "HEAD"])?;
+    let upstream = claim_base(root)?;
+    if upstream == head || is_ancestor(root, &upstream, &head)? {
+        let mode = match fetch_state {
+            RemoteFetchState::NoRemoteConfigured => AgentSyncMode::NoRemoteConfigured,
+            RemoteFetchState::OfflineFallback { .. } => AgentSyncMode::OfflineFallback,
+            RemoteFetchState::Fetched { .. } => AgentSyncMode::UpToDate,
+        };
+        return Ok(AgentSyncReport {
+            claimant: claimant.to_owned(),
+            mode,
+            previous_head: head.clone(),
+            head,
+            upstream: Some(upstream),
+            claim_base: claim.base,
+        });
+    }
+
+    if !is_ancestor(root, &claim.base, &upstream)? {
+        return Err(format!(
+            "upstream {upstream} does not descend from reserved claim base {}; refusing non-fast-forward reconciliation",
+            claim.base
+        )
+        .into());
+    }
+
+    if is_ancestor(root, &head, &upstream)? {
+        git(
+            &claim.worktree,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "merge",
+                "--ff-only",
+                "--quiet",
+                &upstream,
+            ],
+        )?;
+        if can_advance_claim_base(root, &upstream)? {
+            claim.base = upstream.clone();
+            write_local_claim_atomic(&claim_path, &claim)?;
+        }
+        return Ok(AgentSyncReport {
+            claimant: claimant.to_owned(),
+            mode: AgentSyncMode::FastForwarded,
+            previous_head: head,
+            head: upstream.clone(),
+            upstream: Some(upstream),
+            claim_base: claim.base,
+        });
+    }
+
+    // Diverged: validate agent's committed scope delta first, then perform clean
+    // non-conflicting 3-way merge (`git merge-tree --write-tree`) with upstream.
+    check_ship_source(root, workflow_state, &claim, &upstream)?;
+    let merge_out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(&claim.worktree)
+        .args(["merge-tree", "--write-tree", &head, &upstream])
+        .output()
+        .map_err(|error| format!("git merge-tree in {}: {error}", claim.worktree.display()))?;
+    if !merge_out.status.success() {
+        return Err(format!(
+            "upstream main ({upstream}) conflicts with local-agent/{claimant}; resolve with `git merge --no-ff --no-commit {upstream}` and `local-workflow finish-merge {claimant} {upstream} <message>`"
+        )
+        .into());
+    }
+    let merged_tree = String::from_utf8_lossy(&merge_out.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    if !valid_oid(&merged_tree) {
+        return Err("git merge-tree returned an invalid tree oid".into());
+    }
+    let diff_out = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(&claim.worktree)
+        .args([
+            "diff",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            &upstream,
+            &merged_tree,
+        ])
+        .output()?;
+    if !diff_out.status.success() {
+        return Err("cannot inspect reconciled merge scope".into());
+    }
+    for raw_path in diff_out
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+    {
+        let normalized = scope(std::str::from_utf8(raw_path)?)?;
+        if !claim.scopes.iter().any(|held| owns_path(held, &normalized)) {
+            return Err(
+                format!("reconciled merge file is outside reserved scope: {normalized}").into(),
+            );
+        }
+    }
+    let hooks = workflow_state.join("empty-hooks");
+    fs::create_dir_all(&hooks)?;
+    if fs::symlink_metadata(&hooks)?.file_type().is_symlink()
+        || fs::read_dir(&hooks)?.next().is_some()
+    {
+        return Err("local empty-hooks directory must be an empty real directory".into());
+    }
+    let merge_msg =
+        format!("sync local-agent/{claimant} with upstream main\n\nTask: LOCAL-{claimant}\n");
+    let merge_commit = git_input(
+        &claim.worktree,
+        &[
+            "--no-replace-objects",
+            "commit-tree",
+            &merged_tree,
+            "-p",
+            &head,
+            "-p",
+            &upstream,
+            "-F",
+            "-",
+        ],
+        merge_msg.as_bytes(),
+    )?;
+    git(
+        &claim.worktree,
+        &[
+            "-c",
+            &format!("core.hooksPath={}", text(&hooks)?),
+            "merge",
+            "--ff-only",
+            "--quiet",
+            &merge_commit,
+        ],
+    )?;
+    if can_advance_claim_base(root, &upstream)? {
+        claim.base = upstream.clone();
+        write_local_claim_atomic(&claim_path, &claim)?;
+    }
+    Ok(AgentSyncReport {
+        claimant: claimant.to_owned(),
+        mode: AgentSyncMode::MergedThreeWay,
+        previous_head: head,
+        head: merge_commit,
+        upstream: Some(upstream),
+        claim_base: claim.base,
+    })
+}
+
+fn sync_claim(root: &Path, claimant: &str) -> Result<AgentSyncReport> {
+    native_provenance::require_unmodified_history(root)?;
+    name(claimant)?;
+    let workflow_state = state(root)?;
+    let fetch_state = reconcile_primary_with_origin(root, &workflow_state)?;
+    let _lock = Lock::acquire(&workflow_state)?;
+    reconcile_claimed_worktree_locked(root, &workflow_state, claimant, &fetch_state)
+}
+
+fn workflow_distill(root: &Path, distill_args: &[String]) -> Result<String> {
+    native_provenance::require_unmodified_history(root)?;
+    let workflow_state = state(root)?;
+    let _ = reconcile_primary_with_origin(root, &workflow_state)?;
+    if distill_args.first().map(String::as_str) == Some("lint") {
+        let cargo_bin = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let out = Command::new(cargo_bin)
+            .current_dir(root)
+            .args([
+                "run",
+                "--offline",
+                "--locked",
+                "-p",
+                "xtask",
+                "--bin",
+                "distill",
+                "--",
+            ])
+            .args(distill_args)
+            .output()?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr)
+                .trim()
+                .to_owned()
+                .into());
+        }
+        Ok(String::from_utf8(out.stdout)?.trim_end().to_owned())
+    } else {
+        let mut forwarded: Vec<String> = distill_args.to_vec();
+        if matches!(
+            forwarded.first().map(String::as_str),
+            Some("plan" | "compose" | "orchestrate")
+        ) && !forwarded.iter().any(|arg| arg == "--pull")
+        {
+            forwarded.push("--pull".to_owned());
+        }
+        distill_compose::run(root, &forwarded).map_err(Into::into)
+    }
+}
+
 fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> {
     native_provenance::require_unmodified_history(root)?;
     name(claimant)?;
@@ -2539,6 +2929,7 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
     scopes.sort();
     scopes.dedup();
     let state = state(root)?;
+    let _ = reconcile_primary_with_origin(root, &state)?;
     let _lock = Lock::acquire(&state)?;
     for active in claims(&state)? {
         if active.name == claimant {
@@ -2820,6 +3211,7 @@ fn update_scopes(
 fn release(root: &Path, claimant: &str) -> Result<()> {
     name(claimant)?;
     let state = state(root)?;
+    let _ = reconcile_primary_with_origin(root, &state)?;
     let _lock = Lock::acquire(&state)?;
     let path = state.join("claims").join(format!("{claimant}.claim"));
     let claim = read_local_claim(&path)?;
@@ -2955,7 +3347,21 @@ fn claimed_path_changes_against(claim: &Claim, base: &str) -> Result<PathChanges
 /// Scope-guarded local commit, not a test/release gate. It never changes the
 /// repository's shared hook configuration or invokes its network-bound hooks.
 fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> Result<()> {
-    scoped_commit(root, claimant, message, signer, None)
+    commit_with_pull(root, claimant, message, signer, signer.is_none())
+}
+
+fn commit_with_pull(
+    root: &Path,
+    claimant: &str,
+    message: &str,
+    signer: Option<&str>,
+    pull_remote: bool,
+) -> Result<()> {
+    scoped_commit(root, claimant, message, signer, None)?;
+    if pull_remote && has_origin_remote(root) {
+        let _ = sync_claim(root, claimant)?;
+    }
+    Ok(())
 }
 
 fn scoped_commit(
@@ -3369,7 +3775,19 @@ fn sync_local_main(root: &Path, sha: &str) {
 
 impl Remote for GitRemote {
     fn fetch_main(&mut self, root: &Path) -> Result<String> {
-        git(root, &["fetch", "--quiet", "origin", "main"])?;
+        git(
+            root,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                "--recurse-submodules=no",
+                "origin",
+                "+refs/heads/main:refs/remotes/origin/main",
+            ],
+        )?;
         let oid = git(root, &["rev-parse", "origin/main"])?;
         if !valid_oid(&oid) {
             return Err("origin/main is not a commit oid".into());
@@ -4951,10 +5369,50 @@ fn run(args: &[String]) -> Result<()> {
             println!("Worktree: {}\nTarget: {}\nUse the local-build entrypoint to override inherited target directories. Reservations cover cooperating launcher users only.", worktree.display(), worktree.join("target").display());
         }
         Some("release") if args.len() == 2 => release(&root, &args[1])?,
+        Some("sync" | "step") if (2..=3).contains(&args.len()) => {
+            let json_out = if args.len() == 3 {
+                if args[2] != "--json" {
+                    return Err("unknown sync flag; expected --json".into());
+                }
+                true
+            } else {
+                false
+            };
+            let report = sync_claim(&root, &args[1])?;
+            if json_out {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema": "susi-local-workflow-sync-v1",
+                        "claimant": report.claimant,
+                        "mode": report.mode.as_str(),
+                        "previous_head": report.previous_head,
+                        "head": report.head,
+                        "upstream": report.upstream,
+                        "claim_base": report.claim_base,
+                    }))?
+                );
+            } else {
+                println!(
+                    "Synced {} ({}): {} -> {} (base {})",
+                    report.claimant,
+                    report.mode.as_str(),
+                    report.previous_head,
+                    report.head,
+                    report.claim_base
+                );
+            }
+        }
         Some("commit") if args.len() == 3 => commit(&root, &args[1], &args[2], None)?,
+        Some("commit") if args.len() == 4 && args[3] == "--no-pull" => {
+            commit_with_pull(&root, &args[1], &args[2], None, false)?;
+        }
         Some("finish-merge") if args.len() == 4 => scoped_commit(&root, &args[1], &args[3], None, Some(&args[2]))?,
         Some("finish-merge") if args.iter().any(|arg| arg == "--sign") => return Err("finish-merge does not support signing".into()),
         Some("commit") if args.len() == 5 && args[3] == "--sign" => commit(&root, &args[1], &args[2], Some(&args[4]))?,
+        Some("distill") if args.len() >= 2 => {
+            println!("{}", workflow_distill(&root, &args[1..])?);
+        }
         Some("integrate") if args.len() >= 2 => {
             let started = std::time::Instant::now();
             let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
@@ -5003,7 +5461,7 @@ fn run(args: &[String]) -> Result<()> {
             finish_phases(&root, "ship", if result.is_ok() { "shipped" } else { "failed" }, started.elapsed());
             print_ship(&result?);
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | list | status [--json] | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>]".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | sync <name> [--json] | step <name> [--json] | list | status [--json] | commit <name> <message> [--sign <fingerprint> | --no-pull] | finish-merge <name> <parent-oid> <message> | distill <args...> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>]".into()),
     }
     Ok(())
 }
@@ -8625,5 +9083,219 @@ mod tests {
         assert_eq!(remote.pushes.len(), 1);
         assert_eq!(remote.pushes[0].0, report.head);
         assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn every_workflow_step_pulls_and_reconciles_bare_origin_with_offline_fallback() {
+        let scratch = Scratch::new();
+        let repo = scratch.repo();
+        let origin_bare = repo.parent().unwrap().join("origin-bare.git");
+        git(
+            &repo,
+            &[
+                "init",
+                "--bare",
+                "--initial-branch=main",
+                text(&origin_bare).unwrap(),
+            ],
+        )
+        .unwrap();
+        git(
+            &repo,
+            &["remote", "add", "origin", text(&origin_bare).unwrap()],
+        )
+        .unwrap();
+        let initial_base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+        git(
+            &repo,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "push",
+                "--quiet",
+                "origin",
+                &format!("{initial_base}:refs/heads/main"),
+            ],
+        )
+        .unwrap();
+
+        // Create a peer clone simulating concurrent remote contributors on `origin/main`.
+        let peer = repo.parent().unwrap().join("peer-clone");
+        git(
+            &repo,
+            &[
+                "clone",
+                "--quiet",
+                text(&origin_bare).unwrap(),
+                text(&peer).unwrap(),
+            ],
+        )
+        .unwrap();
+        git(&peer, &["config", "user.name", "Peer"]).unwrap();
+        git(&peer, &["config", "user.email", "peer@example.invalid"]).unwrap();
+
+        let peer_push = |rel: &str, body: &str, task_id: &str| -> String {
+            let full = peer.join(rel);
+            if let Some(parent) = full.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(&full, body).unwrap();
+            let task_rel = format!(".agents/tasks/{task_id}.json");
+            fs::create_dir_all(peer.join(".agents/tasks")).unwrap();
+            let task_doc = serde_json::json!({
+                "id": task_id,
+                "title": format!("Task {task_id}"),
+                "goal": format!("Goal {task_id}"),
+                "created_by": "peer",
+                "created_unix": 1_794_300_000u64,
+                "status": "done",
+                "deps": [],
+                "scopes": [rel, task_rel],
+                "accept": { "cmd": ["cargo", "test", "--offline", "--locked"] }
+            });
+            fs::write(
+                peer.join(&task_rel),
+                format!("{}\n", serde_json::to_string_pretty(&task_doc).unwrap()),
+            )
+            .unwrap();
+            git(&peer, &["add", "-A"]).unwrap();
+            git(
+                &peer,
+                &[
+                    "-c",
+                    "core.hooksPath=",
+                    "commit",
+                    "-qm",
+                    &format!("feat: {task_id}\n\nTask: {task_id}"),
+                ],
+            )
+            .unwrap();
+            git(
+                &peer,
+                &[
+                    "-c",
+                    "core.hooksPath=",
+                    "push",
+                    "--quiet",
+                    "origin",
+                    "HEAD:refs/heads/main",
+                ],
+            )
+            .unwrap();
+            git(&peer, &["rev-parse", "HEAD"]).unwrap()
+        };
+
+        // 1. `start` pulls peer commit P1 from `origin/main` before creating worktree.
+        let p1 = peer_push("peer/step1.rs", "pub fn step1() {}\n", "T-STEP-1");
+        let wt_alpha = start(&repo, "alpha", &["alpha/mod.rs".to_owned()]).unwrap();
+        assert_eq!(git(&wt_alpha, &["rev-parse", "HEAD"]).unwrap(), p1);
+        assert!(wt_alpha.join("peer/step1.rs").is_file());
+
+        // 2. `sync` (`step`) fast-forwards `local-agent/alpha` when peer pushes P2 before alpha commits.
+        let p2 = peer_push("peer/step2.rs", "pub fn step2() {}\n", "T-STEP-2");
+        let ff_report = sync_claim(&wt_alpha, "alpha").unwrap();
+        assert_eq!(ff_report.mode, AgentSyncMode::FastForwarded);
+        assert_eq!(ff_report.head, p2);
+        assert!(wt_alpha.join("peer/step2.rs").is_file());
+
+        // 3. `commit` creates alpha's scoped commit AND auto-pulls + 3-way merges peer commit P3!
+        let p3 = peer_push("peer/step3.rs", "pub fn step3() {}\n", "T-STEP-3");
+        fs::create_dir_all(wt_alpha.join("alpha")).unwrap();
+        fs::write(
+            wt_alpha.join("alpha/mod.rs"),
+            "pub fn alpha() -> u32 { 7 }\n",
+        )
+        .unwrap();
+        commit(&wt_alpha, "alpha", "feat: alpha module", None).unwrap();
+        let after_commit = git(&wt_alpha, &["rev-parse", "HEAD"]).unwrap();
+        assert!(is_ancestor(&wt_alpha, &p3, &after_commit).unwrap());
+        assert!(wt_alpha.join("peer/step3.rs").is_file());
+        assert!(wt_alpha.join("alpha/mod.rs").is_file());
+        // Scope guard still sees ONLY alpha's scoped file relative to updated claim.base!
+        let wf = state(&repo).unwrap();
+        let alpha_claim = read_local_claim(&wf.join("claims/alpha.claim")).unwrap();
+        assert_eq!(alpha_claim.base, p3);
+        check_source(&repo, &alpha_claim).unwrap();
+
+        // 4. Offline fallback: point origin at a disconnected path and verify `sync` succeeds cleanly.
+        let disconnected = repo.parent().unwrap().join("disconnected-origin.git");
+        git(
+            &repo,
+            &["remote", "set-url", "origin", text(&disconnected).unwrap()],
+        )
+        .unwrap();
+        let offline_sync = sync_claim(&wt_alpha, "alpha").unwrap();
+        assert_eq!(offline_sync.mode, AgentSyncMode::OfflineFallback);
+        git(
+            &repo,
+            &["remote", "set-url", "origin", text(&origin_bare).unwrap()],
+        )
+        .unwrap();
+
+        // 5. `ship` reconciles with another peer commit P4 on real `GitRemote` and fast-forwards `origin/main`.
+        let p4 = peer_push("peer/step4.rs", "pub fn step4() {}\n", "T-STEP-4");
+        let mut real_remote = GitRemote;
+        let shipped = ship(
+            &repo,
+            &["alpha"],
+            &mut real_remote,
+            |candidate, _attempt| {
+                assert!(candidate.join("alpha/mod.rs").is_file());
+                assert!(candidate.join("peer/step4.rs").is_file());
+                Ok(local_gate_evidence())
+            },
+        )
+        .unwrap();
+        assert!(is_ancestor(&repo, &p4, &shipped.head).unwrap());
+
+        // 6. `release`: start beta, land beta's commit onto `origin/main` via peer, and verify `release` pulls `origin/main`!
+        let wt_beta = start(&repo, "beta", &["beta/mod.rs".to_owned()]).unwrap();
+        fs::create_dir_all(wt_beta.join("beta")).unwrap();
+        fs::write(wt_beta.join("beta/mod.rs"), "pub fn beta() {}\n").unwrap();
+        commit_with_pull(&wt_beta, "beta", "feat: beta module", None, false).unwrap();
+        let beta_head = git(&wt_beta, &["rev-parse", "HEAD"]).unwrap();
+        // Push beta_head directly to bare origin WITHOUT updating local refs/remotes/origin/main first.
+        git(
+            &wt_beta,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "push",
+                "--quiet",
+                text(&origin_bare).unwrap(),
+                &format!("{beta_head}:refs/heads/main"),
+            ],
+        )
+        .unwrap();
+        release(&repo, "beta").unwrap();
+        assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+
+        // 7. `workflow_distill`: pulls `origin/main` and distills T-STEP-1..T-STEP-4 into a release snapshot + record!
+        let record_out = repo.parent().unwrap().join("v0.21.61.json");
+        let distill_out = workflow_distill(
+            &repo,
+            &[
+                "compose".into(),
+                "--name".into(),
+                "wf-rc1".into(),
+                "--base".into(),
+                initial_base,
+                "--from".into(),
+                "origin/main".into(),
+                "--select".into(),
+                "T-STEP-1,T-STEP-2,T-STEP-3,T-STEP-4".into(),
+                "--release-candidate".into(),
+                "--strict".into(),
+                "--release-tag".into(),
+                "v0.21.61".into(),
+                "--release-record-out".into(),
+                text(&record_out).unwrap().to_owned(),
+                "--json".into(),
+            ],
+        )
+        .unwrap();
+        let receipt: serde_json::Value = serde_json::from_str(&distill_out).unwrap();
+        assert_eq!(receipt["included"].as_array().unwrap().len(), 4);
+        assert!(record_out.is_file());
     }
 }

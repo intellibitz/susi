@@ -35,6 +35,7 @@ pub use susi_config;
 pub use susi_abi;
 
 pub mod a2a_wire;
+pub mod acp;
 pub mod adapter_upgrade;
 pub mod agent_tx;
 pub mod agent_types;
@@ -87,6 +88,11 @@ pub mod truth;
 pub mod verification;
 
 // Top-level exports for the fundamental susi-core types
+pub use acp::{
+    AcpAdmissionPolicy, AcpCapabilities, AcpContentBlock, AcpDiscoveryDocument, AcpEngine,
+    AcpSessionSummary, AcpSocketClient, AcpSocketServer, AcpStdioTransport, AcpStopReason,
+    AcpTurnContext, AcpTurnEvent, AcpTurnExecutor, AcpTurnResult, ACP_PROTOCOL_VERSION,
+};
 pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
 pub use agent_types::{
     AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo, HighDensityContextStore,

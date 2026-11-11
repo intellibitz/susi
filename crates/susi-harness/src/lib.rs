@@ -109,6 +109,7 @@ pub mod usage;
 pub mod validate;
 pub mod verify;
 pub mod workflow;
+pub mod workflow_runner;
 
 /// The std HTTP/1.1 server the gateway, the ingress and the harness API
 /// run on (it moved to `susi-http-transport`, shared with the A2A port and
@@ -131,6 +132,11 @@ pub use supervisor::{
     AdaptiveExecutionPolicy, AdaptiveSupervisorReport, AdaptiveTaskOutcome, AdaptiveTaskRequest,
     CliAgentBackend, CliToolStatus, EmbeddedWorkflowOrchestrator, RecursiveTreeRun,
     SusiSocketReport, WorkflowEmbedError, WorkflowNode, WorkflowWavePlan,
+};
+pub use workflow_runner::{
+    reconcile_worktree_with_remote, IsolatedWorkerWorkspace, ParallelAgentSpec,
+    ParallelWorkflowHarness, ParallelWorkflowReport, RemoteReconcileConfig, RemoteSyncMode,
+    WorkflowDistillSnapshot, WorkflowStep, WorkflowStepReceipt,
 };
 
 #[cfg(test)]
