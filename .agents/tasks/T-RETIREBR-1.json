@@ -1,11 +1,12 @@
 {
   "id": "T-RETIREBR-1",
   "title": "push-policy: admit a normal deletion of remote branches outside the storage-only allowlist",
-  "goal": "CEO (2026-11-11): GitHub is storage only and release branches must not appear there; 'Extend the policy' so retired branches can be removed. T-AGYWIN-2 restricted remote refs/heads/* to main and local-agent/<agent> but also refused deleting the others, so the remaining distill/* and wip/* branches (already preserved as refs/tags/susi-distill/legacy-* tags) could never be removed through the hook. A non-force deletion that names the old tip of a branch outside the allowlist is now admitted; creating or updating such a branch stays refused, and deleting main or local-agent/<agent> stays refused.",
+  "goal": "CEO (2026-11-11): GitHub is storage only and release branches must not appear there; 'Extend the policy' so retired branches can be removed. T-AGYWIN-2 restricted remote refs/heads/* to main and local-agent/<agent> but also refused deleting the others, so the remaining distill/* and wip/* branches (already preserved as refs/tags/susi-distill/legacy-* tags) could never be removed through the hook. A non-force deletion that names the old tip of a branch outside the allowlist is now admitted; creating or updating such a branch stays refused, and deleting main or local-agent/<agent> stays refused. Also refreshes toolchain/windows-stdlib/Cargo.lock, left stale by 669834855 (sha2 facade 0.11 -> 0.10), which made the gate's trusted-sysroot step fail on main with --locked.",
   "status": "in_progress",
   "native_worker": "retirebr",
   "scopes": [
     ".agents/tasks/T-RETIREBR-1.json",
+    "toolchain/windows-stdlib/Cargo.lock",
     "xtask/src/push_policy.rs",
     "xtask/tests/native_push_policy.rs"
   ],
