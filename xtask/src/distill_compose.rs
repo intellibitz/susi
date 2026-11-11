@@ -20,6 +20,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+#[path = "distill/hostmerge.rs"]
+mod hostmerge;
+
 type Result<T> = std::result::Result<T, String>;
 
 pub const RECEIPT_SCHEMA: &str = "susi-distillation-receipt-v1";
@@ -29,7 +32,7 @@ const MAX_CLOSURE_DEPTH: usize = 256;
 const ZERO_SHA1: &str = "0000000000000000000000000000000000000000";
 const ZERO_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose|orchestrate> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--tasks-from-range <A..B>] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--verify-accept] [--publish-snapshot] [--publish-release-branch] [--release-candidate] [--strict] [--receipt-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|publish-branch|status> <name> [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- submit-main [--rev <rev>] [--max-attempts <n>] [--json]\nDistillation composes an audited candidate from labelled contributions. Full release qualification gates remain separate.";
+const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose|orchestrate> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--tasks-from-range <A..B>] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--verify-accept] [--publish-snapshot] [--publish-release-branch] [--release-candidate] [--strict] [--adopt-host-commit <full-commit-id>]... [--receipt-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|publish-branch|status> <name> [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- submit-main [--rev <rev>] [--max-attempts <n>] [--json]\nDistillation composes an audited candidate from labelled contributions. Full release qualification gates remain separate.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CommandMode {
@@ -56,6 +59,9 @@ struct DistillArgs {
     publish_release_branch: bool,
     release_candidate: bool,
     strict: bool,
+    /// Host-created commits the distilling agent explicitly adopts (full ids);
+    /// every adoption is written into the receipt.
+    adopt_host_commits: BTreeSet<String>,
     receipt_out: Option<PathBuf>,
     json_output: bool,
 }
@@ -1182,6 +1188,7 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
     let mut publish_release_branch = false;
     let mut release_candidate = false;
     let mut strict = false;
+    let mut adopt_host_commits: BTreeSet<String> = BTreeSet::new();
     let mut receipt_out: Option<PathBuf> = None;
     let mut json_output = false;
 
@@ -1249,6 +1256,11 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
             "--publish-release-branch" => publish_release_branch = true,
             "--release-candidate" => release_candidate = true,
             "--strict" => strict = true,
+            "--adopt-host-commit" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                adopt_host_commits.extend(hostmerge::parse_adoptions(std::slice::from_ref(val))?);
+            }
             "--json" => json_output = true,
             _ => return Err(USAGE.to_owned()),
         }
@@ -1300,6 +1312,7 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
         publish_release_branch,
         release_candidate,
         strict,
+        adopt_host_commits,
         receipt_out,
         json_output,
     }))
@@ -2185,6 +2198,17 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
     let mut current_commit = base_commit.clone();
     let mut current_tree = base_tree.clone();
 
+    // Merges happen in Susi; the Git host is storage only. Work whose commits
+    // the host created itself (web merge, web edit, API commit) is refused
+    // unless the distilling agent adopts each commit by full id, on record.
+    let host_identities = hostmerge::identities(root)?;
+    let host_in_stream = hostmerge::scan_range(
+        root,
+        &format!("{base_commit}..{from_commit}"),
+        &host_identities,
+    )?;
+    let mut adopted_host_commits: BTreeMap<String, String> = BTreeMap::new();
+
     for key in &closure.order {
         if let Some(cycle_detail) = closure.cycle_errors.get(key) {
             let label = from_tasks
@@ -2361,6 +2385,34 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             continue;
         }
 
+        let attributed_oids: BTreeSet<String> = commit_oids.iter().cloned().collect();
+        let host_made = hostmerge::among(root, &attributed_oids, &host_identities)?;
+        let refused: Vec<String> = host_made
+            .values()
+            .filter(|c| !args.adopt_host_commits.contains(&c.oid))
+            .map(|c| format!("{} ({} <{}>)", c.oid, c.committer, c.email))
+            .collect();
+        if !refused.is_empty() {
+            rejected.push(DecisionEntry {
+                task_id: task.id.clone(),
+                source_commits: commit_oids,
+                deps: task.deps.clone(),
+                reason_code: "merged_outside_susi",
+                detail: format!(
+                    "commit(s) created by the Git host, not by a Susi merge: {}; re-land them through Susi or adopt each with --adopt-host-commit <full-id>",
+                    refused.join(", ")
+                ),
+            });
+            outcomes.insert(key.clone(), TaskOutcome::Rejected);
+            continue;
+        }
+        for c in host_made.values() {
+            adopted_host_commits.insert(
+                c.oid.clone(),
+                format!("{} <{}> for {}", c.committer, c.email, task.id),
+            );
+        }
+
         let cursor = ComposeCursor {
             base_commit: &base_commit,
             current_commit: &current_commit,
@@ -2474,6 +2526,14 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         })).collect::<Vec<_>>(),
         "deferred": deferred.iter().map(render_decision).collect::<Vec<_>>(),
         "rejected": rejected.iter().map(render_decision).collect::<Vec<_>>(),
+        "git_host_identities": host_identities,
+        "git_host_created_in_stream": host_in_stream.iter().map(|c| json!({
+            "commit": c.oid,
+            "merge": c.merge,
+            "committer": format!("{} <{}>", c.committer, c.email),
+            "subject": c.subject,
+        })).collect::<Vec<_>>(),
+        "adopted_host_commits": adopted_host_commits,
         "final_commit": current_commit,
         "final_tree": current_tree,
     });
@@ -3451,6 +3511,113 @@ mod tests {
             .unwrap();
         let paths: Vec<String> = files.into_iter().map(|(p, _)| p).collect();
         assert_eq!(paths, vec!["crates/dep/lib.rs", "crates/feat/lib.rs"]);
+    }
+
+    #[test]
+    fn host_created_task_commit_is_refused_until_adopted_on_record() {
+        let fx = Fixture::new();
+        fx.write("README.md", "base\n");
+        let base = fx.commit_all("initial base");
+        fx.write("crates/local/lib.rs", "pub fn local() {}\n");
+        fx.write_task("T-LOCAL-1", &[], &["crates/local"]);
+        fx.commit_all("feat: local\n\nTask: T-LOCAL-1");
+        // The Git host writes this commit itself (an API commit or web edit).
+        fx.write("crates/hosted/lib.rs", "pub fn hosted() {}\n");
+        fx.write_task("T-HOSTED-1", &[], &["crates/hosted"]);
+        // `Git` pins the distiller's own committer identity, so write this
+        // commit with plain Git, the way the host would.
+        let host_git = |args: &[&str]| {
+            let out = Command::new("git")
+                .current_dir(&fx.work)
+                .args(args)
+                .env("GIT_COMMITTER_NAME", "GitHub")
+                .env("GIT_COMMITTER_EMAIL", "noreply@github.com")
+                .env("GIT_AUTHOR_NAME", "Worker")
+                .env("GIT_AUTHOR_EMAIL", "worker@localhost")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {out:?}");
+        };
+        host_git(&["add", "-A"]);
+        host_git(&["commit", "-q", "-m", "feat: hosted\n\nTask: T-HOSTED-1"]);
+        let hosted = fx.git().resolve_commit("HEAD").unwrap();
+        let compose = |name: &str, extra: &[&str]| -> Value {
+            let mut args = vec![
+                "compose",
+                "--name",
+                name,
+                "--base",
+                &base,
+                "--from",
+                "HEAD",
+                "--select",
+                "T-LOCAL-1,T-HOSTED-1",
+                "--json",
+            ];
+            args.extend_from_slice(extra);
+            serde_json::from_str(&fx.run_args(&args).unwrap()).unwrap()
+        };
+
+        let refused = compose("host-refused", &[]);
+        assert_eq!(refused["included"][0]["task_id"], "T-LOCAL-1", "{refused}");
+        assert_eq!(
+            refused["included"].as_array().unwrap().len(),
+            1,
+            "{refused}"
+        );
+        assert_eq!(refused["rejected"][0]["task_id"], "T-HOSTED-1");
+        assert_eq!(refused["rejected"][0]["reason_code"], "merged_outside_susi");
+        assert_eq!(
+            refused["git_host_created_in_stream"][0]["commit"],
+            hosted.as_str()
+        );
+        assert!(refused["adopted_host_commits"]
+            .as_object()
+            .unwrap()
+            .is_empty());
+
+        // --strict refuses the candidate outright.
+        let strict = fx.run_args(&[
+            "compose",
+            "--name",
+            "host-strict",
+            "--base",
+            &base,
+            "--from",
+            "HEAD",
+            "--select",
+            "T-HOSTED-1",
+            "--strict",
+        ]);
+        assert!(strict.unwrap_err().contains("strict distillation refused"));
+
+        // An abbreviated id never adopts anything.
+        assert!(fx
+            .run_args(&[
+                "compose",
+                "--name",
+                "host-short",
+                "--base",
+                &base,
+                "--select",
+                "T-HOSTED-1",
+                "--adopt-host-commit",
+                &hosted[..12],
+            ])
+            .is_err());
+
+        let adopted = compose("host-adopted", &["--adopt-host-commit", &hosted]);
+        assert!(
+            adopted["rejected"].as_array().unwrap().is_empty(),
+            "{adopted}"
+        );
+        assert_eq!(adopted["included"].as_array().unwrap().len(), 2);
+        assert!(adopted["adopted_host_commits"][hosted.as_str()]
+            .as_str()
+            .unwrap()
+            .ends_with("for T-HOSTED-1"));
     }
 
     #[test]

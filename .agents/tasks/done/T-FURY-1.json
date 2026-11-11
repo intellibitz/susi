@@ -1,0 +1,51 @@
+{
+  "id": "T-FURY-1",
+  "title": "Merges happen in Susi: detect and refuse work the Git host merged or committed",
+  "goal": "Under the CEO rule that the Git host is storage only and every merge happens in Susi, make work that the hosting service created itself (web or API merges, web edits, API commits) visible in `distill lint` and refused by `distill plan` and `local-distill` (reason `merged_outside_susi`), with explicit, recorded adoption by full commit id as the only way to admit it without re-landing.",
+  "status": "done",
+  "owner": "fury",
+  "created_by": "FURY",
+  "created_unix": 1794386223,
+  "size": "m",
+  "deps": [],
+  "base_commit": "b91a3070e4bab89516cba11b3d76198b5a147ac2",
+  "scopes": [
+    "xtask/src/distill.rs",
+    "xtask/src/distill",
+    "xtask/src/distill_compose.rs",
+    "docs/distillation.md",
+    "docs/release-distillation.md",
+    ".agents/tasks/T-FURY-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "distill",
+      "--bin",
+      "local-distill"
+    ]
+  },
+  "limitations": [
+    "Detection relies on the host stamping its own committer identity; a host whose web merges reuse the clicking user's identity is not detected (documented).",
+    "It cannot prevent the host or another client from writing main; it reports such writes and keeps them out of distilled releases unless adopted on record.",
+    "The commercial distiller (`susi-commercial admin distill`) is a separate implementation and is not changed by this task."
+  ],
+  "results": {
+    "unit_and_fixture_tests": "cargo test --offline --locked -p xtask --bin distill --bin local-distill: distill 23 passed / 0 failed (was 19; +3 hostmerge unit, +1 real-Git fixture), local-distill 19 passed / 0 failed (was 15; +3 hostmerge unit, +1 real-Git compose fixture)",
+    "clippy": "cargo clippy --offline --locked -p xtask --all-targets -- -D warnings: exit 0",
+    "fmt": "cargo fmt --all --check: exit 0",
+    "guards": "architecture_tests 43, core_docs_promise_no_ui_or_plugins 5, lean_core_ceilings 2, no_github_coupling 5, orphan_sources 3, task_records 3: all passed on the tree merged with origin/main 6519f8fed",
+    "real_run": "distill lint --range v0.21.55..origin/main (b91a3070e): 154 commits, 11 created by the Git host (2 merges titled 'Susi development submission', 9 commits), all 'Antigravity <noreply@github.com>'; distill plan --tasks-from-range v0.21.55..origin/main rejects T-AGYCLOUD-4, -5, -6, -7 as merged_outside_susi (7.3 s)"
+  },
+  "closed": {
+    "at_unix": 1794386375,
+    "commit": "bb1acb0e775ac324b29378bbac4d595ec4867a3f",
+    "by": "FURY"
+  }
+}
