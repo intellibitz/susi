@@ -741,9 +741,9 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
     }
 
     /// Compares the running binary's SHA-256 against the digest last written to
-    /// `binary.hash` by `susi admin sync` (src/daemon/admin.rs). Both readers and
-    /// writers of this file must agree on one signature format — a `len:mtime`
-    /// shortcut here previously diverged from admin.rs's SHA-256 writer, causing
+    /// `binary.hash` (written on first use by `verify_binary_integrity` in
+    /// susi-sandbox-client). Every reader and writer uses one format — a `len:mtime`
+    /// shortcut here previously diverged from the SHA-256 writer, causing
     /// a spurious mismatch (self-healing only after one overwrite cycle). The
     /// `current_sig` computed below is still always a real SHA-256 of the exact
     /// same format; `calculate_binary_hash_cached` only skips *re-computing* it
@@ -759,7 +759,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
     /// mtime (not whole-second, to avoid a same-second rebuild+rerun false
     /// cache hit) + size + the real hash in `binary.hash.cache`, next to but
     /// distinct from `binary.hash` itself — the latter's writer/format
-    /// contract with `susi admin sync` (see `verify_binary_integrity`'s doc
+    /// contract with `verify_binary_integrity` (see that function's doc
     /// comment) is untouched; a cache miss or parse failure always falls
     /// back to a real, fresh hash.
     /// Ensure the single host daemon is running, bound to
