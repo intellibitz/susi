@@ -1,0 +1,54 @@
+{
+  "id": "T-CLAUDERC1-1",
+  "title": "Distill release candidate 2026-11-11-rc1 from main onto v0.21.54",
+  "goal": "CEO: dump features into main, distill into a release branch. Compose every labelled task landed since v0.21.54 onto v0.21.54 with local-distill (selective 3-way composition, scope audit, isolated accept.cmd verification), publish the candidate within the push policy, and keep its receipt in the repository.",
+  "status": "done",
+  "scopes": [
+    ".agents/evidence/distill-2026-11-11-rc1.json",
+    ".agents/tasks/T-CLAUDERC1-1.json",
+    ".agents/tasks/done/T-CLAUDERC1-1.json"
+  ],
+  "size": "s",
+  "deps": [
+    "T-CLAUDEDISTILLHOME-1",
+    "T-CLAUDEDISTILLEVID-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "task_records"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794365800,
+  "owner": "claude",
+  "base": "cbab13cb1a7315bdf98d2cccb2347bfc76a98cb4",
+  "results": {
+    "candidate": "235ad06595fa01a7bda239f92e2c4b9d73c3c6f7 on branch distill/2026-11-11-rc1 (origin), base v0.21.54 b626d435c, source stream cbab13cb1",
+    "composition": "21 tasks included, 0 rejected, 0 deferred, 0 conflicts",
+    "accept_verification": "21 accept commands run in an isolated worktree, all exit 0",
+    "receipt": ".agents/evidence/distill-2026-11-11-rc1.json (receipt_sha256 a17afd1a87804cc420b6c5ac42d4676e25d95c08737c97f1f7415bb0132258e2)",
+    "blockers_fixed_on_the_way": [
+      "T-CLAUDEDISTILLHOME-1: accept verification could not resolve crates (scratch HOME hid CARGO_HOME)",
+      "T-CLAUDECLISNAP-1 / b21d4da38: CLI help snapshot drift failed susi --bins",
+      "T-CLAUDEDISTILLEVID-1: GMCP evidence ancestry could never hold on a distilled branch"
+    ]
+  },
+  "limitations": [
+    "Unqualified candidate: no exact-tree Windows/Linux qualification, licence/binary audits, signing or v* tag.",
+    "Push policy refuses release/* until the native qualification adapter exists, so the candidate is on distill/2026-11-11-rc1, the namespace local-distill uses for unqualified candidates.",
+    "The snapshot tag refs/tags/susi-snapshot/2026-11-11-rc1 (policy-allowed) could not be pushed from this cloud session: the remote hung up on every tag push while branch pushes succeeded.",
+    "Excluded: LOCAL-DOT-STATUS and LOCAL-CODEX-CLOUD-RELEASE54REC-20261111 (launcher labels with no record), T-CLAUDECLISNAP-1 and T-CLAUDEDISTILLHOME-1 (shared close commit; product-neutral), T-CLAUDEDISTILL-1 (another session's in-progress v0.21.55 work whose record then failed task_records)."
+  ],
+  "landed": {
+    "main_commit": "6a00269280a6e868b34e768cfd155e535d591119",
+    "source_commit": "eef31b6633b7e1af88d8c0bde73526af1c78c633",
+    "route": "local-snapshot submit claude-rc1-20261111; candidate branch pushed through .githooks/pre-push (push-policy)"
+  }
+}
