@@ -73,22 +73,22 @@ and `deps`. Feature licenses are checked against Susi's allowlist (`Apache-2.0`,
    environment (no user credentials), runs each included task's `accept.cmd`
    array directly without a shell, records `accept_verification` digests, and
    fails closed before ref creation if any acceptance command fails.
-6. **Content-addressed receipt, compare-and-swap refs, and verified `release/*`
-   branch publication:** `compose` / `orchestrate` writes an fsynced
+6. **Content-addressed receipt, compare-and-swap refs, and local release
+   candidates:** `compose` / `orchestrate` writes an fsynced
    `susi-distillation-receipt-v1` JSON record (`receipt_sha256`) under
    `.git/susi-distill/receipts/<name>.json` and creates `refs/heads/distill/<name>`
    via atomic zero-old-OID `git update-ref`. With `--release-candidate`,
    `local-distill` wraps the composed commit `P` in a deterministic single-parent
    envelope commit adding only `releases/distill/<name>.json` at the tip of
-   `refs/heads/release/<name>`. `publish-branch <name>` (or `orchestrate
-   --verify-accept --release-candidate --publish-release-branch`) pushes
-   `refs/heads/release/<name>` non-force through `.githooks/pre-push` and
-   `push-policy`, which admits a `refs/heads/release/<name>` update only when it
-   is non-deleting, fast-forward/create-only, and carries either a full
-   `releases/qualification/<tag>.json` record or a tamper-evident
-   `accept_verified_candidate` distillation receipt with zero rejected tasks.
-   `publish <name>` continues to push immutable `refs/tags/susi-distill/<name>`
-   snapshots.
+   `refs/heads/release/<name>`. That release ref is local evidence only: it is
+   never pushed as a remote branch, never turned into a pull request, and never
+   merged through GitHub. `publish-branch` and
+   `--publish-release-branch` are rejected so the workflow cannot accidentally
+   create a GitHub merge surface. `publish <name>` is the only distillation
+   publication path and pushes the immutable
+   `refs/tags/susi-distill/<name>` snapshot through the native transport hook.
+   GitHub, when used, stores that tag and the direct `main` history; Susi owns
+   composition, qualification and release records locally.
 
 ## Distilling onto a distilled release
 

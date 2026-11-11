@@ -36,7 +36,6 @@ members = [
     "crates/susi-vendor-ed25519-dalek",
     "crates/susi-vendor-getrandom",
     "crates/susi-vendor-hyper",
-    "crates/susi-vendor-hyper-util",
     "crates/susi-vendor-libc",
     "crates/susi-vendor-rcgen",
     "crates/susi-vendor-serde",
