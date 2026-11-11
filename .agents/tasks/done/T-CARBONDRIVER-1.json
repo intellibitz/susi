@@ -1,0 +1,69 @@
+{
+  "id": "T-CARBONDRIVER-1",
+  "native_worker": "carbon-cachyos-distill",
+  "title": "Autonomous recursive Driver-Engine container runtime, fast-main freedom policy, and dot-free distillation orchestrator",
+  "goal": "Implement CEO Mandate 73 Section 2 recursive Driver <-> Engine container adapter (`crates/susi-harness/src/recursive.rs`, `susi-recursive-container-v1`) enabling any verified container to operate as Coordinator (Driver), Engine (worker), or both across nested waves with zero dependency on `dot`, isolated per-worker sandboxes and 5-port socket offsets, monotonic authority/scope/budget/timeout/depth attenuation, cycle detection, cooperative cancellation, idempotency ledger, and SHA-256 provenance receipts; add `IntegrationPolicy::fast_main()` (`PublicationMode::FastMainStream`) in `crates/susi-harness/src/workflow.rs` granting zero-cooldown autonomous development `main` freedom while protecting `refs/susi/*`, `release/*`, `refs/tags/v*`, foreign `local-agent/<other>` branches, and destination-first non-stub migrations; upgrade `local-distill` (`xtask/src/distill_compose.rs`) with self-contained `orchestrate`, `--tasks-from-range <A..B>`, and `submit-main` non-force object-store reconciliation; and close `T-CARBONDISTILL-1` with zero `dot` dependency.",
+  "size": "m",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794360500,
+  "state": "done",
+  "status": "done",
+  "base": "b3678bfd94a6fb0bfe6df247dd00661627de3c7f",
+  "mandate_revision": "6a5bde015",
+  "deps": [
+    "T-CARBONDISTILL-1"
+  ],
+  "scopes": [
+    ".agents/tasks/done/T-CARBONDRIVER-1.json",
+    "crates/susi-harness/src/lib.rs",
+    "crates/susi-harness/src/recursive.rs",
+    "crates/susi-harness/src/supervisor.rs",
+    "crates/susi-harness/src/workflow.rs",
+    "crates/susi-harness/src/tests/recursive.rs",
+    "crates/susi-harness/src/tests/supervisor.rs",
+    "crates/susi-harness/src/tests/workflow.rs",
+    "docs/release-distillation.md",
+    "xtask/src/distill_compose.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu",
+    "fmt_check": "pass (0 diffs)",
+    "clippy_susi_harness_and_xtask_all_targets": "pass (0 warnings, -D warnings, 7965 ms)",
+    "lean_core_susi_harness_lines": "40593 / 40790 ceiling (pass, 0 dependency reach growth)",
+    "tests_passed": 609,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "susi_harness_lib": 521,
+      "xtask_bin_distill": 19,
+      "xtask_bin_local_distill": 11,
+      "architecture_tests": 43,
+      "core_docs_promise_no_ui_or_plugins": 5,
+      "lean_core_ceilings": 2,
+      "no_github_coupling": 5,
+      "orphan_sources": 3
+    },
+    "timings_ms": {
+      "core_susi_idle_cold_build_baseline_ms": 27600,
+      "clippy_incremental_susi_harness_xtask_ms": 7965,
+      "susi_harness_lib_521_tests_exec_ms": 2170,
+      "xtask_local_distill_11_tests_exec_ms": 2670,
+      "xtask_distill_19_tests_exec_ms": 250,
+      "warm_noop_check_susi_harness_xtask_ms": 277,
+      "local_distill_help_startup_ms": 3
+    }
+  },
+  "limitations": [
+    "Recursive Driver <-> Engine orchestration and `local-distill orchestrate` / `submit-main` compose and publish development streams and candidate branches without `dot` or GitHub service coupling; production `v*` release promotion still requires full exact-tree qualification gates across Linux x86_64 and Windows x86_64."
+  ]
+}
