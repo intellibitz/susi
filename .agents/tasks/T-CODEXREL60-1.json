@@ -1,0 +1,36 @@
+{
+  "id": "T-CODEXREL60-1",
+  "feature_id": "F-CORE-RELEASE-0.21.60-1",
+  "title": "Prepare core v0.21.60 from distilled candidate v0-21-60-distilled-rc1",
+  "goal": "Apply only the version bump permitted after the accept-verified distilled candidate envelope, then qualify the exact Linux x86_64 release tree. Windows x86_64 remains a separate owed platform.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "owner": "codex-coordinator",
+  "created_by": "codex-coordinator",
+  "created_unix": 1794401144,
+  "updated_unix": 1794401144,
+  "size": "s",
+  "base": "8094838da05f426b293905ba1106bcb61a5234f7",
+  "deps": ["T-CARBONLEAN-15"],
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CODEXREL60-1.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "release_records"]
+  },
+  "limitations": [
+    "Windows x86_64 reference qualification is not available on this Linux host."
+  ]
+}
