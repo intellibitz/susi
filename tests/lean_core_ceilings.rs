@@ -71,7 +71,12 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// exact required feature set, removing `parking_lot`, `parking_lot_core`,
 /// `lock_api`, `scopeguard` and `redox_syscall` from Cargo.lock and the pillar
 /// closure).
-const THIRD_PARTY_CEILING: usize = 117;
+/// 2026-11-11: 117 -> 115 (T-CARBONLEAN-11: drop `"client"` from `hyper` in
+/// `susi-vendor-hyper` (`["http1", "http2", "server"]` only) and replace the
+/// single test-only `hyper::client::conn::http2::handshake` in
+/// `susi_http_transport::http_conn` with raw RFC 9113 prior-knowledge frames,
+/// removing `want` and `try-lock` from Cargo.lock and the pillar closure).
+const THIRD_PARTY_CEILING: usize = 115;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
