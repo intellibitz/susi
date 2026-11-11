@@ -811,3 +811,18 @@ config, core and the tail.
   935 ns/iter signature, 668 ns/iter truth verify). Lines: `susi-gawd-swarm`
   20,635 -> 20,116 (unchanged `amas.rs` inline unit suite, 519 lines, moved to
   `src/tests/amas.rs`, not a runtime cut).
+- 2026-11-11 (T-CODEXAXUMOUT-1, Linux x86_64, CEO laptop): the remaining
+  A2A and leaf-service HTTP listeners leave the axum/tower facades and use the
+  shared std HTTP/1.1 server in `susi-http-transport`. The A2A and leaf
+  contract suites stay green (52 + 39 + 43 tests, zero failures), including
+  their wire and authorization behaviour; the old axum stack remains only in
+  the recorded wire transcripts and compatibility comments. The two workspace
+  facades (`susi-vendor-axum`, `susi-vendor-tower`) and ten registry packages
+  (`axum`, `axum-core`, `form_urlencoded`, `matchit`, `mime`, `ryu`,
+  `serde_path_to_error`, `serde_urlencoded`, `sync_wrapper`, `tower`) leave
+  `Cargo.lock`; `tower-service` remains because GMCP still uses it. The
+  four-pillar reach is unchanged at 39 workspace crates, 141 third-party
+  crates and 15 direct facade edges because these listeners are outside the
+  pillar closure. The platform TLS identity now exposes both its async and
+  blocking accept paths, so the std server does not bypass certificate or
+  protocol validation. No commercial source moved into core.

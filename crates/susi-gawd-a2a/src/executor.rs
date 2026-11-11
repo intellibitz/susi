@@ -167,7 +167,7 @@ fn plane_bus_mission(intent: &str) -> std::result::Result<String, String> {
 
 /// Run the mission on a dedicated OS thread: mission dispatch blocks (IPC,
 /// provider calls with their own runtimes), which must not happen on the
-/// axum worker driving this executor. The result crosses back on a tokio
+/// runtime worker driving this executor. The result crosses back on a tokio
 /// oneshot so the caller `await`s without blocking the worker.
 async fn run_mission(
     runner: MissionRunner,

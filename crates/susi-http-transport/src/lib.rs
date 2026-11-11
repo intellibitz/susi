@@ -12,13 +12,16 @@
 
 //! Shared HTTP transport for every SUSI host-contract surface (GEMI REST,
 //! GMCP, A2A): a TLS-sniffing accept helper, a Hyper connection builder
-//! with a header-read bound, and the outbound `http_call` client: HTTP/1.1
-//! on std sockets with verified platform TLS. Vendor SDKs stay out.
+//! with a header-read bound, the std HTTP/1.1 server ([`server`]) that the
+//! harness, the A2A port and the leaf services share, and the outbound
+//! `http_call` client: HTTP/1.1 on std sockets with verified platform TLS.
+//! Vendor SDKs stay out.
 
 pub mod client;
 mod connect;
 pub mod dual_transport;
 pub mod http_conn;
+pub mod server;
 mod wire;
 
 pub use client::{http_call, http_call_with_body, http_post_utf8, HttpCall};

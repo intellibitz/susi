@@ -2,11 +2,12 @@
 //! Every route requires the host token: `docker_exec` runs commands and the
 //! rest touch the user's substrate.
 
-use axum::extract::Query;
-use axum::http::StatusCode;
-use axum::routing::{get, post};
-use axum::{Json, Router};
 use std::path::PathBuf;
+use std::sync::Arc;
+
+use susi_http_transport::server::{
+    get, post, IntoResponse, Json, Request, Response, Router, StatusCode,
+};
 use susi_sandbox_client::daemon_state::local::SusiDaemonState;
 use susi_sandbox_client::SandboxManager;
 
@@ -32,32 +33,78 @@ struct BinaryPathsReq {
     global_dir: PathBuf,
 }
 
-async fn ensure_global(Json(req): Json<EnsureGlobalReq>) -> StatusCode {
-    match SandboxManager::ensure_global_sandbox_locally(&req.global_dir) {
-        Ok(()) => StatusCode::NO_CONTENT,
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+async fn ensure_global(request: Request) -> Response {
+    let request = match request.json::<EnsureGlobalReq>() {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    match SandboxManager::ensure_global_sandbox_locally(&request.global_dir) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
 
-async fn docker_exec(Json(req): Json<DockerExecReq>) -> Result<Json<String>, StatusCode> {
-    let _ = &req.cmd;
-    Err(StatusCode::INTERNAL_SERVER_ERROR)
+async fn docker_exec(request: Request) -> Response {
+    let request = match request.json::<DockerExecReq>() {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let _ = request.cmd;
+    StatusCode::INTERNAL_SERVER_ERROR.into_response()
 }
 
-async fn daemon_status(Query(q): Query<DaemonStatusQuery>) -> Json<bool> {
-    Json(SusiDaemonState::check_status(&q.workspace, &q.global_dir))
+fn daemon_status_query(request: &Request) -> Result<DaemonStatusQuery, Response> {
+    let mut workspace = None;
+    let mut global_dir = None;
+    for (name, value) in request.query_pairs() {
+        match name.as_str() {
+            "workspace" => workspace = Some(PathBuf::from(value)),
+            "global_dir" => global_dir = Some(PathBuf::from(value)),
+            _ => {}
+        }
+    }
+    match (workspace, global_dir) {
+        (Some(workspace), Some(global_dir)) => Ok(DaemonStatusQuery {
+            workspace,
+            global_dir,
+        }),
+        (None, _) => Err(Request::query_rejection("workspace: missing field")),
+        (_, None) => Err(Request::query_rejection("global_dir: missing field")),
+    }
 }
 
-async fn verify_integrity(Json(req): Json<BinaryPathsReq>) -> Result<Json<bool>, StatusCode> {
-    SusiDaemonState::verify_binary_integrity(&req.bin_path, &req.global_dir)
+async fn daemon_status(request: Request) -> Response {
+    let query = match daemon_status_query(&request) {
+        Ok(query) => query,
+        Err(response) => return response,
+    };
+    Json(SusiDaemonState::check_status(
+        &query.workspace,
+        &query.global_dir,
+    ))
+    .into_response()
+}
+
+async fn verify_integrity(request: Request) -> Response {
+    let request = match request.json::<BinaryPathsReq>() {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    SusiDaemonState::verify_binary_integrity(&request.bin_path, &request.global_dir)
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map(IntoResponse::into_response)
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
-async fn hash_cached(Json(req): Json<BinaryPathsReq>) -> Result<Json<String>, StatusCode> {
-    SusiDaemonState::calculate_binary_hash_cached(&req.bin_path, &req.global_dir)
+async fn hash_cached(request: Request) -> Response {
+    let request = match request.json::<BinaryPathsReq>() {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    SusiDaemonState::calculate_binary_hash_cached(&request.bin_path, &request.global_dir)
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map(IntoResponse::into_response)
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 pub(crate) fn router() -> Router {
@@ -67,49 +114,80 @@ pub(crate) fn router() -> Router {
         .route("/daemon/status", get(daemon_status))
         .route("/daemon/verify_integrity", post(verify_integrity))
         .route("/daemon/hash_cached", post(hash_cached))
-        .layer(axum::middleware::from_fn(crate::auth::host_token))
+        .guard_all(None, Arc::new(crate::auth::host_token))
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Test-only module: unwrap/expect/panic are how these tests assert.
+// Test fixtures are intentionally fail-fast; a malformed request identifies the broken contract.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use axum::body::Body;
-    use axum::http::Request;
-    use serde_json::json;
-    use tower::ServiceExt;
+    use susi_http_transport::server::{HeaderMap, HeaderValue};
+
+    fn request(method: &str, uri: &str, body: &str) -> Request {
+        let (path, query) = uri.split_once('?').unwrap_or((uri, ""));
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+        Request {
+            method: method.to_string(),
+            path: path.to_string(),
+            query: query.to_string(),
+            headers,
+            body: body.as_bytes().to_vec(),
+            peer: None,
+        }
+    }
 
     #[test]
     fn request_types_require_every_field() {
-        let ensure: EnsureGlobalReq = serde_json::from_value(json!({"global_dir": "/g"})).unwrap();
+        let ensure: EnsureGlobalReq =
+            serde_json::from_value(serde_json::json!({"global_dir": "/g"})).unwrap();
         assert_eq!(ensure.global_dir, PathBuf::from("/g"));
-        assert!(serde_json::from_value::<EnsureGlobalReq>(json!({})).is_err());
+        assert!(serde_json::from_value::<EnsureGlobalReq>(serde_json::json!({})).is_err());
 
-        let exec: DockerExecReq = serde_json::from_value(json!({"cmd": "echo hi"})).unwrap();
+        let exec: DockerExecReq =
+            serde_json::from_value(serde_json::json!({"cmd": "echo hi"})).unwrap();
         assert_eq!(exec.cmd, "echo hi");
-        assert!(serde_json::from_value::<DockerExecReq>(json!({})).is_err());
-        assert!(serde_json::from_value::<DockerExecReq>(json!({"cmd": 1})).is_err());
+        assert!(serde_json::from_value::<DockerExecReq>(serde_json::json!({})).is_err());
+        assert!(serde_json::from_value::<DockerExecReq>(serde_json::json!({"cmd": 1})).is_err());
 
-        let status: DaemonStatusQuery =
-            serde_json::from_value(json!({"workspace": "/w", "global_dir": "/g"})).unwrap();
+        let status: DaemonStatusQuery = serde_json::from_value(serde_json::json!({
+            "workspace": "/w",
+            "global_dir": "/g"
+        }))
+        .unwrap();
         assert_eq!(status.workspace, PathBuf::from("/w"));
         assert_eq!(status.global_dir, PathBuf::from("/g"));
-        assert!(serde_json::from_value::<DaemonStatusQuery>(json!({"workspace": "/w"})).is_err());
-        assert!(serde_json::from_value::<DaemonStatusQuery>(json!({"global_dir": "/g"})).is_err());
+        assert!(serde_json::from_value::<DaemonStatusQuery>(
+            serde_json::json!({"workspace": "/w"})
+        )
+        .is_err());
+        assert!(serde_json::from_value::<DaemonStatusQuery>(
+            serde_json::json!({"global_dir": "/g"})
+        )
+        .is_err());
 
-        let paths: BinaryPathsReq =
-            serde_json::from_value(json!({"bin_path": "/b", "global_dir": "/g"})).unwrap();
+        let paths: BinaryPathsReq = serde_json::from_value(serde_json::json!({
+            "bin_path": "/b",
+            "global_dir": "/g"
+        }))
+        .unwrap();
         assert_eq!(paths.bin_path, PathBuf::from("/b"));
         assert_eq!(paths.global_dir, PathBuf::from("/g"));
-        assert!(serde_json::from_value::<BinaryPathsReq>(json!({"bin_path": "/b"})).is_err());
-        assert!(serde_json::from_value::<BinaryPathsReq>(json!({"global_dir": "/g"})).is_err());
+        assert!(
+            serde_json::from_value::<BinaryPathsReq>(serde_json::json!({"bin_path": "/b"}))
+                .is_err()
+        );
+        assert!(
+            serde_json::from_value::<BinaryPathsReq>(serde_json::json!({"global_dir": "/g"}))
+                .is_err()
+        );
     }
 
-    // The host policy fails closed and a header-less request can never pass it,
-    // so each route (including the command-executing one) answers 401 before
-    // any extractor or handler runs, whatever the process env holds.
     #[tokio::test]
     async fn every_sandbox_route_requires_the_host_token() {
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("SUSI_HOME", home.path());
         for (method, uri, body) in [
             ("POST", "/sandbox/ensure_global", r#"{"global_dir":"/g"}"#),
             ("POST", "/sandbox/docker_exec", r#"{"cmd":"echo hi"}"#),
@@ -128,13 +206,7 @@ mod tests {
             ("POST", "/daemon/hash_cached", "not json"),
             ("GET", "/sandbox/docker_exec", ""),
         ] {
-            let request = Request::builder()
-                .method(method)
-                .uri(uri)
-                .header("content-type", "application/json")
-                .body(Body::from(body.to_string()))
-                .unwrap();
-            let status = router().oneshot(request).await.unwrap().status();
+            let status = router().call(request(method, uri, body)).await.status();
             assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
         }
     }
@@ -149,12 +221,7 @@ mod tests {
             ("GET", "/sandbox/unknown"),
             ("POST", "/daemon/unknown"),
         ] {
-            let request = Request::builder()
-                .method(method)
-                .uri(uri)
-                .body(Body::empty())
-                .unwrap();
-            let status = router().oneshot(request).await.unwrap().status();
+            let status = router().call(request(method, uri, "")).await.status();
             assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
         }
     }
@@ -177,18 +244,13 @@ mod tests {
                     r#"{"bin_path":"/b","global_dir":"/g"}"#,
                 ),
             ] {
-                let request = Request::builder()
-                    .method(method)
-                    .uri(uri)
-                    .header("authorization", auth_header)
-                    .header("content-type", "application/json")
-                    .body(Body::from(body.to_string()))
-                    .unwrap();
-                let status = router().oneshot(request).await.unwrap().status();
+                let mut request = request(method, uri, body);
+                request
+                    .headers
+                    .insert("authorization", HeaderValue::from_static(auth_header));
                 assert_eq!(
-                    status,
-                    StatusCode::UNAUTHORIZED,
-                    "{method} {uri} ({auth_header})"
+                    router().call(request).await.status(),
+                    StatusCode::UNAUTHORIZED
                 );
             }
         }
@@ -201,13 +263,11 @@ mod tests {
             ("HEAD", "/daemon/status"),
             ("DELETE", "/sandbox/ensure_global"),
         ] {
-            let request = Request::builder()
-                .method(method)
-                .uri(uri)
-                .body(Body::empty())
-                .unwrap();
-            let status = router().oneshot(request).await.unwrap().status();
-            assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
+            assert_eq!(
+                router().call(request(method, uri, "")).await.status(),
+                StatusCode::UNAUTHORIZED,
+                "{method} {uri}"
+            );
         }
     }
 }

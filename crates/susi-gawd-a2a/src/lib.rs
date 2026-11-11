@@ -12,7 +12,8 @@
 )]
 
 //! GAWD **A2A** tier: the Agent2Agent wire protocol, served in-tree
-//! ([`protocol`]) on the axum/tokio stack core already runs.
+//! ([`protocol`]) on core's std HTTP/1.1 server (`susi_http_transport::server`)
+//! with its handlers on tokio.
 //!
 //! Depends on [`susi_gawd_agents`] (`GawdAgentFleet`), never on swarm or the
 //! host `susi-gawd` crate. `susi-daemon` serves it on the A2A port; `susi-gawd`

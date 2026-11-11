@@ -1,37 +1,49 @@
 //! `susi-paths`: `GET /paths`, `GET /ports` — the host path/port contract.
 
-use axum::{routing::get, Json, Router};
+use susi_http_transport::server::{get, Json, Request, Router};
+
+async fn paths(_: Request) -> Json<serde_json::Value> {
+    Json(susi_paths::local_paths_json())
+}
+
+async fn ports(_: Request) -> Json<serde_json::Value> {
+    Json(susi_paths::ports_json())
+}
 
 pub(crate) fn router() -> Router {
     Router::new()
-        .route(
-            "/paths",
-            get(|| async { Json(susi_paths::local_paths_json()) }),
-        )
-        .route("/ports", get(|| async { Json(susi_paths::ports_json()) }))
+        .route("/paths", get(paths))
+        .route("/ports", get(ports))
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Test-only module: unwrap/expect/panic are how these tests assert.
+// Test fixtures are intentionally fail-fast; a malformed request identifies the broken contract.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use axum::body::Body;
-    use axum::http::{Request, StatusCode};
-    use tower::ServiceExt;
+    use susi_http_transport::server::{Body, HeaderMap, Response, StatusCode};
 
-    async fn call(method: &str, uri: &str) -> axum::response::Response {
-        let request = Request::builder()
-            .method(method)
-            .uri(uri)
-            .body(Body::empty())
-            .unwrap();
-        router().oneshot(request).await.unwrap()
+    fn request(method: &str, uri: &str) -> Request {
+        let (path, query) = uri.split_once('?').unwrap_or((uri, ""));
+        Request {
+            method: method.to_string(),
+            path: path.to_string(),
+            query: query.to_string(),
+            headers: HeaderMap::new(),
+            body: Vec::new(),
+            peer: None,
+        }
     }
 
-    async fn json_body(response: axum::response::Response) -> serde_json::Value {
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+    async fn call(method: &str, uri: &str) -> Response {
+        router().call(request(method, uri)).await
+    }
+
+    async fn json_body(response: Response) -> serde_json::Value {
+        let bytes = match response.into_body() {
+            Body::Full(bytes) => bytes,
+            Body::Stream(_) => panic!("path contract is not streamed"),
+        };
         serde_json::from_slice(&bytes).unwrap()
     }
 
@@ -41,7 +53,7 @@ mod tests {
         for uri in ["/paths", "/ports"] {
             let response = call("GET", uri).await;
             assert_eq!(response.status(), StatusCode::OK, "{uri}");
-            let content_type = response.headers().get("content-type").unwrap().clone();
+            let content_type = response.headers().get("content-type").unwrap();
             assert!(content_type
                 .to_str()
                 .unwrap()
@@ -115,11 +127,12 @@ mod tests {
     async fn head_requests_on_paths_and_ports_return_ok_with_empty_body() {
         let _env = crate::ENV_LOCK.lock().await;
         for uri in ["/paths", "/ports"] {
-            let resp = call("HEAD", uri).await;
-            assert_eq!(resp.status(), StatusCode::OK, "HEAD {uri}");
-            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-                .await
-                .unwrap();
+            let response = call("HEAD", uri).await;
+            assert_eq!(response.status(), StatusCode::OK, "HEAD {uri}");
+            let bytes = match response.into_body() {
+                Body::Full(bytes) => bytes,
+                Body::Stream(_) => panic!("path contract is not streamed"),
+            };
             assert!(bytes.is_empty(), "HEAD {uri} body must be empty");
         }
     }

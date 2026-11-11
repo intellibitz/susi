@@ -1,44 +1,82 @@
 //! `susi-error`: `POST /log_error` (open, write-only) and
 //! `GET /errors/recent?n=` (supervisor-token gated: history carries paths).
 
-use axum::extract::Query;
-use axum::http::StatusCode;
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use std::sync::Arc;
+
+use susi_http_transport::server::{
+    get, post, Guard, IntoResponse, Json, Request, Response, Router, StatusCode,
+};
 
 #[derive(serde::Deserialize)]
 struct RecentQuery {
     n: Option<usize>,
 }
 
-async fn log_error(Json(event): Json<susi_error::PostedErrorEvent>) -> StatusCode {
+fn recent_query(request: &Request) -> Result<RecentQuery, Response> {
+    let mut query = RecentQuery { n: None };
+    for (name, value) in request.query_pairs() {
+        if name == "n" {
+            query.n = Some(
+                value
+                    .parse::<usize>()
+                    .map_err(|_| Request::query_rejection("n: invalid unsigned integer"))?,
+            );
+        }
+    }
+    Ok(query)
+}
+
+async fn log_error(request: Request) -> Response {
+    let event = match request.json::<susi_error::PostedErrorEvent>() {
+        Ok(event) => event,
+        Err(response) => return response,
+    };
     match susi_error::append_posted_event(event) {
-        Ok(()) => StatusCode::NO_CONTENT,
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
 
-async fn recent_errors(Query(q): Query<RecentQuery>) -> Json<serde_json::Value> {
-    let entries = susi_error::recent_error_entries(q.n.unwrap_or(50));
-    Json(serde_json::json!({ "returned": entries.len(), "entries": entries }))
+async fn recent_errors(request: Request) -> Response {
+    let query = match recent_query(&request) {
+        Ok(query) => query,
+        Err(response) => return response,
+    };
+    let entries = susi_error::recent_error_entries(query.n.unwrap_or(50));
+    Json(serde_json::json!({ "returned": entries.len(), "entries": entries })).into_response()
 }
 
 pub(crate) fn router() -> Router {
     Router::new()
         .route(
             "/errors/recent",
-            get(recent_errors).layer(axum::middleware::from_fn(crate::auth::supervisor)),
+            get(recent_errors).guard_head(Arc::new(crate::auth::supervisor) as Guard),
         )
         .route("/log_error", post(log_error))
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Test-only module: unwrap/expect/panic are how these tests assert.
+// Test fixtures are intentionally fail-fast; a malformed request identifies the broken contract.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use axum::body::Body;
-    use axum::http::Request;
-    use tower::ServiceExt;
+    use susi_http_transport::server::{HeaderMap, HeaderValue};
+
+    fn request(method: &str, uri: &str, body: &str, content_type: Option<&str>) -> Request {
+        let (path, query) = uri.split_once('?').unwrap_or((uri, ""));
+        let mut headers = HeaderMap::new();
+        if let Some(content_type) = content_type {
+            headers.insert("content-type", HeaderValue::from_str(content_type).unwrap());
+        }
+        Request {
+            method: method.to_string(),
+            path: path.to_string(),
+            query: query.to_string(),
+            headers,
+            body: body.as_bytes().to_vec(),
+            peer: None,
+        }
+    }
 
     #[test]
     fn recent_query_n_is_optional_and_unsigned() {
@@ -51,16 +89,12 @@ mod tests {
     }
 
     async fn post(content_type: Option<&str>, body: &str) -> StatusCode {
-        let mut builder = Request::post("/log_error");
-        if let Some(value) = content_type {
-            builder = builder.header("content-type", value);
-        }
-        let request = builder.body(Body::from(body.to_string())).unwrap();
-        router().oneshot(request).await.unwrap().status()
+        router()
+            .call(request("POST", "/log_error", body, content_type))
+            .await
+            .status()
     }
 
-    // `/log_error` is open by contract, so no middleware precedes the extractor
-    // and these rejections are independent of any auth state.
     #[tokio::test]
     async fn log_error_rejects_malformed_payloads_before_touching_the_sink() {
         let json = Some("application/json");
@@ -82,39 +116,32 @@ mod tests {
 
     #[tokio::test]
     async fn log_error_is_write_only() {
-        let request = Request::get("/log_error").body(Body::empty()).unwrap();
-        let response = router().oneshot(request).await.unwrap();
+        let response = router().call(request("GET", "/log_error", "", None)).await;
         assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     #[tokio::test]
     async fn recent_errors_rejects_non_get_methods_and_serves_json_or_unauthorized_on_get() {
         for method in ["POST", "DELETE"] {
-            let req = Request::builder()
-                .method(method)
-                .uri("/errors/recent")
-                .body(Body::empty())
-                .unwrap();
-            let status = router().oneshot(req).await.unwrap().status();
-            assert!(
-                status == StatusCode::METHOD_NOT_ALLOWED || status == StatusCode::UNAUTHORIZED,
-                "{method} /errors/recent -> {status}"
-            );
+            let status = router()
+                .call(request(method, "/errors/recent", "", None))
+                .await
+                .status();
+            assert!(status == StatusCode::METHOD_NOT_ALLOWED || status == StatusCode::UNAUTHORIZED);
         }
 
-        let get_req = Request::get("/errors/recent?n=0")
-            .body(Body::empty())
-            .unwrap();
-        let resp = router().oneshot(get_req).await.unwrap();
-        let status = resp.status();
-        assert!(
-            status == StatusCode::OK || status == StatusCode::UNAUTHORIZED,
-            "GET /errors/recent?n=0 -> {status}"
-        );
+        let response = router()
+            .call(request("GET", "/errors/recent?n=0", "", None))
+            .await;
+        let status = response.status();
+        assert!(status == StatusCode::OK || status == StatusCode::UNAUTHORIZED);
         if status == StatusCode::OK {
-            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-                .await
-                .unwrap();
+            let bytes = match response.into_body() {
+                susi_http_transport::server::Body::Full(bytes) => bytes,
+                susi_http_transport::server::Body::Stream(_) => {
+                    panic!("recent errors is not streamed")
+                }
+            };
             let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(body["returned"], 0);
             assert!(body["entries"].is_array());
@@ -123,13 +150,10 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_error_service_route_returns_not_found() {
-        let req = Request::get("/errors/unknown_subroute")
-            .body(Body::empty())
-            .unwrap();
-        let status = router().oneshot(req).await.unwrap().status();
-        assert!(
-            status == StatusCode::NOT_FOUND || status == StatusCode::UNAUTHORIZED,
-            "GET /errors/unknown_subroute -> {status}"
-        );
+        let status = router()
+            .call(request("GET", "/errors/unknown_subroute", "", None))
+            .await
+            .status();
+        assert!(status == StatusCode::NOT_FOUND || status == StatusCode::UNAUTHORIZED);
     }
 }

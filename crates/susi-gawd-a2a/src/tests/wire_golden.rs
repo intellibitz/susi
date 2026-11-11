@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-const TOKEN: &str = "Bearer golden-token";
+pub(super) const TOKEN: &str = "Bearer golden-token";
 const GOLDEN: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/src/tests/golden/a2a_wire.json"
@@ -52,7 +52,7 @@ fn verifier() -> super::Verifier {
 }
 
 /// The stack `serve` mounts, minus TLS and the card's absolute URL.
-fn app() -> axum::Router {
+fn app() -> susi_http_transport::server::Router {
     let executor = crate::executor::GawdA2AExecutor::with_runner(Arc::new(runner));
     let card = executor.agent_card();
     super::app(
@@ -63,14 +63,8 @@ fn app() -> axum::Router {
     )
 }
 
-fn start(runtime: &tokio::runtime::Runtime) -> SocketAddr {
-    runtime.block_on(async {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let app = app().into_make_service_with_connect_info::<SocketAddr>();
-        tokio::spawn(async move { axum::serve(listener, app).await });
-        addr
-    })
+pub(super) fn start(runtime: &tokio::runtime::Runtime) -> SocketAddr {
+    super::serve_on_loopback(runtime, app())
 }
 
 /// One HTTP exchange as the client saw it.
@@ -348,7 +342,7 @@ fn timestamp_at(s: &[u8]) -> Option<(usize, bool)> {
     }
 }
 
-fn normalize(text: &str, binds: &[(String, String)]) -> String {
+pub(super) fn normalize(text: &str, binds: &[(String, String)]) -> String {
     let engine_version = format!("\"version\":\"{}\"", susi_gawd_agents::AlphaSelf::VERSION);
     let mut text = text.replace(&engine_version, "\"version\":\"<engine-version>\"");
     let mut ordered: Vec<&(String, String)> = binds.iter().collect();

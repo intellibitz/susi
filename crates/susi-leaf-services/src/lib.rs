@@ -6,7 +6,7 @@
 //! `susi-paths`, `susi-error` and `susi-config` are foundation libraries
 //! every crate links, and `susi-sandbox-client` / `susi-vendor-wasmtime` (wasmtime)
 //! provide the sandbox and native reflex surfaces; none of them carries an HTTP framework. This
-//! crate is the one place the leaf services meet axum: one runtime/bind helper, one pair of
+//! crate is the one place the leaf services meet the shared std server: one runtime/bind helper, one pair of
 //! bearer policies, one `service-run` dispatch. Standalone service bins enable
 //! only their own feature so Wasmtime stays out of unrelated binaries.
 //! The service logic stays in each library as plain functions, so a shell is only routing.
@@ -38,6 +38,15 @@ mod sandbox_svc;
     feature = "service-native"
 ))]
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
+use susi_http_transport::server::{self, get, Router};
 
 /// Serve leaf service `name` on `port` (blocks). Dispatched by the root
 /// binary's `service-run` mode and by the standalone service binaries.
@@ -103,13 +112,13 @@ pub fn run_standalone(name: &str) -> std::io::Result<()> {
     feature = "service-sandbox",
     feature = "service-native"
 ))]
-pub(crate) fn with_healthz(name: &str, app: axum::Router) -> axum::Router {
+pub(crate) fn with_healthz(name: &str, app: Router) -> Router {
     let service = name.to_string();
-    app.route(
+    app.route_public(
         "/healthz",
-        axum::routing::get(move || {
+        get(move |_| {
             let service = service.clone();
-            async move { axum::Json(serde_json::json!({ "service": service, "status": "ok" })) }
+            async move { server::Json(serde_json::json!({ "service": service, "status": "ok" })) }
         }),
     )
 }
@@ -121,16 +130,24 @@ pub(crate) fn with_healthz(name: &str, app: axum::Router) -> axum::Router {
     feature = "service-sandbox",
     feature = "service-native"
 ))]
-fn run(name: &str, port: u16, app: axum::Router) -> std::io::Result<()> {
+fn run(name: &str, port: u16, app: Router) -> std::io::Result<()> {
     let app = with_healthz(name, app);
+    let listener =
+        std::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))?;
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
-        .block_on(async {
-            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-            let listener = tokio::net::TcpListener::bind(addr).await?;
+        .block_on(async move {
+            let addr = listener.local_addr()?;
             eprintln!("{name} service listening on {addr}");
-            axum::serve(listener, app).await
+            server::serve_std(
+                vec![listener],
+                app,
+                server::Peer::Withhold,
+                None,
+                std::future::pending::<()>(),
+            )
+            .await
         })
 }
 
@@ -150,8 +167,8 @@ mod tests {
     }
 }
 
-/// Router-level tests drive the feature-gated service shells through real
-/// HTTP requests (`tower::ServiceExt::oneshot`) — no listener needed.
+/// Router-level tests drive the feature-gated service shells through the
+/// shared server's in-process dispatcher — no listener needed.
 /// `cargo test -p susi-leaf-services --all-features` exercises every router;
 /// a default-feature build compiles this module empty.
 #[cfg(all(
@@ -174,27 +191,41 @@ pub(crate) static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_n
 #[cfg(test)]
 mod router_tests {
     use super::ENV_LOCK;
-    use axum::body::Body;
-    use axum::http::{header::AUTHORIZATION, Request, StatusCode};
-    use tower::ServiceExt;
+    use susi_http_transport::server::{
+        Body, HeaderMap, HeaderValue, Request, Response, Router, StatusCode,
+    };
 
-    fn get(uri: &str) -> Request<Body> {
-        Request::get(uri).body(Body::empty()).unwrap()
+    fn request(method: &str, uri: &str, body: &str) -> Request {
+        let (path, query) = uri.split_once('?').unwrap_or((uri, ""));
+        Request {
+            method: method.to_string(),
+            path: path.to_string(),
+            query: query.to_string(),
+            headers: HeaderMap::new(),
+            body: body.as_bytes().to_vec(),
+            peer: None,
+        }
     }
 
-    fn post_json(uri: &str, json: &str) -> Request<Body> {
-        Request::post(uri)
-            .header("content-type", "application/json")
-            .body(Body::from(json.to_string()))
-            .unwrap()
+    fn get(uri: &str) -> Request {
+        request("GET", uri, "")
     }
 
-    fn bearer(req: Request<Body>, token: &str) -> Request<Body> {
-        let (mut parts, body) = req.into_parts();
-        parts
+    fn post_json(uri: &str, json: &str) -> Request {
+        let mut request = request("POST", uri, json);
+        request
             .headers
-            .insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
-        Request::from_parts(parts, body)
+            .insert("content-type", HeaderValue::from_static("application/json"));
+        request
+    }
+
+    fn bearer(mut request: Request, token: &str) -> Request {
+        request.headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {token}"))
+                .expect("test bearer token is a valid header"),
+        );
+        request
     }
 
     /// `SUSI_HOME` gives the test a fully isolated substrate root; seeding
@@ -209,8 +240,21 @@ mod router_tests {
         std::fs::write(home.join("api_token"), token).unwrap();
     }
 
-    async fn status(app: axum::Router, req: Request<Body>) -> StatusCode {
-        app.oneshot(req).await.unwrap().status()
+    async fn status(app: Router, req: Request) -> StatusCode {
+        app.call(req).await.status()
+    }
+
+    async fn body_bytes(response: Response) -> Vec<u8> {
+        match response.into_body() {
+            Body::Full(bytes) => bytes,
+            Body::Stream(mut stream) => {
+                let mut bytes = Vec::new();
+                while let Some(chunk) = stream.recv().await {
+                    bytes.extend_from_slice(&chunk);
+                }
+                bytes
+            }
+        }
     }
 
     #[tokio::test]
@@ -349,25 +393,22 @@ mod router_tests {
             StatusCode::UNAUTHORIZED
         );
         let res = super::native_svc::router()
-            .oneshot(bearer(
+            .call(bearer(
                 post_json(
                     "/wasm/execute",
                     r#"{"wasm_path":"/nonexistent/reflex.wasm","arg":""}"#,
                 ),
                 "sup-token",
             ))
-            .await
-            .unwrap();
+            .await;
         assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
         std::env::remove_var("SUSI_HOST_TOKEN");
     }
 
-    async fn body_json(app: axum::Router, req: Request<Body>) -> (StatusCode, serde_json::Value) {
-        let resp = app.oneshot(req).await.unwrap();
+    async fn body_json(app: Router, req: Request) -> (StatusCode, serde_json::Value) {
+        let resp = app.call(req).await;
         let code = resp.status();
-        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 64)
-            .await
-            .unwrap();
+        let bytes = body_bytes(resp).await;
         let val = if bytes.is_empty() {
             serde_json::Value::Null
         } else {

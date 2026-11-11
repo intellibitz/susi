@@ -143,7 +143,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
 /// The zero-external-deps ratchet below is what actually constrains them.
 const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-anyhow",
-    "susi-vendor-axum",
     "susi-vendor-chacha20poly1305",
     "susi-vendor-clap",
     "susi-vendor-ed25519-dalek",
@@ -164,7 +163,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-tempfile",
     "susi-vendor-tokio",
     "susi-vendor-tokio-rustls",
-    "susi-vendor-tower",
     "susi-vendor-tower-service",
     "susi-vendor-tracing",
     "susi-vendor-tracing-appender",

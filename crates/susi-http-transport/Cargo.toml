@@ -4,12 +4,14 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
-description = "Shared TLS-sniffing HTTP accept loop, Hyper connection builder, and the std HTTP/1.1 outbound client (http_call: GET/HEAD/DELETE/POST/PUT/PATCH) over verified platform TLS."
+description = "Shared TLS-sniffing HTTP accept loop, Hyper connection builder, the std HTTP/1.1 server core's HTTP surfaces share (harness, A2A, leaf services), and the std HTTP/1.1 outbound client (http_call: GET/HEAD/DELETE/POST/PUT/PATCH) over verified platform TLS."
 
 [dependencies]
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
 hyper-util = { package = "susi-vendor-hyper-util", path = "../susi-vendor-hyper-util" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [dev-dependencies]
 susi-vendor-rcgen = { path = "../susi-vendor-rcgen" }
