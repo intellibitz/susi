@@ -469,3 +469,45 @@ fn every_submit_witnesses_the_remote_and_reports_lost_history_without_blocking()
         .unwrap();
     assert!(!String::from_utf8_lossy(&quiet.stderr).contains("storage guard"));
 }
+
+/// `local-workflow ship` is the gated landing of Susi core and, through its
+/// cargo alias, of Susi Commercial Apps. Whatever the ship's result, the
+/// shipping clone witnesses the storage remote afterwards.
+#[test]
+fn a_ship_witnesses_the_remote_whatever_its_result() {
+    let f = Fixture::new();
+    let worker = f.clone_worker("worker");
+    let record = "refs/susi-guard/origin/heads/main";
+    let ship = |extra: &[(&str, &str)]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_local-workflow"));
+        isolated(&mut command, &worker).args(["ship", "no-such-reservation"]);
+        for (key, value) in extra {
+            command.env(key, value);
+        }
+        command.output().unwrap()
+    };
+    let skipped = ship(&[("SUSI_NO_STORAGE_GUARD", "1")]);
+    assert!(!skipped.status.success(), "{}", text(&skipped));
+    assert!(isolated(&mut Command::new("git"), &worker)
+        .args(["rev-parse", "-q", "--verify", record])
+        .output()
+        .unwrap()
+        .stdout
+        .is_empty());
+
+    let out = ship(&[]);
+    assert!(!out.status.success(), "{}", text(&out));
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("storage guard"));
+    assert_eq!(f.git(&worker, &["rev-parse", record]), f.remote_main());
+
+    // History dropped behind this clone's back is reported by the next ship.
+    let lost = f.advance_main_elsewhere("other");
+    ship(&[]);
+    f.git(
+        &f.remote,
+        &["update-ref", "refs/heads/main", &format!("{lost}^")],
+    );
+    let out = ship(&[]);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(stderr.contains("REWOUND refs/heads/main"), "{}", text(&out));
+}

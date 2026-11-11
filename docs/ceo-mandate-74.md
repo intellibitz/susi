@@ -448,7 +448,8 @@ Since `T-CLAUDESTORAGEGUARD-2` every `local-snapshot` publish runs the guard
 afterwards, so each dump to main witnesses the remote without a scheduler.
 
 Since `T-CLAUDESTORAGEGUARD-3` the harness's `submit-main`, `integrate` and
-`release-promote` do the same.
+`release-promote` do the same, and since `T-CLAUDESTORAGEGUARD-4` so does
+`local-workflow ship`, in core and in `susi-commercial-apps`.
 
 Still open beyond this wave: speculative-stack qualification and safe evidence
 reuse across trees; claim heartbeats; advisory `main` health records; the

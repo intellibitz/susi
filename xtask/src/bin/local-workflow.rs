@@ -28,6 +28,9 @@ mod distill_compose;
 mod gate_receipt;
 #[path = "../native_provenance.rs"]
 mod native_provenance;
+// One source: the harness owns the storage guard and this tool compiles the same file.
+#[path = "../../../crates/susi-harness/src/storage_guard.rs"]
+mod storage_guard;
 #[path = "../sysroot_sources.rs"]
 mod sysroot_sources;
 #[path = "../test_binary_evidence.rs"]
@@ -5448,7 +5451,9 @@ fn run(args: &[String]) -> Result<()> {
             }
         }
         Some("ship") if args.get(1).map(String::as_str) == Some("--retry") && args.len() == 2 => {
-            print_ship(&ship_retry(&root, &mut GitRemote)?);
+            let result = ship_retry(&root, &mut GitRemote);
+            witness_storage(&root);
+            print_ship(&result?);
         }
         Some("ship") if args.len() >= 2 => {
             let started = std::time::Instant::now();
@@ -5459,11 +5464,21 @@ fn run(args: &[String]) -> Result<()> {
                 RepoKind::Commercial => ship(&root, &names, &mut remote, commercial_gate),
             });
             finish_phases(&root, "ship", if result.is_ok() { "shipped" } else { "failed" }, started.elapsed());
+            witness_storage(&root);
             print_ship(&result?);
         }
         _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | sync <name> [--json] | step <name> [--json] | list | status [--json] | commit <name> <message> [--sign <fingerprint> | --no-pull] | finish-merge <name> <parent-oid> <message> | distill <args...> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>]".into()),
     }
     Ok(())
+}
+
+/// After a ship, whatever its result, this clone witnesses the storage remote
+/// (`storage_guard`), in Susi core and in Susi Commercial Apps alike: lost
+/// history is reported on stderr and never changes the ship's result.
+fn witness_storage(root: &Path) {
+    if let Some(advisory) = storage_guard::witness(root, "origin") {
+        eprintln!("local-workflow: {advisory}");
+    }
 }
 
 fn main() -> ExitCode {
