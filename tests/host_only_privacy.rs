@@ -114,6 +114,7 @@ fn write_roster(dir: &Path, node_id: &str, addr: &str, pubkey: &str) {
 
 #[test]
 fn host_only_refuses_peer_calls_off_host_before_any_connection() {
+    let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -413,6 +414,7 @@ fn set_mode(daemon: &Daemon, mode: &str) {
 
 #[test]
 fn a_daemon_bound_beyond_loopback_serves_this_machine_alone_under_host_only() {
+    let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());

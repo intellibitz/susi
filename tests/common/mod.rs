@@ -15,6 +15,33 @@ pub struct HomeGuard {
     env: Option<susi_paths::test_env::EnvGuard>,
 }
 
+/// Serializes integration tests that spawn real Susi listeners.
+///
+/// Cargo runs different integration-test binaries concurrently, while the
+/// daemon tests exercise the host network stack and several child daemons at
+/// once.  An OS lock gives those tests crash-safe cross-process ownership of
+/// that resource without relying on a process-local mutex or leaving a stale
+/// pid file behind.
+pub struct SocketTestGuard {
+    _lock: std::fs::File,
+}
+
+impl SocketTestGuard {
+    /// Acquire the host-wide socket-test reservation.
+    pub fn acquire() -> Self {
+        let path = std::env::temp_dir().join("susi-native-socket-tests.lock");
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(path)
+            .expect("create the socket integration lock");
+        lock.lock().expect("acquire the socket integration lock");
+        Self { _lock: lock }
+    }
+}
+
 impl HomeGuard {
     /// `tag` keeps concurrent test binaries' temp dirs apart.
     pub fn new(tag: &str) -> Self {
