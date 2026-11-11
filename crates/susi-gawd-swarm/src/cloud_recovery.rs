@@ -11,6 +11,7 @@ use crate::susi_core::truth::TruthTransformer;
 use crate::susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
 use crate::susi_error::{EaiError, EaiResult};
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
@@ -222,6 +223,24 @@ pub(crate) fn recover(
     session: Option<Arc<crate::susi_core::capture::EvidenceSession>>,
     requires: Option<&str>,
 ) {
+    recover_with_chat(
+        report, workspace, model_hint, generative, session, requires, None,
+    );
+}
+
+/// Recover with the caller's normalized conversation. Cloud and external
+/// providers continue to receive the assembled prose goal; the payload is
+/// consumed only by the local GEMI rung.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn recover_with_chat(
+    report: &mut SusiMissionReport,
+    workspace: &Path,
+    model_hint: Option<&str>,
+    generative: bool,
+    session: Option<Arc<crate::susi_core::capture::EvidenceSession>>,
+    requires: Option<&str>,
+    chat: Option<Value>,
+) {
     if !eligible(report) {
         return;
     }
@@ -276,17 +295,32 @@ pub(crate) fn recover(
                     .enable_all()
                     .build()
                     .map_err(|e| EaiError::internal(e.to_string()))?;
-                runtime.block_on(recover_with_providers(
-                    report_ref,
-                    registry,
-                    providers,
-                    workspace,
-                    Duration::from_secs(60),
-                    true,
-                    model_hint,
-                    generative,
-                    requires,
-                ));
+                if let Some(chat) = chat {
+                    runtime.block_on(recover_with_providers_chat(
+                        report_ref,
+                        registry,
+                        providers,
+                        workspace,
+                        Duration::from_secs(60),
+                        true,
+                        model_hint,
+                        generative,
+                        requires,
+                        Some(chat),
+                    ));
+                } else {
+                    runtime.block_on(recover_with_providers(
+                        report_ref,
+                        registry,
+                        providers,
+                        workspace,
+                        Duration::from_secs(60),
+                        true,
+                        model_hint,
+                        generative,
+                        requires,
+                    ));
+                }
                 Ok(())
             })
             .join()
@@ -535,6 +569,34 @@ async fn recover_with_providers(
     generative: bool,
     requires: Option<&str>,
 ) {
+    recover_with_providers_chat(
+        report,
+        registry,
+        providers,
+        workspace,
+        timeout,
+        fallback_local,
+        model_hint,
+        generative,
+        requires,
+        None,
+    )
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn recover_with_providers_chat(
+    report: &mut SusiMissionReport,
+    registry: &CapabilityRegistry,
+    providers: Vec<String>,
+    workspace: &Path,
+    timeout: Duration,
+    fallback_local: bool,
+    model_hint: Option<&str>,
+    generative: bool,
+    requires: Option<&str>,
+    chat: Option<Value>,
+) {
     if !eligible(report) {
         return;
     }
@@ -613,6 +675,7 @@ async fn recover_with_providers(
             let workspace_owned = workspace.to_path_buf();
             let attempted_model = local_model.clone();
             let requires_owned = requires.map(str::to_string);
+            let chat_owned = chat.clone();
             // Local rungs get a floor far above the failover budget: the
             // local-first ladder admits 30B-class MoE GGUFs whose CPU decode
             // is ~1-3 tok/s, so loading plus a 256-token recovery answer can
@@ -621,11 +684,12 @@ async fn recover_with_providers(
             // budget. Cloud rungs keep the caller's tight failover timing.
             let local = tokio::time::timeout(timeout.max(LOCAL_ATTEMPT_TIMEOUT), async {
                 let raw = tokio::task::spawn_blocking(move || {
-                    crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_full(
+                    crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_full_chat(
                         &prompt,
                         &workspace_owned,
                         attempted_model.as_deref(),
                         requires_owned.as_deref(),
+                        chat_owned,
                     )
                 })
                 .await

@@ -259,16 +259,23 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// 2026-11-12: susi-gawd-a2a 3,619 -> 3,588 (T-CLAUDEACPGAWD-1, measured):
 /// ACP turns on 9094 now run as GAWD missions (`GawdAcpExecutor`) instead of
 /// core's echo executor; the ceiling ratchets down to the measured size.
+/// 2026-11-12: T-CODEXHISTORY-1, measured after carrying the normalized
+/// OpenAI conversation and tool schemas from the server through GAWD/GEMI to
+/// the local engine. CEO direction is board item 215; no dependency or
+/// reach-ceiling changes are made.
+/// `susi-gawd` 12,523 -> 12,525, `susi-gawd-swarm` 20,116 -> 20,206 and
+/// `susi-gemi` 21,172 -> 21,262.
 /// 2026-11-12: susi-gemi 21,172 -> 21,063 (T-CLAUDEGEMIFIX-1, measured):
 /// `/v1/embeddings` gets one 30 s budget across providers; paid for by
 /// deleting what only its own tests called (`looks_like_inference_tool`,
-/// `worker::seat_window_state`).
+/// `worker::seat_window_state`). With T-CODEXHISTORY-1 merged the
+/// measured size is 21,153.
 const LINE_CEILINGS: [(&str, usize); 8] = [
-    ("susi-gawd", 12_523),
-    ("susi-gawd-swarm", 20_116),
+    ("susi-gawd", 12_525),
+    ("susi-gawd-swarm", 20_206),
     ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_588),
-    ("susi-gemi", 21_063),
+    ("susi-gemi", 21_153),
     ("susi-gemi-models", 15_939),
     ("susi-gmcp", 25_860),
     ("susi-harness", 37_536),
