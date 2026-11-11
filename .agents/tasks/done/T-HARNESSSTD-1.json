@@ -2,9 +2,10 @@
   "id": "T-HARNESSSTD-1",
   "title": "Lean core: serve the harness HTTP surfaces in-tree without axum and futures",
   "goal": "Take axum (susi-vendor-axum: axum, axum-core, matchit, tower, serde_path_to_error, serde_urlencoded, sync_wrapper, mime, ...) and futures out of susi-harness, one of the four pillars. The BYOK OpenAI-compatible metering gateway (127.0.0.1:9188 for opencode and other clients, buffered and streamed SSE answers), the public ingress and the harness API (cockpit, JSON/SSE plus the guarded operator command) are served by a std, blocking, thread-per-connection HTTP/1.1 server in crates/susi-harness/src/http.rs. A transcript of real HTTP exchanges recorded from the axum 0.8 / hyper 1 stack first (status lines, header names, values and order, framing, chunk boundaries, bodies, connection reuse) is the golden the std server must reproduce byte for byte. Request size limits, timeouts (none server-side), authentication checks and loopback binding stay as they were.",
-  "status": "in_progress",
+  "status": "done",
   "scopes": [
     ".agents/tasks/T-HARNESSSTD-1.json",
+    ".agents/tasks/done/T-HARNESSSTD-1.json",
     "Cargo.lock",
     "Cargo.toml",
     "crates/susi-harness",
@@ -52,5 +53,11 @@
     "axum's 15 s SSE keep-alive comment on /api/events is not sent: the stream sends a snapshot every second, so it never fired before either.",
     "The JSON rejection path (serde_path_to_error's prefix) is reproduced by a syntax walk; it matches every recorded case (root, value, nested, array, unterminated, trailing comma, empty, wrong shape, missing/duplicate/unknown tag, wrong field type, trailing characters) but is not a general reimplementation of that crate.",
     "Production lines of susi-harness grew by 1,859; the line ceiling falls only because 2,988 inline test lines moved to src/tests."
-  ]
+  ],
+  "landed": {
+    "main": "b0ba669896eecce82c0368a121aedd8e7e734106",
+    "golden_recorded": "bfd0a8eea",
+    "port": "4433edbcc",
+    "ceilings": "0a05da260"
+  }
 }
