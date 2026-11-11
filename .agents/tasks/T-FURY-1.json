@@ -1,0 +1,39 @@
+{
+  "id": "T-FURY-1",
+  "title": "Merges happen in Susi: detect and refuse work the Git host merged or committed",
+  "goal": "Under the CEO rule that the Git host is storage only and every merge happens in Susi, make work that the hosting service created itself (web or API merges, web edits, API commits) visible in `distill lint` and refused by `distill plan` and `local-distill` (reason `merged_outside_susi`), with explicit, recorded adoption by full commit id as the only way to admit it without re-landing.",
+  "status": "in_progress",
+  "owner": "fury",
+  "created_by": "FURY",
+  "created_unix": 1794386223,
+  "size": "m",
+  "deps": [],
+  "base_commit": "b91a3070e4bab89516cba11b3d76198b5a147ac2",
+  "scopes": [
+    "xtask/src/distill.rs",
+    "xtask/src/distill",
+    "xtask/src/distill_compose.rs",
+    "docs/distillation.md",
+    "docs/release-distillation.md",
+    ".agents/tasks/T-FURY-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "distill",
+      "--bin",
+      "local-distill"
+    ]
+  },
+  "limitations": [
+    "Detection relies on the host stamping its own committer identity; a host whose web merges reuse the clicking user's identity is not detected (documented).",
+    "It cannot prevent the host or another client from writing main; it reports such writes and keeps them out of distilled releases unless adopted on record.",
+    "The commercial distiller (`susi-commercial admin distill`) is a separate implementation and is not changed by this task."
+  ]
+}

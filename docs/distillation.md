@@ -158,6 +158,51 @@ The first full report is `.agents/evidence/labels-T-GROKLABEL-1.json`: counts
 and the list of tasks whose work is on main while the record is still open,
 for each owner to reconcile. Records were not mass-edited.
 
+## Merges happen in Susi: host-created commits (T-FURY-1)
+
+The CEO's rule (2026-11-11): the Git host is storage only, and every merge
+happens in Susi, governed by the agents or the harness. Susi's own paths are
+`local-snapshot submit` for development main, `local-distill` for release
+branches and `release-qualify` for tags; each commits with the agent's own
+identity. A commit object that the hosting service wrote itself (a web
+pull-request merge, a squash or rebase merge, a web edit, or a commit made
+through the host's REST or GraphQL API) instead records the host's service
+identity as its committer, `noreply@github.com` on the current host. That is
+how such work is recognised; the tools never contact the host.
+
+- `distill lint` reports every such commit in the range, merges included
+  (`commits_created_by_git_host`, `merges_created_by_git_host`); each one is a
+  finding, so `--strict` fails.
+- `distill plan` rejects a task whose provenance commits the host created,
+  with reason `merged_outside_susi`, and its dependents with it.
+- `local-distill` refuses the same task (`reason_code: merged_outside_susi`),
+  and every receipt lists the host-created commits in the composed stream
+  (`git_host_created_in_stream`) and the identities checked
+  (`git_host_identities`).
+- **The way back in** is to re-land the change through Susi. When the content
+  is already on main and the distilling agent decides to take it as it is, it
+  adopts each commit by its full id: `--adopt-host-commit <full-id>`
+  (repeatable; an abbreviation is refused so it can never adopt more than
+  intended). The plan records the adoption in the task's notes and warnings;
+  the `local-distill` receipt records it in `adopted_host_commits`.
+- Other hosts: `git config --add susi.hostCommitter <email>` adds an identity
+  without a code change. A host whose web merges reuse the clicking user's own
+  identity cannot be detected this way; on such a host the server-side rule
+  (only the gate identity may update `main`) is the control.
+
+What this does not do: it cannot stop the host or another client from writing
+to `main`; it makes such writes visible and keeps them out of distilled
+releases unless an agent adopts them on record. A pull-request merge whose
+branch commits were made locally is a lint finding for the merge; the tasks it
+carried stay distillable because their own commits were made by an agent.
+
+First real run (2026-11-11, `v0.21.55..origin/main` at `b91a3070e`): 154
+commits, 11 created by the host (2 merges titled "Susi development
+submission" that no Susi publisher made, and 9 commits), all
+`Antigravity <noreply@github.com>`. `distill plan --tasks-from-range
+v0.21.55..origin/main` rejects T-AGYCLOUD-4, -5, -6 and -7 as
+`merged_outside_susi`.
+
 ## What is missing (not claimed)
 
 This is **not** a distillation service. Not implemented:

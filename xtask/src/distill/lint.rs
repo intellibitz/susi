@@ -5,7 +5,9 @@
 //! - trailers naming a task with no record at the base revision;
 //! - tasks whose commits landed in the range while the record is still open
 //!   (`in_progress`, `open`, `claimed`, ...) or merely implemented;
-//! - commits touching files outside the declared scopes of their tasks.
+//! - commits touching files outside the declared scopes of their tasks;
+//! - commits and merges the Git host created instead of Susi (`hostmerge`):
+//!   every merge happens in Susi, the host is storage only.
 //!
 //! `Task: LOCAL-<name>` (the native launcher's migration label, AGENTS.md
 //! step 5) counts as labelled but has no record, so it is reported as a
@@ -284,6 +286,44 @@ pub fn lint(
     })
 }
 
+/// Fold host-created commits into a lint report: a summary count that adds to
+/// `findings`, and the listed commits (merges first).
+pub fn add_host_findings(
+    report: &mut Value,
+    host_created: &[super::hostmerge::HostCommit],
+    hosts: &BTreeSet<String>,
+) {
+    let mut list: Vec<Value> = host_created
+        .iter()
+        .map(|c| {
+            json!({
+                "commit": c.oid,
+                "merge": c.merge,
+                "committer": format!("{} <{}>", c.committer, c.email),
+                "subject": c.subject,
+            })
+        })
+        .collect();
+    list.sort_by_key(|v| !v["merge"].as_bool().unwrap_or(false));
+    let merges = host_created.iter().filter(|c| c.merge).count();
+    if let Some(sum) = report["summary"].as_object_mut() {
+        sum.insert(
+            "commits_created_by_git_host".into(),
+            json!(host_created.len()),
+        );
+        sum.insert("merges_created_by_git_host".into(), json!(merges));
+        let findings = sum.get("findings").and_then(Value::as_u64).unwrap_or(0);
+        sum.insert(
+            "findings".into(),
+            json!(findings + host_created.len() as u64),
+        );
+    }
+    if let Some(obj) = report.as_object_mut() {
+        obj.insert("commits_created_by_git_host".into(), json!(capped(&list)));
+        obj.insert("git_host_committer_identities".into(), json!(hosts));
+    }
+}
+
 pub fn render_lint_text(report: &Value) -> String {
     use std::fmt::Write as _;
     let mut s = String::new();
@@ -313,6 +353,19 @@ pub fn render_lint_text(report: &Value) -> String {
         }
     };
     let oid = |v: &Value, k: &str| short(v[k].as_str().unwrap_or_default()).to_owned();
+    section(&mut s, "commits_created_by_git_host", &|v| {
+        format!(
+            "{} {}{} by {}",
+            oid(v, "commit"),
+            if v["merge"].as_bool().unwrap_or(false) {
+                "[merge] "
+            } else {
+                ""
+            },
+            v["subject"].as_str().unwrap_or_default(),
+            v["committer"].as_str().unwrap_or_default()
+        )
+    });
     section(&mut s, "tasks_landed_but_record_open", &|v| {
         format!(
             "{} [{}] {} commit(s), {}",
@@ -513,6 +566,13 @@ pub fn run_lint(root: &Path, args: &[String]) -> Result<String> {
         claim_scopes(&git)?
     };
     let mut report = lint(&commits, &records, &claims);
+    let scan_range = match &from_commit {
+        Some(f) => format!("{f}..{to_commit}"),
+        None => to_commit.clone(),
+    };
+    let hosts = super::hostmerge::identities(root)?;
+    let host_created = super::hostmerge::scan_range(root, &scan_range, &hosts)?;
+    add_host_findings(&mut report, &host_created, &hosts);
     if let Some(obj) = report.as_object_mut() {
         obj.insert("schema".into(), json!(LINT_SCHEMA));
         obj.insert("range".into(), json!(a.range));
@@ -528,7 +588,8 @@ pub fn run_lint(root: &Path, args: &[String]) -> Result<String> {
             json!([
                 "every commit carries a `Task: <id>` trailer",
                 "every task record declares scopes; commits stay inside them (own record and declared evidence exempt)",
-                "close the record when its work lands"
+                "close the record when its work lands",
+                "every commit and merge is created by an agent's local Git or Susi tooling, never by the Git host (merges happen in Susi; the host is storage only)"
             ]),
         );
     }
