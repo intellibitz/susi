@@ -156,7 +156,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
 dashmap = "6.2"
-reqwest = { version = "0.13.5", features = ["json", "blocking", "query"] }
 hex = "0.4"
 tracing = "0.1"
 sha2 = "0.11.0"
@@ -214,15 +213,13 @@ susi-windows-runtime = { workspace = true }
 susi-build-os-ucrt = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 
+# Ship the exact patched sources with Susi: a fresh checkout must not need
+# GitHub to resolve its build. Provenance and patch notes: vendor/README.md.
 [patch.crates-io]
 regex-syntax = { path = "vendor/regex-syntax" }
 idna_adapter = { path = "vendor/idna-adapter" }
 unicode-ident = { path = "vendor/unicode-ident" }
 native-tls = { path = "vendor/native-tls" }
-fluent-uri = { path = "vendor/fluent-uri" }
-# Ship the exact patched sources with Susi: a fresh checkout must not need
-# GitHub to resolve its build. Provenance and patch notes: vendor/README.md.
-reqwest = { path = "vendor/reqwest" }
 hashbrown = { path = "vendor/hashbrown" }
 # CPU inference is portable. Metal remains an explicit platform feature.
 # CUDA/MKL are retired: their foreign implementation/license requirements

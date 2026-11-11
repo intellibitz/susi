@@ -694,6 +694,13 @@ config, core and the tail.
   10,447 -> 10,443, `susi-gemi` 21,263 -> 21,171 with unchanged `usage_accounting`
   unit tests moved to `src/tests`, `susi-harness` 40,594 -> 40,575 with unchanged
   `MicroUsd` inline tests moved from `lib.rs` to `src/tests/money.rs`).
+- 2026-11-11 (T-AGYCLOUD-5, Linux x86_64, 2-vCPU cloud VM): delete the two
+  retired vendored patch trees (`vendor/reqwest` and `vendor/fluent-uri`,
+  73 files / 28,435 lines / 1.05 MiB) left unused after `T-CLAUDENOA2ASDK-1`
+  and the std JSON-schema cut, remove `[workspace.dependencies] reqwest` and
+  the two `[patch.crates-io]` entries from `Cargo.toml` and `Cargo.lock`
+  (`[[patch.unused]]`), and enforce zero `[[patch.unused]]` entries in
+  `tests/architecture_tests.rs`.
 - 2026-11-11 (T-NETTRANSPORT-1, Linux x86_64, CEO laptop, 28 threads, other
   agents compiling): the pillars' outbound client (`susi-http-transport`
   `http_call`, used by GEMI's BYOK providers, gemi-models downloads, GMCP,

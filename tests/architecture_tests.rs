@@ -1749,8 +1749,17 @@ fn vendor_patches_are_local_and_preserve_upstream_licenses() {
         !lock.contains("source = \"git+"),
         "development sources must resolve without a Git host"
     );
+    assert!(
+        !lock.contains("[[patch.unused]]"),
+        "Cargo.lock must not carry unused [patch.crates-io] entries"
+    );
+    for retired in ["reqwest", "fluent-uri"] {
+        assert!(
+            !root.join("vendor").join(retired).exists(),
+            "retired unused vendor patch directory returned: vendor/{retired}"
+        );
+    }
     for (name, license) in [
-        ("reqwest", "LICENSE-APACHE"),
         ("esaxx-rs", "LICENSE"),
         ("native-tls", "LICENSE-APACHE"),
         ("native-tls", "LICENSE-MIT"),
