@@ -1,0 +1,70 @@
+{
+  "id": "T-CODEXTOOLSCHEMA-1",
+  "title": "Carry typed tool input schemas into the local-model catalog",
+  "goal": "Preserve built-in CoreTools JSON input schemas when the PlaneBus tool catalog is serialized, so GEMI can give local engines the required parameters while dynamic proxies remain explicit passthrough entries.",
+  "state": "implemented",
+  "status": "implemented",
+  "claimed_by": "codex-tool-schemas",
+  "native_worker": "codex-tool-schemas",
+  "created_by": "CODEXTOOLSCHEMA",
+  "created_unix": 1794430456,
+  "updated_unix": 1794431229,
+  "size": "S",
+  "base_commit": "159b8288a4c8beb83900ad8e54b1a754a767104d",
+  "deps": [
+    "T-CLAUDETOOLPICK-1",
+    "T-CODEXHISTORY-1"
+  ],
+  "scopes": [
+    "crates/susi-tools/src/types.rs",
+    "crates/susi-tools/src/registry.rs",
+    "crates/susi-tools/src/client.rs",
+    "crates/susi-tools/src/hooks.rs",
+    "crates/susi-gmcp/src/tool_types.rs",
+    "crates/susi-gmcp/src/tool_registry.rs",
+    "crates/susi-gemi/src/local_tool_calls.rs",
+    "crates/susi-daemon/src/engine_hooks.rs",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-codextoolschema-1.json"
+  ],
+  "scope": [
+    "crates/susi-tools/src/types.rs",
+    "crates/susi-tools/src/registry.rs",
+    "crates/susi-tools/src/client.rs",
+    "crates/susi-tools/src/hooks.rs",
+    "crates/susi-gmcp/src/tool_types.rs",
+    "crates/susi-gmcp/src/tool_registry.rs",
+    "crates/susi-gemi/src/local_tool_calls.rs",
+    "crates/susi-daemon/src/engine_hooks.rs",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-codextoolschema-1.json"
+  ],
+  "acceptance": "cargo test --offline --locked -p susi-daemon --lib built_in_tool_schema_bridge_returns_typed_arguments_only_for_core_tools",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "built_in_tool_schema_bridge_returns_typed_arguments_only_for_core_tools"
+    ]
+  },
+  "results": {
+    "status": "verified",
+    "implementation": "Built-in CoreTools schemas now travel through susi-tools, PlaneBus, the legacy GMCP facade, and the daemon EngineHooks bridge into GEMI's local-model tool catalog. Dynamic MCP and Wasm entries remain explicit schema-less passthrough entries.",
+    "commits": ["4299a34ba", "ef6c8d5c7", "972b23809", "8c6c85770"],
+    "acceptance": "cargo test --offline --locked -p susi-daemon --lib built_in_tool_schema_bridge_returns_typed_arguments_only_for_core_tools: 1 passed, 0 failed",
+    "gate": "SUSI_LOCAL_TEST_RUNNER=serial cargo run --offline --locked -p xtask --bin local-workflow -- check: passed in 117.8s; format, clippy, affected tests, guard tests, GMCP requirements and doc-tests all passed",
+    "gmcp_evidence": "scripts/gmcp-record-evidence.sh: 54 requirement checks; --mastery: 9 checks; all current on the final source commit",
+    "ceilings": "lean_core_ceilings: 2 passed, 0 failed; susi-gmcp 25860/25860 and susi-gemi 21262/21262, with no ceiling increase",
+    "dependencies": "No dependency or lockfile change",
+    "base": "159b8288a4c8beb83900ad8e54b1a754a767104d"
+  },
+  "limitations": [
+    "Dynamic external MCP and Wasm reflex entries still omit schemas when discovery does not provide one; they retain the explicit passthrough behavior.",
+    "Windows qualification remains a separate native-host task."
+  ]
+}

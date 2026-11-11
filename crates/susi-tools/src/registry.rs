@@ -84,6 +84,7 @@ impl ToolRegistry {
             .map(|(name, tool)| McpTool {
                 name: name.clone(),
                 description: tool.description(),
+                input_schema: hooks().tool_input_schema(name),
             })
             .collect();
 
@@ -94,6 +95,7 @@ impl ToolRegistry {
         for name in caps.list_tools() {
             if let Some(tool) = caps.get_tool(&name) {
                 tools.push(McpTool {
+                    input_schema: hooks().tool_input_schema(&name),
                     name,
                     description: tool.description().to_string(),
                 });
@@ -109,6 +111,7 @@ impl ToolRegistry {
                         tools.push(McpTool {
                             name: format!("reflex_{}", name.replace(".wasm", "")),
                             description: "Dynamic Wasm neural reflex tool".to_string(),
+                            input_schema: None,
                         });
                     }
                 }
