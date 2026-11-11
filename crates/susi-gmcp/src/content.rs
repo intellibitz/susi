@@ -1,7 +1,6 @@
 //! Canonical GMCP content model (VC-203-008).
 //!
-//! GMCP's own typed wire model (`crate::mcp::model`, also reachable as
-//! `susi_gmcp::rmcp::model`) is the typed-API form the service
+//! GMCP's own typed wire model (`crate::mcp::model`) is the typed-API form the service
 //! handlers consume, but their serde derives silently drop keys the schema
 //! revision does not name — an extension field a future revision or a
 //! permitted peer adds would vanish at the boundary. This module owns the

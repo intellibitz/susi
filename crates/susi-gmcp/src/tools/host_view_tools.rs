@@ -272,9 +272,7 @@ impl CoreTools {
         input_schema: args::typed::<args::IntentLadderArgs>(),
     });
     pub fn intent_ladder(arg: &Value, workspace: &Path) -> EaiResult<String> {
-        // `adopt_gap` is refused by the host (the task queue moved to Susi
-        // Commercial Apps); it keeps the write admission it had when it
-        // authored a task in the checkout, so its refusal is unchanged.
+        // `adopt_gap` keeps its old write admission; the host now refuses it.
         let write = arg.get("mode").and_then(Value::as_str) == Some("adopt_gap");
         let workspace = policy_workspace(arg, "workspace", workspace, write)?;
         forward(

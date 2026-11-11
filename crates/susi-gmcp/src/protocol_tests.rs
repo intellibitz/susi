@@ -1,5 +1,4 @@
-//! Wire-level tests exercise the same GMCP MCP service (`crate::mcp`) used by
-//! both entry points.
+//! Wire-level tests exercise the same GMCP MCP service used by both entry points.
 use crate::mcp::{model::*, ServiceExt};
 use crate::protocol::GmcpService;
 use serde_json::{json, Value};
