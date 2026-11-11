@@ -5,7 +5,6 @@ use crate::mcp::{
     ServiceExt,
 };
 use crate::protocol::GmcpService;
-use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::{
     body::Incoming,
@@ -19,6 +18,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use susi_http_transport::http_body::{self as http_body_util, BodyExt, Full};
 use tokio_rustls::TlsAcceptor;
 
 use susi_http_transport::dual_transport::negotiate_transport;

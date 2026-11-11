@@ -147,7 +147,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-ed25519-dalek",
     "susi-vendor-getrandom",
     "susi-vendor-hex",
-    "susi-vendor-http-body-util",
     "susi-vendor-hyper",
     "susi-vendor-hyper-util",
     "susi-vendor-libc",

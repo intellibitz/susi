@@ -35,7 +35,6 @@ pub mod prometheus_metrics;
 // non-blocking — running it directly on a tokio worker thread would stall
 // the reactor for every other in-flight connection.
 
-use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Frame, Incoming};
 use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::service::service_fn;
@@ -45,6 +44,7 @@ use serde_json::json;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
+use susi_http_transport::http_body::{self as http_body_util, BodyExt, Full};
 
 use susi_core::context_graph::ContextGraph;
 use susi_core::plane_bus::{gawd, gemi, tools as plane_tools};
@@ -313,7 +313,6 @@ async fn handle_gemi_request(
     // signatures verify against the exact bytes the route handlers
     // parse — an on-path body substitution breaks the signature
     // instead of passing a method+path-only check.
-    use http_body_util::BodyExt;
     let body_bytes = match http_body_util::Limited::new(req.into_body(), 10 * 1024 * 1024)
         .collect()
         .await
