@@ -94,31 +94,44 @@ impl CapabilityBloom {
 #[cfg(test)]
 mod prop_tests {
     use super::*;
-    use proptest::prelude::*;
 
-    proptest! {
-        // Property: a bloom filter never produces a false negative — a hash
-        // just inserted always tests as possibly present.
-        #[test]
-        fn inserted_hash_always_may_contain(hash in any::<u64>()) {
+    fn next_u64(state: &mut u64) -> u64 {
+        *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    // Property: a bloom filter never produces a false negative — a hash
+    // just inserted always tests as possibly present.
+    #[test]
+    fn inserted_hash_always_may_contain() {
+        let mut state = 0x1234_5678_9abc_def0_u64;
+        for hash in [0_u64, 1, u64::MAX]
+            .into_iter()
+            .chain((0..4_096).map(|_| next_u64(&mut state)))
+        {
             let mut bloom = CapabilityBloom::empty();
             bloom.insert_hash(hash);
-            prop_assert!(bloom.may_contain_hash(hash));
+            assert!(bloom.may_contain_hash(hash));
         }
+    }
 
-        // Property: bloom filters are monotonic — inserting more hashes can
-        // only set bits, never clear one an earlier insert set.
-        #[test]
-        fn membership_is_monotonic_under_more_inserts(
-            first in any::<u64>(),
-            rest in proptest::collection::vec(any::<u64>(), 0..32),
-        ) {
+    // Property: bloom filters are monotonic — inserting more hashes can
+    // only set bits, never clear one an earlier insert set.
+    #[test]
+    fn membership_is_monotonic_under_more_inserts() {
+        let mut state = 0x0fed_cba9_8765_4321_u64;
+        for _ in 0..2_048 {
+            let first = next_u64(&mut state);
+            let rest_len = (next_u64(&mut state) % 32) as usize;
             let mut bloom = CapabilityBloom::empty();
             bloom.insert_hash(first);
-            for h in rest {
-                bloom.insert_hash(h);
+            for _ in 0..rest_len {
+                bloom.insert_hash(next_u64(&mut state));
             }
-            prop_assert!(bloom.may_contain_hash(first));
+            assert!(bloom.may_contain_hash(first));
         }
     }
 }

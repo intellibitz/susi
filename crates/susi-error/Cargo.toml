@@ -17,6 +17,3 @@ winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }

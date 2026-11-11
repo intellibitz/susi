@@ -1,5 +1,5 @@
 //! Sample and inspect host telemetry.
-use anyhow::Result;
+use crate::anyhow::Result;
 
 pub use susi_cli_defs::telemetry::*;
 

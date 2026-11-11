@@ -1,5 +1,5 @@
 //! Multi-agent transaction CLI.
-use anyhow::{bail, Result};
+use crate::anyhow::{bail, Result};
 use std::path::Path;
 
 pub use susi_cli_defs::tx::*;

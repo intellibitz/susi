@@ -1,6 +1,6 @@
 //! Leading MCP server control plane (list/doctor/enable) plus stdio serve.
+use crate::anyhow::{bail, Result};
 use crate::cli_json::print_json;
-use anyhow::{bail, Result};
 use std::path::Path;
 pub use susi_cli_defs::mcp::McpCommands;
 use susi_daemon::adapter_ops::{self, AdapterKind};
@@ -59,17 +59,17 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             token,
         } => {
             let arguments: serde_json::Value = serde_json::from_str(&args)
-                .map_err(|e| anyhow::anyhow!("args must be a JSON object: {e}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("args must be a JSON object: {e}"))?;
             let result = if is_network_endpoint(&addr) {
                 let bearer = token.or_else(|| default_bearer(&addr));
                 susi_core::mcp_client::call_tool(&addr, &tool, &arguments, bearer.as_deref())
-                    .map_err(|e| anyhow::anyhow!("{e}"))?
+                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?
             } else {
                 // This control-plane command returns before normal CLI composition.
                 // A registered stdio server needs the tools plane to dispatch.
                 susi_daemon::composition::wire_plane_handlers();
                 susi_gmcp::direct_call::call_tool_direct(&addr, &tool, &arguments, workspace)
-                    .map_err(|e| anyhow::anyhow!("{e}"))?
+                    .map_err(|e| crate::anyhow::anyhow!("{e}"))?
             };
             println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(false)
@@ -89,7 +89,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                     &params,
                     bearer.as_deref(),
                 )
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
                 let Some(page) = result.get("tools").and_then(|t| t.as_array()) else {
                     if tools.is_empty() {
                         println!("{}", serde_json::to_string_pretty(&result)?);
@@ -137,7 +137,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                     workspace,
                     refetched.as_deref(),
                 )
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
                 print_json(&report)?;
                 let findings = report["findings"].as_array().map_or(0, Vec::len);
                 if findings > 0 {
@@ -148,7 +148,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                 return Ok(false);
             }
             let report = susi_gmcp::requirements_ledger::verify_report_json(workspace)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
             print_json(&report)?;
             Ok(false)
         }
@@ -161,7 +161,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
         // documents; the MCP `adapter_*` tools return the same ones.
         McpCommands::Doctor { server } => {
             let rows = adapter_ops::doctor(AdapterKind::Mcp, server.as_deref(), workspace)
-                .map_err(anyhow::Error::msg)?;
+                .map_err(crate::anyhow::Error::msg)?;
             for row in &rows {
                 print_json(row)?;
             }
@@ -173,7 +173,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
         McpCommands::Setup { server } => {
             print_json(
                 &adapter_ops::setup(AdapterKind::Mcp, &server, workspace)
-                    .map_err(anyhow::Error::msg)?,
+                    .map_err(crate::anyhow::Error::msg)?,
             )?;
             Ok(false)
         }
@@ -200,14 +200,14 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
             print_json(
                 &adapter_ops::configure(AdapterKind::Mcp, &server, doc, workspace)
-                    .map_err(anyhow::Error::msg)?,
+                    .map_err(crate::anyhow::Error::msg)?,
             )?;
             Ok(false)
         }
         McpCommands::Reset { server } => {
             print_json(
                 &adapter_ops::reset(AdapterKind::Mcp, &server, workspace)
-                    .map_err(anyhow::Error::msg)?,
+                    .map_err(crate::anyhow::Error::msg)?,
             )?;
             Ok(false)
         }

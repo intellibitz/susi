@@ -1,6 +1,6 @@
 //! Deterministic open-weight frontier model control plane (local host; no daemon for list/doctor).
+use crate::anyhow::{Error, Result};
 use crate::cli_json::print_json;
-use anyhow::{Error, Result};
 
 pub use susi_cli_defs::open_weight::*;
 

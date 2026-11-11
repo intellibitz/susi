@@ -1,5 +1,5 @@
 //! Autonomous planning loop CLI.
-use anyhow::Result;
+use crate::anyhow::Result;
 use std::path::Path;
 
 pub use susi_cli_defs::plan::*;

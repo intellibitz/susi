@@ -23,7 +23,6 @@ getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrando
 winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
 
 [dev-dependencies]
-proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 # Test-only: foreign-member Ed25519 signatures for the endorsement gates —
 # `member_sign` can only sign as this node.

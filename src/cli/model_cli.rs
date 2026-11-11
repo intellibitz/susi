@@ -1,6 +1,6 @@
 //! Deterministic coding/agent model control plane (no daemon required for list/doctor/setup).
+use crate::anyhow::{bail, Result};
 use crate::cli_json::print_json;
-use anyhow::{bail, Result};
 use std::path::Path;
 use susi_daemon::adapter_ops::{self, AdapterKind};
 use susi_gemi::models::coding_models::CodingModelManager;
@@ -32,7 +32,7 @@ pub fn execute(action: Option<ModelCommands>, workspace: &Path) -> Result<()> {
         // `adapter_*` tools return the same ones.
         ModelCommands::Doctor { model } => {
             let rows = adapter_ops::doctor(AdapterKind::Models, model.as_deref(), workspace)
-                .map_err(anyhow::Error::msg)?;
+                .map_err(crate::anyhow::Error::msg)?;
             for row in &rows {
                 print_json(row)?;
             }
@@ -42,25 +42,25 @@ pub fn execute(action: Option<ModelCommands>, workspace: &Path) -> Result<()> {
         }
         ModelCommands::Setup { model } => print_json(
             &adapter_ops::setup(AdapterKind::Models, &model, workspace)
-                .map_err(anyhow::Error::msg)?,
+                .map_err(crate::anyhow::Error::msg)?,
         )?,
         ModelCommands::Configure { model, file } => {
             let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
             print_json(
                 &adapter_ops::configure(AdapterKind::Models, &model, doc, workspace)
-                    .map_err(anyhow::Error::msg)?,
+                    .map_err(crate::anyhow::Error::msg)?,
             )?;
         }
         ModelCommands::Reset { model } => print_json(
             &adapter_ops::reset(AdapterKind::Models, &model, workspace)
-                .map_err(anyhow::Error::msg)?,
+                .map_err(crate::anyhow::Error::msg)?,
         )?,
         ModelCommands::Prefer { model } => {
             println!("{}", manager.prefer(&model)?);
         }
         ModelCommands::Probe { model, prompt } => print_json(
             &susi_daemon::provider_ops::probe("coding", Some(&model), &prompt)
-                .map_err(anyhow::Error::msg)?,
+                .map_err(crate::anyhow::Error::msg)?,
         )?,
     }
     Ok(())

@@ -25,6 +25,7 @@
 #[cfg(windows)]
 extern crate susi_windows_runtime;
 
+pub(crate) mod anyhow;
 mod audit_writer;
 mod cli;
 mod cli_json;

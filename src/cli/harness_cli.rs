@@ -5,7 +5,7 @@
 //! `harness-*` binaries do, so the mission loop lives inside susi rather than
 //! beside it.
 
-use anyhow::{bail, Context, Result};
+use crate::anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 pub use susi_cli_defs::harness::HarnessCommands;
@@ -208,11 +208,11 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             // the run succeeded.
             let result = outcome
                 .report
-                .map_err(anyhow::Error::from)
+                .map_err(crate::anyhow::Error::from)
                 .and_then(|report| {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                     match operator::mission_failure(&report) {
-                        Some(failure) => Err(anyhow::anyhow!(failure)),
+                        Some(failure) => Err(crate::anyhow::anyhow!(failure)),
                         None => Ok(()),
                     }
                 });
@@ -406,11 +406,11 @@ fn serve_gateway(
         if let Some(ingress) = ingress {
             susi_harness::ingress::serve(listener, state, ingress)
                 .await
-                .map_err(|e| anyhow::anyhow!("{e}"))
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))
         } else {
             susi_harness::gateway::serve(listener, state)
                 .await
-                .map_err(|e| anyhow::anyhow!("{e}"))
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))
         }
     })
 }
@@ -433,14 +433,14 @@ fn gateway_ingress(
             };
             let text = std::fs::read_to_string(&resolved)
                 .with_context(|| format!("read accounts file {}", resolved.display()))?;
-            let ingress =
-                susi_harness::ingress::Ingress::parse(&text).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let ingress = susi_harness::ingress::Ingress::parse(&text)
+                .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
             Some(Arc::new(ingress))
         }
         None => None,
     };
     susi_harness::ingress::require_accounts_off_loopback(host, ingress.as_deref())
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+        .map_err(|e| crate::anyhow::anyhow!("{e}"))?;
     Ok(ingress)
 }
 

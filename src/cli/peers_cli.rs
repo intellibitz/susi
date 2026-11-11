@@ -5,7 +5,7 @@
 //! election/quorum round. The roster is read structurally — the root
 //! crate takes no dependency on the swarm plane.
 
-use anyhow::Result;
+use crate::anyhow::Result;
 use std::path::Path;
 use susi_core::peer_admin::{self, Line};
 
@@ -25,17 +25,17 @@ pub fn execute(action: Option<PeersCommands>, _workspace: &Path) -> Result<()> {
         // `susi_core::peer_admin` runs the membership changes; the MCP
         // `peers_*` tools call the same functions.
         PeersCommands::Add { host, port } => {
-            peer_admin::add(&mut emit, &host, port).map_err(anyhow::Error::msg)
+            peer_admin::add(&mut emit, &host, port).map_err(crate::anyhow::Error::msg)
         }
         PeersCommands::Probe { host, port } => probe(&host, port),
         PeersCommands::Remove { peer } => {
-            peer_admin::remove(&mut emit, &peer).map_err(anyhow::Error::msg)
+            peer_admin::remove(&mut emit, &peer).map_err(crate::anyhow::Error::msg)
         }
         PeersCommands::Unban { peer } => {
-            peer_admin::unban(&mut emit, &peer).map_err(anyhow::Error::msg)
+            peer_admin::unban(&mut emit, &peer).map_err(crate::anyhow::Error::msg)
         }
         PeersCommands::Rekey { force } => {
-            peer_admin::rekey(&mut emit, force).map_err(anyhow::Error::msg)
+            peer_admin::rekey(&mut emit, force).map_err(crate::anyhow::Error::msg)
         }
         PeersCommands::Status { json } => status(json),
     }
@@ -48,7 +48,7 @@ pub fn execute(action: Option<PeersCommands>, _workspace: &Path) -> Result<()> {
 fn status(json_out: bool) -> Result<()> {
     // `susi_core::peer_roster::status_rows`: the same rows the MCP
     // `peers_status` tool returns.
-    let rows = susi_core::peer_roster::status_rows().map_err(anyhow::Error::msg)?;
+    let rows = susi_core::peer_roster::status_rows().map_err(crate::anyhow::Error::msg)?;
     if json_out {
         println!(
             "{}",
@@ -113,8 +113,8 @@ fn liveness(n: &serde_json::Value) -> &'static str {
 }
 
 fn list(json: bool) -> Result<()> {
-    let nodes = susi_core::peer_roster::load_registry().map_err(anyhow::Error::msg)?;
-    let banned = susi_core::peer_roster::load_banned().map_err(anyhow::Error::msg)?;
+    let nodes = susi_core::peer_roster::load_registry().map_err(crate::anyhow::Error::msg)?;
+    let banned = susi_core::peer_roster::load_banned().map_err(crate::anyhow::Error::msg)?;
     let evicted = susi_paths::SusiDirs::config_dir()
         .join("cluster_evicted.json")
         .exists();
@@ -125,7 +125,7 @@ fn list(json: bool) -> Result<()> {
     if json {
         // Machine surface for agents — same fields the table shows, and the
         // document the MCP `peers_list` tool returns.
-        let body = susi_core::peer_roster::list_report().map_err(anyhow::Error::msg)?;
+        let body = susi_core::peer_roster::list_report().map_err(crate::anyhow::Error::msg)?;
         println!("{}", serde_json::to_string_pretty(&body)?);
         return Ok(());
     }
@@ -210,7 +210,8 @@ fn list(json: bool) -> Result<()> {
 /// non-destructive way to test reachability and cluster.key
 /// compatibility before (or instead of) `peers add`.
 fn probe(host: &str, port: Option<u16>) -> Result<()> {
-    let report = susi_core::peer_probe::probe_report(host, port).map_err(anyhow::Error::msg)?;
+    let report =
+        susi_core::peer_probe::probe_report(host, port).map_err(crate::anyhow::Error::msg)?;
     let text = |key: &str| report[key].as_str().unwrap_or_default().to_string();
     println!("verified: {} ({})", text("node_id"), text("address"));
     println!("  registry checksum: {}", report["registry_checksum"]);

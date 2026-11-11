@@ -3,7 +3,7 @@
 //! lean-core program and is `susi-commercial workflow`. Open core refuses
 //! every verb here with that command named; the gated landing tool of this
 //! repository is `cargo local-workflow`.
-use anyhow::{bail, Result};
+use crate::anyhow::{bail, Result};
 
 /// The refusal for `susi workflow <args>`.
 pub(crate) fn moved_message(args: &[String]) -> String {

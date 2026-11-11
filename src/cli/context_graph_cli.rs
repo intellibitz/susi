@@ -1,5 +1,5 @@
 //! Inspect and query the Universal Context Graph.
-use anyhow::{bail, Result};
+use crate::anyhow::{bail, Result};
 use std::path::Path;
 pub use susi_cli_defs::context_graph::ContextGraphCommands;
 
@@ -25,7 +25,7 @@ pub fn execute(action: Option<ContextGraphCommands>, workspace: &Path) -> Result
         }
         ContextGraphCommands::Ingest { file, workspace } => {
             let text = std::fs::read_to_string(&file)
-                .map_err(|e| anyhow::anyhow!("cannot read ingest file: {e}"))?;
+                .map_err(|e| crate::anyhow::anyhow!("cannot read ingest file: {e}"))?;
             let mut count = 0;
             for line in text.lines() {
                 let line = line.trim();
@@ -33,7 +33,7 @@ pub fn execute(action: Option<ContextGraphCommands>, workspace: &Path) -> Result
                     continue;
                 }
                 let event: serde_json::Value = serde_json::from_str(line)
-                    .map_err(|e| anyhow::anyhow!("invalid ingest JSON: {e}"))?;
+                    .map_err(|e| crate::anyhow::anyhow!("invalid ingest JSON: {e}"))?;
                 let source = event["source"].as_str().unwrap_or("unknown");
                 let label = event["label"].as_str().unwrap_or("external context");
                 let payload = &event["payload"];
