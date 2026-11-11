@@ -3,6 +3,7 @@
   "title": "Preserve full chat history for local engines",
   "goal": "Carry the normalized OpenAI conversation and top-level tool schemas from the core 9091 server through GAWD and GEMI to the local engine, so a model adapter can render the model file's own chat template for multi-turn requests while preserving the existing prose fallback.",
   "owner": "codex",
+  "native_worker": "codex-history",
   "base_commit": "fbfe20a73fb22efd2f47b36ad8a975d6921bfba2",
   "scopes": [
     "crates/susi-server/src/lib.rs",
@@ -15,7 +16,7 @@
     "crates/susi-gemi/src/tests/vc_201_042_native.rs",
     "tests/lean_core_ceilings.rs",
     "docs/lean-core.md",
-    ".agents/tasks/T-CODEXHISTORY-1.json"
+    ".agents/tasks/t-codexhistory-1.json"
   ],
   "deps": [
     "T-CLAUDELOCALTOOLS-1",
