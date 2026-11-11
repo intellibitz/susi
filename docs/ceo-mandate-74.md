@@ -1,6 +1,10 @@
 # CEO Mandate 74: Autonomous CTO Ecosystem Mandate — <10s Core, 5 Pillars, Remote Pull & Merge, Distilled Releases, and Open-World Harvest
 
-Effective 2026-11-11. Binding on every agent that touches `intellibitz/susi` and
+Effective 2026-11-11 (extended 2026-11-12 by [CEO Mandate 75](ceo-mandate-75.md),
+which codifies the **Raw Source (`main`) -> Distill (`release`)** pipeline,
+autonomous cloud raw-source feature pickup with Core-vs-Commercial routing, and
+**Pure `Apache-2.0` ONLY** harvest compliance, winning where older text differs).
+Binding on every agent that touches `intellibitz/susi` and
 the Susi AI ecosystem: local, cloud, external (Claude, Codex, Gemini, Grok,
 DeepSeek, Qwen and others) and the Susi harness itself. `.agents/identity.json`
 records it as Mandate 74. It builds on Mandates 62–73 (`docs/ceo-agent-mandate.md`)
@@ -316,7 +320,8 @@ simple enough to verify for every file.
 ### 5.2 Intake mechanics
 
 The tool is `local-harvest` (`docs/harvest.md`): `intake`, `scan`, `import`,
-`notices` and `audit` implement the steps below.
+`notices`, `audit`, `raw-features`, `route` and `pickup` implement the steps
+below under [CEO Mandate 75](ceo-mandate-75.md).
 
 1. **Quarantine fetch:** `git fetch --no-tags <url> <sha>:refs/susi/upstream/<slug>/<sha>`.
    Upstream code is untrusted. During intake, never run its build scripts,

@@ -1,13 +1,58 @@
 **START HERE: read the CEO mandates below, inspect local state, and reserve an isolated worktree before editing.**
 
+## CEO Mandate 75 (2026-11-12): Raw Source (main) & Distill (release), Cloud Raw-Source Pickup, and Pure Apache-2.0 Compliance
+
+Read [CEO Mandate 75](docs/ceo-mandate-75.md) first; it builds on Mandate 74 and
+wins where older text differs.
+
+- **Raw Source (`main`) -> Distill (`release`) across both repositories:** Both
+  `intellibitz/susi` and `intellibitz/susi-commercial-apps` run strictly on the
+  **Raw Source (`main`) -> Distill (`release`)** pipeline. Raw features (both
+  agent-authored and cloud-harvested) land freely and continuously on `main` with
+  remote pull and merge reconciliation at every workflow step and structured
+  final-paragraph commit trailers (`Task:`, `Feature:`, and when harvested
+  `Harvest:`, `Origin: <url>@<sha>:<path>`, `Origin-License: Apache-2.0`). Susi —
+  never GitHub — deterministically distills verified features into conflict-free
+  `release` candidate lines (`refs/candidates/release/*`,
+  `refs/candidates/distill/*`, one-version-one-cut `release_version_guard`
+  claims) and immutable `vX.Y.Z` snapshots.
+- **Cloud raw-source feature pickup (`Core` vs. `Commercial Apps`):** Use
+  `local-harvest raw-features`, `local-harvest route`, and `local-harvest pickup`
+  (`docs/harvest.md`) to freely discover and integrate capabilities from cloud raw
+  sources without reinventing the wheel: route lean, zero-UI, zero-vendor-product
+  capabilities inside the **5 open-core pillars** (`GAWD`, `GEMI`, `GMCP`, `ACP`,
+  `Susi Harness`) within `<10s` (`total_ms < 10_000`) and `lean_core_ceilings` to
+  `intellibitz/susi`; route all product features, UIs, enterprise packs,
+  connectors, SSO/RBAC, FinOps and turnkey workflows exclusively to closed,
+  licensed, paid `intellibitz/susi-commercial-apps`.
+- **PURE `Apache-2.0` ONLY for cloud harvest compliance:** Across both `susi` and
+  `susi-commercial-apps`, cloud raw-source feature pickup and harvesting accepts
+  **ONLY `Apache-2.0`** (pure `Apache-2.0`, or dual-licensed `Apache-2.0 OR ...`
+  electing and binding `"Apache-2.0"` exclusively). Standalone `MIT`-only,
+  `BSD-2-Clause`-only, `BSD-3-Clause`-only, `Apache-2.0 WITH LLVM-exception`
+  (unless pure `Apache-2.0` is offered via `OR`), `AND` combinations, `ISC`,
+  `MPL`, `GPL`/`LGPL`/`AGPL`, `SSPL`/`BUSL`, source-available, and unlicensed raw
+  source are hard-refused. Every harvested file carries full Apache-2.0 §4(a)–(d)
+  compliance (`LICENSES/Apache-2.0.txt`, `Modified by` notice on modified/ported
+  files, preserved upstream notices, and deterministic `THIRD_PARTY_NOTICES`).
+  Existing `deny.toml` crate-graph closure remains truthful for `Cargo.lock`
+  (Mandate 68), while pure-`Apache-2.0` raw-source pickup is preferred over adding
+  new external crate dependencies.
+- **Multi-agent Git & Susi Board collaboration:** `Claude`, `Codex`,
+  `Antigravity` (`Carbon`), `Grok` and `Susi Harness` collaborate additively over
+  portable Git storage (`origin`) and the shared Susi coordination board,
+  deconflicting upstream harvest targets before import and preserving peer work.
+
 ## CEO Mandate 74 (2026-11-11): <10s core, 5 pillars, remote pull & merge, distilled releases, corporate commercial boundary
 
-Read [CEO Mandate 74](docs/ceo-mandate-74.md) first; it wins where older text
+Read [CEO Mandate 74](docs/ceo-mandate-74.md) alongside
+[CEO Mandate 75](docs/ceo-mandate-75.md) (Mandate 75 refines cloud raw-source
+pickup to Pure `Apache-2.0` only); they win where older text
 differs. **Agent reminder:** work in your own isolated worktree with remote pull
 and merge at every step, keep Susi core build+test+release under 10 seconds across
 its 5 Apache-2.0 pillars, dump labelled work straight into `main` with no gates
 and no PRs, let Susi distill releases with conflict-free parallel picks, harvest
-Apache-2.0 code with full attribution, keep all add-ons closed/licensed/paid in
+pure Apache-2.0 code with full attribution, keep all add-ons closed/licensed/paid in
 `susi-commercial-apps`, and treat GitHub as a storage bucket only.
 
 - **Blazing-fast `<10s` Susi core budget:** Core build + verification test suite
@@ -42,9 +87,12 @@ Apache-2.0 code with full attribution, keep all add-ons closed/licensed/paid in
   (`intellibitz/susi-commercial-apps`), which is closed-source, licensed
   (`SUSI-ENT-v1` / Ed25519 `SUSI-CUST-v1`), and paid software for commercial
   entities and corporates.
-- **Attributed Apache-2.0 harvesting:** Any Apache-2.0 repository anywhere may be
-  harvested with quarantine intake, per-file license verification, a harvest
-  manifest, Apache-2.0 section 4 notices and `Origin:` trailers.
+- **Attributed Pure Apache-2.0 harvesting (Mandate 75):** Any pure `Apache-2.0`
+  repository (or dual-licensed `Apache-2.0 OR ...` electing `"Apache-2.0"`
+  exclusively) anywhere may be harvested with quarantine intake, per-file license
+  verification, a harvest manifest, Apache-2.0 section 4 notices and `Origin:`
+  trailers; standalone MIT/BSD, `Apache-2.0 WITH LLVM-exception`, `AND`, copyleft
+  and unlicensed raw source is refused.
 
 ## CEO operating mandate (2026-11-10, Mandate 73)
 
@@ -120,6 +168,7 @@ These are requirements, **not claims of completed implementation**. Consult
 | 72 | **Platform scope, licensing and budget:** Susi core is Apache-2.0 and free forever, with releases and CI on vanilla Windows x86_64 and Linux x86_64 only (portable source kept); Susi Commercial Apps is private/paid and also builds, tests and releases for x86_64 Windows and Linux only; its macOS/ARM64 support is paused (CEO decision 2026-11-05) until the CEO reopens it. |
 | 73 | **Independent agents and Susi integration:** three isolated laptops with an available authorized local driver, recursive driver/engine adapters across container components, independent autonomous cloud sessions, capacity-based unlimited development contributions, master-brain distillation, portable Git storage and immutable release snapshots. |
 | 74 | **Autonomous CTO ecosystem mandate (2026-11-11):** `<10s` warm core build+test+release budget (`total_ms < 10_000`); 5 Apache-2.0 free-forever core pillars (**GAWD**, **GEMI**, **GMCP**, **ACP**, **Susi Harness** with parallel multi-agent workflow); remote pull and merge at every workflow step over portable Git storage (zero GitHub Actions/PRs/API); ungated labelled `main` deterministically distilled into immutable releases; attributed Apache-2.0 harvesting; all add-ons/UIs/SSO/RBAC/FinOps closed, licensed, and paid for corporates in `susi-commercial-apps`. |
+| 75 | **Raw Source (`main`) & Distill (`release`), Cloud Feature Pickup, and Pure `Apache-2.0` Compliance (2026-11-12):** symmetric Raw Source (`main`) -> Distill (`release`) pipeline across `susi` and `susi-commercial-apps` with one-version-one-cut guards; `local-harvest raw-features` / `route` / `pickup` routing 5-pillar `<10s` capabilities to Core and all UIs/packs/connectors/workflows to `susi-commercial-apps`; **Pure `Apache-2.0` ONLY** cloud harvest compliance (full §4(a)–(d) notices, refusing standalone MIT/BSD, LLVM-exception, `AND`, copyleft and unlicensed raw source); additive multi-agent (`Claude`, `Codex`, `Carbon`) Git and Susi Board collaboration. |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
