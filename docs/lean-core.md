@@ -1100,3 +1100,16 @@ config, core and the tail.
   removed: `ChatTemplateConfig` in `susi-config` is also test-only, but its
   field is part of the persisted `prompts.json` shape, so removing it needs a
   migration decision first.
+- 2026-11-12 (T-CLAUDELOCALTOOLS-1, Linux x86_64, CEO laptop), **CEO direction
+  "let the local engine take full conversations and tool lists"**: the
+  `susi-gemi` line ceiling rises `21,047 -> 21,180` (133 lines). New
+  capability, not a move. For a request that needs tools, core now sends the
+  local engine the same request as a conversation with the registered tools'
+  schemas (`messages` and `tools` on `gpu_fabric.local_engine.infer_stream`),
+  next to the prose prompt it has always sent. An engine that renders the
+  model's own chat template uses the conversation; any other answers from the
+  prose prompt exactly as before. `LocalEnginePlug::run_chat_stream`,
+  `NativeInferenceEngine::run_chat_stream` and `ContractCall::with_chat` carry
+  it, each defaulting to the plain-prompt call. No dependency is added. Net
+  for the day, with T-CLAUDELEANPROMPT-1's removal of dead prompt code
+  (`-98`): `susi-gemi` is 35 lines above where it started (`21,145`).

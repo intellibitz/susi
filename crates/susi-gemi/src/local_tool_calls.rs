@@ -77,6 +77,46 @@ fn tools_block(catalog: &[(&str, &str)]) -> Option<String> {
     ))
 }
 
+/// The request as a conversation with the registered tools' schemas, for a
+/// local engine that renders the model's own chat template (and therefore
+/// its own tool format, with each tool's parameters). `None` when nothing is
+/// registered. The prose prompt from [`prompt_with_tool_schemas`] is still
+/// sent as the fallback, and the answer is read by [`extract_tool_calls`]
+/// either way.
+pub fn chat_request(user_prompt: &str) -> Option<Value> {
+    chat_request_from(
+        &crate::susi_core::plane_bus::tools::list_tools(),
+        user_prompt,
+    )
+}
+
+pub(crate) fn chat_request_from(listed: &Value, user_prompt: &str) -> Option<Value> {
+    let tools: Vec<Value> = listed
+        .as_array()?
+        .iter()
+        .take(MAX_ENUMERATED_TOOLS)
+        .filter_map(|tool| {
+            let name = tool.get("name").and_then(Value::as_str)?;
+            let parameters = ["input_schema", "inputSchema", "parameters"]
+                .iter()
+                .find_map(|key| tool.get(*key).filter(|schema| schema.is_object()))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}}));
+            Some(serde_json::json!({"type": "function", "function": {
+                "name": name,
+                "description": tool.get("description").and_then(Value::as_str).unwrap_or(""),
+                "parameters": parameters,
+            }}))
+        })
+        .collect();
+    (!tools.is_empty()).then(|| {
+        serde_json::json!({
+            "messages": [{"role": "user", "content": user_prompt}],
+            "tools": tools,
+        })
+    })
+}
+
 /// Walk `<tool_call>...</tool_call>` pairs (case-insensitive; an unclosed
 /// trailing block counts). Blocks whose inner JSON does not normalize are
 /// preserved in the prose.
