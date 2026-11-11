@@ -41,7 +41,6 @@ members = [
     "crates/susi-vendor-console-subscriber",
     "crates/susi-vendor-dashmap",
     "crates/susi-vendor-ed25519-dalek",
-    "crates/susi-vendor-flume",
     "crates/susi-vendor-futures",
     "crates/susi-vendor-getrandom",
     "crates/susi-vendor-hex",
@@ -169,7 +168,6 @@ ed25519-dalek = { version = "2.2", default-features = false }
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 tokio = { version = "1.53", features = ["full", "tracing"] }
-flume = "0.12.0"
 parking_lot = "0.12"
 url = "2.5"
 criterion = "0.5"

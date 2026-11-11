@@ -26,7 +26,10 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// 2026-11-10: 198 -> 196 after the unused swarm flume edge (and spin) left.
 /// 2026-11-11: 196 -> 191 (measured; wasmparser 0.259 and wasm-encoder 0.259
 /// left with T-CLAUDEWASMSTD-1, the rest had already gone unpinned).
-const THIRD_PARTY_CEILING: usize = 191;
+/// 2026-11-11: 191 -> 184 (measured after T-CLAUDENOA2ASDK-1 and T-AGYCLOUD-3
+/// removed susi-vendor-flume and its fastrand/getrandom wasm_js + spin
+/// lock_api workspace feature unification).
+const THIRD_PARTY_CEILING: usize = 184;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
@@ -69,15 +72,20 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 20;
 /// leaving core, contract moving in" re-pin as T-NOMCPSDK-1. The A2A tier is
 /// outside the pillar closure since T-A2ASTD-1, so the reach ceilings above
 /// do not move; the host build loses the units.
+/// 2026-11-11: ratify accumulated source reductions across four pillar crates
+/// (susi-gawd-swarm 20,641 -> 20,635, susi-gawd-agents 11,263 -> 10,447,
+/// susi-gemi 21,290 -> 21,263, susi-harness 40,790 -> 40,594; -1,045 lines
+/// total) alongside removing the unreferenced susi-vendor-flume workspace
+/// facade (T-AGYCLOUD-3).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
-    ("susi-gawd-swarm", 20_641),
-    ("susi-gawd-agents", 11_263),
+    ("susi-gawd-swarm", 20_635),
+    ("susi-gawd-agents", 10_447),
     ("susi-gawd-a2a", 3_702),
-    ("susi-gemi", 21_290),
+    ("susi-gemi", 21_263),
     ("susi-gemi-models", 15_950),
     ("susi-gmcp", 25_900),
-    ("susi-harness", 40_790),
+    ("susi-harness", 40_594),
 ];
 
 fn workspace_root() -> PathBuf {
