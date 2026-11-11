@@ -139,8 +139,8 @@ The tool is `release-lanes` (`docs/release-lanes.md`). The repository's
    `git patch-id --stable`) are skipped. `git merge-tree --write-tree` does the
    merge without touching any checkout. A conflict stops with the file list; the
    agent resolves it in its own worktree and resumes with `pick --resume`.
-4. **Qualify the exact tree (`verify`).** Release lines keep the full exact-tree
-   gates from Mandate 73: license and Rust-only audits, format, clippy, non-empty
+4. **Qualify the exact tree (`verify`).** Release lines keep the
+   full exact-tree gates from Mandate 73: license and Rust-only audits, format, clippy, non-empty
    tests and executable smoke tests on tip + picks. `verify` runs the given
    command in a fresh worktree of the exact candidate and records evidence bound
    to its tree.
@@ -223,6 +223,9 @@ allowed under Mandate 68.
 - Never take trademarks, logos or product names (Apache-2.0 section 6).
 
 ### 5.2 Intake mechanics
+
+The tool is `local-harvest` (`docs/harvest.md`): `intake`, `scan`, `import`,
+`notices` and `audit` implement the steps below.
 
 1. **Quarantine fetch:** `git fetch --no-tags <url> <sha>:refs/susi/upstream/<slug>/<sha>`.
    Upstream code is untrusted. During intake, never run its build scripts,
@@ -316,11 +319,17 @@ submission (`local-snapshot submit`), plan/compose/orchestrate distillation
 with feature manifests (`local-distill`, `docs/release-distillation.md`), the
 `distill lint` labelling check, and recursive driver/engine delegation.
 
-To build (open work, not claims): release manifests and per-feature claim refs
-under `refs/susi/claims/release/*`; lane partitioning by disjoint scopes; atomic
-multi-ref release advancement with bounded retry; the `refs/susi/work/*` backup
-namespace and its per-remote probe; advisory `refs/susi/health/main`;
-`susi-harvest-manifest-v1`, quarantine intake and a harvest license audit in
-release qualification; `THIRD_PARTY_NOTICES` generation; the mirror portability
-drill and bundle backups; the provider-neutrality check for hardcoded hosts; and
-the harness parity evaluation for default-driver promotion.
+Since 2026-11-11, `release-lanes` (`docs/release-lanes.md`) provides lane
+partitioning by disjoint scopes, release manifests, atomic lane claims,
+in-memory `-x` picks with patch-id dedup, exact-tree evidence, and atomic
+fast-forward advancement with a bounded retry loop.
+`local-harvest` (`docs/harvest.md`) provides quarantine intake, per-file
+license scans, `susi-harvest-manifest-v1` imports, `THIRD_PARTY_NOTICES`
+generation, and an audit of Apache-2.0 section 4 (a) to (d) and of `Harvest:`
+trailers. Both work in `susi-commercial-apps` too, whose hook admits the same namespaces.
+
+To build (open work, not claims): wiring `local-harvest audit` into
+`local-release qualify`; speculative-stack qualification and safe evidence reuse
+across trees; claim heartbeats; advisory `main` health records; the mirror
+portability drill and bundle backups; the provider-neutrality check for
+hardcoded hosts; and the harness parity evaluation for default-driver promotion.
