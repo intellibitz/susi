@@ -1,0 +1,33 @@
+{
+  "id": "T-NETTRANSPORT-1",
+  "title": "Lean core: one std outbound HTTP client for the pillars; ureq leaves core",
+  "goal": "Replace the ureq-based outbound client in crates/susi-http-transport (http_call, http_call_with_body, http_post_utf8; used by GEMI BYOK providers, gemi-models downloads, GMCP, GAWD peers and the harness gateway) with HTTP/1.1 on std sockets and exactly one verified TLS stack, keeping certificate and hostname verification, the total deadline, redirect policy, proxy behaviour, SSE/chunked streaming and the error texts callers match on; delete susi-vendor-ureq; lower the pillar ceilings to the measured reach.",
+  "status": "in_progress",
+  "scopes": [
+    ".agents/tasks/T-NETTRANSPORT-1.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-gemi-models/src/resumable_downloads.rs",
+    "crates/susi-http-transport",
+    "crates/susi-vendor-ureq",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-http-transport"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794375425,
+  "owner": "NETTRANSPORT",
+  "base": "bf0bb15a6"
+}

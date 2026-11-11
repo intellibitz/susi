@@ -177,7 +177,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-tracing",
     "susi-vendor-tracing-appender",
     "susi-vendor-tracing-subscriber",
-    "susi-vendor-ureq",
     "susi-vendor-url",
     "susi-vendor-winapi",
     "susi-vendor-x25519-dalek",
@@ -774,8 +773,8 @@ fn ureq_types_stay_inside_http_transport() {
         if rel.contains("susi-http-transport/") {
             continue;
         }
-        // Facade crates legitimately name their upstream (`pub use ureq::*`
-        // inside susi-vendor-ureq is the entire point).
+        // Facade crates legitimately name their upstream (`pub use <crate>::*`
+        // is the entire point of a susi-vendor-* facade).
         if let Some(crate_dir) = rel.split('/').nth(1) {
             if VENDOR_FACADES.contains(&crate_dir) {
                 continue;

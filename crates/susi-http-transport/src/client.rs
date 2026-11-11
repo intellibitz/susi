@@ -1,25 +1,34 @@
 //! Shared outbound HTTP client for every SUSI plane that talks to a remote
 //! JSON endpoint (MCP, peer A2A, live search, eval/benchmark, HF download,
-//! cloud agent APIs, webhooks).
+//! cloud agent APIs, webhooks, BYOK inference providers).
 //!
 //! Vendor SDKs and provider-specific wire shapes do **not** live here:
-//! OpenAI / Anthropic / Gemini bodies stay in `susi-adapters-llm`; Candle
-//! stays in `susi-vendor-candle`. This module privately pools timeout- and
-//! redirect-profiled `ureq` agents so callers never depend on the vendor type.
+//! OpenAI / Anthropic / Gemini bodies stay in `susi-adapters-llm`.
+//!
+//! HTTP/1.1 on std sockets (`wire`, `connect`): one total deadline per
+//! call covers DNS, connect, TLS, the CONNECT tunnel, every redirect hop,
+//! the response head and the body the caller reads afterwards. TLS is the
+//! platform stack with its trust store; verification is never disabled.
+//! Connections are not pooled (`Connection: close`).
 
-use std::collections::HashMap;
-use std::io::Read;
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::io::{BufReader, Read};
+use std::time::{Duration, Instant};
 
-/// One completed request: status, headers, and a `Read` body. Callers
-/// never name `ureq`. HTTP error statuses are returned, not turned into
-/// `Err` — resume downloads need 416 / 206.
+use crate::connect::{self, Proxy};
+use crate::wire::{self, BodyReader, Target};
+use tokio_rustls::native_tls;
+
+/// `User-Agent` sent when the caller sets none.
+pub(crate) const USER_AGENT: &str = concat!("susi-http-transport/", env!("CARGO_PKG_VERSION"));
+
+/// One completed request: status, headers, and a `Read` body. HTTP error
+/// statuses are returned, not turned into `Err` — resume downloads need
+/// 416 / 206.
 pub struct HttpCall {
     /// HTTP status code.
     pub status: u16,
     headers: Vec<(String, String)>,
-    body: ureq::Body,
+    body: Box<dyn Read + Send>,
 }
 
 impl HttpCall {
@@ -31,14 +40,15 @@ impl HttpCall {
             .map(|(_, v)| v.as_str())
     }
 
-    /// All response headers as `(name, value)` pairs.
+    /// All response headers as `(name, value)` pairs, names lowercase.
     pub fn headers(&self) -> &[(String, String)] {
         &self.headers
     }
 
-    /// Consume the body as a `Read`.
+    /// Consume the body as a `Read`. Reads stay bounded by the call's
+    /// deadline and fail with a `timeout` error once it passes.
     pub fn into_reader(self) -> impl Read {
-        self.body.into_reader()
+        self.body
     }
 
     /// Consume the body into a bounded byte buffer, rejecting payloads over
@@ -64,75 +74,18 @@ impl HttpCall {
     }
 }
 
-fn into_call(resp: ureq::http::Response<ureq::Body>) -> HttpCall {
-    let status = resp.status().as_u16();
-    let headers = resp
-        .headers()
-        .iter()
-        .filter_map(|(k, v)| Some((k.as_str().to_string(), v.to_str().ok()?.to_string())))
-        .collect();
-    HttpCall {
-        status,
-        headers,
-        body: resp.into_body(),
-    }
+/// Whether `url` names this machine (`localhost` or a loopback literal).
+#[cfg(test)]
+fn loopback_url(url: &str) -> bool {
+    Target::parse(url).is_ok_and(|target| loopback_target(&target))
 }
 
-const MAX_AGENT_PROFILES: usize = 16;
-type AgentCache = Mutex<HashMap<(u64, u32, bool), ureq::Agent>>;
-static HTTP_AGENTS: OnceLock<AgentCache> = OnceLock::new();
-
-fn loopback_url(url: &str) -> bool {
-    let Ok(uri) = url.parse::<ureq::http::Uri>() else {
-        return false;
-    };
-    let Some(host) = uri.host() else {
-        return false;
-    };
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .trim_start_matches('[')
-            .trim_end_matches(']')
+fn loopback_target(target: &Target) -> bool {
+    target.host.eq_ignore_ascii_case("localhost")
+        || target
+            .host
             .parse::<std::net::IpAddr>()
             .is_ok_and(|ip| ip.is_loopback())
-}
-
-fn agent_for(timeout_secs: u64, max_redirects: u32, direct: bool) -> ureq::Agent {
-    let timeout_secs = timeout_secs.max(1);
-    let key = (timeout_secs, max_redirects, direct);
-    let mut agents = HTTP_AGENTS
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if let Some(agent) = agents.get(&key) {
-        return agent.clone();
-    }
-    if agents.len() >= MAX_AGENT_PROFILES {
-        agents.clear();
-    }
-    let timeout = Duration::from_secs(timeout_secs);
-    let mut config = ureq::Agent::config_builder()
-        .tls_config(
-            ureq::tls::TlsConfig::builder()
-                .provider(ureq::tls::TlsProvider::NativeTls)
-                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
-                .build(),
-        )
-        // One caller-selected budget covers DNS, headers, redirects and body
-        // reads. Phase-only limits leave response headers unbounded.
-        .timeout_global(Some(timeout))
-        .timeout_connect(Some(Duration::from_secs(15).min(timeout)))
-        .timeout_recv_body(Some(timeout))
-        .timeout_send_body(Some(timeout))
-        .max_redirects(max_redirects);
-    // Local inference and host-control traffic must stay on this machine,
-    // even when the parent has an HTTP(S)/ALL_PROXY configured for cloud use.
-    if direct {
-        config = config.proxy(None);
-    }
-    let agent = ureq::Agent::new_with_config(config.build());
-    agents.insert(key, agent.clone());
-    agent
 }
 
 /// GET or HEAD with a total deadline and redirect cap. `timeout_secs` (at
@@ -162,73 +115,11 @@ pub fn http_call_with_body(
     timeout_secs: u64,
     max_redirects: u32,
 ) -> Result<HttpCall, String> {
-    let agent = agent_for(timeout_secs, max_redirects, loopback_url(url));
-    match method {
-        "HEAD" | "GET" => {
-            let mut req = match method {
-                "HEAD" => agent.head(url),
-                _ => agent.get(url),
-            };
-            for (name, value) in headers {
-                req = req.header(*name, *value);
-            }
-            let resp = req
-                .config()
-                .http_status_as_error(false)
-                .build()
-                .call()
-                .map_err(|e| e.to_string())?;
-            Ok(into_call(resp))
-        }
-        "DELETE" => match body {
-            None => {
-                let mut req = agent.delete(url);
-                for (name, value) in headers {
-                    req = req.header(*name, *value);
-                }
-                let resp = req
-                    .config()
-                    .http_status_as_error(false)
-                    .build()
-                    .call()
-                    .map_err(|e| e.to_string())?;
-                Ok(into_call(resp))
-            }
-            // DELETE may carry a JSON body (e.g. Ollama /api/delete); ureq's
-            // typed builder is bodyless so the request is built raw.
-            Some(payload) => {
-                let mut builder = ureq::http::Request::builder().method("DELETE").uri(url);
-                for (name, value) in headers {
-                    builder = builder.header(*name, *value);
-                }
-                let request = builder.body(payload.to_vec()).map_err(|e| e.to_string())?;
-                let resp = agent.run(request).map_err(|e| e.to_string())?;
-                Ok(into_call(resp))
-            }
-        },
-        "POST" | "PUT" | "PATCH" => {
-            let mut req = match method {
-                "PUT" => agent.put(url),
-                "PATCH" => agent.patch(url),
-                _ => agent.post(url),
-            };
-            for (name, value) in headers {
-                req = req.header(*name, *value);
-            }
-            let payload = body.unwrap_or(&[]);
-            let resp = req
-                .config()
-                .http_status_as_error(false)
-                .build()
-                .send(payload)
-                .map_err(|e| e.to_string())?;
-            Ok(into_call(resp))
-        }
-        other => Err(format!("unsupported HTTP method {other}")),
-    }
+    let request = Request::new(method, url, headers, body, timeout_secs, max_redirects)?;
+    execute(request, None, Proxy::from_env)
 }
 
-/// POST a body and read a bounded UTF-8 response. Callers never name `ureq`.
+/// POST a body and read a bounded UTF-8 response.
 pub fn http_post_utf8(
     url: &str,
     headers: &[(String, String)],
@@ -245,6 +136,155 @@ pub fn http_post_utf8(
     let text = call.into_utf8(max_bytes)?;
     Ok((status, text))
 }
+
+/// One logical request, before redirects.
+struct Request {
+    method: &'static str,
+    target: Target,
+    headers: Vec<(String, String)>,
+    body: Option<Vec<u8>>,
+    deadline: Instant,
+    max_redirects: u32,
+}
+
+impl Request {
+    #[allow(clippy::too_many_arguments)] // the six facts of the public call, passed through unchanged
+    fn new(
+        method: &str,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: Option<&[u8]>,
+        timeout_secs: u64,
+        max_redirects: u32,
+    ) -> Result<Self, String> {
+        let method: &'static str = match method {
+            "GET" => "GET",
+            "HEAD" => "HEAD",
+            "DELETE" => "DELETE",
+            "POST" => "POST",
+            "PUT" => "PUT",
+            "PATCH" => "PATCH",
+            other => return Err(format!("unsupported HTTP method {other}")),
+        };
+        let body = match method {
+            "GET" | "HEAD" => None,
+            "DELETE" => body.map(<[u8]>::to_vec),
+            _ => Some(body.unwrap_or_default().to_vec()),
+        };
+        Ok(Self {
+            method,
+            target: Target::parse(url)?,
+            headers: headers
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+            body,
+            deadline: Instant::now() + Duration::from_secs(timeout_secs.max(1)),
+            max_redirects,
+        })
+    }
+}
+
+/// Run `request`, following redirects the way the previous client did:
+/// any 3xx but 304 is a redirect; 301/302/303 turn every method but HEAD
+/// into a bodiless GET; 307/308 keep the method and refuse to resend a
+/// body (POST/PUT/PATCH) or a DELETE; `Authorization` and `Cookie` are
+/// never carried to the next hop. With `max_redirects = 0` the 3xx is
+/// returned; past a non-zero cap the call fails.
+///
+/// Loopback hops never use a proxy, so local inference and host-control
+/// traffic stay on this machine even with HTTP(S)/ALL_PROXY configured.
+fn execute(
+    mut request: Request,
+    connector: Option<&native_tls::TlsConnector>,
+    proxy_from_env: fn() -> Option<Proxy>,
+) -> Result<HttpCall, String> {
+    let mut redirects = 0u32;
+    loop {
+        connect::remaining(request.deadline).map_err(|e| e.to_string())?;
+        let proxy = if loopback_target(&request.target) {
+            None
+        } else {
+            proxy_from_env()
+        };
+        let call = send_once(&request, proxy.as_ref(), connector)?;
+        let redirect = (300..400).contains(&call.status) && call.status != 304;
+        if !redirect || request.max_redirects == 0 {
+            return Ok(call);
+        }
+        if redirects >= request.max_redirects {
+            return Err(format!(
+                "too many redirects (more than {})",
+                request.max_redirects
+            ));
+        }
+        let location = call
+            .header("location")
+            .ok_or_else(|| format!("redirect {} without a Location header", call.status))?
+            .to_string();
+        let next = request.target.join(&location)?;
+        let method = match call.status {
+            307 | 308 => {
+                if matches!(request.method, "POST" | "PUT" | "PATCH" | "DELETE") {
+                    return Err(format!(
+                        "redirect failed: {} cannot be resent after {}",
+                        request.method, call.status
+                    ));
+                }
+                request.method
+            }
+            _ if request.method == "HEAD" => "HEAD",
+            _ => "GET",
+        };
+        drop(call);
+        request.headers.retain(|(name, _)| {
+            !name.eq_ignore_ascii_case("authorization") && !name.eq_ignore_ascii_case("cookie")
+        });
+        if !matches!(method, "POST" | "PUT" | "PATCH") {
+            request.body = None;
+        }
+        request.method = method;
+        request.target = next;
+        redirects += 1;
+    }
+}
+
+/// One request/response exchange on a fresh connection.
+fn send_once(
+    request: &Request,
+    proxy: Option<&Proxy>,
+    connector: Option<&native_tls::TlsConnector>,
+) -> Result<HttpCall, String> {
+    let head = wire::request_head(
+        request.method,
+        &request.target,
+        &request.headers,
+        request.body.as_ref().map(Vec::len),
+    )?;
+    let mut stream = connect::open(&request.target, proxy, connector, request.deadline)?;
+    let send = |stream: &mut connect::Conn| -> std::io::Result<()> {
+        use std::io::Write;
+        stream.write_all(&head)?;
+        if let Some(body) = &request.body {
+            stream.write_all(body)?;
+        }
+        stream.flush()
+    };
+    send(&mut stream).map_err(|e| format!("sending the request: {e}"))?;
+    let mut reader = BufReader::new(stream);
+    let head = wire::read_head(&mut reader).map_err(|e| format!("reading the response: {e}"))?;
+    let framing =
+        wire::framing(request.method, &head).map_err(|e| format!("reading the response: {e}"))?;
+    Ok(HttpCall {
+        status: head.status,
+        body: Box::new(BodyReader::new(reader, framing)),
+        headers: head.headers,
+    })
+}
+
+#[cfg(test)]
+#[path = "client_wire_tests.rs"]
+mod wire_tests;
 
 #[cfg(test)]
 mod tests {

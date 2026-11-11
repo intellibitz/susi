@@ -29,12 +29,17 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// 2026-11-11: 191 -> 184 (measured after T-CLAUDENOA2ASDK-1 and T-AGYCLOUD-3
 /// removed susi-vendor-flume and its fastrand/getrandom wasm_js + spin
 /// lock_api workspace feature unification).
-const THIRD_PARTY_CEILING: usize = 184;
+/// 2026-11-11: 184 -> 165 (measured; T-NETTRANSPORT-1: susi-http-transport's
+/// outbound client is HTTP/1.1 on std sockets over the platform TLS already
+/// in the closure, so ureq, ureq-proto, flate2 and its zlib backends,
+/// cookie_store, time and their tail left the pillars).
+const THIRD_PARTY_CEILING: usize = 165;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
 /// then 47 -> 46 (susi-vendor-mcp-server deleted).
-const WORKSPACE_CEILING: usize = 46;
+/// 2026-11-11: 46 -> 45 (susi-vendor-ureq deleted, T-NETTRANSPORT-1).
+const WORKSPACE_CEILING: usize = 45;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).

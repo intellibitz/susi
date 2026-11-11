@@ -4,7 +4,7 @@
 //! bytes already on disk, verify sha256 against the hub/catalog value when
 //! the body completes, and quarantine (rename to `.corrupt`) rather than
 //! delete on mismatch. The transport is injected so tests drive the loop
-//! against a local server that cuts connections mid-stream; `ureq` wires the
+//! against a local server that cuts connections mid-stream; `susi-http-transport` wires the
 //! real HTTPS path at the call site.
 
 use std::io::{Read, Write};
@@ -211,7 +211,7 @@ pub fn sha256_hex(data: &[u8]) -> String {
 }
 
 /// Minimal std-only transport for `http://` URLs (loopback/local servers in
-/// tests and mirrors). HTTPS goes through ureq at the call site.
+/// tests and mirrors). HTTPS goes through susi-http-transport at the call site.
 pub fn http_transport(req: &RangeRequest) -> EaiResult<RangeResponse> {
     use std::io::{BufRead, BufReader, Read};
     let url = req
