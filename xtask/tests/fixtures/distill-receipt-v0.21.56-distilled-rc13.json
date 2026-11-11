@@ -1,0 +1,198 @@
+{
+  "accept_verification": [
+    {
+      "cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--bin",
+        "susi",
+        "--",
+        "harness_cli"
+      ],
+      "exit_code": 0,
+      "output_sha256": "032468e80c3dfde9f18bf6d947516aca90d466410e18dbe3a96d968ea6373598",
+      "passed": true,
+      "task_id": "T-AGYCLOUD-9"
+    }
+  ],
+  "adopted_host_commits": {},
+  "base_commit": "ca8309f476d31507fb7af825ea4fcc4089049742",
+  "base_tree": "e456f0be39636d2a06be8840e1fc9eb17b4dc54c",
+  "branch_ref": "refs/heads/release/v0.21.56-distilled-rc13",
+  "closure_order": [
+    "T-CLAUDELOOP10-1",
+    "T-CLAUDENOA2ASDK-1",
+    "T-CLAUDERECURSE-1",
+    "T-CLAUDESIGNENV-1",
+    "T-CLAUDEDISTILL-1",
+    "T-CLAUDEREL55REC-1",
+    "T-CLAUDEWASMSTD-1",
+    "T-CLAUDEBUILDIDLE-1",
+    "T-GROKDISTILL-1",
+    "T-CARBONDISTILL-1",
+    "T-CARBONDRIVER-1",
+    "T-AGYCLOUD-2",
+    "T-AGYCLOUD-3",
+    "T-AGYCLOUD-4",
+    "T-AGYCLOUD-5",
+    "T-AGYCLOUD-6",
+    "T-AGYCLOUD-9"
+  ],
+  "deferred": [],
+  "endpoint_digest": "59016be21b120c423e80dd399bf6593aeff594455aa3998c3919cd54fb171e68",
+  "feature": null,
+  "final_commit": "a5a94d3a18c84db768db72e794deb0574d26db90",
+  "final_tree": "6496a448ccd1c41d91abc9443c66b8a66479d12e",
+  "git_host_created_in_stream": [],
+  "git_host_identities": [
+    "noreply@github.com"
+  ],
+  "included": [
+    {
+      "accept_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "susi",
+        "--bin",
+        "susi",
+        "--",
+        "harness_cli"
+      ],
+      "changed_files": [
+        ".agents/tasks/done/T-AGYCLOUD-9.json",
+        "crates/susi-cli-defs/src/harness.rs",
+        "docs/recursive-delegation.md",
+        "src/cli/harness_cli.rs",
+        "src/cli/os_cli.rs",
+        "tests/fixtures/cli_help_snapshot.txt"
+      ],
+      "composed_commit": "a5a94d3a18c84db768db72e794deb0574d26db90",
+      "composed_tree": "6496a448ccd1c41d91abc9443c66b8a66479d12e",
+      "deps": [
+        "T-AGYCLOUD-2",
+        "T-AGYCLOUD-6"
+      ],
+      "goal": "Close the two Mandate 73 CLI/daemon delegation gaps in `docs/recursive-delegation.md`: (1) forward `susi os capabilities revoke <id>` across live sibling Susi processes on `<cache>/bus/<pid>/` (`daemon.harness` `revoke_delegation`) while preserving instant offline local revocation, reporting `local_revoked`, `daemon_contacted`, `daemon_revoked`, and `cancelled_runs`; and (2) add `--delegation <JSON|@file>` to standalone `susi harness run` (`crates/susi-cli-defs/src/harness.rs`, `src/cli/harness_cli.rs`), opening a `susi_core::delegation::DelegationScope` (`susi-harness:harness.cli.run` requiring `harness:run`), clamping `--timeout` to the envelope's remaining deadline, reserving `--budget-usd` in micro-USD, charging actual ledger spend, and refunding unspent micro-USD on drop.",
+      "owner": "agycloud-20261111-w3",
+      "reason_code": "selected_and_composed",
+      "scopes": [
+        ".agents/tasks/T-AGYCLOUD-9.json",
+        ".agents/tasks/done/T-AGYCLOUD-9.json",
+        "crates/susi-cli-defs/src/harness.rs",
+        "docs/recursive-delegation.md",
+        "src/cli/harness_cli.rs",
+        "src/cli/os_cli.rs",
+        "tests/fixtures/cli_help_snapshot.txt"
+      ],
+      "source_commits": [
+        "cc3c3fb9266cab2d9a40d99bdbb4a4c0a6693d48",
+        "c186c789134d44aac4be4de714172762b6d6d386",
+        "177a1d1d1e091f3b6aa83cbab5330bcd6f04113a"
+      ],
+      "task_id": "T-AGYCLOUD-9",
+      "title": "CLI sibling-daemon delegation revocation forwarding and susi harness run --delegation DelegationScope admission"
+    }
+  ],
+  "mode": "orchestrate",
+  "name": "v0.21.56-distilled-rc13",
+  "plan_manifest_sha256": null,
+  "qualification_status": "accept_verified_candidate",
+  "receipt_sha256": "d1419d39cfa2658211bac53f95bc162941dd2ca715fed96c5daf34bc4b94be6a",
+  "rejected": [],
+  "requested_tasks": [
+    "T-AGYCLOUD-9"
+  ],
+  "satisfied_in_base": [
+    {
+      "detail": "closed task record for T-CLAUDELOOP10-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDELOOP10-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDENOA2ASDK-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDENOA2ASDK-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDERECURSE-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDERECURSE-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDESIGNENV-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDESIGNENV-1"
+    },
+    {
+      "detail": "task T-CLAUDEDISTILL-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEDISTILL-1"
+    },
+    {
+      "detail": "task T-CLAUDEREL55REC-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEREL55REC-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDEWASMSTD-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEWASMSTD-1"
+    },
+    {
+      "detail": "closed task record for T-CLAUDEBUILDIDLE-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CLAUDEBUILDIDLE-1"
+    },
+    {
+      "detail": "closed task record for T-GROKDISTILL-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-GROKDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDISTILL-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDISTILL-1"
+    },
+    {
+      "detail": "closed task record for T-CARBONDRIVER-1 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-CARBONDRIVER-1"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-2 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-2"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-3 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-3"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-4 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-4"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-5 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-5"
+    },
+    {
+      "detail": "closed task record for T-AGYCLOUD-6 is already present in base ca8309f476d31507fb7af825ea4fcc4089049742 with zero newer commits",
+      "reason_code": "already_in_base",
+      "task_id": "T-AGYCLOUD-6"
+    }
+  ],
+  "schema": "susi-distillation-receipt-v1",
+  "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.56-distilled-rc13",
+  "source_stream_commit": "177a1d1d1e091f3b6aa83cbab5330bcd6f04113a",
+  "source_stream_tree": "6496a448ccd1c41d91abc9443c66b8a66479d12e"
+}
