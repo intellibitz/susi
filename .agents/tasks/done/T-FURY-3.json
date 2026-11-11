@@ -1,0 +1,36 @@
+{
+  "id": "T-FURY-3",
+  "title": "Reconcile merges on shared main carry their real date",
+  "goal": "`local-distill submit-main` wrote its reconcile merge onto development main with the fixed composition date 2026-11-10T00:00:00Z (main head ca8309f47, shown by the host as made 'yesterday'). Merges published to shared main now record the time they were made; composition commits keep the fixed date for reproducible candidates and receipts.",
+  "status": "done",
+  "owner": "fury",
+  "created_by": "FURY",
+  "created_unix": 1794386775,
+  "size": "s",
+  "deps": [],
+  "base_commit": "6b44f02bcc9033d76da32ddf7304b550e938e566",
+  "scopes": [
+    "xtask/src/distill_compose.rs",
+    ".agents/tasks/T-FURY-3.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-distill"
+    ]
+  },
+  "results": {
+    "tests": "cargo test --offline --locked -p xtask --bin local-distill: 19 passed / 0 failed; the extended submit_main_reconciles_concurrent_peer_commits... test fails on the old code ('merge dated 1794268800, now 1794386753') and passes with the fix",
+    "clippy": "cargo clippy --offline --locked -p xtask --all-targets -- -D warnings: exit 0",
+    "fmt": "cargo fmt --all --check: exit 0"
+  },
+  "limitations": [
+    "ca8309f47 already on main keeps its misleading date; published history is never rewritten."
+  ]
+}

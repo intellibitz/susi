@@ -683,7 +683,29 @@ impl Git<'_> {
         self.commit_tree_raw(tree, parents, message)
     }
 
+    /// A merge published to shared development main records when it was
+    /// made: the fixed composition date would misdate main's history (the
+    /// host showed a reconcile merge from 11 Nov as made "yesterday").
+    fn commit_tree_dated_now(&self, tree: &str, parents: &[&str], message: &str) -> Result<String> {
+        if parents.is_empty() {
+            return Err("commit-tree requires at least one parent".to_owned());
+        }
+        self.commit_tree_with(tree, parents, message, false)
+    }
+
+    /// Composition commits use a fixed date so the same inputs give the same
+    /// candidate commit and receipt on every host.
     fn commit_tree_raw(&self, tree: &str, parents: &[&str], message: &str) -> Result<String> {
+        self.commit_tree_with(tree, parents, message, true)
+    }
+
+    fn commit_tree_with(
+        &self,
+        tree: &str,
+        parents: &[&str],
+        message: &str,
+        fixed_date: bool,
+    ) -> Result<String> {
         valid_oid(tree)?;
         let mut command = Command::new("git");
         command
@@ -699,10 +721,8 @@ impl Git<'_> {
             .args(["-F", "-"])
             .env("GIT_AUTHOR_NAME", "Susi Distiller")
             .env("GIT_AUTHOR_EMAIL", "distiller@localhost")
-            .env("GIT_AUTHOR_DATE", "2026-11-10T00:00:00Z")
             .env("GIT_COMMITTER_NAME", "Susi Distiller")
             .env("GIT_COMMITTER_EMAIL", "distiller@localhost")
-            .env("GIT_COMMITTER_DATE", "2026-11-10T00:00:00Z")
             .env("GIT_TERMINAL_PROMPT", "0")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -717,6 +737,15 @@ impl Git<'_> {
             "GIT_GRAFT_FILE",
         ] {
             command.env_remove(key);
+        }
+        if fixed_date {
+            command
+                .env("GIT_AUTHOR_DATE", "2026-11-10T00:00:00Z")
+                .env("GIT_COMMITTER_DATE", "2026-11-10T00:00:00Z");
+        } else {
+            command
+                .env_remove("GIT_AUTHOR_DATE")
+                .env_remove("GIT_COMMITTER_DATE");
         }
         #[cfg(test)]
         {
@@ -3227,7 +3256,7 @@ fn run_submit_main_command(root: &Path, args: &SubmitMainArgs) -> Result<String>
                 for task_id in &tasks {
                     msg.push_str(&format!("Task: {task_id}\n"));
                 }
-                let merge_commit = git.commit_tree_parents(
+                let merge_commit = git.commit_tree_dated_now(
                     &merged_tree,
                     &[remote_oid.as_str(), candidate.as_str()],
                     &msg,
@@ -4343,6 +4372,19 @@ mod tests {
         let bare = Git { root: &fx.remote };
         assert!(bare.ancestor(&peer_head, published).unwrap());
         assert!(bare.ancestor(&own_commit, published).unwrap());
+        // The reconcile merge on shared main carries the time it was made,
+        // not the fixed composition date.
+        let dated: u64 = bare
+            .text(&["log", "-1", "--format=%ct", published])
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert!(now.abs_diff(dated) < 600, "merge dated {dated}, now {now}");
 
         // Unlabelled commit is refused before touching origin/main
         fx.write("agent_mod/unlabelled.txt", "no trailer\n");
