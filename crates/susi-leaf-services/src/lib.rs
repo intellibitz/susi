@@ -171,6 +171,24 @@ mod tests {
 /// shared server's in-process dispatcher — no listener needed.
 /// `cargo test -p susi-leaf-services --all-features` exercises every router;
 /// a default-feature build compiles this module empty.
+/// Serialises every test in this crate that reads or mutates process-wide
+/// env (`SUSI_HOME`, `SUSI_HOST_TOKEN`, `DOCKER_HOST`): the router tests set
+/// `SUSI_HOME` to a temp dir, and a service test that reads the paths
+/// contract meanwhile compares a response against a different root (seen
+/// once in the 2026-11-07 gate, 1 of ~40). Async-aware because the guard
+/// must span the `.await`s that read the env it protects.
+#[cfg(all(
+    test,
+    any(
+        feature = "service-paths",
+        feature = "service-error",
+        feature = "service-config",
+        feature = "service-sandbox",
+        feature = "service-native"
+    )
+))]
+pub(crate) static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[cfg(all(
     test,
     feature = "service-paths",
@@ -179,16 +197,6 @@ mod tests {
     feature = "service-sandbox",
     feature = "service-native"
 ))]
-/// Serialises every test in this crate that reads or mutates process-wide
-/// env (`SUSI_HOME`, `SUSI_HOST_TOKEN`, `DOCKER_HOST`): the router tests set
-/// `SUSI_HOME` to a temp dir, and a service test that reads the paths
-/// contract meanwhile compares a response against a different root (seen
-/// once in the 2026-11-07 gate, 1 of ~40). Async-aware because the guard
-/// must span the `.await`s that read the env it protects.
-#[cfg(test)]
-pub(crate) static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-#[cfg(test)]
 mod router_tests {
     use super::ENV_LOCK;
     use susi_http_transport::server::{

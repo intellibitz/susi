@@ -102,6 +102,7 @@ mod tests {
 
     #[tokio::test]
     async fn supervisor_policy_enforces_bearer_when_armed_and_is_open_otherwise() {
+        let _env = crate::ENV_LOCK.lock().await;
         let guard: Guard = Arc::new(supervisor);
         let before = std::env::var("SUSI_HOST_TOKEN").ok();
         std::env::remove_var("SUSI_HOST_TOKEN");

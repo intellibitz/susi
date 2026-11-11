@@ -99,6 +99,7 @@ mod tests {
 
     #[tokio::test]
     async fn wasm_execute_is_post_only() {
+        let _env = crate::ENV_LOCK.lock().await;
         let before = std::env::var("SUSI_HOST_TOKEN").ok();
         std::env::remove_var("SUSI_HOST_TOKEN");
         for method in ["GET", "PUT", "DELETE"] {
@@ -118,6 +119,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_native_paths_are_not_routed() {
+        let _env = crate::ENV_LOCK.lock().await;
         let before = std::env::var("SUSI_HOST_TOKEN").ok();
         std::env::remove_var("SUSI_HOST_TOKEN");
         let status = router()
@@ -133,6 +135,7 @@ mod tests {
     #[tokio::test]
     async fn wasm_execute_rejects_malformed_json_or_unauthorized_and_missing_wasm_file_returns_error(
     ) {
+        let _env = crate::ENV_LOCK.lock().await;
         let before = std::env::var("SUSI_HOST_TOKEN").ok();
         std::env::set_var("SUSI_HOST_TOKEN", "native-test-token");
         let malformed_status = router()
@@ -161,6 +164,7 @@ mod tests {
 
     #[tokio::test]
     async fn head_and_patch_on_wasm_execute_are_rejected() {
+        let _env = crate::ENV_LOCK.lock().await;
         let before = std::env::var("SUSI_HOST_TOKEN").ok();
         std::env::remove_var("SUSI_HOST_TOKEN");
         for method in ["HEAD", "PATCH"] {

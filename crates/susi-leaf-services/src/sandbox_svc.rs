@@ -186,6 +186,8 @@ mod tests {
 
     #[tokio::test]
     async fn every_sandbox_route_requires_the_host_token() {
+        let _env = crate::ENV_LOCK.lock().await;
+        let before = std::env::var("SUSI_HOME").ok();
         let home = tempfile::tempdir().unwrap();
         std::env::set_var("SUSI_HOME", home.path());
         for (method, uri, body) in [
@@ -208,6 +210,10 @@ mod tests {
         ] {
             let status = router().call(request(method, uri, body)).await.status();
             assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri}");
+        }
+        match before {
+            Some(value) => std::env::set_var("SUSI_HOME", value),
+            None => std::env::remove_var("SUSI_HOME"),
         }
     }
 
