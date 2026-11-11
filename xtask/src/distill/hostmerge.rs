@@ -14,6 +14,21 @@
 //! the host created unless the planning agent adopts each commit by id, and
 //! that adoption is written into the manifest or receipt.
 //!
+//! **Re-landing.** Work the host created is brought back through Susi by a
+//! replay: a commit made locally by an agent that carries the host commit's
+//! exact change and a `Relands: <full host commit id>` trailer (keeping the
+//! original `Task:` trailer), joined to main by a Susi merge. A re-land counts
+//! only when it is verifiable from Git alone:
+//! - for a host-created non-merge commit, the replay is a non-merge commit by
+//!   a non-host committer whose raw diff against its parent (paths, modes and
+//!   blob ids) is identical to the host commit's;
+//! - for a host-created merge, the naming commit is by a non-host committer
+//!   and descends from that merge (the Susi merge took responsibility for it).
+//!
+//! A relanded host commit is then neither a lint finding nor a distillation
+//! refusal; its replay stands in for it. Claims that do not verify are
+//! reported, never honoured.
+//!
 //! The built-in identity is the one the current host stamps. Other hosts add
 //! theirs without a code change: `git config --add susi.hostCommitter <email>`.
 //! A host whose web merges reuse the clicking user's identity cannot be
@@ -187,6 +202,136 @@ pub fn among(
         }
         for c in parse(&String::from_utf8_lossy(&out), hosts) {
             found.insert(c.oid.clone(), c);
+        }
+    }
+    Ok(found)
+}
+
+/// Trailer naming the host commit a Susi-made commit re-lands.
+pub const RELANDS_TRAILER: &str = "Relands";
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Relands {
+    /// Host commit -> the Susi-made commit that verifiably re-lands it.
+    pub valid: BTreeMap<String, String>,
+    /// `(claiming commit, named commit, why it was not honoured)`.
+    pub invalid: Vec<(String, String, String)>,
+}
+
+fn ancestor(root: &Path, a: &str, b: &str) -> Result<bool, String> {
+    Ok(git(root, &["merge-base", "--is-ancestor", a, b])?.0 == 0)
+}
+
+/// The raw change a non-merge commit makes against its parent (or the empty
+/// tree for a root commit): modes, blob ids, status and path per line.
+fn raw_change(root: &Path, oid: &str) -> Result<String, String> {
+    let (code, out) = git(
+        root,
+        &[
+            "diff-tree",
+            "-r",
+            "--root",
+            "--no-renames",
+            "--no-commit-id",
+            "--raw",
+            "--full-index",
+            oid,
+            "--",
+        ],
+    )?;
+    if code != 0 {
+        return Err(format!("git diff-tree {oid} exited {code}"));
+    }
+    Ok(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// Parse `--format=%x1e%H%x1f%P%x1f%ce%x1f%(trailers:key=Relands,...)`:
+/// `(commit, is_merge, committer email, named ids)`.
+pub fn parse_claims(text: &str) -> Vec<(String, bool, String, Vec<String>)> {
+    let mut claims = Vec::new();
+    for chunk in text.split(RS) {
+        let chunk = chunk.trim_matches(['\n', '\r']);
+        let mut p = chunk.splitn(4, US);
+        let (oid, parents, email, named) = (
+            p.next().unwrap_or_default().trim(),
+            p.next().unwrap_or_default(),
+            p.next().unwrap_or_default(),
+            p.next().unwrap_or_default(),
+        );
+        if !is_oid(oid) {
+            continue;
+        }
+        let named: Vec<String> = named
+            .split(['\u{1d}', '\n', ',', ' '])
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect();
+        claims.push((
+            oid.to_owned(),
+            parents.split_whitespace().count() > 1,
+            normalise(email),
+            named,
+        ));
+    }
+    claims
+}
+
+/// Re-land claims in the history of `rev`, each verified (see module docs).
+pub fn relands(root: &Path, rev: &str, hosts: &BTreeSet<String>) -> Result<Relands, String> {
+    if rev.starts_with('-') {
+        return Err(format!("refusing revision {rev:?}"));
+    }
+    let grep = format!("--grep=^{RELANDS_TRAILER}: ");
+    let format = format!(
+        "--format=%x1e%H%x1f%P%x1f%ce%x1f%(trailers:key={RELANDS_TRAILER},valueonly,separator=%x1d)"
+    );
+    let (code, out) = git(root, &["log", &grep, &format, rev, "--"])?;
+    if code != 0 {
+        return Err(format!(
+            "git log --grep {RELANDS_TRAILER} {rev} exited {code}"
+        ));
+    }
+    let claims = parse_claims(&String::from_utf8_lossy(&out));
+    let wanted: BTreeSet<String> = claims
+        .iter()
+        .flat_map(|c| c.3.iter().filter(|n| is_oid(n)).cloned())
+        .collect();
+    let host_made = among(root, &wanted, hosts)?;
+    let mut found = Relands::default();
+    for (by, by_merge, email, named) in claims {
+        for h in named {
+            let reject = |why: &str| (by.clone(), h.clone(), why.to_owned());
+            if hosts.contains(&email) {
+                found.invalid.push(reject(
+                    "the claiming commit was itself created by the Git host",
+                ));
+                continue;
+            }
+            if !is_oid(&h) {
+                found.invalid.push(reject("not a full commit id"));
+                continue;
+            }
+            let Some(host) = host_made.get(&h) else {
+                found
+                    .invalid
+                    .push(reject("the named commit is not a host-created commit here"));
+                continue;
+            };
+            let verified = if host.merge {
+                ancestor(root, &h, &by)?
+            } else {
+                !by_merge && raw_change(root, &h)? == raw_change(root, &by)?
+            };
+            if !verified {
+                found.invalid.push(reject(if host.merge {
+                    "a re-landed merge must be an ancestor of the commit naming it"
+                } else {
+                    "the replay's change is not identical to the host commit's"
+                }));
+                continue;
+            }
+            found.valid.entry(h).or_insert_with(|| by.clone());
         }
     }
     Ok(found)

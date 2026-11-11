@@ -111,6 +111,10 @@ pub struct Facts {
     /// Commits of the planned tasks that the Git host created instead of Susi
     /// (commit id -> `committer <email>`), see `hostmerge`.
     pub host_created: BTreeMap<String, String>,
+    /// Host-created commits verifiably re-landed through Susi (host -> replay).
+    pub relanded: BTreeMap<String, String>,
+    /// Re-land claims that did not verify, as warnings.
+    pub reland_warnings: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -538,6 +542,12 @@ fn intrinsic(
 /// is rejected unless the planning agent adopted each such commit by full id.
 fn host_provenance(out: &mut Outcome, facts: &Facts, adopted: &BTreeSet<String>) {
     for c in &out.commits {
+        if let Some(by) = facts.relanded.get(c) {
+            out.notes.insert(format!(
+                "relanded_host_commit: {c} re-landed through Susi by {by}"
+            ));
+            continue;
+        }
         let Some(who) = facts.host_created.get(c) else {
             continue;
         };
@@ -758,6 +768,7 @@ pub fn plan(
             adopted.into_iter().collect::<Vec<_>>().join(", ")
         ));
     }
+    warnings.extend(facts.reland_warnings.iter().cloned());
     let entangled_total: usize = entangled.values().map(BTreeSet::len).sum();
     if entangled_total > 0 {
         warnings.insert(format!(
@@ -1266,6 +1277,17 @@ fn gather(git: &Git<'_>, base: &str, records: &[Record], requested: &[String]) -
         facts
             .host_created
             .insert(oid, format!("{} <{}>", c.committer, c.email));
+    }
+    let relands = hostmerge::relands(git.root, base, &hosts)?;
+    for (host, by) in relands.valid {
+        if facts.host_created.remove(&host).is_some() {
+            facts.relanded.insert(host, by);
+        }
+    }
+    for (by, named, why) in relands.invalid {
+        facts.reland_warnings.insert(format!(
+            "re-land claim in {by} for {named} not honoured: {why}"
+        ));
     }
     Ok(facts)
 }
@@ -2041,6 +2063,83 @@ mod tests {
             ]),
         )
         .is_err());
+
+        // A forged re-land (different content) is reported, never honoured.
+        let host_merge = g(false, &["rev-parse", "main"]);
+        let parent = g(false, &["rev-parse", &format!("{api}^")]);
+        let parent_tree = g(false, &["rev-parse", &format!("{parent}^{{tree}}")]);
+        let forged_msg = format!("forged\n\nTask: T-H-1\nRelands: {api}");
+        let forged = g(
+            false,
+            &[
+                "commit-tree",
+                &parent_tree,
+                "-p",
+                &parent,
+                "-m",
+                &forged_msg,
+            ],
+        );
+        let tree = g(false, &["rev-parse", "main^{tree}"]);
+        let joined = g(
+            false,
+            &[
+                "commit-tree",
+                &tree,
+                "-p",
+                "main",
+                "-p",
+                &forged,
+                "-m",
+                "join forged",
+            ],
+        );
+        g(false, &["update-ref", "refs/heads/main", &joined]);
+        let lint_range = format!("{start}..main");
+        let lint_json = |dir: &std::path::Path| -> Value {
+            let args = s(&["lint", "--range", &lint_range, "--json", "--no-claims"]);
+            serde_json::from_str(&run(dir, &args).unwrap()).unwrap()
+        };
+        let forged_lint = lint_json(&dir);
+        assert_eq!(
+            forged_lint["summary"]["reland_claims_not_honoured"], 1,
+            "{forged_lint}"
+        );
+        assert_eq!(forged_lint["summary"]["host_commits_relanded"], 0);
+        assert_eq!(plan(&[])["summary"]["rejected"], 1);
+
+        // A genuine replay (identical change, local committer) plus a Susi
+        // merge naming the host merge re-lands both.
+        let api_tree = g(false, &["rev-parse", &format!("{api}^{{tree}}")]);
+        let replay_msg = format!("api commit\n\nTask: T-H-1\nRelands: {api}");
+        let replay = g(
+            false,
+            &["commit-tree", &api_tree, "-p", &parent, "-m", &replay_msg],
+        );
+        let merge_msg = format!("Susi re-land\n\nRelands: {host_merge}");
+        let susi_merge = g(
+            false,
+            &[
+                "commit-tree",
+                &tree,
+                "-p",
+                "main",
+                "-p",
+                &replay,
+                "-m",
+                &merge_msg,
+            ],
+        );
+        g(false, &["update-ref", "refs/heads/main", &susi_merge]);
+        let relanded = lint_json(&dir);
+        assert_eq!(
+            relanded["summary"]["host_commits_relanded"], 2,
+            "{relanded}"
+        );
+        assert_eq!(relanded["summary"]["commits_created_by_git_host"], 0);
+        let ok = plan(&[]);
+        assert_eq!(ok["summary"]["rejected"], 0, "{ok}");
+        assert!(ok["included"].to_string().contains("relanded_host_commit"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

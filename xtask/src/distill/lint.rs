@@ -571,8 +571,34 @@ pub fn run_lint(root: &Path, args: &[String]) -> Result<String> {
         None => to_commit.clone(),
     };
     let hosts = super::hostmerge::identities(root)?;
-    let host_created = super::hostmerge::scan_range(root, &scan_range, &hosts)?;
+    let mut host_created = super::hostmerge::scan_range(root, &scan_range, &hosts)?;
+    let relands = super::hostmerge::relands(root, &to_commit, &hosts)?;
+    let relanded: Vec<Value> = host_created
+        .iter()
+        .filter_map(|c| {
+            relands
+                .valid
+                .get(&c.oid)
+                .map(|by| json!({"commit": c.oid, "merge": c.merge, "relanded_by": by}))
+        })
+        .collect();
+    host_created.retain(|c| !relands.valid.contains_key(&c.oid));
     add_host_findings(&mut report, &host_created, &hosts);
+    let invalid: Vec<Value> = relands
+        .invalid
+        .iter()
+        .map(|(by, named, why)| json!({"commit": by, "names": named, "reason": why}))
+        .collect();
+    if let Some(sum) = report["summary"].as_object_mut() {
+        sum.insert("host_commits_relanded".into(), json!(relanded.len()));
+        sum.insert("reland_claims_not_honoured".into(), json!(invalid.len()));
+        let findings = sum.get("findings").and_then(Value::as_u64).unwrap_or(0);
+        sum.insert("findings".into(), json!(findings + invalid.len() as u64));
+    }
+    if let Some(obj) = report.as_object_mut() {
+        obj.insert("host_commits_relanded".into(), json!(capped(&relanded)));
+        obj.insert("reland_claims_not_honoured".into(), json!(capped(&invalid)));
+    }
     if let Some(obj) = report.as_object_mut() {
         obj.insert("schema".into(), json!(LINT_SCHEMA));
         obj.insert("range".into(), json!(a.range));

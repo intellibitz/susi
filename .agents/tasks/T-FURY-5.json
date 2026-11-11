@@ -1,0 +1,36 @@
+{
+  "id": "T-FURY-5",
+  "title": "Re-land the host-created AGYCLOUD work through Susi",
+  "goal": "Bring T-AGYCLOUD-4..7 (core; 9 commits and 2 merges the Git host created) back through Susi: verified replays carrying `Relands:` trailers joined to main by a Susi merge, and teach `distill lint`, `distill plan` and `local-distill` to honour only re-lands Git can prove (identical raw change for commits, ancestry for merges).",
+  "status": "in_progress",
+  "owner": "fury",
+  "created_by": "FURY2",
+  "created_unix": 1794387889,
+  "size": "m",
+  "deps": [
+    "T-FURY-1"
+  ],
+  "base_commit": "7e176f6edc86a5e76f448895460d497906ebe4c3",
+  "scopes": [
+    "xtask/src/distill.rs",
+    "xtask/src/distill",
+    "xtask/src/distill_compose.rs",
+    "docs/distillation.md",
+    "docs/release-distillation.md",
+    ".agents/tasks/T-FURY-5.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "distill",
+      "--bin",
+      "local-distill"
+    ]
+  }
+}

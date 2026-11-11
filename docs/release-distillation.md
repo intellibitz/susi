@@ -146,7 +146,9 @@ host, more via `git config --add susi.hostCommitter <email>`) is rejected with
 explicitly with `--adopt-host-commit <full-id>`; the receipt lists every
 adoption in `adopted_host_commits`, and every host-created commit in the
 composed stream in `git_host_created_in_stream`. Details and the first real
-run: `docs/distillation.md`, "Merges happen in Susi".
+run: `docs/distillation.md`, "Merges happen in Susi". Host commits that an
+agent re-landed through Susi (a verified replay carrying `Relands: <id>`) are
+composed from the replay and listed in `relanded_host_commits_in_stream`.
 
 ## What remains separate
 

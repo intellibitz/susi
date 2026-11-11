@@ -185,6 +185,21 @@ how such work is recognised; the tools never contact the host.
   (repeatable; an abbreviation is refused so it can never adopt more than
   intended). The plan records the adoption in the task's notes and warnings;
   the `local-distill` receipt records it in `adopted_host_commits`.
+- **Re-landing through Susi (T-FURY-5)** makes the work distillable again
+  without trusting the host. For each host-created commit an agent makes a
+  replay: a local commit with the host commit's exact change on the same
+  parent, the original message and `Task:` trailer, plus
+  `Relands: <full host commit id>`. A Susi merge (`-s ours`, since the
+  content is already on main; it names the host merges with `Relands:` too)
+  joins the replays to main through `local-snapshot submit`. The tools honour
+  a re-land only when Git proves it: a replay must be a non-merge commit by a
+  non-host committer whose raw change (paths, modes, blob ids) equals the host
+  commit's; a re-landed merge must be an ancestor of the commit naming it.
+  Then `distill lint` lists it under `host_commits_relanded`, the plan notes
+  `relanded_host_commit`, and `local-distill` composes the replay instead of
+  the host commit (`relanded_host_commits_in_stream` in the receipt). A claim
+  that does not verify is a lint finding (`reland_claims_not_honoured`) and a
+  plan warning, and the host commit stays refused.
 - Other hosts: `git config --add susi.hostCommitter <email>` adds an identity
   without a code change. A host whose web merges reuse the clicking user's own
   identity cannot be detected this way; on such a host the server-side rule

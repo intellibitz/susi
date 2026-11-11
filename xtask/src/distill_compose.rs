@@ -2231,11 +2231,14 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
     // the host created itself (web merge, web edit, API commit) is refused
     // unless the distilling agent adopts each commit by full id, on record.
     let host_identities = hostmerge::identities(root)?;
-    let host_in_stream = hostmerge::scan_range(
+    let relands = hostmerge::relands(root, &from_commit, &host_identities)?;
+    let (relanded_in_stream, host_in_stream): (Vec<_>, Vec<_>) = hostmerge::scan_range(
         root,
         &format!("{base_commit}..{from_commit}"),
         &host_identities,
-    )?;
+    )?
+    .into_iter()
+    .partition(|c| relands.valid.contains_key(&c.oid));
     let mut adopted_host_commits: BTreeMap<String, String> = BTreeMap::new();
 
     for key in &closure.order {
@@ -2358,6 +2361,8 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         let attributed = match attribute_task_commits(git, &from_commit, task, &stream_commits) {
             Ok(mut list) => {
                 list.retain(|commit| !distilled_in_base.source_commits.contains(&commit.oid));
+                // A host commit re-landed through Susi is replaced by its replay.
+                list.retain(|commit| !relands.valid.contains_key(&commit.oid));
                 list
             }
             Err(err) => {
@@ -2563,6 +2568,15 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             "subject": c.subject,
         })).collect::<Vec<_>>(),
         "adopted_host_commits": adopted_host_commits,
+        "relanded_host_commits_in_stream": relanded_in_stream
+            .iter()
+            .map(|c| (c.oid.clone(), relands.valid.get(&c.oid).cloned()))
+            .collect::<BTreeMap<_, _>>(),
+        "reland_claims_not_honoured": relands.invalid.iter().map(|(by, named, why)| json!({
+            "commit": by,
+            "names": named,
+            "reason": why,
+        })).collect::<Vec<_>>(),
         "final_commit": current_commit,
         "final_tree": current_tree,
     });
@@ -3636,6 +3650,55 @@ mod tests {
                 &hosted[..12],
             ])
             .is_err());
+
+        // A Susi replay of the host commit (identical change, local committer,
+        // `Relands:` trailer) re-lands it: the replay is composed instead.
+        let parent = fx
+            .git()
+            .text(&["rev-parse", &format!("{hosted}^")])
+            .unwrap();
+        let tree = fx.git().tree(&hosted).unwrap();
+        let replay_msg = format!("feat: hosted\n\nTask: T-HOSTED-1\nRelands: {hosted}\n");
+        let replay = fx
+            .git()
+            .commit_tree(&tree, parent.trim(), &replay_msg)
+            .unwrap();
+        let joined = fx
+            .git()
+            .commit_tree_parents(&tree, &[hosted.as_str(), replay.as_str()], "join\n")
+            .unwrap();
+        let relanded: Value = serde_json::from_str(
+            &fx.run_args(&[
+                "compose",
+                "--name",
+                "host-relanded",
+                "--base",
+                &base,
+                "--from",
+                &joined,
+                "--select",
+                "T-LOCAL-1,T-HOSTED-1",
+                "--json",
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            relanded["rejected"].as_array().unwrap().is_empty(),
+            "{relanded}"
+        );
+        assert_eq!(
+            relanded["included"][1]["source_commits"][0],
+            replay.as_str()
+        );
+        assert_eq!(
+            relanded["relanded_host_commits_in_stream"][hosted.as_str()],
+            replay.as_str()
+        );
+        assert!(relanded["git_host_created_in_stream"]
+            .as_array()
+            .unwrap()
+            .is_empty());
 
         let adopted = compose("host-adopted", &["--adopt-host-commit", &hosted]);
         assert!(
