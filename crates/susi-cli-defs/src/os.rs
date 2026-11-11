@@ -71,8 +71,9 @@ pub enum OsCommands {
         action: OsProvisionAction,
     },
     /// The unified capability bus: discover every A2A/MCP/HTTP/adapter
-    /// capability through one typed catalog, or dispatch one through its
-    /// permission/timeout/cost contract (Mcp tools only today).
+    /// capability through one typed catalog, dispatch one through its
+    /// permission/timeout/cost contract (Mcp tools only today), or issue a
+    /// host-signed envelope another component nests its calls under.
     #[allow(missing_docs)]
     Capabilities {
         #[command(subcommand)]

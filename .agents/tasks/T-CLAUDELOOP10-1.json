@@ -1,0 +1,33 @@
+{
+  "id": "T-CLAUDELOOP10-1",
+  "title": "Change-to-live under 10 seconds: measure the Linux dev-channel loop and cut it",
+  "goal": "CEO direction 2026-11-11: Susi core under 10 s. Measure every phase of a genuine source change reaching the verified live dev-channel executable on Linux x86_64 (local-channel deliver), separately from cold and warm build times, and remove the largest avoidable costs until a root-package change goes live in under 10 s, without dropping its tests or verification.",
+  "status": "in_progress",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794362747,
+  "size": "m",
+  "deps": [],
+  "base_commit": "b21d4da386ea15a3a2b85cb8a72f5d02f2ef73c8",
+  "scopes": [
+    "crates/susi-cli-defs/src/os.rs",
+    "tests/fixtures/cli_help_snapshot.txt",
+    "xtask/src/bin/local-channel.rs",
+    "docs/step1-acceptance.md",
+    ".agents/evidence/loop10-T-CLAUDELOOP10-1.json",
+    ".agents/tasks/T-CLAUDELOOP10-1.json"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--lib", "--bins"]
+  },
+  "acceptance": [
+    "cargo test --offline --locked -p susi --lib --bins",
+    "cargo run --offline --locked -p xtask --bin local-channel -- deliver --prove-rollback -- os capabilities --help (repeated, real commits)"
+  ],
+  "host": "Claude Code cloud session, Linux x86_64, 4 vCPU, 15 GiB RAM, Rust 1.99.0 (pinned)",
+  "results": {
+    "cold_build_susi_binary_empty_target_warm_registry_seconds": 60.2,
+    "warm_edit_to_binary_seconds": {"root_comment": 2.4, "gmcp_comment": 4.6, "gmcp_body": 5.5, "core_comment": 6.6, "core_body": 6.9, "core_public_api": 7.8}
+  },
+  "limitations": []
+}
