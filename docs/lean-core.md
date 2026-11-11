@@ -694,4 +694,28 @@ config, core and the tail.
   10,447 -> 10,443, `susi-gemi` 21,263 -> 21,171 with unchanged `usage_accounting`
   unit tests moved to `src/tests`, `susi-harness` 40,594 -> 40,575 with unchanged
   `MicroUsd` inline tests moved from `lib.rs` to `src/tests/money.rs`).
-
+- 2026-11-11 (T-NETTRANSPORT-1, Linux x86_64, CEO laptop, 28 threads, other
+  agents compiling): the pillars' outbound client (`susi-http-transport`
+  `http_call`, used by GEMI's BYOK providers, gemi-models downloads, GMCP,
+  GAWD peers and the harness gateway) is HTTP/1.1 on std sockets
+  (`wire.rs`, `connect.rs`) instead of ureq, over the platform TLS the pillars
+  already link for their servers (native-tls: Schannel, platform OpenSSL,
+  Security.framework) with the platform trust store; verification is never
+  disabled. The ureq profile is kept: one total deadline over DNS, connect,
+  TLS, redirects and the body; its redirect rules; ALL/HTTPS/HTTP_PROXY with
+  NO_PROXY through CONNECT, loopback always direct. No `Accept-Encoding: gzip`
+  is sent and connections are not pooled. `susi-vendor-ureq` is deleted;
+  nothing is added. Pillar reach 180 -> 161 third-party, 45 -> 44 workspace
+  (facade edges stay 19). Cold `cargo build -p susi -j 8`, alternated with
+  base `bf0bb15a6` at load average 12-18: base 66.5 / 91.0 s, change 66.8 /
+  80.6 s; units 267 -> 256 (ureq, ureq-proto, flate2, miniz_oxide, adler2,
+  crc32fast, simd-adler32, der 0.8, pem-rfc7468 1.0, utf8-zero and the facade
+  leave the host build). The wall numbers are load noise; no wall gain is
+  claimed. Not done, with the reason: a pure-Rust TLS stack. rustls needs
+  rustls-webpki and untrusted (ISC) and webpki-roots (CDLA-Permissive-2.0),
+  which `deny.toml`'s strict licence list does not allow; its only offline
+  providers are ring (C and assembly, ISC) and aws-lc-rs (C); and openssl
+  would stay in the closure anyway, because GMCP, GEMI REST and A2A serve TLS
+  through native-tls. tokio, hyper, h2 and mio stay: susi-gmcp, susi-gemi,
+  susi-gawd and susi-harness depend on them directly (GMCP and harness
+  servers).
