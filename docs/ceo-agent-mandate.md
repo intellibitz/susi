@@ -112,9 +112,8 @@ remote `refs/heads/*` branch on GitHub is `refs/heads/main` (CEO directives
 `release-staging/*`, `distill/*`, `wip/*`) is offered by GitHub as a pull
 request that could bypass Susi's integration rules, and is strictly forbidden.
 Agents publish their work to the non-branch ref `refs/agents/<agent>`
-(`docs/agent-refs.md`), which offers no pull request. Release candidates and distillation outputs
-use non-branch refs (`refs/candidates/release/<name>` and
-`refs/candidates/distill/<name>`) plus immutable tags
+(`docs/agent-refs.md`), which offers no pull request. Release candidates stay
+local to Susi and publish solely as immutable tags
 (`refs/tags/susi-distill/<name>`, `refs/tags/susi-snapshot/<name>`, and
 qualified `refs/tags/v<version>`). No agent opens, merges, or closes a pull
 request, or deletes remote branches without explicit CEO direction. Native

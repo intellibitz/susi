@@ -721,6 +721,25 @@ pub fn promote_release(
     Ok(serde_json::to_value(receipt)?)
 }
 
+/// Preserve and retire non-`main` remote `refs/heads/*` branch clutter on `<remote>`
+/// after confirming immutable `refs/tags/susi-distill/legacy-*` preservation
+/// (`susi-harness retire-branches`).
+pub fn retire_branches(
+    config: &crate::git_governor::RetireBranchesConfig,
+    notes: Notes<'_>,
+) -> EaiResult<Value> {
+    let receipt = crate::git_governor::retire_remote_clutter(config)?;
+    notes(format!(
+        "retire-branches ({}): retired={}, skipped={}, refused={}, remaining_remote_heads={}",
+        if receipt.dry_run { "dry-run" } else { "live" },
+        receipt.retired_count,
+        receipt.skipped_count,
+        receipt.refused_count,
+        receipt.remaining_remote_head_count,
+    ));
+    Ok(serde_json::to_value(receipt)?)
+}
+
 #[cfg(test)]
 #[path = "tests/operator.rs"]
 mod tests;

@@ -1,0 +1,37 @@
+{
+  "id": "T-CLAUDEGUARDPATH-1",
+  "title": "ci_workflow_perf: read the adapter's native-target test where it now lives",
+  "goal": "xtask/tests/ci_workflow_perf.rs::no_gate_or_hook_depends_on_the_retired_target_guard passes on main again",
+  "status": "done",
+  "scopes": [
+    "xtask/tests/ci_workflow_perf.rs",
+    ".agents/tasks/T-CLAUDEGUARDPATH-1.json"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "CLAUDEGUARDPATH",
+  "created_unix": 1794394641,
+  "owner": "CLAUDEGUARDPATH",
+  "base": "57162b4829433373fba82d771b27c9fc0392d4cd",
+  "host": "x86_64-unknown-linux-gnu",
+  "results": {
+    "root_cause": "192b53d27 (T-AGYFURY-1) moved the susi-harness adapter's unit tests, including start_worktree_uses_native_private_target_without_shell_seeding, from adapter.rs to src/tests/adapter.rs for the line ceiling; the guard still searched adapter.rs for seed-target.sh and failed on origin/main",
+    "fix": "the guard checks scripts/workflow-session-start.sh as before and checks that src/tests/adapter.rs pins the native private target by test name; nothing else changes",
+    "tests": "ci_workflow_perf 27/27 (was 26 passed, 1 failed on origin/main); cargo clippy -p xtask --all-targets -D warnings clean; fmt clean"
+  },
+  "limitations": [
+    "the guard is a text check, as before; the behaviour itself is proven by the adapter test it names"
+  ]
+}

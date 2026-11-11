@@ -36,6 +36,44 @@ fn valid_agent_name(agent: &str) -> bool {
     !agent.is_empty() && !agent.contains('/')
 }
 
+fn is_preservation_destination(remote: &str) -> bool {
+    remote == "refs/heads/main"
+        || remote
+            .strip_prefix("refs/agents/")
+            .is_some_and(valid_agent_name)
+        || remote
+            .strip_prefix("refs/candidates/release/")
+            .or_else(|| remote.strip_prefix("refs/candidates/distill/"))
+            .or_else(|| remote.strip_prefix("refs/tags/susi-distill/"))
+            .or_else(|| remote.strip_prefix("refs/tags/susi-snapshot/"))
+            .is_some_and(|name| !name.is_empty())
+}
+
+fn is_preserved_for_retirement(root: &Path, old: &str, co_preserved: &[&str]) -> bool {
+    if git(
+        root,
+        &[
+            "for-each-ref",
+            &format!("--contains={old}"),
+            "--count=1",
+            "--format=ok",
+            "refs/tags/susi-distill",
+            "refs/tags/susi-snapshot",
+            "refs/candidates",
+            // Agent refs, as fetched (docs/agent-refs.md) or kept locally.
+            "refs/agents",
+            "refs/remotes/*-agents/*",
+        ],
+    )
+    .is_ok_and(|s| !s.is_empty())
+    {
+        return true;
+    }
+    co_preserved
+        .iter()
+        .any(|co_new| git(root, &["merge-base", "--is-ancestor", old, co_new]).is_ok())
+}
+
 /// Validate the exact transaction Git supplies, never HEAD or a tracking branch.
 /// No network, builds, config writes, receipt fabrication or environment bypasses.
 /// The receiving Git server remains responsible for atomic compare-and-swap.
@@ -63,6 +101,21 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
     if std::env::var_os("GIT_GRAFT_FILE").is_some() {
         return Err("GIT_GRAFT_FILE override prevents actual ancestry validation".into());
     }
+    let co_preserved: Vec<&str> = input
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.len() == 4
+                && oid(fields[1])
+                && !zero(fields[1])
+                && is_preservation_destination(fields[2])
+            {
+                Some(fields[1])
+            } else {
+                None
+            }
+        })
+        .collect();
     let mut destinations = BTreeSet::new();
     for line in input.lines() {
         let fields: Vec<_> = line.split_whitespace().collect();
@@ -112,20 +165,26 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
             // the receiving server compares and swaps it.
         } else if remote.starts_with("refs/heads/") {
             if remote != "refs/heads/main" {
+                let agent = remote
+                    .strip_prefix("refs/heads/local-agent/")
+                    .filter(|agent| valid_agent_name(agent));
                 if deleting {
                     // Retiring a branch GitHub must no longer carry (old
-                    // release/*, release-staging/*, distill/*, wip/*,
-                    // local-agent/* and other names outside the allowlist). The
-                    // deletion record was validated above (named old object, no
-                    // force); preserve the tip first (refs/agents/<agent> for an
-                    // agent branch, an immutable susi-distill/legacy-* tag
-                    // otherwise).
-                    continue;
+                    // release/*, release-staging/*, distill/*, wip/* and other
+                    // names outside the allowlist). The deletion record was
+                    // validated above (named old object, no force). An agent
+                    // branch's tip must be preserved first: under
+                    // refs/agents/<agent> (docs/agent-refs.md), a susi-distill
+                    // or susi-snapshot tag, or a candidate ref, locally or in
+                    // the same push.
+                    if agent.is_none() || is_preserved_for_retirement(root, old, &co_preserved) {
+                        continue;
+                    }
+                    return Err(format!(
+                        "branch deletion prohibited: {remote}: preserve {old} under refs/agents/<agent>, refs/tags/susi-distill/* or refs/candidates/* first"
+                    ));
                 }
-                if let Some(agent) = remote
-                    .strip_prefix("refs/heads/local-agent/")
-                    .filter(|agent| valid_agent_name(agent))
-                {
+                if let Some(agent) = agent {
                     return Err(format!(
                         "remote branch {remote} is retired: agents publish to refs/agents/{agent} (git push origin local-agent/{agent}:refs/agents/{agent}); see docs/agent-refs.md"
                     ));
