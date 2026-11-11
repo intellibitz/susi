@@ -1,0 +1,44 @@
+{
+  "id": "T-CLAUDEWASMSTD-1",
+  "title": "Cell memory cap without a second wasm parser/encoder",
+  "goal": "CEO: bring Susi core under 30 s. susi-vendor-wasmtime compiled wasmparser 0.259 and wasm-encoder 0.259 only to rewrite one memory section, beside Wasmi's own wasmparser 0.228. Replace them with a std-only section walker with identical refusals; lower the pillar third-party ceiling to the measured value.",
+  "status": "done",
+  "scopes": [
+    "crates/susi-vendor-wasmtime/Cargo.toml",
+    "crates/susi-vendor-wasmtime/src/cell.rs",
+    "Cargo.lock",
+    "tests/lean_core_ceilings.rs",
+    "docs/lean-core.md",
+    ".agents/build-time.jsonl",
+    ".agents/tasks/T-CLAUDEWASMSTD-1.json",
+    ".agents/tasks/done/T-CLAUDEWASMSTD-1.json"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-wasmtime"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794362300,
+  "owner": "claude",
+  "base": "68e83f0d856e5143729908333419dd3042693409",
+  "results": {
+    "tests": "cargo test -p susi-vendor-wasmtime: 40 passed, 0 failed, 1 ignored (3 new cap_memory tests)",
+    "clippy": "clean with -D warnings",
+    "lean_core": "pillar third-party reach 191 (ceiling 196 -> 191); lean_core_ceilings 2 passed",
+    "build_time": "4 threads: 228.6 CPU-s / 374 units base, 233.6 CPU-s / 371 units after; about 3 CPU-s removed, inside noise, no time gain claimed"
+  },
+  "limitations": "Measured on a 4-thread cloud container, not the CEO laptop.",
+  "landed": {
+    "main_commit": "46758d8d8f1538aa07db3fd693651c5bb970b2a6",
+    "source_commit": "964cf46a87d567e2246c70958a56bb68b0a5d9cc",
+    "route": "cargo run -p xtask --bin local-snapshot -- submit claude-wasmstd-20261111"
+  }
+}
