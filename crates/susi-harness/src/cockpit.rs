@@ -30,7 +30,6 @@ use axum::body::{to_bytes, Body};
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::Next;
-use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -787,20 +786,26 @@ async fn command(
     Json(ack)
 }
 
-async fn events(
-    State(cockpit): State<Arc<Cockpit>>,
-) -> Sse<impl futures::Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
-    let interval = tokio::time::interval(std::time::Duration::from_secs(1));
-    let stream =
-        futures::stream::unfold((cockpit, interval), |(cockpit, mut interval)| async move {
-            interval.tick().await;
+async fn events(State(cockpit): State<Arc<Cockpit>>) -> Response {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+    let body = crate::poll_body(move |cx| {
+        interval.poll_tick(cx).map(|_| {
             let data = serde_json::to_string(&cockpit.snapshot()).unwrap_or_default();
-            Some((
-                Ok::<_, std::convert::Infallible>(SseEvent::default().data(data)),
-                (cockpit, interval),
-            ))
-        });
-    Sse::new(stream).keep_alive(KeepAlive::default())
+            Some(Ok::<String, std::convert::Infallible>(format!(
+                "data: {data}\n\n"
+            )))
+        })
+    });
+    let mut res = Response::new(body);
+    res.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    res.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    );
+    res
 }
 
 fn now_ms() -> u64 {
