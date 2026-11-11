@@ -1144,6 +1144,19 @@ config, core and the tail.
   task runs, with the same untrusted-content gate, in-flight capacity permit
   and reply redaction, and the server runs turns on a blocking thread. No
   dependency added; the `susi-gawd-a2a` ceiling ratchets `3,619 -> 3,588`.
+- 2026-11-12 (T-CODEXHISTORY-1, Linux x86_64, CEO laptop), **board item 215
+  and CEO direction to preserve full local conversations**: core now carries
+  the normalized OpenAI `messages` and top-level tool schemas from the 9091
+  request through the GAWD and GEMI planes to the local engine. The model
+  adapter can therefore render the model file's own template for multi-turn
+  requests; the existing prose prompt remains the fallback for older plugs.
+  `developer` is normalized to `system`, `function` to `tool`, and tool-call
+  metadata remains in the normalized text because the four-role plug contract
+  does not yet expose structured assistant tool calls. Cloud and external
+  recovery continue to receive the assembled prose request. No dependency,
+  workspace-reach or facade-edge ceiling changes. Measured source re-pins:
+  `susi-gawd` `12,523 -> 12,525`, `susi-gawd-swarm` `20,116 -> 20,206`, and
+  `susi-gemi` `21,172 -> 21,262`.
 - 2026-11-12 (T-CLAUDEGEMIFIX-1, Linux x86_64, CEO laptop), CEO direction "Fix
   gemi completely": `susi-gemi` `21,172 -> 21,063`. A live sweep of 9091 found
   `/v1/embeddings` unanswered after 300 s (every provider tried, 60 s each,
@@ -1151,5 +1164,6 @@ config, core and the tail.
   the assistant's content. Embeddings now have one 30 s budget; the GEMI
   server withholds routing notes from streams. The budget is paid for by
   deleting `mcp_provider::looks_like_inference_tool` (only its tests called
-  it) and `worker::seat_window_state` (nothing called it).
+  it) and `worker::seat_window_state` (nothing called it). Merged with
+  T-CODEXHISTORY-1 (`21,262`), the measured and pinned size is `21,153`.
 

@@ -727,6 +727,7 @@ async fn dispatch_gemi_route(
                 }
             };
             let is_streaming = completion.stream;
+            let chat_for_request = completion.chat.clone();
             // Multi-turn requests are assembled cache-safely by the GEMI
             // plane — instructions hoisted, history verbatim — and the
             // measured cacheable fraction journaled against the provider
@@ -785,20 +786,23 @@ async fn dispatch_gemi_route(
                     &placement_target,
                     &placement_id,
                     completion.requires.clone(),
+                    chat_for_request,
                 ))
             } else {
                 let ws = (*workspace).clone();
                 let prompt_for_task = trimmed_prompt.clone();
                 let model_for_task = requested_model;
                 let requires_for_task = completion.requires.clone();
+                let chat_for_task = completion.chat;
                 let content = match tokio::task::spawn_blocking(move || {
                     let _permit = permit;
-                    let final_resp = gawd::solve_mission_generative(
+                    let final_resp = gawd::solve_mission_generative_with_chat(
                         &prompt_for_task,
                         &ws,
                         env!("CARGO_PKG_VERSION"),
                         model_for_task.as_deref(),
                         requires_for_task.as_deref(),
+                        chat_for_task,
                     );
                     crate::susi_sandbox::manager::SusiMemory::save_interaction(
                         &ws,
@@ -1208,6 +1212,7 @@ fn build_streaming_response(
     placement_target: &str,
     placement_id: &str,
     requires: Option<String>,
+    chat: Option<serde_json::Value>,
 ) -> Response<BoxBody> {
     let prompt_tokens = approx_tokens(&prompt);
     let rx = completion_stream(
@@ -1223,7 +1228,7 @@ fn build_streaming_response(
             // A `/v1` completion request: a local engine it needs may be
             // started on demand (core starts none on its own).
             let _user_request = susi_core::provider::OnDemandEngineStart::allow();
-            gemi::GemiEngine::generate_reasoning_stream_with_model_meta(
+            gemi::GemiEngine::generate_reasoning_stream_with_model_meta_chat(
                 &prompt,
                 &workspace,
                 &|chunk| {
@@ -1232,6 +1237,7 @@ fn build_streaming_response(
                 requested_model.as_deref(),
                 meta,
                 requires.as_deref(),
+                chat,
             )
         },
     );
@@ -1971,6 +1977,9 @@ struct CompletionInput {
     /// is assembled cache-safely by the GEMI plane once the placement has
     /// chosen the provider that prices the measured saving.
     turns: Option<Vec<(String, String)>>,
+    /// The normalized OpenAI conversation forwarded to a local engine. The
+    /// assembled prompt above remains the provider-neutral fallback.
+    chat: Option<serde_json::Value>,
     stream: bool,
     model: Option<String>,
     max_tokens: Option<u32>,
@@ -2023,13 +2032,14 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         None => false,
         Some(value) => value.as_bool().ok_or("stream must be a boolean")?,
     };
-    let (prompt, turns) = if legacy {
+    let (prompt, turns, chat_turns) = if legacy {
         (
             object
                 .get("prompt")
                 .and_then(|p| p.as_str())
                 .ok_or("prompt must be a non-empty string")?
                 .to_owned(),
+            None,
             None,
         )
     } else {
@@ -2106,12 +2116,15 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
 
             turns.push((role.to_string(), formatted_turn));
         }
+        let chat_turns = turns.clone();
         // Preserve the direct single-user task path; multi-turn requests
-        // carry their roles for the GEMI plane's cache-first assembly.
+        // carry their roles for the GEMI plane's cache-first assembly. The
+        // complete normalized sequence is retained separately for a local
+        // engine that can render the model's own chat template.
         if turns.len() == 1 && turns[0].0 == "user" {
-            (turns.remove(0).1, None)
+            (turns.remove(0).1, None, Some(chat_turns))
         } else {
-            (String::new(), Some(turns))
+            (String::new(), Some(turns), Some(chat_turns))
         }
     };
     if turns.is_none() && prompt.trim().is_empty() {
@@ -2121,6 +2134,35 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         .get("model")
         .and_then(|m| m.as_str())
         .map(str::to_string);
+    let tools = match object.get("tools") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::Array(tools)) => Some(tools.clone()),
+        Some(_) => return Err("tools must be an array".into()),
+    };
+    if legacy && tools.is_some() {
+        return Err("tools are supported only for chat completions".into());
+    }
+    let chat = chat_turns.map(|turns| {
+        let messages = turns
+            .into_iter()
+            .map(|(role, content)| {
+                // The local engine accepts the portable four-role shape. The
+                // OpenAI developer/function aliases retain their semantics in
+                // the normalized text path without being silently discarded.
+                let role = match role.as_str() {
+                    "developer" => "system",
+                    "function" => "tool",
+                    other => other,
+                };
+                json!({"role": role, "content": content})
+            })
+            .collect::<Vec<_>>();
+        let mut chat = json!({"messages": messages});
+        if let Some(tools) = tools {
+            chat["tools"] = serde_json::Value::Array(tools);
+        }
+        chat
+    });
     // `max_tokens` (legacy) and `max_completion_tokens` (current) alias the
     // same budget; a present-but-invalid value is a client error, not
     // silence.
@@ -2177,6 +2219,7 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
     Ok(CompletionInput {
         prompt,
         turns,
+        chat,
         stream,
         model,
         max_tokens,
@@ -2933,6 +2976,35 @@ mod tests {
     }
 
     #[test]
+    fn preserves_the_normalized_conversation_and_tool_schemas_for_local_engines() {
+        let input = parse_completion(
+            br#"{
+                "messages": [
+                    {"role":"system","content":"Be precise"},
+                    {"role":"user","content":"Remember 42"},
+                    {"role":"assistant","content":"I remember"},
+                    {"role":"user","content":"What number?"}
+                ],
+                "tools": [{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]
+            }"#,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            input.chat,
+            Some(json!({
+                "messages": [
+                    {"role":"system","content":"Be precise"},
+                    {"role":"user","content":"Remember 42"},
+                    {"role":"assistant","content":"I remember"},
+                    {"role":"user","content":"What number?"}
+                ],
+                "tools": [{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]
+            }))
+        );
+    }
+
+    #[test]
     fn parses_stream_as_json_boolean() {
         let input = parse_completion(b"{\"prompt\":\"hello\",\"stream\":\ntrue}", true).unwrap();
         assert!(input.stream);
@@ -2954,6 +3026,7 @@ mod tests {
             assert!(parse_completion(body.as_bytes(), false).is_err(), "{body}");
         }
         assert!(parse_completion(br#"{"prompt":" "}"#, true).is_err());
+        assert!(parse_completion(br#"{"prompt":"hello","tools":[]}"#, true).is_err());
     }
     #[tokio::test]
     async fn routing_notes_never_reach_streamed_content() {

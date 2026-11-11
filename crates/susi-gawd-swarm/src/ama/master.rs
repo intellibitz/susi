@@ -191,6 +191,24 @@ impl SusiMasterAgent {
         model: Option<&str>,
         requires: Option<&str>,
     ) -> String {
+        self.solve_clean_generative_with_requires_chat(
+            goal, workspace, _version, model, requires, None,
+        )
+    }
+
+    /// Generative solve with the normalized caller conversation. The
+    /// assembled `goal` remains the provider-neutral fallback; only local
+    /// GEMI recovery receives the additive chat payload.
+    #[allow(clippy::too_many_arguments)]
+    pub fn solve_clean_generative_with_requires_chat(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        _version: &str,
+        model: Option<&str>,
+        requires: Option<&str>,
+        chat: Option<Value>,
+    ) -> String {
         let goal = match Self::sanitize_input(goal) {
             Ok(goal) => goal,
             Err(error) => return format!("[GOVERNANCE_BLOCK] {error}"),
@@ -213,7 +231,15 @@ impl SusiMasterAgent {
             plan: None,
             final_answer: String::new(),
         };
-        crate::cloud_recovery::recover(&mut report, workspace, model, true, session, requires);
+        crate::cloud_recovery::recover_with_chat(
+            &mut report,
+            workspace,
+            model,
+            true,
+            session,
+            requires,
+            chat,
+        );
         if report.is_success() {
             report.final_answer
         } else {
