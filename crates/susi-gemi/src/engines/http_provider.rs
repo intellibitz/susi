@@ -138,6 +138,18 @@ fn openai_reply(json: &Value) -> Result<String, String> {
     wire::openai_chat_text(json)
 }
 
+fn max_tokens_from_chat(chat: Option<&Value>) -> u32 {
+    chat.and_then(|value| {
+        value
+            .get("max_tokens")
+            .or_else(|| value.get("max_completion_tokens"))
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value > 0)
+    })
+    .unwrap_or(2048)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn generate_blocking(
     api_base: &str,
@@ -157,7 +169,7 @@ fn generate_blocking(
         }
         InferenceProtocol::OpenAiCompletions => {
             let url = format!("{}/completions", api_base.trim_end_matches('/'));
-            let body = wire::openai_completions_body(model, prompt, 2048);
+            let body = wire::openai_completions_body(model, prompt, max_tokens_from_chat(chat));
             let owned = openai_headers(api_key, api_base);
             let refs = header_refs(&owned);
             wire::openai_completions_text(&wire::post_json_timeout(&url, &refs, &body, 120)?)

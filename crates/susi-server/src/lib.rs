@@ -2246,9 +2246,19 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         ),
     };
     // The engine stops generating at the budget instead of the server
-    // trimming a full-length answer afterwards.
-    if let (Some(chat), Some(max)) = (chat.as_mut(), max_tokens) {
-        chat["max_tokens"] = json!(max);
+    // trimming a full-length answer afterwards. Legacy prompt requests have
+    // no conversation field, so create the smallest normalized user turn
+    // only when the caller supplied a budget; a budgetless legacy request
+    // keeps its prompt-only path unchanged.
+    if let Some(max) = max_tokens {
+        if let Some(chat) = chat.as_mut() {
+            chat["max_tokens"] = json!(max);
+        } else if legacy {
+            chat = Some(json!({
+                "messages": [{"role": "user", "content": prompt.clone()}],
+                "max_tokens": max
+            }));
+        }
     }
     // `stop`: a string or an array of strings; empty entries are no-ops.
     let stop = match object.get("stop") {
@@ -2937,6 +2947,22 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn parses_legacy_max_tokens_and_carries_budget() {
+        let input = parse_completion(br#"{"prompt":"hello","max_tokens":5}"#, true).unwrap();
+        assert_eq!(input.max_tokens, Some(5));
+        assert_eq!(
+            input.chat,
+            Some(json!({
+                "messages": [{"role": "user", "content": "hello"}],
+                "max_tokens": 5
+            }))
+        );
+
+        let budgetless = parse_completion(br#"{"prompt":"hello"}"#, true).unwrap();
+        assert!(budgetless.chat.is_none());
     }
 
     #[test]
