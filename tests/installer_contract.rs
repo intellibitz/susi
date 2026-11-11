@@ -254,7 +254,7 @@ export HOME="$scratch/home" SUSI_HOME="$scratch/install" NONINTERACTIVE=1
 # below, so filtering whole PATH directories would lose the utilities.
 mkdir -p "$scratch/co-located"
 into="$scratch/co-located"
-for utility in bash tr grep rm mkdir ln; do
+for utility in bash tr grep rm mkdir ln chmod; do
     {link_utility}
 done
 printf '#!/usr/bin/env bash\nexit 97\n' >"$scratch/co-located/{missing}"
