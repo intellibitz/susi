@@ -478,3 +478,60 @@ fn worker_briefs_carry_the_rules_and_plans_cannot_share_a_branch() {
     let bad = [task("no spaces", &[], &["a"])];
     assert!(policy.validate_plan(&bad).is_err());
 }
+
+#[test]
+fn git_ref_streams_separate_unqualified_main_from_distillation_and_release_promotion() {
+    assert_eq!(
+        classify_git_ref_stream("refs/heads/main", Some("origin")),
+        WorkflowStreamKind::UnqualifiedDevelopmentMain
+    );
+    assert_eq!(
+        classify_git_ref_stream("refs/remotes/origin/main", Some("origin")),
+        WorkflowStreamKind::UnqualifiedDevelopmentMain
+    );
+    let dev = classify_git_ref_stream("refs/remotes/origin/local-agent/agy-fury", Some("origin"));
+    assert_eq!(dev, WorkflowStreamKind::DevelopmentAgentBranch);
+    assert!(dev.eligible_for_unqualified_main_sweep());
+
+    for release_ref in [
+        "refs/heads/release/v0.21.56-distilled-rc8",
+        "refs/remotes/origin/release/v0.21.56-distilled-rc8",
+        "origin/release-staging/v3.1.2",
+        "refs/tags/v0.21.56",
+    ] {
+        let stream = classify_git_ref_stream(release_ref, Some("origin"));
+        assert_eq!(
+            stream,
+            WorkflowStreamKind::QualifiedReleasePromotion,
+            "{release_ref}"
+        );
+        assert!(!stream.eligible_for_unqualified_main_sweep());
+    }
+
+    for distill_ref in [
+        "refs/remotes/origin/distill/2026-11-11-rc1",
+        "refs/tags/susi-distill/v0.21.56-distilled-rc8",
+    ] {
+        let stream = classify_git_ref_stream(distill_ref, Some("origin"));
+        assert_eq!(
+            stream,
+            WorkflowStreamKind::DistillationStream,
+            "{distill_ref}"
+        );
+        assert!(!stream.eligible_for_unqualified_main_sweep());
+    }
+
+    for internal_ref in [
+        "HEAD",
+        "refs/remotes/origin/HEAD",
+        "refs/susi/integration/current",
+    ] {
+        let stream = classify_git_ref_stream(internal_ref, Some("origin"));
+        assert_eq!(
+            stream,
+            WorkflowStreamKind::InternalCoordinationRef,
+            "{internal_ref}"
+        );
+        assert!(!stream.eligible_for_unqualified_main_sweep());
+    }
+}

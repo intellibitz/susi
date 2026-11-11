@@ -51,6 +51,13 @@ usage:
   susi-harness env
   susi-harness gateway [--port 9180] [--host 127.0.0.1] [--ledger PATH] [--catalogue PATH]
                        [--timeout SECS] [--max-output-tokens N] [--accounts PATH]
+  susi-harness integrate       [--repo PATH] [--remote origin] [--include-local] [--branch PAT]
+                               [--adopt-host-commit OID] [--allow-missing-trailer] [--dry-run]
+                               [--max-attempts N] [--no-fetch] [--receipt-out PATH] [--json]
+  susi-harness submit-main     [--repo PATH] [--rev REV] [--remote origin] [--adopt-host-commit OID]
+                               [--allow-missing-trailer] [--dry-run] [--max-attempts N] [--json]
+  susi-harness release-promote [--repo PATH] [--remote origin] [--name RELEASE_NAME] [--candidate REV]
+                               [--dry-run] [--no-fetch] [--receipt-out PATH] [--json]
   susi-harness version
 
 Bring your own key: set any provider's key in the environment or in a .env file
@@ -99,6 +106,9 @@ fn run(args: &[String]) -> Result<(), String> {
         "budget" => budget_command(&options),
         "env" => env_command(),
         "gateway" => gateway_command(&options),
+        "integrate" | "auto-merge" => integrate_command(&options),
+        "submit-main" => submit_main_command(&options),
+        "release-promote" | "promote-release" => release_promote_command(&options),
         other => Err(format!("unknown command `{other}`\n\n{USAGE}")),
     }
 }
@@ -120,6 +130,19 @@ struct Options {
     accounts: Option<PathBuf>,
     json: bool,
     port_offset: u16,
+    repo: Option<PathBuf>,
+    remote: String,
+    include_local: bool,
+    branches: Vec<String>,
+    adopt_host_commits: Vec<String>,
+    allow_missing_trailer: bool,
+    dry_run: bool,
+    max_attempts: usize,
+    rev: String,
+    release_name: Option<String>,
+    candidate: Option<String>,
+    receipt_out: Option<PathBuf>,
+    no_fetch: bool,
 }
 
 impl Options {
@@ -138,6 +161,19 @@ impl Options {
             accounts: None,
             json: false,
             port_offset: 0,
+            repo: None,
+            remote: "origin".to_string(),
+            include_local: false,
+            branches: Vec::new(),
+            adopt_host_commits: Vec::new(),
+            allow_missing_trailer: false,
+            dry_run: false,
+            max_attempts: 4,
+            rev: "HEAD".to_string(),
+            release_name: None,
+            candidate: None,
+            receipt_out: None,
+            no_fetch: false,
         };
         let mut args = args.iter();
         while let Some(flag) = args.next() {
@@ -178,10 +214,34 @@ impl Options {
                         .parse()
                         .map_err(|_| "--port-offset must be a number".to_string())?;
                 }
+                "--repo" => options.repo = Some(PathBuf::from(value()?)),
+                "--remote" => options.remote = value()?,
+                "--include-local" => options.include_local = true,
+                "--branch" => options.branches.push(value()?),
+                "--adopt-host-commit" => options.adopt_host_commits.push(value()?),
+                "--allow-missing-trailer" => options.allow_missing_trailer = true,
+                "--dry-run" => options.dry_run = true,
+                "--max-attempts" => {
+                    options.max_attempts = value()?
+                        .parse()
+                        .map_err(|_| "--max-attempts must be a positive integer".to_string())?;
+                }
+                "--rev" => options.rev = value()?,
+                "--name" => options.release_name = Some(value()?),
+                "--candidate" => options.candidate = Some(value()?),
+                "--receipt-out" => options.receipt_out = Some(PathBuf::from(value()?)),
+                "--no-fetch" => options.no_fetch = true,
                 other => return Err(format!("unknown argument `{other}`")),
             }
         }
         Ok(options)
+    }
+
+    fn repo_dir(&self) -> Result<PathBuf, String> {
+        match &self.repo {
+            Some(path) => Ok(path.clone()),
+            None => std::env::current_dir().map_err(|e| format!("current directory: {e}")),
+        }
     }
 
     fn ledger(&self) -> PathBuf {
@@ -437,6 +497,63 @@ fn env_command() -> Result<(), String> {
 fn adaptive_command(options: &Options) -> Result<(), String> {
     let report = susi_harness::build_adaptive_supervisor_report(options.port_offset);
     print_json(&report)
+}
+
+fn integrate_command(options: &Options) -> Result<(), String> {
+    let adopted_host_commits =
+        susi_harness::git_governor::parse_adopted_oids(&options.adopt_host_commits)
+            .map_err(|e| e.to_string())?;
+    let cfg = susi_harness::git_governor::AutoMergeConfig {
+        repo: options.repo_dir()?,
+        remote: options.remote.clone(),
+        fetch_remote: !options.no_fetch,
+        include_local: options.include_local,
+        branch_filters: options.branches.clone(),
+        adopted_host_commits,
+        require_task_trailer: !options.allow_missing_trailer,
+        dry_run: options.dry_run,
+        max_attempts: options.max_attempts.max(1),
+        receipt_out: options.receipt_out.clone(),
+    };
+    let mut note_sink = |line: String| eprintln!("{line}");
+    let doc = susi_harness::operator::integrate_pending(&cfg, &mut note_sink)
+        .map_err(|e| e.to_string())?;
+    print_json(&doc)
+}
+
+fn submit_main_command(options: &Options) -> Result<(), String> {
+    let adopted_host_commits =
+        susi_harness::git_governor::parse_adopted_oids(&options.adopt_host_commits)
+            .map_err(|e| e.to_string())?;
+    let cfg = susi_harness::git_governor::SubmitMainConfig {
+        repo: options.repo_dir()?,
+        rev: options.rev.clone(),
+        remote: options.remote.clone(),
+        require_task_trailer: !options.allow_missing_trailer,
+        adopted_host_commits,
+        dry_run: options.dry_run,
+        max_attempts: options.max_attempts.max(1),
+    };
+    let mut note_sink = |line: String| eprintln!("{line}");
+    let doc =
+        susi_harness::operator::submit_main(&cfg, &mut note_sink).map_err(|e| e.to_string())?;
+    print_json(&doc)
+}
+
+fn release_promote_command(options: &Options) -> Result<(), String> {
+    let cfg = susi_harness::git_governor::ReleasePromotionConfig {
+        repo: options.repo_dir()?,
+        remote: options.remote.clone(),
+        fetch_remote: !options.no_fetch,
+        target_release_name: options.release_name.clone(),
+        candidate_rev: options.candidate.clone(),
+        dry_run: options.dry_run,
+        receipt_out: options.receipt_out.clone(),
+    };
+    let mut note_sink = |line: String| eprintln!("{line}");
+    let doc =
+        susi_harness::operator::promote_release(&cfg, &mut note_sink).map_err(|e| e.to_string())?;
+    print_json(&doc)
 }
 
 #[cfg(test)]
@@ -698,5 +815,52 @@ mod tests {
         assert!(run(&strings(&["status", "--json", "--port-offset", "10"])).is_ok());
         assert!(run(&strings(&["socket"])).is_ok());
         assert!(Options::parse(&strings(&["--port-offset", "bad"])).is_err());
+    }
+
+    #[test]
+    fn git_governor_flags_parse_cleanly() {
+        let opts = Options::parse(&strings(&[
+            "--repo",
+            "/tmp/susi-repo",
+            "--remote",
+            "upstream",
+            "--include-local",
+            "--branch",
+            "local-agent/*",
+            "--adopt-host-commit",
+            "0123456789abcdef0123456789abcdef01234567",
+            "--allow-missing-trailer",
+            "--dry-run",
+            "--max-attempts",
+            "6",
+            "--rev",
+            "local-agent/test",
+            "--name",
+            "v0.21.56-candidate",
+            "--candidate",
+            "release/v0.21.56-distilled-rc11",
+            "--receipt-out",
+            "/tmp/receipt.json",
+            "--no-fetch",
+            "--json",
+        ]))
+        .unwrap();
+        assert_eq!(opts.repo, Some(PathBuf::from("/tmp/susi-repo")));
+        assert_eq!(opts.remote, "upstream");
+        assert!(opts.include_local);
+        assert_eq!(opts.branches, vec!["local-agent/*".to_string()]);
+        assert_eq!(opts.adopt_host_commits.len(), 1);
+        assert!(opts.allow_missing_trailer);
+        assert!(opts.dry_run);
+        assert_eq!(opts.max_attempts, 6);
+        assert_eq!(opts.rev, "local-agent/test");
+        assert_eq!(opts.release_name.as_deref(), Some("v0.21.56-candidate"));
+        assert_eq!(
+            opts.candidate.as_deref(),
+            Some("release/v0.21.56-distilled-rc11")
+        );
+        assert_eq!(opts.receipt_out, Some(PathBuf::from("/tmp/receipt.json")));
+        assert!(opts.no_fetch);
+        assert!(Options::parse(&strings(&["--max-attempts", "bad"])).is_err());
     }
 }
