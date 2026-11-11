@@ -121,10 +121,17 @@ fn env_lock() -> MutexGuard<'static, ()> {
 /// unable to walk out of `ceiling` (a surrounding repository must not be
 /// discovered) and no inherited instance root or port offset.
 fn e2e_command(args: &[&str], home: &Path, cwd: &Path, ceiling: &Path) -> Command {
+    // The scan command intentionally runs `--version` for installed local
+    // engines. Keep release E2E hermetic: a desktop launcher such as Jan's
+    // `jan --version` is allowed to open a UI, so the host PATH must never
+    // reach this child process.
+    let isolated_path = home.join("bin");
+    std::fs::create_dir_all(&isolated_path).expect("create hermetic E2E PATH");
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
     isolate_home(&mut cmd, home);
     cmd.args(args)
         .current_dir(cwd)
+        .env("PATH", isolated_path)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("GIT_CEILING_DIRECTORIES", ceiling)
         .env_remove("SUSI_HOME")
