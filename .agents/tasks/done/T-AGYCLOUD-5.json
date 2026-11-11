@@ -24,8 +24,12 @@
     "docs/lean-core.md",
     "tests/architecture_tests.rs",
     "vendor/README.md",
-    "vendor/fluent-uri/**",
-    "vendor/reqwest/**"
+    "vendor/fluent-uri",
+    "vendor/reqwest"
+  ],
+  "source_commits": [
+    "56d5cc15352a307918fdba75ab3b075cb2126191",
+    "8f75369d49a0d4400771a2fedc49aa4e9aa7e56b"
   ],
   "evidence": [
     "Cargo.toml",
