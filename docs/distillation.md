@@ -103,9 +103,14 @@ A release can only be assembled from records that say what landed. Three
 rules make development main distillable:
 
 1. **Every commit carries `Task: <id>`** (`T-<AGENT>-<n>`; several ids may be
-   comma- or space-separated, or given as repeated trailers). The native
-   launcher's `Task: LOCAL-<name>` is accepted during migration but has no task
-   record, so it cannot be distilled; prefer a real task id.
+   comma- or space-separated, or given as repeated trailers). Place `Task:` and
+   every companion trailer (`Feature:`, `Depends:`, and for cloud-harvested raw
+   features under [CEO Mandate 75](ceo-mandate-75.md): `Harvest: H-<AGENT>-<n>`,
+   `Origin: <url>@<sha>:<path>`, `Origin-License: Apache-2.0`) in the **final
+   paragraph** of the commit message with zero blank lines between trailers so
+   Git trailer parsing sees all of them. The native launcher's `Task: LOCAL-<name>`
+   is accepted during migration but has no task record, so it cannot be
+   distilled; prefer a real task id.
 2. **Every task declares `scopes`** (repo-relative files or directories, the
    same scopes it claims) and its commits stay inside them. The task's own
    record and the evidence files it lists are always in scope.
@@ -235,7 +240,14 @@ This is **not** a distillation service. Not implemented:
 - checking that a task's commits touch only its declared scope.
 
 Treat a plan as an input to those steps, never as evidence that a release
-builds, passes or qualifies.
+builds, passes or qualifies. Branch composition, candidate orchestration,
+disjoint release lanes, atomic one-version-one-cut version reservations, and
+pure-`Apache-2.0` harvest release-gate verification under the
+**Raw Source (`main`) -> Distill (`release`)** architecture
+([CEO Mandate 75](ceo-mandate-75.md)) live in the companion binaries documented
+in [`docs/release-distillation.md`](release-distillation.md),
+[`docs/release-lanes.md`](release-lanes.md), [`docs/releases.md`](releases.md),
+and [`docs/harvest.md`](harvest.md).
 
 ## Verification
 
