@@ -66,7 +66,12 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// `sha2 0.10.9` and `susi-vendor-getrandom` onto `getrandom 0.2`, removing 9
 /// packages from Cargo.lock and dropping `hybrid-array` and `r-efi` from the
 /// pillar closure).
-const THIRD_PARTY_CEILING: usize = 122;
+/// 2026-11-11: 122 -> 117 (T-CARBONLEAN-10: replace `tokio` `"full"` and
+/// `"tracing"` features in `susi-vendor-tokio` and root `Cargo.toml` with the
+/// exact required feature set, removing `parking_lot`, `parking_lot_core`,
+/// `lock_api`, `scopeguard` and `redox_syscall` from Cargo.lock and the pillar
+/// closure).
+const THIRD_PARTY_CEILING: usize = 117;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
