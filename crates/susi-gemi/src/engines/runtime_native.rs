@@ -91,19 +91,6 @@ impl SusiGgufEngine {
         if let Some(plug) = crate::engines::local_plug::local_engine_plug() {
             return plug.run_inference_stream(prompt, callback, selected_model);
         }
-        if let Some(res) = crate::engines::local_plug::call_bus_plug(
-            crate::engines::local_plug::TOPIC_LOCAL_INFER_STREAM,
-            serde_json::json!({
-                "prompt": prompt,
-                "selected_model": selected_model,
-            }),
-        ) {
-            let val = res?;
-            if let Some(text) = val.get("text").and_then(serde_json::Value::as_str) {
-                callback(text.to_string());
-                return Ok(text.to_string());
-            }
-        }
         let eco = local_ecosystem::scan(&local_ecosystem::DetectOnlyProbe::default());
         for eng in eco.engines.iter().filter(|e| e.running) {
             if let Some(endpoint) = &eng.endpoint {
