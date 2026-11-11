@@ -430,11 +430,23 @@ fn dev_cargo(repo: &Path) -> Command {
     cmd
 }
 
-fn build_dev_executable(repo: &Path) -> Result<PathBuf> {
-    let target_dir = env::var_os("CARGO_TARGET_DIR")
+/// The worktree's Cargo target directory.
+fn target_dir(repo: &Path) -> PathBuf {
+    env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .map(|p| if p.is_absolute() { p } else { repo.join(p) })
-        .unwrap_or_else(|| repo.join("target"));
+        .unwrap_or_else(|| repo.join("target"))
+}
+
+/// A persistent target directory of its own for delivery test builds, so
+/// they hold a different Cargo build lock than the dev executable's build
+/// and the two compile at the same time. It stays warm between deliveries.
+fn delivery_test_target_dir(repo: &Path) -> PathBuf {
+    target_dir(repo).join("deliver-tests")
+}
+
+fn build_dev_executable(repo: &Path) -> Result<PathBuf> {
+    let target_dir = target_dir(repo);
     let status = dev_cargo(repo)
         .args([
             "build",
@@ -800,7 +812,7 @@ fn test_binaries(package: &str, cargo_json: &str) -> Vec<TestBinary> {
 }
 
 /// Compile each owning package's unit tests (library and binaries) without
-/// running them, so the dev build can overlap their execution.
+/// running them, in [`delivery_test_target_dir`].
 fn compile_owner_tests(
     repo: &Path,
     scratch: &Path,
@@ -821,6 +833,7 @@ fn compile_owner_tests(
         fs::create_dir_all(&home)?;
         let mut cmd = dev_cargo(repo);
         isolate(&mut cmd, &home)?;
+        cmd.env("CARGO_TARGET_DIR", delivery_test_target_dir(repo));
         let started = Instant::now();
         let out = cmd.args(&args).stderr(Stdio::inherit()).output()?;
         if !out.status.success() {
@@ -1066,24 +1079,34 @@ fn deliver(channel_root: &Path, channel: &str, opts: &DeliverOptions) -> Result<
     let delivery_dir = channel_root
         .join("deliveries")
         .join(format!("{stamp}-{}", head.get(..12).unwrap_or(&head)));
-    // Tests compile first (Cargo's build lock), then run while the dev
-    // executable builds; nothing is staged until every test has passed.
+    // The owners' unit tests compile (in their own target directory) and run
+    // while the dev executable builds; nothing is staged until every test
+    // has passed.
     let test_home = delivery_dir.join("test-home");
-    let (test_binaries, test_compiles) = compile_owner_tests(&repo, &test_home, &owners)?;
-    clock.mark("test-compile");
-    let running = spawn_owner_tests(&test_binaries, &test_home)?;
     let build_started = Instant::now();
-    let built = build_dev_executable(&repo);
-    let build_seconds = (build_started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
-    clock.mark("build");
-    let test_runs = wait_owner_tests(running);
-    clock.mark("test-run");
-    let built = built?;
-    let tests = json!({
-        "compile": test_compiles,
-        "runs": test_runs?,
-        "overlapped_build": true,
+    let (built, test_result) = std::thread::scope(|scope| {
+        // Errors cross the thread as text: the boxed error type is not Send.
+        let tests = scope.spawn(|| -> std::result::Result<Value, String> {
+            let run = || -> Result<Value> {
+                let (binaries, compiles) = compile_owner_tests(&repo, &test_home, &owners)?;
+                let runs = wait_owner_tests(spawn_owner_tests(&binaries, &test_home)?)?;
+                Ok(json!({ "compile": compiles, "runs": runs }))
+            };
+            run().map_err(|error| error.to_string())
+        });
+        let built = build_dev_executable(&repo);
+        let tests: Result<Value> = match tests.join() {
+            Ok(Ok(tests)) => Ok(tests),
+            Ok(Err(error)) => Err(error.into()),
+            Err(_) => Err("the owner-test thread panicked; nothing was promoted.".into()),
+        };
+        (built, tests)
     });
+    let build_seconds = (build_started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
+    clock.mark("build-and-test");
+    let built = built?;
+    let mut tests = test_result?;
+    tests["concurrent_with_build"] = json!(true);
     let (candidate, digest, version) = stage_candidate_into_slot(channel_root, &built)?;
     clock.mark("stage");
     let startup_started = Instant::now();
