@@ -169,7 +169,7 @@ impl NetGuard {
         }
         let sig_ok = match body {
             Some(bytes) => {
-                let hash = hex::encode(sha2::Sha256::digest(bytes));
+                let hash = susi_paths::hex::encode(sha2::Sha256::digest(bytes));
                 let v2 = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{hash}");
                 crate::susi_config::cluster_key::member_verify(&pubkey, &v2, sig) || {
                     let v1 = format!("susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}");

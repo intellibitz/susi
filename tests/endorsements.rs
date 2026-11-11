@@ -49,7 +49,7 @@ fn endorse(record: &CommitRecord, node: &str, sk: &SigningKey) -> MemberEndorsem
     let msg = format!("susi-member-v1:{payload}");
     MemberEndorsement {
         node: node.to_string(),
-        sig: hex::encode(sk.sign(msg.as_bytes()).to_bytes()),
+        sig: susi_paths::hex::encode(sk.sign(msg.as_bytes()).to_bytes()),
     }
 }
 
@@ -60,7 +60,11 @@ fn bound_electorate_requires_endorsement_quorum() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("end");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xEEu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xEEu8; 32]),
+    )
+    .unwrap();
 
     let self_pk = cluster_key::node_pubkey_hex().expect("node key must generate");
     let self_id = cluster_key::wire_node_id();
@@ -68,12 +72,12 @@ fn bound_electorate_requires_endorsement_quorum() {
     // Two foreign member keys — the endorsements we cannot mint without
     // them, which is exactly what the gate proves.
     let sk_b = SigningKey::from_bytes(&[0x42u8; 32]);
-    let pk_b = hex::encode(sk_b.verifying_key().to_bytes());
+    let pk_b = susi_paths::hex::encode(sk_b.verifying_key().to_bytes());
     let sk_c = SigningKey::from_bytes(&[0x43u8; 32]);
-    let pk_c = hex::encode(sk_c.verifying_key().to_bytes());
+    let pk_c = susi_paths::hex::encode(sk_c.verifying_key().to_bytes());
     let sk_d = SigningKey::from_bytes(&[0x44u8; 32]);
     let sk_e = SigningKey::from_bytes(&[0x45u8; 32]);
-    let pk_e = hex::encode(sk_e.verifying_key().to_bytes());
+    let pk_e = susi_paths::hex::encode(sk_e.verifying_key().to_bytes());
 
     write_roster(
         &dir,
@@ -153,7 +157,11 @@ fn unbound_and_prebinding_electorates_stay_ungated() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("end");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xEFu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xEFu8; 32]),
+    )
+    .unwrap();
     let self_id = cluster_key::wire_node_id();
 
     // Roster with NO bound keys — the pre-PKI ceiling: privileged
@@ -196,12 +204,16 @@ fn corrupted_signature_bytes_and_wrong_key_endorsement_are_rejected() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("end-corrupt");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xEAu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xEAu8; 32]),
+    )
+    .unwrap();
 
     let self_pk = cluster_key::node_pubkey_hex().expect("node key must generate");
     let self_id = cluster_key::wire_node_id();
     let sk_b = SigningKey::from_bytes(&[0x51u8; 32]);
-    let pk_b = hex::encode(sk_b.verifying_key().to_bytes());
+    let pk_b = susi_paths::hex::encode(sk_b.verifying_key().to_bytes());
     let sk_wrong = SigningKey::from_bytes(&[0x52u8; 32]);
 
     write_roster(

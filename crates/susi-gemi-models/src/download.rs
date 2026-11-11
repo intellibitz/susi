@@ -463,7 +463,7 @@ pub(crate) mod tests {
         use sha2::Digest;
         let root = workspace("hf_cache");
         let body = b"a cached artifact";
-        let digest = hex::encode(sha2::Sha256::digest(body));
+        let digest = susi_paths::hex::encode(sha2::Sha256::digest(body));
         let blob = root.join(format!("models--owner--model/blobs/{digest}"));
         fs::create_dir_all(blob.parent().unwrap()).unwrap();
         fs::write(&blob, body).unwrap();
@@ -747,7 +747,7 @@ ij",
     fn published_digest_gates_publication_and_is_recorded() {
         use sha2::Digest;
         let body = b"abcdefghij";
-        let good = hex::encode(sha2::Sha256::digest(body));
+        let good = susi_paths::hex::encode(sha2::Sha256::digest(body));
         let response =
             "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
 

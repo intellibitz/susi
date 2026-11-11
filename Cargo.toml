@@ -35,7 +35,6 @@ members = [
     "crates/susi-vendor-clap",
     "crates/susi-vendor-ed25519-dalek",
     "crates/susi-vendor-getrandom",
-    "crates/susi-vendor-hex",
     "crates/susi-vendor-hyper",
     "crates/susi-vendor-hyper-util",
     "crates/susi-vendor-libc",
@@ -136,7 +135,6 @@ susi-leaf-services = { path = "crates/susi-leaf-services", features = ["all-serv
 susi-daemon-runtime = { path = "crates/susi-daemon-runtime" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-hex = "0.4"
 tracing = "0.1"
 sha2 = "0.11.0"
 getrandom = "0.4"
@@ -175,7 +173,6 @@ winapi = { package = "susi-vendor-winapi", path = "crates/susi-vendor-winapi" }
 signal-hook = { package = "susi-vendor-signal-hook", path = "crates/susi-vendor-signal-hook" }
 tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing" }
 tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
-hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 susi-windows-runtime = { workspace = true }
 

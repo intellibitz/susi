@@ -127,7 +127,7 @@ impl PayloadReference {
         let mut hasher = Sha256::new();
         hasher.update(payload);
         Self {
-            sha256: hex::encode(hasher.finalize()),
+            sha256: susi_paths::hex::encode(hasher.finalize()),
             bytes: u64::try_from(payload.len()).unwrap_or(u64::MAX),
             hint: bounded_metadata(hint, 64),
         }

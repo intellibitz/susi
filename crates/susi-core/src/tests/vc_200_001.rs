@@ -14,13 +14,13 @@ fn key(seed: u8) -> SigningKey {
 }
 
 fn pubkey(k: &SigningKey) -> String {
-    hex::encode(k.verifying_key().to_bytes())
+    susi_paths::hex::encode(k.verifying_key().to_bytes())
 }
 
 fn sign(k: &SigningKey, payload: &str) -> String {
     // member_verify checks `susi-member-v1:{payload}` — same domain prefix.
     let msg = format!("susi-member-v1:{payload}");
-    hex::encode(k.sign(msg.as_bytes()).to_bytes())
+    susi_paths::hex::encode(k.sign(msg.as_bytes()).to_bytes())
 }
 
 /// A roster dir with `peers.json` binding each member to its pubkey.

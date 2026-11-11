@@ -183,7 +183,7 @@ pub fn cert_fingerprint(cert_pem: &str) -> std::io::Result<String> {
         .collect::<Result<_, _>>()
         .map_err(invalid)?;
     if let Some(first) = certs.first() {
-        Ok(hex::encode(Sha256::digest(first.as_ref())))
+        Ok(susi_paths::hex::encode(Sha256::digest(first.as_ref())))
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -207,7 +207,7 @@ pub fn cert_file_fingerprint(cert_path: &Path) -> std::io::Result<String> {
         .collect::<Result<_, _>>()
         .map_err(invalid)?;
     if let Some(first) = certs.first() {
-        Ok(hex::encode(Sha256::digest(first.as_ref())))
+        Ok(susi_paths::hex::encode(Sha256::digest(first.as_ref())))
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,

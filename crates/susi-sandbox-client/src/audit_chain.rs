@@ -70,7 +70,7 @@ fn last_hash(audit_file: &Path, key: &[u8; 32]) -> std::io::Result<String> {
 }
 
 fn mac_hex(key: &[u8; 32], entry_hash: &str) -> String {
-    hex::encode(hmac_sha256(key, entry_hash.as_bytes()))
+    susi_paths::hex::encode(hmac_sha256(key, entry_hash.as_bytes()))
 }
 
 /// Append a cryptographically linked, HMAC-authenticated audit entry.
@@ -146,7 +146,7 @@ pub(crate) fn append_with_key(
     hasher.update(details.as_bytes());
     hasher.update(b"|");
     hasher.update(pid.to_string().as_bytes());
-    let entry_hash = hex::encode(hasher.finalize());
+    let entry_hash = susi_paths::hex::encode(hasher.finalize());
     let signature = mac_hex(key, &entry_hash);
 
     let log_entry = serde_json::json!({
@@ -424,7 +424,7 @@ fn verify_content(content: &str, key: &[u8; 32], since: Option<u64>) -> Result<u
         hasher.update(details.as_bytes());
         hasher.update(b"|");
         hasher.update(pid.to_string().as_bytes());
-        let recomputed = hex::encode(hasher.finalize());
+        let recomputed = susi_paths::hex::encode(hasher.finalize());
         if recomputed != entry_hash {
             return Err(format!("line {}: entry_hash mismatch", idx + 1));
         }

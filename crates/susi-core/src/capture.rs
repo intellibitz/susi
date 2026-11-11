@@ -226,7 +226,7 @@ fn truncate_utf8(input: &str, max_bytes: usize) -> String {
 }
 
 fn hash_output(output: &str) -> String {
-    hex::encode(Sha256::digest(output.as_bytes()))
+    susi_paths::hex::encode(Sha256::digest(output.as_bytes()))
 }
 
 impl EvidenceSession {
@@ -574,7 +574,7 @@ impl EvidenceSession {
                     "observed_at": r.observed_at,
                     "output_hash": r.output_hash,
                     "successful": r.successful,
-                    "mission_goal_hash": hex::encode(Sha256::digest(self.goal.as_bytes())),
+                    "mission_goal_hash": susi_paths::hex::encode(Sha256::digest(self.goal.as_bytes())),
                 })
             })
             .collect();

@@ -533,7 +533,7 @@ mod tests {
 
         let mut hasher = Sha256::new();
         hasher.update(content);
-        let hash = hex::encode(hasher.finalize());
+        let hash = susi_paths::hex::encode(hasher.finalize());
 
         let record = EvidenceRecord::new(
             "agent-007".to_string(),

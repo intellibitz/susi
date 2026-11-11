@@ -109,7 +109,7 @@ impl ReceiptArchive {
             schema: ARCHIVE_SCHEMA.into(),
             kind: "tool_receipt".into(),
             session_id: session_id.to_string(),
-            mission_goal_hash: hex::encode(Sha256::digest(mission_goal.as_bytes())),
+            mission_goal_hash: susi_paths::hex::encode(Sha256::digest(mission_goal.as_bytes())),
             training_intent: Some(training_intent.to_string()),
             receipt_id: receipt.id.clone(),
             tool: receipt.tool.clone(),

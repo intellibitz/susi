@@ -164,7 +164,7 @@ pub fn credential_fingerprint(api_key: &str) -> String {
         return String::new();
     }
     let digest = Sha256::digest(api_key.as_bytes());
-    hex::encode(&digest[..8])
+    susi_paths::hex::encode(&digest[..8])
 }
 
 fn now_unix() -> u64 {

@@ -18,7 +18,6 @@ tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
 tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
-hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 
 [lints]
 workspace = true

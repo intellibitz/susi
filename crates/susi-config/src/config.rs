@@ -334,7 +334,7 @@ impl SusiConfig {
                         "generate host API bearer token: {error}"
                     ))
                 })?;
-                hex::encode(raw)
+                susi_paths::hex::encode(raw)
             };
             match super::json_util::install_private_file(&token_path, token.as_bytes())? {
                 true => token,

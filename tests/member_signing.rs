@@ -40,9 +40,12 @@ fn decision_as(coordinator: &str, value: &str) -> CommitRecord {
 /// for `node_id`, signed under a foreign member key — matching
 /// `member_sign`'s `susi-member-v1:` wrap of `bind_payload`.
 fn attest(node_id: &str, sk: &SigningKey) -> (String, String) {
-    let pk = hex::encode(sk.verifying_key().to_bytes());
+    let pk = susi_paths::hex::encode(sk.verifying_key().to_bytes());
     let msg = format!("susi-member-v1:{}", cluster_key::bind_payload(node_id, &pk));
-    (pk, hex::encode(sk.sign(msg.as_bytes()).to_bytes()))
+    (
+        pk,
+        susi_paths::hex::encode(sk.sign(msg.as_bytes()).to_bytes()),
+    )
 }
 
 /// Write a peers.json with one explicit member row; `pubkey`/`bound_at`
@@ -72,7 +75,11 @@ fn sealed_records_carry_member_sig_and_bound_coordinators_are_enforced() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("msig");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xAAu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xAAu8; 32]),
+    )
+    .unwrap();
 
     // node.key generates on first use — self is always self-bound.
     let self_pk = cluster_key::node_pubkey_hex().expect("node key must generate");
@@ -103,7 +110,7 @@ fn sealed_records_carry_member_sig_and_bound_coordinators_are_enforced() {
     commit_log::append(&forged).unwrap();
 
     // Now bind node-v's real pubkey (not ours — any other 32-byte key).
-    let victim_pk = hex::encode([0x42u8; 32]);
+    let victim_pk = susi_paths::hex::encode([0x42u8; 32]);
     write_roster(&dir, "node-v", &victim_pk, 0);
     assert!(!commit_log::attribution_valid_at(&forged, &dir));
 
@@ -135,9 +142,13 @@ fn seq_floor_binding_refuses_backdated_forgeries() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("msig");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xBBu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xBBu8; 32]),
+    )
+    .unwrap();
 
-    let victim_pk = hex::encode([0x42u8; 32]);
+    let victim_pk = susi_paths::hex::encode([0x42u8; 32]);
 
     // Roster row bound with a seq floor of 2 — the member's frontier
     // when its key was committed.
@@ -199,7 +210,11 @@ fn member_add_commits_the_subjects_pubkey_binding() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("msig");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xBBu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xBBu8; 32]),
+    )
+    .unwrap();
     let self_id = cluster_key::wire_node_id();
 
     // Seal a member_add carrying the subject's attested pubkey — the
@@ -287,7 +302,11 @@ fn member_add_pubkey_requires_subject_attestation() {
         .unwrap_or_else(|e| e.into_inner());
     let home = HomeGuard::new("msig");
     let dir = home.config();
-    std::fs::write(dir.join("cluster.key"), hex::encode([0xCCu8; 32])).unwrap();
+    std::fs::write(
+        dir.join("cluster.key"),
+        susi_paths::hex::encode([0xCCu8; 32]),
+    )
+    .unwrap();
     let self_id = cluster_key::wire_node_id();
     let sk_v = SigningKey::from_bytes(&[0x77u8; 32]);
     let (pk_v, sig_v) = attest("node-v", &sk_v);
