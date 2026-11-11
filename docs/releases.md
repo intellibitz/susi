@@ -70,9 +70,10 @@ qualified on the exact tree it ships (CEO mandate 73):
    `susi-release-qualification/v1`: the qualified commit and tree, the
    `Cargo.lock` digest, the toolchain, the host, every gate's command, exit
    code, duration and log digest, the test counts, each asset's sha256 and
-   `--version` answer, and the platforms still owed), commit that one file,
-   verify the commit and create the annotated tag locally. A failing gate
-   writes nothing.
+   `--version` answer, the platforms still owed, and `source: snapshot`),
+   commit that one file, verify the commit and create the annotated tag
+   locally. A failing gate writes nothing. `--verify-only` runs every check
+   that comes before the gates and stops: no gate runs, nothing is written.
 4. Publish: `git push origin vX.Y.Z`. The pre-push `push-policy` admits a
    `vX.Y.Z` tag only when the tagged commit adds exactly its record to the
    qualified tree and the record shows every gate at exit 0 with tests run
@@ -81,6 +82,72 @@ qualified on the exact tree it ships (CEO mandate 73):
 5. Write `releases/<tag>.json` (the record below) with the reference digests
    and land it on main. A platform with no qualification yet is listed under
    `missing_targets` and in the qualification record's `owed_platforms`.
+
+## Promoting a distilled candidate
+
+Three states, and only Susi tools move work between them; no merge, pull
+request or composition happens on the Git host:
+
+| State | Where | What it proves |
+|---|---|---|
+| Development integration | `main` | nothing: main is unqualified development (mandate 73) |
+| Accept-verified candidate | the local-only `release/<name>` from `local-distill` (snapshot tag `susi-distill/<name>`) | the selected tasks compose onto their base and each task's `accept.cmd` passed on the composed tree; not a release |
+| Qualified release | tag `vX.Y.Z` | every release gate passed on the exact tree, reached only through `release-qualify` |
+
+A release is qualified from a snapshot of main (above) or from a distilled
+candidate:
+
+1. `local-distill orchestrate ... --verify-accept --release-candidate` leaves
+   the candidate as the local branch `release/<name>`: the composed commit, then
+   one envelope commit that adds only its receipt `releases/distill/<name>.json`
+   (`docs/release-distillation.md`).
+2. On that branch, commit only the version bump, exactly as in "Cutting a
+   release" step 2.
+3. Qualify: `cargo run -p xtask --bin release-qualify -- vX.Y.Z --from-distill
+   <name> [--jobs N]`. Before any gate runs it refuses, with the reason, unless
+   all of these hold (`verify_distilled_source` in
+   `xtask/src/release_qualification.rs`):
+   - the receipt is in the release tree, parses, and its `receipt_sha256`
+     re-computes (SHA-256 of the compact JSON without that field, as
+     `local-distill` writes it);
+   - it names this candidate and its verdict is `accept_verified_candidate`;
+   - `rejected` and `deferred` are empty;
+   - every commit in `git_host_created_in_stream` is in
+     `adopted_host_commits` (a receipt without that accounting is refused:
+     distil it again);
+   - every `accept_verification` entry exited 0 and every included task has
+     one;
+   - the envelope commit (the one that added the receipt) has the composed
+     commit `final_commit` as its only parent, changes only the receipt, and is
+     an ancestor of the release tree; `final_tree` is that commit's tree;
+   - between the envelope and the release tree there is only the version bump:
+     the files the v0.21.55 bump `47339995d` touched (the root and six engine
+     `Cargo.toml` files, `Cargo.lock`, `README.md`,
+     `.agents/{evidence,identity,roadmap}.json`), each changed only by the old
+     version becoming the new one on a line, plus at most one added task record
+     directly under `.agents/tasks/`. Nothing deleted, nothing else.
+
+   It also checks the local refs that name the candidate when they exist:
+   `susi-distill/<name>` must be the composed commit,
+   `susi-distill/legacy-release-<name>` (the envelopes preserved when the
+   remote release branches were retired) must be the envelope, and
+   `release/<name>` must contain it. Then the gates run unchanged, and the
+   record states `source: distill` with a `distillation` block: `candidate`,
+   `receipt_path`, `receipt_sha256`, `envelope_commit`, `base_commit`,
+   `final_commit`, `final_tree`, `included_tasks` and `adopted_host_commits`.
+   So the record says which tasks the release contains.
+4. Publish the tag as in "Cutting a release" step 4. push-policy re-proves the
+   `distillation` block from the tagged tree: the block must be exactly what
+   the receipt in the qualified tree proves, by the same checks. A record with
+   no `source` (v0.21.54, v0.21.55, written before the field existed) is a
+   snapshot release; `source` must otherwise be `snapshot` (with no
+   `distillation`) or `distill` (with it).
+
+`--verify-only` with `--from-distill` is the way to check a candidate before
+spending the gates on it: it prints the `distillation` block and the refs that
+corroborated it, and changes nothing. A defect found from here on is fixed on
+main and distilled again (`rcN+1`); the release branch takes nothing but the
+bump.
 
 ## Installing and upgrading
 

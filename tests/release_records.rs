@@ -344,6 +344,13 @@ fn the_release_format_is_documented() {
         "missing_targets",
         "SUSI_SOURCE_REPO",
         "rust-toolchain.toml",
+        "## Promoting a distilled candidate",
+        "--from-distill",
+        "--verify-only",
+        "accept_verified_candidate",
+        "adopted_host_commits",
+        "`source: distill`",
+        "`source: snapshot`",
     ] {
         assert!(
             doc.contains(needle),
@@ -372,6 +379,49 @@ fn every_qualification_record_belongs_to_a_release_record() {
             .unwrap_or_else(|e| panic!("{name} is not JSON: {e}"));
         assert_eq!(value["schema"], "susi-release-qualification/v1", "{name}");
         assert_eq!(value["tag"], tag, "{name} names another tag");
+        // Where the qualified tree came from: no `source` (records written
+        // before the field existed) or `snapshot`, without a `distillation`
+        // block; or `distill`, with a complete one. push-policy re-proves the
+        // block from the tagged tree (`xtask/src/release_qualification.rs`).
+        let distillation = value.get("distillation").filter(|v| !v.is_null());
+        match value.get("source") {
+            None => assert!(
+                distillation.is_none(),
+                "{name}: distillation without source"
+            ),
+            Some(source) if source == "snapshot" => {
+                assert!(distillation.is_none(), "{name}: snapshot with distillation")
+            }
+            Some(source) if source == "distill" => {
+                let block = distillation
+                    .unwrap_or_else(|| panic!("{name}: source distill without distillation"));
+                for field in [
+                    "candidate",
+                    "receipt_path",
+                    "receipt_sha256",
+                    "envelope_commit",
+                    "base_commit",
+                    "final_commit",
+                    "final_tree",
+                ] {
+                    assert!(
+                        block[field].as_str().is_some_and(|v| !v.is_empty()),
+                        "{name}: distillation.{field} missing"
+                    );
+                }
+                let candidate = block["candidate"].as_str().unwrap();
+                assert_eq!(
+                    block["receipt_path"],
+                    format!("releases/distill/{candidate}.json"),
+                    "{name}"
+                );
+                assert!(
+                    block["included_tasks"].is_array() && block["adopted_host_commits"].is_array(),
+                    "{name}: distillation names its tasks and adopted host commits"
+                );
+            }
+            Some(other) => panic!("{name}: source {other} is neither snapshot nor distill"),
+        }
         assert!(
             tags.iter().any(|t| t == tag),
             "{name}: no releases/{tag}.json for this qualified release"
