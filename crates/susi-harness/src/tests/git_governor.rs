@@ -582,3 +582,116 @@ fn sweep_handles_large_task_ledger_without_pipe_deadlock_and_discovers_susi_dist
     assert_eq!(fc, sem_final);
     assert_eq!(vname, "v0.21.56-tag-promoted");
 }
+
+#[test]
+fn sweep_reads_agent_refs_mirrors_them_pruned_and_still_reads_legacy_agent_branches() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (remote_bare, work, base_oid) = setup_storage_and_work(tmp.path());
+
+    // Work published the 2026-11-11 way: a non-branch agent ref.
+    git(&work, &["checkout", "-b", "local-agent/gamma", &base_oid]);
+    std::fs::write(work.join("gamma.txt"), "gamma\n").unwrap();
+    git(&work, &["add", "gamma.txt"]);
+    git(&work, &["commit", "-m", "feat: gamma\n\nTask: T-GAMMA-1"]);
+    let gamma = git(&work, &["rev-parse", "HEAD"]);
+    git(
+        &work,
+        &["push", "origin", "local-agent/gamma:refs/agents/gamma"],
+    );
+
+    // A legacy branch preserved as an agent ref at the same tip: one candidate.
+    git(&work, &["checkout", "-b", "local-agent/delta", &base_oid]);
+    std::fs::write(work.join("delta.txt"), "delta\n").unwrap();
+    git(&work, &["add", "delta.txt"]);
+    git(&work, &["commit", "-m", "feat: delta\n\nTask: T-DELTA-1"]);
+    git(
+        &work,
+        &["push", "origin", "HEAD:refs/heads/local-agent/delta"],
+    );
+    git(&work, &["push", "origin", "HEAD:refs/agents/delta"]);
+
+    // An agent ref retired on the remote leaves the mirror.
+    git(
+        &work,
+        &["push", "origin", &format!("{gamma}:refs/agents/gone")],
+    );
+    git(&work, &["fetch", "origin", &agent_fetch_refspec("origin")]);
+    git(&work, &["push", "origin", ":refs/agents/gone"]);
+    git(&work, &["checkout", "--detach", &base_oid]);
+
+    let receipt = sweep_pending_branches(&AutoMergeConfig {
+        repo: work.clone(),
+        remote: "origin".to_string(),
+        fetch_remote: true,
+        include_local: false,
+        ..AutoMergeConfig::default()
+    })
+    .unwrap();
+
+    let gamma_entry = receipt
+        .branches
+        .iter()
+        .find(|b| b.branch == "local-agent/gamma")
+        .expect("agent ref swept");
+    assert_eq!(gamma_entry.git_ref, "refs/remotes/origin-agents/gamma");
+    assert_eq!(gamma_entry.stream, "development_agent_branch");
+    // Candidates merge in branch-name order: delta first, then gamma.
+    assert_eq!(
+        gamma_entry.disposition,
+        BranchSweepDisposition::MergedThreeWay
+    );
+    let delta: Vec<_> = receipt
+        .branches
+        .iter()
+        .filter(|b| b.branch == "local-agent/delta")
+        .collect();
+    assert_eq!(delta.len(), 1, "{delta:?}");
+    assert_eq!(delta[0].git_ref, "refs/remotes/origin-agents/delta");
+    assert_eq!(
+        delta[0].disposition,
+        BranchSweepDisposition::MergedFastForward
+    );
+    assert!(!receipt
+        .branches
+        .iter()
+        .any(|b| b.branch == "local-agent/gone"));
+    assert!(git(&work, &["for-each-ref", "refs/remotes/origin-agents/gone"]).is_empty());
+    assert_eq!(receipt.merged_count, 2);
+
+    let remote_main = git(&remote_bare, &["rev-parse", "refs/heads/main"]);
+    let files = git(
+        &remote_bare,
+        &["ls-tree", "--name-only", "-r", &remote_main],
+    );
+    assert!(files.lines().any(|l| l == "gamma.txt"));
+    assert!(files.lines().any(|l| l == "delta.txt"));
+    // The sweep moved only main: no new branch appeared on the storage remote.
+    let heads = git(
+        &remote_bare,
+        &["for-each-ref", "--format=%(refname)", "refs/heads/"],
+    );
+    assert_eq!(
+        heads.lines().collect::<Vec<_>>(),
+        ["refs/heads/local-agent/delta", "refs/heads/main"]
+    );
+}
+
+#[test]
+fn agent_ref_names_normalize_to_the_worktree_branch_name() {
+    assert_eq!(
+        normalize_branch_short("refs/agents/alpha", "origin"),
+        "local-agent/alpha"
+    );
+    assert_eq!(
+        normalize_branch_short("refs/remotes/origin-agents/alpha", "origin"),
+        "local-agent/alpha"
+    );
+    assert_eq!(
+        normalize_branch_short("refs/remotes/origin/local-agent/alpha", "origin"),
+        "local-agent/alpha"
+    );
+    assert_eq!(
+        agent_fetch_refspec("origin"),
+        "+refs/agents/*:refs/remotes/origin-agents/*"
+    );
+}

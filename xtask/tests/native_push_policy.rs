@@ -84,7 +84,7 @@ fn branch_deletion_non_fast_forward_missing_old_and_stale_local_are_rejected() {
         format!("{old} {old} refs/heads/main {new}"),
         format!("HEAD {old} refs/heads/main {ZERO}"),
         format!("HEAD {new} refs/heads/main {}", "1".repeat(40)),
-        format!("(delete) {ZERO} refs/heads/local-agent/a {new}"),
+        format!("(delete) {ZERO} refs/heads/main {old}"),
         format!("(delete) {ZERO} refs/heads/topic {ZERO}"),
         format!("HEAD {ZERO} refs/heads/topic {new}"),
     ] {
@@ -323,7 +323,7 @@ fn graft_environment_override_fails_closed_even_when_file_is_missing() {
 }
 
 #[test]
-fn branch_allowlist_admits_main_and_local_agent_retires_others_and_candidates_fast_forward() {
+fn branch_allowlist_admits_only_main_retires_others_and_candidates_fast_forward() {
     let r = Repo::new();
     let old = r.git(&["rev-parse", "HEAD"]);
     let new = r.commit("release candidate");
@@ -353,7 +353,8 @@ fn branch_allowlist_admits_main_and_local_agent_retires_others_and_candidates_fa
             .is_err());
         assert!(r.check(&format!("HEAD {ZERO} {reference} {old}")).is_err());
     }
-    for reference in ["refs/heads/main", "refs/heads/local-agent/agywin1"] {
+    {
+        let reference = "refs/heads/main";
         assert!(r.check(&format!("HEAD {new} {reference} {ZERO}")).is_ok());
         assert!(r.check(&format!("HEAD {new} {reference} {old}")).is_ok());
         let error = r
@@ -553,4 +554,139 @@ fn a_release_tag_must_point_at_the_record_commit_and_never_moves() {
         .check(&format!("HEAD {other} refs/tags/v1.2.3 {commit}"))
         .unwrap_err()
         .contains("immutable"));
+}
+
+#[test]
+fn agent_refs_admit_create_fast_forward_and_tip_deletion_and_refuse_non_fast_forward() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    let new = r.commit("agent work");
+    let blob = r.git(&["rev-parse", "HEAD:source"]);
+    let reference = "refs/agents/agentrefs";
+    assert_eq!(r.check(&format!("HEAD {new} {reference} {ZERO}")), Ok(()));
+    assert_eq!(r.check(&format!("HEAD {new} {reference} {old}")), Ok(()));
+    assert_eq!(
+        r.check(&format!("(delete) {ZERO} {reference} {new}")),
+        Ok(())
+    );
+    let error = r
+        .check(&format!("{old} {old} {reference} {new}"))
+        .unwrap_err();
+    assert!(error.contains("non-fast-forward"), "{error}");
+    // A blob is not work; a deletion must name the advertised tip.
+    assert!(r
+        .check(&format!("{blob} {blob} {reference} {ZERO}"))
+        .is_err());
+    assert!(r
+        .check(&format!("(delete) {ZERO} {reference} {ZERO}"))
+        .is_err());
+    // One component, exactly like the local-agent/<agent> name it mirrors.
+    assert!(r.check(&format!("HEAD {new} refs/agents/ {ZERO}")).is_err());
+    let error = r
+        .check(&format!("HEAD {new} refs/agents/nested/bad {ZERO}"))
+        .unwrap_err();
+    assert!(error.contains("refs/agents/<agent>"), "{error}");
+}
+
+#[test]
+fn local_agent_branches_refuse_create_and_update_naming_the_agent_ref_but_retire_by_deletion() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    let new = r.commit("agent work");
+    let reference = "refs/heads/local-agent/agywin1";
+    for previous in [ZERO, old.as_str()] {
+        let error = r
+            .check(&format!("HEAD {new} {reference} {previous}"))
+            .unwrap_err();
+        assert!(error.contains("refs/agents/agywin1"), "{error}");
+    }
+    assert_eq!(
+        r.check(&format!("(delete) {ZERO} {reference} {old}")),
+        Ok(())
+    );
+    assert!(r
+        .check(&format!("(delete) {ZERO} {reference} {ZERO}"))
+        .is_err());
+}
+
+#[test]
+fn real_git_push_publishes_agent_refs_and_refuses_new_local_agent_branches() {
+    let binary = env!("CARGO_BIN_EXE_push-policy");
+    let r = Repo::new();
+    let remote = r.0.join("remote.git");
+    r.git(&["init", "--bare", "-q", remote.to_str().unwrap()]);
+    r.git(&["remote", "add", "fixture", remote.to_str().unwrap()]);
+    let first = r.git(&["rev-parse", "HEAD"]);
+    // A legacy branch that predates the rule, stored before the hook exists.
+    r.git(&["push", "-q", "fixture", "HEAD:refs/heads/local-agent/old"]);
+    let hook = r.0.join(".git/hooks/pre-push");
+    std::fs::write(&hook, include_str!("../../.githooks/pre-push")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let push = |args: &[&str]| {
+        let mut path = vec![std::path::Path::new(binary).parent().unwrap().to_owned()];
+        path.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        Command::new("git")
+            .current_dir(&r.0)
+            .arg("push")
+            .args(args)
+            .env("PATH", std::env::join_paths(path).unwrap())
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_COMMON_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+            )
+            .output()
+            .unwrap()
+    };
+    let remote_ref = |name: &str| {
+        Command::new("git")
+            .args([
+                "--git-dir",
+                remote.to_str().unwrap(),
+                "rev-parse",
+                "--verify",
+                "-q",
+                name,
+            ])
+            .output()
+            .unwrap()
+    };
+    assert!(push(&["fixture", "HEAD:refs/agents/lane"]).status.success());
+    let second = r.commit("second");
+    assert!(push(&["fixture", "HEAD:refs/agents/lane"]).status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&remote_ref("refs/agents/lane").stdout).trim(),
+        second
+    );
+    let rewind = push(&["--force", "fixture", &format!("{first}:refs/agents/lane")]);
+    assert!(!rewind.status.success());
+    assert!(String::from_utf8_lossy(&rewind.stderr).contains("pre-push:"));
+    let branch = push(&["fixture", "HEAD:refs/heads/local-agent/lane"]);
+    assert!(!branch.status.success());
+    assert!(String::from_utf8_lossy(&branch.stderr).contains("refs/agents/lane"));
+    assert!(!remote_ref("refs/heads/local-agent/lane").status.success());
+    // Retirement: preserve the tip as an agent ref, then delete the branch.
+    assert!(push(&["fixture", &format!("{first}:refs/agents/old")])
+        .status
+        .success());
+    assert!(push(&["fixture", ":refs/heads/local-agent/old"])
+        .status
+        .success());
+    assert!(!remote_ref("refs/heads/local-agent/old").status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&remote_ref("refs/agents/old").stdout).trim(),
+        first
+    );
+    assert!(push(&["fixture", ":refs/agents/lane"]).status.success());
+    assert!(!remote_ref("refs/agents/lane").status.success());
 }

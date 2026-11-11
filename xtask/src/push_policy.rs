@@ -1,6 +1,8 @@
 //! Provider-neutral Git transport safety. Release tags are admitted only with
 //! the exact-tree qualification record (`release_qualification.rs`). Release
-//! candidate branches are local evidence, never a remote merge surface.
+//! candidate branches are local evidence, never a remote merge surface. Agents
+//! publish to the non-branch ref `refs/agents/<agent>` (docs/agent-refs.md), so
+//! `refs/heads/main` is the only branch the host ever offers a pull request on.
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
@@ -27,6 +29,11 @@ fn oid(value: &str) -> bool {
 }
 fn zero(value: &str) -> bool {
     value.bytes().all(|c| c == b'0')
+}
+/// An agent name is one non-empty ref component (the rule `local-agent/<agent>`
+/// branches used); `git check-ref-format` has already vetted its characters.
+fn valid_agent_name(agent: &str) -> bool {
+    !agent.is_empty() && !agent.contains('/')
 }
 
 /// Validate the exact transaction Git supplies, never HEAD or a tracking branch.
@@ -84,22 +91,47 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
                 return Err(format!("stale local ref {local}"));
             }
         }
-        if remote.starts_with("refs/heads/") {
-            let allowed_head = remote == "refs/heads/main"
-                || remote
-                    .strip_prefix("refs/heads/local-agent/")
-                    .is_some_and(|agent| !agent.is_empty() && !agent.contains('/'));
-            if !allowed_head {
+        if let Some(agent) = remote.strip_prefix("refs/agents/") {
+            // An agent's inbox (docs/agent-refs.md). Not a branch, so the Git
+            // host offers no pull request for it; `main` stays the only branch.
+            if !valid_agent_name(agent) {
+                return Err(format!(
+                    "agent ref {remote} must be refs/agents/<agent> (one component)"
+                ));
+            }
+            if !deleting {
+                if git(root, &["cat-file", "-t", new])? != "commit" {
+                    return Err("agent ref must name a commit".into());
+                }
+                if !zero(old) {
+                    git(root, &["merge-base", "--is-ancestor", old, new])
+                        .map_err(|_| format!("non-fast-forward update of {remote} refused"))?;
+                }
+            }
+            // A deletion names the tip the remote advertised (checked above);
+            // the receiving server compares and swaps it.
+        } else if remote.starts_with("refs/heads/") {
+            if remote != "refs/heads/main" {
                 if deleting {
                     // Retiring a branch GitHub must no longer carry (old
-                    // release/*, release-staging/*, distill/*, wip/* and other
-                    // names outside the allowlist). The deletion record was
-                    // validated above (named old object, no force); preserve
-                    // the tip as an immutable susi-distill/legacy-* tag first.
+                    // release/*, release-staging/*, distill/*, wip/*,
+                    // local-agent/* and other names outside the allowlist). The
+                    // deletion record was validated above (named old object, no
+                    // force); preserve the tip first (refs/agents/<agent> for an
+                    // agent branch, an immutable susi-distill/legacy-* tag
+                    // otherwise).
                     continue;
                 }
+                if let Some(agent) = remote
+                    .strip_prefix("refs/heads/local-agent/")
+                    .filter(|agent| valid_agent_name(agent))
+                {
+                    return Err(format!(
+                        "remote branch {remote} is retired: agents publish to refs/agents/{agent} (git push origin local-agent/{agent}:refs/agents/{agent}); see docs/agent-refs.md"
+                    ));
+                }
                 return Err(format!(
-                    "remote branch {remote} is forbidden: GitHub is storage only; allowed remote branches are refs/heads/main and refs/heads/local-agent/<agent>; store candidates under refs/candidates/release/<name> or refs/candidates/distill/<name>"
+                    "remote branch {remote} is forbidden: GitHub is storage only; the only remote branch is refs/heads/main; agents publish to refs/agents/<agent>; store candidates under refs/candidates/release/<name> or refs/candidates/distill/<name>"
                 ));
             }
             if deleting {

@@ -54,6 +54,7 @@ usage:
   susi-harness integrate       [--repo PATH] [--remote origin] [--include-local] [--branch PAT]
                                [--adopt-host-commit OID] [--allow-missing-trailer] [--dry-run]
                                [--max-attempts N] [--no-fetch] [--receipt-out PATH] [--json]
+                               (also sweeps refs/agents/<a> as local-agent/<a>; docs/agent-refs.md)
   susi-harness submit-main     [--repo PATH] [--rev REV] [--remote origin] [--adopt-host-commit OID]
                                [--allow-missing-trailer] [--dry-run] [--max-attempts N] [--json]
   susi-harness release-promote [--repo PATH] [--remote origin] [--name RELEASE_NAME] [--candidate REV]

@@ -106,12 +106,13 @@ exact blocker and retain the isolated contribution for later integration.
 
 Git is the portable shared storage and history format. GitHub, when used, is
 storage only. No GitHub Actions, hosted workflow dependency, pull-request/status
-API prerequisite, vendor lock-in or required third-party coordinator. Remote
-`refs/heads/*` branches on GitHub are restricted to `refs/heads/main` and
-`refs/heads/local-agent/<agent>` (CEO directive 2026-11-11): every other
-`refs/heads/*` branch (`release/*`, `release-staging/*`, `distill/*`, `wip/*`)
-is offered by GitHub as a pull request that could bypass Susi's integration
-rules, and is strictly forbidden. Release candidates and distillation outputs
+API prerequisite, vendor lock-in or required third-party coordinator. The only
+remote `refs/heads/*` branch on GitHub is `refs/heads/main` (CEO directives
+2026-11-11): every other `refs/heads/*` branch (`local-agent/*`, `release/*`,
+`release-staging/*`, `distill/*`, `wip/*`) is offered by GitHub as a pull
+request that could bypass Susi's integration rules, and is strictly forbidden.
+Agents publish their work to the non-branch ref `refs/agents/<agent>`
+(`docs/agent-refs.md`), which offers no pull request. Release candidates and distillation outputs
 use non-branch refs (`refs/candidates/release/<name>` and
 `refs/candidates/distill/<name>`) plus immutable tags
 (`refs/tags/susi-distill/<name>`, `refs/tags/susi-snapshot/<name>`, and
