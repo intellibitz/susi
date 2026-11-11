@@ -7,7 +7,7 @@
   "state": "implemented",
   "owner": "codex-coordinator",
   "claimed_by": "codex-coordinator",
-  "native_worker": "codex-coordinator",
+  "native_worker": "axumout-takeover",
   "created_by": "codex-coordinator",
   "created_unix": 1794379393,
   "size": "L",
