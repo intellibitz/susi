@@ -3,7 +3,7 @@
   "native_worker": "codex",
   "title": "Promote latest core work into the free, lean, fast rc4 candidate",
   "goal": "Record the open-core boundary, preserve commercial functionality in intellibitz/susi-commercial-apps, and publish the latest landed core work as an immutable release/2026-11-11-rc4 candidate without force-moving shared history.",
-  "status": "in_progress",
+  "status": "done",
   "size": "m",
   "deps": [
     "T-CODEXRELEASE-1"
@@ -45,5 +45,35 @@
   "limitations": [
     "The candidate remains unqualified until the exact release tree passes the full Windows x86_64 and Linux x86_64 release gates; source publication is not production qualification.",
     "The current Windows host cannot rebuild the latest distiller because the installed MSVC/Windows SDK registration does not expose dbghelp.lib; receipt and Git object checks remain required for this candidate."
-  ]
+  ],
+  "results": [
+    {
+      "main_commit": "a7a87396ebf1347a2750f6c751eebe750e8638fb",
+      "main_remote_verified": true,
+      "release_branch": "refs/heads/release/2026-11-11-rc4",
+      "release_envelope": "4d948b6b134cfa8592e5be0c3142056d6718c27d",
+      "envelope_tree": "e0f5555ec0668b4be61b7e6da7a0b286eab025e0",
+      "envelope_parent": "86abf7f2d258daf57c0f0b136a0ae47a674a3379",
+      "envelope_diff": "releases/distill/2026-11-11-rc4.json",
+      "receipt_blob": "4fcdc2ade1c2b2594923ec8cb1eb09d12d46cf7e",
+      "distilled_commit": "86abf7f2d258daf57c0f0b136a0ae47a674a3379",
+      "distilled_tree": "c7435e658643a468e3a846741eb622d05baf2788",
+      "receipt_sha256": "803aeb87386fb1543d43513ccc3abbb5ce994b1f1e43ab3a23b5dfef1b72e580",
+      "plan": {
+        "base": "86abf7f2d258daf57c0f0b136a0ae47a674a3379",
+        "source_stream": "86abf7f2d258daf57c0f0b136a0ae47a674a3379",
+        "included": 0,
+        "satisfied_in_base": 37,
+        "deferred": 0,
+        "rejected": 0,
+        "qualification_status": "accept_verified_candidate"
+      },
+      "remote_release_verified": true
+    }
+  ],
+  "closed": {
+    "at_unix": 1794377142,
+    "commit": "4d948b6b134cfa8592e5be0c3142056d6718c27d",
+    "by": "CODEX"
+  }
 }
