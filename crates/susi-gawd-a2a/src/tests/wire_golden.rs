@@ -13,6 +13,9 @@
 //! earlier step reads `$NAME`, any other UUID reads `<uuid-vN>` (its version
 //! nibble), and an RFC 3339 UTC timestamp reads `<rfc3339>` (a timestamp
 //! whose fraction is not 0, 3, 6 or 9 digits would read `<rfc3339-bad>`).
+//! The agent card's `version` is the engine version, which every release
+//! bump changes, so it reads `<engine-version>`; `agent_card_reports_the_package_version`
+//! in `lib.rs` checks its value.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -346,7 +349,8 @@ fn timestamp_at(s: &[u8]) -> Option<(usize, bool)> {
 }
 
 fn normalize(text: &str, binds: &[(String, String)]) -> String {
-    let mut text = text.to_string();
+    let engine_version = format!("\"version\":\"{}\"", susi_gawd_agents::AlphaSelf::VERSION);
+    let mut text = text.replace(&engine_version, "\"version\":\"<engine-version>\"");
     let mut ordered: Vec<&(String, String)> = binds.iter().collect();
     ordered.sort_by_key(|(_, value)| std::cmp::Reverse(value.len()));
     for (name, value) in ordered {
