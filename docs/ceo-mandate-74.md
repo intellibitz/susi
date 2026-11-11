@@ -80,9 +80,9 @@ freely. Susi's distiller selects, composes and qualifies.
   their results honestly, and never make them a hidden prerequisite. Hooks on
   `main` enforce transport safety only: no force-push and no deletion.
 - **Main may be red.** `main` is unqualified. Agents fix forward with new commits.
-  Susi may publish advisory health refs (for example `refs/susi/health/main`
-  pointing to the newest commit that built). These are information for agents
-  who want a stable base. They are not gates.
+  Susi may publish advisory health records (for example the newest `main`
+  commit that built). These are information for agents who want a stable base.
+  They are not gates.
 - **Append only.** Never rewrite, force-push or reset shared history. Undo is a
   new revert commit.
 - **The one obligation: be distillable.** Speed is free; unlabelled work is not.
@@ -104,62 +104,74 @@ on a host, then pushed as normal fast-forwards.
 
 ### 3.1 Release state lives in Git
 
-- `refs/heads/release/<name>`: the release line. It advances only by fast-forward.
-- `.agents/releases/<name>.json` on that branch: the release manifest. It lists
-  the pinned base, the candidate features with dependency closure and the status of
-  each (`proposed`, `claimed`, `picked`, `qualified`, `rejected` with a reason).
-  It also records the `git patch-id --stable` of every pick.
-- `refs/susi/claims/release/<name>/<feature-id>`: one claim per feature. To claim,
-  push a fresh parentless commit that names the agent identity. Any competing
-  claim is unrelated history, so the server rejects it as non-fast-forward. That
+The tool is `release-lanes` (`docs/release-lanes.md`). The repository's
+`push-policy` hook enforces the namespaces below.
+
+- `refs/candidates/release/<name>`: the release line. It is not a branch, so a
+  Git host never shows it in branch lists, never offers a pull request for it
+  and never shows a merge button. `push-policy` admits only fast-forwards there
+  and refuses deletion.
+- `.agents/releases/<name>.json` on the release line: the release manifest
+  (`susi-release-lanes-v1`). It records the pinned base, the lanes with their
+  tasks, source commits and status (`pending`, `qualified`), and for each
+  advance the agent, the picks, the qualified tree and the evidence digest.
+- `refs/claims/release-lanes/<name>/<lane>`: one claim per lane, a small JSON
+  blob naming the agent. Git refuses to replace an existing non-commit ref
+  without force, and the receiving side compares the old value atomically. That
   makes the claim an atomic create-if-absent, with no lock server.
 - `refs/tags/<version>`: immutable snapshots (Mandate 73). Never moved or reused.
+  `push-policy` admits a `vX.Y.Z` tag only with its exact-tree qualification record.
 
 ### 3.2 How many agents advance one release without conflicts
 
-1. **Plan (distiller).** `local-distill plan` selects features from `main` by
-   their trailers and task records and computes the transitive dependency
-   closure. It rejects dependency cycles and splits the work into **lanes with
-   disjoint file scopes**. Features whose scopes overlap go into one lane, in
-   dependency order. Lanes are what make parallel work conflict-free.
-2. **Claim.** Each agent claims the features of one lane (section 3.1).
-3. **Pick in private.** In its own worktree, from the current release tip:
-   `git cherry-pick -x` each commit (the `-x` line records the source commit,
-   as the stable kernel does). First skip anything already present by checking
-   `git cherry` and patch-ids. Use `git merge-tree --write-tree` to preview
-   conflicts without touching any checkout. Turn on `git rerere`; its cache
-   is shared by all worktrees of the clone, so a resolution only has to be made once.
-4. **Qualify the exact tree.** Release branches keep the full exact-tree gates
-   from Mandate 73: license and Rust-only audits, format, clippy, non-empty tests
-   and executable smoke tests on tip + picks. Agents may qualify speculative stacks
-   (tip + A, tip + A + B) in parallel, the way Zuul does.
-5. **Advance.** Push with `git push --atomic` as a normal fast-forward. One push
-   moves the release ref, updates the manifest status and releases the claim, so
-   all three succeed or none do. The server compares the old value atomically.
+1. **Plan (`release-lanes init`).** `local-distill plan` selects features from
+   `main` by their trailers and task records and computes the transitive
+   dependency closure, rejecting cycles. `init` splits the result into **lanes
+   with disjoint file scopes**. Tasks whose paths overlap, or that depend on each
+   other, share one lane in dependency order. Lanes are what make parallel work
+   conflict-free.
+2. **Claim (`claim`).** Each agent claims one lane. A stale claim can be taken
+   over only past an explicit age (`--stale-secs`).
+3. **Pick in private (`pick`).** From the current release tip, each source commit
+   is cherry-picked in memory, the way `git cherry-pick -x` does: its
+   `(cherry picked from commit ...)` line records the source, as the stable
+   kernel does. Commits already present (by that line or by
+   `git patch-id --stable`) are skipped. `git merge-tree --write-tree` does the
+   merge without touching any checkout. A conflict stops with the file list; the
+   agent resolves it in its own worktree and resumes with `pick --resume`.
+4. **Qualify the exact tree (`verify`).** Release lines keep the full exact-tree
+   gates from Mandate 73: license and Rust-only audits, format, clippy, non-empty
+   tests and executable smoke tests on tip + picks. `verify` runs the given
+   command in a fresh worktree of the exact candidate and records evidence bound
+   to its tree.
+5. **Advance (`advance`).** One `git push --atomic` moves the release line by a
+   normal fast-forward (code plus the manifest update) and deletes the claim, so
+   both succeed or neither does. The server compares the old value atomically.
    Only one agent wins a given tip, and nobody is overwritten.
-6. **Lose the race, re-base the pick.** If the tip moved, fetch, re-pick onto the
-   new tip and re-qualify. Earlier evidence may be reused only if the new commits
-   are in disjoint lanes and the affected-package analysis shows the dependency
-   closure is unchanged. Otherwise re-run the gates. Retries are bounded. After
-   that, hand the lane back with a recorded reason. Never force.
+6. **Lose the race, re-pick (`ship`).** If the tip moved, `advance` refuses the
+   stale candidate. `ship` loops pick, verify and advance with a bounded number of
+   attempts, re-qualifying every new tree. Evidence is never reused across trees.
+   After the last attempt the claim stays with the agent, who can retry or
+   `unclaim`. Never force.
 7. **Upstream first.** A fix for a release goes to `main` first, then is picked.
-   A fix that only makes sense on the release branch is allowed, but the manifest
-   must say why.
-8. **Snapshot.** When the manifest is fully `qualified`, tag the release: an
-   immutable tag bound to the exact commit and tree, the lockfile, the toolchain,
-   test results and artifact hashes.
+   A fix that only makes sense on the release line is allowed, but it must be
+   recorded as its own task with the reason.
+8. **Snapshot.** When every lane is `qualified`, `release-lanes status` names the
+   candidate commit. `local-release qualify` cuts the immutable `vX.Y.Z` tag on
+   that exact commit, bound to the tree, lockfile, toolchain, test results and
+   artifact hashes.
 
 ### 3.3 No PR prompts and no branch clutter on the storage remote
 
 GitHub offers "Compare & pull request" for recently pushed branches under
 `refs/heads/*`. So:
 
-- Only `main`, `release/*` and tags live under `refs/heads` and `refs/tags`
-  on the storage remote.
-- Agent work branches stay local. If they need off-host backup, push them to
-  `refs/susi/work/<agent>/<branch>`. Branch listings, PR prompts and the merge
-  button never see that namespace. Probe once per remote that it accepts the
-  namespace, and record the result. Do not assume.
+- Release lines, claims and candidates live outside `refs/heads`, so no prompt
+  or merge button appears for them.
+- `push-policy` admits only `refs/heads/main` and `refs/heads/local-agent/<agent>`
+  as remote branches. Agent work branches stay local. A `local-agent/<agent>`
+  backup is allowed, but GitHub lists it as a branch, so use it only when off-host
+  backup is needed.
 - Agents never call `gh` pull-request commands, the GitHub API, auto-merge or merge queues, and
   never change repository settings, branch protection or rulesets. Server-side
   transport protection (non-fast-forward and deletion rules) is storage safety
@@ -173,13 +185,15 @@ GitHub offers "Compare & pull request" for recently pushed branches under
   store, Packages, LFS, webhooks, Dependabot, CODEOWNERS enforcement, merge
   queues, the REST/GraphQL API and `gh` in any tooling or runtime path.
 - **All coordination state is Git data:** tasks, claims, evidence, receipts,
-  release manifests, harvest manifests and notes are files on branches or refs
-  under `refs/susi/*`. Nothing exists only on a hosting provider.
+  release manifests, harvest manifests and notes are files on `main` or on the
+  release lines, or refs under `refs/candidates/*`, `refs/claims/*`,
+  `refs/claim-agents/*`, `refs/claim-generation/*` and `refs/closed/*` (the
+  namespaces `push-policy` admits). Nothing exists only on a hosting provider.
 - **Provider neutrality is checked:** a hardcoded `github.com` URL in code or
   tooling is a defect. URLs in documentation, attribution and harvest manifests
   are fine. The storage remote is configuration (`origin` plus optional mirrors).
 - **Moving clouds is one operation:** add the new remote, then push
-  `refs/heads/*`, `refs/tags/*` and `refs/susi/*` without force
+  `refs/heads/*`, `refs/tags/*` and those coordination namespaces without force
   (`git push --mirror` is not used because it also deletes refs). Then
   `git remote set-url origin <new>`. No code changes.
 - **Portability drill (to build):** Susi periodically clones from a secondary

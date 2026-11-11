@@ -32,6 +32,10 @@ required-features = ["release-tooling"]
 susi-windows-runtime = { path = "../crates/susi-windows-runtime" }
 
 [[bin]]
+name = "release-lanes"
+path = "src/bin/release-lanes.rs"
+
+[[bin]]
 name = "susi-dev"
 path = "src/bin/susi-dev.rs"
 
