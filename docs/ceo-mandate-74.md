@@ -168,10 +168,11 @@ GitHub offers "Compare & pull request" for recently pushed branches under
 
 - Release lines, claims and candidates live outside `refs/heads`, so no prompt
   or merge button appears for them.
-- `push-policy` admits only `refs/heads/main` and `refs/heads/local-agent/<agent>`
-  as remote branches. Agent work branches stay local. A `local-agent/<agent>`
-  backup is allowed, but GitHub lists it as a branch, so use it only when off-host
-  backup is needed.
+- `push-policy` admits only `refs/heads/main` as a remote branch. Agent work
+  branches (`local-agent/<agent>`) stay local; an agent publishes or backs up
+  its work to the non-branch ref `refs/agents/<agent>`, which GitHub never offers
+  as a pull request (`docs/agent-refs.md`). Existing remote `local-agent/*`
+  branches may only be deleted, after their tip is preserved there.
 - Agents never call `gh` pull-request commands, the GitHub API, auto-merge or merge queues, and
   never change repository settings, branch protection or rulesets. Server-side
   transport protection (non-fast-forward and deletion rules) is storage safety

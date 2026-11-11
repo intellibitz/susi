@@ -37,8 +37,10 @@ against measured hardware capacity, and keep private worktrees, targets, runtime
 homes and identities. Agents may contribute to main as often as work is ready. Reconcile current heads,
 preserve accepted work and publish with normal atomic fast-forward updates.
 Git is portable storage; GitHub is storage only, with no GitHub Actions.
-Remote `refs/heads/*` branches on GitHub are restricted to `refs/heads/main` and
-`refs/heads/local-agent/<agent>` (CEO directive 2026-11-11): never push
+The only remote branch on GitHub is `refs/heads/main` (CEO directives
+2026-11-11): agents publish their work to the non-branch ref
+`refs/agents/<agent>` (`git push origin local-agent/<agent>:refs/agents/<agent>`,
+see `docs/agent-refs.md`); never push `refs/heads/local-agent/*`,
 `refs/heads/release/*`, `refs/heads/release-staging/*`, `refs/heads/distill/*`,
 `refs/heads/wip/*`, or any other branch head, and never open, merge, or close a
 pull request. Release candidates stay local to Susi and publish exclusively as

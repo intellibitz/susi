@@ -294,18 +294,38 @@ fn inspect_repo_workflow_rejects_a_malformed_claim() {
 }
 
 #[test]
-fn an_agent_publishes_on_its_own_branch_and_nowhere_else() {
+fn an_agent_publishes_to_its_own_agent_ref_and_nowhere_else() {
     let policy = IntegrationPolicy::default();
     assert_eq!(
         policy.publish_branch("Antigravity").ok(),
         Some("local-agent/antigravity".to_string())
     );
+    assert_eq!(
+        policy.publish_ref("Antigravity").ok(),
+        Some("refs/agents/antigravity".to_string())
+    );
     assert!(policy
-        .check_push_target("antigravity", "local-agent/antigravity")
+        .check_push_target("antigravity", "refs/agents/antigravity")
         .is_ok());
+    // The remote local-agent branch is retired (CEO 2026-11-11): every push
+    // of it gave the Git host a pull-request surface.
+    for retired in [
+        "local-agent/antigravity",
+        "refs/heads/local-agent/antigravity",
+    ] {
+        assert_eq!(
+            policy.check_push_target("antigravity", retired),
+            Err(PolicyViolation::RetiredAgentBranch(
+                retired.into(),
+                "refs/agents/antigravity".into()
+            ))
+        );
+    }
     assert!(policy
         .check_push_target("antigravity", "refs/heads/local-agent/antigravity")
-        .is_ok());
+        .unwrap_err()
+        .to_string()
+        .contains("refs/agents/antigravity"));
     assert_eq!(
         policy.check_push_target("antigravity", "main"),
         Err(PolicyViolation::GateOnlyRef("main".into()))
@@ -321,10 +341,10 @@ fn an_agent_publishes_on_its_own_branch_and_nowhere_else() {
         ))
     );
     assert_eq!(
-        policy.check_push_target("antigravity", "local-agent/gemini"),
+        policy.check_push_target("antigravity", "refs/agents/gemini"),
         Err(PolicyViolation::ForeignBranch {
-            target: "local-agent/gemini".into(),
-            own: "local-agent/antigravity".into(),
+            target: "refs/agents/gemini".into(),
+            own: "refs/agents/antigravity".into(),
         })
     );
     assert_eq!(
@@ -335,6 +355,16 @@ fn an_agent_publishes_on_its_own_branch_and_nowhere_else() {
         policy.publish_branch("bad name/"),
         Err(PolicyViolation::BadAgentName(_))
     ));
+    assert!(matches!(
+        policy.publish_ref("bad name/"),
+        Err(PolicyViolation::BadAgentName(_))
+    ));
+    let brief = policy.brief_lines("antigravity").unwrap();
+    assert!(brief[0].contains("git push origin local-agent/antigravity:refs/agents/antigravity"));
+    assert_eq!(
+        classify_git_ref_stream("refs/agents/antigravity", Some("origin")),
+        WorkflowStreamKind::DevelopmentAgentBranch
+    );
 }
 
 #[test]
@@ -348,11 +378,12 @@ fn fast_main_policy_grants_autonomous_main_freedom_while_protecting_releases_and
         .check_push_target("carbon", "refs/heads/main")
         .is_ok());
     assert!(policy
-        .check_push_target("carbon", "local-agent/carbon")
+        .check_push_target("carbon", "refs/agents/carbon")
         .is_ok());
-    assert!(policy
-        .check_push_target("carbon", "refs/heads/local-agent/carbon")
-        .is_ok());
+    assert!(matches!(
+        policy.check_push_target("carbon", "refs/heads/local-agent/carbon"),
+        Err(PolicyViolation::RetiredAgentBranch(..))
+    ));
 
     assert_eq!(
         policy.check_push_target("carbon", "HEAD"),
@@ -394,10 +425,10 @@ fn fast_main_policy_grants_autonomous_main_freedom_while_protecting_releases_and
         ))
     );
     assert_eq!(
-        policy.check_push_target("carbon", "local-agent/grok"),
+        policy.check_push_target("carbon", "refs/agents/grok"),
         Err(PolicyViolation::ForeignBranch {
-            target: "local-agent/grok".into(),
-            own: "local-agent/carbon".into(),
+            target: "refs/agents/grok".into(),
+            own: "refs/agents/carbon".into(),
         })
     );
 
@@ -405,6 +436,7 @@ fn fast_main_policy_grants_autonomous_main_freedom_while_protecting_releases_and
     assert_eq!(brief.len(), 6);
     assert!(brief[0].contains("zero dependency on any single coordinator"));
     assert!(brief[0].contains("`local-agent/carbon`"));
+    assert!(brief[0].contains("`refs/agents/carbon`"));
     assert!(policy
         .check_composed_task_trailers([
             "feat: x\n\nTask: T-CARBONDRIVER-1",

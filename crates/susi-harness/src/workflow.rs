@@ -17,9 +17,10 @@
 //!   slots and integration head straight from the git common directory, with
 //!   no lock taken and no process spawned.
 //! - [`IntegrationPolicy`] is the remote-agent mandate (2026-11-08) made
-//!   mechanical: one `local-agent/<agent>` branch per agent, never `main`,
-//!   task trailers on every commit, destination-first migrations with no
-//!   stubbed ports, and the brief lines every worker receives.
+//!   mechanical: one `local-agent/<agent>` branch per agent, published to
+//!   `refs/agents/<agent>` (docs/agent-refs.md), never `main`, task trailers
+//!   on every commit, destination-first migrations with no stubbed ports, and
+//!   the brief lines every worker receives.
 
 use crate::supervisor::PlanTask;
 use std::collections::{BTreeMap, BTreeSet};
@@ -558,6 +559,9 @@ const DISTILLATION_REF_PREFIXES: &[&str] = &[
 /// pointers).
 const COORDINATOR_REF_PREFIXES: &[&str] = &["refs/susi/", "refs/backup/"];
 
+/// Where agents publish: a non-branch ref, so the host offers no pull request.
+pub const AGENT_REF_PREFIX: &str = "refs/agents/";
+
 /// Mandate 73 Git storage stream classification.
 ///
 /// Separates fast, ungated development integration onto `main` from distilled
@@ -566,7 +570,7 @@ const COORDINATOR_REF_PREFIXES: &[&str] = &["refs/susi/", "refs/backup/"];
 pub enum WorkflowStreamKind {
     /// Unqualified development integration (`main` / `refs/heads/main`).
     UnqualifiedDevelopmentMain,
-    /// Contributor or agent development branch (`local-agent/*`, `wip/*`, etc.).
+    /// Agent ref (`refs/agents/*`) or development branch (`local-agent/*`, `wip/*`, etc.).
     DevelopmentAgentBranch,
     /// Distilled candidate branch or distillation receipt tag (`distill/*`, `susi-distill/*`).
     DistillationStream,
@@ -646,16 +650,16 @@ pub fn classify_git_ref_stream(refname: &str, remote: Option<&str>) -> WorkflowS
 /// How agents publish development contributions under [`IntegrationPolicy`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PublicationMode {
-    /// Branch-only mode (2026-11-08): agents push only `local-agent/<agent>`
+    /// Branch-only mode (2026-11-08): agents push only `refs/agents/<agent>`
     /// once per gated cycle.
     #[default]
     BranchOnly,
     /// Mandate 73 autonomous fast-main mode (2026-11-10): every agent works in
     /// isolation (own worktree, branch, build output and scratch state) and may
     /// publish non-force fast-forwards directly to unqualified development
-    /// `main` (`main` / `refs/heads/main`) or its own `local-agent/<agent>`
-    /// branch with zero mandatory cooldown, while coordinator refs, release
-    /// branches/tags, and foreign agent branches stay strictly refused.
+    /// `main` (`main` / `refs/heads/main`) or its own `refs/agents/<agent>`
+    /// ref with zero mandatory cooldown, while coordinator refs, release
+    /// branches/tags, and foreign agent refs stay strictly refused.
     FastMainStream,
 }
 
@@ -669,7 +673,7 @@ pub enum PublicationMode {
 /// migrations with zero stubbed ports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntegrationPolicy {
-    /// Prefix of the per-agent isolated branch (`local-agent/`).
+    /// Prefix of the per-agent isolated local worktree branch (`local-agent/`).
     pub agent_branch_prefix: String,
     /// Shortest gated cycle in seconds (`0` in [`PublicationMode::FastMainStream`]).
     pub gate_cycle_secs: u64,
@@ -694,15 +698,17 @@ pub enum PolicyViolation {
     ProtectedReleaseRef(String),
     /// The target is the coordinator's own ref space.
     CoordinatorRef(String),
-    /// The target is another agent's branch.
+    /// The target is another agent's ref.
     ForeignBranch {
-        /// The branch the agent tried to push.
+        /// The ref the agent tried to push.
         target: String,
-        /// The branch the agent owns.
+        /// The ref the agent owns.
         own: String,
     },
-    /// The target is not under the agent branch prefix at all.
+    /// The target is not under the agent ref prefix at all.
     NotAnAgentBranch(String),
+    /// A remote `local-agent/*` branch (retired 2026-11-11): (target, agent ref).
+    RetiredAgentBranch(String, String),
     /// A commit in the batch carries no `Task: T-<AGENT>-<n>` trailer.
     MissingTaskTrailer {
         /// The commit's first line.
@@ -741,7 +747,7 @@ impl std::fmt::Display for PolicyViolation {
             Self::BadAgentName(name) => write!(f, "agent name {name:?} cannot name a branch"),
             Self::GateOnlyRef(target) => write!(
                 f,
-                "{target} is moved only by the gated host; publish on your local-agent branch"
+                "{target} is moved only by the gated host; publish to your refs/agents/<agent> ref"
             ),
             Self::ProtectedReleaseRef(target) => write!(
                 f,
@@ -751,11 +757,15 @@ impl std::fmt::Display for PolicyViolation {
                 write!(f, "{target} belongs to the coordinator; agents never move refs/susi/*")
             }
             Self::ForeignBranch { target, own } => {
-                write!(f, "{target} is another agent's branch; yours is {own}")
+                write!(f, "{target} belongs to another agent; yours is {own}")
             }
             Self::NotAnAgentBranch(target) => {
-                write!(f, "{target} is not a local-agent branch; agents publish nowhere else")
+                write!(f, "{target} is not your refs/agents/<agent> ref; agents publish nowhere else")
             }
+            Self::RetiredAgentBranch(target, publish_ref) => write!(
+                f,
+                "{target} is a retired remote agent branch; publish to {publish_ref} instead (docs/agent-refs.md)"
+            ),
             Self::MissingTaskTrailer { subject } => {
                 write!(f, "commit {subject:?} carries no `Task: T-<AGENT>-<n>` trailer")
             }
@@ -812,7 +822,7 @@ impl IntegrationPolicy {
 
     /// Mandate 73 autonomous fast-main policy (2026-11-10): every agent works
     /// in full isolation and publishes directly to unqualified development
-    /// `main` or its own `local-agent/<agent>` branch with zero gate cooldown
+    /// `main` or its own `refs/agents/<agent>` ref with zero gate cooldown
     /// and zero dependency on any single coordinator agent.
     #[must_use]
     pub fn fast_main() -> Self {
@@ -823,7 +833,7 @@ impl IntegrationPolicy {
         }
     }
 
-    /// The one branch `agent` publishes on.
+    /// The one local branch `agent` works on; it publishes [`Self::publish_ref`].
     ///
     /// # Errors
     ///
@@ -845,17 +855,27 @@ impl IntegrationPolicy {
         ))
     }
 
+    /// The one remote ref `agent` publishes to (`refs/agents/<agent>`).
+    ///
+    /// # Errors
+    ///
+    /// The same [`PolicyViolation::BadAgentName`] as [`Self::publish_branch`].
+    pub fn publish_ref(&self, agent: &str) -> Result<String, PolicyViolation> {
+        let branch = self.publish_branch(agent)?;
+        Ok(branch.replacen(&self.agent_branch_prefix, AGENT_REF_PREFIX, 1))
+    }
+
     /// Whether `agent` may push `target` (a branch name or a full ref).
     ///
     /// # Errors
     ///
     /// Refuses coordinator refs (`refs/susi/*`), protected release refs
-    /// (`release/*`, `refs/tags/v*`), symbolic `HEAD`, foreign agent branches,
-    /// and — in [`PublicationMode::BranchOnly`] — `main` / `refs/heads/main`.
-    /// In [`PublicationMode::FastMainStream`], normal fast-forward pushes to
-    /// `main` / `refs/heads/main` and `agent`'s own branch are both permitted.
+    /// (`release/*`, `refs/tags/v*`), symbolic `HEAD`, foreign agent refs,
+    /// remote `local-agent/*` branches, and — in [`PublicationMode::BranchOnly`] —
+    /// `main` / `refs/heads/main`. In [`PublicationMode::FastMainStream`],
+    /// normal fast-forward pushes to `main` and `refs/agents/<agent>` are permitted.
     pub fn check_push_target(&self, agent: &str, target: &str) -> Result<(), PolicyViolation> {
-        let own = self.publish_branch(agent)?;
+        let own = self.publish_ref(agent)?;
         let target = target.trim();
         let short = target.strip_prefix("refs/heads/").unwrap_or(target);
         if COORDINATOR_REF_PREFIXES
@@ -875,6 +895,12 @@ impl IntegrationPolicy {
         if target == "HEAD" {
             return Err(PolicyViolation::GateOnlyRef(target.to_string()));
         }
+        if target.starts_with(AGENT_REF_PREFIX) && target.to_ascii_lowercase() == own {
+            return Ok(());
+        } else if target.starts_with(AGENT_REF_PREFIX) {
+            let target = target.to_string();
+            return Err(PolicyViolation::ForeignBranch { target, own });
+        }
         if target == "main" || target == "refs/heads/main" || short == "main" {
             return match self.mode {
                 PublicationMode::BranchOnly => {
@@ -886,16 +912,10 @@ impl IntegrationPolicy {
         if GATE_ONLY_REFS.contains(&target) || GATE_ONLY_REFS.contains(&short) {
             return Err(PolicyViolation::GateOnlyRef(target.to_string()));
         }
-        if !short.starts_with(&self.agent_branch_prefix) {
-            return Err(PolicyViolation::NotAnAgentBranch(target.to_string()));
+        if short.starts_with(&self.agent_branch_prefix) {
+            return Err(PolicyViolation::RetiredAgentBranch(target.into(), own));
         }
-        if short.to_ascii_lowercase() != own {
-            return Err(PolicyViolation::ForeignBranch {
-                target: target.to_string(),
-                own,
-            });
-        }
-        Ok(())
+        Err(PolicyViolation::NotAnAgentBranch(target.to_string()))
     }
 
     /// Check that every commit message in a batch carries a `Task:` trailer
@@ -1019,12 +1039,14 @@ impl IntegrationPolicy {
     /// for its publication mode (`BranchOnly` or `FastMainStream`).
     pub fn brief_lines(&self, agent: &str) -> Result<Vec<String>, PolicyViolation> {
         let branch = self.publish_branch(agent)?;
+        let agent_ref = self.publish_ref(agent)?;
+        let push = format!("git push origin {branch}:{agent_ref}");
         let upper = agent.trim().to_ascii_uppercase();
         match self.mode {
             PublicationMode::BranchOnly => {
                 let minutes = self.gate_cycle_secs.div_ceil(60);
                 Ok(vec![
-                    format!("Publish only on `{branch}`; never push `main`, `release/*`, `distill/*`, `wip/*`, or `refs/susi/*`, and never open/merge a pull request; the gated host integrates your branch."),
+                    format!("Work on the local branch `{branch}` and publish only to `{agent_ref}` (`{push}`); never push a remote branch (`main`, `local-agent/*`, `release/*`, `distill/*`, `wip/*`), or `refs/susi/*`, and never open/merge a pull request; the gated host fetches `{agent_ref}` and integrates it."),
                     format!("Every commit ends with `Task: T-{upper}-<n>`; the task record in `.agents/tasks/` lists exactly the claimed scopes."),
                     "A move out of core counts only when the destination commit is on the commercial origin, declared, compiling and tested there; core deletes afterwards, in a change that names that commit. Never leave a port answering an error for a removed capability.".to_string(),
                     "Before every push, on the exact tree: cargo fmt --all --check; cargo check --workspace --all-targets --keep-going --offline --locked; cargo clippy --workspace --all-targets --offline --locked -- -D warnings; the touched crates' tests; the guard tests; GMCP evidence re-recorded for any gmcp change.".to_string(),
@@ -1033,11 +1055,11 @@ impl IntegrationPolicy {
                 ])
             }
             PublicationMode::FastMainStream => Ok(vec![
-                format!("Work in full isolation (own worktree, private target dir, scratch home, and `{branch}`); publish non-force fast-forwards to unqualified development `main` or `{branch}` with zero mandatory cooldown and zero dependency on any single coordinator."),
+                format!("Work in full isolation (own worktree, private target dir, scratch home, and the local branch `{branch}`); publish non-force fast-forwards to unqualified development `main` or to your agent ref `{agent_ref}` (`{push}`, never a remote `local-agent/*` branch) with zero mandatory cooldown and zero dependency on any single coordinator."),
                 format!("Every commit ends with `Task: T-{upper}-<n>`; record base commit, scopes, deps, `accept.cmd`, actual results and limitations in `.agents/tasks/` for distillation."),
                 "A move out of core counts only when the destination commit is on the commercial origin, declared, compiling and tested there; core deletes afterwards, in a change that names that commit. Never leave a port answering an error for a removed capability.".to_string(),
                 "Run focused checks in your private target dir (`fmt`, touched-crate `clippy -D warnings`, touched-crate tests, relevant guards) and report results honestly; full workspace gates belong to distilled release snapshots.".to_string(),
-                "Reconcile with the latest `origin/main` head and use atomic normal fast-forward updates; never force-push, never open/merge a pull request, never push `release/*`, `distill/*`, `wip/*`, `refs/susi/*`, or `refs/tags/v*`, and never touch another agent's branch or claim.".to_string(),
+                "Reconcile with the latest `origin/main` head and use atomic normal fast-forward updates; never force-push, never open/merge a pull request, never push `local-agent/*`, `release/*`, `distill/*`, `wip/*`, `refs/susi/*`, or `refs/tags/v*`, and never touch another agent's ref or claim.".to_string(),
                 "Keep files LF-ended; report `main` as unqualified development and `landed` only after `git ls-remote` confirms the commit on origin.".to_string(),
             ]),
         }

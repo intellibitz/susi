@@ -5,9 +5,10 @@
 //! release promotion (`promote_release_candidate`) executes inside Susi (`susi-harness`
 //! or `daemon.harness`), keeping Stream 1 (`unqualified_development_main`) strictly
 //! separated from Stream 2 (`qualified_release_promotion` / `susi-distill/*`).
+//! Agent refs `refs/agents/<a>` are swept as `local-agent/<a>` (docs/agent-refs.md).
 #![forbid(unsafe_code)]
 
-use crate::workflow::{classify_git_ref_stream, WorkflowStreamKind};
+use crate::workflow::{classify_git_ref_stream, WorkflowStreamKind, AGENT_REF_PREFIX};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -45,7 +46,7 @@ pub struct AutoMergeConfig {
     pub remote: String,
     /// Fetch latest remote branch tips before classifying (`true` by default).
     pub fetch_remote: bool,
-    /// Include local `refs/heads/*` branches in addition to `refs/remotes/<remote>/*`.
+    /// Include local `refs/heads/*` branches in addition to the remote and agent refs.
     pub include_local: bool,
     /// Optional short-name filters (exact name or `prefix*` pattern).
     pub branch_filters: Vec<String>,
@@ -107,9 +108,9 @@ pub enum BranchSweepDisposition {
 /// Per-branch audit record in [`AutoMergeReceipt`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BranchSweepEntry {
-    /// Canonical ref inspected (`refs/remotes/origin/...` or `refs/heads/...`).
+    /// Canonical ref inspected (`refs/remotes/origin[-agents]/...` or `refs/heads/...`).
     pub git_ref: String,
-    /// Short branch name (`local-agent/...`, `release/...`, etc.).
+    /// Short branch name (`local-agent/...` also for an agent ref, `release/...`, etc.).
     pub branch: String,
     /// Full commit OID at branch tip.
     pub head_oid: String,
@@ -582,8 +583,18 @@ fn configured_host_committers(repo: &Path) -> EaiResult<BTreeSet<String>> {
     Ok(set)
 }
 
+fn agent_mirror_prefix(remote: &str) -> String {
+    format!("refs/remotes/{}-agents/", remote.trim())
+}
+
 fn normalize_branch_short(raw: &str, remote: &str) -> String {
     let trimmed = raw.trim();
+    if let Some(agent) = trimmed
+        .strip_prefix(AGENT_REF_PREFIX)
+        .or_else(|| trimmed.strip_prefix(&agent_mirror_prefix(remote)))
+    {
+        return format!("local-agent/{agent}");
+    }
     trimmed
         .strip_prefix("refs/heads/")
         .or_else(|| trimmed.strip_prefix(&format!("refs/remotes/{remote}/")))
@@ -1094,8 +1105,10 @@ pub fn sweep_pending_branches(config: &AutoMergeConfig) -> EaiResult<AutoMergeRe
                 &[
                     "fetch",
                     "--no-tags",
+                    "--prune",
                     remote,
                     &format!("+refs/heads/*:refs/remotes/{remote}/*"),
+                    &format!("+{AGENT_REF_PREFIX}*:{}*", agent_mirror_prefix(remote)),
                 ],
                 None,
                 &[],
@@ -1130,12 +1143,14 @@ pub fn sweep_pending_branches(config: &AutoMergeConfig) -> EaiResult<AutoMergeRe
         let mut candidates: Vec<(String, String, String, bool)> = Vec::new();
         let mut seen_branch_oid: BTreeSet<(String, String)> = BTreeSet::new();
 
+        let agent_prefix = agent_mirror_prefix(remote); // sorts before the branches
         let rem_prefix = format!("refs/remotes/{remote}/");
         let rem_refs = git_ok(
             &config.repo,
             &[
                 "for-each-ref",
                 "--format=%(refname)\t%(objectname)",
+                &agent_prefix,
                 &rem_prefix,
             ],
         )?;
@@ -1152,8 +1167,9 @@ pub fn sweep_pending_branches(config: &AutoMergeConfig) -> EaiResult<AutoMergeRe
             if short == "main" || !matches_filters(&short, &config.branch_filters) {
                 continue;
             }
-            seen_branch_oid.insert((short.clone(), oid.to_string()));
-            candidates.push((full_ref.to_string(), short, oid.to_string(), false));
+            if seen_branch_oid.insert((short.clone(), oid.to_string())) {
+                candidates.push((full_ref.to_string(), short, oid.to_string(), false));
+            }
         }
 
         if config.include_local {
@@ -2139,39 +2155,9 @@ fn sanitize_legacy_slug(branch_short: &str) -> String {
 }
 
 fn discover_active_claim_branches(repo: &Path) -> EaiResult<BTreeMap<String, String>> {
+    // Native claim files (`susi-local-claim-v2` text, the only format the
+    // coordinator writes) are read by the worktree-hazard scan.
     let mut claimed = inspect_local_worktree_hazards(repo)?;
-    if let Some(common) = crate::adapter::common_dir(repo) {
-        let claims_dir = common.join("susi-local-workflow/claims");
-        if let Ok(entries) = fs::read_dir(claims_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.extension().is_none_or(|e| e != "claim") {
-                    continue;
-                }
-                if let Ok(body) = fs::read_to_string(&p) {
-                    if let Ok(val) = serde_json::from_str::<Value>(&body) {
-                        if let Some(agent) = val["agent"].as_str().map(str::trim) {
-                            if !agent.is_empty() {
-                                claimed
-                                    .entry(format!("local-agent/{}", agent.to_ascii_lowercase()))
-                                    .or_insert_with(|| {
-                                        format!("active local claim file for `{agent}`")
-                                    });
-                            }
-                        }
-                        if let Some(br) = val["branch"].as_str().map(str::trim) {
-                            let short = br.strip_prefix("refs/heads/").unwrap_or(br);
-                            if !short.is_empty() {
-                                claimed.entry(short.to_string()).or_insert_with(|| {
-                                    format!("active local claim file on `{short}`")
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
     let refs_out = run_git(
         repo,
         &[
