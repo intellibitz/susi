@@ -205,6 +205,78 @@ fn generate_blocking(
     }
 }
 
+fn generate_with_chat_impl<'a>(
+    provider: &'a HttpProvider,
+    prompt: &str,
+    chat: Option<&Value>,
+    start_engine: bool,
+) -> BoxFuture<'a, crate::susi_core::susi_error::EaiResult<String>> {
+    let prompt = prompt.to_string();
+    let chat = chat.cloned();
+    let api_base = provider.api_base.trim_end_matches('/').to_string();
+    let model = provider.model.clone();
+    let api_key = provider.api_key.clone();
+    let protocol = provider.protocol;
+    let name = provider.name.clone();
+    // Read on the caller's thread: only a user-initiated request entry
+    // point holds the guard; unattended callers (brain scout, estate
+    // loop, scheduled missions) never do.
+    let may_start = crate::susi_core::provider::OnDemandEngineStart::allowed();
+
+    Box::pin(async move {
+        refuse_off_host_under_local_only(&api_base)?;
+        // Core starts no engine on its own: a user request that needs
+        // the local engine behind `api_base` starts it if it is down.
+        if start_engine {
+            ensure_local_engine(&api_base, may_start).await?;
+        }
+        let provider = name.clone();
+        let outcome_base = api_base.clone();
+        let outcome_model = model.clone();
+        let outcome_key = api_key.clone();
+        let result = run_blocking(move || {
+            generate_blocking(
+                &api_base,
+                &model,
+                &api_key,
+                protocol,
+                &prompt,
+                chat.as_ref(),
+            )
+        })
+        .await
+        .map_err(|e| {
+            crate::susi_core::susi_error::EaiError::process(format!("Provider '{name}': {e}"))
+        })?;
+        // Feed the eligibility ledger with the real inference outcome so
+        // eligibility reflects proven success/failure, not guesswork.
+        let tracked = match &result {
+            Ok(_) => susi_gemi_models::cloud_eligibility::InferenceResult::Success,
+            Err(e) => susi_gemi_models::cloud_eligibility::InferenceResult::Failed {
+                status: parse_http_status(e),
+                body_snippet: e.clone(),
+                retry_after_secs: parse_retry_after(e),
+            },
+        };
+        if susi_gemi_models::cloud::is_remote_cloud(&outcome_base) {
+            susi_gemi_models::cloud_eligibility::record_inference_outcome(
+                susi_gemi_models::cloud_eligibility::Subject {
+                    provider: &provider,
+                    api_key: &outcome_key,
+                    account: None,
+                    region: None,
+                    model: &outcome_model,
+                },
+                &outcome_base,
+                &tracked,
+            );
+        }
+        result.map_err(|e| {
+            crate::susi_core::susi_error::EaiError::process(format!("Provider '{provider}': {e}"))
+        })
+    })
+}
+
 impl Provider for HttpProvider {
     fn name(&self) -> &str {
         &self.name
@@ -230,7 +302,15 @@ impl Provider for HttpProvider {
         &self,
         prompt: &str,
     ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<String>> {
-        self.generate_with_chat(prompt, None)
+        let api_base = self.api_base.trim_end_matches('/').to_string();
+        let may_start = crate::susi_core::provider::OnDemandEngineStart::allowed();
+        let result = generate_with_chat_impl(self, prompt, None, false);
+
+        Box::pin(async move {
+            refuse_off_host_under_local_only(&api_base)?;
+            ensure_local_engine(&api_base, may_start).await?;
+            result.await
+        })
     }
 
     fn generate_with_chat(
@@ -238,70 +318,7 @@ impl Provider for HttpProvider {
         prompt: &str,
         chat: Option<&Value>,
     ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<String>> {
-        let prompt = prompt.to_string();
-        let chat = chat.cloned();
-        let api_base = self.api_base.trim_end_matches('/').to_string();
-        let model = self.model.clone();
-        let api_key = self.api_key.clone();
-        let protocol = self.protocol;
-        let name = self.name.clone();
-        // Read on the caller's thread: only a user-initiated request entry
-        // point holds the guard; unattended callers (brain scout, estate
-        // loop, scheduled missions) never do.
-        let may_start = crate::susi_core::provider::OnDemandEngineStart::allowed();
-
-        Box::pin(async move {
-            refuse_off_host_under_local_only(&api_base)?;
-            // Core starts no engine on its own: a user request that needs
-            // the local engine behind `api_base` starts it if it is down.
-            ensure_local_engine(&api_base, may_start).await?;
-            let provider = name.clone();
-            let outcome_base = api_base.clone();
-            let outcome_model = model.clone();
-            let outcome_key = api_key.clone();
-            let result = run_blocking(move || {
-                generate_blocking(
-                    &api_base,
-                    &model,
-                    &api_key,
-                    protocol,
-                    &prompt,
-                    chat.as_ref(),
-                )
-            })
-            .await
-            .map_err(|e| {
-                crate::susi_core::susi_error::EaiError::process(format!("Provider '{name}': {e}"))
-            })?;
-            // Feed the eligibility ledger with the real inference outcome so
-            // eligibility reflects proven success/failure, not guesswork.
-            let tracked = match &result {
-                Ok(_) => susi_gemi_models::cloud_eligibility::InferenceResult::Success,
-                Err(e) => susi_gemi_models::cloud_eligibility::InferenceResult::Failed {
-                    status: parse_http_status(e),
-                    body_snippet: e.clone(),
-                    retry_after_secs: parse_retry_after(e),
-                },
-            };
-            if susi_gemi_models::cloud::is_remote_cloud(&outcome_base) {
-                susi_gemi_models::cloud_eligibility::record_inference_outcome(
-                    susi_gemi_models::cloud_eligibility::Subject {
-                        provider: &provider,
-                        api_key: &outcome_key,
-                        account: None,
-                        region: None,
-                        model: &outcome_model,
-                    },
-                    &outcome_base,
-                    &tracked,
-                );
-            }
-            result.map_err(|e| {
-                crate::susi_core::susi_error::EaiError::process(format!(
-                    "Provider '{provider}': {e}"
-                ))
-            })
-        })
+        generate_with_chat_impl(self, prompt, chat, true)
     }
 
     fn embed(
