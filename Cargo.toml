@@ -35,7 +35,6 @@ members = [
     "crates/susi-harness",
     "crates/susi-vendor-anyhow",
     "crates/susi-vendor-axum",
-    "crates/susi-vendor-bytes",
     "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",
     "crates/susi-vendor-console-subscriber",
@@ -64,7 +63,6 @@ members = [
     "crates/susi-vendor-tracing",
     "crates/susi-vendor-tracing-appender",
     "crates/susi-vendor-tracing-subscriber",
-    "crates/susi-vendor-ureq",
     "crates/susi-vendor-url",
     "crates/susi-vendor-winapi",
     "crates/susi-vendor-x25519-dalek"]
@@ -74,7 +72,7 @@ exclude = ["vendor"]
 
 [package]
 name = "susi"
-version = "0.21.54"
+version = "0.21.55"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi: RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem. Evidence-gated agent substrate. Open-admit OpenAI-compat/MCP/protocol peers, consensus swarm, HMAC audit, absolute truth, bearer-authenticated host ports."
@@ -158,7 +156,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
 dashmap = "6.2"
-reqwest = { version = "0.13.5", features = ["json", "blocking", "query"] }
 hex = "0.4"
 tracing = "0.1"
 sha2 = "0.11.0"
@@ -216,15 +213,13 @@ susi-windows-runtime = { workspace = true }
 susi-build-os-ucrt = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 
+# Ship the exact patched sources with Susi: a fresh checkout must not need
+# GitHub to resolve its build. Provenance and patch notes: vendor/README.md.
 [patch.crates-io]
 regex-syntax = { path = "vendor/regex-syntax" }
 idna_adapter = { path = "vendor/idna-adapter" }
 unicode-ident = { path = "vendor/unicode-ident" }
 native-tls = { path = "vendor/native-tls" }
-fluent-uri = { path = "vendor/fluent-uri" }
-# Ship the exact patched sources with Susi: a fresh checkout must not need
-# GitHub to resolve its build. Provenance and patch notes: vendor/README.md.
-reqwest = { path = "vendor/reqwest" }
 hashbrown = { path = "vendor/hashbrown" }
 # CPU inference is portable. Metal remains an explicit platform feature.
 # CUDA/MKL are retired: their foreign implementation/license requirements

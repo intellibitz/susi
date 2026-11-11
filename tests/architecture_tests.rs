@@ -144,7 +144,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
 const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-anyhow",
     "susi-vendor-axum",
-    "susi-vendor-bytes",
     "susi-vendor-chacha20poly1305",
     "susi-vendor-clap",
     "susi-vendor-console-subscriber",
@@ -176,7 +175,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-tracing",
     "susi-vendor-tracing-appender",
     "susi-vendor-tracing-subscriber",
-    "susi-vendor-ureq",
     "susi-vendor-url",
     "susi-vendor-winapi",
     "susi-vendor-x25519-dalek",
@@ -773,8 +771,8 @@ fn ureq_types_stay_inside_http_transport() {
         if rel.contains("susi-http-transport/") {
             continue;
         }
-        // Facade crates legitimately name their upstream (`pub use ureq::*`
-        // inside susi-vendor-ureq is the entire point).
+        // Facade crates legitimately name their upstream (`pub use <crate>::*`
+        // is the entire point of a susi-vendor-* facade).
         if let Some(crate_dir) = rel.split('/').nth(1) {
             if VENDOR_FACADES.contains(&crate_dir) {
                 continue;
@@ -1751,8 +1749,17 @@ fn vendor_patches_are_local_and_preserve_upstream_licenses() {
         !lock.contains("source = \"git+"),
         "development sources must resolve without a Git host"
     );
+    assert!(
+        !lock.contains("[[patch.unused]]"),
+        "Cargo.lock must not carry unused [patch.crates-io] entries"
+    );
+    for retired in ["reqwest", "fluent-uri"] {
+        assert!(
+            !root.join("vendor").join(retired).exists(),
+            "retired unused vendor patch directory returned: vendor/{retired}"
+        );
+    }
     for (name, license) in [
-        ("reqwest", "LICENSE-APACHE"),
         ("esaxx-rs", "LICENSE"),
         ("native-tls", "LICENSE-APACHE"),
         ("native-tls", "LICENSE-MIT"),
