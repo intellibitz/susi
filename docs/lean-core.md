@@ -134,7 +134,7 @@ Two independent constraints, both binding:
 | tokio runtime | 106 | no | rung 2 |
 | json schema: jsonschema, referencing, fancy-regex | 101 | no | Claude, wave 2A (std validator, landed in gmcp; daemon next) |
 | serde + serde_json | 91 | no | rung 3 |
-| MCP vendor: rmcp, ra2a | 74 (rmcp 0 since T-NOMCPSDK-1: GMCP serves MCP itself) | rmcp was, 2026-11-09 | Claude, rung 2; ra2a remains in the daemon |
+| MCP vendor: rmcp, ra2a | 74 (0 since T-CLAUDENOA2ASDK-1: GMCP serves MCP and the A2A tier serves A2A itself) | rmcp was, 2026-11-09 | done (Claude, rung 2) |
 | docker: bollard (+ its time/icu tail) | 74 | no | Antigravity: susi-sandbox leaves |
 | regex | 63 | no | audit users; most are product |
 | wasm text format: wast, wat | 0 (was 21.4 s for `wast` at `b814235c4`) | no | done, T-DEEPSEEK-1: the host accepts binary `.wasm` only |
@@ -623,3 +623,32 @@ config, core and the tail.
   `68e83f0d8`, 233.6 CPU-s / 64.9 s with the change: the removed units cost
   about 3 CPU-seconds, inside this machine's run-to-run noise, so no time gain
   is claimed.
+- 2026-11-11 (T-CLAUDENOA2ASDK-1, Linux x86_64, 4-thread cloud container): the
+  A2A SDK leaves core. `susi-gawd-a2a` serves the A2A subset the daemon
+  exposes from its own `src/protocol` (wire types, JSON-RPC 2.0 on `/` with
+  the 1.0 method names and the slash aliases, `message/stream` and
+  `tasks/resubscribe` as SSE on `/stream` with the 15 s keep-alive, task
+  get/list/cancel, push-notification configs and delivery over
+  susi-http-transport, the same error codes and texts) on the
+  axum/tokio/hyper stack already in core; the task store and its bounded
+  retention are its own. A transcript of 79 real HTTP exchanges plus a push
+  delivery, recorded from ra2a 0.10.1 before it left (`5cea76841`), passes
+  unchanged against the in-tree code. One deliberate difference: an SSE
+  stream now ends after its final event; ra2a held it (and a concurrency
+  slot) open. `susi-vendor-ra2a` and the ra2a notice supplement are deleted;
+  36 lock entries leave (ra2a, reqwest, hyper-tls, hyper-rustls, rustls,
+  rustls-webpki, ring, encoding_rs, chrono, iana-time-zone, tower-http,
+  uuid, mime_guess, unicase, windows-sys 0.52 and its target crates, ...);
+  `cargo tree -p susi -i reqwest` finds nothing. No crate or third-party
+  dependency is added. Pillar reach is unchanged (46 workspace, 191
+  third-party, 20 facade edges: the A2A tier is outside the pillar closure
+  since T-A2ASTD-1). Lines: susi-gawd-a2a 2,113 -> 3,702 (`src/protocol`
+  1,744 lines in place of ra2a's 10,221), re-pinned under the T-NOMCPSDK-1
+  rule. Cold `cargo build -p susi` on 4 threads with other agents' builds
+  running (load 3-7): base `46758d8d8` 82.8 / 74.0 / 84.3 s wall, 298.8 /
+  268.0 / 309.2 CPU-s, 371 units; with the change 75.7 / 64.4 s, 275.6 /
+  226.7 CPU-s, 342 units. The ratchet is the unit count, 371 -> 342; in the
+  third base run the 29 removed units cost 27.0 CPU-s (ra2a 12.6, reqwest
+  4.8, encoding_rs 2.2, chrono 1.4, num-traits 1.2, ...) while susi-gawd-a2a
+  grew 2.4 -> 3.0 s. The whole-build totals overlap across runs under this
+  load, so no wall gain is claimed from them.
