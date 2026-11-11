@@ -1,0 +1,55 @@
+{
+  "id": "T-CTOCORELEAN-1",
+  "feature_id": "F-ACP-MULTITURN-LEAN-1",
+  "title": "Multi-turn ACP session context & bounded replay in susi-core plus vendor/a2a dead-code pruning and susi-gawd-a2a ceiling ratchet",
+  "goal": "Upgrade Susi Core's Apache-2.0 ACP open-socket pillar (`crates/susi-core/src/acp.rs`) so ACP sessions (`session/new`, `session/prompt`, `session/load`, `session/history`, `session/cancel`) maintain bounded multi-turn conversation message history (`role`, `content`, `turn_id`, `tool_calls` metadata, per-session message cap and byte budget ring buffer, cursor replay, and HTTP `acp-session-id` header binding/spoofing rejection) and return structured multi-turn `messages` / `inference_messages` context for downstream inference and commercial ACP plugs; prune 77 production lines of unreferenced dead helpers across `susi-vendor-tempfile`, `susi-vendor-wasmtime`, and `susi-gawd-a2a::TaskStore::delete`; move `susi-gawd-a2a`'s unchanged `executor.rs` inline unit suite to `src/tests/executor.rs`; and ratchet `susi-gawd-a2a` ceiling strictly down (-175 lines, 3,588 -> 3,413) in `tests/lean_core_ceilings.rs` and `docs/lean-core.md`.",
+  "state": "implemented",
+  "status": "implemented",
+  "owner": "core-lean",
+  "created_by": "core-lean",
+  "created_unix": 1794430170,
+  "updated_unix": 1794432200,
+  "size": "m",
+  "base": "a7841f83cd1d65ed86a44f9be217f9ec62ba0209",
+  "deps": [
+    "T-CTOPILLARS-1",
+    "T-CLAUDEACPGAWD-1",
+    "T-CODEXHISTORY-1",
+    "T-CLAUDEGEMIFIX-1",
+    "T-CODEXTOOLSCHEMA-1",
+    "T-CLAUDEGEMIFIX-2"
+  ],
+  "scopes": [
+    ".agents/tasks/T-CTOCORELEAN-1.json",
+    "crates/susi-core/src/acp.rs",
+    "crates/susi-core/src/lib.rs",
+    "crates/susi-core/src/tests/acp_conformance.rs",
+    "crates/susi-gawd-a2a/src/executor.rs",
+    "crates/susi-gawd-a2a/src/task_store.rs",
+    "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+    "crates/susi-gawd-a2a/src/tests/executor.rs",
+    "crates/susi-vendor-tempfile/src/lib.rs",
+    "crates/susi-vendor-wasmtime/src/cell.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "acp"
+    ]
+  },
+  "limitations": [
+    "ACP multi-turn session history is bounded in-memory per AcpEngine instance (`DEFAULT_MAX_HISTORY_MESSAGES = 64`, `DEFAULT_MAX_HISTORY_BYTES = 524_288`); persistent multi-tenant session storage belongs in susi-commercial-apps.",
+    "Verified on Linux x86_64."
+  ],
+  "native_worker": "cto-core-lean-ship",
+  "claimed_by": "cto-core-lean-ship",
+  "base_commit": "a7841f83cd1d65ed86a44f9be217f9ec62ba0209"
+}

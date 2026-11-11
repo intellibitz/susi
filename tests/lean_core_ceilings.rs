@@ -275,11 +275,17 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// `tool_calls` and `max_tokens` reaches the engine; paid for by deleting
 /// `SusiPulse::compute_spectral_prediction` and `SpectralPrediction`, which
 /// only their own test used.
+/// 2026-11-12: susi-gawd-a2a 3,588 -> 3,413 (T-CTOCORELEAN-1, measured):
+/// remove dead `TaskStore::delete` (-4 production lines) and move the unchanged
+/// `executor.rs` inline unit suite (-171 lines; test organization, not removed
+/// runtime capability) to `src/tests/executor.rs`, the crate's convention,
+/// alongside pruning 73 production lines of unreferenced dead helpers in
+/// `susi-vendor-tempfile` and `susi-vendor-wasmtime`.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_525),
     ("susi-gawd-swarm", 20_206),
     ("susi-gawd-agents", 10_443),
-    ("susi-gawd-a2a", 3_588),
+    ("susi-gawd-a2a", 3_413),
     ("susi-gemi", 21_096),
     ("susi-gemi-models", 15_939),
     ("susi-gmcp", 25_860),
