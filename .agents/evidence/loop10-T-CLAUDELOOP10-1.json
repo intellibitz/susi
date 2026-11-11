@@ -1,0 +1,33 @@
+{
+  "task": "T-CLAUDELOOP10-1",
+  "schema": "susi-loop-timing/v1",
+  "host": "Claude Code cloud container, Linux x86_64, 4 vCPU, 15 GiB RAM, Rust 1.99.0 pinned, warm Cargo registry",
+  "tool": "cargo run -p xtask --bin local-channel -- deliver [--prove-rollback] -- <observation args>",
+  "method": "Each row is a real commit delivered to a scratch dev channel (XDG_DATA_HOME in the session scratchpad), observed with `os capabilities --help` (root) or `--version` (core). Measurement commits lived on a local scratch branch and were never pushed. Idle host: no other build running at each start unless noted.",
+  "cold_build_seconds": {"susi_binary_empty_target": 60.2},
+  "warm_edit_to_binary_seconds": {"root_comment": 2.4, "gmcp_comment": 4.6, "gmcp_body": 5.5, "core_comment": 6.6, "core_body": 6.9, "core_public_api": 7.8},
+  "change_to_live_seconds": {
+    "sequential_before": {
+      "root_help_change": [8.5, 7.3, 6.9],
+      "core_body_change": [21.1, 16.6, 16.1],
+      "phase_ms_core_steady": {"test": 8196, "build": 7340}
+    },
+    "tests_overlap_build_same_target": {
+      "root_help_change": [7.1, 7.2, 7.2],
+      "core_body_change": [17.4, 11.2, 11.5],
+      "note": "test compile and dev build still serialize on one Cargo build lock"
+    },
+    "tests_in_own_target_concurrent": {
+      "root_help_change": [18.4, 5.1, 5.0],
+      "core_body_change": [18.6, 9.6, 9.6],
+      "first_rep_note": "each first rep's diff also carried the other package's revert commit, so both root and core tests compiled and ran (a two-package change)",
+      "warm_up_seconds": 94.6,
+      "warm_up_note": "one-time: first delivery compiles every test dependency into <target>/deliver-tests (2.4 GB)"
+    }
+  },
+  "safety_checks": [
+    "A commit with a stale root help snapshot: deliver exited 1, 'Unit tests `susi` of `susi` failed ... Nothing was promoted', channel.json sha256 and refs/susi/dev-live unchanged, while the dev build had run concurrently.",
+    "Known and unchanged: a change owned by susi-cli-defs that breaks only the dependent root package's snapshot test was promoted, because deliver runs the owning packages' unit tests only (docs/step1-acceptance.md)."
+  ],
+  "contaminated_runs_discarded": "Three pipelined root runs (8.2, 7.8, 7.7 s) overlapped a cargo-deny install compiling in the background and are not used."
+}
