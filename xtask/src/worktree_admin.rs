@@ -23,7 +23,7 @@ pub fn forget(root: &Path, checkout: &Path) -> io::Result<usize> {
         return Ok(0);
     }
     let records = common_dir(root)?.join("worktrees");
-    let wanted = lexical(&absolute(checkout)?.join(".git"));
+    let wanted = resolved(&absolute(checkout)?.join(".git"));
     let entries = match fs::read_dir(&records) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
@@ -44,7 +44,7 @@ pub fn forget(root: &Path, checkout: &Path) -> io::Result<usize> {
         } else {
             admin.join(named)
         };
-        if lexical(&named) == wanted {
+        if resolved(&named) == wanted {
             fs::remove_dir_all(&admin)?;
             removed += 1;
         }
@@ -73,6 +73,32 @@ fn absolute(path: &Path) -> io::Result<PathBuf> {
         Ok(path.to_path_buf())
     } else {
         Ok(std::env::current_dir()?.join(path))
+    }
+}
+
+/// `path` with its deepest existing ancestor canonicalized and the rest
+/// appended. The checkout itself is gone, so it cannot be canonicalized
+/// whole, but the directory it sat in usually exists. Without this the same
+/// directory compared unequal under two spellings: Windows Git records the
+/// long form (`C:/Users/name/...`) while a caller may hold an 8.3 short
+/// form (`C:\Users\NAME~1\...`, as `%TEMP%` often is) or another case, and
+/// the dead record was never forgotten. A path with no existing ancestor
+/// (another host's drive) stays lexical.
+fn resolved(path: &Path) -> PathBuf {
+    let path = lexical(path);
+    let mut existing = path.as_path();
+    let mut rest = Vec::new();
+    loop {
+        if let Ok(canonical) = fs::canonicalize(existing) {
+            return rest.iter().rev().fold(canonical, |at, part| at.join(part));
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                existing = parent;
+            }
+            _ => return path,
+        }
     }
 }
 

@@ -312,19 +312,29 @@ impl Conn {
     }
 
     /// A socket timeout that ends at the deadline is the budget running
-    /// out, whichever error kind the OS reports for it.
+    /// out, whichever error kind the OS reports for it. The socket was armed
+    /// with exactly the time left, so a timeout reported up to one coarse
+    /// timer interval early still is that budget: Windows socket timers fire
+    /// a few milliseconds before the deadline by this process's clock, and
+    /// such a timeout surfaced as a raw "connected party did not properly
+    /// respond" error. A timed-out socket is not retried (Windows leaves its
+    /// state indeterminate).
     fn budget_error(&self, e: io::Error) -> io::Error {
         let timed_out = matches!(
             e.kind(),
             io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
         );
-        if timed_out && Instant::now() >= self.deadline {
+        if timed_out && Instant::now() + TIMER_SLACK >= self.deadline {
             over_budget()
         } else {
             e
         }
     }
 }
+
+/// How early an OS socket timeout may fire relative to `Instant` (a few
+/// Windows timer ticks of 15.6 ms).
+const TIMER_SLACK: Duration = Duration::from_millis(50);
 
 impl Read for Conn {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
