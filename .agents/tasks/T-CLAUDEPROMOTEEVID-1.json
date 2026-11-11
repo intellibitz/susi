@@ -1,0 +1,42 @@
+{
+  "id": "T-CLAUDEPROMOTEEVID-1",
+  "title": "release-qualify --from-distill admits the GMCP evidence re-record the release branch must make",
+  "goal": "A distilled candidate whose tasks change GMCP evidence inputs can be promoted: after the envelope, the release tree may carry the version bump and a re-record of .agents/gmcp/evidence/*.jsonl, which the block lists and the tag check proves",
+  "status": "done",
+  "scopes": [
+    "xtask/src/release_qualification.rs",
+    "xtask/tests/distilled_release_promotion.rs",
+    "docs/releases.md",
+    ".agents/tasks/T-CLAUDEPROMOTEEVID-1.json"
+  ],
+  "size": "s",
+  "deps": [
+    "T-CLAUDEPROMOTE-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "distilled_release_promotion"
+    ]
+  },
+  "created_by": "CLAUDEPROMOTEEVID",
+  "created_unix": 1794394240,
+  "owner": "CLAUDEPROMOTEEVID",
+  "base": "6be83f16190728c049469eaefe3042bd372b7824",
+  "host": "x86_64-unknown-linux-gnu",
+  "results": {
+    "why": "v0.21.56 (board item 167) had to leave out T-CORECUT-1..3, T-TRUTHDOCS-1, T-AGYCLOUD-1/2/3 and others: their candidates need the GMCP evidence re-recorded on the release branch (docs/release-distillation.md), and --from-distill allowed only the version bump after the envelope",
+    "change": "verify_bump_only also admits A/M/D of *.jsonl directly in .agents/gmcp/evidence/ and returns those paths; the distillation block lists them as gmcp_evidence_rerecorded only when non-empty, so the v0.21.56 block is unchanged; the tests gate's gmcp_requirements still fails on stale or foreign evidence",
+    "tests": "distilled_release_promotion 9/9 (new a_gmcp_evidence_rerecord_after_the_candidate_is_admitted_and_named fails with the evidence arm disabled: 8 passed 1 failed); push-policy on the real refs/tags/v0.21.56 exit 0; cargo test -p xtask 29 binaries 606 passed 1 failed (ci_workflow_perf::no_gate_or_hook_depends_on_the_retired_target_guard, failing on origin/main since 192b53d27, unrelated); release_records 5, architecture 44, orphan 3, lean 2, core_docs 5, no_github 5, task_records 3; fmt; workspace clippy -D warnings"
+  },
+  "limitations": [
+    "evidence files must sit directly in .agents/gmcp/evidence/ and end in .jsonl; the README and subdirectories stay refused",
+    "the evidence's correctness is proven by the tests gate, not by release-qualify's pre-gate check"
+  ]
+}
