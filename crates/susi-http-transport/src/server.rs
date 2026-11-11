@@ -1609,9 +1609,54 @@ fn serve_connection(shared: &Shared, id: u64, io: Io, peer: SocketAddr) {
     reader.get_mut().finish();
 }
 
+/// How long an idle connection waits on Windows before it looks at the
+/// stop flag again.
+#[cfg(windows)]
+const IDLE_POLL: Duration = Duration::from_millis(100);
+
+/// Wait for the next request on an idle connection. `false` when the server
+/// is stopping or the client is gone.
+///
+/// Windows only: there, shutting a socket down from another thread does not
+/// wake a `recv` that is already blocked, so [`Shared::close_idle`] could
+/// not close an idle connection whose client kept it open, and the server
+/// never finished stopping. The wait is a timed `peek`, so the stop flag is
+/// seen within [`IDLE_POLL`]; the request itself is then read as on any host.
+#[cfg(windows)]
+fn await_next_request(shared: &Shared, reader: &mut Reader) -> bool {
+    if !reader.buffer().is_empty() {
+        return true;
+    }
+    let socket = reader.get_ref().socket();
+    let previous = socket.read_timeout().ok().flatten();
+    let _ = socket.set_read_timeout(Some(IDLE_POLL));
+    let mut probe = [0u8; 1];
+    let ready = loop {
+        if shared.stopping.load(Ordering::SeqCst) {
+            break false;
+        }
+        match socket.peek(&mut probe) {
+            Ok(0) => break false,
+            Ok(_) => break true,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => break false,
+        }
+    };
+    let _ = socket.set_read_timeout(previous);
+    ready
+}
+
 fn serve_requests(shared: &Shared, id: u64, reader: &mut Reader, peer: SocketAddr) {
     loop {
         if !shared.set_idle(id, true) {
+            return;
+        }
+        #[cfg(windows)]
+        if !await_next_request(shared, reader) {
             return;
         }
         let head = match read_head(reader) {
