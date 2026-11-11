@@ -3,8 +3,8 @@
   "feature_id": "F-LEAN-CORE-FACADE-CUT-4",
   "title": "Lean core: delete tracing-subscriber facade; pure-std tracing subscriber and pillar third-party ceiling ratchet",
   "goal": "Remove susi-vendor-tracing-subscriber and 14 Cargo.lock packages (aho-corasick, lazy_static, matchers, nu-ansi-term, regex-automata, regex-syntax, sharded-slab, susi-os-unicode, thread_local, tracing-log, tracing-serde, tracing-subscriber, valuable, plus susi-vendor-tracing-subscriber; cargo tree -p susi Linux host packages 214 -> 202, -e normal 205 -> 193, host build units 275 -> 263 atop T-CODEXAXUMOUT-1), drop unused [patch.crates-io] regex-syntax from Cargo.toml, replace tracing-subscriber in the susi binary with #![forbid(unsafe_code)] pure-std src/tracing_subscriber.rs, and ratchet THIRD_PARTY_CEILING 141 -> 140.",
-  "status": "in_progress",
-  "state": "claimed",
+  "status": "done",
+  "state": "done",
   "owner": "carbon-cachyos-distill",
   "created_by": "carbon-cachyos-distill",
   "created_unix": 1794383020,
@@ -53,5 +53,18 @@
     "cargo clippy --offline --locked -p susi --all-targets -- -D warnings",
     "cargo test --offline --locked --bin susi",
     "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ],
+  "results": {
+    "lockfile_packages_removed": "14 packages removed from Cargo.lock (13 third-party crates: aho-corasick, lazy_static, matchers, nu-ansi-term, regex-automata, regex-syntax, sharded-slab, susi-os-unicode, thread_local, tracing-log, tracing-serde, tracing-subscriber, valuable; plus susi-vendor-tracing-subscriber), 0 added; cargo tree -p susi Linux host packages 214 -> 202, -e normal 205 -> 193, host build units 275 -> 263 atop T-CODEXAXUMOUT-1",
+    "pillar_ceilings": "THIRD_PARTY_CEILING lowered 141 -> 140 (valuable removed from tracing feature unification); WORKSPACE_CEILING = 37, DIRECT_FACADE_EDGES_CEILING = 13",
+    "cumulative_lean_core_cuts_today": "111 Cargo.lock packages removed across T-CARBONLEAN-1 (63), T-CARBONLEAN-2 (9), T-CARBONLEAN-3 (25), and T-CARBONLEAN-4 (14); clean-target offline cold cargo build --offline --locked -j 24 -p susi measured 31.671 s under concurrent sibling test load (29.36 s idle baseline), well under the 60 s CEO target; susi --version startup 13.45 ms",
+    "touched_crate_and_guard_tests": "susi bin 136/136 (including 3 new pure-std tracing_subscriber tests), architecture_tests 43/43, core_docs_promise_no_ui_or_plugins 5/5, lean_core_ceilings 2/2, no_github_coupling 5/5, orphan_sources 3/3, task_records 3/3 (197/197 tests passed; 0 clippy warnings)"
+  },
+  "limitations": [
+    "vendor/regex-syntax stays on disk for standalone build-policy/xtask adapter checks while [patch.crates-io] regex-syntax is removed from Cargo.toml because zero Cargo.lock packages depend on regex-syntax.",
+    "cargo-deny is not provisioned on this Linux host, so dual-OS production tag qualification stays separate from accept_verified_candidate release/* distillation."
+  ],
+  "source_commits": [
+    "6ff1867fdb837247134a07231b9336a58db200ba"
   ]
 }
