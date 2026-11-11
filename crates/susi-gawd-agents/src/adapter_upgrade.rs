@@ -92,9 +92,14 @@ mod tests {
     }
 
     fn manager_without(id_present: &str) -> (std::path::PathBuf, AgentManager) {
+        // A counter, not only the clock: Windows' clock is coarse enough that
+        // two tests in one process drew the same nanosecond, shared this
+        // folder, and one removed it under the other.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "susi-upgrade-unknown-{}-{}",
+            "susi-upgrade-unknown-{}-{}-{}",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
