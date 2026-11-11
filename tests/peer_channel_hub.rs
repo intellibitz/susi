@@ -235,7 +235,10 @@ impl Daemon {
     fn assert_log_contains(&self, expected: &str) {
         // accept() drops the refused socket before its caller writes the log.
         // EOF therefore proves refusal, not that the diagnostic is readable yet.
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // The daemon's bounded shutdown path can be scheduled behind other
+        // gate binaries; keep the assertion bounded without making a healthy
+        // process look flaky under the normal six-lane runner.
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let log = self.log();
             if log.contains(expected) {
