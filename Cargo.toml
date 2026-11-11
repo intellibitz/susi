@@ -49,7 +49,6 @@ members = [
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tokio-rustls",
     "crates/susi-vendor-tracing",
-    "crates/susi-vendor-tracing-subscriber",
     "crates/susi-vendor-winapi",
     "crates/susi-vendor-x25519-dalek"]
 # Vendored, patched third-party crates (see vendor/README.md): not workspace
@@ -176,7 +175,6 @@ clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }
 winapi = { package = "susi-vendor-winapi", path = "crates/susi-vendor-winapi" }
 signal-hook = { package = "susi-vendor-signal-hook", path = "crates/susi-vendor-signal-hook" }
 tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing" }
-tracing-subscriber = { package = "susi-vendor-tracing-subscriber", path = "crates/susi-vendor-tracing-subscriber" }
 tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
@@ -189,7 +187,6 @@ serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-se
 # Ship the exact patched sources with Susi: a fresh checkout must not need
 # GitHub to resolve its build. Provenance and patch notes: vendor/README.md.
 [patch.crates-io]
-regex-syntax = { path = "vendor/regex-syntax" }
 idna_adapter = { path = "vendor/idna-adapter" }
 unicode-ident = { path = "vendor/unicode-ident" }
 native-tls = { path = "vendor/native-tls" }

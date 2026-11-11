@@ -30,6 +30,7 @@ mod audit_writer;
 mod cli;
 mod cli_json;
 mod dev_instance;
+mod tracing_subscriber;
 
 use cli::control_plane_cli::{dispatch, dispatch_mcp};
 use cli::defs::{command_requires_daemon, Cli};
@@ -459,10 +460,6 @@ fn run() -> std::process::ExitCode {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,susi=debug,tantivy=warn"));
 
-    use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::util::SubscriberInitExt;
-    use tracing_subscriber::Layer;
-
     // The console layer goes to stderr: stdout is the data plane
     // (`susi audit query --json`, `susi status`, every machine-readable
     // surface), and a boot-time INFO line there makes it unparseable.
@@ -479,22 +476,13 @@ fn run() -> std::process::ExitCode {
                 "warn"
             })
         });
-    let console_layer = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr)
-        .with_target(verbose_console)
-        .with_thread_ids(verbose_console)
-        .with_line_number(verbose_console)
-        .with_filter(console_filter);
-
-    let json_file_layer = tracing_subscriber::fmt::layer()
-        .json()
-        .with_writer(move || audit_writer.writer());
-
-    let _ = tracing_subscriber::registry()
-        .with(env_filter)
-        .with(console_layer)
-        .with(json_file_layer)
-        .try_init();
+    tracing_subscriber::SusiSubscriber::new(
+        env_filter,
+        console_filter,
+        verbose_console,
+        audit_writer,
+    )
+    .install();
 
     // Boot dynamic kernel assembly (Dynamic Self-Assembly Axiom)
     let _ = susi_gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);

@@ -161,7 +161,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-tokio",
     "susi-vendor-tokio-rustls",
     "susi-vendor-tracing",
-    "susi-vendor-tracing-subscriber",
     "susi-vendor-winapi",
     "susi-vendor-x25519-dalek",
 ];
