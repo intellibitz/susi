@@ -1,24 +1,33 @@
-# Lean core: the program and its ladder
+# Lean core: the program, the 5 pillars, and the <10s pipeline budget
 
-CEO directive, 2026-11-07: Susi core is minimal. GAWD, GEMI, GMCP and the harness
-(with its parallel multi-agent workflow) are the only components. It compiles,
-builds, tests, runs and debugs anywhere, local or cloud, with nothing but Rust.
-Everything that is not one of those four is a plug that lives in
-`susi-commercial-apps` and is admitted over the socket. Core is fast, and open
-to the world to contribute.
+CEO directive, 2026-11-07 (expanded 2026-11-11 under [CEO Mandate 74](ceo-mandate-74.md)):
+Susi core (`intellibitz/susi`) is minimal, Apache-2.0 and free forever. **GAWD**
+(swarm & A2A coordination), **GEMI** (model inference router), **GMCP** (MCP
+protocol & tool plane), **ACP** (Agent Client Protocol / Agent Communication
+Protocol open standard socket), and **Susi Harness** (recursive driver & engine
+with built-in parallel multi-agent workflow) are the **five primary core
+pillars**. Core compiles, builds, tests, runs and releases with nothing but Rust,
+targeting a **under-10-second (`< 10.0s` / `total_ms < 10_000`) warm
+build + test + release pipeline budget** alongside the cold `<60s` compile
+budget. Every add-on feature, enterprise pack, SSO/RBAC, FinOps, fleet
+governance plane, and visual interface (all UIs and curated plugin packs live in
+Susi Commercial Apps) lives exclusively in `intellibitz/susi-commercial-apps`
+(closed-source, licensed, and paid corporate software) and is admitted over the
+standard protocol socket.
 
 This page is the shared plan for every agent on the program. Numbers come from
 `tests/lean_core_ceilings.rs`, which only lets them go down.
 
 ## The ladder (measured)
 
-| Rung | Measure (four pillars, normal+build edges) | 2026-11-07 start | now |
-|------|--------------------------------------------|------------------|-----|
-| 0 | third-party crates compiled | 331 | 259 |
-| 0 | workspace crates compiled | 59 | 50 |
-| 0 | vendor facades named directly by the pillar crates | 26 | 23 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 175,068 |
-| clean clone | shallow clone, `cargo check -p susi-gmcp` / `-p susi` | 60 s / 78 s online; offline impossible (crates.io) | same |
+| Rung | Measure (pillar closure, normal+build edges) | 2026-11-07 start | pinned ceiling (2026-11-11) |
+|------|----------------------------------------------|------------------|-----------------------------|
+| 0 | third-party crates compiled | 331 | 96 |
+| 0 | workspace crates compiled | 59 | 33 |
+| 0 | vendor facades named directly by the pillar crates | 26 | 9 |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | 147,085 |
+| clean clone | cold `cargo build --offline --locked -p susi` (Linux x86_64) | 196 s under load / 165 s idle | 27.68 s idle (`T-CARBONLEAN-14`) |
+| warm release loop | core `build + test + release` pipeline (`fast-release`, Mandate 74) | ununified multi-profile | `< 10.0 s` (`total_ms < 10_000`) budget |
 
 Rungs, in order. Each is done when its number is on this table and the ceiling
 test pins it.
@@ -77,6 +86,24 @@ gated `cargo local-workflow` path needs a host that holds the gate; an outside
 contributor opens a pull request and an agent integrates it through the gate.
 Whether to accept outside pull requests at all is a CEO decision; until it is
 made, `CONTRIBUTING.md` stands as written.
+
+## Sub-10-second warm Build + Test + Release budget (CEO Mandate 74, 2026-11-11)
+
+Alongside the cold compile budget below, CEO Mandate 74 sets a binding
+**under-10-second (`< 10.0s` / `total_ms < 10_000`) warm core delivery budget**
+covering:
+
+1. **Core build** (`build_ms`): incremental/warm compilation of the core host and
+   pillars without redundant profile recompilation;
+2. **Core verification test suite** (`test_ms`): fast, deterministic core
+   verification tests sharing compiled dependency artifacts with the build step;
+3. **Distilled release artifact + SHA-256 provenance manifest** (`release_ms`):
+   single-pass emission of the verified candidate artifact and its cryptographic
+   digest/provenance record (`total_ms = build_ms + test_ms + release_ms < 10_000`).
+
+Per Mandates 1, 62 and 69, cold clean-target timings and warm incremental timings
+are always measured and reported **separately** with durable JSON evidence, while
+preserving distinct debug vs. candidate/production artifact isolation (Mandate 67).
 
 ## Compile budget: 60 seconds (CEO mandate 2026-11-07 22:50)
 

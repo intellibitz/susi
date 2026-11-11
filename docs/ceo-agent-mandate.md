@@ -1,13 +1,16 @@
 # CEO mandate: independent agents, Susi integration and pristine releases
 
-Effective 2026-11-10. This is the operating mandate for every Susi agent, local
-or cloud, and the implementation contract for the Susi master brain. It
-consolidates the CEO's prior vision with the three-laptop plan. Mandate 73 in
-`.agents/identity.json` records it; `AGENTS.md` remains the engineering entry
-point. Existing mandates remain binding except the fixed remote push cadence
-single-laptop publication restriction and mandatory main-push gates explicitly
-superseded below. The CEO's latest direction is: no mandatory gates for main;
-full qualification belongs on release branches and release snapshots.
+Effective 2026-11-10 (harmonized 2026-11-11 with [CEO Mandate 74](ceo-mandate-74.md),
+which wins where older text differs). This is the operating mandate for every
+Susi agent, local or cloud, and the implementation contract for the Susi master
+brain. It consolidates the CEO's prior vision with the three-laptop plan.
+Mandate 73 in `.agents/identity.json` records it; `AGENTS.md` remains the
+engineering entry point. Existing mandates remain binding except the fixed
+remote push cadence, single-laptop publication restriction and mandatory
+main-push gates explicitly superseded below. The CEO's latest direction is: no
+mandatory gates for main, remote pull and merge reconciliation at every
+workflow step, a `<10s` warm core build+test+release budget, and full
+qualification on distilled release branches and release snapshots.
 Requirements are not evidence of completed implementation.
 
 ## 1. The CEO sets direction; agents deliver
@@ -81,10 +84,15 @@ Focused development checks remain useful and their results must be reported
 honestly, but they do not become a hidden main-push prerequisite.
 
 Susi's master brain coordinates distillation, branch composition and serialized
-integration/publication. Preserve every accepted contribution, reconcile the
-current target head, and use an atomic normal fast-forward update. If the target
-moves, reconcile against it and retry without overwriting history. No force-push,
-blind ref reset, destructive overwrite or touching another worker's claim.
+integration/publication. Every native workflow step (`start`, `sync` / `step`,
+`commit`, `distill`, `ship`, `release`, and parallel Susi Harness steps)
+supports remote `fetch` + pull and merge reconciliation with `origin` when
+reachable (with safe offline fallback when disconnected) so distributed agents
+and isolated laptops stay continuously reconciled. Preserve every accepted
+contribution, reconcile the current target head, and use an atomic normal
+fast-forward update. If the target moves, reconcile against it and retry
+without overwriting history. No force-push, blind ref reset, destructive
+overwrite or touching another worker's claim.
 A clean merge does not qualify a release, and main may contain unfinished work;
 keep its status and known failures visible to other agents.
 
@@ -174,11 +182,21 @@ access or move content between access domains without explicit authorization.
 ## 7. Lean core and free Apache-2.0 foundation
 
 Core remains the lean standard-protocol socket built around **GAWD, GEMI, GMCP
-and the harness**, Apache-2.0 and free forever. Other product capabilities are
-independently admitted plugs; proprietary commercial implementations stay in
-`susi-commercial-apps`. Do not embed vendor products into core or shift commercial
-code into the public repository. Ratchet measured source, dependency, executable,
-memory, latency and build costs down without losing required capability.
+and the harness**, formalized under CEO Mandate 74 (2026-11-11) into **5 primary
+core pillars** — **GAWD** (swarm/A2A), **GEMI** (inference router), **GMCP**
+(MCP protocol & tool plane), **ACP** (Agent Client Protocol / Agent
+Communication Protocol standard open socket), and **Susi Harness** (with
+built-in parallel multi-agent workflow) — Apache-2.0 and free forever. Susi core
+targets a blazing-fast `<10s` (`total_ms < 10_000`) warm `build + test + release`
+pipeline budget (with cold and warm measurements recorded separately and
+honestly). All add-on features, enterprise packs, SSO/RBAC, FinOps, corporate
+fleet governance, and visual interfaces (all UIs and visual views live in Susi
+Commercial Apps) are closed-source, licensed (`SUSI-ENT-v1` / `SUSI-CUST-v1`),
+and paid software for commercial entities and corporates in
+`intellibitz/susi-commercial-apps`. Do not embed vendor products into core or
+shift commercial code into the public repository. Ratchet measured source,
+dependency, executable, memory, latency and build costs down without losing
+required capability.
 
 Rust-only implementation and native Windows requirements remain. Distributed
 components retain the existing Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause
