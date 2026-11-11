@@ -111,6 +111,31 @@ fn cloud_provider_tool_contract_openai_preserves_chat_and_returns_caller_calls()
 }
 
 #[test]
+fn cloud_provider_legacy_completion_uses_caller_max_tokens() {
+    let (base, captured, server) = one_shot(r#"{"choices":[{"text":"ok"}]}"#);
+    let provider = HttpProvider {
+        name: "test-completions".into(),
+        api_base: base,
+        model: "test-model".into(),
+        protocol: InferenceProtocol::OpenAiCompletions,
+        api_key: String::new(),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let reply = runtime
+        .block_on(provider.generate_with_chat("fallback", Some(&json!({"max_tokens": 7}))))
+        .unwrap();
+    server.join().unwrap();
+
+    let body = request_json(&captured.lock().unwrap());
+    assert_eq!(body["prompt"], "fallback");
+    assert_eq!(body["max_tokens"], 7);
+    assert_eq!(reply, "ok");
+}
+
+#[test]
 fn cloud_provider_tool_contract_anthropic_translates_messages_tools_and_tool_use() {
     let (base, captured, server) = one_shot(
         r#"{"id":"msg_1","content":[{"type":"tool_use","id":"call_2","name":"get_weather","input":{"city":"Paris"}}],"stop_reason":"tool_use"}"#,
