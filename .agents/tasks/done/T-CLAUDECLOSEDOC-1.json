@@ -1,0 +1,41 @@
+{
+  "id": "T-CLAUDECLOSEDOC-1",
+  "title": "distillation.md no longer reports the fixed tasks-close field loss as open",
+  "goal": "docs/distillation.md said the commercial Task struct has no catch-all field, so `tasks close` drops scopes, results, limitations and provenance. susi-commercial-apps 4d9f344 (2026-11-11) added `#[serde(flatten)] extra` to Task and the round-trip test close_keeps_every_labelling_field_of_the_record. Replace the Known gap paragraph with a short note naming the fix; keep the claim-ref fallback documented for records closed before it. No other sections change.",
+  "status": "done",
+  "scopes": [
+    "docs/distillation.md",
+    ".agents/tasks/T-CLAUDECLOSEDOC-1.json",
+    ".agents/tasks/done/T-CLAUDECLOSEDOC-1.json"
+  ],
+  "size": "xs",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "task_records"
+    ],
+    "lint": "cargo run --offline --locked -p xtask --bin distill -- lint --range origin/main..HEAD --strict reports 0 findings"
+  },
+  "created_by": "claude",
+  "created_unix": 1794361547,
+  "owner": "claude",
+  "base": "cc6597d55614fd3ed067735c62410981fc4a5bfa",
+  "results": {
+    "doc": "Known gap paragraph in docs/distillation.md replaced by a 7-line Fixed note naming susi-commercial-apps 4d9f344 and close_keeps_every_labelling_field_of_the_record; claim-ref fallback kept for records closed before the fix. 'What is missing' had no entry for this fix, so nothing removed there.",
+    "task_records_test": "cargo test --offline --locked -p susi --test task_records: 3 passed, 0 failed",
+    "distill_lint": "0 findings over origin/main..HEAD once this close commit is in range; before closing, the only finding was this record still in_progress"
+  },
+  "limitations": "Commercial fix taken from the task description (commit 4d9f344); susi-commercial-apps was not inspected from this session.",
+  "landed": {
+    "main_commit": "32c9454bdc9974bce2892633707d15c075e79ba5",
+    "source_commit": "a4042241ff8fcc0f1c7d90dd54ea9f2d9efc4c54",
+    "route": "cargo run -p xtask --bin local-snapshot -- submit/retry-main claude-closedoc-20261111 (composed onto a newer main that did not touch docs/distillation.md)"
+  }
+}
