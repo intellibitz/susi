@@ -401,6 +401,19 @@ fn http_reply(target: SocketAddr) -> String {
     String::from_utf8_lossy(&reply).into_owned()
 }
 
+/// Wait for a loopback listener to answer after another listener's policy
+/// probe. Under the concurrent native gate, an accept loop can be briefly
+/// delayed even after the daemon has published all of its ports.
+fn loopback_http_reply(target: SocketAddr, deadline: Instant) -> bool {
+    while Instant::now() < deadline {
+        if http_reply(target).starts_with("HTTP/") {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
 fn set_mode(daemon: &Daemon, mode: &str) {
     let mut cmd = susi(&daemon.home, &daemon.instance, daemon.offset);
     cmd.args(["privacy", "mode", mode]);
@@ -503,15 +516,20 @@ fn a_daemon_bound_beyond_loopback_serves_this_machine_alone_under_host_only() {
     let loopback = IpAddr::from([127, 0, 0, 1]);
     let udp = 9092 + offset;
     let tcp = [9090 + offset, 9091 + offset, 9093 + offset, 9094 + offset];
-    // The listeners come up right after the publication; wait for loopback.
+    // The listeners come up right after the publication, but each HTTP
+    // surface has its own accept loop. Under the native gate, another test
+    // binary can delay one surface after GMCP is already answering, so wait
+    // for every advertised loopback listener before asserting policy.
     let deadline = Instant::now() + Duration::from_secs(60);
-    while !http_reply(SocketAddr::new(loopback, tcp[0])).starts_with("HTTP/") {
-        assert!(
-            Instant::now() < deadline,
-            "GMCP never answered on loopback; log:\n{}",
-            daemon.log()
-        );
-        std::thread::sleep(Duration::from_millis(250));
+    for port in tcp {
+        while !http_reply(SocketAddr::new(loopback, port)).starts_with("HTTP/") {
+            assert!(
+                Instant::now() < deadline,
+                "listener on port {port} never answered on loopback; log:\n{}",
+                daemon.log()
+            );
+            std::thread::sleep(Duration::from_millis(250));
+        }
     }
 
     let assert_host_only = |daemon: &Daemon| {
@@ -536,7 +554,10 @@ fn a_daemon_bound_beyond_loopback_serves_this_machine_alone_under_host_only() {
                 "host_only negotiated TLS with an off-host client on port {port}: {tls:?}"
             );
             assert!(
-                http_reply(SocketAddr::new(loopback, port)).starts_with("HTTP/"),
+                loopback_http_reply(
+                    SocketAddr::new(loopback, port),
+                    Instant::now() + Duration::from_secs(15),
+                ),
                 "loopback client on port {port} must be served; log:\n{}",
                 daemon.log()
             );
