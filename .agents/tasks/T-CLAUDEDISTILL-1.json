@@ -7,7 +7,11 @@
   "created_by": "claude",
   "created_unix": 1794363701,
   "size": "l",
-  "deps": ["T-CLAUDERECURSE-1", "T-CLAUDESIGNENV-1", "T-CLAUDELOOP10-1"],
+  "deps": [
+    "T-CLAUDERECURSE-1",
+    "T-CLAUDESIGNENV-1",
+    "T-CLAUDELOOP10-1"
+  ],
   "base_commit": "f695e84455601b1f40ae19356447f5ba94691e5e",
   "scopes": [
     ".gitattributes",
@@ -27,8 +31,20 @@
     "releases",
     ".agents/tasks/T-CLAUDEDISTILL-1.json"
   ],
-  "accept": {"cmd": ["git", "check-attr", "merge", "--", ".agents/gmcp/evidence/VC-203-001.jsonl"]},
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
   "acceptance": [
+    "git check-attr merge -- .agents/gmcp/evidence/VC-203-001.jsonl reports union",
     "local-distill plan onto v0.21.54 includes all three tasks with 0 deferred (was 1 included, 2 deferred on a VC-203-001.jsonl conflict)",
     "local-distill compose --verify-accept --release-candidate --strict",
     "release-qualify v0.21.55 on the release branch: format, check, clippy, licenses, tests, build, smoke all exit 0"
