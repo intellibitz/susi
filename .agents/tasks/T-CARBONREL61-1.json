@@ -1,0 +1,47 @@
+{
+  "id": "T-CARBONREL61-1",
+  "feature_id": "F-CORE-RELEASE-0.21.61-1",
+  "title": "Prepare core v0.21.61 from distilled candidate v0-21-61-distilled-rc1",
+  "goal": "Apply only the version bump permitted after the accept-verified distilled candidate envelope (shipping T-CARBONLEAN-16, THIRD_PARTY_CEILING 96, Cargo.lock 182), then qualify the exact Linux x86_64 release tree. Windows x86_64 remains a separate owed platform.",
+  "state": "in_progress",
+  "status": "in_progress",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794402292,
+  "updated_unix": 1794402292,
+  "size": "s",
+  "base": "07632503d910cbf72890597a4aa8879ac01ab7c1",
+  "deps": [
+    "T-CARBONLEAN-16"
+  ],
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CARBONREL61-1.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "limitations": [
+    "Windows x86_64 reference qualification is not available on this Linux host."
+  ]
+}
