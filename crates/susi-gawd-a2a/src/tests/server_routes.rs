@@ -55,6 +55,9 @@ fn serve_shout(runtime: &tokio::runtime::Runtime) -> SocketAddr {
     let card = crate::executor::GawdA2AExecutor::new().agent_card();
     let app = super::app(
         Arc::new(Shout),
+        Arc::new(crate::executor::GawdAcpExecutor::with_runner(Arc::new(
+            |prompt: &str| Ok(format!("gawd mission: {prompt}")),
+        ))),
         card,
         Arc::new(crate::task_store::TaskStore::new()),
         Arc::new(|_: &super::VerifierContext| true),
@@ -198,6 +201,9 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
     let card = crate::executor::GawdA2AExecutor::new().agent_card();
     let guarded_app = super::app(
         Arc::new(Shout),
+        Arc::new(crate::executor::GawdAcpExecutor::with_runner(Arc::new(
+            |prompt: &str| Ok(format!("gawd mission: {prompt}")),
+        ))),
         card,
         Arc::new(crate::task_store::TaskStore::new()),
         Arc::new(|ctx: &super::VerifierContext| {
@@ -288,4 +294,10 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
     let sse_text = stream_resp.into_utf8(1_000_000).unwrap();
     assert!(sse_text.contains("event: acp.turn.event"), "{sse_text}");
     assert!(sse_text.contains("event: acp.turn.result"), "{sse_text}");
+    // The turn ran as a GAWD mission, not core's echo executor.
+    assert!(
+        sse_text.contains("gawd mission: acp over 9094"),
+        "{sse_text}"
+    );
+    assert!(!sse_text.contains("acp-ack["), "{sse_text}");
 }

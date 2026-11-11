@@ -1,0 +1,46 @@
+{
+  "id": "T-CLAUDEACPGAWD-1",
+  "title": "ACP turns run as GAWD missions",
+  "goal": "CEO direction 2026-11-12 (\"Integrate ACP into gawd layer\"). The ACP pillar on 9094 was served by the GAWD A2A server but executed by core's `SubstrateAcpExecutor`, which answered every `session/prompt` with `acp-ack[<session>]: <prompt>`: no ACP prompt ever reached an agent. `GawdAcpExecutor` (susi-gawd-a2a) implements `AcpTurnExecutor` by running the turn's text as the same GAWD mission an A2A task runs (`plane_bus::gawd::solve_mission`), behind the same untrusted-content gate (`enforce_action`, Consequential), the same in-flight capacity permit and the same reply/error redaction; an empty prompt or a failed mission is an error, and a turn cancelled before it starts runs no mission. `server::app` takes the ACP executor and mounts `AcpEngine::new(default admission, GawdAcpExecutor)`; JSON-RPC and SSE turns run on `spawn_blocking` so a mission does not hold an async worker. Core's `acp.rs` is unchanged (carbon's T-CTOCORELEAN-1 holds it).",
+  "status": "done",
+  "scopes": [
+    ".agents/tasks/T-CLAUDEACPGAWD-1.json",
+    "crates/susi-gawd-a2a/src/executor.rs",
+    "crates/susi-gawd-a2a/src/lib.rs",
+    "crates/susi-gawd-a2a/src/server.rs",
+    "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+    "crates/susi-gawd-a2a/src/tests/handler_paths.rs",
+    "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+    "crates/susi-gawd-a2a/src/tests/wire_golden.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a"
+    ]
+  },
+  "created_by": "CLAUDEACPGAWD",
+  "created_unix": 1794429693,
+  "owner": "claude",
+  "base": "fbfe20a73fb22efd2f47b36ad8a975d6921bfba2",
+  "host": "CEO laptop, CachyOS Linux x86_64",
+  "results": {
+    "end_to_end": "2026-11-12, isolated instance (scratch SUSI_HOME, offset 7300, core daemon from this change, commercial plug host attached). On 16394 (9094+offset): public /.well-known/acp.json served; initialize and session/new over POST /acp with the bearer token; session/prompt 'What is the capital of France? Answer in one short sentence.' -> GAWD mission answer 'Paris is the capital of France.' with the mission pipeline's citation warning, stop_reason end_turn, receipt sha256, 931 ms. An injection prompt -> JSON-RPC -32603 '[UNTRUSTED_CONTENT_BLOCKED source=acp:request] embedded instruction refused'. POST /acp/stream -> acp.turn.event frames with the mission's output and acp.turn.result. Before this change every prompt returned 'acp-ack[...]: <prompt>'.",
+    "tests": "susi-gawd-a2a 54 passed / 0 failed, including the new executor test and the route test that now asserts the turn ran as a mission."
+  },
+  "limitations": [
+    "A mission cannot be interrupted midway: session/cancel during a running mission reports the turn cancelled and drops the answer, but the mission itself runs to completion.",
+    "A mission's answer arrives as one delta, not token by token.",
+    "The ACP stdio transport (`AcpStdioTransport`) is not wired to GAWD by this change; it is only reachable where a host constructs it.",
+    "The turn runs in the daemon's working directory, as A2A tasks do; the session's `workspace` is not passed to the mission.",
+    "Linux x86_64 only."
+  ]
+}
