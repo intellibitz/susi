@@ -54,6 +54,8 @@ mod sysroot_sources;
 mod trusted_sysroot;
 #[path = "../upstream_notices.rs"]
 mod upstream_notices;
+#[path = "../worktree_admin.rs"]
+mod worktree_admin;
 use susi_build_os_ucrt::{native_link, pe_imports};
 use susi_build_policy as vendor_regressions;
 
