@@ -1643,13 +1643,12 @@ mod tests {
                             );
                             let _ = tx.send(Ok(rest.to_string())).await;
                         });
-                        let stream = futures::stream::poll_fn(move |cx| rx.poll_recv(cx));
                         (
                             [
                                 (header::CONTENT_TYPE, "text/event-stream"),
                                 (header::CONNECTION, "close"),
                             ],
-                            axum::body::Body::from_stream(stream),
+                            crate::poll_body(move |cx| rx.poll_recv(cx)),
                         )
                             .into_response()
                     }

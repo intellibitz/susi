@@ -1,0 +1,109 @@
+{
+  "id": "T-AGYCLOUD-4",
+  "native_worker": "agycloud-20261110",
+  "owner": "agycloud-20261110",
+  "title": "Delete susi-vendor-futures and susi-vendor-bytes facades and ratchet all four lean-core ceilings",
+  "goal": "Shrink Susi core's workspace facade count, third-party reach, direct pillar facade edges, and pillar line ceilings without removing runtime capabilities: delete `crates/susi-vendor-futures` and `crates/susi-vendor-bytes`, replace `susi-harness`'s `futures::stream::poll_fn` body streams with a `hyper::body::Body` adapter (`poll_body`), switch `susi-server` to `hyper::body::Bytes`, replace `susi-gemi`'s sole `parking_lot::RwLock` with `std::sync::RwLock`, replace `susi-gawd-agents`'s sole `regex::Regex` word-boundary check with std character splitting, and ratchet `WORKSPACE_CEILING` (46 -> 45), `THIRD_PARTY_CEILING` (184 -> 180), `DIRECT_FACADE_EDGES_CEILING` (20 -> 19), and `LINE_CEILINGS`.",
+  "feature": "lean-core",
+  "size": "m",
+  "created_by": "agycloud-20261110",
+  "created_unix": 1794375560,
+  "state": "done",
+  "status": "done",
+  "base": "05b53c4e7c99e2ef1a7b3cca625094a92b439c7e",
+  "mandate_revision": "286e653ab06677ef0aefee8a54bffc26455127af",
+  "deps": [
+    "T-CLAUDEREL55REC-1",
+    "T-AGYCLOUD-3"
+  ],
+  "scopes": [
+    ".agents/tasks/T-AGYCLOUD-4.json",
+    ".agents/tasks/done/T-AGYCLOUD-4.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-gawd-agents/Cargo.toml",
+    "crates/susi-gawd-agents/src/accountability.rs",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gemi/src/engines/local_plug.rs",
+    "crates/susi-gemi/src/tests/usage_accounting.rs",
+    "crates/susi-gemi/src/usage_accounting.rs",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-harness/src/cockpit.rs",
+    "crates/susi-harness/src/gateway.rs",
+    "crates/susi-harness/src/ingress.rs",
+    "crates/susi-harness/src/lib.rs",
+    "crates/susi-harness/src/tests/money.rs",
+    "crates/susi-server/Cargo.toml",
+    "crates/susi-server/src/lib.rs",
+    "crates/susi-vendor-bytes/Cargo.toml",
+    "crates/susi-vendor-bytes/src/lib.rs",
+    "crates/susi-vendor-futures/Cargo.toml",
+    "crates/susi-vendor-futures/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "evidence": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu (Debian 12, Linux 6.12.105+, git 2.39.5, rustc 1.99.0)",
+    "fmt_check": "pass (0 diffs)",
+    "clippy_check": "pass (0 warnings across susi-gawd-agents, susi-gemi, susi-harness, susi-server --all-targets)",
+    "removed_lockfile_packages": [
+      "futures",
+      "futures-executor",
+      "futures-io",
+      "futures-macro",
+      "susi-vendor-bytes",
+      "susi-vendor-futures"
+    ],
+    "pillar_reach": {
+      "workspace": 45,
+      "third_party": 180,
+      "direct_facades": 19
+    },
+    "tests_passed": 188,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "architecture_tests": 43,
+      "lean_core_ceilings": 2,
+      "orphan_sources": 3,
+      "task_records": 3,
+      "susi_gawd_agents_accountability": 6,
+      "susi_gemi_usage_accounting": 5,
+      "susi_harness_streaming_and_money": 77,
+      "susi_server_lib": 49
+    },
+    "timings_ms": {
+      "guard_suites_compile_and_run_ms": 49796,
+      "guard_suites_warm_ms": 2422,
+      "crate_unit_tests_ms": 62660,
+      "clippy_all_targets_ms": 24791
+    }
+  },
+  "limitations": [
+    "`bytes` and `futures-util`/`futures-core`/`futures-channel`/`futures-sink`/`futures-task` remain transitive dependencies of `hyper` and `axum` until rung-2 HTTP removal.",
+    "Windows x86_64 release qualification remains owed on a native Windows host."
+  ]
+}

@@ -73,15 +73,22 @@ and `deps`. Feature licenses are checked against Susi's allowlist (`Apache-2.0`,
    environment (no user credentials), runs each included task's `accept.cmd`
    array directly without a shell, records `accept_verification` digests, and
    fails closed before ref creation if any acceptance command fails.
-6. **Content-addressed receipt and compare-and-swap refs:** `compose` writes an
-   fsynced `susi-distillation-receipt-v1` JSON record (`receipt_sha256`) under
+6. **Content-addressed receipt, compare-and-swap refs, and verified `release/*`
+   branch publication:** `compose` / `orchestrate` writes an fsynced
+   `susi-distillation-receipt-v1` JSON record (`receipt_sha256`) under
    `.git/susi-distill/receipts/<name>.json` and creates `refs/heads/distill/<name>`
-   (or `refs/heads/release/<name>` with `--release-candidate`) via atomic
-   zero-old-OID `git update-ref`. `publish` pushes create-only snapshot tag
-   `refs/tags/susi-distill/<name>` through `.githooks/pre-push` and adjacent
-   `push-policy` (commit-bound, immutable, non-deletable, and kept distinct
-   from exact-tree qualified `vX.Y.Z` release tags) and verifies the remote ref
-   after push.
+   via atomic zero-old-OID `git update-ref`. With `--release-candidate`,
+   `local-distill` wraps the composed commit `P` in a deterministic single-parent
+   envelope commit adding only `releases/distill/<name>.json` at the tip of
+   `refs/heads/release/<name>`. `publish-branch <name>` (or `orchestrate
+   --verify-accept --release-candidate --publish-release-branch`) pushes
+   `refs/heads/release/<name>` non-force through `.githooks/pre-push` and
+   `push-policy`, which admits a `refs/heads/release/<name>` update only when it
+   is non-deleting, fast-forward/create-only, and carries either a full
+   `releases/qualification/<tag>.json` record or a tamper-evident
+   `accept_verified_candidate` distillation receipt with zero rejected tasks.
+   `publish <name>` continues to push immutable `refs/tags/susi-distill/<name>`
+   snapshots.
 
 ## Evidence on distilled branches
 
