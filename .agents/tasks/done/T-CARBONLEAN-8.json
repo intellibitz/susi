@@ -33,8 +33,6 @@
       "test",
       "--offline",
       "--locked",
-      "-p",
-      "susi-vendor-tempfile",
       "--test",
       "lean_core_ceilings",
       "--test",
