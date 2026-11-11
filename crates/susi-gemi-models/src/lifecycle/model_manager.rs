@@ -175,30 +175,6 @@ impl ModelManager {
         header_is_valid && minimum_bytes.is_none_or(|minimum| size_bytes >= minimum)
     }
 
-    /// Whether a Jinja chat template carries a tools block. Detection is
-    /// lexical — there is no machine-readable capability flag in GGUF — and
-    /// covers the forms the supported architectures actually ship: the
-    /// `tools` parameter check (llama/qwen3: `tools is not none`, `if tools`),
-    /// tool-call delimiters (`<tool_call>`, `[TOOL_CALLS]`), and Mistral's
-    /// `[AVAILABLE_TOOLS]`/`available_tools` convention. False positives from
-    /// a stray mention in prompt prose only cost a preference point, never a
-    /// wrong exclusion — the caller drops tool-less models only when a
-    /// capable sibling exists.
-    #[allow(dead_code)]
-    pub(crate) fn chat_template_supports_tools(template: &str) -> bool {
-        let t = template.to_lowercase();
-        [
-            "tools is not none",
-            "tools is defined",
-            "if tools",
-            "tool_call",
-            "available_tools",
-            "[tool",
-        ]
-        .iter()
-        .any(|marker| t.contains(marker))
-    }
-
     /// Reads the GGUF header's `tokenizer.chat_template` and reports whether
     /// the model can be asked for tool calls. The local engines do not emit
     /// tool-call parsing yet; this is the capability record that lets
