@@ -12,6 +12,7 @@
   "base_commit": "b91a3070e4bab89516cba11b3d76198b5a147ac2",
   "deps": [],
   "scopes": [
+    ".agents/tasks/T-CODEXRECORDS-1.json",
     "tests/release_records.rs"
   ],
   "accept": {
