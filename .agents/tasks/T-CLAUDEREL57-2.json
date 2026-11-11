@@ -1,0 +1,51 @@
+{
+  "id": "T-CLAUDEREL57-2",
+  "title": "Record core release v0.21.57 on main",
+  "goal": "Land releases/v0.21.57.json and the qualification record of tag v0.21.57 (cut from snapshot v0-21-57-rc1 of development main) on main, with the bump task record, and advance development main to 0.21.57 in the files of the v0.21.56 bump so the record is not newer than the workspace.",
+  "status": "done",
+  "scopes": [
+    "releases/v0.21.57.json",
+    "releases/qualification/v0.21.57.json",
+    ".agents/tasks/T-CLAUDEREL57-1.json",
+    ".agents/tasks/T-CLAUDEREL57-2.json",
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    ".agents/gmcp/evidence"
+  ],
+  "size": "s",
+  "deps": [
+    "T-CLAUDEREL57-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDEREL57",
+  "created_unix": 1794395552,
+  "owner": "CLAUDEREL57",
+  "results": {
+    "verification": "on the merged tree (origin/main d5824bb94 + this commit), isolated HOME/XDG, provider keys unset: cargo fmt --all --check 0; cargo check --workspace --all-targets --keep-going --offline --locked 0; cargo clippy --workspace --all-targets --offline --locked -- -D warnings 0; release_records 5/5, gmcp_requirements 88/88 (no evidence re-record needed), task_records 3/3, architecture_tests 44/44, orphan_sources 3/3, lean_core_ceilings 2/2, core_docs_promise_no_ui_or_plugins 5/5, no_github_coupling 5/5",
+    "qualification_record": "releases/qualification/v0.21.57.json byte-identical to the tag's (cmp)"
+  },
+  "limitations": [
+    "Windows x86_64 reference build and qualification of v0.21.57 are owed (missing_targets)."
+  ]
+}

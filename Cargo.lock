@@ -1008,7 +1008,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "susi"
-version = "0.21.56"
+version = "0.21.57"
 dependencies = [
  "susi-build-os-ucrt",
  "susi-cli-defs",
@@ -1120,7 +1120,7 @@ dependencies = [
 
 [[package]]
 name = "susi-daemon"
-version = "0.21.56"
+version = "0.21.57"
 dependencies = [
  "susi-abi",
  "susi-config",
@@ -1183,7 +1183,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gawd"
-version = "0.21.56"
+version = "0.21.57"
 dependencies = [
  "susi-abi",
  "susi-adapters-llm",
@@ -1254,7 +1254,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gemi"
-version = "0.21.56"
+version = "0.21.57"
 dependencies = [
  "susi-abi",
  "susi-adapters-llm",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gmcp"
-version = "0.21.56"
+version = "0.21.57"
 dependencies = [
  "susi-abi",
  "susi-config",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "susi-harness"
-version = "0.21.56"
+version = "0.21.57"
 dependencies = [
  "susi-adapters-llm",
  "susi-build-os-ucrt",
@@ -1389,7 +1389,7 @@ dependencies = [
 
 [[package]]
 name = "susi-server"
-version = "0.21.56"
+version = "0.21.57"
 dependencies = [
  "susi-config",
  "susi-core",
