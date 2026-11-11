@@ -731,3 +731,64 @@ fn a_gmcp_evidence_rerecord_after_the_candidate_is_admitted_and_named() {
         assert!(error.contains(needle), "expected {needle:?}, got {error:?}");
     }
 }
+
+#[test]
+fn release_qualify_enforces_harvest_audit_before_gates_and_verify_tag_checks_it() {
+    // 1. Snapshot tree with an unattributed `Harvest:` trailer is refused by
+    // `release-qualify --verify-only` before any build/test gate runs.
+    let bad_trailer = Repo::new();
+    write_tree(&bad_trailer, "1.2.0");
+    bad_trailer.write("src/port.rs", "pub fn demo() -> usize { 1 }\n");
+    bad_trailer.commit_all("port demo\n\nHarvest: H-FIXTURE-99\nTask: T-FIXTURE-1");
+    let (ok, output) = release_qualify(&bad_trailer.0, &["v1.2.0", "--verify-only"]);
+    assert!(
+        !ok && output.contains("harvest audit refused") && output.contains("H-FIXTURE-99"),
+        "expected harvest audit refusal, got: {output}"
+    );
+
+    // 2. Qualified tree carrying `.agents/harvest/*.json` requires a passing
+    // `harvest_audit` in the qualification record when checked by `push-policy`.
+    let harvested = candidate(|_| {}, false, |_| {});
+    // Write a manifest in the base/candidate history by testing `tag_verdict`
+    // against a snapshot release tree that carries `.agents/harvest/H-FIX-1.json`.
+    let snap = Repo::new();
+    write_tree(&snap, "1.2.0");
+    snap.write(
+        ".agents/harvest/H-FIX-1.json",
+        "{\"schema\":\"susi-harvest-manifest-v1\"}\n",
+    );
+    snap.commit_all("snapshot with harvest manifest");
+    let missing_audit = tag_verdict_with_block(&snap, Value::Null, |rec| {
+        rec["source"] = "snapshot".into();
+        rec.as_object_mut().unwrap().remove("distillation");
+    })
+    .unwrap_err();
+    assert!(
+        missing_audit.contains("no `harvest_audit`"),
+        "expected missing harvest_audit error, got: {missing_audit}"
+    );
+
+    // 3. A forged `harvest_audit` with `ok: false` or non-empty `violations` is refused.
+    let failed_audit = tag_verdict(&harvested.repo, |rec| {
+        rec["harvest_audit"] = json!({"ok": false, "violations": ["missing NOTICE"]});
+    })
+    .unwrap_err();
+    assert!(
+        failed_audit.contains("harvest_audit"),
+        "expected failed harvest_audit error, got: {failed_audit}"
+    );
+
+    // 4. Clean `harvest_audit` (`ok: true`, empty `violations`) is admitted.
+    assert_eq!(
+        tag_verdict(&harvested.repo, |rec| {
+            rec["harvest_audit"] = json!({
+                "ok": true,
+                "manifests": 0,
+                "files": 0,
+                "harvest_trailer_commits": 0,
+                "violations": []
+            });
+        }),
+        Ok(())
+    );
+}

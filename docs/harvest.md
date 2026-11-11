@@ -159,5 +159,9 @@ manifest.
 - An MIT/BSD file that carries only an SPDX header, with no license file,
   gets no license text in `THIRD_PARTY_NOTICES`. Add it by hand to the
   destination if the upstream file did not include it.
-- `audit` is not yet part of release qualification. Wiring it into
-  `release-qualify` is open work (Mandate 74, section 10).
+- `release-qualify` runs `local-harvest audit` automatically before any build
+  or test gate, records `harvest_audit` in `releases/qualification/<tag>.json`,
+  and `push-policy` (`verify_tag`) requires a passing `harvest_audit` whenever
+  the qualified tree contains `.agents/harvest/*.json` manifests. That enforces
+  recorded manifests and `Harvest:` commit trailers, not legal review of
+  unrecorded ports.

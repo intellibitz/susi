@@ -552,6 +552,40 @@ pub fn verify_tag(root: &Path, tag: &str, new: &str) -> Result<(), String> {
         return Err(format!("record toolchain is not the pinned {channel}"));
     }
     verify_source(root, &record, parent)?;
+    let has_harvest_manifests = git_bytes(
+        root,
+        &[
+            "ls-tree",
+            "-r",
+            "--name-only",
+            parent,
+            "--",
+            ".agents/harvest",
+        ],
+    )
+    .map(|out| {
+        String::from_utf8_lossy(&out)
+            .lines()
+            .any(|p| p.ends_with(".json"))
+    })
+    .unwrap_or(false);
+    match record.get("harvest_audit") {
+        Some(audit) => {
+            if audit["ok"].as_bool() != Some(true) {
+                return Err("record `harvest_audit` did not pass (`ok: true` required)".into());
+            }
+            if !audit["violations"].as_array().is_some_and(Vec::is_empty) {
+                return Err("record `harvest_audit` recorded license/notice violations".into());
+            }
+        }
+        None if has_harvest_manifests => {
+            return Err(
+                "qualified tree carries `.agents/harvest/*.json` manifests but record has no `harvest_audit`"
+                    .into(),
+            );
+        }
+        None => {}
+    }
     if text(&record, "host")?.is_empty() {
         return Err("record names no host".into());
     }
