@@ -8,6 +8,7 @@ use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
 use crate::susi_core::plane_bus::gemi::CALLER_TOOL_CALLS;
 use crate::susi_core::provider::Provider;
 
+#[allow(clippy::type_complexity)]
 fn one_shot(response: &'static str) -> (String, Arc<Mutex<Vec<u8>>>, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();

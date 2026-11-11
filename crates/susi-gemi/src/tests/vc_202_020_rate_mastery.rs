@@ -103,8 +103,9 @@ fn model_rate_arbitration_production_cascade_admits() {
         .find("crate::key_arbitration::try_acquire")
         .expect("cascade admits through the arbiter");
     let generate = cascade
-        .find("provider.generate(prompt)")
-        .expect("cascade issues provider.generate");
+        .find("provider.generate_with_chat(prompt, chat)")
+        .or_else(|| cascade.find("provider.generate(prompt)"))
+        .expect("cascade issues a provider generation call");
     assert!(
         acquire < generate,
         "arbiter must admit before the request is issued"

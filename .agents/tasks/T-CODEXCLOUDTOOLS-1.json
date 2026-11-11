@@ -20,7 +20,9 @@
     "crates/susi-core/src/provider.rs",
     "crates/susi-gemi/src/engines/http_provider.rs",
     "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/engines/runtime_native.rs",
     "crates/susi-gemi/src/lib.rs",
+    "crates/susi-gemi/src/tests",
     "crates/susi-gemi/src/tests/cloud_tools.rs",
     "crates/susi-adapters-llm/src/inference_wire.rs",
     ".agents/tasks/T-CODEXCLOUDTOOLS-1.json"
@@ -29,7 +31,9 @@
     "crates/susi-core/src/provider.rs",
     "crates/susi-gemi/src/engines/http_provider.rs",
     "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/engines/runtime_native.rs",
     "crates/susi-gemi/src/lib.rs",
+    "crates/susi-gemi/src/tests",
     "crates/susi-gemi/src/tests/cloud_tools.rs",
     "crates/susi-adapters-llm/src/inference_wire.rs",
     ".agents/tasks/T-CODEXCLOUDTOOLS-1.json"

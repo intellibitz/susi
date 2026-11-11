@@ -58,6 +58,23 @@ pub fn openai_chat_body(model: &str, prompt: &str, max_tokens: u32) -> Value {
     val
 }
 
+/// Preserve a caller's chat body while applying the selected provider model
+/// and a safe default budget. Streaming is handled by GEMI, not this request.
+pub fn chat_request_body(model: &str, prompt: &str, chat: Option<&Value>) -> Value {
+    let mut body = chat
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| openai_chat_body(model, prompt, 2048));
+    if let Some(object) = body.as_object_mut() {
+        object.insert("model".into(), Value::String(model.into()));
+        if !object.contains_key("max_tokens") && !object.contains_key("max_completion_tokens") {
+            object.insert("max_tokens".into(), json!(2048));
+        }
+        object.remove("stream");
+    }
+    body
+}
+
 /// OpenAI legacy `/completions` body.
 pub fn openai_completions_body(model: &str, prompt: &str, max_tokens: u32) -> Value {
     json!({"model": model, "prompt": prompt, "max_tokens": max_tokens})
