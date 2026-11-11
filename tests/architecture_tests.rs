@@ -2152,7 +2152,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=74).collect::<Vec<_>>(),
+        (1..=75).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2169,6 +2169,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (72, "vanilla Windows x86_64 and vanilla Linux x86_64"),
         (73, "Three isolated laptops"),
         (74, "Dump to main, distill releases, harvest"),
+        (75, "Raw Source (main) -> Distill (release)"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -2283,6 +2284,50 @@ fn ceo_mandate_74_is_discoverable_and_keeps_release_and_license_safeguards() {
         assert!(
             doc.contains(phrase),
             "Mandate 74 lost requirement: {phrase}"
+        );
+    }
+}
+
+/// Mandate 75 (CEO 2026-11-12): Raw Source (`main`) -> Distill (`release`),
+/// cloud raw-source feature pickup across Core and Commercial Apps, and Pure
+/// `Apache-2.0`-only harvest compliance.
+#[test]
+fn ceo_mandate_75_is_discoverable_and_enforces_pure_apache2_harvest() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-mandate-74.md",
+        "docs/harvest.md",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-mandate-75.md") || text.contains("(ceo-mandate-75.md)"),
+            "{path}: Mandate 75 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-75.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "Raw Source (`main`) -> Distill (`release`)",
+        "local-harvest raw-features",
+        "local-harvest route",
+        "local-harvest pickup",
+        "ONLY `Apache-2.0` is\npermitted for pure compliance",
+        "Apache-2.0 WITH LLVM-exception",
+        "LICENSES/Apache-2.0.txt",
+        "Modified by",
+        "THIRD_PARTY_NOTICES",
+        "Origin-License: Apache-2.0",
+        "Implementation Truth",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 75 lost requirement: {phrase}"
         );
     }
 }

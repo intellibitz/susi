@@ -1,16 +1,19 @@
 # CEO mandate: independent agents, Susi integration and pristine releases
 
-Effective 2026-11-10 (harmonized 2026-11-11 with [CEO Mandate 74](ceo-mandate-74.md),
-which wins where older text differs). This is the operating mandate for every
-Susi agent, local or cloud, and the implementation contract for the Susi master
-brain. It consolidates the CEO's prior vision with the three-laptop plan.
-Mandate 73 in `.agents/identity.json` records it; `AGENTS.md` remains the
-engineering entry point. Existing mandates remain binding except the fixed
-remote push cadence, single-laptop publication restriction and mandatory
-main-push gates explicitly superseded below. The CEO's latest direction is: no
-mandatory gates for main, remote pull and merge reconciliation at every
-workflow step, a `<10s` warm core build+test+release budget, and full
-qualification on distilled release branches and release snapshots.
+Effective 2026-11-10 (harmonized 2026-11-11 with [CEO Mandate 74](ceo-mandate-74.md)
+and 2026-11-12 with [CEO Mandate 75](ceo-mandate-75.md), which win where older
+text differs). This is the operating mandate for every Susi agent, local or
+cloud, and the implementation contract for the Susi master brain. It
+consolidates the CEO's prior vision with the three-laptop plan. Mandate 73 in
+`.agents/identity.json` records it; `AGENTS.md` remains the engineering entry
+point. Existing mandates remain binding except the fixed remote push cadence,
+single-laptop publication restriction and mandatory main-push gates explicitly
+superseded below. The CEO's latest direction is: **Raw Source (`main`) ->
+Distill (`release`)** (no mandatory gates for `main`, remote pull and merge
+reconciliation at every workflow step, `<10s` warm core build+test+release
+budget, **Pure `Apache-2.0` ONLY** cloud raw-source feature pickup routed cleanly
+between the 5 lean Core pillars and Commercial Apps, and full qualification on
+distilled release lines and immutable release snapshots).
 Requirements are not evidence of completed implementation.
 
 ## 1. The CEO sets direction; agents deliver

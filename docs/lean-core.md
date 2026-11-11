@@ -1,19 +1,25 @@
 # Lean core: the program, the 5 pillars, and the <10s pipeline budget
 
-CEO directive, 2026-11-07 (expanded 2026-11-11 under [CEO Mandate 74](ceo-mandate-74.md)):
+CEO directive, 2026-11-07 (expanded 2026-11-11 under [CEO Mandate 74](ceo-mandate-74.md)
+and 2026-11-12 under [CEO Mandate 75](ceo-mandate-75.md)):
 Susi core (`intellibitz/susi`) is minimal, Apache-2.0 and free forever. **GAWD**
 (swarm & A2A coordination), **GEMI** (model inference router), **GMCP** (MCP
 protocol & tool plane), **ACP** (Agent Client Protocol / Agent Communication
 Protocol open standard socket), and **Susi Harness** (recursive driver & engine
 with built-in parallel multi-agent workflow) are the **five primary core
-pillars**. Core compiles, builds, tests, runs and releases with nothing but Rust,
-targeting a **under-10-second (`< 10.0s` / `total_ms < 10_000`) warm
+pillars**. Core compiles, builds, tests, runs and releases with nothing but Rust
+on the **Raw Source (`main`) -> Distill (`release`)** model, targeting an
+**under-10-second (`< 10.0s` / `total_ms < 10_000`) warm
 build + test + release pipeline budget** alongside the cold `<60s` compile
-budget. Every add-on feature, enterprise pack, SSO/RBAC, FinOps, fleet
-governance plane, and visual interface (all UIs and curated plugin packs live in
-Susi Commercial Apps) lives exclusively in `intellibitz/susi-commercial-apps`
-(closed-source, licensed, and paid corporate software) and is admitted over the
-standard protocol socket.
+budget. Cloud raw-source feature pickup (`local-harvest raw-features`, `route`,
+`pickup`, [`docs/harvest.md`](harvest.md)) accepts **Pure `Apache-2.0` ONLY** and
+admits into Core only lean, zero-UI, zero-vendor-product 5-pillar substrate
+capabilities (preferring pure-`Apache-2.0` raw-source pickup over adding new
+external crate dependencies). Every add-on feature, enterprise pack, SSO/RBAC,
+FinOps, fleet governance plane, and visual interface (all UIs and curated plugin
+packs live in Susi Commercial Apps) is routed exclusively to
+`intellibitz/susi-commercial-apps` (closed-source, licensed, and paid corporate
+software) and admitted over the standard protocol socket.
 
 This page is the shared plan for every agent on the program. Numbers come from
 `tests/lean_core_ceilings.rs`, which only lets them go down.
