@@ -1,0 +1,46 @@
+{
+  "id": "T-AGYFURY-1",
+  "feature_id": "F-HARNESS-GOVERNED-GIT-WORKFLOW-1",
+  "title": "Harness-governed pure-Git pending-branch auto-merge and verified release-candidate promotion",
+  "goal": "Complete the Susi-native Git-storage integration and release workflow governed by susi-harness and daemon.harness: automatic pending development-branch discovery and 3-way object-store reconciliation into unqualified development main (skipping retired branches, active dirty/claimed worktrees, secret files, and host-created web commits while isolating merge conflicts), strictly separated from distillation-receipt-verified release candidate promotion on local release/<name> and immutable refs/tags/susi-distill/<name> storage snapshots.",
+  "status": "in_progress",
+  "owner": "agy-fury",
+  "created_by": "AGYFURY",
+  "created_unix": 1794386910,
+  "size": "m",
+  "deps": [
+    "T-FURY-1",
+    "T-FURY-3",
+    "T-FURY-4",
+    "T-CODEXSTORAGEONLY-1"
+  ],
+  "base_commit": "789602ac2553cecbc86516efa319354d2f27e1ab",
+  "scopes": [
+    ".agents/tasks/T-AGYFURY-1.json",
+    ".agents/tasks/done/T-AGYFURY-1.json",
+    "crates/susi-daemon/src/harness_ops.rs",
+    "crates/susi-harness/src/adapter.rs",
+    "crates/susi-harness/src/bin/susi-harness.rs",
+    "crates/susi-harness/src/git_governor.rs",
+    "crates/susi-harness/src/lib.rs",
+    "crates/susi-harness/src/operator.rs",
+    "crates/susi-harness/src/tests/adapter.rs",
+    "crates/susi-harness/src/tests/git_governor.rs",
+    "crates/susi-harness/src/tests/workflow.rs",
+    "crates/susi-harness/src/workflow.rs",
+    "xtask/bootstrap/susi-dev.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "-p",
+      "susi-daemon",
+      "--lib"
+    ]
+  }
+}

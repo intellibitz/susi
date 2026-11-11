@@ -21,6 +21,10 @@ enum Action {
     Build(String),
     Workflow(Vec<String>),
     Release(Vec<String>),
+    Snapshot(Vec<String>),
+    Distill(Vec<String>),
+    Integrate(Vec<String>),
+    ReleasePromote(Vec<String>),
 }
 
 fn parse(args: &[String]) -> io::Result<Action> {
@@ -28,7 +32,11 @@ fn parse(args: &[String]) -> io::Result<Action> {
         [mode, profile] if mode == "build" && matches!(profile.as_str(), "debug" | "production") => Ok(Action::Build(profile.clone())),
         [mode, rest @ ..] if mode == "workflow" && !rest.is_empty() => Ok(Action::Workflow(rest.to_vec())),
         [mode, rest @ ..] if mode == "release" && !rest.is_empty() => Ok(Action::Release(rest.to_vec())),
-        _ => Err(io::Error::other("usage: susi-dev build debug|production | workflow <command> [args] | release <command> [args] | dev capacity [agents] | dev check|clippy|test <package> [--jobs N] [--wait-ms N]")),
+        [mode, rest @ ..] if mode == "snapshot" && !rest.is_empty() => Ok(Action::Snapshot(rest.to_vec())),
+        [mode, rest @ ..] if mode == "distill" && !rest.is_empty() => Ok(Action::Distill(rest.to_vec())),
+        [mode, rest @ ..] if matches!(mode.as_str(), "integrate" | "auto-merge") => Ok(Action::Integrate(rest.to_vec())),
+        [mode, rest @ ..] if matches!(mode.as_str(), "release-promote" | "promote-release") => Ok(Action::ReleasePromote(rest.to_vec())),
+        _ => Err(io::Error::other("usage: susi-dev build debug|production | workflow <command> [args] | release <command> [args] | snapshot <args> | distill <args> | integrate [args] | release-promote [args] | dev capacity [agents] | dev check|clippy|test <package> [--jobs N] [--wait-ms N]")),
     }
 }
 
@@ -125,6 +133,14 @@ fn parse_host(version: &str, windows: bool) -> io::Result<String> {
 fn configure(command: &mut Command, root: &Path, output: &Path, host: &str, action: &Action) {
     // Cargo 1.99 has independent target-dir and build-dir settings. Both must
     // be pinned before the outer `cargo run` compiles even the first xtask crate.
+    let pkg = match action {
+        Action::Integrate(_) | Action::ReleasePromote(_) => "susi-harness",
+        Action::Build(_)
+        | Action::Workflow(_)
+        | Action::Release(_)
+        | Action::Snapshot(_)
+        | Action::Distill(_) => "xtask",
+    };
     command
         .current_dir(root)
         .args([
@@ -132,7 +148,7 @@ fn configure(command: &mut Command, root: &Path, output: &Path, host: &str, acti
             "--offline",
             "--locked",
             "--package",
-            "xtask",
+            pkg,
             "--target",
             host,
             "--target-dir",
@@ -158,6 +174,22 @@ fn configure(command: &mut Command, root: &Path, output: &Path, host: &str, acti
                     "local-release",
                     "--",
                 ])
+                .args(args);
+        }
+        Action::Snapshot(args) => {
+            command.args(["--bin", "local-snapshot", "--"]).args(args);
+        }
+        Action::Distill(args) => {
+            command.args(["--bin", "local-distill", "--"]).args(args);
+        }
+        Action::Integrate(args) => {
+            command
+                .args(["--bin", "susi-harness", "--", "integrate"])
+                .args(args);
+        }
+        Action::ReleasePromote(args) => {
+            command
+                .args(["--bin", "susi-harness", "--", "release-promote"])
                 .args(args);
         }
     }
@@ -387,5 +419,41 @@ mod tests {
         );
         assert!(parse_host("rustc 1.85.0\nhost: \n", false).is_err());
         assert!(parse_host("rustc 1.85.0\n", false).is_err());
+    }
+
+    #[test]
+    fn routing_covers_snapshot_distill_integrate_and_release_promote() {
+        assert_eq!(
+            parse(&["snapshot".into(), "--dry-run".into()]).unwrap(),
+            Action::Snapshot(vec!["--dry-run".into()])
+        );
+        assert_eq!(
+            parse(&["distill".into(), "--name".into(), "rc1".into()]).unwrap(),
+            Action::Distill(vec!["--name".into(), "rc1".into()])
+        );
+        assert_eq!(
+            parse(&["integrate".into()]).unwrap(),
+            Action::Integrate(Vec::new())
+        );
+        assert_eq!(
+            parse(&["release-promote".into(), "--dry-run".into()]).unwrap(),
+            Action::ReleasePromote(vec!["--dry-run".into()])
+        );
+
+        let mut cmd = Command::new("cargo");
+        configure(
+            &mut cmd,
+            Path::new("repo"),
+            Path::new("private"),
+            "x86_64-unknown-linux-gnu",
+            &Action::Integrate(vec!["--include-local".into()]),
+        );
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.windows(2).any(|a| a == ["--package", "susi-harness"]));
+        assert!(args.windows(2).any(|a| a == ["--bin", "susi-harness"]));
+        assert_eq!(args.last().unwrap(), "--include-local");
     }
 }
