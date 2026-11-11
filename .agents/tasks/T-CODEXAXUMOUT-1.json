@@ -17,6 +17,7 @@
   ],
   "scopes": [
     ".agents/tasks/T-CODEXAXUMOUT-1.json",
+    ".agents/receipts/5edd7d8bf4c2c9b6f2d4dae804405c83870f5ba0.json",
     "Cargo.lock",
     "Cargo.toml",
     "crates/susi-http-transport",
