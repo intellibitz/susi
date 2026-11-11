@@ -479,7 +479,7 @@ fn lint_log(git: &Git<'_>, from: Option<&str>, to: &str) -> Result<Vec<Commit>> 
         "--topo-order",
         "--no-renames",
         "--name-only",
-        "--format=%x1e%H%x1f%s%x1f%(trailers:key=Task,valueonly,separator=%x1d)%x1f",
+        "--format=%x1e%H%x1f%s%x1f%(trailers:key=Task,key=Distilled-Task,valueonly,separator=%x1d)%x1f",
         &range,
         "--",
     ])?;

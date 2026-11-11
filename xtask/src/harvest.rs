@@ -951,6 +951,8 @@ impl Scan {
     }
 }
 
+const MAX_EVIDENCE_SYMLINK_HOPS: usize = 4;
+
 fn nearest_named(tree: &BTreeMap<String, TreeEntry>, file: &str, names: &[&str]) -> Vec<String> {
     for dir in ancestor_dirs(file) {
         let found = files_in_dir(tree, &dir, names);
@@ -965,8 +967,116 @@ fn files_in_dir(tree: &BTreeMap<String, TreeEntry>, dir: &str, names: &[&str]) -
     names
         .iter()
         .map(|name| join_rel(dir, name))
-        .filter(|p| tree.get(p).is_some_and(|e| e.kind == "blob"))
+        .filter(|p| tree.contains_key(p))
         .collect()
+}
+
+fn resolve_confined_symlink_path(
+    link_path: &str,
+    raw_target: &[u8],
+) -> std::result::Result<String, String> {
+    let Ok(target) = std::str::from_utf8(raw_target) else {
+        return Err(format!("symlink `{link_path}` has non-UTF-8 target"));
+    };
+    if target.is_empty() {
+        return Err(format!("symlink `{link_path}` has empty target"));
+    }
+    if target.chars().any(char::is_control) {
+        return Err(format!(
+            "symlink `{link_path}` target contains control characters"
+        ));
+    }
+    if target.starts_with('/') || target.contains('\\') || target.contains(':') {
+        return Err(format!(
+            "symlink `{link_path}` target `{target}` is absolute or non-portable"
+        ));
+    }
+    let mut stack: Vec<&str> = match link_path.rsplit_once('/') {
+        Some((parent, _)) if !parent.is_empty() => parent.split('/').collect(),
+        _ => Vec::new(),
+    };
+    for seg in target.split('/') {
+        match seg {
+            "" => {
+                return Err(format!(
+                    "symlink `{link_path}` target `{target}` contains an empty path segment"
+                ));
+            }
+            "." => {}
+            ".." => {
+                if stack.pop().is_none() {
+                    return Err(format!(
+                        "symlink `{link_path}` target `{target}` escapes repository root"
+                    ));
+                }
+            }
+            other => {
+                if other.eq_ignore_ascii_case(".git") {
+                    return Err(format!(
+                        "symlink `{link_path}` target `{target}` enters .git"
+                    ));
+                }
+                stack.push(other);
+            }
+        }
+    }
+    if stack.is_empty() {
+        return Err(format!(
+            "symlink `{link_path}` target `{target}` resolves to repository root directory"
+        ));
+    }
+    Ok(stack.join("/"))
+}
+
+fn resolve_tree_regular_blob(
+    git: &Git,
+    tree: &BTreeMap<String, TreeEntry>,
+    start_path: &str,
+    sym_blobs: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<std::result::Result<(String, String), String>> {
+    let mut current = start_path.to_owned();
+    for hop in 0..=MAX_EVIDENCE_SYMLINK_HOPS {
+        let Some(entry) = tree.get(&current) else {
+            return Ok(Err(format!(
+                "symlink `{start_path}` target `{current}` does not exist in quarantined commit tree"
+            )));
+        };
+        if entry.kind == "blob" && matches!(entry.mode.as_str(), "100644" | "100755") {
+            return Ok(Ok((current, entry.oid.clone())));
+        }
+        if entry.kind == "blob" && entry.mode == "120000" {
+            if hop == MAX_EVIDENCE_SYMLINK_HOPS {
+                return Ok(Err(format!(
+                    "symlink `{start_path}` exceeds maximum hop limit ({MAX_EVIDENCE_SYMLINK_HOPS})"
+                )));
+            }
+            if !sym_blobs.contains_key(&entry.oid) {
+                let single = BTreeSet::from([entry.oid.clone()]);
+                let mut fetched = read_blobs(git, &single)?;
+                if let Some(bytes) = fetched.remove(&entry.oid) {
+                    sym_blobs.insert(entry.oid.clone(), bytes);
+                }
+            }
+            let Some(raw_target) = sym_blobs.get(&entry.oid) else {
+                return Ok(Err(format!(
+                    "cannot read symlink blob {} for `{current}`",
+                    entry.oid
+                )));
+            };
+            match resolve_confined_symlink_path(&current, raw_target) {
+                Ok(next_path) => current = next_path,
+                Err(err) => return Ok(Err(err)),
+            }
+            continue;
+        }
+        return Ok(Err(format!(
+            "entry `{current}` (mode {}, kind {}) is not a regular file blob",
+            entry.mode, entry.kind
+        )));
+    }
+    Ok(Err(format!(
+        "symlink `{start_path}` exceeds maximum hop limit ({MAX_EVIDENCE_SYMLINK_HOPS})"
+    )))
 }
 
 fn select_files(tree: &BTreeMap<String, TreeEntry>, path: &str) -> Result<Vec<String>> {
@@ -993,6 +1103,7 @@ fn select_files(tree: &BTreeMap<String, TreeEntry>, path: &str) -> Result<Vec<St
 
 fn license_file_expression(
     files: &[String],
+    aliases: &[(String, String)],
     evidence: &BTreeMap<String, Evidence>,
 ) -> std::result::Result<String, String> {
     if files.is_empty() {
@@ -1007,10 +1118,17 @@ fn license_file_expression(
             None => return Err(format!("unrecognized or disallowed license text in {file}")),
         }
     }
-    let names: BTreeSet<&str> = files
-        .iter()
-        .map(|f| f.rsplit('/').next().unwrap_or(f))
-        .collect();
+    let names: BTreeSet<&str> = if aliases.is_empty() {
+        files
+            .iter()
+            .map(|f| f.rsplit('/').next().unwrap_or(f))
+            .collect()
+    } else {
+        aliases
+            .iter()
+            .map(|(orig, _)| orig.rsplit('/').next().unwrap_or(orig))
+            .collect()
+    };
     let all_apache_or_mit_named = names.len() >= 2
         && names
             .iter()
@@ -1034,6 +1152,14 @@ fn license_file_expression(
     }
 }
 
+struct FilePlan {
+    path: String,
+    license_files: Vec<String>,
+    license_aliases: Vec<(String, String)>,
+    notice_files: Vec<String>,
+    symlink_errors: Vec<String>,
+}
+
 fn scan(git: &Git, commit: &str, reference: &str, paths: &[String]) -> Result<Scan> {
     let tree = list_tree(git, commit)?;
     let mut selected = BTreeSet::new();
@@ -1043,31 +1169,59 @@ fn scan(git: &Git, commit: &str, reference: &str, paths: &[String]) -> Result<Sc
     let root_notices = files_in_dir(&tree, "", &NOTICE_NAMES);
     let mut plans = Vec::new();
     let mut evidence: BTreeMap<String, Evidence> = BTreeMap::new();
+    let mut sym_blobs: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for path in &selected {
-        let license_files = nearest_named(&tree, path, &LICENSE_NAMES);
-        let mut notice_files: BTreeSet<String> = nearest_named(&tree, path, &NOTICE_NAMES)
+        let raw_licenses = nearest_named(&tree, path, &LICENSE_NAMES);
+        let mut raw_notices: BTreeSet<String> = nearest_named(&tree, path, &NOTICE_NAMES)
             .into_iter()
             .collect();
-        notice_files.extend(root_notices.iter().cloned());
-        for (file, kind) in license_files
-            .iter()
-            .map(|f| (f, "license"))
-            .chain(notice_files.iter().map(|f| (f, "notice")))
-        {
-            if let Some(entry) = tree.get(file) {
-                evidence.entry(file.clone()).or_insert(Evidence {
-                    path: file.clone(),
-                    oid: entry.oid.clone(),
-                    kind,
-                    spdx: None,
-                });
+        raw_notices.extend(root_notices.iter().cloned());
+
+        let mut license_files = Vec::new();
+        let mut seen_licenses = BTreeSet::new();
+        let mut license_aliases = Vec::new();
+        let mut symlink_errors = Vec::new();
+        for orig in raw_licenses {
+            match resolve_tree_regular_blob(git, &tree, &orig, &mut sym_blobs)? {
+                Ok((resolved_path, resolved_oid)) => {
+                    evidence.entry(resolved_path.clone()).or_insert(Evidence {
+                        path: resolved_path.clone(),
+                        oid: resolved_oid,
+                        kind: "license",
+                        spdx: None,
+                    });
+                    license_aliases.push((orig, resolved_path.clone()));
+                    if seen_licenses.insert(resolved_path.clone()) {
+                        license_files.push(resolved_path);
+                    }
+                }
+                Err(err) => symlink_errors.push(format!("invalid license entry {orig}: {err}")),
             }
         }
-        plans.push((
-            path.clone(),
+
+        let mut notice_files = BTreeSet::new();
+        for orig in raw_notices {
+            match resolve_tree_regular_blob(git, &tree, &orig, &mut sym_blobs)? {
+                Ok((resolved_path, resolved_oid)) => {
+                    evidence.entry(resolved_path.clone()).or_insert(Evidence {
+                        path: resolved_path.clone(),
+                        oid: resolved_oid,
+                        kind: "notice",
+                        spdx: None,
+                    });
+                    notice_files.insert(resolved_path);
+                }
+                Err(err) => symlink_errors.push(format!("invalid notice entry {orig}: {err}")),
+            }
+        }
+
+        plans.push(FilePlan {
+            path: path.clone(),
             license_files,
-            notice_files.into_iter().collect(),
-        ));
+            license_aliases,
+            notice_files: notice_files.into_iter().collect(),
+            symlink_errors,
+        });
     }
     let mut oids: BTreeSet<String> = evidence.values().map(|e| e.oid.clone()).collect();
     for path in &selected {
@@ -1085,14 +1239,7 @@ fn scan(git: &Git, commit: &str, reference: &str, paths: &[String]) -> Result<Sc
     }
     let files = plans
         .into_iter()
-        .map(|(path, license_files, notice_files)| {
-            judge_file(
-                &tree,
-                &blobs,
-                &evidence,
-                (path, license_files, notice_files),
-            )
-        })
+        .map(|plan| judge_file(&tree, &blobs, &evidence, plan))
         .collect();
     Ok(Scan {
         commit: commit.to_owned(),
@@ -1107,10 +1254,10 @@ fn judge_file(
     tree: &BTreeMap<String, TreeEntry>,
     blobs: &BTreeMap<String, Vec<u8>>,
     evidence: &BTreeMap<String, Evidence>,
-    (path, license_files, notice_files): (String, Vec<String>, Vec<String>),
+    plan: FilePlan,
 ) -> FileScan {
     let mut reasons = Vec::new();
-    let entry = tree.get(&path).cloned().unwrap_or(TreeEntry {
+    let entry = tree.get(&plan.path).cloned().unwrap_or(TreeEntry {
         mode: String::new(),
         kind: String::new(),
         oid: String::new(),
@@ -1120,12 +1267,28 @@ fn judge_file(
     } else if entry.mode == "120000" {
         reasons.push("symbolic link cannot be harvested".to_owned());
     }
+    reasons.extend(plan.symlink_errors.iter().cloned());
     let text = blobs.get(&entry.oid).map(|b| lossy(b)).unwrap_or_default();
+    let basis_display: String = plan
+        .license_aliases
+        .iter()
+        .map(|(orig, res)| {
+            if orig == res {
+                orig.clone()
+            } else {
+                format!("{orig} -> {res}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     let (expression, basis) = match spdx_header(&text) {
         Some(expr) => (Ok(expr), "SPDX header".to_owned()),
+        None if !plan.symlink_errors.is_empty() && plan.license_files.is_empty() => {
+            (Err(String::new()), basis_display)
+        }
         None => (
-            license_file_expression(&license_files, evidence),
-            license_files.join(", "),
+            license_file_expression(&plan.license_files, &plan.license_aliases, evidence),
+            basis_display,
         ),
     };
     let (expression, license) = match expression {
@@ -1137,7 +1300,9 @@ fn judge_file(
             }
         },
         Err(reason) => {
-            reasons.push(reason);
+            if !reason.is_empty() {
+                reasons.push(reason);
+            }
             ("NONE".to_owned(), None)
         }
     };
@@ -1146,7 +1311,7 @@ fn judge_file(
     }
     FileScan {
         copyright: copyright_lines(&text),
-        path,
+        path: plan.path,
         oid: entry.oid,
         license,
         expression,
@@ -1155,8 +1320,8 @@ fn judge_file(
         } else {
             basis
         },
-        license_files,
-        notice_files,
+        license_files: plan.license_files,
+        notice_files: plan.notice_files,
         reasons,
     }
 }
