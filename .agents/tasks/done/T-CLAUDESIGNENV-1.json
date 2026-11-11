@@ -2,7 +2,7 @@
   "id": "T-CLAUDESIGNENV-1",
   "title": "Host-signed delegation envelopes: issue, admit, replay ledger and revocation",
   "goal": "Make the recursion adapter's cross-process envelope unforgeable: only a DelegationAuthority keyed from the host's shared MAC key issues or admits susi-delegation/v1 envelopes (HMAC-SHA256, random id, absolute expiry <= 1 h); tampered, unsigned, expired or foreign-host envelopes are refused; replays in one process continue one level (shared budget and fan-out); revocation cancels a level and its descendants; os_capabilities and the CLI gain a delegate action that issues envelopes under the same bounds.",
-  "status": "implemented",
+  "status": "done",
   "owner": "claude",
   "created_by": "claude",
   "created_unix": 1794362062,
@@ -23,6 +23,7 @@
     "src/cli/os_cli.rs",
     "docs/recursive-delegation.md",
     ".agents/gmcp/evidence",
+    ".agents/tasks/done/T-CLAUDESIGNENV-1.json",
     ".agents/tasks/T-CLAUDESIGNENV-1.json"
   ],
   "capabilities": [
@@ -81,5 +82,14 @@
     "Envelopes do not cross hosts (another host's key refuses them); a cluster-key variant is future work.",
     "Only capability dispatch opens scopes; harness missions, GEMI worker delegation and GAWD swarm hand-offs are not wired yet.",
     "Not run on native Windows x86_64 in this session."
-  ]
+  ],
+  "landed": {
+    "main_commit": "7c896d79870792044ded2c8e52609c8638e8de9f",
+    "route": "cargo run -p xtask --bin local-snapshot -- submit claude-signenv-20261111 (fast-forward)"
+  },
+  "closed": {
+    "at_unix": 1794362207,
+    "commit": "1f2d35e9ca81a912b577f8c1815781e48a859d61",
+    "by": "CLAUDESIGNENV"
+  }
 }
