@@ -331,6 +331,7 @@ impl GemiEngine {
         chat_request: Option<serde_json::Value>,
     ) -> String {
         let _model_reads = crate::models::ModelReadWindow::enter();
+        let provider_chat = chat_request.as_ref();
         if allow_reflex && chat_request.is_none() {
             let (reflex_decision, _) = super::reflex::ReflexEngine::try_solve(prompt, workspace);
             if let super::reflex::ReflexDecision::Solved(action) = reflex_decision {
@@ -437,10 +438,11 @@ impl GemiEngine {
                     "[SUSI ROUTING] Escalating to cloud `{}` ({})\n",
                     esc.provider, esc.reason
                 ));
-                let (escalated, mut esc_ladder) = Self::try_discovered_providers(
+                let (escalated, mut esc_ladder) = Self::try_discovered_providers_with_chat(
                     prompt,
                     Some(workspace),
                     Some(&esc.provider),
+                    provider_chat,
                     callback,
                     meta,
                 );
@@ -463,7 +465,14 @@ impl GemiEngine {
         let (provider_answer, mut ladder) = if prefer_fast_local {
             (None, crate::engines::routing::RoutingLadder::new(class))
         } else {
-            Self::try_discovered_providers(prompt, Some(workspace), requested_model, callback, meta)
+            Self::try_discovered_providers_with_chat(
+                prompt,
+                Some(workspace),
+                requested_model,
+                provider_chat,
+                callback,
+                meta,
+            )
         };
         if let Some(text) = provider_answer {
             if ladder.step_downs() > 0 {
@@ -619,7 +628,7 @@ impl GemiEngine {
                     &filtered_callback,
                     selected_model.as_deref(),
                 )
-                .with_chat(chat),
+                .with_chat(chat.clone()),
             )
         };
         let tail = stream_filter.borrow_mut().finish();
@@ -696,10 +705,11 @@ impl GemiEngine {
             crate::engines::http_provider::register_configured_cloud_endpoints(
                 crate::susi_core::registry::CapabilityRegistry::global(),
             );
-            let (answer, provider_ladder) = Self::try_discovered_providers(
+            let (answer, provider_ladder) = Self::try_discovered_providers_with_chat(
                 prompt,
                 Some(workspace),
                 requested_model,
+                chat.as_ref(),
                 callback,
                 meta,
             );
@@ -841,6 +851,24 @@ impl GemiEngine {
         callback: &dyn Fn(String),
         meta: &dyn Fn(&str),
     ) -> (Option<String>, crate::engines::routing::RoutingLadder) {
+        Self::try_discovered_providers_with_chat(
+            prompt,
+            workspace,
+            requested_model,
+            None,
+            callback,
+            meta,
+        )
+    }
+
+    fn try_discovered_providers_with_chat(
+        prompt: &str,
+        workspace: Option<&Path>,
+        requested_model: Option<&str>,
+        chat: Option<&serde_json::Value>,
+        callback: &dyn Fn(String),
+        meta: &dyn Fn(&str),
+    ) -> (Option<String>, crate::engines::routing::RoutingLadder) {
         // Mock-inference seam: under test the env opts out of *all* real
         // provider calls — discovered HTTP endpoints included — not just the
         // native engine path (runtime_native honors the same flag).
@@ -853,8 +881,15 @@ impl GemiEngine {
             );
         }
         let registry = crate::susi_core::registry::CapabilityRegistry::global();
-        let (answer, mut ladder) =
-            Self::try_providers(registry, prompt, workspace, requested_model, callback, meta);
+        let (answer, mut ladder) = Self::try_providers_with_chat(
+            registry,
+            prompt,
+            workspace,
+            requested_model,
+            chat,
+            callback,
+            meta,
+        );
         if answer.is_some() {
             return (answer, ladder);
         }
@@ -864,11 +899,12 @@ impl GemiEngine {
         // it, admits its models and routes once more.
         match Self::start_local_engine_for_request(registry) {
             Ok(true) => {
-                let (answer, retry) = Self::try_providers(
+                let (answer, retry) = Self::try_providers_with_chat(
                     registry,
                     prompt,
                     workspace,
                     requested_model,
+                    chat,
                     callback,
                     meta,
                 );
@@ -1037,6 +1073,27 @@ impl GemiEngine {
         prompt: &str,
         workspace: Option<&Path>,
         requested_model: Option<&str>,
+        callback: &dyn Fn(String),
+        meta: &dyn Fn(&str),
+    ) -> (Option<String>, crate::engines::routing::RoutingLadder) {
+        Self::try_providers_with_chat(
+            registry,
+            prompt,
+            workspace,
+            requested_model,
+            None,
+            callback,
+            meta,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn try_providers_with_chat(
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+        prompt: &str,
+        workspace: Option<&Path>,
+        requested_model: Option<&str>,
+        chat: Option<&serde_json::Value>,
         callback: &dyn Fn(String),
         meta: &dyn Fn(&str),
     ) -> (Option<String>, crate::engines::routing::RoutingLadder) {
@@ -1214,7 +1271,7 @@ impl GemiEngine {
             // Adapters flatten failures into `Ok("... Error: ...")`; counting that
             // as an answer would teach the brain to prefer a broken provider
             // and would hand the caller the error text as the reply.
-            let outcome = match runtime.block_on(provider.generate(prompt)) {
+            let outcome = match runtime.block_on(provider.generate_with_chat(prompt, chat)) {
                 Ok(text) if Self::looks_like_error_text(&text) => {
                     Err(crate::susi_core::susi_error::EaiError::process(text))
                 }

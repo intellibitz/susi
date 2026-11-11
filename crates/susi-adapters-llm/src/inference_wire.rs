@@ -225,6 +225,41 @@ pub fn openai_chat_text(json: &Value) -> Result<String, String> {
     non_empty(message["content"].as_str(), "choices[0].message.content")
 }
 
+/// Extract caller tool calls from an OpenAI-compatible chat reply into the
+/// small neutral shape used by GEMI's caller envelope. `None` means ordinary
+/// text and leaves the existing extractor in charge.
+pub fn openai_chat_tool_reply(json: &Value) -> Result<Option<Value>, String> {
+    error_envelope(json)?;
+    let message = &json["choices"][0]["message"];
+    let Some(calls) = message.get("tool_calls").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    let normalized: Vec<Value> = calls
+        .iter()
+        .filter_map(|call| {
+            let function = call.get("function").unwrap_or(call);
+            let name = function.get("name").and_then(Value::as_str)?;
+            if name.is_empty() {
+                return None;
+            }
+            let arguments = match function.get("arguments") {
+                Some(Value::String(raw)) => serde_json::from_str(raw).unwrap_or_else(|_| json!({})),
+                Some(value) if !value.is_null() => value.clone(),
+                _ => json!({}),
+            };
+            Some(json!({"name": name, "arguments": arguments}))
+        })
+        .collect();
+    Ok(if normalized.is_empty() {
+        None
+    } else {
+        Some(json!({
+            "content": message.get("content").cloned().unwrap_or(Value::Null),
+            "tool_calls": normalized
+        }))
+    })
+}
+
 /// Reply of a legacy `/completions` response.
 pub fn openai_completions_text(json: &Value) -> Result<String, String> {
     error_envelope(json)?;

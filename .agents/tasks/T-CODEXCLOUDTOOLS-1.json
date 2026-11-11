@@ -1,0 +1,55 @@
+{
+  "id": "T-CODEXCLOUDTOOLS-1",
+  "title": "Preserve structured caller conversations and tools on cloud provider routes",
+  "feature": "F-CORE-CLOUD-TOOLS-1",
+  "goal": "Carry the normalized caller chat payload through GEMI's discovered-provider route and translate OpenAI-compatible and Anthropic tool calls back to the existing caller envelope without executing them in Core.",
+  "state": "claimed",
+  "status": "claimed",
+  "claimed_by": "codex-cloud-tools",
+  "native_worker": "codex-cloud-tools",
+  "created_by": "CODEXCLOUDTOOLS",
+  "created_unix": 1794432550,
+  "size": "M",
+  "base_commit": "983f0100c461ba00365e340a5bd43a6160bacf5a",
+  "deps": [
+    "T-CODEXHISTORY-1",
+    "T-CLAUDEGEMIFIX-2",
+    "T-CODEXTOOLSCHEMA-1"
+  ],
+  "scopes": [
+    "crates/susi-core/src/provider.rs",
+    "crates/susi-gemi/src/engines/http_provider.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/lib.rs",
+    "crates/susi-gemi/src/tests/cloud_tools.rs",
+    "crates/susi-adapters-llm/src/inference_wire.rs",
+    ".agents/tasks/T-CODEXCLOUDTOOLS-1.json"
+  ],
+  "scope": [
+    "crates/susi-core/src/provider.rs",
+    "crates/susi-gemi/src/engines/http_provider.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/lib.rs",
+    "crates/susi-gemi/src/tests/cloud_tools.rs",
+    "crates/susi-adapters-llm/src/inference_wire.rs",
+    ".agents/tasks/T-CODEXCLOUDTOOLS-1.json"
+  ],
+  "acceptance": "cargo test --offline --locked -p susi-gemi --lib cloud_provider_tool_contract",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "cloud_provider_tool_contract"
+    ]
+  },
+  "results": {},
+  "limitations": [
+    "OpenAI-compatible chat and Anthropic Messages are translated; legacy completions, Gemini and Triton remain prompt-only until their native tool contracts are separately verified.",
+    "Cloud credentials and live provider calls are not used by the tests; exact native-host qualification remains a separate release concern."
+  ]
+}

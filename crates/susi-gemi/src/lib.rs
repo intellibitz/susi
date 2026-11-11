@@ -88,6 +88,9 @@ mod capability_floor_tests;
 #[path = "tests/capability_matrix_by_class.rs"]
 mod capability_matrix_by_class_tests;
 #[cfg(test)]
+#[path = "tests/cloud_tools.rs"]
+mod cloud_tools_tests;
+#[cfg(test)]
 #[path = "tests/delegated_verification_by_risk.rs"]
 mod delegated_verification_by_risk_tests;
 #[cfg(test)]
