@@ -24,7 +24,8 @@
     "docs/recursive-delegation.md",
     ".agents/gmcp/evidence",
     ".agents/tasks/done/T-CLAUDESIGNENV-1.json",
-    ".agents/tasks/T-CLAUDESIGNENV-1.json"
+    ".agents/tasks/T-CLAUDESIGNENV-1.json",
+    "tests/fixtures/cli_help_snapshot.txt"
   ],
   "capabilities": [
     "susi_core::delegation::DelegationAuthority (host, from_secret, issue, admit, revoke)",
@@ -54,7 +55,8 @@
     "cargo clippy --offline --locked -p susi --bin susi -p susi-core -p susi-gmcp -p susi-cli-defs --all-targets -- -D warnings",
     "cargo test --offline --locked -p susi --test socket_parity --test lean_core_ceilings --test architecture_tests --test capability_bus --test task_records --test gmcp_requirements",
     "cargo fmt --all --check",
-    "susi binary smoke: delegate/nested delegate/invoke/tampered/foreign-home across separate processes"
+    "susi binary smoke: delegate/nested delegate/invoke/tampered/foreign-home across separate processes",
+    "cargo test --offline --locked -p susi --lib --bins"
   ],
   "host": "Claude Code cloud session, Linux x86_64, 4 vCPU, 15 GiB RAM, Rust 1.99.0 (pinned), Git 2.43.0",
   "results": {
@@ -91,5 +93,10 @@
     "at_unix": 1794362207,
     "commit": "1f2d35e9ca81a912b577f8c1815781e48a859d61",
     "by": "CLAUDESIGNENV"
+  },
+  "regression": {
+    "what": "T-CLAUDERECURSE-1 (--delegation on invoke) and T-CLAUDESIGNENV-1 (delegate action) changed `susi os capabilities` help without updating tests/fixtures/cli_help_snapshot.txt, so root unit test cli::defs::tests::cli_help_and_version_match_snapshot failed on main from c1462b524 until this fix.",
+    "why_missed": "The root package's own unit tests (cargo test -p susi --lib --bins) were not in either task's acceptance list.",
+    "fix": "Snapshot regenerated; diff is exactly the 18 added help lines for --delegation and delegate. cargo test --offline --locked -p susi --lib --bins: 9 + 129 passed (3.4 s)."
   }
 }
