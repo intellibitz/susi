@@ -181,8 +181,12 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// move the unchanged providers.rs inline unit suite (1,206 lines) to
 /// src/tests/providers.rs, the crate's convention. Test organization, not
 /// removed runtime capability.
+/// 2026-11-11: susi-gawd 12,653 -> 12,523 (T-CLAUDEREL56-2, measured): the
+/// unchanged evolution.rs inline unit suite moved to src/tests/evolution.rs
+/// with T-CLAUDEREL56-1's env-lock fix. Test organization, not removed
+/// runtime capability.
 const LINE_CEILINGS: [(&str, usize); 8] = [
-    ("susi-gawd", 12_653),
+    ("susi-gawd", 12_523),
     ("susi-gawd-swarm", 20_116),
     ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_619),

@@ -960,5 +960,10 @@ config, core and the tail.
   `susi-harness/src/providers.rs`'s unchanged 1,206-line inline unit suite to
   `src/tests/providers.rs` (`susi-harness` `LINE_CEILINGS` 37,604 -> 37,439
   after `T-AGYFURY-1`'s `git_governor.rs` landed alongside `T-AGYWIN-1`).
+- 2026-11-11 (T-CLAUDEREL56-2, Linux x86_64): `susi-gawd` `LINE_CEILINGS`
+  12,653 -> 12,523 (measured). `evolution.rs`'s inline unit suite moved
+  unchanged to `src/tests/evolution.rs` with T-CLAUDEREL56-1, whose env-lock
+  fix for the two audit-asserting tests would otherwise have added shipped
+  lines. Test organization, not removed runtime capability.
 
 
