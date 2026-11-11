@@ -1,0 +1,79 @@
+{
+  "id": "T-CODEXSPEED62-1",
+  "feature_id": "F-CORE-FAST-RELEASE-EVIDENCE-0.21.62-1",
+  "title": "Record current core v0.21.62 cold and warm fast-release evidence",
+  "goal": "Measure the current development main's native fast-release pipeline separately for cold and warm cache states, with exact commit, tree, lockfile and artifact provenance.",
+  "status": "completed",
+  "scopes": [
+    ".agents/tasks/T-CODEXSPEED62-1.json"
+  ],
+  "size": "xs",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "fast-release",
+      "--label",
+      "codex-current-main-health-warm"
+    ]
+  },
+  "created_by": "CODEXSPEED62",
+  "native_worker": "codex-speed62",
+  "created_unix": 1794421426,
+  "base": "1165bbae87d1e7ba4c23d54013475d0046cf91c8",
+  "host": "x86_64-unknown-linux-gnu",
+  "toolchain": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "results": {
+    "commit": "1165bbae87d1e7ba4c23d54013475d0046cf91c8",
+    "tree": "59f36c7864e96ae544da04df33f13330361fab26",
+    "cargo_lock_sha256": "d93474ab248a56098ed15df9753b43c757caa2c19b8b5db686bf2085a3374d89",
+    "cold": {
+      "label": "codex-current-main-health",
+      "build_ms": 36133,
+      "test_ms": 12508,
+      "release_ms": 156,
+      "total_ms": 48808,
+      "cache_state": "cold",
+      "tests_passed": 1974,
+      "tests_failed": 0,
+      "tests_ignored": 3,
+      "budget_enforced": false
+    },
+    "warm": {
+      "label": "codex-current-main-health-warm",
+      "build_ms": 165,
+      "test_ms": 2159,
+      "release_ms": 109,
+      "total_ms": 2449,
+      "cache_state": "warm",
+      "tests_passed": 1974,
+      "tests_failed": 0,
+      "tests_ignored": 3,
+      "budget_ms": 10000,
+      "budget_enforced": true,
+      "within_budget": true
+    },
+    "artifacts": [
+      {
+        "name": "susi",
+        "version": "0.21.62",
+        "bytes": 89532976,
+        "sha256": "aec8a409555efbe48f1f5d7d6115ae44c8e38448636ed6b17f670c14afc3f292"
+      },
+      {
+        "name": "susi-harness",
+        "version": "0.21.62",
+        "bytes": 8635424,
+        "sha256": "57467d7ee52c62b654958ae933c3d7f791e3a0ebf8915ba74b8a1731e3c29f0b"
+      }
+    ],
+    "verified_binaries": 6,
+    "pillars": ["susi-core", "susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness"],
+    "skipped_soak_tests": 5,
+    "evidence": "target/fast-release/timings.jsonl and target/fast-release/distilled/timing-evidence.json"
+  },
+  "limitations": [
+    "The cold run is intentionally above the warm 10-second inner-loop budget; it is reported separately and was not budget-enforced.",
+    "Five fixed-duration soak tests remain excluded by the fast-release default and are listed in the tool report; Windows x86_64 timing remains host-specific."
+  ]
+}
