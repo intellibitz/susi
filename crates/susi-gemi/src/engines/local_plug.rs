@@ -314,7 +314,7 @@ pub(crate) fn infer_payload(
 ) -> Value {
     let mut payload =
         json!({ "prompt": prompt, "selected_model": selected_model, "model_path": model_path });
-    for key in ["messages", "tools"] {
+    for key in ["messages", "tools", "max_tokens"] {
         if let Some(value) = chat.get(key) {
             payload[key] = value.clone();
         }

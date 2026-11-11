@@ -566,6 +566,13 @@ impl GemiEngine {
                 .then(|| crate::local_tool_calls::chat_request(prompt))
                 .flatten()
         });
+        // Tools the caller supplied are the caller's to run: their calls go
+        // back to it instead of through core's tool executor.
+        let caller_tools = chat
+            .as_ref()
+            .and_then(|c| c.get("tools"))
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|t| !t.is_empty());
         let prompt = if needs_tools {
             engine_prompt = crate::local_tool_calls::prompt_with_tool_schemas(prompt);
             engine_prompt.as_str()
@@ -656,6 +663,9 @@ impl GemiEngine {
                 // policy-gated executor every tool request uses and append
                 // their results, so the markup becomes an answer instead of
                 // leaking raw into it.
+                if caller_tools {
+                    return crate::local_tool_calls::caller_tool_reply(res);
+                }
                 let text = Self::fulfill_emitted_tool_calls(res, workspace, callback);
                 return match Self::verify_axiomatic_alignment(&text, workspace) {
                     Ok(v) => v,
