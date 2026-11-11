@@ -554,3 +554,50 @@ fn a_release_tag_must_point_at_the_record_commit_and_never_moves() {
         .unwrap_err()
         .contains("immutable"));
 }
+
+#[test]
+fn retired_local_agent_branches_require_distill_or_candidate_preservation_and_main_never_deletes() {
+    let r = Repo::new();
+    let base = r.git(&["rev-parse", "HEAD"]);
+    let agent_tip = r.commit("agent work");
+
+    // Without preservation under refs/tags/susi-distill/* or refs/candidates/*,
+    // deleting a local-agent/* branch is refused.
+    let err = r
+        .check(&format!(
+            "(delete) {ZERO} refs/heads/local-agent/retirebr {agent_tip}"
+        ))
+        .unwrap_err();
+    assert!(err.contains("branch deletion prohibited"), "{err}");
+
+    // Atomic co-push of immutable snapshot tag + local-agent/* deletion succeeds.
+    assert_eq!(
+        r.check(&format!(
+            "HEAD {agent_tip} refs/tags/susi-distill/legacy-local-agent-retirebr {ZERO}\n(delete) {ZERO} refs/heads/local-agent/retirebr {agent_tip}"
+        )),
+        Ok(())
+    );
+
+    // Once preserved locally under refs/tags/susi-distill/*, standalone retirement succeeds.
+    r.git(&[
+        "update-ref",
+        "refs/tags/susi-distill/legacy-local-agent-retirebr",
+        &agent_tip,
+    ]);
+    assert_eq!(
+        r.check(&format!(
+            "(delete) {ZERO} refs/heads/local-agent/retirebr {agent_tip}"
+        )),
+        Ok(())
+    );
+
+    // Deleting refs/heads/main remains unconditionally prohibited even when preserved.
+    r.git(&["update-ref", "refs/tags/susi-distill/legacy-main", &base]);
+    let main_err = r
+        .check(&format!("(delete) {ZERO} refs/heads/main {base}"))
+        .unwrap_err();
+    assert!(
+        main_err.contains("branch deletion prohibited"),
+        "{main_err}"
+    );
+}

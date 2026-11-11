@@ -25,6 +25,8 @@ pub const AUTO_MERGE_RECEIPT_SCHEMA: &str = "susi-auto-merge-receipt-v1";
 pub const SUBMIT_MAIN_RECEIPT_SCHEMA: &str = "susi-main-submission-receipt-v1";
 /// Receipt schema for release-stream audits and verified candidate promotions.
 pub const RELEASE_PROMOTION_RECEIPT_SCHEMA: &str = "susi-release-promotion-receipt-v1";
+/// Receipt schema for Susi-governed remote branch clutter preservation and retirement.
+pub const RETIRE_BRANCHES_RECEIPT_SCHEMA: &str = "susi-branch-retirement-receipt-v1";
 
 const DISTILL_RECEIPT_SCHEMA: &str = "susi-distillation-receipt-v1";
 const HOST_COMMITTER_CONFIG_KEY: &str = "susi.hostCommitter";
@@ -284,6 +286,91 @@ pub struct ReleasePromotionReceipt {
     pub production_tag_blockers: Vec<String>,
     /// Audited `release/*` branches in deterministic order.
     pub candidates: Vec<ReleaseCandidateAudit>,
+    /// Canonical SHA-256 digest.
+    pub receipt_sha256: String,
+}
+
+/// Options governing Susi-managed remote branch clutter preservation and retirement.
+#[derive(Debug, Clone, Default)]
+pub struct RetireBranchesConfig {
+    /// Repository or linked worktree path.
+    pub repo: PathBuf,
+    /// Storage remote (default: `"origin"`).
+    pub remote: String,
+    /// Fetch remote refs before auditing.
+    pub fetch_remote: bool,
+    /// Also retire `refs/heads/local-agent/<name>` branches whose tips are already in `main` or marked `RETIRE`.
+    pub include_local_agent: bool,
+    /// Optional exact short names or `prefix*` filters.
+    pub branch_filters: Vec<String>,
+    /// Preserve/audit in dry-run simulation without pushing or deleting remote refs.
+    pub dry_run: bool,
+    /// Optional file path for the signed/digested JSON receipt.
+    pub receipt_out: Option<PathBuf>,
+}
+
+/// Outcome of inspecting one remote `refs/heads/*` branch during clutter retirement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BranchRetireDisposition {
+    /// Protected trunk (`refs/heads/main`), never deleted.
+    ProtectedMain,
+    /// Retired from `refs/heads/*` after confirming commit preservation on `<remote>`.
+    Retired,
+    /// Dry-run candidate verified ready to preserve and retire.
+    WouldRetire,
+    /// Skipped `local-agent/*` because `--include-local-agent` was not enabled.
+    SkippedLocalAgentOptOut,
+    /// Skipped because an active local worktree or task claim references this branch/agent.
+    SkippedActiveClaim,
+    /// Skipped because `local-agent/*` carries unmerged commits not marked `RETIRE`.
+    SkippedUnmergedActive,
+    /// Preservation ref confirmed, but remote server or transport hook refused branch deletion.
+    RefusedByRemote,
+}
+
+/// Per-branch record inside [`RetireBranchesReceipt`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetiredBranchEntry {
+    /// Short branch name under `refs/heads/`.
+    pub branch: String,
+    /// Full remote branch ref (`refs/heads/<branch>`).
+    pub remote_ref: String,
+    /// Observed commit OID at `remote_ref`.
+    pub head_oid: String,
+    /// Whether `head_oid` is already in `<remote>/main`.
+    pub in_main: bool,
+    /// Immutable snapshot tag (`refs/tags/susi-distill/legacy-...`) preserving `head_oid`.
+    pub preserved_snapshot_tag: Option<String>,
+    /// Final disposition.
+    pub disposition: BranchRetireDisposition,
+    /// Human-readable diagnostic or remote refusal stderr.
+    pub detail: String,
+}
+
+/// Receipt emitted by [`retire_remote_clutter`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetireBranchesReceipt {
+    /// Schema identifier (`susi-branch-retirement-receipt-v1`).
+    pub schema: String,
+    /// Configured remote name.
+    pub remote: String,
+    /// Dry-run indicator.
+    pub dry_run: bool,
+    /// Unix timestamp (seconds).
+    pub generated_unix: u64,
+    /// `<remote>/main` commit OID observed during audit.
+    pub main_oid: String,
+    /// Count of remote `refs/heads/*` branches retired (or `WouldRetire` in dry-run).
+    pub retired_count: usize,
+    /// Count of branches skipped by safety guards (`main`, active claim, unmerged inbox, opt-out).
+    pub skipped_count: usize,
+    /// Count of branches whose deletion was refused by the remote after preservation.
+    pub refused_count: usize,
+    /// Remaining `refs/heads/*` count on `<remote>` after execution.
+    pub remaining_remote_head_count: usize,
+    /// Ordered per-branch records.
+    pub branches: Vec<RetiredBranchEntry>,
     /// Canonical SHA-256 digest.
     pub receipt_sha256: String,
 }
@@ -2026,6 +2113,430 @@ pub fn promote_release_candidate(
     };
     let mut val = serde_json::to_value(&receipt)
         .map_err(|e| EaiError::internal(format!("serialize release promotion receipt: {e}")))?;
+    receipt.receipt_sha256 = compute_receipt_sha256(&mut val)?;
+    write_receipt_if_requested(config.receipt_out.as_deref(), &val)?;
+    Ok(receipt)
+}
+
+fn sanitize_legacy_slug(branch_short: &str) -> String {
+    let mut out = String::with_capacity(branch_short.len());
+    let mut prev_dash = false;
+    for ch in branch_short.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_') {
+            out.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches(['-', '.']);
+    if trimmed.is_empty() {
+        "branch".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn discover_active_claim_branches(repo: &Path) -> EaiResult<BTreeMap<String, String>> {
+    let mut claimed = inspect_local_worktree_hazards(repo)?;
+    if let Some(common) = crate::adapter::common_dir(repo) {
+        let claims_dir = common.join("susi-local-workflow/claims");
+        if let Ok(entries) = fs::read_dir(claims_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().is_none_or(|e| e != "claim") {
+                    continue;
+                }
+                if let Ok(body) = fs::read_to_string(&p) {
+                    if let Ok(val) = serde_json::from_str::<Value>(&body) {
+                        if let Some(agent) = val["agent"].as_str().map(str::trim) {
+                            if !agent.is_empty() {
+                                claimed
+                                    .entry(format!("local-agent/{}", agent.to_ascii_lowercase()))
+                                    .or_insert_with(|| {
+                                        format!("active local claim file for `{agent}`")
+                                    });
+                            }
+                        }
+                        if let Some(br) = val["branch"].as_str().map(str::trim) {
+                            let short = br.strip_prefix("refs/heads/").unwrap_or(br);
+                            if !short.is_empty() {
+                                claimed.entry(short.to_string()).or_insert_with(|| {
+                                    format!("active local claim file on `{short}`")
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let refs_out = run_git(
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(refname)\t%(objectname)",
+            "refs/claims",
+        ],
+        None,
+        &[],
+    )?;
+    if refs_out.ok() {
+        for line in String::from_utf8_lossy(&refs_out.stdout).lines() {
+            let mut parts = line.split('\t');
+            let (Some(cref), Some(oid)) = (parts.next(), parts.next()) else {
+                continue;
+            };
+            if !is_oid(oid.trim()) {
+                continue;
+            }
+            let blob = run_git(repo, &["cat-file", "blob", oid.trim()], None, &[])?;
+            if !blob.ok() {
+                continue;
+            }
+            if let Ok(val) = serde_json::from_slice::<Value>(&blob.stdout) {
+                if let Some(br) = val["branch"].as_str().map(str::trim) {
+                    let short = br.strip_prefix("refs/heads/").unwrap_or(br);
+                    if !short.is_empty() {
+                        claimed
+                            .entry(short.to_string())
+                            .or_insert_with(|| format!("active queue claim {cref} on `{short}`"));
+                    }
+                }
+                if let Some(agent) = val["agent"].as_str().map(str::trim) {
+                    if !agent.is_empty() {
+                        claimed
+                            .entry(format!("local-agent/{}", agent.to_ascii_lowercase()))
+                            .or_insert_with(|| format!("active queue claim {cref} by `{agent}`"));
+                    }
+                }
+            }
+        }
+    }
+    Ok(claimed)
+}
+
+fn list_remote_heads(repo: &Path, remote: &str) -> EaiResult<Vec<(String, String)>> {
+    let out = git_ok(repo, &["ls-remote", "--heads", remote])?;
+    let mut heads = Vec::new();
+    for line in out.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(oid), Some(full_ref)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        if !is_oid(oid) {
+            continue;
+        }
+        if let Some(short) = full_ref.strip_prefix("refs/heads/") {
+            heads.push((short.to_string(), oid.to_string()));
+        }
+    }
+    heads.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(heads)
+}
+
+fn ensure_remote_preservation_tag(
+    repo: &Path,
+    remote: &str,
+    slug: &str,
+    oid: &str,
+) -> EaiResult<String> {
+    let primary_tag = format!("refs/tags/susi-distill/legacy-{slug}");
+    let chosen_tag = if let Some(existing) = confirm_remote_ref(repo, remote, &primary_tag)? {
+        if existing == oid {
+            let _ = run_git(repo, &["update-ref", &primary_tag, oid], None, &[]);
+            return Ok(primary_tag);
+        }
+        let short_oid = oid.get(..12).unwrap_or(oid);
+        format!("refs/tags/susi-distill/legacy-{slug}-{short_oid}")
+    } else {
+        primary_tag
+    };
+
+    if let Some(existing) = confirm_remote_ref(repo, remote, &chosen_tag)? {
+        if existing == oid {
+            let _ = run_git(repo, &["update-ref", &chosen_tag, oid], None, &[]);
+            return Ok(chosen_tag);
+        }
+        return Err(EaiError::config(format!(
+            "preservation tag {chosen_tag} already exists on {remote} at {existing} (expected {oid})"
+        )));
+    }
+
+    let _ = run_git(repo, &["update-ref", &chosen_tag, oid], None, &[]);
+    let push = run_git(
+        repo,
+        &["push", remote, &format!("{oid}:{chosen_tag}")],
+        None,
+        &[],
+    )?;
+    if !push.ok() {
+        return Err(EaiError::process(format!(
+            "failed to publish preservation tag {chosen_tag} on {remote}: {}",
+            push.stderr
+        )));
+    }
+    match confirm_remote_ref(repo, remote, &chosen_tag)? {
+        Some(confirmed) if confirmed == oid => Ok(chosen_tag),
+        other => Err(EaiError::process(format!(
+            "remote {remote} did not confirm {chosen_tag} at {oid} (got {other:?})"
+        ))),
+    }
+}
+
+fn is_patch_equivalent_in_main(repo: &Path, main_oid: &str, branch_oid: &str) -> bool {
+    let Ok(out) = run_git(repo, &["cherry", main_oid, branch_oid], None, &[]) else {
+        return false;
+    };
+    if !out.ok() {
+        return false;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut saw_any = false;
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        saw_any = true;
+        if !line.starts_with("- ") {
+            return false;
+        }
+    }
+    saw_any
+}
+
+/// Preserve and retire non-`main` remote `refs/heads/*` branch clutter on `<remote>`
+/// so GitHub serves as pure storage without PR banners, while guaranteeing zero
+/// lost commits via immutable `refs/tags/susi-distill/legacy-*` snapshots verified
+/// on `<remote>` before any compare-and-swap branch deletion.
+pub fn retire_remote_clutter(config: &RetireBranchesConfig) -> EaiResult<RetireBranchesReceipt> {
+    let remote = validate_remote_name(&config.remote)?;
+    if config.fetch_remote {
+        let fetch = run_git(
+            &config.repo,
+            &[
+                "fetch",
+                "--prune",
+                "--no-tags",
+                remote,
+                &format!("+refs/heads/*:refs/remotes/{remote}/*"),
+                "+refs/tags/susi-distill/*:refs/tags/susi-distill/*",
+                "+refs/claims/*:refs/claims/*",
+            ],
+            None,
+            &[],
+        )?;
+        if !fetch.ok() {
+            return Err(EaiError::process(format!(
+                "git fetch {remote} failed: {}",
+                fetch.stderr
+            )));
+        }
+    }
+
+    let main_oid = git_ok(
+        &config.repo,
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/remotes/{remote}/main"),
+        ],
+    )
+    .or_else(|_| git_ok(&config.repo, &["rev-parse", "--verify", "refs/heads/main"]))?;
+    let retired_rules = load_retired_rules(&config.repo, &main_oid, remote)?;
+    let claimed_branches = discover_active_claim_branches(&config.repo)?;
+    let remote_heads = list_remote_heads(&config.repo, remote)?;
+
+    let mut entries = Vec::with_capacity(remote_heads.len());
+    let mut retired_count = 0usize;
+    let mut skipped_count = 0usize;
+    let mut refused_count = 0usize;
+
+    for (short, oid) in remote_heads {
+        let remote_ref = format!("refs/heads/{short}");
+        if short == "main" {
+            skipped_count += 1;
+            entries.push(RetiredBranchEntry {
+                branch: short,
+                remote_ref,
+                head_oid: oid,
+                in_main: true,
+                preserved_snapshot_tag: None,
+                disposition: BranchRetireDisposition::ProtectedMain,
+                detail: "trunk refs/heads/main is never retired".to_string(),
+            });
+            continue;
+        }
+        if !matches_filters(&short, &config.branch_filters) {
+            skipped_count += 1;
+            continue;
+        }
+
+        if run_git(
+            &config.repo,
+            &["cat-file", "-e", &format!("{oid}^{{commit}}")],
+            None,
+            &[],
+        )
+        .map_or(true, |o| !o.ok())
+        {
+            let _ = run_git(
+                &config.repo,
+                &["fetch", "--no-tags", remote, &oid],
+                None,
+                &[],
+            );
+        }
+
+        let in_main = is_ancestor(&config.repo, &oid, &main_oid)?
+            || is_patch_equivalent_in_main(&config.repo, &main_oid, &oid);
+        let retired_rule = find_retired_rule(&short, &oid, &retired_rules);
+
+        if short.starts_with("local-agent/") {
+            if !config.include_local_agent {
+                skipped_count += 1;
+                entries.push(RetiredBranchEntry {
+                    branch: short,
+                    remote_ref,
+                    head_oid: oid,
+                    in_main,
+                    preserved_snapshot_tag: None,
+                    disposition: BranchRetireDisposition::SkippedLocalAgentOptOut,
+                    detail:
+                        "pass --include-local-agent to retire merged/RETIRE local-agent/* heads"
+                            .to_string(),
+                });
+                continue;
+            }
+            if let Some(claim_why) = claimed_branches.get(&short) {
+                skipped_count += 1;
+                entries.push(RetiredBranchEntry {
+                    branch: short,
+                    remote_ref,
+                    head_oid: oid,
+                    in_main,
+                    preserved_snapshot_tag: None,
+                    disposition: BranchRetireDisposition::SkippedActiveClaim,
+                    detail: claim_why.clone(),
+                });
+                continue;
+            }
+            if !in_main && retired_rule.is_none() {
+                skipped_count += 1;
+                entries.push(RetiredBranchEntry {
+                    branch: short,
+                    remote_ref,
+                    head_oid: oid,
+                    in_main: false,
+                    preserved_snapshot_tag: None,
+                    disposition: BranchRetireDisposition::SkippedUnmergedActive,
+                    detail: "local-agent/* tip is not in main and has no RETIRE governance record"
+                        .to_string(),
+                });
+                continue;
+            }
+        } else if let Some(claim_why) = claimed_branches.get(&short) {
+            skipped_count += 1;
+            entries.push(RetiredBranchEntry {
+                branch: short,
+                remote_ref,
+                head_oid: oid,
+                in_main,
+                preserved_snapshot_tag: None,
+                disposition: BranchRetireDisposition::SkippedActiveClaim,
+                detail: claim_why.clone(),
+            });
+            continue;
+        }
+
+        let slug = sanitize_legacy_slug(&short);
+        if config.dry_run {
+            retired_count += 1;
+            entries.push(RetiredBranchEntry {
+                branch: short,
+                remote_ref,
+                head_oid: oid,
+                in_main,
+                preserved_snapshot_tag: Some(format!("refs/tags/susi-distill/legacy-{slug}")),
+                disposition: BranchRetireDisposition::WouldRetire,
+                detail: if in_main {
+                    "dry-run: already in main; would confirm legacy snapshot tag and delete remote branch"
+                        .to_string()
+                } else if let Some(r) = retired_rule {
+                    format!(
+                        "dry-run: RETIRE ledger {} ({}); would preserve snapshot tag and delete remote branch",
+                        r.task_id, r.reason
+                    )
+                } else {
+                    "dry-run: would preserve immutable snapshot tag on remote before deleting remote branch"
+                        .to_string()
+                },
+            });
+            continue;
+        }
+
+        let preserved_tag = ensure_remote_preservation_tag(&config.repo, remote, &slug, &oid)?;
+
+        let lease = format!("--force-with-lease={remote_ref}:{oid}");
+        let del_spec = format!(":{remote_ref}");
+        let del = run_git(
+            &config.repo,
+            &["push", &lease, remote, &del_spec],
+            None,
+            &[],
+        )?;
+        if del.ok() && confirm_remote_ref(&config.repo, remote, &remote_ref)?.is_none() {
+            let _ = run_git(
+                &config.repo,
+                &[
+                    "update-ref",
+                    "-d",
+                    &format!("refs/remotes/{remote}/{short}"),
+                ],
+                None,
+                &[],
+            );
+            retired_count += 1;
+            entries.push(RetiredBranchEntry {
+                branch: short,
+                remote_ref,
+                head_oid: oid,
+                in_main,
+                preserved_snapshot_tag: Some(preserved_tag.clone()),
+                disposition: BranchRetireDisposition::Retired,
+                detail: format!("preserved at {preserved_tag} and retired from refs/heads/*"),
+            });
+        } else {
+            refused_count += 1;
+            entries.push(RetiredBranchEntry {
+                branch: short,
+                remote_ref,
+                head_oid: oid,
+                in_main,
+                preserved_snapshot_tag: Some(preserved_tag),
+                disposition: BranchRetireDisposition::RefusedByRemote,
+                detail: format!(
+                    "preserved on remote, but deletion exited {}: {}",
+                    del.code, del.stderr
+                ),
+            });
+        }
+    }
+
+    let remaining_remote_head_count = list_remote_heads(&config.repo, remote)?.len();
+    let mut receipt = RetireBranchesReceipt {
+        schema: RETIRE_BRANCHES_RECEIPT_SCHEMA.to_string(),
+        remote: remote.to_string(),
+        dry_run: config.dry_run,
+        generated_unix: now_unix_secs(),
+        main_oid,
+        retired_count,
+        skipped_count,
+        refused_count,
+        remaining_remote_head_count,
+        branches: entries,
+        receipt_sha256: String::new(),
+    };
+    let mut val = serde_json::to_value(&receipt)
+        .map_err(|e| EaiError::internal(format!("serialize retire-branches receipt: {e}")))?;
     receipt.receipt_sha256 = compute_receipt_sha256(&mut val)?;
     write_receipt_if_requested(config.receipt_out.as_deref(), &val)?;
     Ok(receipt)

@@ -1,0 +1,54 @@
+{
+  "id": "T-AGYFURY-3",
+  "feature_id": "F-HARNESS-GOVERNED-GIT-WORKFLOW-1",
+  "title": "Governed remote branch clutter retirement with immutable snapshot preservation in susi-harness and push-policy",
+  "goal": "Implement susi-harness retire-branches (retire_remote_clutter) and native push-policy preservation checks so non-main remote refs/heads/* clutter (including merged and RETIRE-ledger local-agent/* branches when --include-local-agent is set) is preserved as immutable refs/tags/susi-distill/legacy-* tags confirmed on origin before compare-and-swap deletion, while unconditionally protecting refs/heads/main, active claims, and unmerged active agent branches.",
+  "status": "done",
+  "owner": "agy-fury",
+  "created_by": "AGYFURYSWT5D3FC4",
+  "created_unix": 1794395780,
+  "size": "s",
+  "deps": [
+    "T-AGYFURY-2",
+    "T-AGYWIN-3"
+  ],
+  "base_commit": "d5824bb9498540ebc3b12cea9d5512c9db17694f",
+  "scopes": [
+    ".agents/tasks/T-AGYFURY-3.json",
+    ".agents/tasks/done/T-AGYFURY-3.json",
+    "crates/susi-harness/src/bin/susi-harness.rs",
+    "crates/susi-harness/src/git_governor.rs",
+    "crates/susi-harness/src/operator.rs",
+    "crates/susi-harness/src/tests/git_governor.rs",
+    "crates/susi-harness/src/tests/verify.rs",
+    "crates/susi-harness/src/verify.rs",
+    "xtask/src/push_policy.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "git_governor"
+    ]
+  },
+  "results": {
+    "fmt": "cargo fmt --all --check: exit 0",
+    "clippy": "cargo clippy --jobs 12 -p xtask -p susi-harness --all-targets --offline --locked -- -D warnings: exit 0",
+    "tests": "susi-harness --lib: 529 passed / 0 failed (git_governor 5/5); susi-harness --bins: 41 passed / 0 failed; xtask --test native_push_policy: 14 passed / 0 failed; xtask --test git_publisher_native_hook: 5 passed / 0 failed",
+    "guards": "lean_core_ceilings 2/2, architecture_tests 44/44, core_docs_promise_no_ui_or_plugins 5/5, no_github_coupling 5/5, orphan_sources 3/3, task_records 3/3"
+  },
+  "limitations": [
+    "retire_remote_clutter deletes remote branches only after confirming refs/tags/susi-distill/legacy-* preservation via git ls-remote and skips refs/heads/main, active claims, and unmerged non-RETIRE local-agent/* branches."
+  ],
+  "closed": {
+    "at_unix": 1794395845,
+    "commit": "bc3d84ef1a315175aaefd6177ac3b0a936b354f2",
+    "by": "AGYFURYSWT5D3FC4"
+  }
+}
