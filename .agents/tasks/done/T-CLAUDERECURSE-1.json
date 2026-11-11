@@ -2,7 +2,7 @@
   "id": "T-CLAUDERECURSE-1",
   "title": "Recursive driver/engine delegation contract on the core capability bus",
   "goal": "Mandate 73 recursion adapter, first slice: a component can be a driver and an engine at once, nested through capability dispatch, with preserved identity/provenance, no permission amplification, parent-reserved budgets, inherited deadlines, depth and fan-out bounds, cycle refusal, cancellation propagation and failure propagation; continue the nesting across the socket with an envelope on os_capabilities and the CLI.",
-  "status": "implemented",
+  "status": "done",
   "owner": "claude",
   "created_by": "claude",
   "created_unix": 1794360882,
@@ -21,8 +21,9 @@
     "src/cli/os_cli.rs",
     "crates/susi-gmcp/tests/os_capabilities_delegation.rs",
     "docs/recursive-delegation.md",
-    ".agents/tasks/T-CLAUDERECURSE-1.json",
-    ".agents/gmcp/evidence"
+    ".agents/tasks/done/T-CLAUDERECURSE-1.json",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CLAUDERECURSE-1.json"
   ],
   "capabilities": [
     "susi_core::delegation::DelegationScope (delegate, charge, cancel, check, path, envelope, from_envelope)",
@@ -75,7 +76,9 @@
       "core_plus_gmcp_lib_and_tests_incremental": 18.4,
       "fmt_check": 4.7
     },
-    "wire_change": "CapabilityReceipt gains optional `delegation_path` (skipped when empty; older receipts still deserialize); CapabilityError gains `Delegation`; dispatch now refuses an empty or control-character subject/permission as InvalidIdentity"
+    "wire_change": "CapabilityReceipt gains optional `delegation_path` (skipped when empty; older receipts still deserialize); CapabilityError gains `Delegation`; dispatch now refuses an empty or control-character subject/permission as InvalidIdentity",
+    "gmcp_requirements": "87/87 passed after re-recording requirement (54 checks) and mastery (9 checks) evidence",
+    "distill_lint": "0 findings over origin/main..HEAD (3 commits)"
   },
   "limitations": [
     "Envelopes are unsigned: they bound cooperating components, not an adversary; the host MAC policy remains the socket authority.",
@@ -83,5 +86,15 @@
     "Only capability dispatch opens scopes; harness missions, GEMI worker delegation and GAWD swarm hand-offs are not wired yet.",
     "A running handler is not pre-empted at its deadline; the existing elapsed-time check still applies.",
     "Not run on native Windows x86_64 in this session."
-  ]
+  ],
+  "landed": {
+    "main_commit": "c1462b5248cf4737ee1963a6883513b6849c827e",
+    "source_commit": "16ea16010c735179f0df1fdc1488b73527833eab",
+    "route": "cargo run -p xtask --bin local-snapshot -- submit claude-recurse-20261111 (composed with one newer main commit that touched only crates/susi-daemon/src/server.rs and a task record; GMCP evidence paths unchanged)"
+  },
+  "closed": {
+    "at_unix": 1794361396,
+    "commit": "82429659033c728c39c768cf7ee8da45b35711b4",
+    "by": "CLAUDERECURSE"
+  }
 }
