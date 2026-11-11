@@ -17,7 +17,6 @@ susi-http-transport = { workspace = true }
 libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
-dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }

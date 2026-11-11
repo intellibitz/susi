@@ -27,9 +27,9 @@ impl SusiTruthAgent {
         // stdout alone (for example `echo hello` without a redirect) is not
         // evidence that the requested file was created. A "containing <text>"
         // clause upgrades the contract from existence to content.
-        static GOAL_FILE_WRITES: OnceLock<regex::Regex> = OnceLock::new();
+        static GOAL_FILE_WRITES: OnceLock<crate::pattern::Pattern> = OnceLock::new();
         let goal_file_writes = GOAL_FILE_WRITES.get_or_init(|| {
-            regex::Regex::new(
+            crate::pattern::Pattern::new(
                 r#"(?i)\b(?:create|write|save)\s+(?:a\s+|an\s+)?(?:new\s+)?file(?:\s+named|\s+called)?\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]+))"#,
             )
             .expect("static goal write pattern")
@@ -38,9 +38,9 @@ impl SusiTruthAgent {
         // `containing "<text>"`. Unquoted prose without a colon ("containing
         // the results of the analysis") is not a literal and stays an
         // existence contract.
-        static GOAL_CONTENT: OnceLock<regex::Regex> = OnceLock::new();
+        static GOAL_CONTENT: OnceLock<crate::pattern::Pattern> = OnceLock::new();
         let goal_content = GOAL_CONTENT.get_or_init(|| {
-            regex::Regex::new(
+            crate::pattern::Pattern::new(
                 r#"(?i)\bcontaining(?:\s+exactly)?(?::\s*(.+)$|\s+(?:"([^"]+)"|'([^']+)'|`([^`]+)`))"#,
             )
             .expect("static goal-content pattern")
@@ -71,9 +71,9 @@ impl SusiTruthAgent {
         // the target follows to/into, not the word "file", which
         // GOAL_FILE_WRITES requires. Path-like only ('.' or '/'), so "save
         // to disk" or "write to stdout" mint nothing.
-        static GOAL_WRITE_TARGETS: OnceLock<regex::Regex> = OnceLock::new();
+        static GOAL_WRITE_TARGETS: OnceLock<crate::pattern::Pattern> = OnceLock::new();
         let goal_write_targets = GOAL_WRITE_TARGETS.get_or_init(|| {
-            regex::Regex::new(
+            crate::pattern::Pattern::new(
                 r#"(?i)\b(?:write|save|export|dump|store|output)\b[^.;\n]*?\b(?:to|into)\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]*(?:\.[A-Za-z0-9]|/)[^\s,;]*))"#,
             )
             .expect("static goal write-target pattern")
@@ -105,9 +105,9 @@ impl SusiTruthAgent {
         // "create a directory/folder [named] X" (goal) and "created the
         // directory/folder X" (result) name a directory, which FileExists —
         // a regular file — could never verify.
-        static DIR_CREATES: OnceLock<regex::Regex> = OnceLock::new();
+        static DIR_CREATES: OnceLock<crate::pattern::Pattern> = OnceLock::new();
         let dir_creates = DIR_CREATES.get_or_init(|| {
-            regex::Regex::new(
+            crate::pattern::Pattern::new(
                 r#"(?i)\b(?:create|created|make|made|mkdir)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:directory|folder|dir)(?:\s+named|\s+called)?\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]+))"#,
             )
             .expect("static directory-creation pattern")
@@ -131,9 +131,9 @@ impl SusiTruthAgent {
         // or path-like target (contains '.' or '/') counts, so "delete the
         // cache" mints nothing. Before, goals only minted write contracts:
         // "delete old.log" answered "Done." passed with old.log present.
-        static GOAL_DELETES: OnceLock<regex::Regex> = OnceLock::new();
+        static GOAL_DELETES: OnceLock<crate::pattern::Pattern> = OnceLock::new();
         let goal_deletes = GOAL_DELETES.get_or_init(|| {
-            regex::Regex::new(
+            crate::pattern::Pattern::new(
                 r#"(?i)\b(?:delete|remove)\s+(?:the\s+)?(?:file\s+)?(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]*(?:\.[A-Za-z0-9]|/)[^\s,;]*))"#,
             )
             .expect("static goal delete pattern")
@@ -155,10 +155,10 @@ impl SusiTruthAgent {
         // evaluated against the workspace with evidence, rather than
         // existence-only spot checks.
         let claim_count = {
-            static CLAIM_VERBS: OnceLock<regex::Regex> = OnceLock::new();
+            static CLAIM_VERBS: OnceLock<crate::pattern::Pattern> = OnceLock::new();
             CLAIM_VERBS
                 .get_or_init(|| {
-                    regex::Regex::new(r#"(?i)\b(?:wrote to|saved to)\b"#)
+                    crate::pattern::Pattern::new(r#"(?i)\b(?:wrote to|saved to)\b"#)
                         .expect("static claim-verb pattern")
                 })
                 .find_iter(result)

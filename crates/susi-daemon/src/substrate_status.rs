@@ -105,7 +105,7 @@ fn collect(workspace: &Path, docker_sandbox_exec: bool) -> serde_json::Value {
         "concurrency": {
             "swarm": "std scoped threads",
             "daemon_http": "tokio",
-            "shared_state": "parking_lot / DashMap",
+            "shared_state": "std::sync locks (non-poisoning wrappers)",
         },
     })
 }

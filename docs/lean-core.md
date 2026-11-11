@@ -726,3 +726,24 @@ config, core and the tail.
   through native-tls. tokio, hyper, h2 and mio stay: susi-gmcp, susi-gemi,
   susi-gawd and susi-harness depend on them directly (GMCP and harness
   servers).
+- 2026-11-11 (T-SMALLFACADES-1, Linux x86_64, CEO laptop): three small
+  facades leave core. `regex`: the truth gate's eleven static claim patterns
+  (`susi-core` `truth.rs`, `verification.rs`) run on `susi_core::pattern`, a
+  Pike VM for exactly the syntax they use that refuses anything else; checked
+  against regex 1.13.1 on 15.6 million generated (pattern, text) pairs with no
+  unexplained difference, plus 2.2 million on small edge patterns (lazy and
+  greedy repetition, empty matches, `$`), frozen as table tests. One
+  documented difference: `\b` counts alphanumerics and `_` as word chars
+  (the rule T-AGYCLOUD-4 gave GAWD's FAILURE token), where Unicode `\w` also
+  counts combining marks and joiners and not numbers outside `Nd`.
+  `parking_lot`: the locks of susi-config, susi-gawd-swarm and susi-gmcp are
+  `susi_paths::sync` (std-backed, never poisoning, same call sites).
+  `dashmap`: GMCP's custom tool maps, the tool registry and the daemon
+  blackboard are std maps behind those locks; a custom handler runs with no
+  lock held. `susi-vendor-regex`, `susi-vendor-dashmap` and
+  `susi-vendor-parking-lot` are deleted (regex stays in the workspace only as
+  criterion's dev-dependency, parking_lot as tokio's). Pillar reach 161 -> 154
+  third-party (aho-corasick, crossbeam-utils, dashmap, regex, regex-automata,
+  regex-syntax, susi-os-unicode), 44 -> 41 workspace, 19 -> 17 direct facade
+  edges; `cargo tree -p susi` host packages 250 -> 243. Pillar line counts
+  unchanged. No build-time gain is claimed.

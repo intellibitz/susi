@@ -367,6 +367,7 @@ pub mod console;
 pub mod loopback;
 pub mod ports;
 pub mod stdio;
+pub mod sync;
 #[doc(hidden)]
 pub mod test_env;
 mod xdg;

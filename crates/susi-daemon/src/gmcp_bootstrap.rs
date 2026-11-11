@@ -1470,7 +1470,7 @@ mod inline_tests {
         bootstrap_registry(registry);
         for name in ["status", "ledger_verify", "identity", "self_validate"] {
             assert!(
-                registry.tools.contains_key(name),
+                registry.tools.read().contains_key(name),
                 "expected core primitive tool {name} to be registered"
             );
         }
@@ -1489,7 +1489,7 @@ mod inline_tests {
             "extensions_create",
         ] {
             assert!(
-                registry.tools.contains_key(name),
+                registry.tools.read().contains_key(name),
                 "expected extension tool {name} to be registered"
             );
         }
@@ -1507,7 +1507,7 @@ mod inline_tests {
             "inference_placement",
         ] {
             assert!(
-                registry.tools.contains_key(name),
+                registry.tools.read().contains_key(name),
                 "expected runtime/placement tool {name} to be registered"
             );
         }
@@ -1526,7 +1526,7 @@ mod inline_tests {
             "intent_ladder",
         ] {
             assert!(
-                registry.tools.contains_key(name),
+                registry.tools.read().contains_key(name),
                 "expected zero-config/lifecycle tool {name} to be registered"
             );
         }
@@ -1545,7 +1545,7 @@ mod inline_tests {
             "tx_abort",
         ] {
             assert!(
-                registry.tools.contains_key(name),
+                registry.tools.read().contains_key(name),
                 "expected workspace/transaction tool {name} to be registered"
             );
         }
