@@ -36,6 +36,8 @@ mod complete_release_gates;
 mod elf_imports;
 #[path = "../gmcp_evidence.rs"]
 mod gmcp_evidence;
+#[path = "../harvest.rs"]
+mod harvest;
 #[path = "../installed_delivery.rs"]
 mod installed_delivery;
 #[path = "../native_openssl.rs"]
@@ -1554,6 +1556,16 @@ fn qualify_with(
     )
 }
 
+/// `local-harvest audit` on the exact candidate: every harvest manifest, its
+/// files and notices (Apache-2.0 section 4 (a)-(d)), and every `Harvest:`
+/// trailer in the candidate's history. Returns the line kept in gates.txt.
+fn harvest_gate(candidate: &Path, head: &str) -> Result<String> {
+    let args = ["audit", "--range", head].map(str::to_owned);
+    harvest::run(candidate, &args)
+        .map(|report| report.trim().replace('\n', "; "))
+        .map_err(|error| format!("release qualification failed: harvest audit: {error}").into())
+}
+
 fn qualify_with_advisories(
     ctx: &Context,
     prove_inference: fn(&Path, &Path) -> Result<String>,
@@ -1586,6 +1598,9 @@ fn qualify_with_advisories(
             &head,
         ],
     )?;
+    // Mandate 74 section 5: harvested code must carry its manifest and the
+    // Apache-2.0 section 4 notices before anything is built. Fails closed.
+    let harvest_audit = harvest_gate(&candidate, &head)?;
     let (host, compiler) = compiler(&candidate)?;
     let (sbom, mut notices, native_audit) = inventory(&candidate, &attempt, &host)?;
     let GateRun {
@@ -1603,6 +1618,7 @@ fn qualify_with_advisories(
         advisory_source,
         complete_runner,
     )?;
+    proof.push_str(&format!("harvest-audit={harvest_audit}\n"));
     if let Some(sysroot) = &sysroot {
         notices.push_str("\n===== Original Rust standard-library upstream notices (including omitted upstream components) =====\n");
         notices.push_str(
@@ -2511,6 +2527,59 @@ mod tests {
     }
 
     #[test]
+    fn harvest_audit_failure_stops_qualification_before_any_build() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        fs::write(root.join("src/lib.rs"), "pub fn taken() {}\n").unwrap();
+        git(&root, &["add", "."]).unwrap();
+        git(
+            &root,
+            &[
+                "-c",
+                "core.hooksPath=",
+                "commit",
+                "-qm",
+                "feat: borrowed helper\n\nHarvest: H-GHOST-1",
+            ],
+        )
+        .unwrap();
+        let head = git(&root, &["rev-parse", "HEAD"]).unwrap();
+        let tree = git(&root, &["rev-parse", "HEAD^{tree}"]).unwrap();
+        let receipt = format!(
+            "susi-local-integration-v1\ncommit={head}\ntree={tree}\nfixture-only integration proof\n"
+        );
+        let blob = git_input(&root, &["hash-object", "-w", "--stdin"], receipt.as_bytes()).unwrap();
+        git(&root, &["update-ref", INTEGRATED, &head]).unwrap();
+        git(
+            &root,
+            &[
+                "update-ref",
+                &format!("refs/susi/integration/receipts/fixture/{head}"),
+                &blob,
+            ],
+        )
+        .unwrap();
+        let ctx = fixture.context();
+        let error = qualify(&ctx).unwrap_err().to_string();
+        assert!(error.contains("harvest audit"), "{error}");
+        assert!(error.contains("H-GHOST-1"), "{error}");
+        let built = fs::read_dir(root.parent().unwrap())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("susi-release-")
+            })
+            .any(|entry| entry.path().join("target").exists());
+        assert!(
+            !built,
+            "no candidate may be built after a failed harvest audit"
+        );
+    }
+
+    #[test]
     fn formatting_failure_precedes_any_private_toolchain_build() {
         let fixture = Fixture::new();
         let root = fixture.root();
@@ -2857,6 +2926,11 @@ mod tests {
         // Model a correctly hashed historical receipt whose gates predate the
         // mandatory native runtime policy. Integrity alone must not admit it.
         let current_package = ctx.packages.join("objects").join(&first);
+        let recorded = fs::read_to_string(current_package.join("gates.txt")).unwrap();
+        assert!(
+            recorded.contains("harvest-audit=harvest audit passed"),
+            "{recorded}"
+        );
         let mut historical =
             Manifest::decode(&fs::read_to_string(current_package.join("manifest.txt")).unwrap())
                 .unwrap();
