@@ -95,6 +95,20 @@ of a commit named in a `Source-Commits:` line of a commit that also carries
 tested commit and at HEAD, so stale evidence fails on a release branch exactly
 as it does on main.
 
+## Evidence bound to a commit is re-recorded, not carried
+
+Some committed records describe the exact tree they were made on, such as the
+GMCP vector evidence in `.agents/gmcp/evidence/*.jsonl` (each record names its
+commit and the requirements-ledger digest). They are append-only, so
+`.gitattributes` unions them (`merge=union`) and distillation can compose them
+onto an older base. But development-main records describe main's trees: carried
+into a candidate they become the newest records and fail its operations checks.
+On a release branch, reset those logs to the base's version and record fresh
+evidence for the candidate (`scripts/gmcp-record-evidence.sh`, then `--mastery`)
+before `release-qualify`. Main keeps every record. The first distilled
+candidate, `v0.21.55` (`T-CLAUDEDISTILL-1`), followed this and records its gate
+results in `.agents/evidence/distill-v0-21-55-rc2-T-CLAUDEDISTILL-1.json`.
+
 ## What remains separate
 
 Distillation produces an **unqualified candidate** (`qualification_status:

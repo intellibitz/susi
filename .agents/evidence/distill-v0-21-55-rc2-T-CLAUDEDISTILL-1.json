@@ -1,0 +1,35 @@
+{
+  "task": "T-CLAUDEDISTILL-1",
+  "candidate": "v0.21.55 (distill/v0-21-55-rc2)",
+  "remote_branch": "refs/heads/distill/v0-21-55-rc2",
+  "candidate_commit": "c16d8bfa4cd5edd8678092f60d59da97dbecc3fd",
+  "candidate_tree": "38fff6f6bfc646712d63ceebf752c3db35b9eccd",
+  "base": "v0.21.54 (b626d435c6bbae9a89a10c091fd7819fbe3b3910)",
+  "distilled_tasks": ["T-RELEASE54REC-1", "T-CLAUDERECURSE-1", "T-CLAUDESIGNENV-1", "T-CLAUDELOOP10-1"],
+  "distill_receipt_sha256": "0f5c90cec2902e7d5046d807203f5f7d7563c5a794a9c296a0439c174b7b8a30",
+  "accept_verification": "every selected task's accept.cmd passed on the composed tree in an ephemeral worktree (local-distill compose --verify-accept --release-candidate --strict, 91.7 s)",
+  "release_branch_commits": ["version bump to 0.21.55 (same files as the v0.21.54 cut) + T-CLAUDEDISTILL-1 record", "GMCP evidence logs reset to v0.21.54's", "GMCP requirement evidence for this tree (54 checks)", "GMCP mastery evidence for this tree (9 checks)"],
+  "release_qualify_v0_21_55": {
+    "host": "Claude Code cloud container, Linux x86_64, 4 vCPU, Rust 1.99.0, cargo-deny 0.20.2",
+    "gates": {"format": "exit 0, 4 s", "check": "exit 0, 74 s", "clippy": "exit 0, 43 s", "licenses": "exit 0, 0 s", "tests": "exit 101, 279 s", "build": "not run (stops at the first failed gate)", "smoke": "not run"},
+    "tests": {"passed": 5450, "failed": 2, "ignored": 14, "failed_target": "-p susi --test host_only_privacy"},
+    "failure_is_environmental": "The same two tests fail on intellibitz/susi main in this container: they need a reachable LAN interface for the local_only discovery ping, which the sandbox lacks. No test was skipped or weakened.",
+    "record_written": false
+  },
+  "rc1_lessons": [
+    "Append-only GMCP evidence logs conflicted onto an older base; merge=union (landed on main) composes them.",
+    "Development-main evidence records are bound to main's commits and ledger; carried into a candidate they fail its operations checks. The release branch keeps its base's records and records its own.",
+    "T-RELEASE54REC-1 (the v0.21.54 release record and its releases/qualification test fix) belongs in every later release.",
+    "The candidate's T-CLAUDEDISTILL-1 copy needed the allowed-argv accept fix that main received."
+  ],
+  "blockers": [
+    "Tag pushes (refs/tags/*) are refused with HTTP 403 by this session's Git proxy; branch pushes work. Neither refs/tags/susi-distill/v0-21-55-rc1 nor a v0.21.55 tag could be published here.",
+    "host_only_privacy cannot pass in this sandbox, so release-qualify writes no record here."
+  ],
+  "handoff_on_a_laptop": [
+    "git fetch origin distill/v0-21-55-rc2 && git switch -c release/v0-21-55-rc2 FETCH_HEAD   # commit c16d8bfa4",
+    "cargo run --offline --locked -p xtask --bin release-qualify -- v0.21.55   # all seven gates; writes and commits releases/qualification/v0.21.55.json and tags locally",
+    "git push origin v0.21.55   # push-policy admits it only with that record",
+    "then write releases/v0.21.55.json with the reference digests and land it on main (docs/releases.md step 5); Windows x86_64 remains owed unless qualified there too"
+  ]
+}

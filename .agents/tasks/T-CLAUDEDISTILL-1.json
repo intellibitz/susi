@@ -29,7 +29,9 @@
     ".agents/roadmap.json",
     ".agents/gmcp/evidence",
     "releases",
-    ".agents/tasks/T-CLAUDEDISTILL-1.json"
+    ".agents/tasks/T-CLAUDEDISTILL-1.json",
+    ".agents/evidence/distill-v0-21-55-rc2-T-CLAUDEDISTILL-1.json",
+    "docs/release-distillation.md"
   ],
   "accept": {
     "cmd": [
@@ -49,6 +51,17 @@
     "local-distill compose --verify-accept --release-candidate --strict",
     "release-qualify v0.21.55 on the release branch: format, check, clippy, licenses, tests, build, smoke all exit 0"
   ],
-  "results": {},
-  "limitations": []
+  "results": {
+    "distilled": "4 tasks onto v0.21.54, accept commands passing; remote branch distill/v0-21-55-rc2 = c16d8bfa4",
+    "qualification": "format, check, clippy, licenses passed; tests 5450 passed, 2 failed (host_only_privacy, environmental in this sandbox, same on main), 14 ignored; build and smoke not run",
+    "blocked_by": "tag push refused (HTTP 403) from this session; host_only_privacy needs a LAN interface",
+    "next": "qualify and tag on a laptop: see the evidence file's handoff_on_a_laptop"
+  },
+  "limitations": [
+    "Not a release until release-qualify passes all seven gates on the exact tree and the v0.21.55 tag is pushed.",
+    "Windows x86_64 qualification owed."
+  ],
+  "evidence": [
+    ".agents/evidence/distill-v0-21-55-rc2-T-CLAUDEDISTILL-1.json"
+  ]
 }
