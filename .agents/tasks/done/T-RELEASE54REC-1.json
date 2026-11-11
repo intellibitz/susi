@@ -1,0 +1,49 @@
+{
+  "id": "T-RELEASE54REC-1",
+  "native_worker": "clauderel54rec",
+  "title": "Record core release v0.21.54 on main",
+  "goal": "Land releases/v0.21.54.json (schema susi-release-record/v1) for the published tag v0.21.54 -> b626d435c (qualification record commit on the qualified tree 36a55dd0d): Linux x86_64 reference-build sha256s from the release-qualify build gate, 5427 workspace tests passed / 0 failed over 293 binaries, Windows x86_64 listed in missing_targets as owed. Main takes the 0.21.54 bump and the qualification record by merging the tag (so no record is newer than the workspace version), and tests/release_records.rs admits the releases/qualification/ subdirectory, checking that each qualification record names a released tag.",
+  "status": "done",
+  "state": "done",
+  "size": "s",
+  "deps": [
+    "T-RELEASE54-1",
+    "T-CLAUDERELADAPTER-1"
+  ],
+  "base": "7d30b2f46e782a005a8cacfaa9bef9c3af920772",
+  "scopes": [
+    ".agents/tasks/T-RELEASE54REC-1.json",
+    ".agents/tasks/done/T-RELEASE54REC-1.json",
+    "releases/v0.21.54.json",
+    "tests/release_records.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDEREL54REC",
+  "created_unix": 1794346662,
+  "owner": "codex-cloud-release54rec-20261111",
+  "closed": {
+    "at_unix": 1794362602,
+    "commit": "7d30b2f46e782a005a8cacfaa9bef9c3af920772",
+    "source_branch_commit": "f69bc4ba1f550d587f70c5179cb192e6ee4b7e3f",
+    "by": "codex-cloud-release54rec-20261111"
+  },
+  "results": {
+    "source": "f69bc4ba1 release: record v0.21.54; releases/v0.21.54.json and its qualification record are present on base 7d30b2f46",
+    "remote_tag": "git ls-remote origin refs/tags/v0.21.54* verified annotated tag 9a3f5acf674eed5da30953420d2317cce078278b peeled to b626d435c6bbae9a89a10c091fd7819fbe3b3910",
+    "release_records_test": "cargo test --offline --locked -p susi --test release_records: 5 passed, 0 failed; 1m 00s test-profile build and 0.01s test execution",
+    "host": "x86_64-unknown-linux-gnu",
+    "base": "7d30b2f46e782a005a8cacfaa9bef9c3af920772"
+  },
+  "limitations": "This verification covers the release-record consistency suite only; it does not rerun the 0.21.54 qualification gates. The committed release record still truthfully lists Windows x86_64 qualification as owed."
+}
