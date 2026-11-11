@@ -8,8 +8,8 @@
   "size": "s",
   "created_by": "agycloud-20261110",
   "created_unix": 1794377290,
-  "state": "in_progress",
-  "status": "in_progress",
+  "state": "done",
+  "status": "done",
   "base": "a7a87396ebf1347a2750f6c751eebe750e8638fb",
   "mandate_revision": "286e653ab06677ef0aefee8a54bffc26455127af",
   "deps": [
@@ -38,5 +38,31 @@
       "--test",
       "task_records"
     ]
-  }
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu (Debian 12, Linux 6.12.105+, git 2.39.5, rustc 1.99.0)",
+    "qualification_status": "accept_verified_candidate",
+    "satisfied_in_base_count": 14,
+    "included_tasks": [
+      "T-CLAUDEA2AGOLDEN-1",
+      "T-CLAUDEGAWDTOKIO-1",
+      "T-CLAUDEDISTILLBASE-1",
+      "T-AGYCLOUD-5",
+      "T-AGYCLOUD-6"
+    ],
+    "deferred_count": 0,
+    "rejected_count": 0,
+    "distilled_commit": "34659093a26f73994fa45c633bd5e1a5d58ad6ad",
+    "distilled_tree": "cd6b0c586f07b2f3910cc4d3ab542972094c1bf3",
+    "release_envelope_commit": "ee5d2f11c4057ebbf6c23008df7d697f57d4ee1f",
+    "published_release_branch": "refs/heads/release/v0.21.56-distilled-rc2",
+    "published_snapshot_tag": "refs/tags/susi-distill/v0.21.56-distilled-rc2",
+    "receipt_sha256": "e23e2ca9ca0c778f4a7199295fe77ada0d0dae4c497abd61e2592fb35053b3a9",
+    "timings_ms": {
+      "compose_and_verify_accept_ms": 155175
+    }
+  },
+  "limitations": [
+    "`refs/heads/release/v0.21.56-distilled-rc2` is an accept-verified release candidate (`accept_verified_candidate`), not a production `v0.21.56` tag; full Windows x86_64 and Linux x86_64 `release-qualify` gates remain required before immutable version tagging."
+  ]
 }
