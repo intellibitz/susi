@@ -1024,3 +1024,14 @@ config, core and the tail.
   baseline and 60 s CEO target; incremental `129 ms`, warm no-op `136 ms`,
   `susi --version` startup `9.35 ms`; Windows MSVC cold timing still to be
   measured on a Windows host).
+- 2026-11-11 (T-CARBONLEAN-15, Linux x86_64, CEO laptop): replace external
+  `chacha20poly1305` in `crates/susi-vendor-chacha20poly1305` with
+  `#![forbid(unsafe_code)]` RFC 8439 ChaCha20-Poly1305 AEAD (constant-time ARX
+  ChaCha20 + 5x26-bit Poly1305 MAC + `subtle::ConstantTimeEq` tag verification +
+  `zeroize::Zeroize` key/OTK/keystream clearing, verified against RFC 8439
+  §§2.4.2, 2.5.2 and 2.8.2 test vectors and bit-flip tamper checks). Removes 8
+  packages from `Cargo.lock` (`aead`, `chacha20`, `chacha20poly1305`, `cipher`,
+  `inout`, `opaque-debug`, `poly1305`, `universal-hash`; `Cargo.lock` `193 ->
+  185` packages; 170 cumulative `Cargo.lock` packages removed across
+  T-CARBONLEAN-1..15) and lowers `THIRD_PARTY_CEILING` `107 -> 99` (crossing
+  under 100 third-party crates across the four pillars from the 331 baseline).
