@@ -54,8 +54,8 @@
   "results": {
     "distilled": "4 tasks onto v0.21.54, accept commands passing; remote branch distill/v0-21-55-rc2 = c16d8bfa4",
     "qualification": "format, check, clippy, licenses passed; tests 5450 passed, 2 failed (host_only_privacy, environmental in this sandbox, same on main), 14 ignored; build and smoke not run",
-    "blocked_by": "tag push refused (HTTP 403) from this session; host_only_privacy needs a LAN interface",
-    "next": "qualify and tag on a laptop: see the evidence file's handoff_on_a_laptop"
+    "blocked_by": "tag push refused (HTTP 403) from cloud sessions; host_only_privacy needs a LAN interface the cloud sandbox lacks; 2026-11-11 recheck: none of the four Remote Control folders (DESKTOP-53DT8GM, cachyos-x8664 x2, HP-Pavilion-15-Notebook) is offered to cloud sessions, and no laptop agent session was running to take the handoff",
+    "next": "On a laptop: qualify and tag distill/v0-21-55-rc2 (handoff in the evidence file), or cut rc3 with local-distill compose --base v0.21.54 --from origin/main --select T-RELEASE54REC-1 --select T-CLAUDERECURSE-1 --select T-CLAUDESIGNENV-1 --select T-CLAUDELOOP10-1 --select T-AGYCLOUD-2 (T-AGYCLOUD-2 layered the harness and daemon.harness over DelegationScope after rc2), then bump, re-record GMCP evidence and release-qualify"
   },
   "limitations": [
     "Not a release until release-qualify passes all seven gates on the exact tree and the v0.21.55 tag is pushed.",
