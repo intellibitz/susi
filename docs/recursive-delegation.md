@@ -74,6 +74,22 @@ turn an unsigned envelope into a scope.
   everything opened under it in that process; later presentations are refused
   as cancelled.
 
+## Overlap to reconcile
+
+`crates/susi-harness/src/recursive.rs` (`bc78d05a2`, carbon, landed minutes
+after this slice) implements a second Mandate 73 recursion adapter at the
+harness level: its own grant attenuation, `(component_id, task_key)` cycle
+detection, cooperative cancellation, `MicroUsd` budgets and SHA-256
+provenance receipts, plus per-worker workspace, target, home and port
+isolation. On 2026-11-11 it is declared (`pub mod recursive`) but has no
+production caller. This contract is the one wired into capability dispatch,
+the `os_capabilities` socket tool and the CLI, with signed cross-process
+envelopes. Distillation should keep one attenuation core: the harness
+runtime's isolation and receipts layered over `susi_core::delegation`
+(`DelegationScope` for permissions, budget, deadline, depth, fan-out, cycles
+and cancellation), wired into the supervisor. Neither change was made here,
+to avoid overwriting live work.
+
 ## Limits (not claimed)
 
 - Any process holding the host key (any Susi process of the same host user)
