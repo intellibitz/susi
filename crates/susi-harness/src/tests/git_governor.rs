@@ -582,3 +582,309 @@ fn sweep_handles_large_task_ledger_without_pipe_deadlock_and_discovers_susi_dist
     assert_eq!(fc, sem_final);
     assert_eq!(vname, "v0.21.56-tag-promoted");
 }
+
+#[test]
+fn sweep_reads_agent_refs_mirrors_them_pruned_and_still_reads_legacy_agent_branches() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (remote_bare, work, base_oid) = setup_storage_and_work(tmp.path());
+
+    // Work published the 2026-11-11 way: a non-branch agent ref.
+    git(&work, &["checkout", "-b", "local-agent/gamma", &base_oid]);
+    std::fs::write(work.join("gamma.txt"), "gamma\n").unwrap();
+    git(&work, &["add", "gamma.txt"]);
+    git(&work, &["commit", "-m", "feat: gamma\n\nTask: T-GAMMA-1"]);
+    let gamma = git(&work, &["rev-parse", "HEAD"]);
+    git(
+        &work,
+        &["push", "origin", "local-agent/gamma:refs/agents/gamma"],
+    );
+
+    // A legacy branch preserved as an agent ref at the same tip: one candidate.
+    git(&work, &["checkout", "-b", "local-agent/delta", &base_oid]);
+    std::fs::write(work.join("delta.txt"), "delta\n").unwrap();
+    git(&work, &["add", "delta.txt"]);
+    git(&work, &["commit", "-m", "feat: delta\n\nTask: T-DELTA-1"]);
+    git(
+        &work,
+        &["push", "origin", "HEAD:refs/heads/local-agent/delta"],
+    );
+    git(&work, &["push", "origin", "HEAD:refs/agents/delta"]);
+
+    // An agent ref retired on the remote leaves the mirror.
+    git(
+        &work,
+        &["push", "origin", &format!("{gamma}:refs/agents/gone")],
+    );
+    git(
+        &work,
+        &[
+            "fetch",
+            "origin",
+            "+refs/agents/*:refs/remotes/origin-agents/*",
+        ],
+    );
+    git(&work, &["push", "origin", ":refs/agents/gone"]);
+    git(&work, &["checkout", "--detach", &base_oid]);
+
+    let receipt = sweep_pending_branches(&AutoMergeConfig {
+        repo: work.clone(),
+        remote: "origin".to_string(),
+        fetch_remote: true,
+        include_local: false,
+        ..AutoMergeConfig::default()
+    })
+    .unwrap();
+
+    let gamma_entry = receipt
+        .branches
+        .iter()
+        .find(|b| b.branch == "local-agent/gamma")
+        .expect("agent ref swept");
+    assert_eq!(gamma_entry.git_ref, "refs/remotes/origin-agents/gamma");
+    assert_eq!(gamma_entry.stream, "development_agent_branch");
+    // Candidates merge in branch-name order: delta first, then gamma.
+    assert_eq!(
+        gamma_entry.disposition,
+        BranchSweepDisposition::MergedThreeWay
+    );
+    let delta: Vec<_> = receipt
+        .branches
+        .iter()
+        .filter(|b| b.branch == "local-agent/delta")
+        .collect();
+    assert_eq!(delta.len(), 1, "{delta:?}");
+    assert_eq!(delta[0].git_ref, "refs/remotes/origin-agents/delta");
+    assert_eq!(
+        delta[0].disposition,
+        BranchSweepDisposition::MergedFastForward
+    );
+    assert!(!receipt
+        .branches
+        .iter()
+        .any(|b| b.branch == "local-agent/gone"));
+    assert!(git(&work, &["for-each-ref", "refs/remotes/origin-agents/gone"]).is_empty());
+    assert_eq!(receipt.merged_count, 2);
+
+    let remote_main = git(&remote_bare, &["rev-parse", "refs/heads/main"]);
+    let files = git(
+        &remote_bare,
+        &["ls-tree", "--name-only", "-r", &remote_main],
+    );
+    assert!(files.lines().any(|l| l == "gamma.txt"));
+    assert!(files.lines().any(|l| l == "delta.txt"));
+    // The sweep moved only main: no new branch appeared on the storage remote.
+    let heads = git(
+        &remote_bare,
+        &["for-each-ref", "--format=%(refname)", "refs/heads/"],
+    );
+    assert_eq!(
+        heads.lines().collect::<Vec<_>>(),
+        ["refs/heads/local-agent/delta", "refs/heads/main"]
+    );
+}
+
+#[test]
+fn agent_ref_names_normalize_to_the_worktree_branch_name() {
+    assert_eq!(
+        normalize_branch_short("refs/agents/alpha", "origin"),
+        "local-agent/alpha"
+    );
+    assert_eq!(
+        normalize_branch_short("refs/remotes/origin-agents/alpha", "origin"),
+        "local-agent/alpha"
+    );
+    assert_eq!(
+        normalize_branch_short("refs/remotes/origin/local-agent/alpha", "origin"),
+        "local-agent/alpha"
+    );
+}
+
+#[test]
+fn retire_remote_clutter_preserves_snapshots_and_protects_main_claims_and_unmerged_inboxes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (remote_bare, work, base_oid) = setup_storage_and_work(tmp.path());
+
+    // 1. Add a RETIRE ledger entry on `main` for `local-agent/retired-wave`.
+    git(&work, &["checkout", "main"]);
+    let done_dir = work.join(".agents/tasks/done");
+    fs::create_dir_all(&done_dir).unwrap();
+    let retire_doc = json!({
+        "id": "T-RET-WAVE-1",
+        "status": "done",
+        "results": [{
+            "branch": "local-agent/retired-wave",
+            "heads": [],
+            "verdict": "RETIRE",
+            "evidence": "superseded wave"
+        }]
+    });
+    fs::write(
+        done_dir.join("T-RET-WAVE-1.json"),
+        format!("{}\n", serde_json::to_string_pretty(&retire_doc).unwrap()),
+    )
+    .unwrap();
+    git(&work, &["add", ".agents/tasks/done/T-RET-WAVE-1.json"]);
+    git(
+        &work,
+        &[
+            "commit",
+            "-m",
+            "chore(tasks): retire wave\n\nTask: T-RET-WAVE-1",
+        ],
+    );
+    git(&work, &["push", "origin", "main"]);
+    let main_oid = git(&work, &["rev-parse", "HEAD"]);
+
+    // 2. Merged `local-agent/merged-done` (at `base_oid`, ancestor of `main`).
+    git(
+        &work,
+        &[
+            "push",
+            "origin",
+            &format!("{base_oid}:refs/heads/local-agent/merged-done"),
+        ],
+    );
+
+    // 3. `RETIRE`-ledger `local-agent/retired-wave` (not in `main`, but governed by RETIRE).
+    git(
+        &work,
+        &["checkout", "-b", "local-agent/retired-wave", &main_oid],
+    );
+    fs::write(work.join("retired_wave.txt"), "superseded\n").unwrap();
+    git(&work, &["add", "retired_wave.txt"]);
+    git(
+        &work,
+        &[
+            "commit",
+            "-m",
+            "feat: superseded wave\n\nTask: T-RET-WAVE-2",
+        ],
+    );
+    let retired_wave_oid = git(&work, &["rev-parse", "HEAD"]);
+    git(&work, &["push", "origin", "local-agent/retired-wave"]);
+
+    // 4. Unmerged active `local-agent/unmerged-peer` (must NOT be retired!).
+    git(
+        &work,
+        &["checkout", "-b", "local-agent/unmerged-peer", &main_oid],
+    );
+    fs::write(work.join("peer.txt"), "in flight\n").unwrap();
+    git(&work, &["add", "peer.txt"]);
+    git(
+        &work,
+        &[
+            "commit",
+            "-m",
+            "feat: peer work in flight\n\nTask: T-PEER-9",
+        ],
+    );
+    let peer_oid = git(&work, &["rev-parse", "HEAD"]);
+    git(&work, &["push", "origin", "local-agent/unmerged-peer"]);
+
+    // 5. Claimed `local-agent/claimed-agent` (even though merged, active claim protects it!).
+    git(
+        &work,
+        &[
+            "push",
+            "origin",
+            &format!("{base_oid}:refs/heads/local-agent/claimed-agent"),
+        ],
+    );
+    let claims_dir = work.join(".git/susi-local-workflow/claims");
+    fs::create_dir_all(&claims_dir).unwrap();
+    fs::write(
+        claims_dir.join("claimed-agent.claim"),
+        "susi-local-claim-v2\nclaimed-agent\n1794390000\nsrc/lib.rs\n",
+    )
+    .unwrap();
+
+    // 6. Legacy clutter branch `wip/old-experiment` seeded directly on bare storage.
+    git(
+        &remote_bare,
+        &[
+            "update-ref",
+            "refs/heads/wip/old-experiment",
+            &retired_wave_oid,
+        ],
+    );
+    git(&work, &["checkout", "main"]);
+
+    // Without `--include-local-agent`: only `wip/old-experiment` retires; all `local-agent/*` stay.
+    let first = retire_remote_clutter(&RetireBranchesConfig {
+        repo: work.clone(),
+        remote: "origin".to_string(),
+        fetch_remote: true,
+        include_local_agent: false,
+        branch_filters: Vec::new(),
+        dry_run: false,
+        receipt_out: None,
+    })
+    .unwrap();
+    assert_eq!(first.retired_count, 1);
+    assert_eq!(
+        git(
+            &remote_bare,
+            &[
+                "rev-parse",
+                "refs/tags/susi-distill/legacy-wip-old-experiment"
+            ]
+        ),
+        retired_wave_oid
+    );
+
+    // With `--include-local-agent`: `merged-done` and `retired-wave` preserve & retire,
+    // while `main`, `claimed-agent`, and `unmerged-peer` remain untouched!
+    let second = retire_remote_clutter(&RetireBranchesConfig {
+        repo: work,
+        remote: "origin".to_string(),
+        fetch_remote: true,
+        include_local_agent: true,
+        branch_filters: Vec::new(),
+        dry_run: false,
+        receipt_out: None,
+    })
+    .unwrap();
+    assert_eq!(second.retired_count, 2);
+    assert_eq!(second.refused_count, 0);
+    assert_eq!(second.remaining_remote_head_count, 3);
+    assert_eq!(
+        git(
+            &remote_bare,
+            &[
+                "rev-parse",
+                "refs/tags/susi-distill/legacy-local-agent-merged-done"
+            ]
+        ),
+        base_oid
+    );
+    assert_eq!(
+        git(
+            &remote_bare,
+            &[
+                "rev-parse",
+                "refs/tags/susi-distill/legacy-local-agent-retired-wave"
+            ]
+        ),
+        retired_wave_oid
+    );
+    let heads = git(
+        &remote_bare,
+        &["for-each-ref", "--format=%(refname)", "refs/heads"],
+    );
+    let head_list: Vec<&str> = heads.lines().collect();
+    assert_eq!(
+        head_list,
+        vec![
+            "refs/heads/local-agent/claimed-agent",
+            "refs/heads/local-agent/unmerged-peer",
+            "refs/heads/main",
+        ]
+    );
+    assert_eq!(
+        git(
+            &remote_bare,
+            &["rev-parse", "refs/heads/local-agent/unmerged-peer"]
+        ),
+        peer_oid
+    );
+}

@@ -1,0 +1,62 @@
+{
+  "id": "T-CARBONLEAN-13",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-13",
+  "title": "Lean core: replace x509-cert & rustls-pki-types in susi-vendor-tokio-rustls and susi-daemon-runtime (THIRD_PARTY_CEILING 114 -> 108, Cargo.lock 199 -> 194)",
+  "goal": "Replace x509-cert and rustls-pki-types in crates/susi-vendor-tokio-rustls and crates/susi-daemon-runtime/src/tls.rs with #![forbid(unsafe_code)] RFC 7468 PEM certificate-chain decoding and RFC 5280 ASN.1 DER SubjectPublicKeyInfo RSA OID (1.2.840.113549.1.1.1) + public-key validation. Removes 5 packages including 2 proc-macro crates from Cargo.lock (199 -> 194; 161 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..13) and lowers THIRD_PARTY_CEILING 114 -> 108 (-6 including rustls-pki-types leaving the four-pillar closure).",
+  "status": "done",
+  "state": "done",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794397760,
+  "size": "s",
+  "deps": [
+    "T-CARBONLEAN-12",
+    "T-AGYWIN-4",
+    "T-CLAUDEHARNESSCEIL-1"
+  ],
+  "base": "83279477d567a81ff9e6160c66093eb6339a3d82",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-13.json",
+    "Cargo.lock",
+    "crates/susi-daemon-runtime/src/tls.rs",
+    "crates/susi-vendor-tokio-rustls/Cargo.toml",
+    "crates/susi-vendor-tokio-rustls/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-tokio-rustls",
+      "--lib"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo check --workspace --all-targets --keep-going --offline --locked",
+    "cargo clippy --offline --locked -p susi-vendor-tokio-rustls -p susi-daemon-runtime -p susi --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-vendor-tokio-rustls -p susi-daemon-runtime --lib",
+    "cargo test --offline --locked --test vc_201_077_mastery --test zc_matrix --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ],
+  "limitations": [
+    "Verified on native Linux x86_64 host only per current-host workflow; dual-OS production tag qualification remains separate from accept_verified_candidate local release/* and immutable refs/tags/susi-distill/* distillation."
+  ],
+  "results": {
+    "lockfile_and_pillar_ceilings": "5 packages removed from Cargo.lock including 2 proc-macro crates (der_derive, flagset, tls_codec, tls_codec_derive, x509-cert; Cargo.lock 199 -> 194; 161 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..13); THIRD_PARTY_CEILING 114 -> 108 (-6 including rustls-pki-types leaving the four-pillar closure)",
+    "license_and_lint_gates": "cargo deny --offline --locked check licenses -> licenses ok; cargo clippy -p susi-vendor-tokio-rustls -p susi-daemon-runtime -p susi --all-targets -- -D warnings -> 0 warnings (29,224 ms); cargo fmt --all --check -> 0 diffs",
+    "tests_passed": "241/241 passed (0 failed; 2 ignored in zc_matrix): susi-daemon-runtime (161), susi-vendor-tokio-rustls (6), architecture_tests (44), core_docs_promise_no_ui_or_plugins (5), lean_core_ceilings (2), no_github_coupling (5), orphan_sources (3), task_records (3), vc_201_077_mastery (7), zc_matrix (5)",
+    "timings": {
+      "clippy_crates_ms": 29224,
+      "tests_total_ms": 27741,
+      "incremental_build_p_susi_ms": 183,
+      "warm_noop_build_p_susi_ms": 180,
+      "startup_susi_version_ms": 16.66
+    }
+  }
+}

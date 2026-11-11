@@ -1,0 +1,38 @@
+{
+  "schema": "susi-release-record/v1",
+  "product": "susi",
+  "version": "0.21.59",
+  "tag": "v0.21.59",
+  "commit": "a41ca2559f040990178b38510e004e3f1ce85093",
+  "tagged": "2026-11-11T18:02:15+05:30",
+  "build": {
+    "toolchain": "1.99.0",
+    "host": "x86_64-unknown-linux-gnu",
+    "source": "the release-qualify build gate on the qualified tree 1b81ea62f (commit efaf42805; the tagged commit adds only releases/qualification/v0.21.59.json), Cargo.lock unchanged",
+    "profile": "dist",
+    "features": "susi/local-engine",
+    "env": ["CARGO_PROFILE_DIST_LTO=false", "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"],
+    "command": "cargo build --offline --locked --profile dist -p susi-harness -p susi --features susi/local-engine"
+  },
+  "reproducible": false,
+  "assets": [
+    { "file": "susi-linux-x86_64", "target": "x86_64-unknown-linux-gnu", "package": "susi", "bin": "susi", "sha256": "87fbb1379801f7ee021a84048d254eb680c99d1707b06537671a62a4cda7947c" },
+    { "file": "susi-harness-linux-x86_64", "target": "x86_64-unknown-linux-gnu", "package": "susi-harness", "bin": "susi-harness", "sha256": "8b81dd6a5f3620db102ac01aca8bbe097031c1566be3cb59e6b2a34da7556e30" }
+  ],
+  "missing_targets": [
+    { "target": "x86_64-pc-windows-msvc", "reason": "qualified on a Linux host; the Windows x86_64 reference build and qualification are owed (owed_platforms in the qualification record)" }
+  ],
+  "checks": {
+    "qualification_record": "releases/qualification/v0.21.59.json",
+    "release_qualify": { "gates": ["format", "check", "clippy", "licenses", "tests", "build", "smoke"], "all_exit_0": true },
+    "workspace_tests": { "binaries": 252, "passed": 5670, "failed": 0, "ignored": 14 },
+    "e2e_checks": "the release test gate ran the full workspace on the exact distilled release tree; the dist binaries were checked with --version only",
+    "locally_qualified": true,
+    "qualification_note": "qualified on x86_64-unknown-linux-gnu with release-qualify v0.21.59 --from-distill v0-21-59-distilled-rc1; every gate exited 0, 5670 tests passed and 0 failed, with provider keys unset and a throwaway HOME/SUSI_HOME/XDG tree; Windows x86_64 is not qualified yet"
+  },
+  "provenance": [
+    "commit and tagged time: the immutable annotated tag v0.21.59 (git cat-file -p v0.21.59; git for-each-ref --format=%(taggerdate:iso-strict))",
+    "sha256: the build and smoke gates of release-qualify (xtask/src/bin/release-qualify.rs) on CachyOS Linux x86_64, recorded in releases/qualification/v0.21.59.json with each gate log digest",
+    "source: accept-verified distilled candidate refs/tags/susi-distill/v0-21-59-distilled-rc1 = 22f9b586f (tree 591fb1c61), envelope 3a293e940, receipt ab8da33e23d6afb803c11cc9c3e07370883fbbbdf2d99f08511710a7ae69361c, selecting T-CARBONLEAN-14; the release branch then contains only the v0.21.59 version bump and T-CODEXREL59-1"
+  ]
+}

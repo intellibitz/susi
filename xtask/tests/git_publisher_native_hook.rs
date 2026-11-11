@@ -247,14 +247,14 @@ fn snapshot_tag_passes_the_real_hook_and_is_adopted_by_a_fresh_clone() {
     let adopt = f.publish(Path::new(PUBLISHER), &fresh, &["adopt", "hook-rc1"]);
     assert!(adopt.status.success(), "{}", text(&adopt));
     assert_eq!(
-        f.git(&fresh, &["rev-parse", "refs/candidates/release/hook-rc1"]),
+        f.git(&fresh, &["rev-parse", "refs/heads/release/hook-rc1"]),
         main
     );
-    let leaked_head = isolated(&mut Command::new("git"), &fresh)
+    let remote_leaked = isolated(&mut Command::new("git"), &f.remote)
         .args(["show-ref", "--verify", "refs/heads/release/hook-rc1"])
         .status()
         .unwrap();
-    assert!(!leaked_head.success());
+    assert!(!remote_leaked.success());
 }
 
 #[test]

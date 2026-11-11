@@ -469,7 +469,7 @@ impl Intent {
     }
 
     fn branch_ref(&self) -> String {
-        format!("refs/candidates/release/{}", self.name)
+        format!("refs/heads/release/{}", self.name)
     }
     fn tag_ref(&self) -> String {
         format!("refs/tags/susi-snapshot/{}", self.name)
@@ -1153,8 +1153,7 @@ mod tests {
             original
         );
         assert_eq!(
-            git.text(&["rev-parse", "refs/candidates/release/rc1"])
-                .unwrap(),
+            git.text(&["rev-parse", "refs/heads/release/rc1"]).unwrap(),
             original.commit
         );
     }
@@ -1165,7 +1164,7 @@ mod tests {
         let first = repo.git().text(&["rev-parse", "HEAD"]).unwrap();
         let second = repo.commit("two");
         repo.git()
-            .text(&["update-ref", "refs/candidates/release/rc1", &second])
+            .text(&["update-ref", "refs/heads/release/rc1", &second])
             .unwrap();
         assert!(repo
             .run("cut", "rc1")
@@ -1182,7 +1181,7 @@ mod tests {
         );
         assert_eq!(
             repo.git()
-                .text(&["rev-parse", "refs/candidates/release/rc1"])
+                .text(&["rev-parse", "refs/heads/release/rc1"])
                 .unwrap(),
             second
         );
@@ -1360,9 +1359,15 @@ mod tests {
     fn push_rewrite_with_spaces_cannot_redirect_a_pinned_endpoint() {
         let repo = Repo::new();
         let endpoint = repo.git().endpoint().unwrap();
-        repo.git()
-            .text(&["config", "remote.origin.pushurl", &endpoint.address])
-            .unwrap();
+        // Both URLs name the resolved address: on a Windows host whose TEMP
+        // is an 8.3 short path the fixture's origin URL is spelled short while
+        // the endpoint is canonical, and a pushurl alone would then fail the
+        // fetch/push match before the rewrite check under test is reached.
+        for key in ["remote.origin.url", "remote.origin.pushurl"] {
+            repo.git()
+                .text(&["config", key, &endpoint.address])
+                .unwrap();
+        }
         let key = format!(
             "url.{}.pushInsteadOf",
             repo.root.join("other remote.git").display()

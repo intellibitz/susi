@@ -7,7 +7,7 @@
 //! `docs/peer-channel.md`), end to end over real sockets:
 //!
 //! - three daemons (`susi daemon-start`) in throwaway homes on explicit
-//!   port offsets of 500 and up: a hub `H` that listens on a dedicated
+//!   port offsets of 2100 and up: a hub `H` that listens on a dedicated
 //!   channel port, and two members `A`, `B` that have no listener at all and
 //!   reach `H` only by dialing out, through a recording TCP forwarder that
 //!   stands in for the home router's port forward;
@@ -56,18 +56,25 @@ fn block_free(offset: u16) -> bool {
     BLOCK.iter().all(|(port, tcp)| {
         let port = port + offset;
         if *tcp {
-            TcpListener::bind(("127.0.0.1", port)).is_ok()
+            // The daemon may bind beyond loopback. Probe both surfaces so a
+            // concurrent host-only daemon cannot make this block look free.
+            TcpListener::bind(("0.0.0.0", port)).is_ok()
+                && TcpListener::bind(("127.0.0.1", port)).is_ok()
         } else {
-            std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok()
+            std::net::UdpSocket::bind(("0.0.0.0", port)).is_ok()
+                && std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok()
         }
     })
 }
 
-/// Free contract blocks at offsets of 500 and up (to 1900), `n` of them,
+/// Free contract blocks at offsets of 2100 and up (to 3500), `n` of them,
 /// skipping `taken`. The scan starts at a per-process point so concurrent
 /// test processes rarely probe the same block first.
 fn free_blocks(n: usize, taken: &[u16]) -> Vec<u16> {
-    let slots: Vec<u16> = (5..=19u16).map(|k| k * 100).collect();
+    // `port_fallback` owns the 0..=2000 range while the workspace gate runs
+    // binaries in parallel; keep this fixture in a disjoint range so its
+    // availability probe cannot race that test's daemon.
+    let slots: Vec<u16> = (21..=35u16).map(|k| k * 100).collect();
     let start = (std::process::id() as usize) % slots.len();
     let found: Vec<u16> = (0..slots.len())
         .map(|i| slots[(start + i) % slots.len()])
@@ -908,7 +915,22 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
     loop {
         let (ok, stdout, stderr) =
             run_cli(node, &["peers", "add", endpoint], Duration::from_secs(120));
-        assert!(ok, "peers add as {} failed: {stdout}{stderr}", node.name);
+        if !ok {
+            let detail = format!("{stdout}{stderr}").to_ascii_lowercase();
+            let transient = [
+                "peer channel",
+                "broken pipe",
+                "answered neither",
+                "unreachable",
+            ]
+            .iter()
+            .any(|needle| detail.contains(needle));
+            if transient && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+            panic!("peers add as {} failed: {stdout}{stderr}", node.name);
+        }
         if stdout.contains("admitted this node") {
             return format!("{stdout}{stderr}");
         }

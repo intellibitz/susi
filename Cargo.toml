@@ -41,7 +41,6 @@ members = [
     "crates/susi-vendor-serde",
     "crates/susi-vendor-serde-json",
     "crates/susi-vendor-sha2",
-    "crates/susi-vendor-signal-hook",
     "crates/susi-vendor-windows-registry",
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tokio-rustls",
@@ -54,7 +53,7 @@ exclude = ["vendor"]
 
 [package]
 name = "susi"
-version = "0.21.56"
+version = "0.21.61"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi: RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem. Evidence-gated agent substrate. Open-admit OpenAI-compat/MCP/protocol peers, consensus swarm, HMAC audit, absolute truth, bearer-authenticated host ports."
@@ -134,12 +133,10 @@ susi-leaf-services = { path = "crates/susi-leaf-services", features = ["all-serv
 susi-daemon-runtime = { path = "crates/susi-daemon-runtime" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tracing = "0.1"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 sha2 = "0.10.9"
 getrandom = "0.2"
 ed25519-dalek = { version = "2.2", default-features = false }
-x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
-chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 tokio = { version = "1.53", features = ["io-std", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
@@ -169,7 +166,6 @@ serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }
 winapi = { package = "susi-vendor-winapi", path = "crates/susi-vendor-winapi" }
-signal-hook = { package = "susi-vendor-signal-hook", path = "crates/susi-vendor-signal-hook" }
 tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing" }
 tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }

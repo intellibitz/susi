@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDEHARVESTGATE-1",
+  "title": "local-release qualify refuses a production package unless local-harvest audit passes on the exact candidate",
+  "goal": "Mandate 74 section 5 on the installed-production path: run local-harvest audit in-process on the exact integrated candidate worktree, over its whole history, before any build; fail closed; record the result as harvest-audit= in manifest-bound gates.txt. Complements release-qualify (tag records) without adding a receipt gate id, so previously qualified packages stay valid for rollback.",
+  "created_by": "claude-harvest-gate",
+  "created_unix": 1794396000,
+  "state": "done",
+  "status": "done",
+  "native_worker": "claude-harvest-gate",
+  "claimed_by": "claude-harvest-gate",
+  "size": "s",
+  "deps": ["T-CLAUDEHARVEST-1"],
+  "scopes": [
+    "xtask/src/bin/local-release.rs",
+    "docs/harvest.md",
+    ".agents/tasks/T-CLAUDEHARVESTGATE-1.json"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--features", "release-tooling", "--bin", "local-release", "--", "harvest_audit_failure_stops_qualification_before_any_build", "real_qualification_promotion_rollback_and_failure_preserve_verified_release"]
+  },
+  "validation": "harvest_audit_failure_stops_qualification_before_any_build and real_qualification_promotion_rollback_and_failure_preserve_verified_release pass with the 9 embedded harvest tests (10 passed, 0 failed); the full local-release suite was not run."
+}

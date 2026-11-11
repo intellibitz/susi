@@ -1,0 +1,61 @@
+{
+  "id": "T-CARBONLEAN-15",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-15",
+  "title": "Lean core: replace external chacha20poly1305 with #![forbid(unsafe_code)] RFC 8439 ChaCha20-Poly1305 AEAD (THIRD_PARTY_CEILING 107 -> 99, Cargo.lock 193 -> 185)",
+  "goal": "Replace external chacha20poly1305 in crates/susi-vendor-chacha20poly1305 with a pure-Rust #![forbid(unsafe_code)] RFC 8439 ChaCha20-Poly1305 AEAD implementation using constant-time ARX ChaCha20, 5x26-bit limb Poly1305 MAC, subtle::ConstantTimeEq 16-byte tag verification prior to decryption, and zeroize::Zeroize key/OTK/keystream clearing. Removes 8 packages from Cargo.lock (aead, chacha20, chacha20poly1305, cipher, inout, opaque-debug, poly1305, universal-hash; Cargo.lock 193 -> 185; 170 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..15) and lowers THIRD_PARTY_CEILING 107 -> 99 (crossing under 100 third-party crates across the four pillars from the 331 baseline).",
+  "status": "done",
+  "state": "done",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794400468,
+  "size": "s",
+  "deps": [
+    "T-CARBONLEAN-14"
+  ],
+  "base": "b03a16220c3b811a19fbfcd0458a727f2037a84b",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-15.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-vendor-chacha20poly1305/Cargo.toml",
+    "crates/susi-vendor-chacha20poly1305/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-chacha20poly1305",
+      "--lib"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo check --workspace --all-targets --keep-going --offline --locked",
+    "cargo clippy --offline --locked -p susi-vendor-chacha20poly1305 -p susi-config -p susi --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-vendor-chacha20poly1305 -p susi-config --lib",
+    "cargo test --offline --locked --test peer_channel_hub --test architecture_tests --test core_docs_promise_no_ui_or_plugins --test lean_core_ceilings --test no_github_coupling --test orphan_sources --test thin_client_invariant --test zc_matrix --test task_records"
+  ],
+  "limitations": [
+    "Verified on native Linux x86_64 host only; Windows x86_64 MSVC build/test qualification remains distinct."
+  ],
+  "results": {
+    "lockfile_and_pillar_ceilings": "8 packages removed from Cargo.lock (aead, chacha20, chacha20poly1305, cipher, inout, opaque-debug, poly1305, universal-hash; Cargo.lock 193 -> 185; 170 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..15); THIRD_PARTY_CEILING 107 -> 99 (sub-100 four-pillar third-party milestone reached from 331 baseline)",
+    "license_and_lint_gates": "cargo deny --offline --locked check licenses -> licenses ok; cargo check --workspace --all-targets -> exit 0 (14,954 ms); cargo clippy -p susi-vendor-chacha20poly1305 -p susi-config -p susi --all-targets -- -D warnings -> 0 warnings (15,732 ms); cargo fmt --all --check -> 0 diffs",
+    "tests_passed": "400/400 passed (0 failed; 2 ignored in zc_matrix): susi-config (321), susi-vendor-chacha20poly1305 (5), peer_channel_hub (2), architecture_tests (44), core_docs_promise_no_ui_or_plugins (5), lean_core_ceilings (2), no_github_coupling (5), orphan_sources (3), thin_client_invariant (5), zc_matrix (5), task_records (3)",
+    "timings": {
+      "workspace_check_ms": 14954,
+      "clippy_crates_ms": 15732,
+      "tests_total_ms": 41892,
+      "incremental_build_p_susi_ms": 143,
+      "warm_noop_build_p_susi_ms": 131,
+      "startup_susi_version_ms": 13.53
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "id": "T-CODEXHERME2E-1",
+  "feature_id": "F-CORE-HERMETIC-E2E-1",
+  "title": "Keep core release E2E checks from launching desktop engine UIs",
+  "goal": "Run the core release E2E command matrix with an isolated PATH so ecosystem scanning cannot execute a host-installed desktop launcher such as Jan during testing.",
+  "state": "in_progress",
+  "status": "implemented_pending_integration",
+  "owner": "codex-coordinator",
+  "created_by": "codex-coordinator",
+  "native_worker": "codex-hermetic-e2e",
+  "claimed_by": "codex-hermetic-e2e",
+  "created_unix": 1794404818,
+  "updated_unix": 1794404818,
+  "size": "s",
+  "base": "67cea34c6349d611e0f59600dc063d712311be05",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-CODEXHERME2E-1.json",
+    "tests/release_e2e_checks.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_e2e_checks"
+    ]
+  },
+  "limitations": [
+    "This prevents host binaries from being reached by the core E2E child process; explicit operator ecosystem scans remain the opt-in path for inspecting installed engines."
+  ]
+}

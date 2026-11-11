@@ -103,10 +103,23 @@ pub(crate) struct Entry<'a> {
     pub(crate) pid: u32,
 }
 
+/// How long an append waits for the cross-process chain lock.
+const CHAIN_LOCK_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub(crate) fn append_with_key(
     audit_file: &Path,
     key: &[u8; 32],
     entry: &Entry,
+) -> std::io::Result<String> {
+    append_with_key_within(audit_file, key, entry, CHAIN_LOCK_BUDGET)
+}
+
+/// `append_with_key` waiting at most `lock_budget` for the chain lock.
+pub(crate) fn append_with_key_within(
+    audit_file: &Path,
+    key: &[u8; 32],
+    entry: &Entry,
+    lock_budget: std::time::Duration,
 ) -> std::io::Result<String> {
     let Entry {
         level,
@@ -126,8 +139,15 @@ pub(crate) fn append_with_key(
             .and_then(|n| n.to_str())
             .unwrap_or("audit")
     );
-    let _file_lock = crate::susi_config::file_lock::FileLock::acquire(dir, &lock_name)
-        .ok_or_else(|| std::io::Error::other("audit chain lock unavailable"))?;
+    // A holder syncs the entry and then the tip checkpoint to disk, about
+    // 0.1 s per append on Windows with real-time scanning, so a few writers
+    // queued behind one another outlast the default ~3 s and an ordinary
+    // append was refused (four processes appending together on Windows).
+    // Waiting longer is safe: a dead holder is still reclaimed by the lock's
+    // staleness rule, and a lock held past this budget still fails closed.
+    let _file_lock =
+        crate::susi_config::file_lock::FileLock::acquire_within(dir, &lock_name, lock_budget)
+            .ok_or_else(|| std::io::Error::other("audit chain lock unavailable"))?;
     let prev = last_hash(audit_file, key)?;
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

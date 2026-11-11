@@ -5585,11 +5585,17 @@ mod tests {
         // Started from an agent worktree, the new one still sits beside the primary.
         let nested = start(&worktree, "nested", &["src/nested".into()]).unwrap();
         let primary_name = repo.file_name().unwrap().to_str().unwrap();
+        // Compared as files, not strings: on a Windows host whose TEMP is an
+        // 8.3 short path (C:\Users\ABCDEF~1\...), the scratch repo is named
+        // that way while git reports the long form for the same directory.
         assert_eq!(
-            nested,
-            repo.parent()
-                .unwrap()
-                .join(format!("{primary_name}-agent-nested"))
+            fs::canonicalize(&nested).unwrap(),
+            fs::canonicalize(
+                repo.parent()
+                    .unwrap()
+                    .join(format!("{primary_name}-agent-nested"))
+            )
+            .unwrap()
         );
 
         let error = release(&repo, "far").unwrap_err();

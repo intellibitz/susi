@@ -76,7 +76,33 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// single test-only `hyper::client::conn::http2::handshake` in
 /// `susi_http_transport::http_conn` with raw RFC 9113 prior-knowledge frames,
 /// removing `want` and `try-lock` from Cargo.lock and the pillar closure).
-const THIRD_PARTY_CEILING: usize = 115;
+/// 2026-11-11: 115 -> 114 (T-AGYWIN-4: disable `tracing` default `"attributes"`
+/// feature in root `Cargo.toml` and `susi-vendor-tracing` (`features = ["std"]`
+/// only); zero files use `#[instrument]`, dropping the `tracing-attributes`
+/// proc-macro from Cargo.lock and the pillar closure).
+/// 2026-11-11: 114 -> 108 (T-CARBONLEAN-13: replace `x509-cert` and
+/// `rustls-pki-types` in `susi-vendor-tokio-rustls` and `susi-daemon-runtime`
+/// with `#![forbid(unsafe_code)]` RFC 7468 PEM chain decoding and RFC 5280
+/// ASN.1 DER `Certificate -> TBSCertificate -> SubjectPublicKeyInfo` validation;
+/// removes `x509-cert`, `tls_codec`, `tls_codec_derive`, `der_derive` and
+/// `flagset` from Cargo.lock (199 -> 194) and additionally removes
+/// `rustls-pki-types` from the four-pillar closure).
+/// 2026-11-11: 108 -> 107 (T-CARBONLEAN-14: drop unused `log` dependency from
+/// `vendor/native-tls`, removing `log` from Cargo.lock (194 -> 193) and the
+/// four-pillar closure).
+/// 2026-11-11: 107 -> 99 (T-CARBONLEAN-15: replace external `chacha20poly1305`
+/// in `susi-vendor-chacha20poly1305` with `#![forbid(unsafe_code)]` RFC 8439
+/// ChaCha20-Poly1305 AEAD using constant-time 5x26-bit Poly1305,
+/// `subtle::ConstantTimeEq` and `zeroize::Zeroize`; removes `aead`, `chacha20`,
+/// `chacha20poly1305`, `cipher`, `inout`, `opaque-debug`, `poly1305` and
+/// `universal-hash` from Cargo.lock (193 -> 185) and brings the four-pillar
+/// third-party closure under 100 crates for the first time: 331 -> 99).
+/// 2026-11-11: 99 -> 96 (T-CARBONLEAN-16: back `susi-vendor-x25519-dalek`
+/// directly with `curve25519-dalek` (`EdwardsPoint::mul_base_clamped`,
+/// `MontgomeryPoint::mul_clamped` and constant-time `IsIdentity`) + `zeroize`,
+/// removing `x25519-dalek`, `rand_core` and the `zeroize_derive` proc-macro
+/// from Cargo.lock (185 -> 182) and the four-pillar closure).
+const THIRD_PARTY_CEILING: usize = 96;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
@@ -195,6 +221,10 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// unchanged evolution.rs inline unit suite moved to src/tests/evolution.rs
 /// with T-CLAUDEREL56-1's env-lock fix. Test organization, not removed
 /// runtime capability.
+/// 2026-11-11: susi-harness 37,439 -> 37,434 (T-CLAUDEHARNESSCEIL-1,
+/// measured): T-CLAUDEAGENTREFS-1 removed the JSON `.claim` reader in
+/// `discover_active_claim_branches`, which no writer feeds (claims are
+/// `susi-local-claim-v2` text, read by the existing hazard scan).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_523),
     ("susi-gawd-swarm", 20_116),
@@ -203,7 +233,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gemi", 21_145),
     ("susi-gemi-models", 15_945),
     ("susi-gmcp", 25_860),
-    ("susi-harness", 37_439),
+    ("susi-harness", 37_434),
 ];
 
 fn workspace_root() -> PathBuf {

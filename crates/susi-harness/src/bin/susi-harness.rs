@@ -54,9 +54,12 @@ usage:
   susi-harness integrate       [--repo PATH] [--remote origin] [--include-local] [--branch PAT]
                                [--adopt-host-commit OID] [--allow-missing-trailer] [--dry-run]
                                [--max-attempts N] [--no-fetch] [--receipt-out PATH] [--json]
+                               (also sweeps refs/agents/<a> as local-agent/<a>; docs/agent-refs.md)
   susi-harness submit-main     [--repo PATH] [--rev REV] [--remote origin] [--adopt-host-commit OID]
                                [--allow-missing-trailer] [--dry-run] [--max-attempts N] [--json]
   susi-harness release-promote [--repo PATH] [--remote origin] [--name RELEASE_NAME] [--candidate REV]
+                               [--dry-run] [--no-fetch] [--receipt-out PATH] [--json]
+  susi-harness retire-branches [--repo PATH] [--remote origin] [--include-local-agent] [--branch PAT]
                                [--dry-run] [--no-fetch] [--receipt-out PATH] [--json]
   susi-harness version
 
@@ -109,6 +112,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "integrate" | "auto-merge" => integrate_command(&options),
         "submit-main" => submit_main_command(&options),
         "release-promote" | "promote-release" => release_promote_command(&options),
+        "retire-branches" | "prune-remote-branches" => retire_branches_command(&options),
         other => Err(format!("unknown command `{other}`\n\n{USAGE}")),
     }
 }
@@ -133,6 +137,7 @@ struct Options {
     repo: Option<PathBuf>,
     remote: String,
     include_local: bool,
+    include_local_agent: bool,
     branches: Vec<String>,
     adopt_host_commits: Vec<String>,
     allow_missing_trailer: bool,
@@ -164,6 +169,7 @@ impl Options {
             repo: None,
             remote: "origin".to_string(),
             include_local: false,
+            include_local_agent: false,
             branches: Vec::new(),
             adopt_host_commits: Vec::new(),
             allow_missing_trailer: false,
@@ -217,6 +223,7 @@ impl Options {
                 "--repo" => options.repo = Some(PathBuf::from(value()?)),
                 "--remote" => options.remote = value()?,
                 "--include-local" => options.include_local = true,
+                "--include-local-agent" => options.include_local_agent = true,
                 "--branch" => options.branches.push(value()?),
                 "--adopt-host-commit" => options.adopt_host_commits.push(value()?),
                 "--allow-missing-trailer" => options.allow_missing_trailer = true,
@@ -556,6 +563,22 @@ fn release_promote_command(options: &Options) -> Result<(), String> {
     print_json(&doc)
 }
 
+fn retire_branches_command(options: &Options) -> Result<(), String> {
+    let cfg = susi_harness::git_governor::RetireBranchesConfig {
+        repo: options.repo_dir()?,
+        remote: options.remote.clone(),
+        fetch_remote: !options.no_fetch,
+        include_local_agent: options.include_local_agent,
+        branch_filters: options.branches.clone(),
+        dry_run: options.dry_run,
+        receipt_out: options.receipt_out.clone(),
+    };
+    let mut note_sink = |line: String| eprintln!("{line}");
+    let doc =
+        susi_harness::operator::retire_branches(&cfg, &mut note_sink).map_err(|e| e.to_string())?;
+    print_json(&doc)
+}
+
 #[cfg(test)]
 fn adaptive_json(options: &Options) -> Result<String, String> {
     let report = susi_harness::build_adaptive_supervisor_report(options.port_offset);
@@ -825,6 +848,7 @@ mod tests {
             "--remote",
             "upstream",
             "--include-local",
+            "--include-local-agent",
             "--branch",
             "local-agent/*",
             "--adopt-host-commit",
@@ -848,6 +872,7 @@ mod tests {
         assert_eq!(opts.repo, Some(PathBuf::from("/tmp/susi-repo")));
         assert_eq!(opts.remote, "upstream");
         assert!(opts.include_local);
+        assert!(opts.include_local_agent);
         assert_eq!(opts.branches, vec!["local-agent/*".to_string()]);
         assert_eq!(opts.adopt_host_commits.len(), 1);
         assert!(opts.allow_missing_trailer);

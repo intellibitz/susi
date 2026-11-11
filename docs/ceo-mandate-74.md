@@ -168,10 +168,11 @@ GitHub offers "Compare & pull request" for recently pushed branches under
 
 - Release lines, claims and candidates live outside `refs/heads`, so no prompt
   or merge button appears for them.
-- `push-policy` admits only `refs/heads/main` and `refs/heads/local-agent/<agent>`
-  as remote branches. Agent work branches stay local. A `local-agent/<agent>`
-  backup is allowed, but GitHub lists it as a branch, so use it only when off-host
-  backup is needed.
+- `push-policy` admits only `refs/heads/main` as a remote branch. Agent work
+  branches (`local-agent/<agent>`) stay local; an agent publishes or backs up
+  its work to the non-branch ref `refs/agents/<agent>`, which GitHub never offers
+  as a pull request (`docs/agent-refs.md`). Existing remote `local-agent/*`
+  branches may only be deleted, after their tip is preserved there.
 - Agents never call `gh` pull-request commands, the GitHub API, auto-merge or merge queues, and
   never change repository settings, branch protection or rulesets. Server-side
   transport protection (non-fast-forward and deletion rules) is storage safety
@@ -326,10 +327,14 @@ fast-forward advancement with a bounded retry loop.
 `local-harvest` (`docs/harvest.md`) provides quarantine intake, per-file
 license scans, `susi-harvest-manifest-v1` imports, `THIRD_PARTY_NOTICES`
 generation, and an audit of Apache-2.0 section 4 (a) to (d) and of `Harvest:`
-trailers. Both work in `susi-commercial-apps` too, whose hook admits the same namespaces.
+trailers, and `release-qualify` / `push-policy` enforce `local-harvest audit`
+before release gates and on release tags while `local-distill` records disjoint
+lanes, stable `git patch-id` digests, and `harvest_audit` in distillation
+receipts (`T-CARBONDISTILL-2`). Both `release-lanes` and `local-harvest` work
+in `susi-commercial-apps` too, whose hook admits the same namespaces.
 
-To build (open work, not claims): wiring `local-harvest audit` into
-`local-release qualify`; speculative-stack qualification and safe evidence reuse
-across trees; claim heartbeats; advisory `main` health records; the mirror
-portability drill and bundle backups; the provider-neutrality check for
-hardcoded hosts; and the harness parity evaluation for default-driver promotion.
+To build (open work, not claims): speculative-stack qualification and safe
+evidence reuse across trees; claim heartbeats; advisory `main` health records;
+the mirror portability drill and bundle backups; the provider-neutrality check
+for hardcoded hosts; and the harness parity evaluation for default-driver
+promotion.

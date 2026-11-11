@@ -323,7 +323,7 @@ fn graft_environment_override_fails_closed_even_when_file_is_missing() {
 }
 
 #[test]
-fn branch_allowlist_admits_main_and_local_agent_retires_others_and_candidates_fast_forward() {
+fn branch_allowlist_admits_only_main_retires_others_and_candidates_fast_forward() {
     let r = Repo::new();
     let old = r.git(&["rev-parse", "HEAD"]);
     let new = r.commit("release candidate");
@@ -353,7 +353,8 @@ fn branch_allowlist_admits_main_and_local_agent_retires_others_and_candidates_fa
             .is_err());
         assert!(r.check(&format!("HEAD {ZERO} {reference} {old}")).is_err());
     }
-    for reference in ["refs/heads/main", "refs/heads/local-agent/agywin1"] {
+    {
+        let reference = "refs/heads/main";
         assert!(r.check(&format!("HEAD {new} {reference} {ZERO}")).is_ok());
         assert!(r.check(&format!("HEAD {new} {reference} {old}")).is_ok());
         let error = r
@@ -553,4 +554,203 @@ fn a_release_tag_must_point_at_the_record_commit_and_never_moves() {
         .check(&format!("HEAD {other} refs/tags/v1.2.3 {commit}"))
         .unwrap_err()
         .contains("immutable"));
+}
+
+#[test]
+fn agent_refs_admit_create_fast_forward_and_tip_deletion_and_refuse_non_fast_forward() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    let new = r.commit("agent work");
+    let blob = r.git(&["rev-parse", "HEAD:source"]);
+    let reference = "refs/agents/agentrefs";
+    assert_eq!(r.check(&format!("HEAD {new} {reference} {ZERO}")), Ok(()));
+    assert_eq!(r.check(&format!("HEAD {new} {reference} {old}")), Ok(()));
+    assert_eq!(
+        r.check(&format!("(delete) {ZERO} {reference} {new}")),
+        Ok(())
+    );
+    let error = r
+        .check(&format!("{old} {old} {reference} {new}"))
+        .unwrap_err();
+    assert!(error.contains("non-fast-forward"), "{error}");
+    // A blob is not work; a deletion must name the advertised tip.
+    assert!(r
+        .check(&format!("{blob} {blob} {reference} {ZERO}"))
+        .is_err());
+    assert!(r
+        .check(&format!("(delete) {ZERO} {reference} {ZERO}"))
+        .is_err());
+    // One component, exactly like the local-agent/<agent> name it mirrors.
+    assert!(r.check(&format!("HEAD {new} refs/agents/ {ZERO}")).is_err());
+    let error = r
+        .check(&format!("HEAD {new} refs/agents/nested/bad {ZERO}"))
+        .unwrap_err();
+    assert!(error.contains("refs/agents/<agent>"), "{error}");
+}
+
+#[test]
+fn local_agent_branches_refuse_create_and_update_and_retire_once_preserved_as_agent_refs() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    let new = r.commit("agent work");
+    let reference = "refs/heads/local-agent/agywin1";
+    for previous in [ZERO, old.as_str()] {
+        let error = r
+            .check(&format!("HEAD {new} {reference} {previous}"))
+            .unwrap_err();
+        assert!(error.contains("refs/agents/agywin1"), "{error}");
+    }
+    let delete = format!("(delete) {ZERO} {reference} {new}");
+    let error = r.check(&delete).unwrap_err();
+    assert!(error.contains("branch deletion prohibited"), "{error}");
+    // Preserved by the same push to its agent ref.
+    assert_eq!(
+        r.check(&format!("HEAD {new} refs/agents/agywin1 {ZERO}\n{delete}")),
+        Ok(())
+    );
+    // Preserved in the fetched agent-ref mirror.
+    r.git(&["update-ref", "refs/remotes/origin-agents/agywin1", &new]);
+    assert_eq!(r.check(&delete), Ok(()));
+    assert!(r
+        .check(&format!("(delete) {ZERO} {reference} {ZERO}"))
+        .is_err());
+}
+
+#[test]
+fn real_git_push_publishes_agent_refs_and_refuses_new_local_agent_branches() {
+    let binary = env!("CARGO_BIN_EXE_push-policy");
+    let r = Repo::new();
+    let remote = r.0.join("remote.git");
+    r.git(&["init", "--bare", "-q", remote.to_str().unwrap()]);
+    r.git(&["remote", "add", "fixture", remote.to_str().unwrap()]);
+    let first = r.git(&["rev-parse", "HEAD"]);
+    // A legacy branch that predates the rule, stored before the hook exists.
+    r.git(&["push", "-q", "fixture", "HEAD:refs/heads/local-agent/old"]);
+    let hook = r.0.join(".git/hooks/pre-push");
+    std::fs::write(&hook, include_str!("../../.githooks/pre-push")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let push = |args: &[&str]| {
+        let mut path = vec![std::path::Path::new(binary).parent().unwrap().to_owned()];
+        path.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        Command::new("git")
+            .current_dir(&r.0)
+            .arg("push")
+            .args(args)
+            .env("PATH", std::env::join_paths(path).unwrap())
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_COMMON_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+            )
+            .output()
+            .unwrap()
+    };
+    let remote_ref = |name: &str| {
+        Command::new("git")
+            .args([
+                "--git-dir",
+                remote.to_str().unwrap(),
+                "rev-parse",
+                "--verify",
+                "-q",
+                name,
+            ])
+            .output()
+            .unwrap()
+    };
+    assert!(push(&["fixture", "HEAD:refs/agents/lane"]).status.success());
+    let second = r.commit("second");
+    assert!(push(&["fixture", "HEAD:refs/agents/lane"]).status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&remote_ref("refs/agents/lane").stdout).trim(),
+        second
+    );
+    let rewind = push(&["--force", "fixture", &format!("{first}:refs/agents/lane")]);
+    assert!(!rewind.status.success());
+    assert!(String::from_utf8_lossy(&rewind.stderr).contains("pre-push:"));
+    let branch = push(&["fixture", "HEAD:refs/heads/local-agent/lane"]);
+    assert!(!branch.status.success());
+    assert!(String::from_utf8_lossy(&branch.stderr).contains("refs/agents/lane"));
+    assert!(!remote_ref("refs/heads/local-agent/lane").status.success());
+    // Retirement: preserve the tip as an agent ref, fetch it into the mirror,
+    // then delete the branch.
+    assert!(!push(&["fixture", ":refs/heads/local-agent/old"])
+        .status
+        .success());
+    assert!(push(&["fixture", &format!("{first}:refs/agents/old")])
+        .status
+        .success());
+    r.git(&[
+        "fetch",
+        "-q",
+        "fixture",
+        "+refs/agents/*:refs/remotes/fixture-agents/*",
+    ]);
+    assert!(push(&["fixture", ":refs/heads/local-agent/old"])
+        .status
+        .success());
+    assert!(!remote_ref("refs/heads/local-agent/old").status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&remote_ref("refs/agents/old").stdout).trim(),
+        first
+    );
+    assert!(push(&["fixture", ":refs/agents/lane"]).status.success());
+    assert!(!remote_ref("refs/agents/lane").status.success());
+}
+
+#[test]
+fn retired_local_agent_branches_require_distill_or_candidate_preservation_and_main_never_deletes() {
+    let r = Repo::new();
+    let base = r.git(&["rev-parse", "HEAD"]);
+    let agent_tip = r.commit("agent work");
+
+    // Without preservation under refs/tags/susi-distill/* or refs/candidates/*,
+    // deleting a local-agent/* branch is refused.
+    let err = r
+        .check(&format!(
+            "(delete) {ZERO} refs/heads/local-agent/retirebr {agent_tip}"
+        ))
+        .unwrap_err();
+    assert!(err.contains("branch deletion prohibited"), "{err}");
+
+    // Atomic co-push of immutable snapshot tag + local-agent/* deletion succeeds.
+    assert_eq!(
+        r.check(&format!(
+            "HEAD {agent_tip} refs/tags/susi-distill/legacy-local-agent-retirebr {ZERO}\n(delete) {ZERO} refs/heads/local-agent/retirebr {agent_tip}"
+        )),
+        Ok(())
+    );
+
+    // Once preserved locally under refs/tags/susi-distill/*, standalone retirement succeeds.
+    r.git(&[
+        "update-ref",
+        "refs/tags/susi-distill/legacy-local-agent-retirebr",
+        &agent_tip,
+    ]);
+    assert_eq!(
+        r.check(&format!(
+            "(delete) {ZERO} refs/heads/local-agent/retirebr {agent_tip}"
+        )),
+        Ok(())
+    );
+
+    // Deleting refs/heads/main remains unconditionally prohibited even when preserved.
+    r.git(&["update-ref", "refs/tags/susi-distill/legacy-main", &base]);
+    let main_err = r
+        .check(&format!("(delete) {ZERO} refs/heads/main {base}"))
+        .unwrap_err();
+    assert!(
+        main_err.contains("branch deletion prohibited"),
+        "{main_err}"
+    );
 }

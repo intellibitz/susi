@@ -1,0 +1,49 @@
+{
+  "id": "T-CLAUDEREL57-1",
+  "title": "Release v0.21.57: version bump on the snapshot v0-21-57-rc1",
+  "goal": "Core release v0.21.57 is cut from a snapshot of development main (docs/releases.md, Cutting a release): local-snapshot cut v0-21-57-rc1 published refs/tags/susi-snapshot/v0-21-57-rc1 = 2cf338772 (tree e07bea973). It ships everything on main since v0.21.56 (lean-core waves, storage-only, re-lands, evidence re-record admission); a selective distillation onto v0.21.56 conflicts on Cargo.lock and the ceilings, so a snapshot is used. This commit is only the version bump 0.21.56 -> 0.21.57 in the files of the v0.21.56 bump 9443a70ec; release-qualify v0.21.57 then runs every release gate on this exact tree.",
+  "status": "done",
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CLAUDEREL57-1.json"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDEREL57RC",
+  "created_unix": 1794394857,
+  "owner": "CLAUDEREL57RC",
+  "results": {
+    "snapshot": "local-snapshot cut v0-21-57-rc1: refs/tags/susi-snapshot/v0-21-57-rc1 -> 2cf33877293eda03b136c23ac92bccb9e0f37e73 (tree e07bea973855e738439ee4a736d9f5afbe206bb7), published and verified; local candidate refs/candidates/release/v0-21-57-rc1",
+    "bump": "3d3214893 (tree f3fc8b1dc): 0.21.56 -> 0.21.57 in the 12 files of the v0.21.56 bump; gmcp_requirements 88/88 and release_records 5/5 passed on it, so no GMCP evidence re-record was needed",
+    "gates": "release-qualify v0.21.57 --jobs 8 on commit 3d3214893 (tree f3fc8b1dc), CachyOS Linux x86_64, rustc 1.99.0, isolated HOME/SUSI_HOME/XDG, TMPDIR=/var/tmp/claude-rel57/tmp, provider keys unset: format 0 (5 s), check 0 (26 s), clippy 0 (27 s), licenses 0 (0 s), tests 0 (353 s; 254 binaries, 5637 passed, 0 failed, 14 ignored), build 0 (129 s), smoke 0",
+    "tag": "v0.21.57 annotated 699ca15ed -> 0490fdd5a (record commit adding only releases/qualification/v0.21.57.json); pushed through push-policy; git ls-remote confirms",
+    "assets": "susi sha256 965a1a12f6db4aa883f23502aa9aee8e560c4f43758d947ba6647289f4fb0bca (susi 0.21.57); susi-harness sha256 0effe8d14c96cf867b2ecc9614cdb7be7d17265c4965b9bda97e9dbb1b06cae5 (susi-harness 0.21.57)"
+  },
+  "limitations": [
+    "Windows x86_64 is not qualified (owed_platforms)."
+  ]
+}

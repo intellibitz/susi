@@ -183,10 +183,28 @@ mod audit_chain_tests {
             "audit.log.chain",
         )
         .unwrap();
-        assert!(append_signed_entry(&log, "Info", "T", "blocked", 1).is_err());
-        drop(held);
-        append_signed_entry(&log, "Info", "T", "after", 1).unwrap();
-        assert_eq!(verify_chain(&log), Ok(1));
+        let key = [0x24u8; 32];
+        let entry = |details| Entry {
+            level: "Info",
+            event_type: "T",
+            details,
+            pid: 1,
+        };
+        // A lock held past the budget fails the append closed.
+        let budget = std::time::Duration::from_millis(300);
+        assert!(append_with_key_within(&log, &key, &entry("blocked"), budget).is_err());
+        // A holder that keeps the lock longer than the old ~3 s default is
+        // waited out, not refused: writers queued behind syncing holders on
+        // Windows used to lose their appends that way.
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(3500));
+            drop(held);
+        });
+        let started = std::time::Instant::now();
+        append_with_key(&log, &key, &entry("after")).unwrap();
+        assert!(started.elapsed() >= std::time::Duration::from_millis(3000));
+        release.join().unwrap();
+        assert_eq!(verify_with_key(&log, &key), Ok(1));
     }
 
     #[test]

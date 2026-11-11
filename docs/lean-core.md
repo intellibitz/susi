@@ -53,7 +53,7 @@ means four pillars plus the host that serves them.
 | Keep: socket host | `susi` (root), `-cli-defs`, `-daemon`, `-server`, `-leaf-services` (collapse the five leaf services into the daemon: one process, no per-service HTTP), `-wire-client`, `-conformance`, `-windows-runtime`, `-build-os-ucrt`, `xtask`, `-unsafe-ratchet` (tooling) | shrink; collapse |
 | Keep: Tier 0 | `susi-vendor-wasmtime` (SUSI-Alpha Wasm reflexes are core), `-vendor-syn` (reflex validation) | review at rung 2 |
 | Move to commercial (plugs) | `susi-vendor-models`, `-vendor-agents`, `-vendor-web`, `-vendor-cloud`, `-vendor-chrome`, `-vendor-candle`, `-vendor-fastembed`, `-vendor-tantivy`, `-vendor-bollard` + `susi-sandbox` (Docker), `susi-tools` (MCP client adapters; the registry stays in core), `susi-agents` (external-agent plane), `susi-universal-cell` | Antigravity, crate by crate, gated |
-| Delete when unreferenced | pure facades nothing reaches after the moves (`anyhow`, `console-subscriber`, `tracing-appender`, `tracing-subscriber`, `md-5`, `rcgen`, `signal-hook`, `tokio-stream`, `criterion`, `proptest` ...) | after each move |
+| Delete when unreferenced | pure facades nothing reaches after the moves (`anyhow`, `console-subscriber`, `tracing-appender`, `tracing-subscriber`, `md-5`, `rcgen`, `tokio-stream`, `criterion`, `proptest` ...) | after each move |
 
 ## How work is split
 
@@ -984,5 +984,63 @@ config, core and the tail.
   cumulative `Cargo.lock` packages removed across T-CARBONLEAN-1..11) and
   lowering `THIRD_PARTY_CEILING` 117 -> 115. Also synchronize `README.md` to
   Mandates 49–74 after Mandate 74 landed in `.agents/identity.json`.
-
-
+- 2026-11-11 (T-CARBONLEAN-12, Linux x86_64, CEO laptop): delete workspace
+  facade `crates/susi-vendor-signal-hook` (`VENDOR_FACADES` 18 -> 17) by
+  replacing `signal_hook` in `crates/susi-daemon/src/server.rs` and
+  `src/cli/catalog_plane_cli.rs` with `#![forbid(unsafe_code)]` cross-platform
+  `tokio::signal` listeners (`SignalKind::{interrupt,terminate,hangup}` on Unix
+  and `tokio::signal::windows::{ctrl_c,ctrl_break,ctrl_close,ctrl_shutdown}` on
+  Windows), and set `default-features = false` on `clap` in
+  `crates/susi-vendor-clap/Cargo.toml` (`["std", "derive", "env", "help",
+  "usage", "error-context", "suggestions"]`, dropping unused terminal color
+  styling). Removes 10 packages from `Cargo.lock` and from the host `susi`
+  binary (`anstream`, `anstyle-parse`, `anstyle-query`, `anstyle-wincon`,
+  `colorchoice`, `is_terminal_polyfill`, `once_cell_polyfill`, `signal-hook`,
+  `susi-vendor-signal-hook`, `utf8parse`; `Cargo.lock` 210 -> 200 packages; 156
+  cumulative `Cargo.lock` packages removed across T-CARBONLEAN-1..12).
+- 2026-11-11 harness re-pin (T-CLAUDEHARNESSCEIL-1): `susi-harness` line
+  ceiling 37,439 -> 37,434, measured after T-CLAUDEAGENTREFS-1 removed a JSON
+  `.claim` reader that no writer feeds. Reach unchanged: 33 workspace crates,
+  114 third-party, 9 facade edges, each equal to its ceiling.
+- 2026-11-11 (T-CARBONLEAN-13, Linux x86_64, CEO laptop): replace `x509-cert`
+  and `rustls-pki-types` in `crates/susi-vendor-tokio-rustls` and
+  `crates/susi-daemon-runtime/src/tls.rs` with `#![forbid(unsafe_code)]`
+  RFC 7468 PEM certificate-chain decoding (`parse_certificate_pem_chain`) and
+  RFC 5280 ASN.1 DER `Certificate -> TBSCertificate -> SubjectPublicKeyInfo`
+  RSA OID (`1.2.840.113549.1.1.1`) + public-key validation. Removes 5 packages
+  — including 2 proc-macro crates — from `Cargo.lock` (`der_derive`, `flagset`,
+  `tls_codec`, `tls_codec_derive`, `x509-cert`; `Cargo.lock` 199 -> 194
+  packages; 161 cumulative `Cargo.lock` packages removed across
+  T-CARBONLEAN-1..13) and lowers `THIRD_PARTY_CEILING` 114 -> 108
+  (`rustls-pki-types` also leaves the four-pillar closure).
+- 2026-11-11 (T-CARBONLEAN-14, Linux x86_64, CEO laptop): remove unused `log`
+  dependency from `vendor/native-tls` (`src/imp/openssl.rs` had four non-fatal
+  CA-probe/store `debug!` calls with no `log` logger registered in Susi Core),
+  dropping `log 0.4.35` from `Cargo.lock` (`194 -> 193` packages; 162
+  cumulative `Cargo.lock` packages removed across T-CARBONLEAN-1..14) and
+  lowering `THIRD_PARTY_CEILING` `108 -> 107`. Clean cold
+  `cargo build --offline --locked -p susi` into an empty target directory on the
+  Linux x86_64 host now completes in **27.68 s (`27,684 ms`)** (vs. 165 s
+  baseline and 60 s CEO target; incremental `129 ms`, warm no-op `136 ms`,
+  `susi --version` startup `9.35 ms`; Windows MSVC cold timing still to be
+  measured on a Windows host).
+- 2026-11-11 (T-CARBONLEAN-15, Linux x86_64, CEO laptop): replace external
+  `chacha20poly1305` in `crates/susi-vendor-chacha20poly1305` with
+  `#![forbid(unsafe_code)]` RFC 8439 ChaCha20-Poly1305 AEAD (constant-time ARX
+  ChaCha20 + 5x26-bit Poly1305 MAC + `subtle::ConstantTimeEq` tag verification +
+  `zeroize::Zeroize` key/OTK/keystream clearing, verified against RFC 8439
+  §§2.4.2, 2.5.2 and 2.8.2 test vectors and bit-flip tamper checks). Removes 8
+  packages from `Cargo.lock` (`aead`, `chacha20`, `chacha20poly1305`, `cipher`,
+  `inout`, `opaque-debug`, `poly1305`, `universal-hash`; `Cargo.lock` `193 ->
+  185` packages; 170 cumulative `Cargo.lock` packages removed across
+  T-CARBONLEAN-1..15) and lowers `THIRD_PARTY_CEILING` `107 -> 99` (crossing
+  under 100 third-party crates across the four pillars from the 331 baseline).
+- 2026-11-11 (T-CARBONLEAN-16, Linux x86_64, CEO laptop): back
+  `crates/susi-vendor-x25519-dalek` directly with `curve25519-dalek 4.1.3`
+  (`EdwardsPoint::mul_base_clamped`, `MontgomeryPoint::mul_clamped`, and
+  constant-time `IsIdentity`, verified against RFC 7748 §6.1 Alice/Bob ECDH test
+  vectors and non-contributory low-order point rejection) + `zeroize`, removing
+  `x25519-dalek 2.0.1`, `rand_core 0.6.4`, and the `zeroize_derive 1.5.0`
+  proc-macro from `Cargo.lock` (`185 -> 182` packages; 173 cumulative
+  `Cargo.lock` packages removed across T-CARBONLEAN-1..16) and lowering
+  `THIRD_PARTY_CEILING` `99 -> 96`.

@@ -1,0 +1,58 @@
+{
+  "id": "T-CLAUDEAGENTREFS-1",
+  "title": "Agents publish to refs/agents/<agent>, never a remote branch",
+  "goal": "CEO decision 2026-11-11: move agent inbox branches off GitHub branches so no agent push creates a pull-request surface. push-policy admits refs/agents/<agent> (create, fast-forward, deletion at its tip) and refuses creating or updating refs/heads/local-agent/<agent> with a message naming refs/agents/<agent>, while deleting one stays allowed once its tip is preserved (T-AGYFURY-3's rule), with refs/agents/<agent> (pushed in the same transaction, kept locally, or fetched into refs/remotes/<remote>-agents/) now counting as preservation. IntegrationPolicy publishes to refs/agents/<agent> (publish_ref) and refuses local-agent targets (RetiredAgentBranch); the git governor fetches +refs/agents/*:refs/remotes/<remote>-agents/* (pruned) and sweeps each agent ref as local-agent/<agent>, still reading legacy remote local-agent branches read-only. docs/agent-refs.md documents layout, publishing, inspection, adoption and the transition.",
+  "status": "done",
+  "scopes": [
+    ".agents/tasks/T-CLAUDEAGENTREFS-1.json",
+    "AGENTS.md",
+    "crates/susi-harness/src/bin/susi-harness.rs",
+    "crates/susi-harness/src/git_governor.rs",
+    "crates/susi-harness/src/tests/git_governor.rs",
+    "crates/susi-harness/src/tests/workflow.rs",
+    "crates/susi-harness/src/workflow.rs",
+    "docs/agent-refs.md",
+    "docs/ceo-agent-mandate.md",
+    "docs/ceo-mandate-74.md",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/push_policy.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "size": "m",
+  "deps": [
+    "T-RETIREBR-1",
+    "T-AGYFURY-3"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "native_push_policy"
+    ]
+  },
+  "created_by": "CLAUDEAGENTREFS",
+  "created_unix": 1794395012,
+  "owner": "claude",
+  "base": "57162b4829433373fba82d771b27c9fc0392d4cd",
+  "host": "CEO laptop, CachyOS Linux x86_64, 28 threads; other agents building (cargo -j 8, nice 19)",
+  "results": {
+    "fmt": "cargo fmt --all --check: exit 0",
+    "check": "cargo check --workspace --all-targets --keep-going --offline --locked: exit 0",
+    "clippy": "cargo clippy --workspace --all-targets --offline --locked -- -D warnings: exit 0",
+    "xtask": "cargo test --offline --locked --no-fail-fast -p xtask: 29 binaries, 639 passed, 0 failed (on the tree merged with origin/main 83cec5c25); native_push_policy includes 3 new tests that fail on the previous push_policy.rs",
+    "susi_harness": "cargo test --offline --locked --no-fail-fast -p susi-harness: 11 binaries, 576 passed, 0 failed",
+    "guards": "cargo test -p susi --test architecture_tests --test orphan_sources --test lean_core_ceilings --test core_docs_promise_no_ui_or_plugins --test no_github_coupling --test task_records: 6 binaries, 62 passed, 0 failed; susi-harness src 37,434 lines against its 37,439 ceiling"
+  },
+  "limitations": [
+    "core local-workflow has no `ship --adopt` and reads no remote agent branch; it gates the claimed worktree it is given, so it needed no change. Adoption of a remote agent ref is a fetch into the <remote>-agents mirror and a merge into a claimed worktree, or susi-harness integrate/submit-main (docs/agent-refs.md).",
+    "The sweep's fetch now uses --prune, so remote-tracking refs of branches deleted on the remote leave refs/remotes/<remote>/ as well as the agent mirror.",
+    "To fit the susi-harness line ceiling, discover_active_claim_branches no longer parses .claim files as JSON: the coordinator writes only susi-local-claim-v2 text, which inspect_local_worktree_hazards already reads (the JSON branch matched no file any writer produces).",
+    "push-policy is a client-side hook; a push with --no-verify or from a clone without core.hooksPath is not checked. Host-side rules are a CEO decision.",
+    "docs/harness-coordination.md (a design note outside this claim) still describes pushing refs/heads/local-agent/<agent>; tests/lean_core_ceilings.rs (shared) could lower susi-harness from 37,439 to 37,434."
+  ]
+}

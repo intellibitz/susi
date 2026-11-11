@@ -289,6 +289,16 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
         adapter.contains("CARGO_TARGET_DIR") && adapter.contains("cwd.join(\"target\")"),
         "the native harness adapter must use the worktree's private target"
     );
+    // Keep the adapter's native worktree test as a second source-level
+    // witness, so moving the implementation cannot silently remove the
+    // behavior this guard protects.
+    let adapter_tests = read("crates/susi-harness/src/tests/adapter.rs");
+    assert!(
+        adapter_tests
+            .contains("fn start_worktree_uses_native_private_target_without_shell_seeding()")
+            && adapter_tests.contains("scripts/seed-target.sh"),
+        "crates/susi-harness/src/tests/adapter.rs must pin the adapter's own native target"
+    );
     assert!(
         read("scripts/susi-worktree.sh").contains("exec \"$bin\" workflow start \"$@\""),
         "scripts/susi-worktree.sh is the stub for `susi workflow start`"

@@ -108,14 +108,32 @@ export PATH="$scratch/bin:$PATH"
 /// Exposes only fake tools and the real utilities needed to reach the
 /// requirements check, assert its result and clean up. A host may install
 /// Cargo beside tr/grep/rm; removing that entire PATH entry loses those too.
+/// Shell lines that make `$utility` runnable from directory `$into` as a
+/// one-line wrapper executing the host's own copy. Not a symlink: without
+/// symlink privilege Git Bash's `ln -s` copies the file, and a copied MSYS
+/// executable cannot load its runtime DLL from the scratch directory, so the
+/// Windows fixture failed before the installer under test ever ran.
+const LINK_UTILITY: &str = r#"target=$(command -v "$utility")
+    printf '#!%s\nexec "%s" "$@"\n' "$BASH" "$target" >"$into/$utility"
+    chmod +x "$into/$utility""#;
+
 const WITHOUT: &str = r#"mkdir -p "$scratch/support-bin"
+into="$scratch/support-bin"
 for utility in bash tr grep rm; do
-    ln -s "$(command -v "$utility")" "$scratch/support-bin/$utility"
+    __LINK_UTILITY__
 done
 rm "$scratch/bin/TOOL"
 export PATH="$scratch/bin:$scratch/support-bin"
 hash -r
 if command -v TOOL >/dev/null 2>&1; then exit 91; fi"#;
+
+/// Shell lines that remove the fake `tool` and leave only the utilities the
+/// installer needs before it checks for its build tools.
+fn without(tool: &str) -> String {
+    WITHOUT
+        .replace("__LINK_UTILITY__", LINK_UTILITY)
+        .replace("TOOL", tool)
+}
 
 fn fake_tools() -> String {
     FAKE_TOOLS.replace(
@@ -188,9 +206,9 @@ fn installer_unix_refuses_what_it_cannot_build_or_verify() {
             "export RUSTUP_HAS=1.98.0".to_owned(),
             "rustup toolchain install 1.99.0",
         ),
-        (WITHOUT.replace("TOOL", "git"), "git is required"),
-        (WITHOUT.replace("TOOL", "rustup"), "rustup was not found"),
-        (WITHOUT.replace("TOOL", "cargo"), "cargo was not found"),
+        (without("git"), "git is required"),
+        (without("rustup"), "rustup was not found"),
+        (without("cargo"), "cargo was not found"),
         ("unset SUSI_SOURCE_REPO".to_owned(), "Set SUSI_SOURCE_REPO"),
     ];
     for (setup, needle) in cases {
@@ -235,8 +253,9 @@ export HOME="$scratch/home" SUSI_HOME="$scratch/install" NONINTERACTIVE=1
 # missing build tool. Keep its executable independent of the fake removed
 # below, so filtering whole PATH directories would lose the utilities.
 mkdir -p "$scratch/co-located"
-for utility in bash tr grep rm mkdir ln; do
-    ln -s "$(command -v "$utility")" "$scratch/co-located/$utility"
+into="$scratch/co-located"
+for utility in bash tr grep rm mkdir ln chmod; do
+    {link_utility}
 done
 printf '#!/usr/bin/env bash\nexit 97\n' >"$scratch/co-located/{missing}"
 chmod +x "$scratch/co-located/{missing}"
@@ -262,7 +281,8 @@ test ! -e "$SUSI_HOME"
 test ! -s "$CALLS"
 "#,
             tools = fake_tools(),
-            without = WITHOUT.replace("TOOL", missing),
+            without = without(missing),
+            link_utility = LINK_UTILITY,
         );
         let output = run_bash(&script);
         let stderr = String::from_utf8_lossy(&output.stderr);
