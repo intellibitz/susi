@@ -58,7 +58,11 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// `percent-encoding`, `core-foundation`, `system-configuration` and
 /// `system-configuration-sys` leave Cargo.lock and the pillar closure when
 /// `susi-vendor-hyper-util` is replaced by `susi_http_transport::http_conn`).
-const THIRD_PARTY_CEILING: usize = 128;
+/// 2026-11-11: 128 -> 124 (T-CARBONLEAN-8: `tempfile` and `fastrand` leave
+/// Cargo.lock, and `tempfile`, `fastrand`, `rustix` and `linux-raw-sys` leave
+/// the pillar closure when `susi-vendor-tempfile` and `vendor/native-tls`
+/// replace external `tempfile` with pure-std exclusive `DirBuilder` guards).
+const THIRD_PARTY_CEILING: usize = 124;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),

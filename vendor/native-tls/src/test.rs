@@ -174,10 +174,25 @@ fn server() {
 
 #[test]
 fn certificate_from_pem() {
-    let dir = tempfile::tempdir().unwrap();
+    struct TempCertDir(std::path::PathBuf);
+    impl Drop for TempCertDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let dir_path = std::env::temp_dir().join(format!(
+        "native-tls-pem-test-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir(&dir_path).unwrap();
+    let dir = TempCertDir(dir_path);
     let keys = test_cert_gen::keys();
 
-    let der_path = dir.path().join("cert.der");
+    let der_path = dir.0.join("cert.der");
     fs::write(&der_path, keys.client.ca.get_der()).unwrap();
     let output = Command::new("openssl")
         .arg("x509")

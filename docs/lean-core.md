@@ -933,5 +933,17 @@ config, core and the tail.
   until the std HTTP cut), while `LINE_CEILINGS` ratify the current shipped line
   reductions across `susi-gawd-a2a` (3,702 -> 3,619), `susi-gemi` (21,171 ->
   21,145) and `susi-harness` (39,446 -> 37,604).
+- 2026-11-11 (T-CARBONLEAN-8, Linux x86_64, CEO laptop): external `tempfile`
+  leaves core, removing 4 third-party packages from `Cargo.lock` (`fastrand`,
+  `linux-raw-sys`, `rustix`, and `tempfile`; 130 cumulative `Cargo.lock`
+  packages removed across T-CARBONLEAN-1..8). `susi-vendor-tempfile` becomes a
+  zero-dependency `#![forbid(unsafe_code)]` pure-std leaf (`TempDir`, `Builder`,
+  `tempdir`, `tempdir_in`) backed by atomic `std::fs::DirBuilder` (`0o700` on
+  Unix) and `RandomState` + PID + timestamp + `AtomicU64` token generation with
+  read-only cleanup fallback, and `vendor/native-tls` replaces `tempfile` in
+  `src/imp/security_framework.rs` and `src/test.rs` with standard-library
+  exclusive directory guards while keeping Apple/Windows/Linux TLS portability
+  intact. Pillar third-party reach drops 4 crates (`THIRD_PARTY_CEILING`
+  128 -> 124).
 
 
