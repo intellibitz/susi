@@ -7,7 +7,7 @@
   "state": "implemented",
   "owner": "codex-coordinator",
   "claimed_by": "codex-coordinator",
-  "native_worker": "axumout-record-repair",
+  "native_worker": "axumout-scope-final",
   "created_by": "codex-coordinator",
   "created_unix": 1794379393,
   "size": "L",
@@ -17,7 +17,7 @@
   ],
   "scopes": [
     ".agents/tasks/T-CODEXAXUMOUT-1.json",
-    ".agents/receipts/5edd7d8bf4c2c9b6f2d4dae804405c83870f5ba0.json",
+    ".agents/receipts",
     "Cargo.lock",
     "Cargo.toml",
     "crates/susi-http-transport",
