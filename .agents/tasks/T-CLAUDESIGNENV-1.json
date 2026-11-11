@@ -7,7 +7,9 @@
   "created_by": "claude",
   "created_unix": 1794362062,
   "size": "m",
-  "deps": ["T-CLAUDERECURSE-1"],
+  "deps": [
+    "T-CLAUDERECURSE-1"
+  ],
   "base_commit": "6182adc2b1903f00ba181d20fa0a5362a5b1b036",
   "scopes": [
     "crates/susi-core/src/delegation.rs",
@@ -30,7 +32,19 @@
     "os_capabilities action `delegate`; susi os capabilities delegate"
   ],
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-core", "--lib", "--", "delegation", "capability_bus", "registry"]
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "--",
+      "delegation",
+      "capability_bus",
+      "registry"
+    ]
   },
   "acceptance": [
     "cargo test --offline --locked -p susi-core --lib -- delegation capability_bus registry",
@@ -42,7 +56,25 @@
     "susi binary smoke: delegate/nested delegate/invoke/tampered/foreign-home across separate processes"
   ],
   "host": "Claude Code cloud session, Linux x86_64, 4 vCPU, 15 GiB RAM, Rust 1.99.0 (pinned), Git 2.43.0",
-  "results": {},
+  "results": {
+    "susi_core_lib": "487/487 passed; 44 focused (delegation|capability_bus|registry), of which 8 new signed-envelope tests replace 2 unsigned ones",
+    "susi_gmcp": "lib 213/213, main 5/5, tests/os_capabilities_delegation 1/1 (parent + 3 child processes on scratch SUSI_HOME: issue, admit, foreign refusal), tests/tool_input_schemas 4/4",
+    "gmcp_requirements": "87/87 after re-recording requirement (54 checks) and mastery (9 checks) evidence",
+    "root_governance": "architecture_tests 43/43, lean_core_ceilings 2/2 (susi-gmcp exactly 25,900), socket_parity 5/5, capability_bus 5/5, task_records 3/3",
+    "clippy": "clean with -D warnings: susi binary, susi-core, susi-gmcp, susi-cli-defs (--all-targets)",
+    "fmt": "cargo fmt --all --check clean",
+    "binary_smoke": "target/debug/susi in separate processes on a scratch SUSI_HOME: delegate issued; nested delegate with budget 101 > 100 refused BudgetExceeded; budget 40 issued; invoke with it admitted (then UnknownCapability: a bare CLI registers no tools); tampered budget refused Unverified; different SUSI_HOME refused Unverified; host key created only in the scratch home",
+    "timings_seconds": {
+      "focused_core_rebuild_plus_44_tests": 9.3,
+      "clippy_four_targets_warm": 8.8,
+      "core_plus_gmcp_lib_and_tests_incremental": 22.0,
+      "root_governance_tests": 14.1,
+      "susi_binary_debug_build_incremental": 22.2,
+      "gmcp_evidence_requirement_phase": 19.4,
+      "gmcp_evidence_mastery_phase": 2.4,
+      "gmcp_requirements_suite": 18.3
+    }
+  },
   "limitations": [
     "Any process holding the host key is trusted to issue; an envelope is bound to the host key, not to the caller or transport presenting it.",
     "Replay ledger and revocation are per process; two admitting processes each start from the full budget. revoke has no socket or CLI action yet.",
