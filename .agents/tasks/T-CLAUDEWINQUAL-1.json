@@ -7,7 +7,9 @@
   "created_by": "claude",
   "created_unix": 1794374350,
   "size": "xs",
-  "deps": [],
+  "deps": [
+    "T-CARBONDISTILL-1"
+  ],
   "base": "bf0bb15a664744acfc37e9a849f6c904b7153585",
   "scopes": [
     "xtask/build.rs",
