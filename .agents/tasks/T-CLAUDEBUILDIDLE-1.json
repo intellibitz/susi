@@ -1,0 +1,33 @@
+{
+  "id": "T-CLAUDEBUILDIDLE-1",
+  "title": "Idle cold-build measurement after the wasm and A2A SDK cuts",
+  "goal": "Measure cold cargo build -p susi on an idle machine after T-CLAUDEWASMSTD-1 and T-CLAUDENOA2ASDK-1 against the morning baseline and record it in the lean-core wave log and .agents/build-time.jsonl.",
+  "status": "in_progress",
+  "scopes": [
+    "docs/lean-core.md",
+    ".agents/build-time.jsonl",
+    ".agents/tasks/T-CLAUDEBUILDIDLE-1.json",
+    ".agents/tasks/done/T-CLAUDEBUILDIDLE-1.json"
+  ],
+  "size": "xs",
+  "deps": [
+    "T-CLAUDEWASMSTD-1",
+    "T-CLAUDENOA2ASDK-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794366300,
+  "owner": "claude",
+  "base": "19f37fd29f7dec01d3eb9d101a302ffc47374df4"
+}
