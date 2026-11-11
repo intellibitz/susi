@@ -1,0 +1,64 @@
+{
+  "id": "T-SMALLFACADES-2",
+  "title": "Lean core: the url facade leaves core",
+  "goal": "Replace the url facade in GEMI's model download and origin checks and GMCP's content-URI validation and SSRF-guarded browse URL with in-tree std code that keeps url's behaviour on every input it accepts and refuses what it cannot parse exactly, then delete susi-vendor-url and lower the lean-core ceilings to the measured values.",
+  "status": "done",
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-SMALLFACADES-2.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-gemi-models/Cargo.toml",
+    "crates/susi-gemi-models/src/download.rs",
+    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-gmcp/src/content.rs",
+    "crates/susi-gmcp/src/tools/helpers.rs",
+    "crates/susi-paths/src/lib.rs",
+    "crates/susi-paths/src/weburl.rs",
+    "crates/susi-vendor-url",
+    "docs/lean-core.md",
+    "docs/unicode-platform.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "size": "m",
+  "deps": [
+    "T-SMALLFACADES-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-paths",
+      "--lib",
+      "weburl"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794377349,
+  "owner": "SMALLFACADES",
+  "base": "1be40b6dc",
+  "host": "CEO laptop, CachyOS Linux x86_64, 28 threads, other agents compiling",
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo check --workspace --all-targets --keep-going --offline --locked",
+    "cargo clippy --workspace --all-targets --offline --locked -- -D warnings",
+    "cargo test --offline --locked --lib -p susi-paths -p susi-gemi-models -p susi-gmcp",
+    "cargo test --offline --locked -p susi --test architecture_tests --test orphan_sources --test lean_core_ceilings --test core_docs_promise_no_ui_or_plugins --test no_github_coupling --test task_records --test gmcp_requirements",
+    "scripts/gmcp-record-evidence.sh and --mastery on the committed tree"
+  ],
+  "results": {
+    "differential": "susi_paths::weburl against url 2.5.8 (scratch harness, not committed): 400,000 clean http(s) inputs, 79,306 accepted, 0 differences in serialization, scheme, host, port, path, segments, query, fragment, and 79,305 origin-equality pairs equal; 800,000 noisy inputs (all schemes, whitespace, userinfo, IPv4/IPv6 forms, ports, dot segments), is_absolute_uri 0 differences except refusals of special-scheme hosts with non-ASCII text, % or xn-- labels (url accepts those through IDNA), and the strict parser never accepted an input url rejects. Frozen as 26 strict and 34 validity cases.",
+    "pillar_reach": "to be measured on the merged tree",
+    "lines": "susi-gmcp and susi-gemi-models shrink (measured on the merged tree)"
+  },
+  "limitations": [
+    "WebUrl::parse refuses http(s) URLs a WHATWG parser would rewrite beyond case, default port, port zeros, empty path and IPv6 text: whitespace, controls, non-ASCII, backslash, userinfo, % or xn-- in the host, IPv4 not written as four plain decimals, dot segments, and chars that would be percent-encoded. Model downloads and the browse tool fail closed on those URLs with an error naming the reason.",
+    "is_absolute_uri answers false for a special-scheme URL whose host has non-ASCII text, a percent sign or an xn-- label (url accepts these through IDNA tables this code does not carry), so such MCP content URIs are now rejected.",
+    "Error texts changed: artifact_name and the browse tool report 'unsupported URL ...: <reason>' where url reported its own parse error or 'Expected HTTP(S) artifact URL' / 'SSRF BLOCK: scheme ... not allowed'."
+  ]
+}

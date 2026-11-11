@@ -187,21 +187,12 @@ pub(super) fn is_blocked_ssrf_target(ip: std::net::IpAddr) -> bool {
 }
 
 #[cfg_attr(not(feature = "tools-rich"), allow(dead_code))]
-pub(super) fn secure_external_url(raw_url: &str) -> EaiResult<url::Url> {
-    let parsed =
-        url::Url::parse(raw_url).map_err(|e| EaiError::protocol(format!("Invalid URL: {}", e)))?;
+pub(super) fn secure_external_url(raw_url: &str) -> EaiResult<susi_paths::weburl::WebUrl> {
+    // Only http(s) parses (SSRF: no other scheme is fetched).
+    let parsed = susi_paths::weburl::WebUrl::parse(raw_url)
+        .map_err(|e| EaiError::protocol(format!("Invalid URL: {}", e)))?;
 
-    if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err(EaiError::protocol(format!(
-            "SSRF BLOCK: scheme '{}' not allowed (only http/https)",
-            parsed.scheme()
-        )));
-    }
-
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| EaiError::protocol("URL has no host"))?;
-    let port = parsed.port_or_known_default().unwrap_or(80);
+    let (host, port) = (parsed.host_str(), parsed.port_or_known_default());
 
     use std::net::ToSocketAddrs;
     let addrs = (host, port)

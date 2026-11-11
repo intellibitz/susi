@@ -188,7 +188,7 @@ pub fn is_valid_uri(s: &str) -> bool {
     if s.is_empty() || has_bad_control(s) {
         return false;
     }
-    url::Url::parse(s).is_ok()
+    susi_paths::weburl::is_absolute_uri(s)
 }
 
 /// Spec `Annotations` — audience/priority/lastModified plus preserved

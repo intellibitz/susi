@@ -307,7 +307,7 @@ impl ModelManager {
     /// leaving a partial download while claiming installation started.
     pub fn install_model_foreground(url: &str) -> Result<String, String> {
         let target = url.trim();
-        let parsed = url::Url::parse(target).map_err(|error| error.to_string())?;
+        let parsed = susi_paths::weburl::WebUrl::parse(target)?;
         if parsed.scheme() != "https" {
             return Err("model installation requires an HTTPS URL".to_string());
         }
@@ -451,9 +451,9 @@ impl ModelManager {
             });
         }
         Self::migrate_legacy_download_state(models_dir, &store, file_name)?;
-        let trusted_origin = url::Url::parse(target)
+        let trusted_origin = susi_paths::weburl::WebUrl::parse(target)
             .ok()
-            .zip(url::Url::parse(&cfg.hf_base_url()).ok())
+            .zip(susi_paths::weburl::WebUrl::parse(&cfg.hf_base_url()).ok())
             .is_some_and(|(target, base)| target.origin() == base.origin());
         let token = trusted_origin
             .then(|| crate::susi_config::env_or_cloud_env("HF_TOKEN").ok())

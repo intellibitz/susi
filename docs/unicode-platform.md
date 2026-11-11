@@ -2,6 +2,9 @@
 
 Susi's IDNA adapter contains Rust implementation code under Apache-2.0 OR MIT.
 It distributes no Unicode property or mapping tables and no ICU implementation.
+Since T-SMALLFACADES-1 (2026-11-11) no workspace crate depends on `idna` (the
+`url` facade left core); the adapter stays in the build because the patched
+`unicode-ident` depends on it.
 It has no implementation dependencies. An independently written Rust loader invokes the installed
 operating system's library loader. This is the OS ABI boundary allowed by the
 CEO mandates, not a relicensing of Unicode or ICU.

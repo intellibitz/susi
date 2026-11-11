@@ -11,14 +11,9 @@ struct Checkpoint {
 }
 
 pub(crate) fn artifact_name(url: &str) -> Result<String, String> {
-    let parsed = url::Url::parse(url).map_err(|e| e.to_string())?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return Err("Expected HTTP(S) artifact URL".into());
-    }
-    let name = parsed
-        .path_segments()
-        .and_then(|mut p| p.next_back())
-        .unwrap_or("");
+    // Only http(s) parses; anything a URL parser would rewrite is refused.
+    let parsed = susi_paths::weburl::WebUrl::parse(url)?;
+    let name = parsed.path_segments().next_back().unwrap_or("");
     if name.is_empty() || matches!(name, "." | "..") {
         return Err("Missing artifact filename".into());
     }
@@ -135,8 +130,8 @@ fn hf_cache_roots() -> Vec<PathBuf> {
 
 fn verified_hf_cache_asset(url: &str, digest: &str, roots: &[PathBuf]) -> Option<PathBuf> {
     let digest = linked_etag_digest(digest)?;
-    let parsed = url::Url::parse(url).ok()?;
-    let segments: Vec<_> = parsed.path_segments()?.collect();
+    let parsed = susi_paths::weburl::WebUrl::parse(url).ok()?;
+    let segments: Vec<_> = parsed.path_segments().collect();
     if segments.len() < 5 || segments[2] != "resolve" {
         return None;
     }

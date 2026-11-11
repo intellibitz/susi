@@ -172,7 +172,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-tracing",
     "susi-vendor-tracing-appender",
     "susi-vendor-tracing-subscriber",
-    "susi-vendor-url",
     "susi-vendor-winapi",
     "susi-vendor-x25519-dalek",
 ];

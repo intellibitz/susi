@@ -60,7 +60,6 @@ members = [
     "crates/susi-vendor-tracing",
     "crates/susi-vendor-tracing-appender",
     "crates/susi-vendor-tracing-subscriber",
-    "crates/susi-vendor-url",
     "crates/susi-vendor-winapi",
     "crates/susi-vendor-x25519-dalek"]
 # Vendored, patched third-party crates (see vendor/README.md): not workspace
@@ -160,7 +159,6 @@ ed25519-dalek = { version = "2.2", default-features = false }
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 tokio = { version = "1.53", features = ["full", "tracing"] }
-url = "2.5"
 criterion = "0.5"
 
 [dev-dependencies]

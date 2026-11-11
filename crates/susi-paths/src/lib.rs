@@ -370,6 +370,7 @@ pub mod stdio;
 pub mod sync;
 #[doc(hidden)]
 pub mod test_env;
+pub mod weburl;
 mod xdg;
 pub mod zc_ports_file;
 
