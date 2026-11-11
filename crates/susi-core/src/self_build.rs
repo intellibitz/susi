@@ -32,7 +32,7 @@ pub const VERIFY_COMMAND: &str = "cargo fmt --all --check \
 /// The CEO's contract, prepended to every coding task in a Susi checkout.
 /// Requirements are distinct from verified implementation status.
 pub const BRIEF: &str = "\
-[SUSI SELF-BUILD CONTRACT — identity.json Mandates 43-73; canonical rules in AGENTS.md]
+[SUSI SELF-BUILD CONTRACT — identity.json Mandates 43-74; canonical rules in AGENTS.md]
 The CEO never looks at code. Agents own authorized architecture, implementation, \
 testing, debugging, dependency replacement, integration and production qualification \
 end-to-end. Do not ask the CEO to inspect code or perform technical steps. \
@@ -120,6 +120,18 @@ Fixed remote cooldowns, the single-laptop publication role and mandatory main-pu
 gates are superseded, \
 not incident safeguards or live access controls. Existing restrictions are scoped \
 migration work, never permission to bypass a denial.
+11. Mandate 74: read docs/ceo-mandate-74.md; it wins where older text differs. \
+Work in your own isolated worktree and dump labelled work straight into main with \
+no gates, no workflows and no PRs; main is an append-only feature dump fixed forward. \
+Label every dump: one feature per commit series, Task/Feature/Depends/Harvest/Origin \
+trailers and a task record. Susi, never GitHub, distills release branches: disjoint \
+lanes, atomic claim refs, cherry-pick -x, exact-tree qualification and atomic \
+fast-forward pushes, re-picking on a lost race. Git is the source code manager; GitHub \
+is a storage bucket only, with zero hosting-provider dependency. Harvest Apache-2.0 \
+code from any public repository with per-file license verification, quarantine intake, \
+a harvest manifest, Apache-2.0 notices and Origin trailers; never copyleft or \
+unlicensed code. The harness is driver and engine and becomes default driver only on \
+measured parity.
 [END CONTRACT]
 
 ";
@@ -152,7 +164,7 @@ mod tests {
     #[test]
     fn the_contract_carries_the_workflow_mandates_agents_must_follow() {
         for needle in [
-            "Mandates 43-73",
+            "Mandates 43-74",
             "CEO never looks at code",
             "cargo local-workflow",
             "cargo local-build debug",
@@ -182,6 +194,10 @@ mod tests {
             "access controls",
             "Main has no mandatory pre-push gates",
             "exact-tree gates apply to release branches",
+            "docs/ceo-mandate-74.md",
+            "no gates, no workflows and no PRs",
+            "GitHub is a storage bucket only",
+            "Harvest Apache-2.0",
         ] {
             assert!(BRIEF.contains(needle), "BRIEF must mention `{needle}`");
         }

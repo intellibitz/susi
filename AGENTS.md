@@ -1,5 +1,24 @@
 **START HERE: read the CEO mandates below, inspect local state, and reserve an isolated worktree before editing.**
 
+## CEO Mandate 74 (2026-11-11): dump to main, distill releases, harvest
+
+Read [CEO Mandate 74](docs/ceo-mandate-74.md) first; it wins where older text
+differs. **Agent reminder:** work in your own isolated worktree, dump labelled
+work straight into `main` with no gates and no PRs, let Susi distill releases
+with conflict-free parallel picks, harvest Apache-2.0 code with full
+attribution, and treat GitHub as a storage bucket only.
+
+- `main` is an append-only feature dump: no gates, no workflows, no pull requests.
+  Label every dump (one feature per commit series, `Task:` trailers, task record).
+- Susi, never GitHub, distills `release/<name>` branches: disjoint lanes, atomic
+  claim refs, `cherry-pick -x`, exact-tree qualification, atomic fast-forward pushes.
+- Git is the source code manager; GitHub is storage only. Zero dependency on any
+  hosting provider; a cloud move is a remote change.
+- Any Apache-2.0 repository anywhere may be harvested with per-file license
+  verification, a harvest manifest, Apache-2.0 notices and `Origin:` trailers.
+- Core (GAWD, GEMI, GMCP, ACP, harness) is Apache-2.0 and free forever. The
+  harness is driver and engine, and becomes default driver only on measured parity.
+
 ## CEO operating mandate (2026-11-10, Mandate 73)
 
 Read [the consolidated CEO agent mandate](docs/ceo-agent-mandate.md) before work.
