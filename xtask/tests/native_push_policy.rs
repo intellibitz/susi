@@ -321,23 +321,50 @@ fn graft_environment_override_fails_closed_even_when_file_is_missing() {
 }
 
 #[test]
-fn release_branches_are_local_only_and_legacy_refs_can_be_deleted() {
+fn only_main_and_local_agent_branches_are_admitted_and_candidate_refs_are_fast_forward() {
     let r = Repo::new();
     let old = r.git(&["rev-parse", "HEAD"]);
     let new = r.commit("release candidate");
-    for reference in ["refs/heads/release", "refs/heads/release/1.0"] {
+    let blob = r.git(&["rev-parse", "HEAD:source"]);
+    for reference in [
+        "refs/heads/release",
+        "refs/heads/release/1.0",
+        "refs/heads/release-staging/1.0",
+        "refs/heads/distill/2026-11-11-rc1",
+        "refs/heads/wip/experiment",
+        "refs/heads/release-notes",
+        "refs/heads/local-agent/nested/bad",
+    ] {
         for previous in [ZERO, &old] {
             let input = format!("HEAD {new} {reference} {previous}");
             let error = r.check(&input).unwrap_err();
-            assert!(error.contains("is local-only"), "{error}");
+            assert!(error.contains("is forbidden"), "{error}");
         }
         assert!(r
             .check(&format!("(delete) {ZERO} {reference} {old}"))
-            .is_ok());
+            .is_err());
     }
-    for reference in ["refs/heads/main", "refs/heads/release-notes"] {
+    for reference in ["refs/heads/main", "refs/heads/local-agent/agywin1"] {
+        assert!(r.check(&format!("HEAD {new} {reference} {ZERO}")).is_ok());
         assert!(r.check(&format!("HEAD {new} {reference} {old}")).is_ok());
     }
+    for candidate in [
+        "refs/candidates/release/v0.21.56-rc14",
+        "refs/candidates/distill/2026-11-11-rc4",
+    ] {
+        assert!(r.check(&format!("HEAD {new} {candidate} {ZERO}")).is_ok());
+        assert!(r.check(&format!("HEAD {new} {candidate} {old}")).is_ok());
+        assert!(r.check(&format!("{old} {old} {candidate} {new}")).is_err());
+        assert!(r
+            .check(&format!("(delete) {ZERO} {candidate} {new}"))
+            .is_err());
+        assert!(r
+            .check(&format!("{blob} {blob} {candidate} {ZERO}"))
+            .is_err());
+    }
+    assert!(r
+        .check(&format!("HEAD {new} refs/candidates/other/x {ZERO}"))
+        .is_err());
 }
 
 /// A release tree at `version` (package manifest, lockfile, toolchain pin),

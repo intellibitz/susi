@@ -18,7 +18,14 @@ against measured hardware capacity, and keep private worktrees, targets, runtime
 homes and identities. Agents may contribute to main as often as work is ready. Reconcile current heads,
 preserve accepted work and publish with normal atomic fast-forward updates.
 Git is portable storage; GitHub is storage only, with no GitHub Actions.
-Development branches may advance without a mandatory gate; release branches
+Remote `refs/heads/*` branches on GitHub are restricted to `refs/heads/main` and
+`refs/heads/local-agent/<agent>` (CEO directive 2026-11-11): never push
+`refs/heads/release/*`, `refs/heads/release-staging/*`, `refs/heads/distill/*`,
+`refs/heads/wip/*`, or any other branch head, and never open, merge, or close a
+pull request. Release candidates and distillation outputs use non-branch refs
+(`refs/candidates/release/<name>`, `refs/candidates/distill/<name>`) and
+immutable tags (`refs/tags/susi-distill/<name>`, `refs/tags/v<version>`).
+Development branches may advance without a mandatory gate; release candidates
 require qualification and published release tags are
 immutable snapshots with source, license, toolchain, tests and artifact provenance.
 Preserve GAWD, GEMI, GMCP and the harness as lean Apache-2.0 core, commercial

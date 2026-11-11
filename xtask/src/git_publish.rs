@@ -469,7 +469,7 @@ impl Intent {
     }
 
     fn branch_ref(&self) -> String {
-        format!("refs/heads/release/{}", self.name)
+        format!("refs/candidates/release/{}", self.name)
     }
     fn tag_ref(&self) -> String {
         format!("refs/tags/susi-snapshot/{}", self.name)
@@ -1153,7 +1153,8 @@ mod tests {
             original
         );
         assert_eq!(
-            git.text(&["rev-parse", "refs/heads/release/rc1"]).unwrap(),
+            git.text(&["rev-parse", "refs/candidates/release/rc1"])
+                .unwrap(),
             original.commit
         );
     }
@@ -1164,7 +1165,7 @@ mod tests {
         let first = repo.git().text(&["rev-parse", "HEAD"]).unwrap();
         let second = repo.commit("two");
         repo.git()
-            .text(&["update-ref", "refs/heads/release/rc1", &second])
+            .text(&["update-ref", "refs/candidates/release/rc1", &second])
             .unwrap();
         assert!(repo
             .run("cut", "rc1")
@@ -1181,7 +1182,7 @@ mod tests {
         );
         assert_eq!(
             repo.git()
-                .text(&["rev-parse", "refs/heads/release/rc1"])
+                .text(&["rev-parse", "refs/candidates/release/rc1"])
                 .unwrap(),
             second
         );
