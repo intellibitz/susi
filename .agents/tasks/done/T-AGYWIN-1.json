@@ -13,9 +13,9 @@
     "size":  "s",
     "goal":  "Remove susi-vendor-tracing from crates/susi-core, crates/susi-gemi and crates/susi-sandbox-client by replacing diagnostic macros with direct stderr reporting, ratcheting WORKSPACE_CEILING 34 -\u003e 33, DIRECT_FACADE_EDGES_CEILING 10 -\u003e 9, and LINE_CEILINGS.",
     "created_unix":  1794387900,
-    "state":  "in_progress",
+    "state":  "done",
     "created_by":  "agywin1",
-    "status":  "in_progress",
+    "status":  "done",
     "scopes":  [
                    ".agents/tasks/T-AGYWIN-1.json",
                    ".agents/tasks/done/T-AGYWIN-1.json",
@@ -40,5 +40,8 @@
     "deps":  [
                  "T-CARBONLEAN-7"
              ],
-    "base":  "789602ac2553cecbc86516efa319354d2f27e1ab"
+    "base":  "789602ac2553cecbc86516efa319354d2f27e1ab",
+    "source_commits":  [
+                           "a208b296c3fee1931e1c88a253c2bb8a63dc6313"
+                       ]
 }
