@@ -3,7 +3,7 @@
   "feature_id": "F-HARNESS-GOVERNED-GIT-WORKFLOW-1",
   "title": "Concurrent stdin pipe streaming and storage-only susi-distill tag discovery in susi-harness git_governor",
   "goal": "Fix >64 KB OS pipe buffer deadlock when git cat-file --batch inspects large .agents/tasks ledgers by streaming stdin concurrently via std::thread::scope in run_git, and teach promote_release_candidate to fetch and audit storage-only refs/tags/susi-distill/* snapshot tags (including legacy-release-* tags after T-CODEXSTORAGEONLY-1) while ranking semver vX.Y.Z candidates ahead of ad-hoc date RCs.",
-  "status": "in_progress",
+  "status": "done",
   "owner": "agy-fury",
   "created_by": "AGYFURYSWT5D3FC4",
   "created_unix": 1794391687,
@@ -30,5 +30,19 @@
       "--lib",
       "git_governor"
     ]
+  },
+  "results": {
+    "fmt": "cargo fmt --all --check: exit 0",
+    "clippy": "cargo clippy --offline --locked -p susi-harness --all-targets -- -D warnings: exit 0",
+    "tests": "susi-harness --lib: 528 passed / 0 failed (git_governor 4/4 incl. 160-file >640 KB .agents/tasks pipe-deadlock + susi-distill/legacy-release-* tag discovery + semver ranking); susi-harness --bins: 41 passed / 0 failed",
+    "guards": "lean_core_ceilings 2/2 (susi-harness src = 37,393 lines vs ceiling 37,439), architecture_tests 43/43, core_docs_promise_no_ui_or_plugins 5/5, no_github_coupling 5/5, orphan_sources 3/3, task_records 3/3"
+  },
+  "limitations": [
+    "promote_release_candidate promotes verified susi-distillation-receipt-v1 candidates to local-only refs/heads/release/<name> and create-only refs/tags/susi-distill/<name>; final vX.Y.Z production tags continue to require exact-tree release-qualify on both x86_64-unknown-linux-gnu and x86_64-pc-windows-msvc."
+  ],
+  "closed": {
+    "at_unix": 1794392428,
+    "commit": "4f9ac88bbef8c697c13a5e07a89e834e5ab589fa",
+    "by": "AGYFURYSWT5D3FC4"
   }
 }
