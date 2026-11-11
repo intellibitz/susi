@@ -55,6 +55,58 @@ observation and push advertisement could permit ordinary Git to recreate it.
 An absolute no-recreation guarantee requires a remote guard. `status-main` can
 fetch missing objects for ancestry checks but never pushes or changes local refs.
 
+## Storage guard: nothing published is lost unnoticed
+
+The storage remote is a bucket. Susi does not depend on a hosting provider's
+branch or tag protection (CEO decision 2026-11-11), and `push-policy` is a
+client hook: a push with `--no-verify`, or from a clone whose hooks are off, is
+not checked. The guard closes that gap with Git alone:
+
+```text
+cargo run --offline --locked -p xtask --bin local-snapshot -- guard [<remote>]
+```
+
+Every clone that runs it is a witness. It reads the remote's refs
+(`git ls-remote`) and keeps the last value it saw of each protected ref as a
+local ref under `refs/susi-guard/<remote>/`, which also keeps those objects in
+this clone. On each run:
+
+- `refs/heads/main` and `refs/candidates/*` are append-only: the remote value
+  must descend from the recorded one, or the run reports `REWOUND` with the
+  number of published commits that left the history;
+- `refs/tags/*` are immutable: a different value is `MOVED`;
+- a recorded ref that is gone is `DELETED`.
+
+A finding is a failed exit. It names the local ref that still holds the lost
+objects and a recovery that needs no force: push the retained ref back (a
+deleted ref is a plain create) or merge it into the current tip and publish a
+normal fast-forward. The record of a violated ref is not advanced, so the loss
+stays reported until it is repaired. A ref seen for the first time is recorded;
+refs outside those namespaces (agent refs, claims) are not guarded, because
+they are deleted legitimately.
+
+The guard writes nothing to the remote and nothing local except its own refs.
+It works with any Git remote: a hosted service, a self-hosted server or a bare
+repository on a disk. It runs from another repository's checkout too (for
+example `susi-commercial-apps`) by starting the built binary there.
+
+Limits, stated plainly: the guard detects and recovers, it does not prevent. A
+clone only vouches for what it has seen, so a ref created and destroyed between
+two runs of every clone is not noticed; run it at session start, before a
+release move and on a schedule. Nothing schedules it yet. Prevention needs a
+remote the CEO controls, where Git's own `receive.denyNonFastForwards` and
+`receive.denyDeletes` settings refuse the push; those are Git, not a provider
+feature, and move with a self-hosted remote.
+
+## Hooks are on after a clone's first build
+
+Git never enables a repository's hooks on clone. The root `build.rs` therefore
+sets `core.hooksPath=.githooks` the first time anything is built in a clone
+whose value is unset, so `push-policy` guards pushes from fresh clones and
+cloud sessions without a setup step. A deliberate value is kept, a source tree
+without Git is skipped, and `SUSI_NO_HOOK_SETUP=1` opts out.
+`scripts/setup-dev.sh` and `cargo xb` still configure the merge drivers.
+
 ## Snapshot now, qualify separately
 
 From an isolated claimed worktree:

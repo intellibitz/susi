@@ -20,6 +20,7 @@ fn main() {
     susi_build_os_ucrt::configure_all_bins()
         .expect("Windows OS-UCRT boundary configuration failed");
     warn_if_gpu_available_but_unused();
+    enable_repository_hooks();
 
     let cargo_toml = fs::read_to_string("Cargo.toml").expect("Missing Cargo.toml");
     let version = cargo_toml
@@ -41,6 +42,40 @@ fn main() {
     sync_readme_badge(&version);
     println!("cargo:rerun-if-changed=README.md");
     println!("cargo:rerun-if-changed=Cargo.toml");
+}
+
+/// Git never enables a repository's hooks on clone, so a fresh clone or a
+/// cloud session would publish without `push-policy` (no force, no deletion,
+/// real ancestry) until someone remembered `scripts/setup-dev.sh`. Every agent
+/// builds before it publishes, so the first build of a clone turns the tracked
+/// hooks on. It only fills an unset `core.hooksPath`: a deliberate value is
+/// kept, a source tree without Git is skipped, and `SUSI_NO_HOOK_SETUP=1` opts
+/// out. Best effort: a failure here never fails a build.
+fn enable_repository_hooks() {
+    println!("cargo:rerun-if-env-changed=SUSI_NO_HOOK_SETUP");
+    if env::var_os("SUSI_NO_HOOK_SETUP").is_some_and(|value| value == "1")
+        || !Path::new(".git").exists()
+        || !Path::new(".githooks/pre-push").is_file()
+    {
+        return;
+    }
+    let configured = console::background_command("git")
+        .args(["config", "--local", "--get", "core.hooksPath"])
+        .output();
+    let Ok(configured) = configured else {
+        return;
+    };
+    // Exit 1 with no output is Git's "not set"; anything else is left alone.
+    if configured.status.code() != Some(1) || !configured.stdout.is_empty() {
+        return;
+    }
+    let enabled = console::background_command("git")
+        .args(["config", "--local", "core.hooksPath", ".githooks"])
+        .status()
+        .is_ok_and(|status| status.success());
+    if enabled {
+        println!("cargo:warning=enabled this clone's Git hooks (core.hooksPath=.githooks): push-policy now guards every push");
+    }
 }
 
 fn sync_json_version(path: &Path, expected_schema: &str, version: &str) {

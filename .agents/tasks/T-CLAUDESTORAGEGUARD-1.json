@@ -1,0 +1,34 @@
+{
+  "id": "T-CLAUDESTORAGEGUARD-1",
+  "title": "Storage safety with zero hosting-provider dependency: storage guard and first-build hooks",
+  "goal": "CEO decision 2026-11-11: the three workflow mandates (every agent builds on the latest source, nothing published is lost, releases are immutable) must be enforced with zero GitHub dependency, so the ecosystem can move to any cloud at any moment. Verified the same day: neither intellibitz/susi nor intellibitz/susi-commercial-apps has any host ruleset or branch protection, every agent pushes with one administrator identity, and three of eight local clones had no core.hooksPath, so push-policy was the only control and it was off in those clones. (1) `local-snapshot guard [<remote>]` (xtask/src/storage_guard.rs): each clone records the last observed value of refs/heads/main, refs/candidates/* and refs/tags/* under refs/susi-guard/<remote>/, and each run reports a rewound main or release line, a moved tag and a deleted ref, keeps the lost objects and prints a recovery that needs no force. Git only: it works with any remote. (2) The root build.rs sets core.hooksPath=.githooks on a clone's first build when it is unset, so a fresh clone or cloud session gets push-policy without a setup step; the retired shell SessionStart hooks are not brought back.",
+  "status": "done",
+  "scopes": [
+    ".agents/tasks/T-CLAUDESTORAGEGUARD-1.json",
+    "build.rs",
+    "docs/ceo-mandate-74.md",
+    "docs/git-storage-publisher.md",
+    "xtask/src/bin/local-snapshot.rs",
+    "xtask/src/storage_guard.rs"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-snapshot",
+      "storage_guard"
+    ]
+  },
+  "created_by": "CLAUDESTORAGEGUARD",
+  "created_unix": 1794418987,
+  "owner": "claude",
+  "base": "2993acd10f8e117151759bdba6f6f0e081d46b91",
+  "host": "CEO laptop, CachyOS Linux x86_64"
+}

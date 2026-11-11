@@ -237,6 +237,17 @@ GitHub offers "Compare & pull request" for recently pushed branches under
   auto-merge or merge queues, and never change repository settings, branch
   protection or rulesets. Server-side transport protection (non-fast-forward and
   deletion rules) is storage safety and stays as it is.
+- **Storage safety has zero hosting-provider dependency (CEO decision
+  2026-11-11).** Neither repository has a host ruleset or branch protection
+  (verified 2026-11-11), and none is added: a rule that exists only on one
+  provider would not move with the repository. The two portable controls are
+  `push-policy`, switched on by a clone's first build, and the storage guard
+  (`local-snapshot guard`, `docs/git-storage-publisher.md`), with which every
+  clone witnesses that `main` and the release lines only moved forward and that
+  no tag moved or vanished, and keeps what it saw so a loss is restored without
+  force. A remote the CEO controls can add Git's own
+  `receive.denyNonFastForwards` and `receive.denyDeletes`; those are Git, not
+  a provider feature.
 
 ## 4. GitHub is a storage bucket; Git is the source manager
 
@@ -430,7 +441,11 @@ pull-and-merge reconciliation wired across every workflow step in both `susi` an
 `susi-commercial-apps`, and enterprise ACP/corporate add-on packs in
 `susi-commercial-apps`.
 
-Still open beyond this wave: speculative-stack qualification and safe evidence
+Since 2026-11-11 (`T-CLAUDESTORAGEGUARD-1`): the storage guard
+(`local-snapshot guard`) and first-build hook enabling (root `build.rs`).
+
+Still open beyond this wave: running the storage guard on a schedule from the
+harness driver (today an agent or driver runs it); speculative-stack qualification and safe evidence
 reuse across trees; claim heartbeats; advisory `main` health records; the
 secondary-mirror portability drill and bundle backups; and the multi-run harness
 parity evaluation for default-driver promotion.
