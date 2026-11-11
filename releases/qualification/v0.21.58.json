@@ -1,0 +1,173 @@
+{
+  "assets": [
+    {
+      "bytes": 30886856,
+      "file": "susi",
+      "sha256": "8d180ae4ce14bddd5ce2d53b35ee421a674b5344e55955f5f88c8e4b9674fbeb",
+      "version_output": "susi 0.21.58"
+    },
+    {
+      "bytes": 2450680,
+      "file": "susi-harness",
+      "sha256": "a58a473c4009a55941b35a958424b44f80f32239b10fac45b0ccd7fab90dc3d3",
+      "version_output": "susi-harness 0.21.58"
+    }
+  ],
+  "cargo_lock_sha256": "16a2e9d3c52e6e86bcc05357c4725b7f3de1118d9893585362a7012a97c6a391",
+  "finished_unix": 1794398256,
+  "gates": [
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "duration_s": 5,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "name": "format"
+    },
+    {
+      "argv": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--all-targets",
+        "--keep-going",
+        "--offline",
+        "--locked",
+        "-j",
+        "8"
+      ],
+      "duration_s": 43,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "9357fcc0032231fc6a56d1f02b8498635560c7eceab7eba0a30664086ff80bc4",
+      "name": "check"
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--offline",
+        "--locked",
+        "-j",
+        "8",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "duration_s": 30,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "8ca13bebe393d2048d700290c2f8318f92b2ed65b2c3fbce68be0ac30ea4d566",
+      "name": "clippy"
+    },
+    {
+      "argv": [
+        "cargo",
+        "deny",
+        "--offline",
+        "--locked",
+        "check",
+        "licenses"
+      ],
+      "duration_s": 0,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "dac0b1c93a4e55e292d54c675c064ea0ebf408e1876269a840749f17eebbd19c",
+      "name": "licenses"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--offline",
+        "--locked",
+        "--no-fail-fast",
+        "-j",
+        "8"
+      ],
+      "duration_s": 285,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "17436f77ee6f58f9b8e9addf7456f6a9e3d13865d8c71ebe15662d048ebd55c6",
+      "name": "tests",
+      "tests": {
+        "binaries": 252,
+        "failed": 0,
+        "ignored": 14,
+        "passed": 5669
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--profile",
+        "dist",
+        "-p",
+        "susi-harness",
+        "-p",
+        "susi",
+        "--features",
+        "susi/local-engine",
+        "-j",
+        "8"
+      ],
+      "duration_s": 168,
+      "env": [
+        "CARGO_PROFILE_DIST_LTO=false",
+        "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"
+      ],
+      "exit_code": 0,
+      "log_sha256": "335c69d423467f35871d1e3d34e1ee2d27f920f5de54d3e3f65e1f57be28c89f",
+      "name": "build"
+    },
+    {
+      "argv": [
+        "target/dist/susi --version",
+        "target/dist/susi-harness --version"
+      ],
+      "duration_s": 0,
+      "env": [
+        "HOME=<private>",
+        "SUSI_HOME=<private>",
+        "SUSI_NO_REGISTRY_ENV=1"
+      ],
+      "exit_code": 0,
+      "name": "smoke"
+    }
+  ],
+  "harvest_audit": {
+    "files": 0,
+    "harvest_trailer_commits": 0,
+    "manifests": 0,
+    "ok": true,
+    "violations": []
+  },
+  "host": "x86_64-unknown-linux-gnu",
+  "owed_platforms": [
+    "x86_64-pc-windows-msvc"
+  ],
+  "product": "susi",
+  "provenance": "written by xtask release-qualify from the logs under target/release-qualification; each gate's log digest is recorded",
+  "qualified_commit": "1dff27c8eb5abf0a627a0aab6ff3331b8c828dfe",
+  "qualified_tree": "f482136eeebfc2b6100f0e5b9d2823cdc4591d3b",
+  "schema": "susi-release-qualification/v1",
+  "source": "snapshot",
+  "started_unix": 1794397721,
+  "tag": "v0.21.58",
+  "toolchain": {
+    "channel": "1.99.0",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)"
+  },
+  "version": "0.21.58"
+}
