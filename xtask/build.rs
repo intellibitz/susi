@@ -10,6 +10,7 @@ fn main() -> std::io::Result<()> {
         "susi-dev",
         "local-snapshot",
         "distill",
+        "local-harvest",
         "local-distill",
         "release-qualify",
     ])

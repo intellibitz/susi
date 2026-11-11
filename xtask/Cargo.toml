@@ -42,3 +42,7 @@ path = "src/bin/susi-dev.rs"
 [[bin]]
 name = "local-channel"
 path = "src/bin/local-channel.rs"
+
+[[bin]]
+name = "local-harvest"
+path = "src/bin/local-harvest.rs"
