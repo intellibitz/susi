@@ -1,5 +1,6 @@
-//! Harvest Apache-2.0 (and MIT/BSD) code from any Git repository with per-file
-//! license verification, manifests, notices and audits (CEO Mandate 74, section 5).
+//! Harvest Pure Apache-2.0 code from any Git repository with per-file license
+//! verification, Core-vs-Commercial smart routing, raw-branch discovery,
+//! manifests, notices and audits (CEO Mandates 74 & 75).
 #![forbid(unsafe_code)]
 
 #[cfg(windows)]
