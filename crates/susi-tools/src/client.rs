@@ -125,6 +125,7 @@ impl GmcpClient {
                             McpTool {
                                 name: format!("{server_name}:{tool_name}"),
                                 description,
+                                input_schema: None,
                             },
                         ));
                     }
@@ -466,6 +467,7 @@ fn wildcard_tools() -> Vec<McpTool> {
                 tools.push(McpTool {
                     name: format!("{name}:*"),
                     description: format!("Dynamic Proxy for standard MCP server: {name}"),
+                    input_schema: None,
                 });
             }
         }

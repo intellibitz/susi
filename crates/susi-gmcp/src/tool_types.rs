@@ -6,6 +6,8 @@ use std::path::Path;
 pub struct McpTool {
     pub name: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +57,7 @@ mod inline_tests {
         let tool = McpTool {
             name: "read_file".into(),
             description: "Read a file from disk".into(),
+            input_schema: None,
         };
         let encoded = serde_json::to_string(&tool).unwrap();
         let decoded: McpTool = serde_json::from_str(&encoded).unwrap();
@@ -67,6 +70,7 @@ mod inline_tests {
         let tool = McpTool {
             name: "search".into(),
             description: "Search workspace".into(),
+            input_schema: None,
         };
         let cloned = tool.clone();
         assert_eq!(cloned.name, tool.name);

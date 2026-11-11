@@ -415,6 +415,24 @@ mod local_tool_call_tests {
     use serde_json::json;
 
     #[test]
+    fn local_chat_request_preserves_a_registered_input_schema() {
+        let listed = json!([{
+            "name": "write_file",
+            "description": "Write a file in the workspace",
+            "input_schema": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            }
+        }]);
+        let request = chat_request_from(&listed, "write a file").expect("matching tool");
+        assert_eq!(
+            request["tools"][0]["function"]["parameters"],
+            listed[0]["input_schema"]
+        );
+    }
+
+    #[test]
     fn local_tool_calls_qwen_block_extracts_and_strips() {
         let text = "Let me look that up.\n<tool_call>\n{\"name\": \"search\", \"arguments\": {\"q\": \"susi\"}}\n</tool_call>\n";
         let (prose, calls) = extract_tool_calls(text);

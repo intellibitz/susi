@@ -21,6 +21,10 @@ impl ToolRegistry {
                                 .and_then(|d| d.as_str())
                                 .unwrap_or("")
                                 .to_string(),
+                            input_schema: v
+                                .get("input_schema")
+                                .or_else(|| v.get("inputSchema"))
+                                .cloned(),
                         })
                     })
                     .collect()
@@ -70,6 +74,7 @@ impl GmcpClient {
                         tools.push(McpTool {
                             name: format!("{name}:*"),
                             description: format!("Dynamic Proxy for standard MCP server: {name}"),
+                            input_schema: None,
                         });
                     }
                 }
