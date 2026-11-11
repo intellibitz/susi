@@ -12,6 +12,11 @@
   "updated_unix": 1794433873,
   "size": "M",
   "base_commit": "983f0100c461ba00365e340a5bd43a6160bacf5a",
+  "source_commits": [
+    "dda557835ffca4ade52fbb29cddfb36c9588b757",
+    "e710f794cc52ce6dcc1ef0b7c0a919a0a6893848",
+    "a40b8ed16d3ae18b834a32cbd905dc3589c6956d"
+  ],
   "deps": [
     "T-CODEXHISTORY-1",
     "T-CLAUDEGEMIFIX-2",
