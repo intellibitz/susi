@@ -2,7 +2,7 @@
   "id": "T-CLAUDEDISTILLBASE-1",
   "title": "local-distill distils onto a distilled release and reads multi-id Task trailers",
   "goal": "Successive releases distil onto a release tag that was itself distilled (v0.21.56 onto v0.21.55). local-distill re-applied the source commits that base already carries as composed Distilled-Task commits and deferred them with merge-tree conflicts against release-only edits. Read Distilled-Task/Source-Commits from from..base, drop those stream commits, and report such tasks as satisfied_in_base (already_distilled_in_base). Also split comma/space-separated Task: trailers as distill lint does, instead of treating 'T-A-1, T-B-1' as one unknown id.",
-  "status": "in_progress",
+  "status": "done",
   "owner": "claude",
   "created_by": "claude",
   "created_unix": 1794375891,
@@ -32,5 +32,14 @@
     "distilling_onto_a_distilled_release_skips_what_it_already_carries passes and fails with the base reading disabled",
     "task_trailer_names_every_comma_or_space_separated_id passes",
     "local-distill plan --base v0.21.55 --from origin/main --tasks-from-range v0.21.54..origin/main reports the rc2 tasks as already_distilled_in_base instead of merge_conflict"
-  ]
+  ],
+  "results": "15 local-distill tests pass (two new); regression test fails with base reading disabled; on the real repo plan --base v0.21.55 --from origin/main moves RECURSE, SIGNENV, LOOP10, RELEASE54REC to already_distilled_in_base and makes AGYCLOUD-2/3 includable (25 included).",
+  "limitations": [
+    "A commit closing several tasks is still out of scope for each task alone (T-CLAUDEDISTILLHOME-1, T-CLAUDECLISNAP-1 via d52ce1b47); fixing that needs per-path filtering so an unselected task record does not leak.",
+    "Release-branch-only edits to a task record (T-CLAUDEDISTILL-1 on v0.21.55) still conflict with main commits touching that record."
+  ],
+  "landed": {
+    "main_commit": "91d7a67e7dde0f05539fc062323473f0cb197383",
+    "route": "git push origin HEAD:main (Mandate 73 fast-forward)"
+  }
 }
