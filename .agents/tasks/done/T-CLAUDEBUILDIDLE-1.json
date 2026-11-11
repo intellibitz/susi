@@ -2,7 +2,7 @@
   "id": "T-CLAUDEBUILDIDLE-1",
   "title": "Idle cold-build measurement after the wasm and A2A SDK cuts",
   "goal": "Measure cold cargo build -p susi on an idle machine after T-CLAUDEWASMSTD-1 and T-CLAUDENOA2ASDK-1 against the morning baseline and record it in the lean-core wave log and .agents/build-time.jsonl.",
-  "status": "in_progress",
+  "status": "done",
   "scopes": [
     "docs/lean-core.md",
     ".agents/build-time.jsonl",
@@ -29,5 +29,12 @@
   "created_by": "claude",
   "created_unix": 1794366300,
   "owner": "claude",
-  "base": "19f37fd29f7dec01d3eb9d101a302ffc47374df4"
+  "base": "19f37fd29f7dec01d3eb9d101a302ffc47374df4",
+  "results": "Two idle runs: 61.7/61.3 s wall, 217.7/217.5 CPU-s, 342 units vs base 63.3 s, 228.6 CPU-s, 374 units.",
+  "limitations": "4-thread cloud container; the CEO laptop (28 threads) was not measured in this session.",
+  "landed": {
+    "main_commit": "f85ae69fe85a35f950c9973af6e09bd47a03d895",
+    "source_commit": "f85ae69fe85a35f950c9973af6e09bd47a03d895",
+    "route": "local-snapshot submit claude-buildidle-20261111"
+  }
 }
