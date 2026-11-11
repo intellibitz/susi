@@ -1,0 +1,42 @@
+{
+  "id": "T-AGYCLOUD-7",
+  "native_worker": "agycloud-20261110",
+  "owner": "agycloud-20261110",
+  "title": "Normalize T-AGYCLOUD-5 distillation scopes and publish verified release/v0.21.56-distilled-rc2",
+  "goal": "Normalize directory prefix scopes and pinned source_commits in `.agents/tasks/done/T-AGYCLOUD-5.json` for `local-distill` strict scope auditing, compose and `--verify-accept` the post-rc1 functional core tasks (`T-AGYCLOUD-5`, `T-AGYCLOUD-6`, `T-CLAUDEA2AGOLDEN-1`, `T-CLAUDEDISTILLBASE-1`, `T-CLAUDEGAWDTOKIO-1`) onto `3c72d69d289077872d6325741265be0973e52d77` (`v0.21.56-distilled-rc1`), publish `refs/heads/release/v0.21.56-distilled-rc2` and `refs/tags/susi-distill/v0.21.56-distilled-rc2`, and record the verified distillation receipt.",
+  "feature": "release-distillation",
+  "size": "s",
+  "created_by": "agycloud-20261110",
+  "created_unix": 1794377290,
+  "state": "in_progress",
+  "status": "in_progress",
+  "base": "a7a87396ebf1347a2750f6c751eebe750e8638fb",
+  "mandate_revision": "286e653ab06677ef0aefee8a54bffc26455127af",
+  "deps": [
+    "T-AGYCLOUD-5",
+    "T-AGYCLOUD-6",
+    "T-CLAUDEDISTILLBASE-1"
+  ],
+  "scopes": [
+    ".agents/tasks/done/T-AGYCLOUD-5.json",
+    ".agents/tasks/T-AGYCLOUD-7.json",
+    ".agents/tasks/done/T-AGYCLOUD-7.json",
+    ".agents/evidence/distill-v0-21-56-distilled-rc2-T-AGYCLOUD-7.json"
+  ],
+  "evidence": [
+    ".agents/tasks/done/T-AGYCLOUD-5.json",
+    ".agents/evidence/distill-v0-21-56-distilled-rc2-T-AGYCLOUD-7.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "task_records"
+    ]
+  }
+}
