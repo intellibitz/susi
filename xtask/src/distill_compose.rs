@@ -1720,6 +1720,33 @@ impl Drop for DetachedVerifyWorktree<'_> {
     }
 }
 
+/// Toolchain homes an accept command keeps when `HOME` is replaced.
+///
+/// Cargo and rustup default to `$HOME/.cargo` and `$HOME/.rustup`, so the
+/// scratch `HOME` below would hide the registry cache and the toolchains, and
+/// every `--offline` accept command would fail to resolve its first crate.
+/// Both are immutable shared caches (AGENTS.md permits sharing those): an
+/// explicit non-empty value is kept, otherwise the caller's default is pinned.
+fn toolchain_homes(
+    get: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Vec<(&'static str, std::ffi::OsString)> {
+    let home = get("HOME")
+        .filter(|value| !value.is_empty())
+        .or_else(|| get("USERPROFILE").filter(|value| !value.is_empty()));
+    [("CARGO_HOME", ".cargo"), ("RUSTUP_HOME", ".rustup")]
+        .into_iter()
+        .filter_map(|(key, default_dir)| {
+            get(key)
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    home.as_ref()
+                        .map(|home| Path::new(home).join(default_dir).into_os_string())
+                })
+                .map(|value| (key, value))
+        })
+        .collect()
+}
+
 fn verify_composed_accept_commands(
     git: &Git<'_>,
     final_commit: &str,
@@ -1775,6 +1802,9 @@ fn verify_composed_accept_commands(
             .env("TMP", &runtime_dir)
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("SUSI_NO_REGISTRY_ENV", "1");
+        for (key, value) in toolchain_homes(|key| std::env::var_os(key)) {
+            command.env(key, value);
+        }
         for secret_key in [
             "GITHUB_TOKEN",
             "GH_TOKEN",
@@ -2775,6 +2805,55 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn accept_commands_keep_the_callers_toolchain_homes() {
+        use std::ffi::OsString;
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |key: &str| {
+                pairs
+                    .iter()
+                    .find(|(name, _)| *name == key)
+                    .map(|(_, value)| OsString::from(value))
+            }
+        };
+        let defaults = toolchain_homes(env(&[("HOME", "/u")]));
+        assert_eq!(
+            defaults,
+            vec![
+                (
+                    "CARGO_HOME",
+                    Path::new("/u").join(".cargo").into_os_string()
+                ),
+                (
+                    "RUSTUP_HOME",
+                    Path::new("/u").join(".rustup").into_os_string()
+                ),
+            ]
+        );
+        let explicit = toolchain_homes(env(&[
+            ("HOME", "/u"),
+            ("CARGO_HOME", "/c"),
+            ("RUSTUP_HOME", ""),
+        ]));
+        assert_eq!(explicit[0], ("CARGO_HOME", OsString::from("/c")));
+        assert_eq!(
+            explicit[1],
+            (
+                "RUSTUP_HOME",
+                Path::new("/u").join(".rustup").into_os_string()
+            )
+        );
+        let windows = toolchain_homes(env(&[("USERPROFILE", "C:/u")]));
+        assert_eq!(
+            windows[0],
+            (
+                "CARGO_HOME",
+                Path::new("C:/u").join(".cargo").into_os_string()
+            )
+        );
+        assert!(toolchain_homes(env(&[])).is_empty());
+    }
 
     static FIXTURE_SEQ: AtomicUsize = AtomicUsize::new(0);
 
