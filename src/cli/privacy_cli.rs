@@ -1,5 +1,5 @@
 //! Privacy / MAC capability CLI.
-use anyhow::{bail, Result};
+use crate::anyhow::{bail, Result};
 use susi_core::mac_policy::{actions, MacPolicy};
 
 pub use susi_cli_defs::privacy::*;

@@ -867,111 +867,127 @@ Active Connections
 
     mod prop_tests {
         use super::*;
-        use proptest::prelude::*;
 
-        fn name_strategy() -> impl Strategy<Value = String> {
-            // Real tables only carry leaf-service names, but the state
-            // machine must hold for arbitrary keys — including unicode.
-            "[a-z\\-]{1,16}".prop_map(String::from)
+        fn next_u64(state: &mut u64) -> u64 {
+            *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = *state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            z ^ (z >> 31)
         }
 
-        fn record_strategy() -> impl Strategy<Value = ServiceRecord> {
-            (
-                name_strategy(),
-                any::<u32>(),
-                any::<u16>(),
-                any::<u64>(),
-                any::<u32>(),
-                any::<bool>(),
-                any::<bool>(),
-                any::<Option<u64>>(),
-            )
-                .prop_map(
-                    |(name, pid, port, started_at, restarts, external, stopped, disabled_until)| {
-                        ServiceRecord {
-                            name,
-                            pid,
-                            port,
-                            started_at,
-                            restarts,
-                            disabled_until,
-                            external,
-                            stopped,
-                        }
-                    },
-                )
+        fn gen_name(state: &mut u64) -> String {
+            const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz-";
+            let len = 1 + ((next_u64(state) % 16) as usize);
+            (0..len)
+                .map(|_| ALPHABET[(next_u64(state) as usize) % ALPHABET.len()] as char)
+                .collect()
         }
 
-        proptest! {
-            /// serde round-trip: save_to → load_from is lossless modulo
-            /// the one-row-per-name repair — duplicate names collapse to
-            /// the first row on load, everything else survives verbatim.
-            #[test]
-            fn save_load_round_trips_any_table(
-                records in proptest::collection::vec(record_strategy(), 0..8)
-            ) {
-                let dir = std::env::temp_dir().join(format!(
-                    "susi_svc_prop_{}_{:?}",
-                    std::process::id(),
-                    std::thread::current().id()
-                ));
-                let path = dir.join("services.json");
+        fn gen_record(state: &mut u64) -> ServiceRecord {
+            let has_disabled = (next_u64(state) & 1) == 1;
+            ServiceRecord {
+                name: gen_name(state),
+                pid: next_u64(state) as u32,
+                port: next_u64(state) as u16,
+                started_at: next_u64(state),
+                restarts: next_u64(state) as u32,
+                disabled_until: if has_disabled {
+                    Some(next_u64(state))
+                } else {
+                    None
+                },
+                external: (next_u64(state) & 1) == 1,
+                stopped: (next_u64(state) & 1) == 1,
+            }
+        }
+
+        fn gen_table(state: &mut u64, max_len: usize) -> Vec<ServiceRecord> {
+            let len = (next_u64(state) as usize) % max_len;
+            (0..len).map(|_| gen_record(state)).collect()
+        }
+
+        #[test]
+        fn save_load_round_trips_any_table() {
+            let mut state = 0x1111_2222_3333_4444_u64;
+            let dir = std::env::temp_dir().join(format!(
+                "susi_svc_prop_{}_{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let path = dir.join("services.json");
+            for case in 0..256_usize {
+                let mut records = gen_table(&mut state, 8);
+                if case % 4 == 0 && !records.is_empty() {
+                    let mut dup = gen_record(&mut state);
+                    dup.name = records[0].name.clone();
+                    records.push(dup);
+                }
                 save_to(&path, &records).expect("save");
                 let loaded = load_from(&path);
                 let mut deduped = records.clone();
                 let mut seen = std::collections::HashSet::new();
                 deduped.retain(|r| seen.insert(r.name.clone()));
-                prop_assert_eq!(loaded, deduped);
-                let _ = fs::remove_dir_all(&dir);
+                assert_eq!(loaded, deduped);
             }
+            let _ = fs::remove_dir_all(&dir);
+        }
 
-            /// record() is an upsert: the table holds exactly one row per
-            /// name, and restarts counts every re-record of the same name.
-            #[test]
-            fn record_keeps_one_row_per_name(
-                name in name_strategy(),
-                pids in proptest::collection::vec(any::<u32>(), 1..6),
-                port in any::<u16>(),
-            ) {
+        #[test]
+        fn record_keeps_one_row_per_name() {
+            let mut state = 0x5555_6666_7777_8888_u64;
+            for _ in 0..512 {
+                let name = gen_name(&mut state);
+                let pid_count = 1 + ((next_u64(&mut state) % 5) as usize);
+                let port = next_u64(&mut state) as u16;
                 let mut table = Vec::new();
-                for (i, pid) in pids.iter().enumerate() {
-                    let rec = record(&mut table, &name, *pid, port);
-                    prop_assert_eq!(rec.pid, *pid);
-                    prop_assert_eq!(rec.restarts as usize, i);
+                for i in 0..pid_count {
+                    let pid = next_u64(&mut state) as u32;
+                    let rec = record(&mut table, &name, pid, port);
+                    assert_eq!(rec.pid, pid);
+                    assert_eq!(rec.restarts as usize, i);
                 }
-                prop_assert_eq!(table.iter().filter(|r| r.name == name).count(), 1);
+                assert_eq!(table.iter().filter(|r| r.name == name).count(), 1);
             }
+        }
 
-            /// record_external() always leaves exactly one external row —
-            /// even over a supervised record (the supervisor must never
-            /// signal a pid it didn't spawn, so the flag is rewritten).
-            #[test]
-            fn record_external_overwrites_to_external(
-                seed in proptest::collection::vec(record_strategy(), 0..6),
-                name in name_strategy(),
-                pid in any::<u32>(),
-                port in any::<u16>(),
-            ) {
-                let mut table = seed;
+        #[test]
+        fn record_external_overwrites_to_external() {
+            let mut state = 0x9999_aaaa_bbbb_cccc_u64;
+            for case in 0..512_usize {
+                let mut table = gen_table(&mut state, 6);
+                let name = if case % 2 == 0 && !table.is_empty() {
+                    table[0].name.clone()
+                } else {
+                    gen_name(&mut state)
+                };
+                let pid = next_u64(&mut state) as u32;
+                let port = next_u64(&mut state) as u16;
                 let rec = record_external(&mut table, &name, pid, port);
-                prop_assert!(rec.external);
-                prop_assert_eq!(rec.restarts, 0);
-                prop_assert_eq!(table.iter().filter(|r| r.name == name).count(), 1);
-                prop_assert!(table.iter().find(|r| r.name == name).map(|r| r.external) == Some(true));
+                assert!(rec.external);
+                assert_eq!(rec.restarts, 0);
+                assert_eq!(table.iter().filter(|r| r.name == name).count(), 1);
+                assert_eq!(
+                    table.iter().find(|r| r.name == name).map(|r| r.external),
+                    Some(true)
+                );
             }
+        }
 
-            /// remove() is idempotent and total: returns true iff the
-            /// name was present, and leaves no row with that name.
-            #[test]
-            fn remove_is_total_and_idempotent(
-                seed in proptest::collection::vec(record_strategy(), 0..8),
-                name in name_strategy(),
-            ) {
-                let mut table = seed;
+        #[test]
+        fn remove_is_total_and_idempotent() {
+            let mut state = 0xdddd_eeee_ffff_0001_u64;
+            for case in 0..512_usize {
+                let mut table = gen_table(&mut state, 8);
+                let name = if case % 2 == 0 && !table.is_empty() {
+                    table[0].name.clone()
+                } else {
+                    gen_name(&mut state)
+                };
                 let present = table.iter().any(|r| r.name == name);
-                prop_assert_eq!(remove(&mut table, &name), present);
-                prop_assert!(!table.iter().any(|r| r.name == name));
-                prop_assert!(!remove(&mut table, &name));
+                assert_eq!(remove(&mut table, &name), present);
+                assert!(!table.iter().any(|r| r.name == name));
+                assert!(!remove(&mut table, &name));
             }
         }
     }

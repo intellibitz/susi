@@ -1,5 +1,5 @@
 //! Semantic intent bus CLI.
-use anyhow::{bail, Result};
+use crate::anyhow::{bail, Result};
 pub use susi_cli_defs::intent::IntentCommands;
 
 pub fn execute(action: Option<IntentCommands>) -> Result<()> {

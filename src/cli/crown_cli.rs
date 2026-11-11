@@ -2,8 +2,8 @@
 //!
 //! Critical checks must pass for exit 0. Host-gated capabilities report
 //! `ready`/`optional` without failing the crown when the host lacks Docker/daemon.
+use crate::anyhow::{bail, Result};
 use crate::cli_json::print_json;
-use anyhow::{bail, Result};
 use std::path::Path;
 pub use susi_cli_defs::crown::CrownCommands;
 use susi_daemon::discovery_pipeline::Catalogs;

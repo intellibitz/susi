@@ -1,6 +1,6 @@
 //! `susi setup`: one end-to-end zero-config ecosystem setup command.
+use crate::anyhow::Result;
 use crate::cli_json::print_json;
-use anyhow::Result;
 use susi_config::setup_workflow::{ConsentKind, SetupPlan};
 use susi_paths::SusiDirs;
 
@@ -22,7 +22,7 @@ pub fn execute(action: Option<SetupCommands>) -> Result<()> {
             if cloud {
                 plan.grant_consent(ConsentKind::CloudApiKey);
             }
-            let summary = plan.apply(&home).map_err(anyhow::Error::msg)?;
+            let summary = plan.apply(&home).map_err(crate::anyhow::Error::msg)?;
             if json {
                 print_json(&serde_json::json!({
                     "hardware": plan.hardware,

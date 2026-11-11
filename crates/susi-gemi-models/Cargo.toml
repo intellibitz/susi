@@ -24,7 +24,6 @@ local-engine = []
 metal = ["local-engine"]
 
 [dev-dependencies]
-proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 
 [lints]

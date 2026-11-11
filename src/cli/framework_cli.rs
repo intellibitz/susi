@@ -1,7 +1,7 @@
 //! Deterministic agent-framework control plane (LangGraph, CrewAI, …), no daemon required.
 use super::catalog_plane_cli::{launch, run_worker, LaunchOpts};
+use crate::anyhow::{bail, Result};
 use crate::cli_json::print_json;
-use anyhow::{bail, Result};
 use std::path::Path;
 pub use susi_cli_defs::framework::FrameworkCommands;
 use susi_daemon::adapter_ops::{self, AdapterKind};
@@ -16,11 +16,11 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
         // `*_retry` tools call the same functions.
         FrameworkCommands::Setup { engine } => print_json(
             &adapter_ops::setup(AdapterKind::Frameworks, &engine, workspace)
-                .map_err(anyhow::Error::msg)?,
+                .map_err(crate::anyhow::Error::msg)?,
         )?,
         FrameworkCommands::Doctor { engine } => {
             let rows = adapter_ops::doctor(AdapterKind::Frameworks, engine.as_deref(), workspace)
-                .map_err(anyhow::Error::msg)?;
+                .map_err(crate::anyhow::Error::msg)?;
             for row in &rows {
                 print_json(row)?;
             }
@@ -35,12 +35,12 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
             let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
             print_json(
                 &adapter_ops::configure(AdapterKind::Frameworks, &engine, doc, workspace)
-                    .map_err(anyhow::Error::msg)?,
+                    .map_err(crate::anyhow::Error::msg)?,
             )?;
         }
         FrameworkCommands::Reset { engine } => print_json(
             &adapter_ops::reset(AdapterKind::Frameworks, &engine, workspace)
-                .map_err(anyhow::Error::msg)?,
+                .map_err(crate::anyhow::Error::msg)?,
         )?,
         FrameworkCommands::Run {
             engine,
@@ -60,7 +60,8 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
             )?;
         }
         FrameworkCommands::Retry { task_id, wait } => {
-            let old = adapter_ops::retry_source(&manager, &task_id).map_err(anyhow::Error::msg)?;
+            let old =
+                adapter_ops::retry_source(&manager, &task_id).map_err(crate::anyhow::Error::msg)?;
             let run = manager.prepare(&old.agent, &old.prompt)?;
             launch(
                 &manager,

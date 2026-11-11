@@ -37,6 +37,8 @@ mod trusted_sysroot;
 mod workspace_test_count;
 #[path = "../workspace_test_proof.rs"]
 mod workspace_test_proof;
+#[path = "../worktree_admin.rs"]
+mod worktree_admin;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -3629,7 +3631,9 @@ fn clear_candidate(root: &Path, candidate: &Path) -> Result<()> {
             }
         }
     }
-    git(root, &["worktree", "prune"])?;
+    // Only this candidate's record: a bare `git worktree prune` also deletes
+    // the records of live worktrees registered from the Windows boot.
+    worktree_admin::forget(root, candidate)?;
     Ok(())
 }
 

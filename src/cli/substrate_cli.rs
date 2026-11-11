@@ -1,8 +1,8 @@
 //! Tier S substrate status: Pluggable, Sandbox, Governance, Host-contract, Reflexes.
 //! The document is `susi_daemon::substrate_status::report`, shared with the
 //! MCP `substrate_status` tool.
+use crate::anyhow::Result;
 use crate::cli_json::print_json;
-use anyhow::Result;
 use std::path::Path;
 use susi_daemon::discovery_pipeline::Catalogs;
 

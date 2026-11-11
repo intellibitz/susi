@@ -8,7 +8,7 @@
 //! equivocating `(coordinator, seq)` slots, and commits stamped by a
 //! coordinator that wasn't the elected leader.
 
-use anyhow::Result;
+use crate::anyhow::Result;
 use std::path::Path;
 pub use susi_cli_defs::commits::CommitsCommands;
 use susi_core::commit_log;
@@ -41,7 +41,8 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
 /// chain linkage and seq derivation intact; `commit_log_fetch` keeps
 /// serving the archive so peers can still repair across the boundary.
 fn compact() -> Result<()> {
-    let report = susi_core::commit_log_report::compact_report().map_err(anyhow::Error::msg)?;
+    let report =
+        susi_core::commit_log_report::compact_report().map_err(crate::anyhow::Error::msg)?;
     if report["archived"].as_u64() == Some(0) {
         println!(
             "ledger already minimal ({} records) — nothing to compact",
@@ -191,8 +192,8 @@ fn list(
 }
 
 fn show(epoch_prefix: &str, json: bool) -> Result<()> {
-    let body =
-        susi_core::commit_log_report::show_report(epoch_prefix).map_err(anyhow::Error::msg)?;
+    let body = susi_core::commit_log_report::show_report(epoch_prefix)
+        .map_err(crate::anyhow::Error::msg)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&body)?);
         return Ok(());
@@ -252,7 +253,7 @@ fn audit(strict: bool, json: bool) -> Result<()> {
         );
     }
     if strict && !anomalies.is_empty() {
-        anyhow::bail!(
+        crate::anyhow::bail!(
             "{} ledger anomal{} found",
             anomalies.len(),
             if anomalies.len() == 1 { "y" } else { "ies" }

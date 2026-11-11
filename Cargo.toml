@@ -10,7 +10,6 @@ members = [
     "crates/susi-windows-runtime",
     "crates/susi-error",
     "crates/susi-core",
-    "crates/susi-vendor-proptest",
     "crates/susi-vendor-tempfile",
     "crates/susi-vendor-wasmtime",
     "crates/susi-vendor-syn",
@@ -32,7 +31,6 @@ members = [
     "crates/susi-gawd-a2a",
     "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon", "crates/susi-server",
     "crates/susi-harness",
-    "crates/susi-vendor-anyhow",
     "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",
     "crates/susi-vendor-ed25519-dalek",
@@ -46,14 +44,12 @@ members = [
     "crates/susi-vendor-serde",
     "crates/susi-vendor-serde-json",
     "crates/susi-vendor-sha2",
-    "crates/susi-vendor-shlex",
     "crates/susi-vendor-signal-hook",
     "crates/susi-vendor-windows-registry",
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tokio-rustls",
     "crates/susi-vendor-tower-service",
     "crates/susi-vendor-tracing",
-    "crates/susi-vendor-tracing-appender",
     "crates/susi-vendor-tracing-subscriber",
     "crates/susi-vendor-winapi",
     "crates/susi-vendor-x25519-dalek"]
@@ -143,7 +139,6 @@ susi-leaf-services = { path = "crates/susi-leaf-services", features = ["all-serv
 susi-daemon-runtime = { path = "crates/susi-daemon-runtime" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-anyhow = "1.0"
 hex = "0.4"
 tracing = "0.1"
 sha2 = "0.11.0"
@@ -178,13 +173,11 @@ susi-wire-client = { workspace = true }
 susi-leaf-services = { workspace = true }
 serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
-anyhow = { package = "susi-vendor-anyhow", path = "crates/susi-vendor-anyhow" }
 clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }
 winapi = { package = "susi-vendor-winapi", path = "crates/susi-vendor-winapi" }
 signal-hook = { package = "susi-vendor-signal-hook", path = "crates/susi-vendor-signal-hook" }
 tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing" }
 tracing-subscriber = { package = "susi-vendor-tracing-subscriber", path = "crates/susi-vendor-tracing-subscriber" }
-tracing-appender = { package = "susi-vendor-tracing-appender", path = "crates/susi-vendor-tracing-appender" }
 tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }

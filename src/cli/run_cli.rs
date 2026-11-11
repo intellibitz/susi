@@ -83,7 +83,7 @@ pub fn resolve_model_and_prompt(
     cli_model: Option<String>,
     prompt_tokens: &[String],
     stdin_input: Option<String>,
-) -> anyhow::Result<(Option<String>, String)> {
+) -> crate::anyhow::Result<(Option<String>, String)> {
     let mut model = cli_model;
     let user_text = if model.is_some() {
         prompt_tokens.join(" ")
@@ -117,7 +117,7 @@ pub fn resolve_model_and_prompt(
 
     let trimmed = full_prompt.trim().to_string();
     if trimmed.is_empty() {
-        anyhow::bail!("No prompt provided. Usage: susi run [model] \"<prompt>\"");
+        crate::anyhow::bail!("No prompt provided. Usage: susi run [model] \"<prompt>\"");
     }
 
     Ok((model, trimmed))
@@ -161,7 +161,7 @@ pub fn estimate_token_count(text: &str) -> usize {
 }
 
 /// Execute `susi run`.
-pub fn execute(args: RunArgs, workspace: &Path) -> anyhow::Result<()> {
+pub fn execute(args: RunArgs, workspace: &Path) -> crate::anyhow::Result<()> {
     let stdin_input = read_stdin_bounded()?;
     let (model, prompt) = resolve_model_and_prompt(args.model, &args.prompt, stdin_input)?;
 
@@ -254,12 +254,14 @@ pub fn execute(args: RunArgs, workspace: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_response(response: &str) -> anyhow::Result<()> {
+fn validate_response(response: &str) -> crate::anyhow::Result<()> {
     if response.trim().is_empty() {
-        anyhow::bail!("No model returned an answer. Check available local or cloud connections.");
+        crate::anyhow::bail!(
+            "No model returned an answer. Check available local or cloud connections."
+        );
     }
     if GemiEngine::looks_like_error_text(response) {
-        anyhow::bail!("Inference failed: {response}");
+        crate::anyhow::bail!("Inference failed: {response}");
     }
     Ok(())
 }

@@ -1,5 +1,5 @@
 //! Inspect the last mission blackboard (glass-box swarm shared state).
-use anyhow::{anyhow, Result};
+use crate::anyhow::{anyhow, Result};
 use std::path::Path;
 pub use susi_cli_defs::blackboard::BlackboardCommands;
 

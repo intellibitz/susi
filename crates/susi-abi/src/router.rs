@@ -255,7 +255,6 @@ mod tests {
 mod prop_tests {
     use super::super::swarm::PheromoneKind;
     use super::*;
-    use proptest::prelude::*;
 
     fn pheromone(deposited_at: u64, ttl_ms: u64) -> SwarmPheromone {
         SwarmPheromone {
@@ -270,22 +269,45 @@ mod prop_tests {
         }
     }
 
-    proptest! {
-        // Property: evaporate_expired's survival decision matches its own
-        // age-vs-ttl formula exactly — never keeps a pheromone past its ttl,
-        // never drops one still inside it.
-        #[test]
-        fn evaporation_matches_ttl_exactly(
-            deposited_at in 0u64..1_000_000,
-            ttl_ms in 1u64..600_000,
-            now_secs in 0u64..1_000_000,
-        ) {
+    fn next_u64(state: &mut u64) -> u64 {
+        *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    // Property: evaporate_expired's survival decision matches its own
+    // age-vs-ttl formula exactly — never keeps a pheromone past its ttl,
+    // never drops one still inside it.
+    #[test]
+    fn evaporation_matches_ttl_exactly() {
+        let mut state = 0x5eed_cafe_d00d_beef_u64;
+        let boundary_cases = [
+            (0_u64, 1_u64, 0_u64),
+            (0, 1000, 1),
+            (0, 1001, 1),
+            (500, 2000, 499),
+            (500, 2000, 502),
+        ];
+        for (deposited_at, ttl_ms, now_secs) in boundary_cases {
             let mut router = PheromoneRouter::new();
             router.deposit_pheromone(pheromone(deposited_at, ttl_ms));
             router.evaporate_expired(now_secs);
             let age_ms = now_secs.saturating_sub(deposited_at).saturating_mul(1000);
             let expected = usize::from(age_ms < ttl_ms);
-            prop_assert_eq!(router.query_topic("t").len(), expected);
+            assert_eq!(router.query_topic("t").len(), expected);
+        }
+        for _ in 0..4_096 {
+            let deposited_at = next_u64(&mut state) % 1_000_000;
+            let ttl_ms = 1 + (next_u64(&mut state) % 599_999);
+            let now_secs = next_u64(&mut state) % 1_000_000;
+            let mut router = PheromoneRouter::new();
+            router.deposit_pheromone(pheromone(deposited_at, ttl_ms));
+            router.evaporate_expired(now_secs);
+            let age_ms = now_secs.saturating_sub(deposited_at).saturating_mul(1000);
+            let expected = usize::from(age_ms < ttl_ms);
+            assert_eq!(router.query_topic("t").len(), expected);
         }
     }
 }

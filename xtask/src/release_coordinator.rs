@@ -472,7 +472,8 @@ fn gate_tools(root: &Path, home: &Path, label: &str, source: &str, host: &str) -
         if checkout.exists() {
             fs::remove_dir_all(&checkout)?;
         }
-        git(root, &["worktree", "prune"])?;
+        // Only this checkout's record, never a repository-wide prune.
+        super::worktree_admin::forget(root, &checkout)?;
     }
     git(
         root,

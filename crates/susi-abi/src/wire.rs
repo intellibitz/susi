@@ -361,37 +361,64 @@ impl FrameStream {
 #[cfg(test)]
 mod prop_tests {
     use super::*;
-    use proptest::prelude::*;
 
-    proptest! {
-        // Property: every frame that encodes decodes back to an identical
-        // frame, consuming exactly the bytes it produced.
-        #[test]
-        fn round_trip_preserves_frame(
-            msg_type_byte in 1u8..=7u8,
-            qos_raw in any::<u16>(),
-            payload in proptest::collection::vec(any::<u8>(), 0..4096),
-        ) {
+    fn next_u64(state: &mut u64) -> u64 {
+        *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    // Property: every frame that encodes decodes back to an identical
+    // frame, consuming exactly the bytes it produced.
+    #[test]
+    fn round_trip_preserves_frame() {
+        let mut state = 0xa5a5_5a5a_f0f0_0f0f_u64;
+        for case in 0..1_024_usize {
+            let msg_type_byte = 1 + ((next_u64(&mut state) % 7) as u8);
+            let qos_raw = next_u64(&mut state) as u16;
+            let len = match case {
+                0 => 0,
+                1 => 4_095,
+                _ => (next_u64(&mut state) % 4_096) as usize,
+            };
+            let mut payload = vec![0_u8; len];
+            for chunk in payload.chunks_mut(8) {
+                let bytes = next_u64(&mut state).to_le_bytes();
+                chunk.copy_from_slice(&bytes[..chunk.len()]);
+            }
             let msg_type = MessageType::from_u8(msg_type_byte).unwrap();
             let qos = QosFlags(qos_raw);
             let frame = WireFrame::with_qos(msg_type, qos, payload);
             let encoded = frame.encode().unwrap();
             let (decoded, consumed) = WireFrame::decode(&encoded).unwrap();
-            prop_assert_eq!(consumed, encoded.len());
-            prop_assert_eq!(decoded, frame);
+            assert_eq!(consumed, encoded.len());
+            assert_eq!(decoded, frame);
         }
+    }
 
-        // Property: decode never panics on arbitrary bytes — the eventual
-        // consumer is a UDS/pipe stream, i.e. untrusted input. Buffers
-        // shorter than the fixed 12-byte header are the one length class
-        // that can only ever fail one way.
-        #[test]
-        fn decode_never_panics_on_arbitrary_bytes(
-            buf in proptest::collection::vec(any::<u8>(), 0..600),
-        ) {
+    // Property: decode never panics on arbitrary bytes — the eventual
+    // consumer is a UDS/pipe stream, i.e. untrusted input. Buffers
+    // shorter than the fixed 12-byte header are the one length class
+    // that can only ever fail one way.
+    #[test]
+    fn decode_never_panics_on_arbitrary_bytes() {
+        let mut state = 0xdead_beef_cafe_babe_u64;
+        for len_seed in 0..2_048_usize {
+            let len = if len_seed < HEADER_SIZE {
+                len_seed
+            } else {
+                (next_u64(&mut state) % 600) as usize
+            };
+            let mut buf = vec![0_u8; len];
+            for chunk in buf.chunks_mut(8) {
+                let bytes = next_u64(&mut state).to_le_bytes();
+                chunk.copy_from_slice(&bytes[..chunk.len()]);
+            }
             let result = WireFrame::decode(&buf);
             if buf.len() < HEADER_SIZE {
-                prop_assert_eq!(result, Err(WireError::IncompleteHeader));
+                assert_eq!(result, Err(WireError::IncompleteHeader));
             }
         }
     }

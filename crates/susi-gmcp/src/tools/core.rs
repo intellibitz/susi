@@ -8,9 +8,7 @@ use std::sync::OnceLock;
 
 use crate::susi_core::broker::{IpcBroker, PermissionScope};
 use crate::susi_core::context_graph::ContextGraph;
-use crate::susi_core::plane_bus::gemi::sample_telemetry;
-use crate::susi_core::plane_bus::gemi::HardwareProfiler;
-use crate::susi_core::plane_bus::gemi::ModelManager;
+use crate::susi_core::plane_bus::gemi::{sample_telemetry, HardwareProfiler, ModelManager};
 use crate::susi_core::plane_bus::{agents, gawd, gawd_hooks, tools as plane_tools};
 use crate::susi_error::{EaiError, EaiResult};
 
@@ -21,7 +19,6 @@ pub const TOPIC_BROWSER_CAPTURE: &str = "desktop.browser.capture";
 use crate::tool_registry::GmcpClient;
 
 use super::args;
-#[cfg(feature = "tools-rich")]
 #[cfg(feature = "tools-rich")]
 use super::helpers::secure_external_url;
 use super::helpers::{
@@ -473,7 +470,8 @@ impl CoreTools {
                 arg.get("cancel_scope").and_then(|v| v.as_str()),
             );
 
-        let args = shlex::split(clean).ok_or_else(|| EaiError::protocol("Invalid shell syntax"))?;
+        let args = susi_paths::shlex::split(clean)
+            .ok_or_else(|| EaiError::protocol("Invalid shell syntax"))?;
         if args.is_empty() {
             task_handle.mark_failed("Command cannot be empty");
             return Err(EaiError::protocol("Command cannot be empty"));

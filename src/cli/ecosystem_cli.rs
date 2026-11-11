@@ -2,8 +2,8 @@
 //! this host has, and explicit start of the ones susi can launch unattended.
 //! `susi ecosystem kb` reads the cloud-AI-ecosystem knowledge base
 //! (`susi_gemi_models::eco_*`): show, search, list, check.
+use crate::anyhow::{bail, Result};
 use crate::cli_json::print_json;
-use anyhow::{bail, Result};
 use std::path::PathBuf;
 pub use susi_cli_defs::ecosystem::{EcosystemCommands, KbCommands};
 use susi_gemi::models::eco_query;
@@ -14,11 +14,12 @@ fn kb_execute(action: KbCommands) -> Result<()> {
     match action {
         KbCommands::List { kind, dir } => {
             print_json(
-                &eco_query::list(kind.as_deref(), dir.as_deref()).map_err(anyhow::Error::msg)?,
+                &eco_query::list(kind.as_deref(), dir.as_deref())
+                    .map_err(crate::anyhow::Error::msg)?,
             )?;
         }
         KbCommands::Show { id, dir } => {
-            print_json(&eco_query::show(&id, dir.as_deref()).map_err(anyhow::Error::msg)?)?;
+            print_json(&eco_query::show(&id, dir.as_deref()).map_err(crate::anyhow::Error::msg)?)?;
         }
         KbCommands::Search {
             query,
@@ -33,10 +34,12 @@ fn kb_execute(action: KbCommands) -> Result<()> {
                 capability: capability.as_deref(),
                 vendor: vendor.as_deref(),
             };
-            print_json(&eco_query::search(&filters, dir.as_deref()).map_err(anyhow::Error::msg)?)?;
+            print_json(
+                &eco_query::search(&filters, dir.as_deref()).map_err(crate::anyhow::Error::msg)?,
+            )?;
         }
         KbCommands::Check { dir } => {
-            let report = eco_query::check(dir.as_deref()).map_err(anyhow::Error::msg)?;
+            let report = eco_query::check(dir.as_deref()).map_err(crate::anyhow::Error::msg)?;
             print_json(&report)?;
             let issues = report["issues"].as_array().map_or(0, Vec::len);
             if issues > 0 {
@@ -50,7 +53,7 @@ fn kb_execute(action: KbCommands) -> Result<()> {
 /// `susi ecosystem explain <id>`: one entity explained end to end
 /// (`eco_query::explain`).
 fn explain(id: &str, dir: Option<PathBuf>) -> Result<()> {
-    print_json(&eco_query::explain(id, dir.as_deref()).map_err(anyhow::Error::msg)?)?;
+    print_json(&eco_query::explain(id, dir.as_deref()).map_err(crate::anyhow::Error::msg)?)?;
     Ok(())
 }
 
@@ -61,7 +64,7 @@ pub fn execute(action: Option<EcosystemCommands>) -> Result<()> {
         }
         EcosystemCommands::Status => {
             let text = susi_daemon::discovery_pipeline::last_ecosystem_scan()
-                .map_err(anyhow::Error::msg)?;
+                .map_err(crate::anyhow::Error::msg)?;
             println!("{text}");
         }
         EcosystemCommands::Start { id } => {

@@ -181,8 +181,8 @@ fn c4_block(reason: impl std::fmt::Display) -> EaiError {
 /// Allowlist check on the argv `exec_command` will actually spawn (it
 /// shlex-splits and execs without a shell), plus per-binary rules for the
 /// flags that turn an allowlisted read tool into an exec or write primitive.
-fn audit_exec_argv(command: &str) -> EaiResult<()> {
-    let args = shlex::split(command).ok_or_else(|| c4_block("unparseable command line"))?;
+fn audit_exec_argv(cmd: &str) -> EaiResult<()> {
+    let args = susi_paths::shlex::split(cmd).ok_or_else(|| c4_block("unparseable command line"))?;
     let bin = args
         .first()
         .ok_or_else(|| c4_block("empty command"))?

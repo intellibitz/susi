@@ -826,3 +826,37 @@ config, core and the tail.
   pillar closure. The platform TLS identity now exposes both its async and
   blocking accept paths, so the std server does not bypass certificate or
   protocol validation. No commercial source moved into core.
+- 2026-11-11 (T-CARBONLEAN-2, Linux x86_64, CEO laptop): two more workspace
+  facades leave core (`susi-vendor-shlex` and `susi-vendor-tracing-appender`),
+  removing 9 packages from `Cargo.lock` (`crossbeam-channel`, `crossbeam-utils`,
+  `symlink`, `thiserror`, proc-macros `thiserror-impl` and `time-macros`,
+  `tracing-appender`, `susi-vendor-shlex`, `susi-vendor-tracing-appender`) and
+  lowering `cargo tree -p susi` host packages 237 -> 229 (`-e normal`: 220).
+  `susi_paths::shlex::split` provides `#![forbid(unsafe_code)]` POSIX shell word
+  splitting verified with zero mismatches across 500,000 generated inputs
+  against `shlex` before removal (`susi-gawd-agents` `safety.rs` and `susi-gmcp`
+  `tools/core.rs` switch to it; `shlex 1.3.0` stays only in `cc`'s build edge,
+  so pillar workspace ceiling drops 39 -> 38, direct facade edges drop 15 -> 14,
+  and pillar third-party stays 141). `src/audit_writer.rs` provides a bounded
+  (4,096-record) std `sync_channel` daily UTC rolling JSON audit writer with
+  7-file retention and graceful flush-on-drop. Lines: `susi-gmcp` 25,891 ->
+  25,889. GMCP requirement and `--mastery` evidence re-recorded in both phases.
+- 2026-11-11 (T-CARBONLEAN-3, Linux x86_64, CEO laptop): two more workspace
+  facades leave core (`susi-vendor-anyhow` and `susi-vendor-proptest`), removing
+  25 packages from `Cargo.lock` (23 third-party crates: `anyhow`, `autocfg`,
+  `bit-set`, `bit-vec`, `borsh`, proc-macro `borsh-derive`, `cfg_aliases`,
+  `chacha20`, `core_detect`, `num-traits`, `proc-macro-crate`, `proptest`,
+  `quick-error`, `rand`, `rand_core`, `rand_xorshift`, `rusty-fork`,
+  `toml_datetime`, `toml_edit`, `toml_parser`, `unarray`, `wait-timeout`,
+  `winnow`, plus the two facades) and lowering `cargo tree -p susi` host
+  packages 229 -> 227 (297 -> 294 host build units). `src/anyhow.rs` provides
+  `#![forbid(unsafe_code)]` pure-std error chaining (`Error`, `Result`,
+  `Context` on `Result` and `Option`, `anyhow!`, `bail!`) for the `susi` CLI;
+  `susi-abi` (`router.rs`, `swarm.rs`, `wire.rs`) and `susi-core`
+  (`service_table.rs`) run deterministic `SplitMix64` property generators
+  (1,024-4,096 generated inputs per property plus boundary vectors) in place of
+  `proptest!`. Unused dev-dependencies on `susi-vendor-proptest` leave
+  `susi-error` and `susi-gemi-models`. Clean-target offline cold `cargo build
+  --offline --locked -p susi` (`CARBON_JOBS=24`) measured 29.36 s on Linux
+  x86_64; pillar reach stays 38 workspace, 141 third-party, 14 direct facade
+  edges (both removed facades sat outside the four-pillar normal closure).
