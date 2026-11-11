@@ -58,6 +58,23 @@ pub fn openai_chat_body(model: &str, prompt: &str, max_tokens: u32) -> Value {
     val
 }
 
+/// Preserve a caller's chat body while applying the selected provider model
+/// and a safe default budget. Streaming is handled by GEMI, not this request.
+pub fn chat_request_body(model: &str, prompt: &str, chat: Option<&Value>) -> Value {
+    let mut body = chat
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| openai_chat_body(model, prompt, 2048));
+    if let Some(object) = body.as_object_mut() {
+        object.insert("model".into(), Value::String(model.into()));
+        if !object.contains_key("max_tokens") && !object.contains_key("max_completion_tokens") {
+            object.insert("max_tokens".into(), json!(2048));
+        }
+        object.remove("stream");
+    }
+    body
+}
+
 /// OpenAI legacy `/completions` body.
 pub fn openai_completions_body(model: &str, prompt: &str, max_tokens: u32) -> Value {
     json!({"model": model, "prompt": prompt, "max_tokens": max_tokens})
@@ -223,6 +240,41 @@ pub fn openai_chat_text(json: &Value) -> Result<String, String> {
         return Err(format!("model refused: {refusal}"));
     }
     non_empty(message["content"].as_str(), "choices[0].message.content")
+}
+
+/// Extract caller tool calls from an OpenAI-compatible chat reply into the
+/// small neutral shape used by GEMI's caller envelope. `None` means ordinary
+/// text and leaves the existing extractor in charge.
+pub fn openai_chat_tool_reply(json: &Value) -> Result<Option<Value>, String> {
+    error_envelope(json)?;
+    let message = &json["choices"][0]["message"];
+    let Some(calls) = message.get("tool_calls").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    let normalized: Vec<Value> = calls
+        .iter()
+        .filter_map(|call| {
+            let function = call.get("function").unwrap_or(call);
+            let name = function.get("name").and_then(Value::as_str)?;
+            if name.is_empty() {
+                return None;
+            }
+            let arguments = match function.get("arguments") {
+                Some(Value::String(raw)) => serde_json::from_str(raw).unwrap_or_else(|_| json!({})),
+                Some(value) if !value.is_null() => value.clone(),
+                _ => json!({}),
+            };
+            Some(json!({"name": name, "arguments": arguments}))
+        })
+        .collect();
+    Ok(if normalized.is_empty() {
+        None
+    } else {
+        Some(json!({
+            "content": message.get("content").cloned().unwrap_or(Value::Null),
+            "tool_calls": normalized
+        }))
+    })
 }
 
 /// Reply of a legacy `/completions` response.
