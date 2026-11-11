@@ -1,0 +1,39 @@
+{
+  "id": "T-CLAUDECLISNAP-1",
+  "title": "CLI help snapshot includes the delegation command and option",
+  "goal": "T-CLAUDESIGNENV-1 (1f2d35e9c) added `susi os capabilities delegate` and `--delegation` without refreshing tests/fixtures/cli_help_snapshot.txt, so `cargo test -p susi --bins` failed on main and the 2026-11-11 release candidate's accept verification (T-CORECUT-3's accept cmd) failed. Regenerate the fixture from the current CLI; no CLI change.",
+  "status": "done",
+  "scopes": [
+    "tests/fixtures/cli_help_snapshot.txt",
+    ".agents/tasks/T-CLAUDECLISNAP-1.json",
+    ".agents/tasks/done/T-CLAUDECLISNAP-1.json"
+  ],
+  "size": "xs",
+  "deps": [
+    "T-CLAUDESIGNENV-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--bins"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794363300,
+  "owner": "claude",
+  "base": "17e538be8e276e58e83d86a1f85fec39d9be7195",
+  "results": {
+    "tests": "cargo test -p susi --bins: 129 passed, 0 failed (was 128 passed, 1 failed on main 17e538be8 and on the composed candidate)"
+  },
+  "landed": {
+    "main_commit": "9d7f450a9ea934e569100e6ac92d201315ea572f",
+    "source_commit": "a61079e44193dabf186f9e8ea42360b09d99eba4",
+    "route": "local-snapshot submit claude-clisnap-20261111 (composed onto a newer main)"
+  },
+  "limitations": "Linux x86_64 4-thread cloud container only; Windows not run."
+}
