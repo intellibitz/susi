@@ -4,6 +4,7 @@
   "goal": "Keep assistant tool_calls, tool_call_id results, and other message fields intact when Core normalizes an OpenAI chat request for the Commercial local-engine plug, while retaining the text conversation used by provider-neutral routing.",
   "status": "implemented",
   "owner": "codex",
+  "native_worker": "codex-structured-core",
   "created_by": "codex",
   "created_unix": 1794438420,
   "size": "s",
