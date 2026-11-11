@@ -4,21 +4,15 @@ These exact sources were copied from revision `c69a90d60e8e7d96ce62d83c3e3d0d631
 
 Root Cargo patches use local paths. This deliberately replaces the previous git-source caching optimization with source availability. Per-worktree build isolation remains mandatory; cross-worktree cache performance must be measured again. Update the sources and their patch notes together, preserving original licenses. Vendoring does not make non-Rust dependencies Rust or change their licenses.
 
-## reqwest 0.13.5
+## native-tls 0.2.18
 
-The current default selects `native-tls` and platform trust. Windows uses
-Schannel; Susi does not bundle a C TLS implementation or a root-certificate
-snapshot. The MCP facade explicitly selects upstream `reqwest-native-tls`,
-so its transport cannot re-enable rustls through feature unification.
-
-The historical optional `__rustls-ring` patch remains available in this exact
-upstream source, but is not selected by the default product graph. Selecting it
-requires another strict audit; optional features are not implicitly approved.
-
-`native-tls` 0.2.18 is patched separately for Windows private-key ownership and
-certificate-chain handling. See `native-tls/SUSI-PATCHES.md` for qualification,
-limitations and upstream source provenance. Non-Windows platform TLS boundaries
-must be evaluated separately; Windows evidence does not certify Linux builds.
+`native-tls` 0.2.18 is patched for Windows private-key ownership and
+certificate-chain handling (`ureq` / `tokio-native-tls` platform TLS; the
+retired `reqwest` and `fluent-uri` vendor trees were removed after
+`T-CLAUDENOA2ASDK-1` and the std JSON-schema cut dropped their last consumers).
+See `native-tls/SUSI-PATCHES.md` for qualification, limitations and upstream
+source provenance. Non-Windows platform TLS boundaries must be evaluated
+separately; Windows evidence does not certify Linux builds.
 
 ## esaxx-rs 0.1.10
 
