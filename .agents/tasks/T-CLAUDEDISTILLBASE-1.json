@@ -1,0 +1,36 @@
+{
+  "id": "T-CLAUDEDISTILLBASE-1",
+  "title": "local-distill distils onto a distilled release and reads multi-id Task trailers",
+  "goal": "Successive releases distil onto a release tag that was itself distilled (v0.21.56 onto v0.21.55). local-distill re-applied the source commits that base already carries as composed Distilled-Task commits and deferred them with merge-tree conflicts against release-only edits. Read Distilled-Task/Source-Commits from from..base, drop those stream commits, and report such tasks as satisfied_in_base (already_distilled_in_base). Also split comma/space-separated Task: trailers as distill lint does, instead of treating 'T-A-1, T-B-1' as one unknown id.",
+  "status": "in_progress",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794375891,
+  "size": "s",
+  "deps": [
+    "T-CARBONDISTILL-1"
+  ],
+  "base": "17a884ad1236b66e932b176bc0e462a2d1ce5854",
+  "scopes": [
+    "xtask/src/distill_compose.rs",
+    "docs/release-distillation.md",
+    ".agents/tasks/T-CLAUDEDISTILLBASE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-distill"
+    ]
+  },
+  "acceptance": [
+    "distilling_onto_a_distilled_release_skips_what_it_already_carries passes and fails with the base reading disabled",
+    "task_trailer_names_every_comma_or_space_separated_id passes",
+    "local-distill plan --base v0.21.55 --from origin/main --tasks-from-range v0.21.54..origin/main reports the rc2 tasks as already_distilled_in_base instead of merge_conflict"
+  ]
+}
