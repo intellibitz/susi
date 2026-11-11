@@ -487,16 +487,14 @@ impl CoreTools {
 
     crate::tool_def!(os_capabilities_tool_attr {
         name: "os_capabilities",
-        description: "The typed capability bus, as `susi os capabilities discover|invoke --json`. Args: optional action (default discover); invoke: id, permission, optional subject (default operator), args, timeout_ms (default 30000), budget_micros (default unlimited). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        description: "The typed capability bus, as `susi os capabilities discover|invoke --json`. Args: optional action (default discover); invoke: id, permission, optional subject (default operator), args, timeout_ms (default 30000), budget_micros (default unlimited), delegation (a susi-delegation/v1 envelope from the calling driver: the call nests under it and cannot exceed it). Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema: args::typed::<args::OsCapabilities>(),
     });
     pub fn os_capabilities(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         // The CLI runs this in its working directory; the socket
         // takes an optional, MAC-policy-admitted `workspace`.
         let workspace = &super::forward::policy_workspace(arg, "workspace", workspace, true)?;
-        use crate::susi_core::capability_bus::CapabilityRequest;
-        use crate::susi_core::registry::CapabilityRegistry;
-        let registry = CapabilityRegistry::global();
+        let registry = crate::susi_core::registry::CapabilityRegistry::global();
         match optional_str(arg, "action")?.unwrap_or("discover") {
             "discover" => encode(&registry.typed_bus().discover()),
             "invoke" => {
@@ -508,7 +506,7 @@ impl CoreTools {
                     Some(value @ serde_json::Value::Object(_)) => value.clone(),
                     Some(_) => return Err(EaiError::config("args must be an object")),
                 };
-                let request = CapabilityRequest::new(
+                let request = crate::susi_core::capability_bus::CapabilityRequest::new(
                     id,
                     subject,
                     [permission.to_string()],
@@ -516,7 +514,7 @@ impl CoreTools {
                     optional_u64(arg, "budget_micros")?.unwrap_or(u64::MAX),
                 );
                 let receipt = registry
-                    .dispatch_capability(&request, &call_args, workspace)
+                    .dispatch_nested(arg.get("delegation"), &request, &call_args, workspace)
                     .map_err(|e| EaiError::governance(format!("{e:?}")))?;
                 encode(&receipt)
             }
