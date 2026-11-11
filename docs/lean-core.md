@@ -779,3 +779,20 @@ config, core and the tail.
   production code grew by 1,859 (the server, 1,843 lines, in place of the
   nine crates' ~45,000 source lines) and the inline test modules of the
   gateway, ingress and harness API (2,988 lines) moved unchanged to `src/tests`.
+- 2026-11-11 (T-SMALLFACADES-2, Linux x86_64, CEO laptop): the `url` facade
+  leaves core. `susi_paths::weburl::WebUrl` parses `http(s)` URLs in the form
+  a WHATWG parser keeps (scheme and host lowercased, default port and port
+  zeros dropped, empty path `/`, canonical IPv6) and refuses every URL it would
+  rewrite otherwise (whitespace, non-ASCII, `\`, userinfo, `%` or `xn--` in
+  the host, IPv4 not written as four plain decimals, dot segments, chars it
+  would percent-encode); `is_absolute_uri` answers `url::Url::parse(..).is_ok()`
+  for every scheme except special-scheme hosts that need IDNA tables, which it
+  refuses. Against url 2.5.8: 79,306 accepted URLs with no difference in any
+  part or in origin equality, and 800,000 validity checks with no difference
+  besides those refusals. GEMI's model download name and origin checks and
+  GMCP's content URIs and SSRF-guarded browse URL use it; `susi-vendor-url` is
+  deleted. Pillar reach 145 -> 141 third-party (url, idna, utf8_iter,
+  form_urlencoded), 40 -> 39 workspace, 16 -> 15 direct facade edges; `cargo
+  tree -p susi` host packages 243 -> 239; susi-gmcp 25,900 -> 25,891 and
+  susi-gemi-models 15,950 -> 15,945 lines. Error texts for refused URLs now
+  name the reason. No build-time gain is claimed.

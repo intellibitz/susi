@@ -44,7 +44,9 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// its HTTP surfaces on its own std server, so axum, axum-core, matchit,
 /// tower, serde_path_to_error, serde_urlencoded, sync_wrapper, mime and ryu
 /// left the pillars; susi-gawd-a2a and susi-leaf-services still use axum).
-const THIRD_PARTY_CEILING: usize = 145;
+/// 2026-11-11: 145 -> 141 (T-SMALLFACADES-2: url, idna, utf8_iter and
+/// form_urlencoded left with the url facade; `susi_paths::weburl` parses).
+const THIRD_PARTY_CEILING: usize = 141;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
@@ -55,7 +57,8 @@ const THIRD_PARTY_CEILING: usize = 145;
 /// susi-vendor-parking-lot deleted; T-SMALLFACADES-1).
 /// 2026-11-11: 41 -> 40 (susi-vendor-axum left the pillar closure;
 /// T-HARNESSSTD-1).
-const WORKSPACE_CEILING: usize = 40;
+/// 2026-11-11: 40 -> 39 (susi-vendor-url deleted, T-SMALLFACADES-2).
+const WORKSPACE_CEILING: usize = 39;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
@@ -66,7 +69,8 @@ const WORKSPACE_CEILING: usize = 40;
 /// 2026-11-11: 19 -> 17 (susi-gmcp -> dashmap and parking-lot;
 /// T-SMALLFACADES-1).
 /// 2026-11-11: 17 -> 16 (susi-harness -> susi-vendor-axum; T-HARNESSSTD-1).
-const DIRECT_FACADE_EDGES_CEILING: usize = 16;
+/// 2026-11-11: 16 -> 15 (susi-gmcp -> url, T-SMALLFACADES-2).
+const DIRECT_FACADE_EDGES_CEILING: usize = 15;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
 /// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
@@ -117,14 +121,16 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 16;
 /// and cockpit inline test modules (2,988 lines) moved unchanged to
 /// src/tests, the crate's convention. Stated here so the drop is not read
 /// as a cut.
+/// 2026-11-11: susi-gemi-models 15,950 -> 15,945 and susi-gmcp 25,900 ->
+/// 25,891 (URL parsing moved to `susi_paths::weburl`; T-SMALLFACADES-2).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
     ("susi-gawd-swarm", 20_635),
     ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_702),
     ("susi-gemi", 21_171),
-    ("susi-gemi-models", 15_950),
-    ("susi-gmcp", 25_900),
+    ("susi-gemi-models", 15_945),
+    ("susi-gmcp", 25_891),
     ("susi-harness", 39_446),
 ];
 

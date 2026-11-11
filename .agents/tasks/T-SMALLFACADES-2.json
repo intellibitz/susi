@@ -41,7 +41,7 @@
   "created_by": "claude",
   "created_unix": 1794377349,
   "owner": "SMALLFACADES",
-  "base": "1be40b6dc",
+  "base": "e3fca1b2e",
   "host": "CEO laptop, CachyOS Linux x86_64, 28 threads, other agents compiling",
   "acceptance": [
     "cargo fmt --all --check",
@@ -53,8 +53,8 @@
   ],
   "results": {
     "differential": "susi_paths::weburl against url 2.5.8 (scratch harness, not committed): 400,000 clean http(s) inputs, 79,306 accepted, 0 differences in serialization, scheme, host, port, path, segments, query, fragment, and 79,305 origin-equality pairs equal; 800,000 noisy inputs (all schemes, whitespace, userinfo, IPv4/IPv6 forms, ports, dot segments), is_absolute_uri 0 differences except refusals of special-scheme hosts with non-ASCII text, % or xn-- labels (url accepts those through IDNA), and the strict parser never accepted an input url rejects. Frozen as 26 strict and 34 validity cases.",
-    "pillar_reach": "to be measured on the merged tree",
-    "lines": "susi-gmcp and susi-gemi-models shrink (measured on the merged tree)"
+    "pillar_reach": "measured on the merge with origin/main e3fca1b2e: third-party 145 -> 141 (url, idna, utf8_iter, form_urlencoded), workspace 40 -> 39, direct facade edges 16 -> 15; cargo tree -p susi host packages 243 -> 239",
+    "lines": "susi-gmcp 25,900 -> 25,891, susi-gemi-models 15,950 -> 15,945"
   },
   "limitations": [
     "WebUrl::parse refuses http(s) URLs a WHATWG parser would rewrite beyond case, default port, port zeros, empty path and IPv6 text: whitespace, controls, non-ASCII, backslash, userinfo, % or xn-- in the host, IPv4 not written as four plain decimals, dot segments, and chars that would be percent-encoded. Model downloads and the browse tool fail closed on those URLs with an error naming the reason.",
