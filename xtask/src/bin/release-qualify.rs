@@ -23,6 +23,8 @@ extern crate susi_windows_runtime;
 mod harvest;
 #[path = "../release_qualification.rs"]
 mod release_qualification;
+#[path = "../release_version_guard.rs"]
+mod release_version_guard;
 
 use release_qualification::{
     package_version, record_path, release_version, sha256_hex, toolchain_channel,
@@ -290,7 +292,7 @@ fn smoke(root: &Path, logs: &Path, version: &str) -> Result<(Value, Vec<Value>),
 }
 
 const USAGE: &str =
-    "usage: release-qualify vX.Y.Z [--from-distill <candidate>] [--jobs N] [--verify-only]";
+    "usage: release-qualify vX.Y.Z [--from-distill <candidate>] [--jobs N] [--verify-only] [--remote <name>] [--skip-remote-check]";
 
 /// The parsed command line.
 struct Options {
@@ -298,6 +300,10 @@ struct Options {
     jobs: Option<String>,
     from_distill: Option<String>,
     verify_only: bool,
+    /// The storage remote the version is checked and reserved on.
+    remote: String,
+    /// Qualify without asking the remote (it cannot be reached).
+    skip_remote_check: bool,
 }
 
 fn parse(args: &[String]) -> Result<Options, String> {
@@ -305,6 +311,8 @@ fn parse(args: &[String]) -> Result<Options, String> {
     let mut jobs = None;
     let mut from_distill = None;
     let mut verify_only = false;
+    let mut remote = None;
+    let mut skip_remote_check = false;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -313,6 +321,8 @@ fn parse(args: &[String]) -> Result<Options, String> {
                 from_distill = Some(args.next().ok_or(USAGE)?.clone());
             }
             "--verify-only" if !verify_only => verify_only = true,
+            "--remote" if remote.is_none() => remote = Some(args.next().ok_or(USAGE)?.clone()),
+            "--skip-remote-check" if !skip_remote_check => skip_remote_check = true,
             other if !other.starts_with('-') && tag.is_none() => tag = Some(other.to_owned()),
             _ => return Err(USAGE.into()),
         }
@@ -322,6 +332,8 @@ fn parse(args: &[String]) -> Result<Options, String> {
         jobs,
         from_distill,
         verify_only,
+        remote: remote.unwrap_or_else(|| "origin".to_owned()),
+        skip_remote_check,
     })
 }
 
@@ -387,6 +399,8 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
         jobs,
         from_distill,
         verify_only,
+        remote,
+        skip_remote_check,
     } = parse(args)?;
     let version = release_version(&tag).ok_or(USAGE)?.to_owned();
     let root = PathBuf::from(git(cwd, &["rev-parse", "--show-toplevel"])?);
@@ -457,6 +471,9 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
     let harvest_audit: Value = serde_json::from_str(&harvest_raw)
         .map_err(|e| format!("harvest audit output is not JSON: {e}"))?;
     if verify_only {
+        if !skip_remote_check {
+            release_version_guard::check(&root, &remote, &tag, &commit)?;
+        }
         let mut summary = format!(
             "verify-only: {tag} from {source} tree {tree} (commit {commit}) passes every check before the gates (including local-harvest audit); no gate ran, nothing was written, committed or tagged."
         );
@@ -473,12 +490,40 @@ fn run(cwd: &Path, args: &[String]) -> Result<String, String> {
         }
         return Ok(summary);
     }
+    // One version, one cut: reserve it on the storage remote before the
+    // gates run, and give it back if they fail.
+    let agent = std::env::var("SUSI_AGENT")
+        .ok()
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| git(&root, &["config", "user.name"]).ok())
+        .unwrap_or_else(|| "unknown".to_owned());
+    if !skip_remote_check {
+        release_version_guard::reserve(
+            &root,
+            &remote,
+            &tag,
+            &commit,
+            &release_version_guard::Holder {
+                agent: &agent,
+                host: &host,
+                now: now(),
+            },
+        )?;
+    }
     let logs = root.join("target").join("release-qualification").join(&tag);
     std::fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
     let started = now();
     let mut records = Vec::new();
     for gate in gates(jobs.as_deref()) {
-        records.push(run_gate(&root, &logs, &gate)?);
+        match run_gate(&root, &logs, &gate) {
+            Ok(record) => records.push(record),
+            Err(error) => {
+                if !skip_remote_check {
+                    release_version_guard::release(&root, &remote, &tag, &commit, &agent);
+                }
+                return Err(error);
+            }
+        }
     }
     let (smoke_gate, assets) = smoke(&root, &logs, &version)?;
     records.push(smoke_gate);

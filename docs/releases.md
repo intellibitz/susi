@@ -94,6 +94,29 @@ request or composition happens on the Git host:
 | Accept-verified candidate | the local-only `release/<name>` from `local-distill` (snapshot tag `susi-distill/<name>`) | the selected tasks compose onto their base and each task's `accept.cmd` passed on the composed tree; not a release |
 | Qualified release | tag `vX.Y.Z` | every release gate passed on the exact tree, reached only through `release-qualify` |
 
+### One version, one cut
+
+Before any gate runs, `release-qualify` asks the storage remote (`--remote`,
+default `origin`) whether the version is free, and reserves it
+(`xtask/src/release_version_guard.rs`):
+
+- a tag that is already published is refused: cut the next version;
+- an open release line `refs/candidates/release/vX.Y.Z` (`docs/release-lanes.md`)
+  must be contained in the tree being qualified, so a cut never bypasses a
+  line other agents are advancing;
+- the version is reserved with a create-only blob
+  `refs/claims/release-version/vX.Y.Z` naming the agent, host and commit. Of
+  two concurrent cuts exactly one gets it; the other is refused with the
+  holder's name. The same agent renews it for the same commit, anyone may take
+  it over after four hours, and a cut whose gates fail gives it back.
+
+`--verify-only` runs the checks and reserves nothing. `--skip-remote-check`
+is for a host that cannot reach the remote; it restores the old local-only
+check and says so in nothing but the command line, so use it knowingly.
+v0.21.62 is why this exists: it was qualified twice at once, on Windows from
+its release line and on Linux from a distilled candidate, and only one tree
+could be published.
+
 A release is qualified from a snapshot of main (above) or from a distilled
 candidate:
 
