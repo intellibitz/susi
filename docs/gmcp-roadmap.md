@@ -217,7 +217,7 @@ evidence artifact, matrix cell, risk disposition, or upstream change is missing.
 
 The full, normative mastery text is in [`.agents/roadmap.json`](../.agents/roadmap.json).
 Task-level detail lives in [`.agents/tasks/`](../.agents/tasks/). The structural
-checker is [`scripts/check-gmcp-roadmap.py`](../scripts/check-gmcp-roadmap.py).
+checker is [`xtask/src/bin/check-gmcp-roadmap.rs`](../xtask/src/bin/check-gmcp-roadmap.rs).
 
 ## Execution waves
 
@@ -319,7 +319,7 @@ susi-commercial tasks close <task-id>
 Validate roadmap structure at any time:
 
 ```bash
-python3 scripts/check-gmcp-roadmap.py
+cargo run --offline --locked -p xtask --bin check-gmcp-roadmap
 cargo test --locked --test gmcp_roadmap
 ```
 

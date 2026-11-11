@@ -9,6 +9,8 @@
   "base": "b3678bfd94a6fb0bfe6df247dd00661627de3c7f",
   "scopes": [
     ".agents/gmcp/evidence",
+    ".agents/gmcp/requirements-ledger.json",
+    ".agents/gmcp/sources.json",
     ".agents/identity.json",
     ".agents/tasks/T-TRUTHDOCS-1.json",
     "ARCHITECTURE.md",
