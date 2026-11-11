@@ -8,6 +8,7 @@
     "crates/susi-harness/src/lib.rs",
     "crates/susi-harness/src/operator.rs",
     "crates/susi-harness/src/storage_guard.rs",
+    "crates/susi-harness/src/tests/operator.rs",
     "crates/susi-harness/src/tests/storage_guard.rs",
     "docs/ceo-mandate-74.md",
     "docs/git-storage-publisher.md",
