@@ -2,7 +2,7 @@
   "id": "T-FURY-4",
   "title": "Claims release after a local-snapshot submit landing",
   "goal": "`cargo local-workflow release` accepted only `ship`'s local integration ref as proof of landing, so work published through `local-snapshot submit` (Mandate 73's development-main publisher) kept its scope reservation forever. Release now also accepts work contained in the fetched `refs/remotes/origin/main`.",
-  "status": "in_progress",
+  "status": "done",
   "owner": "fury",
   "created_by": "FURY",
   "created_unix": 1794387272,
@@ -33,5 +33,10 @@
   },
   "limitations": [
     "The fetched origin/main is trusted as far as the local integration ref already is: both are local refs a local user can move."
-  ]
+  ],
+  "closed": {
+    "at_unix": 1794387273,
+    "commit": "9501794326d83f1a4c496760f79366b820261e5e",
+    "by": "FURY"
+  }
 }
