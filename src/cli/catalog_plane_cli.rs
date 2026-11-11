@@ -62,18 +62,21 @@ pub fn launch(manager: &AgentManager, id: &str, opts: LaunchOpts<'_>) -> Result<
     Ok(())
 }
 
-/// Foreground worker with signal-hook shutdown (Unix).
+/// Foreground worker with `tokio::signal` graceful shutdown.
 pub fn run_worker(manager: AgentManager, id: &str, fail_label: &str) -> Result<()> {
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    #[cfg(unix)]
-    for signal in [
-        signal_hook::consts::SIGINT,
-        signal_hook::consts::SIGTERM,
-        signal_hook::consts::SIGHUP,
-    ] {
-        signal_hook::flag::register(signal, shutdown.clone())?;
-    }
-    let run = manager.with_shutdown(shutdown).execute(id)?;
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .build()?;
+    let signal_shutdown = std::sync::Arc::clone(&shutdown);
+    let signal_thread = std::thread::spawn(move || {
+        rt.block_on(watch_worker_signals(signal_shutdown, stop_rx));
+    });
+    let exec_result = manager.with_shutdown(shutdown).execute(id);
+    drop(stop_tx);
+    let _ = signal_thread.join();
+    let run = exec_result?;
     print_json(&run)?;
     if matches!(
         run.status,
@@ -86,4 +89,52 @@ pub fn run_worker(manager: AgentManager, id: &str, fail_label: &str) -> Result<(
         );
     }
     Ok(())
+}
+
+async fn watch_worker_signals(
+    shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    mut stop_rx: tokio::sync::oneshot::Receiver<()>,
+) {
+    use std::sync::atomic::Ordering;
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigint = signal(SignalKind::interrupt()).ok();
+        let mut sigterm = signal(SignalKind::terminate()).ok();
+        let mut sighup = signal(SignalKind::hangup()).ok();
+        loop {
+            tokio::select! {
+                _ = &mut stop_rx => break,
+                Some(()) = async {
+                    match sigint.as_mut() {
+                        Some(s) => s.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => shutdown.store(true, Ordering::Release),
+                Some(()) = async {
+                    match sigterm.as_mut() {
+                        Some(s) => s.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => shutdown.store(true, Ordering::Release),
+                Some(()) = async {
+                    match sighup.as_mut() {
+                        Some(s) => s.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => shutdown.store(true, Ordering::Release),
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::select! {
+            _ = &mut stop_rx => {}
+            res = tokio::signal::ctrl_c() => {
+                if res.is_ok() {
+                    shutdown.store(true, Ordering::Release);
+                }
+            }
+        }
+    }
 }

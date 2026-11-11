@@ -56,9 +56,13 @@ fn block_free(offset: u16) -> bool {
     BLOCK.iter().all(|(port, tcp)| {
         let port = port + offset;
         if *tcp {
-            TcpListener::bind(("127.0.0.1", port)).is_ok()
+            // The daemon may bind beyond loopback. Probe both surfaces so a
+            // concurrent host-only daemon cannot make this block look free.
+            TcpListener::bind(("0.0.0.0", port)).is_ok()
+                && TcpListener::bind(("127.0.0.1", port)).is_ok()
         } else {
-            std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok()
+            std::net::UdpSocket::bind(("0.0.0.0", port)).is_ok()
+                && std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok()
         }
     })
 }
