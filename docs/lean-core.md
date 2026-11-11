@@ -1113,3 +1113,14 @@ config, core and the tail.
   it, each defaulting to the plain-prompt call. No dependency is added. Net
   for the day, with T-CLAUDELEANPROMPT-1's removal of dead prompt code
   (`-98`): `susi-gemi` is 35 lines above where it started (`21,145`).
+- 2026-11-12 (T-CLAUDETOOLCAP-1, Linux x86_64, CEO laptop), **CEO direction
+  "fix it and finish the end-to-end run"**: the `susi-gemi-models` line ceiling
+  rises `15,921 -> 15,939` (18 lines). A defect, found by running a tools
+  request through the daemon: `ModelManager::supports_tool_calling` returned
+  `false` for every whole GGUF since the GGUF reader left core, so every local
+  `requires: "tools"` request ended in `[CAPABILITY_GAP]` and the engine was
+  never asked. Core now asks the local engine plug
+  (`gpu_fabric.local_engine.model_capabilities`, `{"path"}` ->
+  `{"tools": bool}`), caches a real answer per file, and treats "no engine
+  attached" as unknown and uncached. Verified end to end on the CEO laptop:
+  daemon -> plug host -> real model -> tool call -> core's tool dispatch.
