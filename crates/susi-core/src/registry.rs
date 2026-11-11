@@ -249,9 +249,8 @@ impl CapabilityRegistry {
     /// [`Self::dispatch_capability`] for a socket or CLI argument: with no
     /// `delegation` value (absent or JSON null) the call runs from a root
     /// scope; otherwise the value must be a `susi-delegation/v1` envelope
-    /// from the calling driver and the call nests under it. The envelope is
-    /// unsigned (`crate::delegation`): it bounds a cooperating driver, and
-    /// the host MAC policy remains the authority.
+    /// signed by this host's [`crate::delegation::DelegationAuthority`], and
+    /// the call nests under the level it names.
     pub fn dispatch_nested(
         &self,
         delegation: Option<&serde_json::Value>,
@@ -260,19 +259,70 @@ impl CapabilityRegistry {
         workspace: &std::path::Path,
     ) -> Result<crate::capability_bus::CapabilityReceipt, crate::capability_bus::CapabilityError>
     {
-        use crate::capability_bus::CapabilityError;
-        use crate::delegation::{DelegationEnvelope, DelegationError, DelegationScope};
-        use serde::Deserialize;
+        match admit_delegation(delegation)? {
+            Some(parent) => self.dispatch_capability_in(&parent, request, args, workspace),
+            None => self.dispatch_capability(request, args, workspace),
+        }
+    }
 
-        let Some(value) = delegation.filter(|value| !value.is_null()) else {
-            return self.dispatch_capability(request, args, workspace);
+    /// Open the level `request.subject` exercising `request.capability_id`
+    /// under `delegation` (a signed envelope, or a fresh root for the subject
+    /// when absent), with the request's permissions, budget and timeout, and
+    /// return it signed for the component that will run it. The parent's
+    /// bounds apply: no wider permission, larger budget, later deadline,
+    /// deeper nesting or repeated hop than it allows.
+    pub fn issue_delegation(
+        &self,
+        delegation: Option<&serde_json::Value>,
+        request: &crate::capability_bus::CapabilityRequest,
+    ) -> Result<crate::delegation::DelegationEnvelope, crate::capability_bus::CapabilityError> {
+        use crate::capability_bus::{CapabilityBus, CapabilityError};
+        use crate::delegation::{DelegationAuthority, DelegationHop, DelegationRequest};
+
+        let parent = match admit_delegation(delegation)? {
+            Some(parent) => parent,
+            None => CapabilityBus::root_scope(request)?,
         };
-        let envelope = DelegationEnvelope::deserialize(value).map_err(|e| {
-            CapabilityError::Delegation(DelegationError::InvalidEnvelope(e.to_string()))
-        })?;
-        let parent =
-            DelegationScope::from_envelope(&envelope).map_err(CapabilityError::Delegation)?;
-        self.dispatch_capability_in(&parent, request, args, workspace)
+        let child = DelegationHop::new(request.subject.clone(), request.capability_id.clone())
+            .and_then(|hop| {
+                parent.delegate(DelegationRequest {
+                    hop,
+                    permissions: request.permissions.clone(),
+                    budget_micros: request.budget_micros,
+                    timeout_ms: request.timeout_ms,
+                })
+            })
+            .map_err(CapabilityError::Delegation)?;
+        DelegationAuthority::host()
+            .and_then(|authority| authority.issue(&child))
+            .map_err(CapabilityError::Delegation)
+    }
+
+    /// One entry for the socket and the CLI: `invoke` dispatches (a
+    /// [`crate::capability_bus::CapabilityReceipt`]) and `delegate` issues a
+    /// signed envelope, both under the optional `delegation` envelope.
+    #[allow(clippy::too_many_arguments)] // One call shape for the socket and CLI: the action plus `dispatch_nested`'s five inputs.
+    pub fn serve_nested(
+        &self,
+        action: &str,
+        delegation: Option<&serde_json::Value>,
+        request: &crate::capability_bus::CapabilityRequest,
+        args: &serde_json::Value,
+        workspace: &std::path::Path,
+    ) -> Result<serde_json::Value, crate::capability_bus::CapabilityError> {
+        use crate::capability_bus::CapabilityError;
+        let encoded = match action {
+            "invoke" => {
+                serde_json::to_value(self.dispatch_nested(delegation, request, args, workspace)?)
+            }
+            "delegate" => serde_json::to_value(self.issue_delegation(delegation, request)?),
+            other => {
+                return Err(CapabilityError::InvalidDescriptor(format!(
+                    "unknown capabilities action `{other}` (expected discover, invoke or delegate)"
+                )))
+            }
+        };
+        encoded.map_err(|e| CapabilityError::HandlerFailed(e.to_string()))
     }
 
     /// [`Self::dispatch_capability`] nested under `parent`, e.g. a scope a
@@ -314,6 +364,27 @@ impl CapabilityRegistry {
             })
         })
     }
+}
+
+/// The level a signed `delegation` argument continues; `None` when it is
+/// absent or JSON null.
+fn admit_delegation(
+    delegation: Option<&serde_json::Value>,
+) -> Result<Option<crate::delegation::DelegationScope>, crate::capability_bus::CapabilityError> {
+    use crate::capability_bus::CapabilityError;
+    use crate::delegation::{DelegationAuthority, DelegationEnvelope, DelegationError};
+    use serde::Deserialize;
+
+    let Some(value) = delegation.filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let envelope = DelegationEnvelope::deserialize(value)
+        .map_err(|e| DelegationError::InvalidEnvelope(e.to_string()))
+        .map_err(CapabilityError::Delegation)?;
+    DelegationAuthority::host()
+        .and_then(|authority| authority.admit(&envelope))
+        .map(Some)
+        .map_err(CapabilityError::Delegation)
 }
 
 impl Default for CapabilityRegistry {
@@ -430,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_capability_nests_a_live_tool_under_a_received_envelope() {
+    fn dispatch_capability_nests_a_live_tool_under_an_admitted_envelope() {
         use crate::capability_bus::{CapabilityError, CapabilityRequest};
         use crate::delegation::{
             DelegationError, DelegationHop, DelegationLimits, DelegationRequest, DelegationScope,
@@ -474,7 +545,8 @@ mod tests {
                 timeout_ms: 30_000,
             })
             .unwrap();
-        let received = DelegationScope::from_envelope(&driver.envelope()).unwrap();
+        let authority = crate::delegation::DelegationAuthority::from_secret(&[7; 32]);
+        let received = authority.admit(&authority.issue(&driver).unwrap()).unwrap();
 
         let request =
             CapabilityRequest::new("echo_tool", "opus", ["capability:tool".into()], 5_000, 50);

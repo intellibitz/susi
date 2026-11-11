@@ -107,12 +107,33 @@ pub enum OsCapabilitiesAction {
         timeout_ms: u64,
         #[arg(long, default_value_t = u64::MAX)]
         budget_micros: u64,
-        /// `susi-delegation/v1` envelope (JSON) from the calling driver: the
-        /// call nests under it and cannot exceed its permissions or budget
+        /// Host-signed `susi-delegation/v1` envelope (JSON) from the calling
+        /// driver: the call nests under it and cannot exceed it
         #[arg(long)]
         delegation: Option<String>,
         #[arg(long)]
         json: bool,
+    },
+    /// Issue a host-signed delegation envelope: `subject` may exercise `id`
+    /// with `permission`, budget and timeout, nested under `--delegation`
+    /// (or a fresh root for `subject`) and never beyond it
+    #[allow(missing_docs)]
+    Delegate {
+        /// Capability (or role) the subject will exercise
+        id: String,
+        /// Component the envelope is issued to
+        #[arg(long, default_value = "operator")]
+        subject: String,
+        /// Permission the subject may present
+        #[arg(long)]
+        permission: String,
+        #[arg(long, default_value_t = 30_000)]
+        timeout_ms: u64,
+        #[arg(long, default_value_t = u64::MAX)]
+        budget_micros: u64,
+        /// Parent host-signed envelope (JSON); absent opens a fresh root
+        #[arg(long)]
+        delegation: Option<String>,
     },
 }
 

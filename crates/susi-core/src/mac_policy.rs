@@ -499,6 +499,17 @@ impl MacPolicy {
         Self::new(key, mode, mandatory).with_state_dir(dir)
     }
 
+    /// A key for one purpose, derived from this policy's signing key by
+    /// HMAC-SHA256 over `purpose`, so a token of one kind can never verify as
+    /// another. Refused when this copy runs on a process-private fallback
+    /// key: what it signed could not be verified by the rest of the host.
+    pub fn derive_key(&self, purpose: &[u8]) -> Result<[u8; 32], String> {
+        match &self.persistence_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(hmac_sha256(&self.key, purpose)),
+        }
+    }
+
     pub fn global() -> &'static Self {
         POLICY.get_or_init(|| {
             // Production leaf crates embed this module independently and do

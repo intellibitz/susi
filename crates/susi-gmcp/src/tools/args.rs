@@ -1138,9 +1138,9 @@ pub struct OsProvision {
 
 crate::input_schema! {
 pub struct OsCapabilities {
-    /// `discover` (default) or `invoke`.
+    /// `discover` (default), `invoke`, or `delegate` (issue a signed envelope).
     pub action: Option<String>,
-    /// `invoke`: capability id from `discover`.
+    /// `invoke`: capability id from `discover`; `delegate`: capability the subject runs.
     pub id: Option<String>,
     /// `invoke`: subject the call runs as (default "operator").
     pub subject: Option<String>,
@@ -1152,7 +1152,7 @@ pub struct OsCapabilities {
     pub timeout_ms: Option<u64>,
     /// `invoke`: spend budget in micro-dollars (default unlimited).
     pub budget_micros: Option<u64>,
-    /// `invoke`: `susi-delegation/v1` envelope the call nests under (default: none).
+    /// `invoke`/`delegate`: host-signed `susi-delegation/v1` envelope to nest under.
     pub delegation: Option<serde_json::Map<String, serde_json::Value>>,
     /// Absolute workspace the CLI would run this in (default: the server
     /// workspace); admitted only where the MAC policy grants it.

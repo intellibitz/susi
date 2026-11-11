@@ -24,19 +24,29 @@
 //! a driver nested inside an engine, with these checks applied at each level.
 //!
 //! A [`DelegationEnvelope`] carries a scope across a process or socket
-//! boundary (`os_capabilities` with a `delegation` argument). It is **not
-//! signed**: it bounds cooperating components (depth, cycles, permissions and
-//! budget they pass along), not an adversary, who could present a different
-//! envelope just as it can present any `permission` to the bus. Authority over
-//! the socket still comes from the host's MAC policy. Cancellation does not
-//! cross an envelope; the remaining deadline does.
+//! boundary (`os_capabilities` with a `delegation` argument). Only a
+//! [`DelegationAuthority`] issues and admits envelopes. It signs each one with
+//! HMAC-SHA256 under a key derived from the host's shared MAC policy key
+//! (`MacPolicy::derive_key`), so the daemon, its cells and the CLI on one
+//! host verify each other's envelopes while a caller without the key cannot
+//! forge, widen, extend or re-target one. Every envelope carries a random id
+//! and an absolute expiry of at most [`MAX_SIGNED_LIFETIME_MS`]. Within one
+//! process, every presentation of an id continues the *same* level: replaying
+//! an envelope shares its budget and fan-out instead of resetting them, and
+//! [`DelegationAuthority::revoke`] cancels it and everything under it.
+//!
+//! Not covered: a holder of the host key (any process of the same host
+//! user) is trusted; the replay ledger is per process, so two processes
+//! admitting the same envelope each start from its full budget; revocation
+//! reaches only the process it ran in; and an envelope is bound to the host
+//! key that signed it, not to the transport or caller that presents it.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Default nesting depth below a root scope.
 pub const DEFAULT_MAX_DEPTH: u32 = 16;
@@ -54,6 +64,12 @@ pub const MAX_PERMISSIONS: usize = 1_024;
 pub const ROOT_CAPABILITY: &str = "root";
 /// Schema tag of a serialized [`DelegationEnvelope`].
 pub const ENVELOPE_SCHEMA: &str = "susi-delegation/v1";
+/// Purpose string the envelope key is derived under.
+pub const ENVELOPE_KEY_PURPOSE: &[u8] = b"susi-delegation-envelope/v1";
+/// Longest life a signed envelope is given, whatever its scope's deadline.
+pub const MAX_SIGNED_LIFETIME_MS: u64 = 3_600_000;
+/// Most live envelopes one process's ledger tracks before refusing more.
+pub const MAX_LEDGER_ENTRIES: usize = 4_096;
 
 /// Depth and fan-out bounds, inherited unchanged by every descendant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -159,6 +175,13 @@ pub enum DelegationError {
     },
     /// A serialized envelope is malformed or inconsistent.
     InvalidEnvelope(String),
+    /// An envelope is unsigned, its signature does not verify under this
+    /// host's key, or no host key is available to sign or verify with.
+    Unverified(String),
+    /// A signed envelope's expiry has passed.
+    Expired { expired_unix_ms: u64 },
+    /// The process ledger already tracks its limit of live envelopes.
+    LedgerFull { limit: usize },
 }
 
 impl fmt::Display for DelegationError {
@@ -191,6 +214,16 @@ impl fmt::Display for DelegationError {
                 "delegation budget {requested_micros} micros exceeds {available_micros} available"
             ),
             Self::InvalidEnvelope(why) => write!(f, "invalid delegation envelope: {why}"),
+            Self::Unverified(why) => write!(f, "unverified delegation envelope: {why}"),
+            Self::Expired { expired_unix_ms } => {
+                write!(f, "delegation envelope expired at {expired_unix_ms} ms")
+            }
+            Self::LedgerFull { limit } => {
+                write!(
+                    f,
+                    "delegation ledger holds its limit of {limit} live envelopes"
+                )
+            }
         }
     }
 }
@@ -483,10 +516,9 @@ impl DelegationScope {
         self.node.limits
     }
 
-    /// Serialize this level so a component across a process or socket
-    /// boundary can continue the nesting under the same bounds.
-    #[must_use]
-    pub fn envelope(&self) -> DelegationEnvelope {
+    /// The unsigned description of this level; [`DelegationAuthority::issue`]
+    /// adds the id, expiry and signature.
+    fn envelope(&self) -> DelegationEnvelope {
         DelegationEnvelope {
             schema: ENVELOPE_SCHEMA.to_string(),
             path: self.path(),
@@ -496,13 +528,16 @@ impl DelegationScope {
                 .remaining_time()
                 .map(|left| u64::try_from(left.as_millis()).unwrap_or(u64::MAX)),
             limits: self.node.limits,
+            id: None,
+            expires_unix_ms: None,
+            signature: None,
         }
     }
 
     /// Continue a nesting received over a boundary. The ancestry is rebuilt
     /// so depth and cycle checks keep counting from where the sender was;
     /// the last hop holds the envelope's permissions, budget and deadline.
-    pub fn from_envelope(envelope: &DelegationEnvelope) -> Result<Self, DelegationError> {
+    fn rebuild(envelope: &DelegationEnvelope, deadline: Instant) -> Result<Self, DelegationError> {
         if envelope.schema != ENVELOPE_SCHEMA {
             return Err(DelegationError::InvalidEnvelope(format!(
                 "schema `{}` is not `{ENVELOPE_SCHEMA}`",
@@ -552,7 +587,7 @@ impl DelegationScope {
                 parent,
                 depth,
                 permissions,
-                deadline: envelope.timeout_ms.and_then(deadline_after),
+                deadline: Some(deadline),
                 remaining_micros: AtomicU64::new(envelope.budget_micros),
                 spent_micros: AtomicU64::new(0),
                 children: AtomicU32::new(0),
@@ -583,8 +618,8 @@ fn collect_permissions(
     Ok(set)
 }
 
-/// A delegation scope in transit across a process or socket boundary.
-/// Unsigned: see the module documentation for what it does and does not bound.
+/// A delegation scope in transit across a process or socket boundary,
+/// issued and admitted only by a [`DelegationAuthority`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DelegationEnvelope {
@@ -594,11 +629,225 @@ pub struct DelegationEnvelope {
     pub path: Vec<DelegationHop>,
     /// Permissions the sending level holds.
     pub permissions: Vec<String>,
-    /// Budget the sending level had left.
+    /// Budget the sending level had left when it was issued.
     pub budget_micros: u64,
-    /// Time the sending level had left; absent when it had no deadline.
+    /// Time the sending level had left when it was issued; informational,
+    /// `expires_unix_ms` is what an admitting host enforces.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_ms: Option<u64>,
     /// Bounds inherited by every further level.
     pub limits: DelegationLimits,
+    /// Random 128-bit id (hex): every presentation of one id in a process
+    /// continues the same level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Absolute expiry, Unix milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_unix_ms: Option<u64>,
+    /// Hex HMAC-SHA256 over [`DelegationEnvelope::signed_payload`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+}
+
+impl DelegationEnvelope {
+    /// The bytes the signature covers: the schema tag, then the envelope's
+    /// JSON with `signature` absent. Field order is the struct's, and
+    /// permissions are sorted, so issuer and verifier produce the same bytes.
+    pub fn signed_payload(&self) -> Result<Vec<u8>, DelegationError> {
+        let mut unsigned = self.clone();
+        unsigned.signature = None;
+        let json = serde_json::to_vec(&unsigned)
+            .map_err(|e| DelegationError::InvalidEnvelope(e.to_string()))?;
+        let mut payload = Vec::with_capacity(ENVELOPE_SCHEMA.len() + 1 + json.len());
+        payload.extend_from_slice(ENVELOPE_SCHEMA.as_bytes());
+        payload.push(b'\n');
+        payload.extend_from_slice(&json);
+        Ok(payload)
+    }
+}
+
+/// One live envelope level held by a process ledger.
+#[derive(Debug)]
+struct Anchor {
+    scope: DelegationScope,
+    expires_unix_ms: u64,
+}
+
+/// Issues and admits signed envelopes for one key, and keeps the process
+/// ledger that makes replays share one level.
+#[derive(Debug)]
+pub struct DelegationAuthority {
+    key: [u8; 32],
+    ledger: Mutex<BTreeMap<String, Anchor>>,
+}
+
+static HOST_AUTHORITY: OnceLock<Result<DelegationAuthority, String>> = OnceLock::new();
+
+impl DelegationAuthority {
+    /// An authority whose envelope key is derived from `secret` under
+    /// [`ENVELOPE_KEY_PURPOSE`].
+    #[must_use]
+    pub fn from_secret(secret: &[u8; 32]) -> Self {
+        Self::with_key(crate::susi_config::cluster_key::hmac_sha256(
+            secret,
+            ENVELOPE_KEY_PURPOSE,
+        ))
+    }
+
+    fn with_key(key: [u8; 32]) -> Self {
+        Self {
+            key,
+            ledger: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    /// This host's authority: the key comes from the shared MAC policy key,
+    /// so every Susi process of the host agrees. Refused when this process
+    /// only has a private fallback key.
+    pub fn host() -> Result<&'static Self, DelegationError> {
+        HOST_AUTHORITY
+            .get_or_init(|| {
+                crate::mac_policy::MacPolicy::global()
+                    .derive_key(ENVELOPE_KEY_PURPOSE)
+                    .map(Self::with_key)
+            })
+            .as_ref()
+            .map_err(|error| DelegationError::Unverified(format!("no host key: {error}")))
+    }
+
+    fn mac(&self, envelope: &DelegationEnvelope) -> Result<[u8; 32], DelegationError> {
+        Ok(crate::susi_config::cluster_key::hmac_sha256(
+            &self.key,
+            &envelope.signed_payload()?,
+        ))
+    }
+
+    /// Sign `scope` for another process. The ledger keeps the scope alive
+    /// until the envelope expires or is revoked, so the budget it reserved
+    /// from its parent stays reserved while the envelope can still be used.
+    pub fn issue(&self, scope: &DelegationScope) -> Result<DelegationEnvelope, DelegationError> {
+        scope.check()?;
+        let now = now_unix_ms();
+        let life = scope
+            .remaining_time()
+            .map_or(MAX_SIGNED_LIFETIME_MS, |left| {
+                u64::try_from(left.as_millis())
+                    .map_or(MAX_SIGNED_LIFETIME_MS, |ms| ms.min(MAX_SIGNED_LIFETIME_MS))
+            });
+        let mut id = [0u8; 16];
+        getrandom::fill(&mut id)
+            .map_err(|e| DelegationError::Unverified(format!("no entropy for an id: {e}")))?;
+        let mut envelope = scope.envelope();
+        envelope.id = Some(hex::encode(id));
+        envelope.expires_unix_ms = Some(now.saturating_add(life));
+        envelope.signature = Some(hex::encode(self.mac(&envelope)?));
+        self.remember(&envelope, scope.clone())?;
+        Ok(envelope)
+    }
+
+    /// Verify a presented envelope and return the level it continues: the
+    /// same level for every presentation of its id in this process.
+    pub fn admit(&self, envelope: &DelegationEnvelope) -> Result<DelegationScope, DelegationError> {
+        if envelope.schema != ENVELOPE_SCHEMA {
+            return Err(DelegationError::InvalidEnvelope(format!(
+                "schema `{}` is not `{ENVELOPE_SCHEMA}`",
+                envelope.schema
+            )));
+        }
+        let (Some(id), Some(expires), Some(signature)) = (
+            envelope.id.as_deref(),
+            envelope.expires_unix_ms,
+            envelope.signature.as_deref(),
+        ) else {
+            return Err(DelegationError::Unverified(
+                "unsigned: id, expires_unix_ms and signature are required".into(),
+            ));
+        };
+        let presented = hex::decode(signature)
+            .map_err(|_| DelegationError::Unverified("signature is not hex".into()))?;
+        if !constant_time_eq(&presented, &self.mac(envelope)?) {
+            return Err(DelegationError::Unverified(
+                "signature does not verify under this host's key".into(),
+            ));
+        }
+        let now = now_unix_ms();
+        if now >= expires {
+            return Err(DelegationError::Expired {
+                expired_unix_ms: expires,
+            });
+        }
+        if let Some(anchor) = self.lock().get(id) {
+            let scope = anchor.scope.clone();
+            scope.check_cancelled()?;
+            return Ok(scope);
+        }
+        let deadline = Instant::now()
+            .checked_add(Duration::from_millis(expires - now))
+            .ok_or_else(|| DelegationError::InvalidEnvelope("expiry out of range".into()))?;
+        let scope = DelegationScope::rebuild(envelope, deadline)?;
+        // A concurrent first presentation may have won: share its level.
+        self.remember(envelope, scope)
+    }
+
+    /// Cancel the level an envelope id names, and everything opened under
+    /// it, in this process. The id stays known until it expires, so a later
+    /// presentation is refused as cancelled. Returns whether it was known.
+    pub fn revoke(&self, id: &str) -> bool {
+        match self.lock().get(id) {
+            Some(anchor) => {
+                anchor.scope.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Anchor>> {
+        self.ledger.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Record `scope` under the envelope's id, or return the level already
+    /// recorded for it. Expired entries are dropped first; their unspent
+    /// budget returns to a parent still alive in this process.
+    fn remember(
+        &self,
+        envelope: &DelegationEnvelope,
+        scope: DelegationScope,
+    ) -> Result<DelegationScope, DelegationError> {
+        let (Some(id), Some(expires)) = (envelope.id.clone(), envelope.expires_unix_ms) else {
+            return Err(DelegationError::Unverified(
+                "envelope has no id or expiry".into(),
+            ));
+        };
+        let now = now_unix_ms();
+        let mut ledger = self.lock();
+        ledger.retain(|_, anchor| anchor.expires_unix_ms > now);
+        if let Some(anchor) = ledger.get(&id) {
+            return Ok(anchor.scope.clone());
+        }
+        if ledger.len() >= MAX_LEDGER_ENTRIES {
+            return Err(DelegationError::LedgerFull {
+                limit: MAX_LEDGER_ENTRIES,
+            });
+        }
+        ledger.insert(
+            id,
+            Anchor {
+                scope: scope.clone(),
+                expires_unix_ms: expires,
+            },
+        );
+        Ok(scope)
+    }
+}
+
+fn now_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }

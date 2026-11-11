@@ -1,0 +1,53 @@
+{
+  "id": "T-CLAUDESIGNENV-1",
+  "title": "Host-signed delegation envelopes: issue, admit, replay ledger and revocation",
+  "goal": "Make the recursion adapter's cross-process envelope unforgeable: only a DelegationAuthority keyed from the host's shared MAC key issues or admits susi-delegation/v1 envelopes (HMAC-SHA256, random id, absolute expiry <= 1 h); tampered, unsigned, expired or foreign-host envelopes are refused; replays in one process continue one level (shared budget and fan-out); revocation cancels a level and its descendants; os_capabilities and the CLI gain a delegate action that issues envelopes under the same bounds.",
+  "status": "implemented",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794362062,
+  "size": "m",
+  "deps": ["T-CLAUDERECURSE-1"],
+  "base_commit": "6182adc2b1903f00ba181d20fa0a5362a5b1b036",
+  "scopes": [
+    "crates/susi-core/src/delegation.rs",
+    "crates/susi-core/src/tests/delegation.rs",
+    "crates/susi-core/src/mac_policy.rs",
+    "crates/susi-core/src/registry.rs",
+    "crates/susi-gmcp/src/tools/args.rs",
+    "crates/susi-gmcp/src/tools/host_ops.rs",
+    "crates/susi-gmcp/tests/os_capabilities_delegation.rs",
+    "crates/susi-cli-defs/src/os.rs",
+    "src/cli/os_cli.rs",
+    "docs/recursive-delegation.md",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CLAUDESIGNENV-1.json"
+  ],
+  "capabilities": [
+    "susi_core::delegation::DelegationAuthority (host, from_secret, issue, admit, revoke)",
+    "MacPolicy::derive_key (purpose-separated keys from the shared host MAC key)",
+    "CapabilityRegistry::issue_delegation and serve_nested; dispatch_nested admits only signed envelopes",
+    "os_capabilities action `delegate`; susi os capabilities delegate"
+  ],
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-core", "--lib", "--", "delegation", "capability_bus", "registry"]
+  },
+  "acceptance": [
+    "cargo test --offline --locked -p susi-core --lib -- delegation capability_bus registry",
+    "cargo test --offline --locked -p susi-core -p susi-gmcp --lib --tests",
+    "cargo test --offline --locked -p susi-gmcp --test os_capabilities_delegation (three child processes on scratch SUSI_HOME)",
+    "cargo clippy --offline --locked -p susi --bin susi -p susi-core -p susi-gmcp -p susi-cli-defs --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi --test socket_parity --test lean_core_ceilings --test architecture_tests --test capability_bus --test task_records --test gmcp_requirements",
+    "cargo fmt --all --check",
+    "susi binary smoke: delegate/nested delegate/invoke/tampered/foreign-home across separate processes"
+  ],
+  "host": "Claude Code cloud session, Linux x86_64, 4 vCPU, 15 GiB RAM, Rust 1.99.0 (pinned), Git 2.43.0",
+  "results": {},
+  "limitations": [
+    "Any process holding the host key is trusted to issue; an envelope is bound to the host key, not to the caller or transport presenting it.",
+    "Replay ledger and revocation are per process; two admitting processes each start from the full budget. revoke has no socket or CLI action yet.",
+    "Envelopes do not cross hosts (another host's key refuses them); a cluster-key variant is future work.",
+    "Only capability dispatch opens scopes; harness missions, GEMI worker delegation and GAWD swarm hand-offs are not wired yet.",
+    "Not run on native Windows x86_64 in this session."
+  ]
+}
