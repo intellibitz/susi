@@ -283,9 +283,24 @@ GitHub offers "Compare & pull request" for recently pushed branches under
 
 Any public Git repository on any host (GitHub, GitLab, Codeberg, SourceHut,
 Gitee, Bitbucket, self-hosted) is a source when the code Susi takes is
-licensed **Apache-2.0**. That includes `Apache-2.0 OR MIT` and
-`Apache-2.0 WITH LLVM-exception`. MIT, BSD-2-Clause and BSD-3-Clause remain
-allowed under Mandate 68.
+licensed **Apache-2.0**.
+
+**Apache-2.0 only (CEO decision 2026-11-12, "only apache 2.0 license only for
+pure compliance").** Harvested code is taken under Apache-2.0 and nothing else.
+A dual-licensed file (`Apache-2.0 OR MIT`) is taken under its Apache-2.0
+alternative and recorded as Apache-2.0. Code that is only MIT, BSD-2-Clause or
+BSD-3-Clause, `Apache-2.0 WITH LLVM-exception`, or Apache-2.0 combined with
+another license (`AND`) is not harvested; `local-harvest` and the distillation
+audit refuse it. This rule is for source copied into Susi. The allowlist for
+linked dependencies (Mandate 68) is a separate rule and is unchanged.
+
+**Why harvest (the CEO's reasoning, 2026-11-12).** Both repositories work the
+same way: raw source on `main`, distilled releases. Susi picks up features that
+already exist in the open-source world and integrates them into core and into
+Susi Commercial Apps. Core stays lean and efficient because it does not
+reinvent what exists and takes only what it needs; Commercial Apps gets
+innovative functionality that is already there. One license keeps compliance
+simple enough to verify for every file.
 
 ### 5.1 License verification at the exact commit
 

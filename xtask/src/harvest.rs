@@ -39,13 +39,13 @@ const LICENSE_NAMES: [&str; 6] = [
     "COPYING",
 ];
 const NOTICE_NAMES: [&str; 3] = ["NOTICE", "NOTICE.txt", "NOTICE.md"];
-const ALLOWED_LICENSES: [&str; 5] = [
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "MIT",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-];
+/// Harvested code is taken under Apache-2.0 only (CEO decision 2026-11-12:
+/// "only apache 2.0 license only for pure compliance"). A dual-licensed file
+/// (`Apache-2.0 OR MIT`) is taken under its Apache-2.0 alternative. MIT, BSD
+/// and `Apache-2.0 WITH LLVM-exception` code is not harvested. This is the
+/// rule for source copied into Susi; the dependency allowlist (Mandate 68) is
+/// a different rule and is unchanged.
+const ALLOWED_LICENSES: [&str; 1] = ["Apache-2.0"];
 const REJECT_PHRASES: [&str; 7] = [
     "GNU General Public License",
     "GNU Lesser General Public",
@@ -648,8 +648,8 @@ fn canonical_license(tokens: &[String]) -> Option<&'static str> {
         .find(|allowed| allowed.eq_ignore_ascii_case(&term))
 }
 
-/// Picks the license Susi uses from an SPDX expression: an `OR` alternative
-/// whose every `AND` term is on the allowlist, preferring plain Apache-2.0.
+/// Picks the license Susi uses from an SPDX expression: the `OR` alternative
+/// that is exactly Apache-2.0. Anything else is refused.
 fn choose_license(expr: &str) -> std::result::Result<String, String> {
     let tokens = tokenize(expr);
     let mut allowed = Vec::new();
@@ -665,10 +665,10 @@ fn choose_license(expr: &str) -> std::result::Result<String, String> {
     allowed
         .iter()
         .find(|a| *a == "Apache-2.0")
-        .or_else(|| allowed.iter().find(|a| a.contains("Apache-2.0")))
-        .or_else(|| allowed.first())
         .cloned()
-        .ok_or_else(|| format!("license `{expr}` is not on the allowlist"))
+        .ok_or_else(|| {
+            format!("license `{expr}` is not Apache-2.0; only Apache-2.0 code is harvested")
+        })
 }
 
 fn strip_comment(line: &str) -> &str {
@@ -2228,7 +2228,11 @@ mod tests {
                 ("src/widget.rs", WIDGET),
                 (
                     "src/mit_util.rs",
-                    "// SPDX-License-Identifier: MIT\n// Copyright (c) 2023 Jane Example\npub fn util() {}\n",
+                    "// SPDX-License-Identifier: MIT OR Apache-2.0\n// Copyright (c) 2023 Jane Example\npub fn util() {}\n",
+                ),
+                (
+                    "other/mit_only.rs",
+                    "// SPDX-License-Identifier: MIT\n// Copyright (c) 2022 Sam Example\npub fn only() {}\n",
                 ),
                 (
                     "third_party/gpl/COPYING",
@@ -2387,7 +2391,8 @@ mod tests {
         };
         assert_eq!(verdict("src/widget.rs")["license"], "Apache-2.0");
         assert_eq!(verdict("src/widget.rs")["basis"], "LICENSE");
-        assert_eq!(verdict("src/mit_util.rs")["license"], "MIT");
+        // A dual-licensed file is taken under its Apache-2.0 alternative.
+        assert_eq!(verdict("src/mit_util.rs")["license"], "Apache-2.0");
         assert_eq!(verdict("src/mit_util.rs")["basis"], "SPDX header");
         let thing = verdict("third_party/gpl/thing.c");
         assert_eq!(thing["verdict"], "reject");
@@ -2397,6 +2402,29 @@ mod tests {
         assert!(fx
             .run(&["scan", "--slug", "widgets", "--rev", &sha, "--path", "nope"])
             .is_err());
+        // Only Apache-2.0 code is harvested: an MIT-only file is refused, by
+        // scan and by import, and nothing is written.
+        let mit = fx
+            .run(&[
+                "scan", "--slug", "widgets", "--rev", &sha, "--path", "other",
+            ])
+            .unwrap_err();
+        assert!(mit.contains("not Apache-2.0"), "{mit}");
+        let import = fx.run(&[
+            "import",
+            "--slug",
+            "widgets",
+            "--rev",
+            &sha,
+            "--map",
+            "other=vendor/other",
+            "--id",
+            "H-TEST-9",
+            "--task",
+            "T-TEST-1",
+        ]);
+        assert!(import.unwrap_err().contains("import refused"));
+        assert!(!fx.work.join("vendor/other").exists());
     }
 
     #[test]
@@ -2409,7 +2437,7 @@ mod tests {
             out.contains(&format!("Origin: {}@{sha}:src", fx.url())),
             "{out}"
         );
-        assert!(out.contains("Origin-License: Apache-2.0 AND MIT"), "{out}");
+        assert!(out.contains("Origin-License: Apache-2.0\n"), "{out}");
         assert_eq!(fx.read("vendor/widgets/widget.rs"), WIDGET);
         assert!(fx
             .read("vendor/widgets/mit_util.rs")
@@ -2600,16 +2628,27 @@ mod tests {
         assert_eq!(choose_license("Apache-2.0").unwrap(), "Apache-2.0");
         assert_eq!(choose_license("MIT OR Apache-2.0").unwrap(), "Apache-2.0");
         assert_eq!(choose_license("(MIT OR Apache-2.0)").unwrap(), "Apache-2.0");
+        assert_eq!(choose_license("apache-2.0").unwrap(), "Apache-2.0");
+        // The Apache-2.0 alternative is taken whatever else is offered.
         assert_eq!(
-            choose_license("Apache-2.0 WITH LLVM-exception").unwrap(),
-            "Apache-2.0 WITH LLVM-exception"
+            choose_license("GPL-2.0-only OR Apache-2.0").unwrap(),
+            "Apache-2.0"
         );
-        assert_eq!(choose_license("GPL-2.0-only OR MIT").unwrap(), "MIT");
-        assert_eq!(
-            choose_license("Apache-2.0 AND MIT").unwrap(),
-            "Apache-2.0 AND MIT"
-        );
-        assert_eq!(choose_license("bsd-3-clause").unwrap(), "BSD-3-Clause");
+        // CEO decision 2026-11-12: nothing but Apache-2.0 is harvested.
+        for not_apache in [
+            "MIT",
+            "bsd-3-clause",
+            "BSD-2-Clause",
+            "GPL-2.0-only OR MIT",
+            "Apache-2.0 AND MIT",
+            "Apache-2.0 WITH LLVM-exception",
+        ] {
+            let refused = choose_license(not_apache).unwrap_err();
+            assert!(
+                refused.contains("not Apache-2.0"),
+                "{not_apache}: {refused}"
+            );
+        }
         for bad in [
             "GPL-3.0-or-later",
             "MPL-2.0",

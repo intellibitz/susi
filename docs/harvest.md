@@ -1,8 +1,8 @@
 # Harvest: `local-harvest`
 
 `local-harvest` is the tooling for [CEO Mandate 74, section 5](ceo-mandate-74.md#5-harvest-the-open-source-world-is-the-oyster).
-Use it to take Apache-2.0 code (plus MIT, BSD-2-Clause and BSD-3-Clause, per
-Mandate 68) from any public Git repository on any host and keep every license
+Use it to take Apache-2.0 code, and only Apache-2.0 code (CEO decision
+2026-11-12), from any public Git repository on any host and keep every license
 obligation. It is native Rust (`xtask/src/harvest.rs`) and depends only on the
 `git` executable. It uses no hosting API and no network beyond `git fetch`.
 
@@ -59,13 +59,17 @@ local-harvest audit --range origin/main..HEAD
 2. Otherwise the tool uses the nearest license file found by walking up to the
    root (`LICENSE`, `LICENSE.txt`, `LICENSE.md`, `LICENSE-APACHE`,
    `LICENSE-MIT`, `COPYING`). It classifies that file by its text as
-   Apache-2.0, MIT, BSD-3-Clause, BSD-2-Clause or unknown. A directory with
+   Apache-2.0, MIT, BSD-3-Clause, BSD-2-Clause or unknown (the others are
+   recognized so the refusal can name them). A directory with
    exactly `LICENSE-APACHE` and `LICENSE-MIT` counts as `Apache-2.0 OR MIT`.
    Several different licenses in one directory are combined with `AND`.
 
-The allowed licenses are `Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `MIT`,
-`BSD-2-Clause` and `BSD-3-Clause`. An `OR` expression passes when one
-alternative is allowed, and the tool picks Apache-2.0 when it is offered.
+The only allowed license is `Apache-2.0` (CEO decision 2026-11-12). An `OR`
+expression passes when one alternative is exactly Apache-2.0, and the file is
+then taken and recorded as Apache-2.0. MIT, BSD-2-Clause, BSD-3-Clause,
+`Apache-2.0 WITH LLVM-exception` and any `AND` combination with another license
+are refused. The rule is for harvested source; the dependency allowlist of
+Mandate 68 is separate and unchanged.
 
 The scan rejects:
 
