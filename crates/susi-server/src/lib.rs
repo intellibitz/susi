@@ -2127,7 +2127,7 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         None => false,
         Some(value) => value.as_bool().ok_or("stream must be a boolean")?,
     };
-    let (prompt, turns, chat_turns) = if legacy {
+    let (prompt, turns, chat_messages) = if legacy {
         (
             object
                 .get("prompt")
@@ -2144,6 +2144,7 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
             .filter(|m| !m.is_empty())
             .ok_or("messages must be a non-empty array")?;
         let mut turns = Vec::with_capacity(messages.len());
+        let mut chat_messages = Vec::with_capacity(messages.len());
         for message in messages {
             let role = message
                 .get("role")
@@ -2201,25 +2202,40 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
 
             let formatted_turn = if role == "tool" || role == "function" {
                 if let Some(tool_call_id) = message.get("tool_call_id").and_then(|id| id.as_str()) {
-                    format!("[tool_call_id: {tool_call_id}] {content}")
+                    format!("[tool_call_id: {tool_call_id}] {}", content.clone())
                 } else {
-                    content
+                    content.clone()
                 }
             } else {
-                content
+                content.clone()
             };
 
+            let normalized_role = match role {
+                "developer" => "system",
+                "function" => "tool",
+                other => other,
+            };
+            let mut chat_message = message.clone();
+            if let Some(object) = chat_message.as_object_mut() {
+                object.insert("role".to_owned(), json!(normalized_role));
+                // Keep an assistant's explicit null content intact when its
+                // structured tool_calls carry the turn. Text parts are
+                // normalized to the same string the provider path sees.
+                if !matches!(message.get("content"), Some(serde_json::Value::Null)) {
+                    object.insert("content".to_owned(), json!(content.clone()));
+                }
+            }
+            chat_messages.push(chat_message);
             turns.push((role.to_string(), formatted_turn));
         }
-        let chat_turns = turns.clone();
         // Preserve the direct single-user task path; multi-turn requests
         // carry their roles for the GEMI plane's cache-first assembly. The
         // complete normalized sequence is retained separately for a local
         // engine that can render the model's own chat template.
         if turns.len() == 1 && turns[0].0 == "user" {
-            (turns.remove(0).1, None, Some(chat_turns))
+            (turns.remove(0).1, None, Some(chat_messages))
         } else {
-            (String::new(), Some(turns), Some(chat_turns))
+            (String::new(), Some(turns), Some(chat_messages))
         }
     };
     if turns.is_none() && prompt.trim().is_empty() {
@@ -2237,21 +2253,11 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
     if legacy && tools.is_some() {
         return Err("tools are supported only for chat completions".into());
     }
-    let mut chat = chat_turns.map(|turns| {
-        let messages = turns
-            .into_iter()
-            .map(|(role, content)| {
-                // The local engine accepts the portable four-role shape. The
-                // OpenAI developer/function aliases retain their semantics in
-                // the normalized text path without being silently discarded.
-                let role = match role.as_str() {
-                    "developer" => "system",
-                    "function" => "tool",
-                    other => other,
-                };
-                json!({"role": role, "content": content})
-            })
-            .collect::<Vec<_>>();
+    let mut chat = chat_messages.map(|messages| {
+        // Preserve the complete normalized message objects. The provider
+        // path still uses `turns`; the local plug additionally needs
+        // assistant `tool_calls`, tool `tool_call_id`, and any model-specific
+        // fields consumed by the model's own chat template.
         let mut chat = json!({"messages": messages});
         if let Some(tools) = tools {
             chat["tools"] = serde_json::Value::Array(tools);
@@ -3534,6 +3540,35 @@ mod tests {
         assert!(turns[2].1.contains("run_test"));
         assert_eq!(turns[3].0, "tool");
         assert!(turns[3].1.contains("[tool_call_id: call_1]"));
+    }
+
+    #[test]
+    fn preserves_structured_tool_turns_for_local_templates() {
+        let input = parse_completion(
+            br#"{
+                "messages": [
+                    {"role": "user", "content": "Call the checker"},
+                    {"role": "assistant", "content": null, "tool_calls": [
+                        {"id": "call_1", "type": "function", "function": {
+                            "name": "run_check", "arguments": "{\"kind\":\"unit\"}"
+                        }}
+                    ]},
+                    {"role": "tool", "tool_call_id": "call_1", "content": "passed"}
+                ]
+            }"#,
+            false,
+        )
+        .unwrap();
+        let chat = input.chat.expect("local chat payload");
+        assert_eq!(chat["messages"][0]["role"], "user");
+        assert_eq!(chat["messages"][1]["content"], serde_json::Value::Null);
+        assert_eq!(
+            chat["messages"][1]["tool_calls"][0]["function"]["name"],
+            "run_check"
+        );
+        assert_eq!(chat["messages"][2]["role"], "tool");
+        assert_eq!(chat["messages"][2]["tool_call_id"], "call_1");
+        assert_eq!(chat["messages"][2]["content"], "passed");
     }
 
     #[test]
