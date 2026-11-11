@@ -3,8 +3,8 @@
   "feature_id": "F-LEAN-CORE-FACADE-CUT-10",
   "title": "Lean core: replace tokio full/tracing features with minimal runtime set (-5 Cargo.lock pkgs, THIRD_PARTY_CEILING 122 -> 117)",
   "goal": "Replace tokio's umbrella full and tracing features in crates/susi-vendor-tokio/Cargo.toml and workspace Cargo.toml with the exact used runtime feature set (io-std, io-util, macros, net, rt, rt-multi-thread, signal, sync, time), eliminating unused tokio/parking_lot, tokio/fs, tokio/process, and tokio/tracing, removing 5 third-party packages from Cargo.lock (lock_api, parking_lot, parking_lot_core, redox_syscall, scopeguard; 144 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..10), and ratcheting THIRD_PARTY_CEILING down by 5 crates (122 -> 117).",
-  "status": "in_progress",
-  "state": "in_progress",
+  "status": "done",
+  "state": "done",
   "owner": "carbon-cachyos-distill",
   "created_by": "carbon-cachyos-distill",
   "created_unix": 1794390900,
@@ -53,5 +53,15 @@
   ],
   "limitations": [
     "Verified on native Linux x86_64 host only per current-host workflow; dual-OS production tag qualification stays separate from accept_verified_candidate local release/* and immutable refs/tags/susi-distill/* distillation."
+  ],
+  "results": {
+    "lockfile_packages_removed": "5 third-party packages removed from Cargo.lock (lock_api 0.4.14, parking_lot 0.12.5, parking_lot_core 0.9.12, redox_syscall 0.5.18, scopeguard 1.2.0), 0 added; 144 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..10",
+    "pillar_ceiling_ratchet": "THIRD_PARTY_CEILING 122 -> 117 (-5 crates: lock_api, parking_lot, parking_lot_core, redox_syscall, scopeguard); WORKSPACE_CEILING 33, DIRECT_FACADE_EDGES_CEILING 9",
+    "license_and_lint_gates": "cargo deny --offline --locked check licenses -> licenses ok; cargo clippy across 11 tokio consumer/pillar crates --all-targets -- -D warnings -> 0 warnings (31.25 s); cargo fmt --all --check -> 0 diffs",
+    "touched_crate_and_guard_tests": "1,082 / 1,082 tests passed: susi-vendor-syn 8/8, susi-gemi 438/438, susi-harness 527/527, susi-http-transport 48/48, architecture_tests 43/43, core_docs_promise_no_ui_or_plugins 5/5, lean_core_ceilings 2/2, no_github_coupling 5/5, orphan_sources 3/3, task_records 3/3",
+    "timings": "incremental cargo build -p susi: 188 ms; warm no-op cargo build -p susi: 184 ms; susi --version startup: 19.11 ms; host distinct packages: 233 (-e normal: 222)"
+  },
+  "source_commits": [
+    "50e0262dc816223b292f2a448a2d9dc0bdefddcc"
   ]
 }
