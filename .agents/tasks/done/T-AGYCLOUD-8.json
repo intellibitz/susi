@@ -1,0 +1,87 @@
+{
+  "id": "T-AGYCLOUD-8",
+  "native_worker": "agycloud-20261111-w2",
+  "owner": "agycloud-20261111-w2",
+  "title": "Lean core: delete susi-vendor-tower-service facade and ratchet pillar ceilings",
+  "goal": "Call `StreamableHttpService::handle` directly in `susi-gmcp` (`server.rs` and `protocol_tests.rs`) instead of wrapping `StreamableHttpService` in `tower_service::Service`, delete `crates/susi-vendor-tower-service`, lower lean-core ceilings (`WORKSPACE_CEILING` 38 -> 37, `DIRECT_FACADE_EDGES_CEILING` 14 -> 13, `susi-gmcp` `LINE_CEILINGS` 25,889 -> 25,860), and re-record GMCP requirement and mastery evidence.",
+  "feature": "lean-core",
+  "size": "s",
+  "created_by": "agycloud-20261111-w2",
+  "created_unix": 1794383960,
+  "state": "done",
+  "status": "done",
+  "base": "240b460cd57eb4ac44e403e8b677538e6950e2cd",
+  "mandate_revision": "26edc0bfbb18e4c09647633360787722cbafd8e9",
+  "deps": [
+    "T-CARBONLEAN-3"
+  ],
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-AGYCLOUD-8.json",
+    ".agents/tasks/done/T-AGYCLOUD-8.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-gmcp/src/mcp/http.rs",
+    "crates/susi-gmcp/src/protocol_tests.rs",
+    "crates/susi-gmcp/src/server.rs",
+    "crates/susi-vendor-tower-service",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/gmcp_requirements.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "evidence": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu (Debian 12, Linux 6.12.105+, git 2.39.5, rustc 1.99.0)",
+    "fmt_check": "pass (0 diffs)",
+    "clippy": "pass (0 warnings on susi-gmcp --all-targets -- -D warnings)",
+    "pillar_ceilings_lowered": "WORKSPACE_CEILING 38 -> 37; DIRECT_FACADE_EDGES_CEILING 14 -> 13; susi-gmcp shipped lines 25,889 -> 25,860",
+    "host_package_graph": "cargo tree -p susi host packages 227 -> 226",
+    "tests_passed": 352,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "susi_gmcp_lib": 213,
+      "gmcp_requirements": 88,
+      "architecture_tests": 43,
+      "orphan_sources": 3,
+      "task_records": 3,
+      "lean_core_ceilings": 2
+    },
+    "timings_ms": {
+      "clippy_warm_ms": 5352,
+      "unit_tests_warm_ms": 12344,
+      "gmcp_evidence_phase1_ms": 35976,
+      "gmcp_evidence_mastery_ms": 4596,
+      "all_accept_tests_ms": 27416
+    }
+  },
+  "limitations": [
+    "`tower-service 0.3.3` remains transitive inside Cargo.lock via `hyper-util` and `axum`, so `THIRD_PARTY_CEILING` stays 141 while `WORKSPACE_CEILING` (38 -> 37) and `DIRECT_FACADE_EDGES_CEILING` (14 -> 13) drop.",
+    "Windows x86_64 release qualification remains owed on a native Windows host."
+  ]
+}
