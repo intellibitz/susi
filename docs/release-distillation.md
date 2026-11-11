@@ -59,12 +59,14 @@ and `deps`. Feature licenses are checked against Susi's allowlist (`Apache-2.0`,
    `*.key`, `*.p12`) fail with `confidentiality_violation`.
 4. **Selective 3-way composition without unselected leaks:** Each accepted task
    is applied onto the running candidate using
-   `git merge-tree --write-tree --merge-base=<commit-parent> <candidate> <commit>`,
+   `git merge-tree --write-tree --merge-base=<commit-parent> <candidate> <commit>`
+   (with an automatic synthetic-base object-store `commit-tree` + `merge-tree
+   --write-tree` fallback on Git 2.38–2.39 hosts without `--merge-base=`),
    carrying only that task's delta rather than merging intermediate unselected
-   commits from `main`. Conflicting tasks are isolated and recorded under
-   `deferred` (`merge_conflict`), propagating `dependency_deferred` to their
-   dependents while allowing independent tasks to compose cleanly unless
-   `--strict` is requested.
+   commits from `main`. Conflicting tasks (exit status `1`) are isolated and
+   recorded under `deferred` (`merge_conflict`), propagating
+   `dependency_deferred` to their dependents while allowing independent tasks to
+   compose cleanly unless `--strict` is requested; fatal Git errors fail closed.
 5. **Optional isolated `accept.cmd` verification (`--verify-accept`):** Before
    recording a composed candidate, `compose --verify-accept` checks out the
    composed commit into an ephemeral detached worktree with a hermetic
@@ -76,7 +78,10 @@ and `deps`. Feature licenses are checked against Susi's allowlist (`Apache-2.0`,
    `.git/susi-distill/receipts/<name>.json` and creates `refs/heads/distill/<name>`
    (or `refs/heads/release/<name>` with `--release-candidate`) via atomic
    zero-old-OID `git update-ref`. `publish` pushes create-only snapshot tag
-   `refs/tags/susi-distill/<name>` and verifies the remote ref after push.
+   `refs/tags/susi-distill/<name>` through `.githooks/pre-push` and adjacent
+   `push-policy` (commit-bound, immutable, non-deletable, and kept distinct
+   from exact-tree qualified `vX.Y.Z` release tags) and verifies the remote ref
+   after push.
 
 ## Evidence on distilled branches
 
@@ -100,8 +105,8 @@ immutable `v*` release-tag promotion remain separate steps before production use
 
 ## Verification
 
-Run the focused unit and bare-Git integration suite:
+Run the focused unit, push-policy, and bare-Git hook integration suites:
 
 ```text
-cargo test --offline --locked -p xtask --bin local-distill
+cargo test --offline --locked -p xtask --bin local-distill --test native_push_policy --test git_publisher_native_hook
 ```
