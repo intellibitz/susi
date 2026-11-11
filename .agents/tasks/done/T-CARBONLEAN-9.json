@@ -3,8 +3,8 @@
   "feature_id": "F-LEAN-CORE-FACADE-CUT-9",
   "title": "Lean core: deduplicate sha2 0.11 and getrandom 0.4 facades onto workspace 0.10.9/0.2 (-9 Cargo.lock pkgs, THIRD_PARTY_CEILING 124 -> 122) and re-home susi-harness providers unit suite",
   "goal": "Eliminate the duplicate RustCrypto sha2 0.11.1 stack and duplicate getrandom 0.4.3 stack by unifying susi-vendor-sha2 on sha2 0.10.9 and susi-vendor-getrandom on getrandom 0.2 (preserving getrandom::fill over getrandom::getrandom), removing 9 compiled packages from Cargo.lock (-139 cumulative across T-CARBONLEAN-1..9), lowering THIRD_PARTY_CEILING from 124 to 122, and moving susi-harness/src/providers.rs's unchanged 1,206-line inline unit suite to src/tests/providers.rs so LINE_CEILINGS drops from 37,604 to 37,439 after T-AGYFURY-1's git_governor.rs landed.",
-  "status": "in_progress",
-  "state": "in_progress",
+  "status": "done",
+  "state": "done",
   "owner": "carbon-cachyos-distill",
   "created_by": "carbon-cachyos-distill",
   "created_unix": 1794390000,
@@ -57,5 +57,15 @@
   ],
   "limitations": [
     "Verified on native Linux x86_64 host only per current-host workflow; dual-OS production tag qualification stays separate from accept_verified_candidate local release/* and immutable refs/tags/susi-distill/* distillation."
+  ],
+  "results": {
+    "lockfile_packages_removed": "9 third-party packages removed from Cargo.lock (block-buffer 0.12.1, const-oid 0.10.2, cpufeatures 0.3.1, crypto-common 0.2.2, digest 0.11.3, getrandom 0.4.3, hybrid-array 0.4.15, r-efi 6.0.0, sha2 0.11.1), 0 added; 139 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..9",
+    "pillar_ceiling_ratchet": "THIRD_PARTY_CEILING 124 -> 122 (-2 unique crates: hybrid-array, r-efi, plus 7 duplicate compile units); WORKSPACE_CEILING 33, DIRECT_FACADE_EDGES_CEILING 9; susi-harness LINE_CEILINGS 37,604 -> 37,439 (unchanged 1,206-line providers.rs unit suite moved to src/tests/providers.rs)",
+    "license_and_lint_gates": "cargo deny --offline --locked check licenses -> licenses ok; cargo clippy across 9 consumer/pillar crates --all-targets -- -D warnings -> 0 warnings (30.25 s); cargo fmt --all --check -> 0 diffs",
+    "touched_crate_and_guard_tests": "1,406 / 1,406 tests passed (1 ignored): susi-vendor-getrandom 1/1, susi-config 320/320 (1 ignored), susi-core 497/497, susi-harness 527/527, architecture_tests 43/43, core_docs_promise_no_ui_or_plugins 5/5, lean_core_ceilings 2/2, no_github_coupling 5/5, orphan_sources 3/3, task_records 3/3",
+    "timings": "incremental cargo build -p susi: 130 ms; warm no-op cargo build -p susi: 142 ms; susi --version startup: 13.64 ms; host distinct packages: 237 (-e normal: 226)"
+  },
+  "source_commits": [
+    "66983485597bd02e8e6639ba597c2d841f71742b"
   ]
 }
