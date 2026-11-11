@@ -24,6 +24,7 @@
     "crates/susi-gmcp/src/tool_registry.rs",
     "crates/susi-gemi/src/local_tool_calls.rs",
     "crates/susi-daemon/src/engine_hooks.rs",
+    ".agents/gmcp/evidence",
     ".agents/tasks/t-codextoolschema-1.json"
   ],
   "scope": [
@@ -35,6 +36,7 @@
     "crates/susi-gmcp/src/tool_registry.rs",
     "crates/susi-gemi/src/local_tool_calls.rs",
     "crates/susi-daemon/src/engine_hooks.rs",
+    ".agents/gmcp/evidence",
     ".agents/tasks/t-codextoolschema-1.json"
   ],
   "acceptance": "cargo test --offline --locked -p susi-gemi --lib local_tool_call_tests",
