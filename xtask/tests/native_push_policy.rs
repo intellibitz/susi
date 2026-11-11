@@ -105,11 +105,17 @@ fn mixed_transaction_invalid_record_is_not_hidden_by_valid_main() {
     assert!(r.check("").is_ok());
 }
 #[test]
-fn snapshots_are_commit_bound_immutable_and_release_creation_fails_closed() {
+fn snapshots_and_distill_candidates_are_commit_bound_immutable_and_release_creation_fails_closed() {
     let r = Repo::new();
     let head = r.git(&["rev-parse", "HEAD"]);
+    let blob = r.git(&["rev-parse", "HEAD:source"]);
     assert!(r
         .check(&format!("HEAD {head} refs/tags/susi-snapshot/rc1 {ZERO}"))
+        .is_ok());
+    assert!(r
+        .check(&format!(
+            "HEAD {head} refs/tags/susi-distill/2026-11-11-rc1 {ZERO}"
+        ))
         .is_ok());
     r.git(&["tag", "-a", "susi-snapshot/annotated", "-m", "snapshot"]);
     let tag = r.git(&["rev-parse", "refs/tags/susi-snapshot/annotated"]);
@@ -118,13 +124,30 @@ fn snapshots_are_commit_bound_immutable_and_release_creation_fails_closed() {
             "refs/tags/susi-snapshot/annotated {tag} refs/tags/susi-snapshot/annotated {ZERO}"
         ))
         .is_ok());
+    r.git(&[
+        "tag",
+        "-a",
+        "susi-distill/annotated",
+        "-m",
+        "distill candidate",
+    ]);
+    let distill_tag = r.git(&["rev-parse", "refs/tags/susi-distill/annotated"]);
+    assert!(r
+        .check(&format!(
+            "refs/tags/susi-distill/annotated {distill_tag} refs/tags/susi-distill/annotated {ZERO}"
+        ))
+        .is_ok());
     for input in [
         format!("HEAD {head} refs/tags/susi-snapshot/rc1 {head}"),
         format!("(delete) {ZERO} refs/tags/susi-snapshot/rc1 {head}"),
+        format!("HEAD {head} refs/tags/susi-distill/2026-11-11-rc1 {head}"),
+        format!("(delete) {ZERO} refs/tags/susi-distill/2026-11-11-rc1 {head}"),
+        format!("{blob} {blob} refs/tags/susi-distill/blob {ZERO}"),
+        format!("HEAD {head} refs/tags/distill/2026-11-11-rc1 {ZERO}"),
         format!("HEAD {head} refs/tags/v1.0.0 {ZERO}"),
         format!("HEAD {head} refs/tags/release/latest {ZERO}"),
     ] {
-        assert!(r.check(&input).is_err());
+        assert!(r.check(&input).is_err(), "accepted {input}");
     }
 }
 #[test]
