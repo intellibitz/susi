@@ -675,3 +675,23 @@ config, core and the tail.
   `susi-gawd-agents` 11,263 -> 10,447, `susi-gemi` 21,290 -> 21,263,
   `susi-harness` 40,790 -> 40,594; -1,045 counted lines total). No host
   build-time or executable-size reduction is claimed.
+- 2026-11-11 (T-AGYCLOUD-4, Linux x86_64, 2-vCPU cloud VM): delete two
+  workspace facades (`crates/susi-vendor-futures` and `crates/susi-vendor-bytes`)
+  and remove two pillar direct facade edges (`susi-gemi -> susi-vendor-parking-lot`,
+  `susi-gawd-agents -> susi-vendor-regex`). `susi-harness` replaces its five
+  `futures::stream::poll_fn` + `axum::body::Body::from_stream` sites (`cockpit`,
+  `gateway`, `ingress`) with a 26-line `poll_body` over `hyper::body::Body`
+  (`susi-vendor-hyper`, already in the pillar facade set via `susi-gmcp`);
+  `susi-server` imports `hyper::body::Bytes` directly; `susi-gemi` (`local_plug`)
+  uses `std::sync::RwLock`; and `susi-gawd-agents` (`accountability`) replaces
+  its sole `Regex::new(r"\bFAILURE\b")` (and an `expect_used` allow) with a std
+  word-boundary scan. Six lockfile packages leave (`susi-vendor-futures`,
+  `susi-vendor-bytes`, `futures`, `futures-executor`, `futures-io`, proc-macro
+  `futures-macro`), shrinking `cargo tree -p susi -e normal,build` unique
+  packages from 348 to 342. Pillar ceilings ratchet on all four axes:
+  `WORKSPACE_CEILING` 46 -> 45, `THIRD_PARTY_CEILING` 184 -> 180,
+  `DIRECT_FACADE_EDGES_CEILING` 20 -> 19, and `LINE_CEILINGS` (`susi-gawd-agents`
+  10,447 -> 10,443, `susi-gemi` 21,263 -> 21,171 with unchanged `usage_accounting`
+  unit tests moved to `src/tests`, `susi-harness` 40,594 -> 40,575 with unchanged
+  `MicroUsd` inline tests moved from `lib.rs` to `src/tests/money.rs`).
+
