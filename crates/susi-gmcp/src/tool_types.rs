@@ -1,7 +1,6 @@
 use crate::susi_error::EaiResult;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpTool {
     pub name: String,
@@ -9,7 +8,6 @@ pub struct McpTool {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_schema: Option<serde_json::Value>,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaCategory {
     SystemPrimitive,
@@ -20,13 +18,11 @@ pub enum MetaCategory {
     CodingSpecialist,
     AssistantSpecialist,
 }
-
 pub trait SusiTool: Send + Sync {
     fn name(&self) -> String;
     fn description(&self) -> String;
     fn execute(&self, arg: &serde_json::Value, workspace: &Path) -> EaiResult<String>;
 }
-
 #[cfg(test)]
 mod inline_tests {
     use super::*;
@@ -51,7 +47,6 @@ mod inline_tests {
             ))
         }
     }
-
     #[test]
     fn mcp_tool_round_trips_through_serde_json() {
         let tool = McpTool {

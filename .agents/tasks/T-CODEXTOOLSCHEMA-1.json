@@ -39,7 +39,7 @@
     ".agents/gmcp/evidence",
     ".agents/tasks/t-codextoolschema-1.json"
   ],
-  "acceptance": "cargo test --offline --locked -p susi-gemi --lib local_tool_call_tests",
+  "acceptance": "cargo test --offline --locked -p susi-daemon --lib built_in_tool_schema_bridge_returns_typed_arguments_only_for_core_tools",
   "accept": {
     "cmd": [
       "cargo",
@@ -47,9 +47,9 @@
       "--offline",
       "--locked",
       "-p",
-      "susi-gemi",
+      "susi-daemon",
       "--lib",
-      "local_tool_call_tests"
+      "built_in_tool_schema_bridge_returns_typed_arguments_only_for_core_tools"
     ]
   },
   "limitations": [
