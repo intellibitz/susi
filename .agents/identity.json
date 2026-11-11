@@ -786,5 +786,5 @@
   },
   "schema": "susi/identity/v1",
   "title": "SUSI Substrate Identity",
-  "version": "0.21.55"
+  "version": "0.21.56"
 }

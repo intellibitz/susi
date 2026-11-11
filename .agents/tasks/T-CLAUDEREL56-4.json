@@ -1,0 +1,42 @@
+{
+  "id": "T-CLAUDEREL56-4",
+  "title": "Release v0.21.56: promote the distilled candidate v0.21.56-distilled-rc25",
+  "goal": "First core release promoted from a distilled candidate (docs/releases.md, Promoting a distilled candidate). local-distill composed 20 labelled tasks from development main (9be919018) onto the v0.21.55 tag with every accept command passing (receipt releases/distill/v0.21.56-distilled-rc25.json, receipt_sha256 120bbb6b408d70954f6e964d5ae784d0955ef765c77674387f9d55719b971e8a, 0 deferred, 0 rejected, no host-created commit). This commit is only the version bump 0.21.55 -> 0.21.56 in the files of the v0.21.55 bump 47339995d; release-qualify v0.21.56 --from-distill v0.21.56-distilled-rc25 then runs every release gate on this exact tree.",
+  "status": "in_progress",
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    ".agents/tasks/T-CLAUDEREL56-4.json"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDEREL56",
+  "created_unix": 1794393000,
+  "owner": "CLAUDEREL56",
+  "results": {},
+  "limitations": [
+    "Windows x86_64 is not qualified by this run (Linux host); it is owed."
+  ]
+}
