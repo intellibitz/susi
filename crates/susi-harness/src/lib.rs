@@ -85,6 +85,7 @@ pub mod event;
 pub mod executor;
 pub mod fleet;
 pub mod gateway;
+pub mod http;
 pub mod ingress;
 pub mod ledger;
 pub mod lifecycle;

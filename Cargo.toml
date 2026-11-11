@@ -41,7 +41,6 @@ members = [
     "crates/susi-vendor-console-subscriber",
     "crates/susi-vendor-dashmap",
     "crates/susi-vendor-ed25519-dalek",
-    "crates/susi-vendor-futures",
     "crates/susi-vendor-getrandom",
     "crates/susi-vendor-hex",
     "crates/susi-vendor-http-body-util",

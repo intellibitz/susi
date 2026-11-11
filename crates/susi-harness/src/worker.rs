@@ -390,17 +390,18 @@ mod tests {
 
     #[tokio::test]
     async fn multi_turn_worker_executes_tool_call_and_concludes() {
-        use axum::extract::Json as AxumJson;
-        use axum::routing::post;
+        use crate::http::post;
+        use crate::http::Json as AxumJson;
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
 
         let turn_count = Arc::new(AtomicUsize::new(0));
         let count_clone = Arc::clone(&turn_count);
 
-        let app = axum::Router::new().route(
+        let app = crate::http::Router::new().route(
             "/v1/chat/completions",
-            post(move |AxumJson(body): AxumJson<Value>| {
+            post(move |request: crate::http::Request| {
+                let body: Value = serde_json::from_slice(&request.body).unwrap();
                 let cnt = count_clone.fetch_add(1, Ordering::SeqCst);
                 async move {
                     if cnt == 0 {
@@ -442,7 +443,13 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
+            let _ = crate::http::serve(
+                listener,
+                app,
+                crate::http::Peer::Withhold,
+                std::future::pending(),
+            )
+            .await;
         });
 
         let temp_ws = std::env::temp_dir().join(format!("susi-worker-ws-{}", std::process::id()));
@@ -487,16 +494,16 @@ mod tests {
     }
     #[tokio::test]
     async fn empty_reply_is_nudged_by_the_worker() {
-        use axum::extract::Json as AxumJson;
-        use axum::routing::post;
+        use crate::http::post;
+        use crate::http::Json as AxumJson;
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
 
         let turns = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&turns);
-        let app = axum::Router::new().route(
+        let app = crate::http::Router::new().route(
             "/v1/chat/completions",
-            post(move |AxumJson(_body): AxumJson<Value>| {
+            post(move |_| {
                 let n = counter.fetch_add(1, Ordering::SeqCst);
                 async move {
                     match n {
@@ -529,7 +536,13 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
+            let _ = crate::http::serve(
+                listener,
+                app,
+                crate::http::Peer::Withhold,
+                std::future::pending(),
+            )
+            .await;
         });
 
         let temp_ws =
@@ -602,17 +615,17 @@ mod tests {
         std::net::SocketAddr,
         std::sync::Arc<std::sync::atomic::AtomicUsize>,
     ) {
-        use axum::http::{header, StatusCode};
-        use axum::response::IntoResponse;
+        use crate::http::IntoResponse;
+        use crate::http::{header, StatusCode};
         use std::sync::atomic::Ordering;
         let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counter = std::sync::Arc::clone(&calls);
-        let app = axum::Router::new().route(
+        let app = crate::http::Router::new().route(
             "/v1/chat/completions",
             // The request body is read: a server that closes its connection
             // with part of a request unread can reset it on Windows, and the
             // client then sees os error 10053 instead of the answer.
-            axum::routing::post(move |_body: String| {
+            crate::http::post(move |_| {
                 let n = counter.fetch_add(1, Ordering::SeqCst);
                 // `connection: close`: the transport pools connections per
                 // timeout for the whole test process, and one left open to
@@ -632,7 +645,7 @@ mod tests {
                     }
                     (
                         [(header::CONNECTION, "close")],
-                        axum::Json(json!({
+                        crate::http::Json(json!({
                             "choices": [{ "message": { "role": "assistant", "content": "Done." } }]
                         })),
                     )
@@ -643,7 +656,13 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
+            let _ = crate::http::serve(
+                listener,
+                app,
+                crate::http::Peer::Withhold,
+                std::future::pending(),
+            )
+            .await;
         });
         (addr, calls)
     }
@@ -797,16 +816,16 @@ second"
 
     #[tokio::test]
     async fn repeated_empty_replies_fail_fast_by_the_worker() {
-        use axum::extract::Json as AxumJson;
-        use axum::routing::post;
+        use crate::http::post;
+        use crate::http::Json as AxumJson;
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
 
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&calls);
-        let app = axum::Router::new().route(
+        let app = crate::http::Router::new().route(
             "/v1/chat/completions",
-            post(move |AxumJson(_body): AxumJson<Value>| {
+            post(move |_| {
                 counter.fetch_add(1, Ordering::SeqCst);
                 async move {
                     AxumJson(json!({
@@ -818,7 +837,13 @@ second"
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
+            let _ = crate::http::serve(
+                listener,
+                app,
+                crate::http::Peer::Withhold,
+                std::future::pending(),
+            )
+            .await;
         });
 
         let temp_ws =
@@ -864,17 +889,18 @@ second"
 
     #[tokio::test]
     async fn infinite_thinking_continues_across_length_turns_with_full_budget_reasoning() {
-        use axum::extract::Json as AxumJson;
-        use axum::http::HeaderMap;
-        use axum::routing::post;
+        use crate::http::post;
+        use crate::http::Json as AxumJson;
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
 
         let calls = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&calls);
-        let app = axum::Router::new().route(
+        let app = crate::http::Router::new().route(
             "/v1/chat/completions",
-            post(move |headers: HeaderMap, AxumJson(body): AxumJson<Value>| {
+            post(move |request: crate::http::Request| {
+                let headers = request.headers.clone();
+                let body: Value = serde_json::from_slice(&request.body).unwrap();
                 let n = counter.fetch_add(1, Ordering::SeqCst);
                 async move {
                     // Verify Full Budget Reasoning ("high", never "low") and Full Cache header
@@ -929,7 +955,13 @@ second"
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
+            let _ = crate::http::serve(
+                listener,
+                app,
+                crate::http::Peer::Withhold,
+                std::future::pending(),
+            )
+            .await;
         });
 
         let temp_ws =
