@@ -90,6 +90,14 @@ pub fn validate(root: &Path, input: &str) -> Result<(), String> {
                     .strip_prefix("refs/heads/local-agent/")
                     .is_some_and(|agent| !agent.is_empty() && !agent.contains('/'));
             if !allowed_head {
+                if deleting {
+                    // Retiring a branch GitHub must no longer carry (old
+                    // release/*, release-staging/*, distill/*, wip/* and other
+                    // names outside the allowlist). The deletion record was
+                    // validated above (named old object, no force); preserve
+                    // the tip as an immutable susi-distill/legacy-* tag first.
+                    continue;
+                }
                 return Err(format!(
                     "remote branch {remote} is forbidden: GitHub is storage only; allowed remote branches are refs/heads/main and refs/heads/local-agent/<agent>; store candidates under refs/candidates/release/<name> or refs/candidates/distill/<name>"
                 ));
