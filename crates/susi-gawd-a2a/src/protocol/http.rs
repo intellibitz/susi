@@ -15,22 +15,14 @@
 //! Results keep their declared member order; error replies and stream
 //! events are written through a JSON value (members in name order).
 
-use std::convert::Infallible;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
-use axum::body::{Body, Bytes};
-use axum::extract::State;
-use axum::http::{header, HeaderValue, StatusCode};
-use axum::response::Response;
-use axum::routing::{get, post};
-use axum::Router;
-use hyper::body::Frame;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use susi_http_transport::server::{
+    get, header, post, Body, HeaderValue, MethodRouter, Request, Response, Router,
+};
 use tokio::sync::mpsc;
 
 use super::error::{
@@ -49,29 +41,44 @@ pub const WELL_KNOWN_AGENT_CARD_PATH: &str = "/.well-known/agent-card.json";
 const PARSE_ERROR_REPLY: &str =
     r#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"Invalid JSON payload"}}"#;
 
-#[derive(Clone)]
-struct ServerState {
-    handler: Arc<Handler>,
-    /// The card, serialized once.
-    card: Arc<String>,
+/// The JSON-RPC (`POST /`) and SSE (`POST /stream`) routes for `handler`.
+/// The card's route is [`agent_card`], mounted apart because it is public.
+pub fn router(handler: Arc<Handler>) -> Router {
+    let rpc = Arc::clone(&handler);
+    Router::new()
+        .route(
+            "/",
+            post(move |request: Request| {
+                let handler = Arc::clone(&rpc);
+                async move { json_rpc(&handler, &request).await }
+            }),
+        )
+        .route(
+            "/stream",
+            post(move |request: Request| {
+                let handler = Arc::clone(&handler);
+                async move { sse(handler, &request) }
+            }),
+        )
 }
 
-/// The A2A routes for `handler`, advertising `card`.
-pub fn router(handler: Arc<Handler>, card: &AgentCard) -> Router {
-    let state = ServerState {
-        handler,
-        card: Arc::new(serde_json::to_string(card).unwrap_or_default()),
-    };
-    Router::new()
-        .route(WELL_KNOWN_AGENT_CARD_PATH, get(agent_card))
-        .route("/", post(json_rpc))
-        .route("/stream", post(sse))
-        .with_state(state)
+/// `GET` the card: public discovery metadata, readable cross-origin.
+pub fn agent_card(card: &AgentCard) -> MethodRouter {
+    let card = Arc::new(serde_json::to_string(card).unwrap_or_default());
+    get(move |_: Request| {
+        let card = Arc::clone(&card);
+        async move {
+            let mut response = json_ok(card.as_ref().clone());
+            response
+                .headers_mut()
+                .insert("access-control-allow-origin", HeaderValue::from_static("*"));
+            response
+        }
+    })
 }
 
 fn response(content_type: &'static str, body: Body) -> Response {
     let mut response = Response::new(body);
-    *response.status_mut() = StatusCode::OK;
     response
         .headers_mut()
         .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
@@ -80,16 +87,6 @@ fn response(content_type: &'static str, body: Body) -> Response {
 
 fn json_ok(body: String) -> Response {
     response("application/json", Body::from(body))
-}
-
-/// Public discovery metadata, readable cross-origin.
-async fn agent_card(State(state): State<ServerState>) -> Response {
-    let mut response = json_ok(state.card.as_ref().clone());
-    response.headers_mut().insert(
-        header::ACCESS_CONTROL_ALLOW_ORIGIN,
-        HeaderValue::from_static("*"),
-    );
-    response
 }
 
 /// A JSON-RPC request id: a string or an integer (`null`, fractions and
@@ -227,11 +224,15 @@ fn error_reply(id: Option<&RequestId>, code: i32, message: String) -> String {
 }
 
 /// `POST /`: one JSON-RPC request, one JSON reply.
-async fn json_rpc(State(state): State<ServerState>, body: String) -> Response {
+async fn json_rpc(handler: &Handler, request: &Request) -> Response {
+    let body = match request.text() {
+        Ok(body) => body,
+        Err(refusal) => return refusal,
+    };
     let Some(request) = parse_envelope(&body) else {
         return json_ok(PARSE_ERROR_REPLY.to_string());
     };
-    json_ok(match dispatch(&state.handler, &request).await {
+    json_ok(match dispatch(handler, &request).await {
         Ok(result) => format!(
             r#"{{"jsonrpc":"2.0","id":{},"result":{result}}}"#,
             serde_json::to_string(&request.id).unwrap_or_default()
@@ -245,7 +246,11 @@ async fn json_rpc(State(state): State<ServerState>, body: String) -> Response {
 /// Events, one JSON-RPC reply per task event; the stream ends after a
 /// terminal or interrupted state. A request that cannot start a stream is
 /// answered with one JSON reply instead.
-async fn sse(State(state): State<ServerState>, body: String) -> Response {
+fn sse(handler: Arc<Handler>, request: &Request) -> Response {
+    let body = match request.text() {
+        Ok(body) => body,
+        Err(refusal) => return refusal,
+    };
     let Some(request) = parse_envelope(&body) else {
         return json_ok(error_reply(
             None,
@@ -254,11 +259,9 @@ async fn sse(State(state): State<ServerState>, body: String) -> Response {
         ));
     };
     let started = match request.method.as_str() {
-        "message/stream" => {
-            params(&request).and_then(|p| state.handler.stream(p).map_err(Failure::from))
-        }
+        "message/stream" => params(&request).and_then(|p| handler.stream(p).map_err(Failure::from)),
         "tasks/resubscribe" => {
-            params(&request).and_then(|p| state.handler.resubscribe(p).map_err(Failure::from))
+            params(&request).and_then(|p| handler.resubscribe(p).map_err(Failure::from))
         }
         method => Err(Failure::Rpc(
             METHOD_NOT_FOUND,
@@ -275,14 +278,8 @@ async fn sse(State(state): State<ServerState>, body: String) -> Response {
         }
     };
     let (tx, rx) = mpsc::channel(16);
-    tokio::spawn(forward(events, request.id, tx, Arc::clone(&state.handler)));
-    let mut response = response(
-        "text/event-stream",
-        Body::new(SseBody {
-            frames: rx,
-            keep_alive: Box::pin(tokio::time::sleep(SSE_KEEP_ALIVE)),
-        }),
-    );
+    tokio::spawn(forward(events, request.id, tx, handler));
+    let mut response = response("text/event-stream", Body::Stream(rx));
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
@@ -290,14 +287,22 @@ async fn sse(State(state): State<ServerState>, body: String) -> Response {
 }
 
 /// Write each task event as an SSE `data:` frame until the stream is over
-/// or the client went away.
+/// or the client went away, with a keep-alive comment whenever the stream
+/// idles for [`SSE_KEEP_ALIVE`].
 async fn forward(
     mut events: TaskEvents,
     id: RequestId,
-    tx: mpsc::Sender<Bytes>,
+    tx: mpsc::Sender<Vec<u8>>,
     handler: Arc<Handler>,
 ) {
-    while let Some(event) = events.next().await {
+    loop {
+        let Ok(next) = tokio::time::timeout(SSE_KEEP_ALIVE, events.next()).await else {
+            if tx.send(b":\n\n".to_vec()).await.is_err() {
+                break;
+            }
+            continue;
+        };
+        let Some(event) = next else { break };
         let (data, last) = match event {
             Ok(task) => {
                 let last = task.status.state.is_terminal() || task.status.state.is_interrupted();
@@ -310,41 +315,10 @@ async fn forward(
                 false,
             ),
         };
-        let sent = tx.send(Bytes::from(format!("data: {data}\n\n"))).await;
+        let sent = tx.send(format!("data: {data}\n\n").into_bytes()).await;
         if sent.is_err() || last {
             break;
         }
     }
     handler.release(events);
-}
-
-/// An SSE body fed by [`forward`], with a keep-alive comment whenever the
-/// stream idles for [`SSE_KEEP_ALIVE`].
-struct SseBody {
-    frames: mpsc::Receiver<Bytes>,
-    keep_alive: Pin<Box<tokio::time::Sleep>>,
-}
-
-impl hyper::body::Body for SseBody {
-    type Data = Bytes;
-    type Error = Infallible;
-
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
-        let this = self.get_mut();
-        let frame = match this.frames.poll_recv(cx) {
-            Poll::Ready(Some(frame)) => frame,
-            Poll::Ready(None) => return Poll::Ready(None),
-            Poll::Pending => match this.keep_alive.as_mut().poll(cx) {
-                Poll::Ready(()) => Bytes::from_static(b":\n\n"),
-                Poll::Pending => return Poll::Pending,
-            },
-        };
-        this.keep_alive
-            .as_mut()
-            .reset(tokio::time::Instant::now() + SSE_KEEP_ALIVE);
-        Poll::Ready(Some(Ok(Frame::data(frame))))
-    }
 }

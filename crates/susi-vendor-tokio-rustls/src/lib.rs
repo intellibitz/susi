@@ -3,9 +3,42 @@
 #![forbid(unsafe_code)]
 pub use native_tls;
 pub use rustls_pki_types as pki_types;
-pub use tokio_native_tls::{TlsAcceptor, TlsConnector};
+pub use tokio_native_tls::TlsConnector;
 pub mod server {
     pub use tokio_native_tls::TlsStream;
+}
+
+/// A platform TLS acceptor usable from both async and blocking HTTP hosts.
+///
+/// The async half is the `tokio-native-tls` adapter used by the runtime
+/// servers.  The blocking half keeps the same platform identity available to
+/// the std-thread HTTP server; using the adapter's inner stream directly from
+/// a blocking thread would violate its task-local waker contract.
+#[derive(Clone)]
+pub struct TlsAcceptor {
+    asynchronous: tokio_native_tls::TlsAcceptor,
+    blocking: native_tls::TlsAcceptor,
+}
+
+impl TlsAcceptor {
+    /// Accept a client stream on a Tokio runtime.
+    pub async fn accept<S>(&self, stream: S) -> Result<server::TlsStream<S>, native_tls::Error>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    {
+        self.asynchronous.accept(stream).await
+    }
+
+    /// Accept a client stream on a blocking connection thread.
+    pub fn accept_blocking<S>(
+        &self,
+        stream: S,
+    ) -> Result<native_tls::TlsStream<S>, native_tls::HandshakeError<S>>
+    where
+        S: std::io::Read + std::io::Write,
+    {
+        self.blocking.accept(stream)
+    }
 }
 
 pub fn acceptor_from_pem(cert: &[u8], key: &[u8]) -> std::io::Result<TlsAcceptor> {
@@ -15,7 +48,11 @@ pub fn acceptor_from_pem(cert: &[u8], key: &[u8]) -> std::io::Result<TlsAcceptor
     let mut builder = native_tls::TlsAcceptor::builder(identity);
     builder.min_protocol_version(Some(native_tls::Protocol::Tlsv12));
     builder.accept_alpn(&["h2", "http/1.1"]);
-    Ok(builder.build().map_err(invalid)?.into())
+    let blocking = builder.build().map_err(invalid)?;
+    Ok(TlsAcceptor {
+        asynchronous: blocking.clone().into(),
+        blocking,
+    })
 }
 
 fn validate_identity(cert: &[u8], key: &[u8]) -> std::io::Result<()> {

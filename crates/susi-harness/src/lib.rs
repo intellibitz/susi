@@ -85,7 +85,6 @@ pub mod event;
 pub mod executor;
 pub mod fleet;
 pub mod gateway;
-pub mod http;
 pub mod ingress;
 pub mod ledger;
 pub mod lifecycle;
@@ -109,6 +108,11 @@ pub mod usage;
 pub mod validate;
 pub mod verify;
 pub mod workflow;
+
+/// The std HTTP/1.1 server the gateway, the ingress and the harness API
+/// run on (it moved to `susi-http-transport`, shared with the A2A port and
+/// the leaf services).
+pub use susi_http_transport::server as http;
 
 pub mod router;
 pub mod worker;

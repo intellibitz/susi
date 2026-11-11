@@ -142,7 +142,6 @@ const LEAF_RANK: &[(&str, u8)] = &[
 /// a rank-0 crate like susi-paths legitimately depends on a facade.
 /// The zero-external-deps ratchet below is what actually constrains them.
 const VENDOR_FACADES: &[&str] = &[
-    "susi-vendor-axum",
     "susi-vendor-chacha20poly1305",
     "susi-vendor-clap",
     "susi-vendor-ed25519-dalek",
@@ -161,7 +160,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-tempfile",
     "susi-vendor-tokio",
     "susi-vendor-tokio-rustls",
-    "susi-vendor-tower",
     "susi-vendor-tracing",
     "susi-vendor-tracing-subscriber",
     "susi-vendor-winapi",

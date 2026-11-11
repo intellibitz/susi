@@ -1,29 +1,42 @@
-//! The harness's own HTTP/1.1 server: the gateway, the ingress and the
-//! harness API (cockpit) are served by it, with no web framework.
+//! Core's HTTP/1.1 server: the harness's gateway, ingress and API
+//! (cockpit), the A2A port and the leaf services are served by it, with no
+//! web framework.
 //!
-//! Blocking and thread-per-connection on `std::net`: an accept thread hands
-//! each connection to a thread of its own, which reads a request, runs the
-//! route's handler on the caller's Tokio runtime, writes the answer, and
-//! keeps the connection for the next request unless either side closes it.
-//! Handlers stay async because the gateway's metering runs there (paced
-//! waits, detached upstream calls settled on blocking threads).
+//! Blocking and thread-per-connection on `std::net`: an accept thread per
+//! listener hands each connection to a thread of its own, which reads a
+//! request, runs the route's handler on the caller's Tokio runtime, writes
+//! the answer, and keeps the connection for the next request unless either
+//! side closes it. Handlers stay async because the gateway's metering and
+//! the A2A task handler run there (paced waits, detached upstream calls,
+//! task event streams).
 //!
 //! The wire behaviour is the one the axum 0.8 / hyper 1 stack had, held by
-//! the transcript in `src/tests/golden/harness_http_wire.json`:
+//! three transcripts recorded from that stack: the harness's
+//! (`susi-harness/src/tests/golden/harness_http_wire.json`), the A2A
+//! port's (`susi-gawd-a2a/src/tests/golden/a2a_http_wire.json`, beside the
+//! semantic `a2a_wire.json`) and the leaf services'
+//! (`susi-leaf-services/src/tests/golden/leaf_http_wire.json`):
 //!
 //! - Routing by exact path (the query string is ignored); an unknown path is
 //!   `404` and a known path with another method `405` with an `allow`
 //!   header, both with an empty body. A `GET` route answers `HEAD` too.
+//! - Guards stand in front of a path ([`MethodRouter::guard`],
+//!   [`MethodRouter::guard_head`]) or of every path routed so far and every
+//!   unknown one ([`Router::guard_all`]), as axum's route and router layers
+//!   did; a `405` refused by a guard still names what is allowed.
 //! - A request head is limited to 417,792 bytes and 100 headers (`431`);
 //!   a malformed head is answered `400` and the connection closed.
 //! - Bodies arrive by `content-length` or chunked transfer coding; an
-//!   `expect: 100-continue` request gets its interim `100 Continue` when the
-//!   handler takes the body. A route that takes the body reads at most
-//!   [`DEFAULT_BODY_LIMIT`] (2 MiB) unless it sets its own
-//!   ([`MethodRouter::limit`]).
-//! - A full body is framed by `content-length`; a streamed one by chunked
-//!   transfer coding on HTTP/1.1, one chunk per piece the handler sends, or
-//!   by closing the connection on HTTP/1.0. Every response carries `date`.
+//!   `expect: 100-continue` request gets its interim `100 Continue` when a
+//!   guard or the handler takes the body. A route that takes the body reads
+//!   at most [`DEFAULT_BODY_LIMIT`] (2 MiB) unless its guard sets its own.
+//!   A body that cannot be read is answered and the connection closed
+//!   without a `connection: close`, as is one the client was never told to
+//!   send.
+//! - A full body is framed by `content-length` (none on an empty answer to
+//!   `HEAD`); a streamed one by chunked transfer coding on HTTP/1.1, one
+//!   chunk per piece the handler sends, or by closing the connection on
+//!   HTTP/1.0. Every response carries `date`.
 //! - A client that hangs up while its handler runs has that handler dropped
 //!   at its next await, as hyper did: what the handler started detached (a
 //!   provider call and its ledger row) goes on.
@@ -31,9 +44,13 @@
 //! - On shutdown ([`serve`]'s future resolves), the server stops accepting,
 //!   closes idle connections at once, lets each request in flight finish
 //!   and returns once the last connection is done.
+//! - A [`Negotiate`] hook decides what each accepted socket is served as
+//!   (the A2A port: plain or TLS on the platform stack, see
+//!   [`crate::dual_transport::negotiate_blocking`]).
 //!
-//! HTTP/2 (h2c prior knowledge, which axum's `http2` feature also accepted)
-//! is not served: every client of these ports speaks HTTP/1.1.
+//! HTTP/2 (h2c prior knowledge, which axum's `http2` feature also accepted,
+//! and h2 over TLS) is not served: every client of these ports speaks
+//! HTTP/1.1, and the A2A port's TLS offers only `http/1.1` by ALPN.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -43,6 +60,8 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use tokio_rustls::native_tls;
 
 /// Most a request body may hold for a route that sets no limit of its own
 /// (axum's `DefaultBodyLimit`).
@@ -430,6 +449,12 @@ impl IntoResponse for Response {
     }
 }
 
+impl IntoResponse for StatusCode {
+    fn into_response(self) -> Response {
+        bare(self)
+    }
+}
+
 impl IntoResponse for &'static str {
     fn into_response(self) -> Response {
         plain(self.to_string())
@@ -508,6 +533,8 @@ pub struct Request {
     pub method: String,
     /// The path, without the query.
     pub path: String,
+    /// The query, without its `?` (empty when there is none).
+    pub query: String,
     /// The headers.
     pub headers: HeaderMap,
     /// The body, when the route takes it; empty otherwise.
@@ -614,6 +641,58 @@ impl Request {
             | serde_json::error::Category::Io => syntax(&message),
         })
     }
+}
+
+impl Request {
+    /// The query's `name=value` pairs, decoded as an HTML form decodes them
+    /// (`+` is a space, `%XX` a byte, a bad escape kept as written, the
+    /// bytes read as UTF-8 with replacement), in order, empty pairs skipped:
+    /// what axum's `Query` deserialized from.
+    #[must_use]
+    pub fn query_pairs(&self) -> Vec<(String, String)> {
+        self.query
+            .split('&')
+            .filter(|pair| !pair.is_empty())
+            .map(|pair| {
+                let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+                (form_decode(name), form_decode(value))
+            })
+            .collect()
+    }
+
+    /// The `400` axum's `Query` answered a query it could not deserialize
+    /// with; `message` is the deserializer's (a field's error is prefixed
+    /// with the field's name and `: `).
+    #[must_use]
+    pub fn query_rejection(message: &str) -> Response {
+        rejection(
+            StatusCode::BAD_REQUEST,
+            &format!("Failed to deserialize query string: {message}"),
+        )
+    }
+}
+
+fn form_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        let byte = bytes[at];
+        let hex = |b: Option<&u8>| b.and_then(|b| char::from(*b).to_digit(16));
+        match byte {
+            b'+' => out.push(b' '),
+            b'%' => match (hex(bytes.get(at + 1)), hex(bytes.get(at + 2))) {
+                (Some(high), Some(low)) => {
+                    out.extend(u8::try_from(high * 16 + low).ok());
+                    at += 2;
+                }
+                _ => out.push(b'%'),
+            },
+            _ => out.push(byte),
+        }
+        at += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// One step of the path to a JSON value.
@@ -912,12 +991,20 @@ where
 /// `405`): `Some` is the answer instead.
 pub type Guard = Arc<dyn Fn(&Request) -> Option<Response> + Send + Sync>;
 
+/// A check on a request's method and path alone, run before any guard and
+/// before the body is read: `Some` is the answer.
+pub type Before = Arc<dyn Fn(&str, &str) -> Option<Response> + Send + Sync>;
+
+/// A guard and the most body it reads first (`None`: it reads none, and the
+/// handler takes the body as it would without the guard).
+type Guarded = (Guard, Option<usize>);
+
 /// The handlers of one path, by method.
 pub struct MethodRouter {
     get: Option<Handler>,
     post: Option<Handler>,
-    /// A guard and the most body it reads.
-    guard: Option<(Guard, usize)>,
+    guard: Option<Guarded>,
+    bypass_fallback_guard: bool,
 }
 
 /// A path answered on `GET` (and `HEAD`); its handler gets no body.
@@ -931,6 +1018,7 @@ where
         get: Some(boxed(handler)),
         post: None,
         guard: None,
+        bypass_fallback_guard: false,
     }
 }
 
@@ -947,17 +1035,38 @@ where
         get: None,
         post: Some(boxed(handler)),
         guard: None,
+        bypass_fallback_guard: false,
     }
 }
 
 impl MethodRouter {
+    /// Also answer `POST` on this path with `handler` (see [`post`]).
+    #[must_use]
+    pub fn post<H, F, R>(mut self, handler: H) -> Self
+    where
+        H: Fn(Request) -> F + Send + Sync + 'static,
+        F: Future<Output = R> + Send + 'static,
+        R: IntoResponse,
+    {
+        self.post = Some(boxed(handler));
+        self
+    }
+
     /// Put `guard` in front of every request to the path, whatever its
     /// method (an axum route layer): the body is read first, at most `limit`
-    /// bytes (a longer one is answered `413` with an empty body), and the
-    /// guard sees it before any handler does.
+    /// bytes (a longer one, or one that cannot be read, is answered `413`
+    /// with an empty body), and the guard sees it before any handler does.
     #[must_use]
     pub fn guard(mut self, limit: usize, guard: Guard) -> Self {
-        self.guard = Some((guard, limit));
+        self.guard = Some((guard, Some(limit)));
+        self
+    }
+
+    /// Put `guard` in front of every request to the path, whatever its
+    /// method, deciding on the head alone: no body is read for it.
+    #[must_use]
+    pub fn guard_head(mut self, guard: Guard) -> Self {
+        self.guard = Some((guard, None));
         self
     }
 
@@ -975,6 +1084,10 @@ impl MethodRouter {
 #[derive(Default)]
 pub struct Router {
     routes: Vec<(String, MethodRouter)>,
+    /// The guard of a path no route answers (before its `404`).
+    fallback_guard: Option<Guarded>,
+    before: Option<Before>,
+    permits: Option<Arc<Permits>>,
     /// Every answer closes its connection.
     closing: bool,
 }
@@ -990,6 +1103,121 @@ impl Router {
     #[must_use]
     pub fn route(mut self, path: &str, methods: MethodRouter) -> Self {
         self.routes.push((path.to_string(), methods));
+        self
+    }
+
+    /// Add a route that is intentionally outside the fallback guard.
+    ///
+    /// This is used for a service's unauthenticated health probe after its
+    /// protected routes have been assembled. It does not bypass a guard set
+    /// directly on the method router.
+    #[must_use]
+    pub fn route_public(mut self, path: &str, mut methods: MethodRouter) -> Self {
+        methods.bypass_fallback_guard = true;
+        self.routes.push((path.to_string(), methods));
+        self
+    }
+
+    /// Dispatch a request without opening a socket.
+    ///
+    /// This is the in-process equivalent of the network server's routing
+    /// path.  It is useful for leaf-service contract tests: the request
+    /// already carries its complete body, so body framing and connection
+    /// lifetime remain the responsibility of [`serve_std`].
+    pub async fn call(&self, request: Request) -> Response {
+        let permit = self.permits.as_ref().map(|permits| permits.acquire());
+        let path = request.path.clone();
+        let request_method = request.method.clone();
+        let methods = self.find(&path);
+        let handler = methods.and_then(|methods| match request_method.as_str() {
+            "GET" | "HEAD" => methods.get.clone(),
+            "POST" => methods.post.clone(),
+            _ => None,
+        });
+        let guard = match methods {
+            Some(methods) => methods.guard.as_ref().or_else(|| {
+                (!methods.bypass_fallback_guard)
+                    .then_some(())
+                    .and(self.fallback_guard.as_ref())
+            }),
+            None => self.fallback_guard.as_ref(),
+        };
+        let mut early = self
+            .before
+            .as_ref()
+            .and_then(|before| before(&request_method, &path));
+        if early.is_none() {
+            if let Some((guard, Some(limit))) = guard {
+                early = if request.body.len() > *limit {
+                    Some(bare(StatusCode::PAYLOAD_TOO_LARGE))
+                } else {
+                    guard(&request)
+                };
+            } else if let Some((guard, None)) = guard {
+                early = guard(&request);
+            }
+        }
+        let mut response = match (early, methods, handler) {
+            (Some(response), _, _) => response,
+            (None, None, _) => bare(StatusCode::NOT_FOUND),
+            (None, Some(_), Some(handler)) => handler(request).await,
+            (None, Some(_), None) => bare(StatusCode::METHOD_NOT_ALLOWED),
+        };
+        if request_method == "HEAD" {
+            response.body = Body::empty();
+        }
+        if let Some(methods) = methods {
+            let allowed = match response.status() {
+                StatusCode::METHOD_NOT_ALLOWED => false,
+                _ => match request_method.as_str() {
+                    "GET" | "HEAD" => methods.get.is_some(),
+                    "POST" => methods.post.is_some(),
+                    _ => false,
+                },
+            };
+            if !allowed && !response.headers.contains_key(header::ALLOW) {
+                response
+                    .headers
+                    .insert(header::ALLOW, HeaderValue::from_static(methods.allow()));
+            }
+        }
+        drop(permit);
+        response
+    }
+
+    /// Put `guard` in front of every route added so far that has none, and
+    /// of every path no route answers (an axum router layer: routes added
+    /// afterwards are not behind it). With `limit`, the body is read first
+    /// as [`MethodRouter::guard`] reads it; without, as
+    /// [`MethodRouter::guard_head`].
+    #[must_use]
+    pub fn guard_all(mut self, limit: Option<usize>, guard: Guard) -> Self {
+        for (_, methods) in &mut self.routes {
+            if methods.guard.is_none() {
+                methods.guard = Some((Arc::clone(&guard), limit));
+            }
+        }
+        self.fallback_guard = Some((guard, limit));
+        self
+    }
+
+    /// Run `before` on every request's method and path ahead of routing and
+    /// of every guard; its answer is sent without reading the body.
+    #[must_use]
+    pub fn before(mut self, before: Before) -> Self {
+        self.before = Some(before);
+        self
+    }
+
+    /// Hold at most `limit` requests at once between their head being read
+    /// and their answer being ready; more wait their turn (tower's
+    /// concurrency limit). A streamed body is not held to it.
+    #[must_use]
+    pub fn concurrency_limit(mut self, limit: usize) -> Self {
+        self.permits = Some(Arc::new(Permits {
+            free: Mutex::new(limit.max(1)),
+            freed: Condvar::new(),
+        }));
         self
     }
 
@@ -1009,6 +1237,36 @@ impl Router {
     }
 }
 
+/// A counting semaphore for [`Router::concurrency_limit`].
+struct Permits {
+    free: Mutex<usize>,
+    freed: Condvar,
+}
+
+/// One permit, given back when dropped.
+struct Permit<'a>(&'a Permits);
+
+impl Permits {
+    fn acquire(&self) -> Permit<'_> {
+        let mut free = self.free.lock().unwrap_or_else(PoisonError::into_inner);
+        while *free == 0 {
+            free = self
+                .freed
+                .wait(free)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+        *free -= 1;
+        Permit(self)
+    }
+}
+
+impl Drop for Permit<'_> {
+    fn drop(&mut self) {
+        *self.0.free.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        self.0.freed.notify_one();
+    }
+}
+
 /// Whether handlers see the client's address.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Peer {
@@ -1017,6 +1275,66 @@ pub enum Peer {
     /// [`Request::peer`] is `None`.
     Withhold,
 }
+
+/// A connection's bytes: the socket itself, or TLS over it.
+pub enum Io {
+    /// Plain TCP.
+    Plain(TcpStream),
+    /// TLS on the platform stack (`native-tls`: Schannel on Windows,
+    /// OpenSSL elsewhere).
+    Tls(Box<native_tls::TlsStream<TcpStream>>),
+}
+
+impl Io {
+    /// The socket under the connection.
+    #[must_use]
+    pub fn socket(&self) -> &TcpStream {
+        match self {
+            Self::Plain(stream) => stream,
+            Self::Tls(stream) => stream.get_ref(),
+        }
+    }
+
+    /// End the connection's sending side: TLS sends its `close_notify`
+    /// first, then the socket's write half is shut.
+    fn finish(&mut self) {
+        if let Self::Tls(stream) = self {
+            let _ = stream.shutdown();
+        }
+        let _ = self.socket().shutdown(Shutdown::Write);
+    }
+}
+
+impl Read for Io {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.read(buf),
+            Self::Tls(stream) => stream.read(buf),
+        }
+    }
+}
+
+impl Write for Io {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.write(buf),
+            Self::Tls(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Plain(stream) => stream.flush(),
+            Self::Tls(stream) => stream.flush(),
+        }
+    }
+}
+
+/// Decides, on the connection's own thread, what an accepted socket is
+/// served as: `Some` (plain or TLS) or `None` to drop it. The socket is in
+/// blocking mode with no timeouts; the hook sets any it needs and clears
+/// them before it returns.
+pub type Negotiate = Arc<dyn Fn(TcpStream, SocketAddr) -> Option<Io> + Send + Sync>;
 
 /// Serve `router` on `listener` until `shutdown` resolves, then stop
 /// accepting, close idle connections, finish the requests in flight and
@@ -1036,33 +1354,61 @@ pub async fn serve<S>(
 where
     S: Future<Output = ()> + Send,
 {
-    let listener = listener.into_std()?;
-    listener.set_nonblocking(false)?;
-    let local = listener.local_addr()?;
+    serve_std(vec![listener.into_std()?], router, peer, None, shutdown).await
+}
+
+/// [`serve`] on one or more bound std listeners (each with an accept thread
+/// of its own), every accepted connection first handed to `negotiate` when
+/// one is given.
+///
+/// # Errors
+///
+/// A listener cannot be taken over (moved to blocking mode or read).
+pub async fn serve_std<S>(
+    listeners: Vec<TcpListener>,
+    router: Router,
+    peer: Peer,
+    negotiate: Option<Negotiate>,
+    shutdown: S,
+) -> io::Result<()>
+where
+    S: Future<Output = ()> + Send,
+{
+    let mut locals = Vec::with_capacity(listeners.len());
+    for listener in &listeners {
+        listener.set_nonblocking(false)?;
+        locals.push(listener.local_addr()?);
+    }
     let shared = Arc::new(Shared {
         router,
         peer,
+        negotiate,
         runtime: tokio::runtime::Handle::current(),
         stopping: AtomicBool::new(false),
         next_id: AtomicU64::new(0),
         connections: Mutex::new(HashMap::new()),
         drained: Condvar::new(),
     });
-    let acceptor = {
+    let mut acceptors = Vec::with_capacity(listeners.len());
+    for listener in listeners {
         let shared = Arc::clone(&shared);
-        std::thread::Builder::new()
-            .name("harness-http-accept".into())
-            .spawn(move || accept_loop(&listener, &shared))?
-    };
+        acceptors.push(
+            std::thread::Builder::new()
+                .name("susi-http-accept".into())
+                .spawn(move || accept_loop(&listener, &shared))?,
+        );
+    }
     // Dropped (its task aborted, its runtime gone), the server stops too.
     let stop = Stop {
         shared: Arc::clone(&shared),
-        local,
+        locals,
     };
     shutdown.await;
     drop(stop);
     tokio::task::spawn_blocking(move || {
-        let _ = acceptor.join();
+        for acceptor in acceptors {
+            let _ = acceptor.join();
+        }
         shared.wait_drained();
     })
     .await
@@ -1072,14 +1418,16 @@ where
 /// Stops a server when dropped: no new connections, idle ones closed.
 struct Stop {
     shared: Arc<Shared>,
-    local: SocketAddr,
+    locals: Vec<SocketAddr>,
 }
 
 impl Drop for Stop {
     fn drop(&mut self) {
         self.shared.stopping.store(true, Ordering::SeqCst);
-        // Wake the accept thread with a connection of its own.
-        let _ = TcpStream::connect_timeout(&wake_address(self.local), Duration::from_secs(1));
+        // Wake each accept thread with a connection of its own.
+        for local in &self.locals {
+            let _ = TcpStream::connect_timeout(&wake_address(*local), Duration::from_secs(1));
+        }
         self.shared.close_idle();
     }
 }
@@ -1104,6 +1452,7 @@ struct Connection {
 struct Shared {
     router: Router,
     peer: Peer,
+    negotiate: Option<Negotiate>,
     runtime: tokio::runtime::Handle,
     stopping: AtomicBool,
     next_id: AtomicU64,
@@ -1176,9 +1525,15 @@ fn accept_loop(listener: &TcpListener, shared: &Arc<Shared>) {
                 );
                 let worker = Arc::clone(shared);
                 let spawned = std::thread::Builder::new()
-                    .name("harness-http-conn".into())
+                    .name("susi-http-conn".into())
                     .spawn(move || {
-                        serve_connection(&worker, id, stream, peer);
+                        let io = match &worker.negotiate {
+                            Some(negotiate) => negotiate(stream, peer),
+                            None => Some(Io::Plain(stream)),
+                        };
+                        if let Some(io) = io {
+                            serve_connection(&worker, id, io, peer);
+                        }
                         worker.remove(id);
                     });
                 if spawned.is_err() {
@@ -1244,25 +1599,17 @@ enum HeadError {
     Refused(StatusCode),
 }
 
-fn serve_connection(shared: &Shared, id: u64, stream: TcpStream, peer: SocketAddr) {
-    let Ok(read_half) = stream.try_clone() else {
-        return;
-    };
-    let mut reader = BufReader::with_capacity(8192, read_half);
-    let mut writer = stream;
-    serve_requests(shared, id, &mut reader, &mut writer, peer);
+type Reader = BufReader<Io>;
+
+fn serve_connection(shared: &Shared, id: u64, io: Io, peer: SocketAddr) {
+    let mut reader = BufReader::with_capacity(8192, io);
+    serve_requests(shared, id, &mut reader, peer);
     // Close as hyper did: the client reads the end of the stream before
     // the socket goes, even with request bytes still unread.
-    let _ = writer.shutdown(Shutdown::Write);
+    reader.get_mut().finish();
 }
 
-fn serve_requests(
-    shared: &Shared,
-    id: u64,
-    reader: &mut BufReader<TcpStream>,
-    writer: &mut TcpStream,
-    peer: SocketAddr,
-) {
+fn serve_requests(shared: &Shared, id: u64, reader: &mut Reader, peer: SocketAddr) {
     loop {
         if !shared.set_idle(id, true) {
             return;
@@ -1271,100 +1618,187 @@ fn serve_requests(
             Ok(head) => head,
             Err(HeadError::Gone) => return,
             Err(HeadError::Refused(status)) => {
-                let _ = write_refusal(writer, status);
+                let _ = write_refusal(reader.get_mut(), status);
                 return;
             }
         };
         shared.set_idle(id, false);
-        match serve_request(shared, reader, writer, &head, peer) {
+        match serve_request(shared, reader, &head, peer) {
             Ok(true) => {}
             Ok(false) | Err(_) => return,
         }
     }
 }
 
+/// What reading a guard's or a handler's body came to.
+enum Taken {
+    Body(Vec<u8>),
+    /// The answer instead; `drained` when the body was read past.
+    Refused {
+        response: Response,
+        drained: bool,
+    },
+    /// The body could not be read: answered, then the connection closes.
+    Broken(Response),
+}
+
+/// Read the body for a guard (`guard: true`, refusals bare as axum's
+/// `StatusCode` ones) or a handler (axum's rejection texts).
+fn take_body(reader: &mut Reader, head: &Head, limit: usize, guard: bool) -> io::Result<Taken> {
+    Ok(match read_body(reader, head, limit)? {
+        BodyRead::Complete(bytes) => Taken::Body(bytes),
+        BodyRead::TooLarge { drained } => Taken::Refused {
+            response: if guard {
+                bare(StatusCode::PAYLOAD_TOO_LARGE)
+            } else {
+                rejection(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Failed to buffer the request body: length limit exceeded",
+                )
+            },
+            drained,
+        },
+        BodyRead::Broken => Taken::Broken(if guard {
+            bare(StatusCode::PAYLOAD_TOO_LARGE)
+        } else {
+            rejection(
+                StatusCode::BAD_REQUEST,
+                "Failed to buffer the request body: error reading a body from connection",
+            )
+        }),
+    })
+}
+
+/// How a connection ends after an answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Close {
+    /// It may serve the next request.
+    No,
+    /// It closes, and the answer says so (`connection: close`).
+    Announced,
+    /// It closes without saying so, as hyper did when the request's body
+    /// was not (or could not be) read.
+    Silent,
+}
+
 /// Answer one request; `Ok(true)` when the connection is at the next one.
 fn serve_request(
     shared: &Shared,
-    reader: &mut BufReader<TcpStream>,
-    writer: &mut TcpStream,
+    reader: &mut Reader,
     head: &Head,
     peer: SocketAddr,
 ) -> io::Result<bool> {
     let path = request_path(&head.target);
+    let query = request_query(&head.target);
+    let router = &shared.router;
+    let permit = router.permits.as_ref().map(|permits| permits.acquire());
     let mut body_read = matches!(head.framing, Framing::Length(0));
-    let response = match shared.router.find(&path) {
-        None => bare(StatusCode::NOT_FOUND),
-        Some(methods) => {
-            let handler = match head.method.as_str() {
-                "GET" | "HEAD" => methods.get.clone(),
-                "POST" => methods.post.clone(),
-                _ => None,
-            };
-            let guard_limit = methods.guard.as_ref().map(|(_, limit)| *limit);
-            let takes_body = guard_limit.is_some() || (handler.is_some() && head.method == "POST");
-            let mut early = None;
-            let mut body = Vec::new();
-            if takes_body {
-                match read_body(
-                    reader,
-                    writer,
-                    head,
-                    guard_limit.unwrap_or(DEFAULT_BODY_LIMIT),
-                )? {
-                    BodyRead::Complete(bytes) => {
-                        body = bytes;
-                        body_read = true;
-                    }
-                    BodyRead::TooLarge { drained } => {
-                        body_read = drained;
-                        early = Some(match guard_limit {
-                            Some(_) => bare(StatusCode::PAYLOAD_TOO_LARGE),
-                            None => rejection(
-                                StatusCode::PAYLOAD_TOO_LARGE,
-                                "Failed to buffer the request body: length limit exceeded",
-                            ),
-                        });
-                    }
-                    BodyRead::Broken => return Ok(false),
-                }
-            }
-            let request = Request {
-                method: head.method.clone(),
-                path,
-                headers: head.headers.clone(),
-                body,
-                peer: (shared.peer == Peer::Pass).then_some(peer),
-            };
-            if early.is_none() {
-                if let Some((guard, _)) = &methods.guard {
-                    early = guard(&request);
-                }
-            }
-            let allowed = handler.is_some();
-            let mut response = match (early, handler) {
-                (Some(response), _) => response,
-                (None, Some(handler)) => match run_handler(shared, writer, &handler, request) {
-                    Some(response) => response,
-                    None => return Ok(false),
-                },
-                (None, None) => bare(StatusCode::METHOD_NOT_ALLOWED),
-            };
-            if !allowed && !response.headers.contains_key(header::ALLOW) {
-                response
-                    .headers
-                    .insert(header::ALLOW, HeaderValue::from_static(methods.allow()));
-            }
-            response
-        }
+    let mut broken = false;
+    let methods = router.find(&path);
+    let handler = methods.and_then(|methods| match head.method.as_str() {
+        "GET" | "HEAD" => methods.get.clone(),
+        "POST" => methods.post.clone(),
+        _ => None,
+    });
+    let guard = match methods {
+        Some(methods) => methods.guard.as_ref().or_else(|| {
+            (!methods.bypass_fallback_guard)
+                .then_some(())
+                .and(router.fallback_guard.as_ref())
+        }),
+        None => router.fallback_guard.as_ref(),
     };
+    let mut early = router
+        .before
+        .as_ref()
+        .and_then(|before| before(&head.method, &path));
+    let mut body = Vec::new();
+    if early.is_none() {
+        if let Some((_, Some(limit))) = guard {
+            match take_body(reader, head, *limit, true)? {
+                Taken::Body(bytes) => {
+                    body = bytes;
+                    body_read = true;
+                }
+                Taken::Refused { response, drained } => {
+                    body_read = drained;
+                    early = Some(response);
+                }
+                Taken::Broken(response) => {
+                    broken = true;
+                    early = Some(response);
+                }
+            }
+        }
+    }
+    let mut request = Request {
+        method: head.method.clone(),
+        path,
+        query,
+        headers: head.headers.clone(),
+        body,
+        peer: (shared.peer == Peer::Pass).then_some(peer),
+    };
+    if early.is_none() {
+        if let Some((guard, _)) = guard {
+            early = guard(&request);
+        }
+    }
+    // The handler of a POST takes the body, unless a guard already did.
+    if early.is_none()
+        && handler.is_some()
+        && head.method == "POST"
+        && !matches!(guard, Some((_, Some(_))))
+    {
+        match take_body(reader, head, DEFAULT_BODY_LIMIT, false)? {
+            Taken::Body(bytes) => {
+                request.body = bytes;
+                body_read = true;
+            }
+            Taken::Refused { response, drained } => {
+                body_read = drained;
+                early = Some(response);
+            }
+            Taken::Broken(response) => {
+                broken = true;
+                early = Some(response);
+            }
+        }
+    }
+    let mut response = match (early, methods, handler) {
+        (Some(response), _, _) => response,
+        (None, None, _) => bare(StatusCode::NOT_FOUND),
+        (None, Some(_), Some(handler)) => {
+            match run_handler(shared, reader.get_ref().socket(), &handler, request) {
+                Some(response) => response,
+                None => return Ok(false),
+            }
+        }
+        (None, Some(_), None) => bare(StatusCode::METHOD_NOT_ALLOWED),
+    };
+    if let Some(methods) = methods {
+        let allowed = match head.method.as_str() {
+            "GET" | "HEAD" => methods.get.is_some(),
+            "POST" => methods.post.is_some(),
+            _ => false,
+        };
+        if !allowed && !response.headers.contains_key(header::ALLOW) {
+            response
+                .headers
+                .insert(header::ALLOW, HeaderValue::from_static(methods.allow()));
+        }
+    }
+    drop(permit);
     // A client that asked to send its body only once told to continue was
     // never told: it will not send it, so nothing follows on the connection.
-    let keep_alive = head.keep_alive
-        && !shared.router.closing
-        && !shared.stopping.load(Ordering::SeqCst)
-        && (body_read || !head.expect_continue);
-    if !write_response(writer, head, response, keep_alive)? {
+    let close = if broken || (!body_read && head.expect_continue) {
+        Close::Silent
+    } else if head.keep_alive && !router.closing && !shared.stopping.load(Ordering::SeqCst) {
+        Close::No
+    } else {
+        Close::Announced
+    };
+    if !write_response(reader.get_mut(), head, response, close, methods.is_some())? {
         return Ok(false);
     }
     // A body nobody took is read past, so the next request can be read.
@@ -1378,6 +1812,13 @@ fn request_path(target: &str) -> String {
         .map(|rest| rest.find('/').map_or("/", |at| &rest[at..]));
     let target = without_scheme.unwrap_or(target);
     target.split('?').next().unwrap_or("").to_string()
+}
+
+fn request_query(target: &str) -> String {
+    target
+        .split_once('?')
+        .map(|(_, query)| query.to_string())
+        .unwrap_or_default()
 }
 
 fn bare(status: StatusCode) -> Response {
@@ -1427,7 +1868,7 @@ fn client_gone(stream: &TcpStream) -> bool {
     gone
 }
 
-fn read_head(reader: &mut BufReader<TcpStream>) -> Result<Head, HeadError> {
+fn read_head(reader: &mut Reader) -> Result<Head, HeadError> {
     let mut lines: Vec<Vec<u8>> = Vec::new();
     let mut total = 0usize;
     loop {
@@ -1590,12 +2031,7 @@ enum BodyRead {
     Broken,
 }
 
-fn read_body(
-    reader: &mut BufReader<TcpStream>,
-    writer: &mut TcpStream,
-    head: &Head,
-    limit: usize,
-) -> io::Result<BodyRead> {
+fn read_body(reader: &mut Reader, head: &Head, limit: usize) -> io::Result<BodyRead> {
     match head.framing {
         Framing::Length(0) => return Ok(BodyRead::Complete(Vec::new())),
         Framing::Length(length) if length > limit as u64 => {
@@ -1604,6 +2040,7 @@ fn read_body(
         Framing::Length(_) | Framing::Chunked => {}
     }
     if head.expect_continue {
+        let writer = reader.get_mut();
         writer.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
         writer.flush()?;
     }
@@ -1620,11 +2057,11 @@ fn read_body(
 }
 
 /// Read a chunked body to its end, keeping at most `limit` bytes of it.
-fn read_chunked(reader: &mut BufReader<TcpStream>, limit: usize) -> BodyRead {
+fn read_chunked(reader: &mut Reader, limit: usize) -> BodyRead {
     let mut body = Vec::new();
     let mut over = false;
     let mut line = Vec::new();
-    let read_line = |reader: &mut BufReader<TcpStream>, line: &mut Vec<u8>| {
+    let read_line = |reader: &mut Reader, line: &mut Vec<u8>| {
         line.clear();
         matches!((&mut *reader).take(4096).read_until(b'\n', line), Ok(n) if n > 0 && line.ends_with(b"\n"))
     };
@@ -1673,7 +2110,7 @@ fn read_chunked(reader: &mut BufReader<TcpStream>, limit: usize) -> BodyRead {
 
 /// Read past a body nobody took; `true` when the connection is then at the
 /// next request.
-fn drain_body(reader: &mut BufReader<TcpStream>, head: &Head) -> bool {
+fn drain_body(reader: &mut Reader, head: &Head) -> bool {
     match head.framing {
         Framing::Length(length) => io::copy(&mut (&mut *reader).take(length), &mut io::sink())
             .is_ok_and(|copied| copied == length),
@@ -1682,7 +2119,7 @@ fn drain_body(reader: &mut BufReader<TcpStream>, head: &Head) -> bool {
 }
 
 /// The answer to a head that cannot be read.
-fn write_refusal(writer: &mut TcpStream, status: StatusCode) -> io::Result<()> {
+fn write_refusal(writer: &mut Io, status: StatusCode) -> io::Result<()> {
     let head = format!(
         "HTTP/1.1 {} {}\r\nconnection: close\r\ncontent-length: 0\r\ndate: {}\r\n\r\n",
         status.as_u16(),
@@ -1696,10 +2133,11 @@ fn write_refusal(writer: &mut TcpStream, status: StatusCode) -> io::Result<()> {
 /// Write `response`; `Ok(true)` when the connection may serve another
 /// request.
 fn write_response(
-    writer: &mut TcpStream,
+    writer: &mut Io,
     head: &Head,
     response: Response,
-    keep_alive: bool,
+    close: Close,
+    routed: bool,
 ) -> io::Result<bool> {
     let Response {
         mut status,
@@ -1723,25 +2161,39 @@ fn write_response(
                 .any(|token| token.trim().eq_ignore_ascii_case("close"))
         })
     });
-    let keep_alive = keep_alive && !asked_close && !(close_delimited && !no_body);
-    // The length goes in after the handler's own headers, and a connection
-    // header after it (axum set the one, hyper the other).
-    if let Body::Full(bytes) = &body {
-        if status != StatusCode::NO_CONTENT && status != StatusCode::NOT_MODIFIED {
-            headers.insert(
-                header::CONTENT_LENGTH,
-                HeaderValue::from(bytes.len() as u64),
-            );
+    let keep_alive = close == Close::No && !asked_close && !(close_delimited && !no_body);
+    // On a routed path the length goes in after the handler's own headers
+    // and a connection header after it (axum set the one, hyper the other);
+    // on a path no route answers, axum set no length, and hyper wrote it
+    // after the connection header. hyper wrote no length for an empty
+    // answer to `HEAD`.
+    let length = match &body {
+        Body::Full(bytes)
+            if status != StatusCode::NO_CONTENT
+                && status != StatusCode::NOT_MODIFIED
+                && !(head.method == "HEAD" && bytes.is_empty()) =>
+        {
+            Some(HeaderValue::from(bytes.len() as u64))
+        }
+        Body::Full(_) | Body::Stream(_) => None,
+    };
+    let connection = match head.version {
+        Version::Http11 if !keep_alive && close != Close::Silent => Some("close"),
+        Version::Http10 if keep_alive => Some("keep-alive"),
+        Version::Http11 | Version::Http10 => None,
+    };
+    if routed {
+        if let Some(length) = length.clone() {
+            headers.insert(header::CONTENT_LENGTH, length);
         }
     }
-    match head.version {
-        Version::Http11 if !keep_alive => {
-            headers.insert(header::CONNECTION, HeaderValue::from_static("close"));
+    if let Some(connection) = connection {
+        headers.insert(header::CONNECTION, HeaderValue::from_static(connection));
+    }
+    if !routed {
+        if let Some(length) = length {
+            headers.insert(header::CONTENT_LENGTH, length);
         }
-        Version::Http10 if keep_alive => {
-            headers.insert(header::CONNECTION, HeaderValue::from_static("keep-alive"));
-        }
-        Version::Http11 | Version::Http10 => {}
     }
     let mut out = Vec::with_capacity(256);
     out.extend_from_slice(
@@ -1842,5 +2294,5 @@ fn http_date(time: SystemTime) -> String {
 }
 
 #[cfg(test)]
-#[path = "tests/http.rs"]
+#[path = "server_tests.rs"]
 mod tests;

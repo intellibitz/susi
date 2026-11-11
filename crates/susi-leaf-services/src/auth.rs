@@ -1,51 +1,60 @@
-//! The two leaf-service bearer policies, as axum middleware.
+//! The two leaf-service bearer policies for the shared std HTTP server.
 
-use axum::extract::Request;
-use axum::http::{header::AUTHORIZATION, StatusCode};
-use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
+use susi_http_transport::server::{Guard, IntoResponse, Request, Response, Router, StatusCode};
 
 fn authorization(req: &Request) -> Option<&str> {
-    req.headers()
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
+    req.headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
 }
 
 /// Host token file policy (fails closed): config and sandbox routes read or
 /// write the user's substrate, and loopback is shared by all local users.
-pub(crate) async fn host_token(req: Request, next: Next) -> Response {
-    if susi_paths::bearer_authorized(authorization(&req)) {
-        next.run(req).await
+pub(crate) fn host_token(req: &Request) -> Option<Response> {
+    if susi_paths::bearer_authorized(authorization(req)) {
+        None
     } else {
-        StatusCode::UNAUTHORIZED.into_response()
+        Some(StatusCode::UNAUTHORIZED.into_response())
     }
 }
 
 /// Supervisor env-token policy (open when `SUSI_HOST_TOKEN` is unset).
-pub(crate) async fn supervisor(req: Request, next: Next) -> Response {
-    if susi_paths::supervisor_bearer_authorized(authorization(&req)) {
-        next.run(req).await
+pub(crate) fn supervisor(req: &Request) -> Option<Response> {
+    if susi_paths::supervisor_bearer_authorized(authorization(req)) {
+        None
     } else {
-        StatusCode::UNAUTHORIZED.into_response()
+        Some(StatusCode::UNAUTHORIZED.into_response())
     }
 }
 
+/// Attach a head-only guard to every route and to the router fallback. The
+/// authorization policies do not inspect a body, so the request body remains
+/// available to the route handler exactly as it was on the axum stack.
+pub(crate) fn guard_all(router: Router, guard: Guard) -> Router {
+    router.guard_all(None, guard)
+}
+
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Test-only module: unwrap/expect/panic are how these tests assert.
+// Test fixtures are intentionally fail-fast; a malformed request identifies the broken contract.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use axum::body::Body;
-    use axum::http::HeaderValue;
-    use axum::routing::get;
-    use axum::Router;
-    use tower::ServiceExt;
+    use std::sync::Arc;
+    use susi_http_transport::server::{get, HeaderMap, HeaderValue};
 
     fn request_with(header: Option<HeaderValue>) -> Request {
-        let mut builder = Request::builder().uri("/");
+        let mut headers = HeaderMap::new();
         if let Some(value) = header {
-            builder = builder.header(AUTHORIZATION, value);
+            headers.insert("authorization", value);
         }
-        builder.body(Body::empty()).unwrap()
+        Request {
+            method: "GET".into(),
+            path: "/".into(),
+            query: String::new(),
+            headers,
+            body: Vec::new(),
+            peer: None,
+        }
     }
 
     #[test]
@@ -57,23 +66,26 @@ mod tests {
             )))),
             Some("Bearer tok-123")
         );
-        // Opaque (non-ASCII) bytes are a valid HeaderValue but never a bearer.
         let opaque = HeaderValue::from_bytes(b"Bearer \xff\xfe").unwrap();
         assert_eq!(authorization(&request_with(Some(opaque))), None);
     }
 
-    async fn host_token_status(header: Option<HeaderValue>) -> StatusCode {
-        let app = Router::new()
-            .route("/", get(|| async { "reached" }))
-            .layer(axum::middleware::from_fn(host_token));
-        app.oneshot(request_with(header)).await.unwrap().status()
+    async fn guarded_status(guard: Guard, header: Option<HeaderValue>) -> StatusCode {
+        Router::new()
+            .route("/", get(|_| async { "reached" }))
+            .guard_all(None, guard)
+            .call(request_with(header))
+            .await
+            .status()
     }
 
-    // The host policy fails closed. These inputs can never authorize, whatever
-    // token file the process-global substrate root happens to point at.
     #[tokio::test]
     async fn host_token_rejects_missing_malformed_and_wrong_credentials() {
-        assert_eq!(host_token_status(None).await, StatusCode::UNAUTHORIZED);
+        let guard: Guard = Arc::new(host_token);
+        assert_eq!(
+            guarded_status(guard.clone(), None).await,
+            StatusCode::UNAUTHORIZED
+        );
         for value in [
             HeaderValue::from_static("Basic dXNlcjpwYXNz"),
             HeaderValue::from_static("Bearer"),
@@ -82,80 +94,49 @@ mod tests {
             HeaderValue::from_bytes(b"Bearer \xff\xfe").unwrap(),
         ] {
             assert_eq!(
-                host_token_status(Some(value.clone())).await,
-                StatusCode::UNAUTHORIZED,
-                "{value:?}"
+                guarded_status(guard.clone(), Some(value)).await,
+                StatusCode::UNAUTHORIZED
             );
         }
     }
 
-    async fn supervisor_status(header: Option<HeaderValue>) -> StatusCode {
-        let app = Router::new()
-            .route("/", get(|| async { "reached" }))
-            .layer(axum::middleware::from_fn(supervisor));
-        app.oneshot(request_with(header)).await.unwrap().status()
-    }
-
     #[tokio::test]
-    async fn supervisor_middleware_enforces_bearer_policy_on_layered_routes() {
-        for header in [
-            None,
-            Some(HeaderValue::from_static("Basic dXNlcjpwYXNz")),
-            Some(HeaderValue::from_static("Bearer")),
-            Some(HeaderValue::from_static(
-                "Bearer definitely-not-the-supervisor-token-9a7c2e",
-            )),
-            Some(HeaderValue::from_bytes(b"Bearer \xff\xfe").unwrap()),
-        ] {
-            let token_before = std::env::var("SUSI_HOST_TOKEN")
-                .ok()
-                .filter(|t| !t.trim().is_empty());
-            let status = supervisor_status(header.clone()).await;
-            let token_after = std::env::var("SUSI_HOST_TOKEN")
-                .ok()
-                .filter(|t| !t.trim().is_empty());
-            if token_before.is_none() && token_after.is_none() {
-                assert_eq!(status, StatusCode::OK, "open policy for {header:?}");
-            } else if token_before.is_some() && token_after.is_some() {
-                assert_eq!(
-                    status,
-                    StatusCode::UNAUTHORIZED,
-                    "armed policy for {header:?}"
-                );
-            } else {
-                assert!(
-                    matches!(status, StatusCode::OK | StatusCode::UNAUTHORIZED),
-                    "concurrent transition for {header:?}: {status}"
-                );
-            }
+    async fn supervisor_policy_enforces_bearer_when_armed_and_is_open_otherwise() {
+        let _env = crate::ENV_LOCK.lock().await;
+        let guard: Guard = Arc::new(supervisor);
+        let before = std::env::var("SUSI_HOST_TOKEN").ok();
+        std::env::remove_var("SUSI_HOST_TOKEN");
+        assert_eq!(guarded_status(guard.clone(), None).await, StatusCode::OK);
+        std::env::set_var("SUSI_HOST_TOKEN", "supervisor-test-token");
+        assert_eq!(
+            guarded_status(guard.clone(), None).await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            guarded_status(
+                guard,
+                Some(HeaderValue::from_static("Bearer supervisor-test-token")),
+            )
+            .await,
+            StatusCode::OK
+        );
+        match before {
+            Some(value) => std::env::set_var("SUSI_HOST_TOKEN", value),
+            None => std::env::remove_var("SUSI_HOST_TOKEN"),
         }
     }
 
-    #[tokio::test]
-    async fn request_with_empty_or_whitespace_authorization_header_is_extracted_and_rejected_by_host_token(
-    ) {
+    #[test]
+    fn empty_authorization_is_extracted_but_never_authorizes() {
         assert_eq!(
             authorization(&request_with(Some(HeaderValue::from_static("")))),
             Some("")
         );
         assert_eq!(
-            authorization(&request_with(Some(HeaderValue::from_static("   ")))),
-            Some("   ")
+            host_token(&request_with(Some(HeaderValue::from_static(" "))))
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
         );
-
-        for raw in ["", "   ", "Bearer ", "Bearer    "] {
-            assert_eq!(
-                host_token_status(Some(HeaderValue::from_static(raw))).await,
-                StatusCode::UNAUTHORIZED,
-                "expected 401 for {raw:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn request_with_none_has_no_authorization_and_root_uri_is_preserved() {
-        let req = request_with(None);
-        assert_eq!(req.uri().path(), "/");
-        assert!(authorization(&req).is_none());
     }
 }

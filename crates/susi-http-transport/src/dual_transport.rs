@@ -145,6 +145,84 @@ pub async fn negotiate_unbounded(
     Some(MaybeTls::Plain(stream))
 }
 
+/// [`negotiate_transport`] for a blocking server ([`crate::server`]): the
+/// same first-byte sniff and plaintext policy, a TLS handshake on the same
+/// platform stack (`native-tls`) with the acceptor's identity, and the same
+/// [`NEGOTIATE_TIMEOUT`] bound on sniff plus handshake together. Runs on the
+/// connection's own thread; returns `None` when the connection must be
+/// dropped, and otherwise leaves the socket with no timeouts.
+#[must_use]
+pub fn negotiate_blocking(
+    stream: std::net::TcpStream,
+    remote: bool,
+    tls: Option<&tokio_rustls::TlsAcceptor>,
+    require_tls_remote: bool,
+    surface: &str,
+) -> Option<crate::server::Io> {
+    let started = std::time::Instant::now();
+    let dropped = || {
+        eprintln!("{surface} dropped connection: no handshake within {NEGOTIATE_TIMEOUT:?}");
+        None
+    };
+    if stream.set_read_timeout(Some(NEGOTIATE_TIMEOUT)).is_err() {
+        return None;
+    }
+    let mut probe = [0u8; 1];
+    let is_tls = match stream.peek(&mut probe) {
+        Ok(1) => probe[0] == 0x16,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ) =>
+        {
+            return dropped();
+        }
+        Ok(_) | Err(_) => false,
+    };
+    if stream.set_read_timeout(None).is_err() {
+        return None;
+    }
+    if !is_tls {
+        if remote && require_tls_remote {
+            return None;
+        }
+        return Some(crate::server::Io::Plain(stream));
+    }
+    let acceptor = tls?;
+    // The handshake's share of the bound: a watchdog shuts the socket when
+    // it runs out, which fails the handshake's blocked read or write.
+    let remaining = NEGOTIATE_TIMEOUT.saturating_sub(started.elapsed());
+    let expired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (done, finished) = std::sync::mpsc::channel::<()>();
+    let watched = stream.try_clone().ok()?;
+    let fired = std::sync::Arc::clone(&expired);
+    std::thread::Builder::new()
+        .name("susi-tls-handshake-bound".into())
+        .spawn(move || {
+            if matches!(
+                finished.recv_timeout(remaining),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                fired.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = watched.shutdown(std::net::Shutdown::Both);
+            }
+        })
+        .ok()?;
+    let accepted = acceptor.accept_blocking(stream);
+    drop(done);
+    if expired.load(std::sync::atomic::Ordering::SeqCst) {
+        return dropped();
+    }
+    match accepted {
+        Ok(stream) => Some(crate::server::Io::Tls(Box::new(stream))),
+        Err(e) => {
+            eprintln!("{surface} TLS handshake failed: {e}");
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

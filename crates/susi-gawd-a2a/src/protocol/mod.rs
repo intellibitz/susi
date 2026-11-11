@@ -13,7 +13,7 @@ mod types;
 
 pub use error::{A2AError, Result};
 pub use handler::{AgentExecutor, EventQueue, Handler, RequestContext};
-pub use http::{router, WELL_KNOWN_AGENT_CARD_PATH};
+pub use http::{agent_card, router, WELL_KNOWN_AGENT_CARD_PATH};
 pub use types::{
     AgentCapabilities, AgentCard, AgentInterface, AgentSkill, AuthenticationInfo,
     CancelTaskRequest, DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,

@@ -68,25 +68,14 @@ impl AgentExecutor for Staged {
 }
 
 fn serve(runtime: &tokio::runtime::Runtime, executor: Arc<dyn AgentExecutor>) -> SocketAddr {
-    runtime.block_on(async {
-        let card = crate::executor::GawdA2AExecutor::new().agent_card();
-        let app = super::app(
-            executor,
-            card,
-            Arc::new(TaskStore::new()),
-            Arc::new(|_: &super::VerifierContext| true),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            axum::serve(
-                listener,
-                app.into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .await
-        });
-        addr
-    })
+    let card = crate::executor::GawdA2AExecutor::new().agent_card();
+    let app = super::app(
+        executor,
+        card,
+        Arc::new(TaskStore::new()),
+        Arc::new(|_: &super::VerifierContext| true),
+    );
+    super::serve_on_loopback(runtime, app)
 }
 
 fn call(addr: SocketAddr, path: &str, method: &str, params: Value) -> String {

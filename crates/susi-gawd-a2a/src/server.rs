@@ -10,82 +10,19 @@
 //! agent card is the only unauthenticated route, matching A2A discovery
 //! convention.
 
-use axum::body::{to_bytes, Body};
-use axum::extract::ConnectInfo;
-use axum::http::{Request, StatusCode};
-use axum::middleware::Next;
-use axum::response::Response;
-use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
+use susi_http_transport::server::{
+    header, Before, Body, Guard, HeaderMap, HeaderValue, Negotiate, Peer, Request, Response,
+    Router, StatusCode,
+};
 use tokio_rustls::TlsAcceptor;
 
 use crate::executor::GawdA2AExecutor;
-use crate::protocol::{AgentCard, AgentExecutor, Handler};
+use crate::protocol::{AgentCard, AgentExecutor, Handler, WELL_KNOWN_AGENT_CARD_PATH};
 use crate::task_store::TaskStore;
 
-use susi_http_transport::dual_transport::{negotiate_transport, MaybeTls};
-
-/// An axum `Listener` that serves both plain HTTP and TLS on each bound
-/// socket by peeking at the first byte before deciding the transport.
-/// `inner` is at most two sockets — loopback plus a specific external bind.
-struct DualListener {
-    inner: Vec<tokio::net::TcpListener>,
-    tls: Option<TlsAcceptor>,
-    require_tls_remote: bool,
-}
-
-impl axum::serve::Listener for DualListener {
-    type Io = MaybeTls;
-    type Addr = SocketAddr;
-
-    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
-        loop {
-            let accepted = if self.inner.len() > 1 {
-                tokio::select! {
-                    r = self.inner[0].accept() => r,
-                    r = self.inner[1].accept() => r,
-                }
-            } else {
-                self.inner[0].accept().await
-            };
-            let (stream, addr) = match accepted {
-                Ok(pair) => pair,
-                Err(e) => {
-                    eprintln!("[A2A] Accept failed: {e}");
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                    continue;
-                }
-            };
-            // Off-host plaintext is always refused (require_tls_remote);
-            // loopback is always exempt (internal http://127.0.0.1 callers).
-            // host_only serves this machine alone, whatever the bind.
-            let remote = !addr.ip().to_canonical().is_loopback();
-            if crate::susi_core::mac_policy::refuses_remote_client(addr.ip()) {
-                continue;
-            }
-            if let Some(io) = negotiate_transport(
-                stream,
-                remote,
-                self.tls.as_ref(),
-                self.require_tls_remote,
-                "[A2A]",
-            )
-            .await
-            {
-                return (io, addr);
-            }
-        }
-    }
-
-    fn local_addr(&self) -> io::Result<Self::Addr> {
-        self.inner[0].local_addr()
-    }
-}
-
-/// The agent card is public discovery metadata; every task-bearing route
-/// (JSON-RPC, REST, SSE) requires the bearer token.
-const PUBLIC_PATH: &str = "/.well-known/agent-card.json";
+use susi_http_transport::dual_transport::negotiate_blocking;
 
 /// Concurrent in-flight HTTP requests. Each accepted task can own a fleet
 /// thread (see `run_fleet`), so an unbounded accept queue is a thread-spawn
@@ -105,7 +42,7 @@ pub struct VerifierContext<'a> {
     pub peer: IpAddr,
     pub method: &'a str,
     pub path: &'a str,
-    pub headers: &'a axum::http::HeaderMap,
+    pub headers: &'a HeaderMap,
     pub body: &'a [u8],
 }
 
@@ -119,84 +56,93 @@ fn unauthorized() -> Response {
     let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::UNAUTHORIZED;
     response.headers_mut().insert(
-        axum::http::header::WWW_AUTHENTICATE,
-        axum::http::HeaderValue::from_static("Bearer realm=\"susi-a2a\""),
+        header::WWW_AUTHENTICATE,
+        HeaderValue::from_static("Bearer realm=\"susi-a2a\""),
     );
     response
 }
 
-async fn auth_guard(
-    axum::extract::State(verifier): axum::extract::State<Verifier>,
-    req: Request<Body>,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    if req.uri().path() == PUBLIC_PATH {
-        return Ok(next.run(req).await);
-    }
-    // Liveness is public on every contract port (README, "Host contract").
-    if req.uri().path() == "/health" && req.method() == axum::http::Method::GET {
-        return Ok(health());
-    }
-    let peer = req
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|c| c.0.ip())
-        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
-    let method = req.method().to_string();
-    let path = req.uri().path().to_string();
-    let (parts, body) = req.into_parts();
-    let bytes = to_bytes(body, MAX_AUTH_BODY_BYTES)
-        .await
-        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
-    let ctx = VerifierContext {
-        peer,
-        method: &method,
-        path: &path,
-        headers: &parts.headers,
-        body: &bytes,
-    };
-    if !(verifier)(&ctx) {
-        return Ok(unauthorized());
-    }
-    Ok(next
-        .run(Request::from_parts(parts, Body::from(bytes)))
-        .await)
+/// The verifier as the guard in front of every route but the card: it sees
+/// the whole body (at most [`MAX_AUTH_BODY_BYTES`], else `413`).
+fn auth_guard(verifier: Verifier) -> Guard {
+    Arc::new(move |request: &Request| {
+        let ctx = VerifierContext {
+            peer: request
+                .peer
+                .map_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), |peer| peer.ip()),
+            method: &request.method,
+            path: &request.path,
+            headers: &request.headers,
+            body: &request.body,
+        };
+        (!(verifier)(&ctx)).then(unauthorized)
+    })
+}
+
+/// Liveness is public on every contract port (README, "Host contract"):
+/// `GET /health` is answered ahead of the guard, its body unread.
+fn health_first() -> Before {
+    Arc::new(|method: &str, path: &str| (method == "GET" && path == "/health").then(health))
 }
 
 fn health() -> Response {
     let mut response = Response::new(Body::from(r#"{"status":"ok"}"#));
     response.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_static("application/json"),
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
     );
     response
 }
 
 /// The A2A routes for `executor` behind the authorization guard and the
-/// concurrency bound — the stack [`serve`] runs.
+/// concurrency bound — the stack [`serve`] runs. The agent card is public
+/// discovery metadata: its route is mounted after the guard, so it is not
+/// behind it; every task-bearing route (JSON-RPC, SSE) and every unknown
+/// path is.
 fn app(
     executor: Arc<dyn AgentExecutor>,
     card: AgentCard,
     store: Arc<TaskStore>,
     verifier: Verifier,
-) -> axum::Router {
+) -> Router {
     let handler = Arc::new(Handler::new(executor, card.clone(), store));
-    crate::protocol::router(handler, &card)
-        .layer(axum::middleware::from_fn_with_state(verifier, auth_guard))
-        .layer(tower::limit::ConcurrencyLimitLayer::new(
-            MAX_CONCURRENT_REQUESTS,
-        ))
+    crate::protocol::router(handler)
+        .guard_all(Some(MAX_AUTH_BODY_BYTES), auth_guard(verifier))
+        .route_public(
+            WELL_KNOWN_AGENT_CARD_PATH,
+            crate::protocol::agent_card(&card),
+        )
+        .before(health_first())
+        .concurrency_limit(MAX_CONCURRENT_REQUESTS)
 }
 
-/// Serve the A2A protocol on an already-bound TCP listener.
+/// Each accepted socket: refused when the privacy mode refuses its host,
+/// otherwise plain HTTP or TLS by its first byte. Off-host plaintext is
+/// always refused (`require_tls_remote`); loopback is always exempt
+/// (internal `http://127.0.0.1` callers).
+fn negotiate(tls: Option<TlsAcceptor>, require_tls_remote: bool) -> Negotiate {
+    Arc::new(move |stream, addr: SocketAddr| {
+        let remote = !addr.ip().to_canonical().is_loopback();
+        if crate::susi_core::mac_policy::refuses_remote_client(addr.ip()) {
+            return None;
+        }
+        negotiate_blocking(stream, remote, tls.as_ref(), require_tls_remote, "[A2A]")
+    })
+}
+
+/// Serve the A2A protocol on already-bound TCP listeners (at most two:
+/// loopback plus a specific external bind), each serving plain HTTP and,
+/// when `tls` is given, TLS on the platform stack (`native-tls`, the
+/// acceptor's identity; it should offer only `http/1.1` by ALPN, the one
+/// protocol this server speaks).
 ///
 /// `verifier` decides admission for every non-card route (see above).
 ///
-/// Blocks the calling thread for the life of the listener — spawn it the same
-/// way the GMCP/GEMI servers are spawned. The executor's fleet calls run on
-/// dedicated OS threads (never on the axum runtime): the fleet's provider
-/// dispatch owns a `current_thread` runtime and `block_on`s it, which panics
-/// inside any enclosing tokio runtime.
+/// Blocks the calling thread for the life of the listeners — spawn it the
+/// same way the GMCP/GEMI servers are spawned. The executor's fleet calls
+/// run on dedicated OS threads (never on the server's runtime): the fleet's
+/// provider dispatch owns a `current_thread` runtime and `block_on`s it,
+/// which panics inside any enclosing tokio runtime.
 pub fn serve(
     listeners: Vec<TcpListener>,
     verifier: Verifier,
@@ -205,11 +151,6 @@ pub fn serve(
 ) -> std::io::Result<()> {
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async move {
-        let mut inner = Vec::with_capacity(listeners.len());
-        for listener in listeners {
-            listener.set_nonblocking(true)?;
-            inner.push(tokio::net::TcpListener::from_std(listener)?);
-        }
         let executor = GawdA2AExecutor::new();
         let mut card = executor.agent_card();
         // Advertise the absolute endpoint — remote agents need a dialable URL
@@ -220,11 +161,11 @@ pub fn serve(
         // (0.0.0.0/::) is not dialable — resolve it to the host's outbound
         // address instead.
         let scheme = if tls.is_some() { "https" } else { "http" };
-        let advertise = inner
+        let advertise = listeners
             .iter()
             .filter_map(|l| l.local_addr().ok())
             .find(|a| !a.ip().is_loopback())
-            .or_else(|| inner.first().and_then(|l| l.local_addr().ok()));
+            .or_else(|| listeners.first().and_then(|l| l.local_addr().ok()));
         if let Some(addr) = advertise {
             let host = if addr.ip().is_unspecified() {
                 // UDP "connect" sends no packets — it just resolves which
@@ -244,16 +185,6 @@ pub fn serve(
                 interface.url = format!("{scheme}://{}:{}{}", host, addr.port(), interface.url);
             }
         }
-        // `tap_io` wrap is what makes `ConnectInfo<SocketAddr>` resolve on a
-        // custom listener: axum provides `Connected` impls for
-        // `IncomingStream<TapIo<L,_>>`, not for arbitrary listeners.
-        use axum::serve::ListenerExt;
-        let dual = DualListener {
-            inner,
-            tls,
-            require_tls_remote,
-        }
-        .tap_io(|_| {});
         // Retention is bounded: a reaper evicts the oldest terminal tasks.
         // Only the JSON-RPC binding (with SSE) is served, and the card
         // advertises only what is served.
@@ -263,11 +194,30 @@ pub fn serve(
         eprintln!(
             "[A2A] HTTP available: JSON-RPC /, SSE /stream, card /.well-known/agent-card.json"
         );
-        axum::serve(
-            dual,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
+        susi_http_transport::server::serve_std(
+            listeners,
+            app,
+            Peer::Pass,
+            Some(negotiate(tls, require_tls_remote)),
+            std::future::pending(),
         )
         .await
+    })
+}
+
+/// `app` on a loopback port of its own, served on `runtime` (tests).
+#[cfg(test)]
+pub(crate) fn serve_on_loopback(runtime: &tokio::runtime::Runtime, app: Router) -> SocketAddr {
+    runtime.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(susi_http_transport::server::serve(
+            listener,
+            app,
+            Peer::Pass,
+            std::future::pending(),
+        ));
+        addr
     })
 }
 
@@ -332,25 +282,14 @@ mod tests {
     /// The production stack around `Shout`, admitting every caller, on a
     /// loopback port.
     fn serve_shout(runtime: &tokio::runtime::Runtime) -> SocketAddr {
-        runtime.block_on(async {
-            let card = crate::executor::GawdA2AExecutor::new().agent_card();
-            let app = super::app(
-                Arc::new(Shout),
-                card,
-                Arc::new(crate::task_store::TaskStore::new()),
-                Arc::new(|_: &super::VerifierContext| true),
-            );
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let addr = listener.local_addr().unwrap();
-            tokio::spawn(async move {
-                axum::serve(
-                    listener,
-                    app.into_make_service_with_connect_info::<SocketAddr>(),
-                )
-                .await
-            });
-            addr
-        })
+        let card = crate::executor::GawdA2AExecutor::new().agent_card();
+        let app = super::app(
+            Arc::new(Shout),
+            card,
+            Arc::new(crate::task_store::TaskStore::new()),
+            Arc::new(|_: &super::VerifierContext| true),
+        );
+        super::serve_on_loopback(runtime, app)
     }
 
     fn post(addr: SocketAddr, path: &str, body: &serde_json::Value) -> serde_json::Value {
@@ -373,10 +312,13 @@ mod tests {
     #[test]
     fn unauthorized_carries_bearer_challenge() {
         let response = super::unauthorized();
-        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), super::StatusCode::UNAUTHORIZED);
         assert_eq!(
-            response.headers()[axum::http::header::WWW_AUTHENTICATE],
-            "Bearer realm=\"susi-a2a\""
+            response
+                .headers()
+                .get(super::header::WWW_AUTHENTICATE)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer realm=\"susi-a2a\"")
         );
     }
 
