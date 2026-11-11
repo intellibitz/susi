@@ -165,7 +165,7 @@ and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms)
 ### Developing susi
 
 The CEO never inspects code; agents own development, verification, integration
-and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–73).
+and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–74).
 Work happens in isolated worktrees with disjoint scopes (`cargo local-workflow
 start <agent> --scope <path>`, `cargo local-build debug`), each commit carries
 `Task: T-<AGENT>-<n>` with its record in [`.agents/tasks/`](.agents/tasks/),

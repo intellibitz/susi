@@ -160,7 +160,7 @@ GitHub offers "Compare & pull request" for recently pushed branches under
   `refs/susi/work/<agent>/<branch>`. Branch listings, PR prompts and the merge
   button never see that namespace. Probe once per remote that it accepts the
   namespace, and record the result. Do not assume.
-- Agents never call `gh pr`, the GitHub API, auto-merge or merge queues, and
+- Agents never call `gh` pull-request commands, the GitHub API, auto-merge or merge queues, and
   never change repository settings, branch protection or rulesets. Server-side
   transport protection (non-fast-forward and deletion rules) is storage safety
   and stays as it is.
