@@ -1,0 +1,38 @@
+{
+  "advances": [],
+  "base_commit": "779edbcc7acf2b0fe487d38fcd8c9dbcf6c8f7ce",
+  "created_by": "CLAUDEWINFIX",
+  "created_unix": 1794403337,
+  "lanes": [
+    {
+      "id": "lane-01",
+      "paths": [
+        ".agents/tasks/T-CLAUDEWINFIX-1.json",
+        "crates/susi-core/src/plain_http.rs",
+        "crates/susi-sandbox-client/src/audit_chain.rs",
+        "crates/susi-sandbox-client/src/lib.rs",
+        "scripts/check-hermetic-tests.sh",
+        "tests/installer_contract.rs",
+        "xtask/src/bin/local-workflow.rs",
+        "xtask/src/git_publish.rs",
+        "xtask/src/worktree_admin.rs"
+      ],
+      "status": "pending",
+      "tasks": [
+        {
+          "deps": [],
+          "source_commits": [
+            "f350ce6ec300ad9973f79786a4fc36373163315a"
+          ],
+          "status": "pending",
+          "task_id": "T-CLAUDEWINFIX-1",
+          "title": "Core passes its tests on Windows x86_64"
+        }
+      ]
+    }
+  ],
+  "name": "v0.21.62",
+  "plan_receipt_sha256": "bc1f786058b404e73aa798b5863999ba54b841438894f8ee69c830e1e90c6dc4",
+  "release_ref": "refs/candidates/release/v0.21.62",
+  "schema": "susi-release-lanes-v1"
+}
