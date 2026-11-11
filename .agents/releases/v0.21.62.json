@@ -1,10 +1,81 @@
 {
-  "advances": [],
+  "advances": [
+    {
+      "advanced_unix": 1794418484,
+      "agent": "CLAUDEWIN62",
+      "code_commit": "ce101f2a5f35dd2c5b78f2568293c78df4d4558c",
+      "code_tree": "141ca5aaeb6f3d1661790c6d6f24c91f2ff883d8",
+      "evidence_cmd": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--workspace"
+      ],
+      "evidence_duration_ms": 1630918,
+      "evidence_sha256": "eb543bb8b5cb1927f36014073ae529e14de270819f39f1a64e98d6a84488fa7b",
+      "from_tip": "3d2320f1c9dd5ed47c86978c9e093e5da38330c8",
+      "lane": "lane-01",
+      "picks": [
+        {
+          "commit": "984c8255d1c9a2a9e45be5604fc6fb6b96e70f84",
+          "source": "f350ce6ec300ad9973f79786a4fc36373163315a"
+        },
+        {
+          "commit": "d7f9f0d1ecd9c1cd17dcfce88731d192d74206e0",
+          "source": "80df72dff017213bbe8c2e5d705ac9050d6904d1"
+        },
+        {
+          "commit": "1e056f1604160f90b22ae8b1b18ecb5f22fc0281",
+          "source": "fa76f3b235377eb00f5726fb0beccea970a8815e"
+        },
+        {
+          "commit": "ce101f2a5f35dd2c5b78f2568293c78df4d4558c",
+          "source": null
+        }
+      ]
+    }
+  ],
   "base_commit": "779edbcc7acf2b0fe487d38fcd8c9dbcf6c8f7ce",
   "created_by": "CLAUDEWINFIX",
   "created_unix": 1794403337,
   "lanes": [
     {
+      "advance": {
+        "advanced_unix": 1794418484,
+        "agent": "CLAUDEWIN62",
+        "code_commit": "ce101f2a5f35dd2c5b78f2568293c78df4d4558c",
+        "code_tree": "141ca5aaeb6f3d1661790c6d6f24c91f2ff883d8",
+        "evidence_cmd": [
+          "cargo",
+          "test",
+          "--offline",
+          "--locked",
+          "--workspace"
+        ],
+        "evidence_duration_ms": 1630918,
+        "evidence_sha256": "eb543bb8b5cb1927f36014073ae529e14de270819f39f1a64e98d6a84488fa7b",
+        "from_tip": "3d2320f1c9dd5ed47c86978c9e093e5da38330c8",
+        "lane": "lane-01",
+        "picks": [
+          {
+            "commit": "984c8255d1c9a2a9e45be5604fc6fb6b96e70f84",
+            "source": "f350ce6ec300ad9973f79786a4fc36373163315a"
+          },
+          {
+            "commit": "d7f9f0d1ecd9c1cd17dcfce88731d192d74206e0",
+            "source": "80df72dff017213bbe8c2e5d705ac9050d6904d1"
+          },
+          {
+            "commit": "1e056f1604160f90b22ae8b1b18ecb5f22fc0281",
+            "source": "fa76f3b235377eb00f5726fb0beccea970a8815e"
+          },
+          {
+            "commit": "ce101f2a5f35dd2c5b78f2568293c78df4d4558c",
+            "source": null
+          }
+        ]
+      },
       "id": "lane-01",
       "paths": [
         ".agents/tasks/T-CLAUDEWINFIX-1.json",
@@ -17,14 +88,14 @@
         "xtask/src/git_publish.rs",
         "xtask/src/worktree_admin.rs"
       ],
-      "status": "pending",
+      "status": "qualified",
       "tasks": [
         {
           "deps": [],
           "source_commits": [
             "f350ce6ec300ad9973f79786a4fc36373163315a"
           ],
-          "status": "pending",
+          "status": "qualified",
           "task_id": "T-CLAUDEWINFIX-1",
           "title": "Core passes its tests on Windows x86_64"
         }
