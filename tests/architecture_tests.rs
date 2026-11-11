@@ -144,13 +144,11 @@ const LEAF_RANK: &[(&str, u8)] = &[
 const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-anyhow",
     "susi-vendor-axum",
-    "susi-vendor-bytes",
     "susi-vendor-chacha20poly1305",
     "susi-vendor-clap",
     "susi-vendor-console-subscriber",
     "susi-vendor-criterion",
     "susi-vendor-ed25519-dalek",
-    "susi-vendor-futures",
     "susi-vendor-getrandom",
     "susi-vendor-hex",
     "susi-vendor-http-body-util",
@@ -1749,8 +1747,17 @@ fn vendor_patches_are_local_and_preserve_upstream_licenses() {
         !lock.contains("source = \"git+"),
         "development sources must resolve without a Git host"
     );
+    assert!(
+        !lock.contains("[[patch.unused]]"),
+        "Cargo.lock must not carry unused [patch.crates-io] entries"
+    );
+    for retired in ["reqwest", "fluent-uri"] {
+        assert!(
+            !root.join("vendor").join(retired).exists(),
+            "retired unused vendor patch directory returned: vendor/{retired}"
+        );
+    }
     for (name, license) in [
-        ("reqwest", "LICENSE-APACHE"),
         ("esaxx-rs", "LICENSE"),
         ("native-tls", "LICENSE-APACHE"),
         ("native-tls", "LICENSE-MIT"),

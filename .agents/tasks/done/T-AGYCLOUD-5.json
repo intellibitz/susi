@@ -1,0 +1,75 @@
+{
+  "id": "T-AGYCLOUD-5",
+  "native_worker": "agycloud-20261110",
+  "owner": "agycloud-20261110",
+  "title": "Purge retired vendor/reqwest and vendor/fluent-uri patch trees and enforce zero unused Cargo patches",
+  "goal": "Remove the 28,435-line (`1.05 MiB`, 73-file) retired `vendor/reqwest` and `vendor/fluent-uri` patch trees, `[workspace.dependencies] reqwest`, and `[[patch.unused]]` lockfile entries left unused after `T-CLAUDENOA2ASDK-1` and the std JSON-schema cut, eliminating unused-patch Cargo warnings and pinning zero `[[patch.unused]]` entries in `tests/architecture_tests.rs`.",
+  "feature": "lean-core",
+  "size": "s",
+  "created_by": "agycloud-20261110",
+  "created_unix": 1794375830,
+  "state": "done",
+  "status": "done",
+  "base": "e39ec4468356afca259784c68af8cacd53d2a5b5",
+  "mandate_revision": "286e653ab06677ef0aefee8a54bffc26455127af",
+  "deps": [
+    "T-CLAUDEREL55REC-1",
+    "T-AGYCLOUD-4"
+  ],
+  "scopes": [
+    ".agents/tasks/T-AGYCLOUD-5.json",
+    ".agents/tasks/done/T-AGYCLOUD-5.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "vendor/README.md",
+    "vendor/fluent-uri/**",
+    "vendor/reqwest/**"
+  ],
+  "evidence": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "vendor/README.md"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "orphan_sources"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu (Debian 12, Linux 6.12.105+, git 2.39.5, rustc 1.99.0)",
+    "fmt_check": "pass (0 diffs)",
+    "removed_vendor_lines": 28435,
+    "removed_vendor_files": 73,
+    "tests_passed": 157,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "architecture_tests": 43,
+      "lean_core_ceilings": 2,
+      "orphan_sources": 3,
+      "task_records": 3,
+      "xtask_unit_tests": 106
+    },
+    "timings_ms": {
+      "guard_and_xtask_tests_ms": 9019
+    }
+  },
+  "limitations": [
+    "`reqwest` and `fluent-uri` were already outside the active compile graph (`[[patch.unused]]`), so host compile unit count is unchanged while repository source bloat drops by 28,435 lines.",
+    "Windows x86_64 release qualification remains owed on a native Windows host."
+  ]
+}

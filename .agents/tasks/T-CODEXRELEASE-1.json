@@ -1,0 +1,44 @@
+{
+  "id": "T-CODEXRELEASE-1",
+  "native_worker": "codex",
+  "title": "Promote landed core work and distill the free, lean, fast release candidate",
+  "goal": "Record the open-core boundary, preserve commercial functionality in intellibitz/susi-commercial-apps, and compose the closed functional Susi core contributions from the v0.21.54 base into a release candidate without force-moving shared history.",
+  "status": "in_progress",
+  "size": "m",
+  "deps": [],
+  "base_commit": "c5083168ac8b4957e898944f018dd21115f51c76",
+  "owner": "CODEX",
+  "scopes": [
+    ".agents/features/susi-core-free-lean-fast-20261111.json",
+    ".agents/tasks/T-CODEXRELEASE-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "run",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-distill",
+      "--",
+      "plan",
+      "--name",
+      "2026-11-11-rc3",
+      "--base",
+      "b626d435c6bbae9a89a10c091fd7819fbe3b3910",
+      "--from",
+      "main",
+      "--feature",
+      ".agents/features/susi-core-free-lean-fast-20261111.json",
+      "--json"
+    ]
+  },
+  "created_by": "CODEX",
+  "created_unix": 1794375331,
+  "results": [],
+  "limitations": [
+    "The candidate remains unqualified until the exact release tree passes the full Windows x86_64 and Linux x86_64 release gates; source publication is not production qualification."
+  ]
+}

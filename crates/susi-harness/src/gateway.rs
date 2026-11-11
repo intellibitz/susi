@@ -54,7 +54,6 @@ use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Router;
-use futures::StreamExt;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1178,9 +1177,12 @@ async fn stream_upstream(
 
     match meta_rx.await {
         Ok(Upstream::Answered(status, content_type, retry_after)) => {
-            let stream = futures::stream::poll_fn(move |cx| chunk_rx.poll_recv(cx))
-                .map(Ok::<Vec<u8>, std::io::Error>);
-            let mut response = Response::new(axum::body::Body::from_stream(stream));
+            let body = crate::poll_body(move |cx| {
+                chunk_rx
+                    .poll_recv(cx)
+                    .map(|o| o.map(Ok::<Vec<u8>, std::io::Error>))
+            });
+            let mut response = Response::new(body);
             *response.status_mut() =
                 StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
             if let Ok(value) = HeaderValue::from_str(&content_type) {
@@ -2499,29 +2501,33 @@ mod tests {
         assert_eq!(rows[0].outcome, Outcome::Completed);
     }
 
+    fn two_chunk_sse(first: &'static str, rest: &'static str) -> impl IntoResponse {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<String, std::io::Error>>(4);
+        tokio::spawn(async move {
+            let _ = tx.send(Ok(first.to_string())).await;
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+            let _ = tx.send(Ok(rest.to_string())).await;
+        });
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/event-stream")],
+            crate::poll_body(move |cx| rx.poll_recv(cx)),
+        )
+    }
+
     /// A streaming client that hangs up mid-answer: the gateway stops
     /// forwarding but reads on to the provider's usage chunk, so the row
     /// carries what the provider billed.
     #[tokio::test]
     async fn a_stream_whose_client_hangs_up_mid_answer_still_writes_its_row() {
         async fn slow_stream() -> impl IntoResponse {
-            let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<String, std::io::Error>>(4);
-            tokio::spawn(async move {
-                let first = "data: {\"id\":\"cmpl-5\",\"choices\":[{\"delta\":{\"content\":\"PARTIAL\"}}]}\n\n";
-                let _ = tx.send(Ok(first.to_string())).await;
-                tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-                let rest = concat!(
+            two_chunk_sse(
+                "data: {\"id\":\"cmpl-5\",\"choices\":[{\"delta\":{\"content\":\"PARTIAL\"}}]}\n\n",
+                concat!(
                     "data: {\"id\":\"cmpl-5\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,",
                     "\"completion_tokens\":2,\"prompt_cache_hit_tokens\":4}}\n\n",
                     "data: [DONE]\n\n"
-                );
-                let _ = tx.send(Ok(rest.to_string())).await;
-            });
-            let stream = futures::stream::poll_fn(move |cx| rx.poll_recv(cx));
-            (
-                StatusCode::OK,
-                [(header::CONTENT_TYPE, "text/event-stream")],
-                axum::body::Body::from_stream(stream),
+                ),
             )
         }
         let upstream = spawn(Router::new().route("/v1/chat/completions", post(slow_stream))).await;
@@ -2567,23 +2573,13 @@ mod tests {
             complete().await
         }
         async fn slow_stream() -> impl IntoResponse {
-            let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<String, std::io::Error>>(4);
-            tokio::spawn(async move {
-                let first = "data: {\"id\":\"cmpl-6\",\"choices\":[{\"delta\":{\"content\":\"PARTIAL\"}}]}\n\n";
-                let _ = tx.send(Ok(first.to_string())).await;
-                tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-                let rest = concat!(
+            two_chunk_sse(
+                "data: {\"id\":\"cmpl-6\",\"choices\":[{\"delta\":{\"content\":\"PARTIAL\"}}]}\n\n",
+                concat!(
                     "data: {\"id\":\"cmpl-6\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,",
                     "\"completion_tokens\":2}}\n\n",
                     "data: [DONE]\n\n"
-                );
-                let _ = tx.send(Ok(rest.to_string())).await;
-            });
-            let stream = futures::stream::poll_fn(move |cx| rx.poll_recv(cx));
-            (
-                StatusCode::OK,
-                [(header::CONTENT_TYPE, "text/event-stream")],
-                axum::body::Body::from_stream(stream),
+                ),
             )
         }
         let cases = [

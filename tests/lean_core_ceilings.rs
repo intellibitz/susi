@@ -29,25 +29,32 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// 2026-11-11: 191 -> 184 (measured after T-CLAUDENOA2ASDK-1 and T-AGYCLOUD-3
 /// removed susi-vendor-flume and its fastrand/getrandom wasm_js + spin
 /// lock_api workspace feature unification).
-/// 2026-11-11: 184 -> 177 (T-SMALLFACADES-1: regex, regex-automata,
+/// 2026-11-11: 184 -> 180 (T-AGYCLOUD-4: delete susi-vendor-futures and
+/// susi-vendor-bytes; futures, futures-executor, futures-io and proc-macro
+/// futures-macro leave Cargo.lock and the pillar closure).
+/// 2026-11-11: 180 -> 173 (T-SMALLFACADES-1: regex, regex-automata,
 /// regex-syntax, aho-corasick, dashmap, crossbeam-utils and susi-os-unicode
 /// left with the regex and dashmap facades; the truth gate's claim patterns
 /// run on `susi_core::pattern`, shared maps on `susi_paths::sync`).
-const THIRD_PARTY_CEILING: usize = 177;
+const THIRD_PARTY_CEILING: usize = 173;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
 /// then 47 -> 46 (susi-vendor-mcp-server deleted).
-/// 2026-11-11: 46 -> 43 (susi-vendor-regex, susi-vendor-dashmap and
+/// 2026-11-11: 46 -> 45 (T-AGYCLOUD-4: susi-vendor-futures deleted).
+/// 2026-11-11: 45 -> 42 (susi-vendor-regex, susi-vendor-dashmap and
 /// susi-vendor-parking-lot deleted; T-SMALLFACADES-1).
-const WORKSPACE_CEILING: usize = 43;
+const WORKSPACE_CEILING: usize = 42;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
 /// 2026-11-10: 21 -> 20; GMCP uses Hyper's existing Bytes/Buf exports.
-/// 2026-11-11: 20 -> 18 (susi-gmcp -> dashmap, susi-gemi and susi-gmcp ->
-/// parking-lot; T-SMALLFACADES-1).
-const DIRECT_FACADE_EDGES_CEILING: usize = 18;
+/// 2026-11-11: 20 -> 19 (T-AGYCLOUD-4: susi-gemi -> susi-vendor-parking-lot
+/// replaced with std::sync::RwLock; susi-harness -> susi-vendor-futures
+/// replaced with hyper::body::Body already in the pillar facade set).
+/// 2026-11-11: 19 -> 17 (susi-gmcp -> dashmap and parking-lot;
+/// T-SMALLFACADES-1).
+const DIRECT_FACADE_EDGES_CEILING: usize = 17;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
 /// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are
@@ -85,17 +92,20 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 18;
 /// susi-gemi 21,290 -> 21,263, susi-harness 40,790 -> 40,594; -1,045 lines
 /// total) alongside removing the unreferenced susi-vendor-flume workspace
 /// facade (T-AGYCLOUD-3).
-/// 2026-11-11: susi-gawd-agents 10,447 -> 10,446 (the word-bounded FAILURE
-/// token is matched by hand instead of a regex; T-SMALLFACADES-1).
+/// 2026-11-11: T-AGYCLOUD-4: susi-gawd-agents 10,447 -> 10,443 (drop regex
+/// facade edge in accountability.rs), susi-gemi 21,263 -> 21,171 (std RwLock
+/// in local_plug.rs + move unchanged usage_accounting unit tests to src/tests),
+/// susi-harness 40,594 -> 40,575 (poll_body over hyper::body::Body + move
+/// unchanged MicroUsd inline tests from lib.rs to src/tests/money.rs).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
     ("susi-gawd-swarm", 20_635),
-    ("susi-gawd-agents", 10_446),
+    ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_702),
-    ("susi-gemi", 21_263),
+    ("susi-gemi", 21_171),
     ("susi-gemi-models", 15_950),
     ("susi-gmcp", 25_900),
-    ("susi-harness", 40_594),
+    ("susi-harness", 40_575),
 ];
 
 fn workspace_root() -> PathBuf {

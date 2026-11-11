@@ -10,5 +10,6 @@ fn main() -> std::io::Result<()> {
         "local-snapshot",
         "distill",
         "local-distill",
+        "release-qualify",
     ])
 }

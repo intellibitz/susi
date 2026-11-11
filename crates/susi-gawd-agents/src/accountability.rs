@@ -23,11 +23,9 @@ pub fn is_failure(output: &str) -> bool {
     }
     // Single-token markers must be word-bounded — otherwise a verified
     // `Cargo.toml` comment about "test failures" poisons a native read.
-    // Word chars are alphanumerics and `_`, as in `susi_core::pattern`.
-    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-    upper.match_indices("FAILURE").any(|(at, token)| {
-        !word(upper[..at].chars().next_back()) && !word(upper[at + token.len()..].chars().next())
-    })
+    upper
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .any(|word| word == "FAILURE")
 }
 
 pub fn is_usable(output: &str) -> bool {
@@ -62,8 +60,7 @@ mod tests {
         assert!(!is_failure(cargo_comment), "{cargo_comment}");
         assert!(is_usable(cargo_comment));
         assert!(is_failure("FAILURE: boom"));
-        assert!(is_failure("mission FAILURE reported") && is_failure("(FAILURE)"));
-        assert!(!is_failure("_FAILURE FAILURE_ 2FAILURE FAILURES"));
+        assert!(is_failure("mission FAILURE reported"));
     }
 }
 

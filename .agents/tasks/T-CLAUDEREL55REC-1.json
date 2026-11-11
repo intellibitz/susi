@@ -1,0 +1,51 @@
+{
+  "id": "T-CLAUDEREL55REC-1",
+  "title": "Record core release v0.21.55 on main",
+  "goal": "Qualify the distilled candidate distill/v0-21-55-rc2 on a Linux laptop, publish tag v0.21.55, and land releases/v0.21.55.json with its qualification record on main; advance development main to 0.21.55 so the record is not newer than the workspace",
+  "status": "done",
+  "scopes": [
+    "releases/v0.21.55.json",
+    "releases/qualification/v0.21.55.json",
+    ".agents/tasks/T-CLAUDEREL55REC-1.json",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    ".agents/gmcp/evidence"
+  ],
+  "size": "s",
+  "deps": [
+    "T-CLAUDEDISTILL-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDEREL55REC",
+  "created_unix": 1794374587,
+  "results": [
+    "release-qualify v0.21.55 on c16d8bfa4 (CachyOS Linux x86_64, isolated home, provider keys unset): format, check, clippy, licenses, tests, build, smoke all exit 0; 5452 passed, 0 failed, 14 ignored over 294 binaries",
+    "tag v0.21.55 -> 0dd10a52d published (git ls-remote: a8ae64a58 annotated)",
+    "susi sha256 650e6b8b...; susi-harness sha256 434e1271..."
+  ],
+  "limitations": [
+    "Windows x86_64 not qualified (owed_platforms)",
+    "the cloud run's host_only_privacy failure did not recur on this host, which has a LAN interface"
+  ]
+}

@@ -12,8 +12,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock};
-use susi_paths::sync::RwLock;
+use std::sync::{Arc, LazyLock, RwLock};
 
 pub const LOCAL_ENGINE_BUS_PREFIX: &str = "gpu_fabric.local_engine.";
 pub const TOPIC_LOCAL_INFER_STREAM: &str = "gpu_fabric.local_engine.infer_stream";
@@ -52,15 +51,19 @@ static REGISTERED_PLUG: LazyLock<RwLock<Option<Arc<dyn LocalEnginePlug>>>> =
     LazyLock::new(|| RwLock::new(None));
 
 pub fn register_local_engine_plug(plug: Arc<dyn LocalEnginePlug>) {
-    *REGISTERED_PLUG.write() = Some(plug);
+    *REGISTERED_PLUG.write().unwrap_or_else(|e| e.into_inner()) = Some(plug);
 }
 
 pub fn clear_local_engine_plug() {
-    *REGISTERED_PLUG.write() = None;
+    *REGISTERED_PLUG.write().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 pub fn local_engine_plug() -> Option<Arc<dyn LocalEnginePlug>> {
-    if let Some(plug) = REGISTERED_PLUG.read().clone() {
+    if let Some(plug) = REGISTERED_PLUG
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
         return Some(plug);
     }
     #[cfg(feature = "local-engine")]
@@ -323,16 +326,19 @@ impl LocalEnginePlug for BuiltinLocalEnginePlug {
             ))
         })?;
         let (version, tensor_count, _, arch) = inspect_gguf_header(&canonical)?;
-        RESIDENT_GGUF_MODELS.write().insert(
-            canonical.clone(),
-            ResidentGgufEntry {
-                path: canonical.clone(),
-                architecture: arch.clone(),
-                bytes: meta.len(),
-                modified_secs: file_modified_secs(&meta),
-                loaded_at_secs: now_unix_secs(),
-            },
-        );
+        RESIDENT_GGUF_MODELS
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                canonical.clone(),
+                ResidentGgufEntry {
+                    path: canonical.clone(),
+                    architecture: arch.clone(),
+                    bytes: meta.len(),
+                    modified_secs: file_modified_secs(&meta),
+                    loaded_at_secs: now_unix_secs(),
+                },
+            );
         Ok(json!({
             "path": canonical,
             "architecture": arch,
@@ -345,7 +351,11 @@ impl LocalEnginePlug for BuiltinLocalEnginePlug {
 
     fn unload(&self, path: &Path) -> EaiResult<Value> {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        let removed = RESIDENT_GGUF_MODELS.write().remove(&canonical).is_some();
+        let removed = RESIDENT_GGUF_MODELS
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&canonical)
+            .is_some();
         Ok(
             json!({ "path": canonical, "unloaded": removed, "in_flight_users": 0, "gpu_pool": "cpu" }),
         )
@@ -354,6 +364,7 @@ impl LocalEnginePlug for BuiltinLocalEnginePlug {
     fn loaded_models(&self) -> Vec<Value> {
         RESIDENT_GGUF_MODELS
             .read()
+            .unwrap_or_else(|e| e.into_inner())
             .values()
             .map(|e| {
                 json!({
@@ -373,6 +384,7 @@ impl LocalEnginePlug for BuiltinLocalEnginePlug {
         };
         RESIDENT_GGUF_MODELS
             .read()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&canonical)
             .is_some_and(|e| e.bytes == meta.len() && e.modified_secs == file_modified_secs(&meta))
     }

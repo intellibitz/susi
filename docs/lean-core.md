@@ -675,6 +675,34 @@ config, core and the tail.
   `susi-gawd-agents` 11,263 -> 10,447, `susi-gemi` 21,290 -> 21,263,
   `susi-harness` 40,790 -> 40,594; -1,045 counted lines total). No host
   build-time or executable-size reduction is claimed.
+- 2026-11-11 (T-AGYCLOUD-4, Linux x86_64, 2-vCPU cloud VM): delete two
+  workspace facades (`crates/susi-vendor-futures` and `crates/susi-vendor-bytes`)
+  and remove two pillar direct facade edges (`susi-gemi -> susi-vendor-parking-lot`,
+  `susi-gawd-agents -> susi-vendor-regex`). `susi-harness` replaces its five
+  `futures::stream::poll_fn` + `axum::body::Body::from_stream` sites (`cockpit`,
+  `gateway`, `ingress`) with a 26-line `poll_body` over `hyper::body::Body`
+  (`susi-vendor-hyper`, already in the pillar facade set via `susi-gmcp`);
+  `susi-server` imports `hyper::body::Bytes` directly; `susi-gemi` (`local_plug`)
+  uses `std::sync::RwLock`; and `susi-gawd-agents` (`accountability`) replaces
+  its sole `Regex::new(r"\bFAILURE\b")` (and an `expect_used` allow) with a std
+  word-boundary scan. Six lockfile packages leave (`susi-vendor-futures`,
+  `susi-vendor-bytes`, `futures`, `futures-executor`, `futures-io`, proc-macro
+  `futures-macro`), shrinking `cargo tree -p susi -e normal,build` unique
+  packages from 348 to 342. Pillar ceilings ratchet on all four axes:
+  `WORKSPACE_CEILING` 46 -> 45, `THIRD_PARTY_CEILING` 184 -> 180,
+  `DIRECT_FACADE_EDGES_CEILING` 20 -> 19, and `LINE_CEILINGS` (`susi-gawd-agents`
+  10,447 -> 10,443, `susi-gemi` 21,263 -> 21,171 with unchanged `usage_accounting`
+  unit tests moved to `src/tests`, `susi-harness` 40,594 -> 40,575 with unchanged
+  `MicroUsd` inline tests moved from `lib.rs` to `src/tests/money.rs`).
+- 2026-11-11 (T-AGYCLOUD-5, Linux x86_64, 2-vCPU cloud VM): delete the two
+  retired vendored patch trees (`vendor/reqwest` and `vendor/fluent-uri`,
+  73 files / 28,435 lines / 1.05 MiB) left unused after `T-CLAUDENOA2ASDK-1`
+  and the std JSON-schema cut, remove `[workspace.dependencies] reqwest` and
+  the two `[patch.crates-io]` entries from `Cargo.toml` and `Cargo.lock`
+  (`[[patch.unused]]`), and enforce zero `[[patch.unused]]` entries in
+  `tests/architecture_tests.rs`.
+
+
 - 2026-11-11 (T-SMALLFACADES-1, Linux x86_64, CEO laptop): three small
   facades leave core. `regex`: the truth gate's eleven static claim patterns
   (`susi-core` `truth.rs`, `verification.rs`) run on `susi_core::pattern`, a
@@ -682,17 +710,17 @@ config, core and the tail.
   against regex 1.13.1 on 15.6 million generated (pattern, text) pairs with no
   unexplained difference, plus 2.2 million on small edge patterns (lazy and
   greedy repetition, empty matches, `$`), frozen as table tests. One
-  documented difference: `\b` counts alphanumerics and `_` as word chars,
-  where Unicode `\w` also counts combining marks and joiners and not numbers
-  outside `Nd`. GAWD's `\bFAILURE\b` token is matched by hand with the same
-  rule. `parking_lot`: the pillar crates' locks are `susi_paths::sync`
-  (std-backed, never poisoning, same call sites). `dashmap`: GMCP's custom
-  tool maps, the tool registry and the daemon blackboard are std maps behind
-  those locks; a handler runs with no lock held. `susi-vendor-regex`,
-  `susi-vendor-dashmap` and `susi-vendor-parking-lot` are deleted (regex stays
-  in the workspace only as criterion's dev-dependency; parking_lot as tokio's).
-  Pillar reach 184 -> 177 third-party (aho-corasick, crossbeam-utils, dashmap,
-  regex, regex-automata, regex-syntax, susi-os-unicode), 46 -> 43 workspace,
-  20 -> 18 direct facade edges; `cargo tree -p susi` host packages 267 -> 260.
-  susi-gawd-agents 10,447 -> 10,446 lines; every other pillar line count
+  documented difference: `\b` counts alphanumerics and `_` as word chars
+  (the rule T-AGYCLOUD-4 gave GAWD's FAILURE token), where Unicode `\w` also
+  counts combining marks and joiners and not numbers outside `Nd`.
+  `parking_lot`: the locks of susi-config, susi-gawd-swarm and susi-gmcp are
+  `susi_paths::sync` (std-backed, never poisoning, same call sites).
+  `dashmap`: GMCP's custom tool maps, the tool registry and the daemon
+  blackboard are std maps behind those locks; a custom handler runs with no
+  lock held. `susi-vendor-regex`, `susi-vendor-dashmap` and
+  `susi-vendor-parking-lot` are deleted (regex stays in the workspace only as
+  criterion's dev-dependency, parking_lot as tokio's). Pillar reach 180 -> 173
+  third-party (aho-corasick, crossbeam-utils, dashmap, regex, regex-automata,
+  regex-syntax, susi-os-unicode), 45 -> 42 workspace, 19 -> 17 direct facade
+  edges; `cargo tree -p susi` host packages 261 -> 254. Pillar line counts
   unchanged. No build-time gain is claimed.
