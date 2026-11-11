@@ -1,0 +1,48 @@
+{
+  "id": "T-FURY-5",
+  "title": "Re-land the host-created AGYCLOUD work through Susi",
+  "goal": "Bring T-AGYCLOUD-4..7 (core; 9 commits and 2 merges the Git host created) back through Susi: verified replays carrying `Relands:` trailers joined to main by a Susi merge, and teach `distill lint`, `distill plan` and `local-distill` to honour only re-lands Git can prove (identical raw change for commits, ancestry for merges).",
+  "status": "done",
+  "owner": "fury",
+  "created_by": "FURY2",
+  "created_unix": 1794387889,
+  "size": "m",
+  "deps": [
+    "T-FURY-1"
+  ],
+  "base_commit": "7e176f6edc86a5e76f448895460d497906ebe4c3",
+  "scopes": [
+    "xtask/src/distill.rs",
+    "xtask/src/distill",
+    "xtask/src/distill_compose.rs",
+    "docs/distillation.md",
+    "docs/release-distillation.md",
+    ".agents/tasks/T-FURY-5.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "distill",
+      "--bin",
+      "local-distill"
+    ]
+  },
+  "results": {
+    "tests": "cargo test --offline --locked -p xtask --bin distill --bin local-distill: 23/23 and 19/19 (real-Git fixtures: forged re-land reported and not honoured; genuine replay + Susi merge re-land a host commit and a host merge; local-distill composes the replay)",
+    "clippy": "cargo clippy --offline --locked -p xtask --all-targets -- -D warnings: exit 0",
+    "relanded": "9 replays (author kept, committer FURY2, raw change byte-identical, checked per commit) + Susi merge 9bf5a1e08 (-s ours, tree unchanged) naming host merges c784c915b and 5be3d0efb",
+    "acceptance_on_this_tree": "T-AGYCLOUD-4/5: architecture_tests 43, lean_core_ceilings 2, orphan_sources 3; T-AGYCLOUD-6: capabilities_revoke_rejects_blank_id_and_cancels_issued_envelope 1/1; T-AGYCLOUD-7: task_records 3; all passed",
+    "proof": "distill lint --range v0.21.55..HEAD: commits_created_by_git_host 0, host_commits_relanded 11, reland_claims_not_honoured 0; distill plan --tasks T-AGYCLOUD-4..7 --base HEAD: 18 included, 0 deferred, 0 rejected (after closing the released T-CLAUDEDISTILL-1)"
+  },
+  "closed": {
+    "at_unix": 1794388060,
+    "commit": "62f77f309ec7f14599c0b89e6c1c282a0c52c35e",
+    "by": "FURY2"
+  }
+}
