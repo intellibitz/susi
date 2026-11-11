@@ -1,0 +1,186 @@
+{
+  "assets": [
+    {
+      "bytes": 30802992,
+      "file": "susi",
+      "sha256": "0ae11e62817db7d7ffeba2a0929b2831b4cf6ffff5f96dec454e2bc8652cc6a5",
+      "version_output": "susi 0.21.61"
+    },
+    {
+      "bytes": 2449112,
+      "file": "susi-harness",
+      "sha256": "466ddfa5f31efb8aa23352623be68574902c464e17115833c7afe2a4ac770e04",
+      "version_output": "susi-harness 0.21.61"
+    }
+  ],
+  "cargo_lock_sha256": "573c1662684f0c27fc84af091d16b49d46a9de6ddaa0583c2f42786be71506a7",
+  "distillation": {
+    "adopted_host_commits": [],
+    "base_commit": "527a58709f081bf7d431befe880642229b959fd0",
+    "candidate": "v0-21-61-distilled-rc1",
+    "envelope_commit": "5a33b9b59431b03a1521d67c106e70e3b4c9e97e",
+    "final_commit": "07632503d910cbf72890597a4aa8879ac01ab7c1",
+    "final_tree": "8e21a04230f5643593e02efa1cfadd224c650399",
+    "included_tasks": [
+      "T-CARBONLEAN-16"
+    ],
+    "receipt_path": "releases/distill/v0-21-61-distilled-rc1.json",
+    "receipt_sha256": "d972ef9f7facd5f9903a6c9a40a2e17de1e39a68aa039a57995c1d56e6703036"
+  },
+  "finished_unix": 1794402794,
+  "gates": [
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "duration_s": 5,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "name": "format"
+    },
+    {
+      "argv": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--all-targets",
+        "--keep-going",
+        "--offline",
+        "--locked",
+        "-j",
+        "8"
+      ],
+      "duration_s": 30,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "fdef14d2000075e1916d2e920081689303829b3a2b72e960d3afcfa8a20b1c44",
+      "name": "check"
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--offline",
+        "--locked",
+        "-j",
+        "8",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "duration_s": 31,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "d0cab952b622ea4ca2713577825ead81f96e985be723009078165fd388d80857",
+      "name": "clippy"
+    },
+    {
+      "argv": [
+        "cargo",
+        "deny",
+        "--offline",
+        "--locked",
+        "check",
+        "licenses"
+      ],
+      "duration_s": 0,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "3120fb2e060343768e3dd407702489f89c6d1637bf213009315ef73383e73104",
+      "name": "licenses"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--offline",
+        "--locked",
+        "--no-fail-fast",
+        "-j",
+        "8"
+      ],
+      "duration_s": 287,
+      "env": [],
+      "exit_code": 0,
+      "log_sha256": "7721dccb1133ce2c3bc97321f60ab2dcdab205cc01e7f0a81d546075dbd2ad5e",
+      "name": "tests",
+      "tests": {
+        "binaries": 251,
+        "failed": 0,
+        "ignored": 14,
+        "passed": 5675
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--profile",
+        "dist",
+        "-p",
+        "susi-harness",
+        "-p",
+        "susi",
+        "--features",
+        "susi/local-engine",
+        "-j",
+        "8"
+      ],
+      "duration_s": 97,
+      "env": [
+        "CARGO_PROFILE_DIST_LTO=false",
+        "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"
+      ],
+      "exit_code": 0,
+      "log_sha256": "9d5ddd24fd37fb08cf444c03f46e4e3afdb284d1efafe293ec4edd43355599ef",
+      "name": "build"
+    },
+    {
+      "argv": [
+        "target/dist/susi --version",
+        "target/dist/susi-harness --version"
+      ],
+      "duration_s": 0,
+      "env": [
+        "HOME=<private>",
+        "SUSI_HOME=<private>",
+        "SUSI_NO_REGISTRY_ENV=1"
+      ],
+      "exit_code": 0,
+      "name": "smoke"
+    }
+  ],
+  "harvest_audit": {
+    "files": 0,
+    "harvest_trailer_commits": 0,
+    "manifests": 0,
+    "ok": true,
+    "violations": []
+  },
+  "host": "x86_64-unknown-linux-gnu",
+  "owed_platforms": [
+    "x86_64-pc-windows-msvc"
+  ],
+  "product": "susi",
+  "provenance": "written by xtask release-qualify from the logs under target/release-qualification; each gate's log digest is recorded",
+  "qualified_commit": "79dd83ba04c9ed377742138c345f45f89c1d5190",
+  "qualified_tree": "6c75a710d180106b75da4ebad602f9711fb93b77",
+  "schema": "susi-release-qualification/v1",
+  "source": "distill",
+  "started_unix": 1794402341,
+  "tag": "v0.21.61",
+  "toolchain": {
+    "channel": "1.99.0",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)"
+  },
+  "version": "0.21.61"
+}
