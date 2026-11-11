@@ -48,7 +48,6 @@ members = [
     "crates/susi-vendor-windows-registry",
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tokio-rustls",
-    "crates/susi-vendor-tower-service",
     "crates/susi-vendor-tracing",
     "crates/susi-vendor-tracing-subscriber",
     "crates/susi-vendor-winapi",

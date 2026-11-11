@@ -1623,7 +1623,6 @@ dependencies = [
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
  "susi-vendor-tokio-rustls",
- "susi-vendor-tower-service",
  "susi-wire-client",
 ]
 
@@ -1891,13 +1890,6 @@ dependencies = [
  "tokio-native-tls",
  "x509-cert",
  "zeroize",
-]
-
-[[package]]
-name = "susi-vendor-tower-service"
-version = "0.1.0"
-dependencies = [
- "tower-service",
 ]
 
 [[package]]

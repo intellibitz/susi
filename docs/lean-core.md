@@ -860,3 +860,14 @@ config, core and the tail.
   --offline --locked -p susi` (`CARBON_JOBS=24`) measured 29.36 s on Linux
   x86_64; pillar reach stays 38 workspace, 141 third-party, 14 direct facade
   edges (both removed facades sat outside the four-pillar normal closure).
+- 2026-11-11 (T-AGYCLOUD-8, Linux x86_64, 2-vCPU cloud VM): the
+  `susi-vendor-tower-service` facade leaves core. `susi-gmcp` (`server.rs`,
+  `protocol_tests.rs`) calls `StreamableHttpService::handle` directly without
+  boxing every HTTP request into a `tower_service::Service` trait wrapper in
+  `mcp/http.rs`. Pillar reach: workspace crates 38 -> 37, direct facade edges
+  14 -> 13 (`cargo tree -p susi` host packages 227 -> 226; third-party metadata
+  reach stays 141 because `hyper-util` still depends on `tower-service`). Lines:
+  `susi-gmcp` 25,889 -> 25,860 (-29 shipped lines). GMCP requirement and
+  `--mastery` evidence re-recorded in both phases. No host build-time gain is
+  claimed.
+
