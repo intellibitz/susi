@@ -118,6 +118,10 @@ file), and `submit-main`, `integrate` and `release-promote` run it after every
 live publication, from the command line and through the daemon. A finding
 arrives as a note beside the receipt; the receipt and its digest are unchanged.
 
+`cargo local-workflow ship` and `ship --retry`, the gated landing, do it as
+well, whatever the ship's result. Susi Commercial Apps ships with this same
+binary through its cargo alias, so its ship path is covered by the same code.
+
 ## Hooks are on after a clone's first build
 
 Git never enables a repository's hooks on clone. The root `build.rs` therefore
