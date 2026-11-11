@@ -751,7 +751,27 @@ pub mod gemi {
             on_meta: &dyn Fn(&str),
             requires: Option<&str>,
         ) -> String {
-            Self::stream(prompt, workspace, on_chunk, model, on_meta, false, requires)
+            Self::generate_reasoning_stream_with_model_meta_chat(
+                prompt, workspace, on_chunk, model, on_meta, requires, None,
+            )
+        }
+
+        /// Streaming reasoning with the complete caller conversation for a
+        /// local engine that can render the model's own template. The prose
+        /// prompt remains the fallback for older engines and cloud providers.
+        #[allow(clippy::too_many_arguments)]
+        pub fn generate_reasoning_stream_with_model_meta_chat(
+            prompt: &str,
+            workspace: &Path,
+            on_chunk: &dyn Fn(String),
+            model: Option<&str>,
+            on_meta: &dyn Fn(&str),
+            requires: Option<&str>,
+            chat: Option<Value>,
+        ) -> String {
+            Self::stream(
+                prompt, workspace, on_chunk, model, on_meta, false, requires, chat,
+            )
         }
 
         /// Streaming reasoning that never takes a reflex tier — for
@@ -763,7 +783,22 @@ pub mod gemi {
             workspace: &Path,
             on_chunk: &dyn Fn(String),
         ) -> String {
-            Self::stream(prompt, workspace, on_chunk, None, &|_| {}, true, None)
+            Self::stream(prompt, workspace, on_chunk, None, &|_| {}, true, None, None)
+        }
+
+        /// Deep streaming reasoning with a caller conversation.
+        #[allow(clippy::too_many_arguments)]
+        pub fn generate_reasoning_stream_deep_meta_chat(
+            prompt: &str,
+            workspace: &Path,
+            on_chunk: &dyn Fn(String),
+            model: Option<&str>,
+            on_meta: &dyn Fn(&str),
+            chat: Option<Value>,
+        ) -> String {
+            Self::stream(
+                prompt, workspace, on_chunk, model, on_meta, true, None, chat,
+            )
         }
 
         #[allow(clippy::too_many_arguments)] // private helper behind the two public stream entry points; a params struct would only wrap them
@@ -775,6 +810,7 @@ pub mod gemi {
             on_meta: &dyn Fn(&str),
             deep: bool,
             requires: Option<&str>,
+            chat: Option<Value>,
         ) -> String {
             let bus = PlaneBus::global();
             let (stream_id, rx) = bus.open_stream();
@@ -787,6 +823,7 @@ pub mod gemi {
                     "model": model,
                     "deep": deep,
                     "requires": requires,
+                    "chat": chat,
                     "on_demand_engine_start": crate::susi_core::provider::OnDemandEngineStart::allowed(),
                 }),
             );
@@ -822,7 +859,7 @@ pub mod gemi {
         }
 
         pub fn generate_reasoning_deep(prompt: &str, workspace: &Path) -> String {
-            Self::deep(prompt, workspace, None, None, None)
+            Self::deep(prompt, workspace, None, None, None, None)
         }
 
         pub fn generate_reasoning_deep_with_model(
@@ -830,7 +867,7 @@ pub mod gemi {
             workspace: &Path,
             model: &str,
         ) -> String {
-            Self::deep(prompt, workspace, Some(model), None, None)
+            Self::deep(prompt, workspace, Some(model), None, None, None)
         }
 
         /// Deep reasoning with the request's declared capability
@@ -843,18 +880,32 @@ pub mod gemi {
             model: Option<&str>,
             requires: Option<&str>,
         ) -> String {
-            Self::deep(prompt, workspace, model, None, requires)
+            Self::generate_reasoning_deep_full_chat(prompt, workspace, model, requires, None)
+        }
+
+        /// Non-streaming deep reasoning with the complete caller
+        /// conversation, preserving the plain prompt fallback.
+        pub fn generate_reasoning_deep_full_chat(
+            prompt: &str,
+            workspace: &Path,
+            model: Option<&str>,
+            requires: Option<&str>,
+            chat: Option<Value>,
+        ) -> String {
+            Self::deep(prompt, workspace, model, None, requires, chat)
         }
 
         /// Shared non-streaming inference request: `model` selects the
         /// caller-named model, `requires` forwards the declared
         /// capability into the engine's local-rung gate.
+        #[allow(clippy::too_many_arguments)]
         fn deep(
             prompt: &str,
             workspace: &Path,
             model: Option<&str>,
             min_complexity: Option<&str>,
             requires: Option<&str>,
+            chat: Option<Value>,
         ) -> String {
             let topic = if model.is_some() {
                 topics::GEMI_INFER_GENERATE_DEEP_MODEL
@@ -869,6 +920,7 @@ pub mod gemi {
                     "model": model,
                     "min_complexity": min_complexity,
                     "requires": requires,
+                    "chat": chat,
                     "on_demand_engine_start": crate::susi_core::provider::OnDemandEngineStart::allowed(),
                 }),
             )
@@ -902,7 +954,7 @@ pub mod gemi {
             workspace: &Path,
             complexity: &str,
         ) -> String {
-            Self::deep(prompt, workspace, None, Some(complexity), None)
+            Self::deep(prompt, workspace, None, Some(complexity), None, None)
         }
 
         pub fn verify_axiomatic_alignment(text: &str, workspace: &Path) -> Result<String, String> {
@@ -1178,6 +1230,21 @@ pub mod gawd {
         model: Option<&str>,
         requires: Option<&str>,
     ) -> String {
+        solve_mission_generative_with_chat(intent, workspace, version, model, requires, None)
+    }
+
+    /// Generative mission solve with the caller's normalized conversation.
+    /// Non-local providers continue to receive the assembled prose intent;
+    /// the chat payload is carried through the GAWD/GEMI local path.
+    #[allow(clippy::too_many_arguments)]
+    pub fn solve_mission_generative_with_chat(
+        intent: &str,
+        workspace: &Path,
+        version: &str,
+        model: Option<&str>,
+        requires: Option<&str>,
+        chat: Option<Value>,
+    ) -> String {
         req_ok(
             topics::GAWD_SOLVE,
             json!({
@@ -1186,7 +1253,8 @@ pub mod gawd {
                 "version": version,
                 "model": model,
                 "generative": true,
-                "requires": requires
+                "requires": requires,
+                "chat": chat
             }),
         )
         .get("text")

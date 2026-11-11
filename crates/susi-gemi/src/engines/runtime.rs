@@ -104,7 +104,17 @@ impl GemiEngine {
     pub fn shutdown_owned_runner() {}
 
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
-        Self::reason_internal(prompt, workspace, true, &|_| {}, None, None, None, &|_| {})
+        Self::reason_internal(
+            prompt,
+            workspace,
+            true,
+            &|_| {},
+            None,
+            None,
+            None,
+            &|_| {},
+            None,
+        )
     }
 
     pub fn generate_reasoning_deep(prompt: &str, workspace: &Path) -> String {
@@ -125,6 +135,7 @@ impl GemiEngine {
             None,
             None,
             &|_| {},
+            None,
         )
     }
 
@@ -142,6 +153,7 @@ impl GemiEngine {
             Some(model),
             None,
             &|_| {},
+            None,
         )
     }
 
@@ -156,6 +168,28 @@ impl GemiEngine {
         min_complexity: Option<crate::models::intent::TaskComplexity>,
         requires: Option<&str>,
     ) -> String {
+        Self::generate_reasoning_deep_opts_chat(
+            prompt,
+            workspace,
+            model,
+            min_complexity,
+            requires,
+            None,
+        )
+    }
+
+    /// Non-streaming deep reasoning with a complete caller conversation.
+    /// The plain prompt remains the fallback for engines that do not support
+    /// the additive chat field.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_reasoning_deep_opts_chat(
+        prompt: &str,
+        workspace: &Path,
+        model: Option<&str>,
+        min_complexity: Option<crate::models::intent::TaskComplexity>,
+        requires: Option<&str>,
+        chat: Option<serde_json::Value>,
+    ) -> String {
         Self::reason_internal(
             prompt,
             workspace,
@@ -165,6 +199,7 @@ impl GemiEngine {
             model,
             requires,
             &|_| {},
+            chat,
         )
     }
 
@@ -173,7 +208,17 @@ impl GemiEngine {
         workspace: &Path,
         callback: &dyn Fn(String),
     ) -> String {
-        Self::reason_internal(prompt, workspace, true, callback, None, None, None, &|_| {})
+        Self::reason_internal(
+            prompt,
+            workspace,
+            true,
+            callback,
+            None,
+            None,
+            None,
+            &|_| {},
+            None,
+        )
     }
 
     /// Streaming reasoning honoring a caller-requested model name — the
@@ -193,6 +238,7 @@ impl GemiEngine {
             Some(model),
             None,
             &|_| {},
+            None,
         )
     }
 
@@ -211,6 +257,22 @@ impl GemiEngine {
         meta: &dyn Fn(&str),
         requires: Option<&str>,
     ) -> String {
+        Self::generate_reasoning_stream_meta_chat(
+            prompt, workspace, callback, model, meta, requires, None,
+        )
+    }
+
+    /// Streaming reasoning with the caller's complete conversation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_reasoning_stream_meta_chat(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+        model: Option<&str>,
+        meta: &dyn Fn(&str),
+        requires: Option<&str>,
+        chat: Option<serde_json::Value>,
+    ) -> String {
         Self::reason_internal(
             prompt,
             workspace,
@@ -220,6 +282,7 @@ impl GemiEngine {
             model,
             requires,
             meta,
+            chat,
         )
     }
 
@@ -231,7 +294,24 @@ impl GemiEngine {
         model: Option<&str>,
         meta: &dyn Fn(&str),
     ) -> String {
-        Self::reason_internal(prompt, workspace, false, callback, None, model, None, meta)
+        Self::generate_reasoning_stream_deep_meta_chat(
+            prompt, workspace, callback, model, meta, None,
+        )
+    }
+
+    /// Deep streaming reasoning with the caller's complete conversation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_reasoning_stream_deep_meta_chat(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+        model: Option<&str>,
+        meta: &dyn Fn(&str),
+        chat: Option<serde_json::Value>,
+    ) -> String {
+        Self::reason_internal(
+            prompt, workspace, false, callback, None, model, None, meta, chat,
+        )
     }
 
     /// Ultra-Latency Competitive Inference Racing
@@ -245,9 +325,10 @@ impl GemiEngine {
         requested_model: Option<&str>,
         requires: Option<&str>,
         meta: &dyn Fn(&str),
+        chat_request: Option<serde_json::Value>,
     ) -> String {
         let _model_reads = crate::models::ModelReadWindow::enter();
-        if allow_reflex {
+        if allow_reflex && chat_request.is_none() {
             let (reflex_decision, _) = super::reflex::ReflexEngine::try_solve(prompt, workspace);
             if let super::reflex::ReflexDecision::Solved(action) = reflex_decision {
                 // Record the serve on the mission's evidence session so the
@@ -477,9 +558,11 @@ impl GemiEngine {
         // With tools, the request also goes as a conversation with the tool
         // schemas; an engine that renders the model's own template uses it,
         // any other uses the prose prompt.
-        let chat = needs_tools
-            .then(|| crate::local_tool_calls::chat_request(prompt))
-            .flatten();
+        let chat = chat_request.or_else(|| {
+            needs_tools
+                .then(|| crate::local_tool_calls::chat_request(prompt))
+                .flatten()
+        });
         let prompt = if needs_tools {
             engine_prompt = crate::local_tool_calls::prompt_with_tool_schemas(prompt);
             engine_prompt.as_str()

@@ -91,14 +91,16 @@ impl PlaneHandler for GawdPlaneHandler {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let requires = payload.get("requires").and_then(|v| v.as_str());
+                let chat = payload.get("chat").cloned();
                 if payload.get("tenant_id").is_some() {
                     return Ok(json!({ "error": MULTI_TENANT_COMMERCIAL }));
                 }
 
                 let master = crate::ama::SusiMasterAgent::new();
                 let text = if generative {
-                    master
-                        .solve_clean_generative_with_requires(intent, &ws, version, model, requires)
+                    master.solve_clean_generative_with_requires_chat(
+                        intent, &ws, version, model, requires, chat,
+                    )
                 } else {
                     master.solve_clean_with_model(intent, &ws, version, model)
                 };
