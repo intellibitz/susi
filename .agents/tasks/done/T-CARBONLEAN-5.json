@@ -3,8 +3,8 @@
   "feature_id": "F-LEAN-CORE-FACADE-CUT-5",
   "title": "Lean core: delete http-body-util facade; shared susi-http-transport body combinators and triple pillar ceiling ratchet",
   "goal": "Remove susi-vendor-http-body-util and http-body-util from Cargo.lock (-2 packages; 113 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..5), provide #![forbid(unsafe_code)] shared Hyper body combinators (BoxBody, Full, Empty, Limited, LengthLimitError, Collected, BodyExt) in susi_http_transport::http_body for susi-gmcp and susi-server, ratchet all three pillar reach ceilings down simultaneously (THIRD_PARTY_CEILING 140 -> 139, WORKSPACE_CEILING 37 -> 36, DIRECT_FACADE_EDGES_CEILING 13 -> 12), and re-record GMCP requirement and --mastery evidence.",
-  "status": "in_progress",
-  "state": "claimed",
+  "status": "done",
+  "state": "done",
   "owner": "carbon-cachyos-distill",
   "created_by": "carbon-cachyos-distill",
   "created_unix": 1794384214,
@@ -64,5 +64,19 @@
     "cargo test --offline --locked -p susi-gmcp --lib",
     "cargo test --offline --locked -p susi-server --lib",
     "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records --test gmcp_requirements"
+  ],
+  "results": {
+    "lockfile_packages_removed": "2 packages removed from Cargo.lock (http-body-util 0.1.5 and susi-vendor-http-body-util), 0 added; 113 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..5; cargo tree -p susi Linux host packages 202 -> 200, -e normal 193 -> 191, host build units 263 -> 261",
+    "triple_pillar_ceiling_ratchet": "THIRD_PARTY_CEILING 140 -> 139, WORKSPACE_CEILING 37 -> 36, DIRECT_FACADE_EDGES_CEILING 13 -> 12; susi-gmcp shipped lines unchanged at 25,860",
+    "license_and_lint_gates": "cargo deny --offline --locked check licenses -> licenses ok; cargo clippy -p susi-http-transport -p susi-gmcp -p susi-server --all-targets -- -D warnings -> 0 warnings (6.44 s); cargo fmt --all --check -> 0 diffs",
+    "touched_crate_and_guard_tests": "susi-gmcp 213/213, susi-http-transport 46/46 (including 3 new http_body unit tests), susi-server 49/49, architecture_tests 43/43, core_docs_promise_no_ui_or_plugins 5/5, lean_core_ceilings 2/2, no_github_coupling 5/5, orphan_sources 3/3, task_records 3/3, gmcp_requirements 88/88 after 2-phase evidence re-recording (457/457 total tests passed)"
+  },
+  "limitations": [
+    "Verified on native Linux x86_64 host only per current-host workflow; dual-OS production tag qualification stays separate from accept_verified_candidate release/* distillation."
+  ],
+  "source_commits": [
+    "d3632ec46094e244f6b75d60ee606137f31f17a5",
+    "d8b14e6268c4408f33d17ab94e8d5e68f9bf4cb0",
+    "dabaf08d7fd9ccc052c205a26c85ef4a8613a384"
   ]
 }
