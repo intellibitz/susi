@@ -118,7 +118,7 @@ impl Session {
         session.open = true;
         let result = read_result(init, 1, &mut |_| {})?;
         session.version = negotiated_version(&result)?;
-        // Only the status matters (rmcp answers 202 with no body); the
+        // Only the status matters (GMCP answers 202 with no body); the
         // reply is dropped unread, as the peer client does.
         session.post(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
         Ok(session)

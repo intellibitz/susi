@@ -59,7 +59,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     ToolRegistry::register_meta_tool(
         registry,
         "bloat_audit",
-        "Recursively audit src/ and target/ for bloat and hardcoded secrets, thread-parallel across all cores",
+        "Recursively audit every Rust source in the workspace (production code) and target/ for bloat and hardcoded secrets, thread-parallel across all cores",
         MetaCategory::SystemPrimitive,
         adapt(CoreTools::bloat_audit),
     );

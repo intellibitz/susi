@@ -1,6 +1,7 @@
 //! Canonical GMCP content model (VC-203-008).
 //!
-//! The vendored `rmcp::model` structs are the typed-API form the service
+//! GMCP's own typed wire model (`crate::mcp::model`, also reachable as
+//! `susi_gmcp::rmcp::model`) is the typed-API form the service
 //! handlers consume, but their serde derives silently drop keys the schema
 //! revision does not name — an extension field a future revision or a
 //! permitted peer adds would vanish at the boundary. This module owns the
@@ -507,7 +508,7 @@ impl CanonicalContentBlock {
     }
 
     /// The typed-API form service handlers consume — the explicit adapter
-    /// between the canonical representation and `rmcp::model`. Every spec
+    /// between the canonical representation and `crate::mcp::model`. Every spec
     /// field maps exactly; extension keys live only on the canonical side
     /// (the typed model does not carry them, which is precisely why the
     /// canonical form exists).
