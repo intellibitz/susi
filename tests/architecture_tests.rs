@@ -162,7 +162,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-parking-lot",
     "susi-vendor-proptest",
     "susi-vendor-ra2a",
-    "susi-vendor-rayon",
     "susi-vendor-rcgen",
     "susi-vendor-regex",
     "susi-vendor-serde",
@@ -1509,7 +1508,7 @@ fn brain_lanes_board_is_retired_into_data() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     assert!(
         !root.join("docs/brain-lanes.md").exists(),
-        "docs/brain-lanes.md must stay deleted; use .agents/lanes/<AGENT>.json and `susi tasks`"
+        "docs/brain-lanes.md must stay deleted; use .agents/lanes/<AGENT>.json and `susi-commercial tasks`"
     );
     let mut agents = Vec::new();
     for entry in std::fs::read_dir(root.join(".agents/lanes")).unwrap() {
@@ -1599,7 +1598,7 @@ fn roadmap_vectors_and_tasks_stay_linked() {
         .collect();
     assert!(
         uncovered.is_empty(),
-        "P0 roadmap vectors with no task: {uncovered:?} — `susi tasks add --roadmap <id> …`"
+        "P0 roadmap vectors with no task: {uncovered:?} — `susi-commercial tasks add --roadmap <id> …`"
     );
 }
 

@@ -169,7 +169,7 @@ impl CoreTools {
 
     crate::tool_def!(bloat_audit_tool_attr {
         name: "bloat_audit",
-        description: "Recursively audit src/ (AST-based) and target/ (build artifact size) for bloat and hardcoded secrets, rayon-parallel across all cores. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
+        description: "Recursively audit every Rust source under the workspace (AST-based; target/, dot directories and test-only trees skipped) and target/ (build artifact size) for bloat and hardcoded secrets, on std worker threads across all cores. Optional workspace: the absolute directory the CLI would run in, admitted by the MAC policy (default: the server workspace).",
         input_schema: args::typed::<args::WorkspaceView>(),
     });
     pub fn bloat_audit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {

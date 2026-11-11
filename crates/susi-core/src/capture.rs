@@ -31,7 +31,7 @@ thread_local! {
 }
 
 /// Live sessions per canonical workspace, most recent activation last. Swarm
-/// agents on rayon workers never inherit thread-locals, so activation
+/// agents on worker threads (`crate::parallel`) never inherit thread-locals, so activation
 /// publishes authority process-wide; the newest activation owns the
 /// workspace. It is a stack, not a single slot: when a later mission on the
 /// same workspace finished first, the slot (and rendezvous file) used to be
@@ -927,7 +927,7 @@ mod tests {
     }
 
     #[test]
-    fn rayon_workers_record_into_the_mission_session() {
+    fn worker_threads_record_into_the_mission_session() {
         let ws = Workspace::new();
         let session = session(&ws);
         let _activation = EvidenceSession::activate(&session);

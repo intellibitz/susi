@@ -616,7 +616,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     ));
 
     // --- Concurrency: the pools the swarm and daemon actually run on ---
-    let rayon_threads = susi_gawd::swarm_pool_threads();
+    let swarm_threads = susi_gawd::swarm_pool_threads();
     let tokio_ok = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -625,9 +625,9 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     out.push(check(
         "concurrency_first",
         true,
-        rayon_threads > 1 && tokio_ok,
+        swarm_threads > 1 && tokio_ok,
         format!(
-            "Rayon swarm pool {rayon_threads} threads; Tokio multi-thread runtime builds={tokio_ok}"
+            "Swarm worker pool (std scoped threads) {swarm_threads} threads; Tokio multi-thread runtime builds={tokio_ok}"
         ),
     ));
 

@@ -1,0 +1,53 @@
+{
+  "id": "T-TRUTHDOCS-1",
+  "native_worker": "truthdocs",
+  "title": "Core comments, docs and GMCP tool descriptions say what the code does today",
+  "goal": "Remove stale statements the coordination board lists for core: the deleted susi-vendor-rayon facade in tests/architecture_tests.rs; the GMCP bloat_audit description ('rayon-parallel'; it scans every Rust source under the workspace on std worker threads); the GMCP intent_ladder description (adopt_gap is refused and names susi-commercial) and the docs/gmcp-roadmap.md queue example (susi-commercial tasks/workflow); Mandate 55's did-you-mean example and other rmcp / cell-server / rayon / gawd->a2a statements in .agents/identity.json; rmcp mentions in susi-core mcp_client.rs, susi-wire-client and GMCP comments; ARCHITECTURE.md's susi-gawd -> susi-gawd-a2a edge (the daemon owns it since T-A2ASTD-1). Text only; GMCP evidence re-recorded in both phases.",
+  "status": "implemented",
+  "size": "s",
+  "deps": [],
+  "base": "b3678bfd94a6fb0bfe6df247dd00661627de3c7f",
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/gmcp/requirements-ledger.json",
+    ".agents/gmcp/sources.json",
+    ".agents/identity.json",
+    ".agents/tasks/T-TRUTHDOCS-1.json",
+    "ARCHITECTURE.md",
+    "crates/susi-core/src/capture.rs",
+    "crates/susi-core/src/mcp_client.rs",
+    "crates/susi-daemon/src/crown.rs",
+    "crates/susi-daemon/src/gmcp_bootstrap.rs",
+    "crates/susi-daemon/src/server.rs",
+    "crates/susi-gmcp/src/content.rs",
+    "crates/susi-gmcp/src/protocol_tests.rs",
+    "crates/susi-gmcp/src/tools/args.rs",
+    "crates/susi-gmcp/src/tools/core.rs",
+    "crates/susi-gmcp/src/tools/host_view_tools.rs",
+    "crates/susi-server/src/lib.rs",
+    "crates/susi-wire-client/src/mcp.rs",
+    "crates/susi-wire-client/src/sse.rs",
+    "docs/gmcp-roadmap.md",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "TRUTHDOCS",
+  "created_unix": 1794359870,
+  "owner": "TRUTHDOCS",
+  "results": "Linux x86_64 on the committed tree: cargo fmt --all --check ok; cargo check --workspace --all-targets --keep-going --offline --locked exit 0; cargo clippy --workspace --all-targets --offline --locked -- -D warnings exit 0; lib tests susi-core 465, susi-daemon 205 (5 ignored), susi-gmcp 213, susi-server 49, susi-wire-client 33, susi bins 129, 0 failed; gmcp_requirements 87/87, architecture_tests 43, core_docs_promise 5, gmcp_roadmap 18, lean_core_ceilings 2, orphan_sources 3, task_records 3, 0 failed. GMCP evidence re-recorded both phases (54 requirement checks, 9 mastery checks) on the final source tree.",
+  "limitations": "docs/gmcp-roadmap.md is a pinned ledger source: its sha256 and byte count were re-pinned in .agents/gmcp/sources.json and the eight CLAIM rows; nine requirement checks assert their own record names the current ledger hash, so bridge records (commit fd9d64094) preceded the scripted run and are superseded by it. Not changed (constitution/policy, coordinator decision): identity.json Mandate 28 'Data Parallelism (Rayon Prefer)', Mandate 4 and the design-principle/foundation-pillar summaries naming Rayon/Crossbeam; identity.json components still list deleted vendor crates (candle, tantivy, fastembed, chrome). Dated history logs (ARCHITECTURE.md gap tables, lean-core wave log, workflow-speed) keep their period wording."
+}

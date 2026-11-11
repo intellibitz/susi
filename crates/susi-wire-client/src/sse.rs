@@ -155,7 +155,7 @@ mod tests {
         assert_eq!(got[0].id, None);
     }
 
-    /// The rmcp priming event carries an empty `data:` line; it is an event
+    /// GMCP's priming event carries an empty `data:` line; it is an event
     /// with empty data, which callers skip as not JSON.
     #[test]
     fn empty_data_line_is_an_event_with_empty_data() {

@@ -1,5 +1,6 @@
 //! Blocking session-aware MCP `tools/call` client for the Streamable HTTP
-//! transport served by `susi-gmcp` (rmcp SDK `StreamableHttpService`).
+//! transport served by `susi-gmcp` (its own MCP layer, `StreamableHttpService`
+//! in `crates/susi-gmcp/src/mcp/http.rs`; no MCP SDK is linked).
 //!
 //! The peer channel contract, verified against a live daemon:
 //!

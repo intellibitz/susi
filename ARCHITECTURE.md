@@ -91,7 +91,7 @@ never consume an unterminated source tail.
 | `susi-gawd-swarm` | AMA / DAG / cloud recovery; verified cluster-peer RTT is measured from signed ping/pong nonces (uptime remains unknown) | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes; HTTP clients | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` + `susi-http-transport` | peer feature planes; reqwest/ureq | transport | tasks | yes |
 | `susi-harness` | Self-build orchestration: durable supervisor, scheduler, native worker loop, metered gateway, cost accounting, pricing catalogue, and the JSON/SSE harness API (no UI; the module keeps its `cockpit` name) (`docs/harness.md`, `docs/harness-os.md`) | `supervisor::{Supervisor, Plan}`, `scheduler::Scheduler`, `worker::NativeWorker`, `gateway::Gateway`, `budget::Budget`, `catalog::PriceCatalogue`, `ledger::CostLedger`, `cockpit::Cockpit` | `susi-abi`, `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-http-transport` | `susi-daemon`, root `susi` | no | ledger, events, supervisor state | yes |
-| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | `susi-gawd-{agents,swarm,a2a}` + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client; ra2a/reqwest/axum | no | genome/reflexes | yes |
+| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | `susi-gawd-{agents,swarm}` + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client; ra2a/reqwest/axum | no | genome/reflexes | yes |
 | `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, `susi-http-transport`; the MCP server itself is GMCP's own (`crates/susi-gmcp/src/mcp`: wire model, sessions, stdio and Streamable HTTP; no MCP SDK linked); optional `susi-vendor-syn` (`tools-rich`) | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
 | `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation, `ast_analyze` and complete crate-forbid measurement | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)`, `crate_forbids_unsafe_checked` | syn | workspace crates | no | no | no |
 | `susi-unsafe-ratchet` | Offline source-bound unsafe declaration measurement and reviewed inventory admission | `measurement`, `inventory`, native `unsafe_measure` / `unsafe_ratchet` commands | `susi-vendor-syn`; serialization and digest facades `susi-vendor-{serde,serde-json,sha2}` | every other workspace crate, including HTTP/SDK facades and feature planes | no | measurements, reviewed baselines and receipts | source files and local Cargo/Git/compiler inspection; no network |
@@ -164,7 +164,8 @@ makes a remount a hard failure.
 
 **`susi-gawd-swarm` / `susi-gawd-a2a` / `susi-gemi-models` are Cargo
 dependencies, not mounts.** The host `susi-gawd` crate depends on the swarm
-and A2A crates and re-exports their modules; `susi-gemi` depends on
+crate and re-exports its modules; `susi-daemon` depends on the A2A crate
+directly (`susi-gawd` has no A2A edge since T-A2ASTD-1); `susi-gemi` depends on
 `susi-gemi-models` and re-exports it as `models`.
 `within_plane_crates_are_never_source_mounted_into_a_consumer` makes a
 remount a hard failure.
@@ -223,7 +224,7 @@ pid dirs), `agent_tx` (durable `.susi/tx/` journal, workspace-shared),
 daemon binds, and every read path already `replay()`s it.
 
 Within-plane Cargo edges remain allowed: `susi-gemi` → `susi-gemi-models`;
-`susi-gawd` → `susi-gawd-{agents,swarm,a2a}`; `susi-gawd-swarm` →
+`susi-gawd` → `susi-gawd-{agents,swarm}`; `susi-gawd-swarm` →
 `susi-gawd-agents`; `susi-gawd-a2a` → `susi-gawd-agents`.
 
 **Process layer.** `susi-core::service_table` is the kernel ABI for the
