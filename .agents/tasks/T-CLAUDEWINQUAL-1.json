@@ -1,0 +1,33 @@
+{
+  "id": "T-CLAUDEWINQUAL-1",
+  "title": "release-qualify links on Windows MSVC",
+  "goal": "release-qualify links susi_windows_runtime (extern crate) but was missing from xtask/build.rs configure_for, so it linked the default msvcrt.lib and failed with LNK2005 atexit / LNK1169 on x86_64-pc-windows-msvc, making Windows release qualification impossible. Add it to the OS-UCRT list and add a guard test that every xtask binary linking the runtime is listed.",
+  "status": "in_progress",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794374350,
+  "size": "xs",
+  "deps": [],
+  "base": "bf0bb15a664744acfc37e9a849f6c904b7153585",
+  "scopes": [
+    "xtask/build.rs",
+    "xtask/tests/windows_runtime_bin_list.rs",
+    ".agents/tasks/T-CLAUDEWINQUAL-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "windows_runtime_bin_list"
+    ]
+  },
+  "acceptance": [
+    "cargo build --offline --locked -p xtask --bin release-qualify succeeds on x86_64-pc-windows-msvc (failed with LNK2005/LNK1169 before)",
+    "cargo test -p xtask --test windows_runtime_bin_list passes and fails if a runtime-linking binary is removed from build.rs"
+  ]
+}
