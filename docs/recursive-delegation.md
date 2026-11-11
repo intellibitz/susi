@@ -74,21 +74,33 @@ turn an unsigned envelope into a scope.
   everything opened under it in that process; later presentations are refused
   as cancelled.
 
-## Overlap to reconcile
+## Harness supervision and `daemon.harness` bridge (T-AGYCLOUD-2)
 
-`crates/susi-harness/src/recursive.rs` (`bc78d05a2`, carbon, landed minutes
-after this slice) implements a second Mandate 73 recursion adapter at the
-harness level: its own grant attenuation, `(component_id, task_key)` cycle
-detection, cooperative cancellation, `MicroUsd` budgets and SHA-256
-provenance receipts, plus per-worker workspace, target, home and port
-isolation. On 2026-11-11 it is declared (`pub mod recursive`) but has no
-production caller. This contract is the one wired into capability dispatch,
-the `os_capabilities` socket tool and the CLI, with signed cross-process
-envelopes. Distillation should keep one attenuation core: the harness
-runtime's isolation and receipts layered over `susi_core::delegation`
-(`DelegationScope` for permissions, budget, deadline, depth, fan-out, cycles
-and cancellation), wired into the supervisor. Neither change was made here,
-to avoid overwriting live work.
+`crates/susi-harness/src/recursive.rs` (`bc78d05a2`, `T-CARBONDRIVER-1`) provides
+worker isolation sandboxes (`worktree_dir`, `target_dir`, `scratch_home`,
+disjoint 5-port offsets) and content-addressed `susi-recursive-container-v1`
+provenance receipts. `T-AGYCLOUD-2` wires that runtime into production and
+layers it over `susi_core::delegation`:
+
+- **`susi-harness` supervisor & operator.** `discover_verified_container_contracts`
+  and `AdaptiveSupervisorReport::recursive_contracts` advertise verified
+  `CapabilityContract`s for `susi-harness` and installed CLI backends;
+  `execute_recursive_tree` (`operator::run_recursive`) runs nested Driver <->
+  Engine `RecursiveTaskNode` waves in isolated sandboxes without adding a
+  `susi-harness -> susi-core` dependency edge.
+- **Single attenuation core in `susi_daemon::harness_ops`.** Every
+  `daemon.harness` request (`status`, `budget`, `models`, `plan`, `author`,
+  `run`, `runs`, `recursive_contracts`, `run_recursive`, `cancel_run`, and
+  `revoke_delegation`) opens a `DelegationScope` under an optional signed
+  `susi-delegation/v1` envelope (`DelegationAuthority::host()`), enforcing
+  permission subsets (`harness:read`, `harness:plan`, `harness:run`, `cap:*`),
+  micro-USD sibling budget reservations and bottom-up refunds, deadlines, depth,
+  fan-out, `(component, capability)` cycle checks, and cooperative cancellation
+  linked to `CancellationToken`.
+- **Revocation.** `CapabilityRegistry::revoke_delegation` (`serve_nested` with
+  `action: "revoke"`) and `daemon.harness` `revoke_delegation` cancel a signed
+  envelope id in the admitting process's ledger and propagate cancellation to
+  active harness runs opened under it.
 
 ## Limits (not claimed)
 
@@ -98,13 +110,16 @@ to avoid overwriting live work.
   within its bounds until it expires.
 - The replay ledger and revocation are per process. Two processes admitting
   the same envelope each start from its full budget; the daemon socket is the
-  intended single admitting process. `revoke` has no socket or CLI action yet.
+  intended single admitting process. The `susi os capabilities` CLI subcommand
+  does not expose a dedicated `revoke` subcommand yet (revocation is served in
+  `CapabilityRegistry::serve_nested` and `daemon.harness`).
 - Envelopes do not cross hosts: another host's key refuses them. A cluster-key
   variant is future work.
 - Cancellation crosses an envelope only through revocation in the admitting
   process; the issuer cancelling its own level does not reach another process.
-- Only capability dispatch uses the contract. Harness missions, GEMI worker
-  delegation and GAWD swarm hand-offs do not open scopes yet.
+- Capability dispatch and `daemon.harness` missions/trees open `DelegationScope`s;
+  standalone CLI `susi harness run`, GEMI worker delegation, and GAWD swarm
+  hand-offs do not open `DelegationScope`s yet.
 - Deadlines are checked when a scope is opened or `check()`ed; a running
   handler is not pre-empted. The existing elapsed-time check still applies.
 
@@ -112,9 +127,10 @@ to avoid overwriting live work.
 
 ```text
 cargo test --offline --locked -p susi-core --lib -- delegation capability_bus registry
+cargo test --offline --locked -p susi-harness --lib -- recursive operator
+cargo test --offline --locked -p susi-daemon --lib -- harness_ops
 cargo test --offline --locked -p susi-gmcp --test os_capabilities_delegation
-cargo test --offline --locked -p susi-gmcp --lib -- os_capabilities
-cargo clippy --offline --locked -p susi-core -p susi-gmcp -p susi-cli-defs --all-targets -- -D warnings
+cargo clippy --offline --locked -p susi-core -p susi-harness -p susi-daemon --all-targets -- -D warnings
 ```
 
 The GMCP test re-runs itself as three child processes on scratch `SUSI_HOME`

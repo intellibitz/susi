@@ -316,7 +316,8 @@ impl EmbeddedWorkflowOrchestrator {
 }
 
 /// Complete report of discovered CLI subscription tools, Susi AI OS Socket endpoints,
-/// active adaptive execution policy, and embedded workflow readiness.
+/// active adaptive execution policy, embedded workflow readiness, and Mandate 73
+/// recursive container contracts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdaptiveSupervisorReport {
     /// Status of all 7 supported monthly-subscription CLI tools.
@@ -327,6 +328,9 @@ pub struct AdaptiveSupervisorReport {
     pub policy: AdaptiveExecutionPolicy,
     /// True when the embedded workflow engine is ready in-process.
     pub embedded_workflow_ready: bool,
+    /// Verified Driver/Engine container contracts discovered on this host.
+    #[serde(default)]
+    pub recursive_contracts: Vec<crate::recursive::CapabilityContract>,
 }
 
 /// Discover the status of all 7 supported monthly-subscription CLIs in `dirs`.
@@ -356,14 +360,117 @@ pub fn discover_cli_fleet() -> Vec<CliToolStatus> {
     discover_cli_fleet_in(&adaptive::default_search_dirs())
 }
 
+/// Build Mandate 73 [`crate::recursive::CapabilityContract`] descriptors for the
+/// in-process `susi-harness` container and all CLI backends discovered in `dirs`.
+#[must_use]
+pub fn discover_verified_container_contracts_in(
+    dirs: &[PathBuf],
+) -> Vec<crate::recursive::CapabilityContract> {
+    use crate::recursive::{CapabilityContract, ContainerRole, RECURSIVE_CONTRACT_SCHEMA};
+
+    let mut contracts = vec![CapabilityContract {
+        contract_version: RECURSIVE_CONTRACT_SCHEMA.to_string(),
+        component_id: "susi-harness".to_string(),
+        role: ContainerRole::DriverAndEngine,
+        capabilities: ["code_edit", "distill", "review", "supervise", "wave_plan"]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        verified_available: true,
+    }];
+    for tool in discover_cli_fleet_in(dirs) {
+        contracts.push(CapabilityContract {
+            contract_version: RECURSIVE_CONTRACT_SCHEMA.to_string(),
+            component_id: format!("cli:{}", tool.kind),
+            role: ContainerRole::DriverAndEngine,
+            capabilities: ["code_edit", "review", "wave_plan"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            verified_available: tool.installed,
+        });
+    }
+    contracts
+}
+
+/// Discover Mandate 73 [`crate::recursive::CapabilityContract`] descriptors in [`adaptive::default_search_dirs`].
+#[must_use]
+pub fn discover_verified_container_contracts() -> Vec<crate::recursive::CapabilityContract> {
+    discover_verified_container_contracts_in(&adaptive::default_search_dirs())
+}
+
+struct SharedRunner(std::sync::Arc<dyn Runner + Send + Sync>);
+
+impl Runner for SharedRunner {
+    fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+        self.0.run(config)
+    }
+}
+
+/// Parameters for executing a Mandate 73 [`crate::recursive::RecursiveTaskNode`] tree.
+pub struct RecursiveTreeRun<'a> {
+    /// Root directory under which isolated per-worker sandboxes are allocated.
+    pub sandbox_root: &'a Path,
+    /// Metering gateway base URL.
+    pub gateway_url: &'a str,
+    /// Default model id used for non-CLI container components.
+    pub default_model: &'a str,
+    /// Root run identifier (`"mission-1"`).
+    pub root_run_id: &'a str,
+    /// Root task node (leaf Engine or nested Driver wave tree).
+    pub node: &'a crate::recursive::RecursiveTaskNode,
+    /// Base port offset for disjoint 5-port Susi sockets.
+    pub base_port_offset: u16,
+    /// Cooperative cancellation token linked to the caller's scope.
+    pub cancel: &'a crate::recursive::CancellationToken,
+}
+
+/// Execute `run` using `runner` and `contracts` inside isolated per-worker sandboxes.
+pub fn execute_recursive_tree_with<R: Runner + Send + Sync + 'static>(
+    run: &RecursiveTreeRun<'_>,
+    runner: R,
+    contracts: &[crate::recursive::CapabilityContract],
+) -> Result<crate::recursive::ExecutionProvenanceReceipt, crate::recursive::RecursiveError> {
+    use crate::recursive::{RecursiveRuntime, RunnerContainerBridge, MIN_ISOLATED_PORT_STRIDE};
+
+    let shared: std::sync::Arc<dyn Runner + Send + Sync> = std::sync::Arc::new(runner);
+    let mut runtime = RecursiveRuntime::new(run.sandbox_root, MIN_ISOLATED_PORT_STRIDE)?;
+    for contract in contracts {
+        let model = if contract.component_id.starts_with("cli:") {
+            contract.component_id.clone()
+        } else {
+            run.default_model.to_string()
+        };
+        let bridge = RunnerContainerBridge::new(
+            contract.clone(),
+            SharedRunner(std::sync::Arc::clone(&shared)),
+            run.gateway_url.to_string(),
+            model,
+        );
+        runtime.register(std::sync::Arc::new(bridge))?;
+    }
+    runtime.execute(run.root_run_id, run.node, run.base_port_offset, run.cancel)
+}
+
+/// Execute `run` through the environment-configured [`AdaptiveRunner`] and live
+/// verified container contracts discovered on this host.
+pub fn execute_recursive_tree(
+    run: &RecursiveTreeRun<'_>,
+) -> Result<crate::recursive::ExecutionProvenanceReceipt, crate::recursive::RecursiveError> {
+    let contracts = discover_verified_container_contracts();
+    execute_recursive_tree_with(run, AdaptiveRunner::from_env(), &contracts)
+}
+
 /// Build an [`AdaptiveSupervisorReport`] for `port_offset`.
 #[must_use]
 pub fn build_adaptive_supervisor_report(port_offset: u16) -> AdaptiveSupervisorReport {
+    let search_dirs = adaptive::default_search_dirs();
     AdaptiveSupervisorReport {
-        cli_fleet: discover_cli_fleet(),
+        cli_fleet: discover_cli_fleet_in(&search_dirs),
         socket_endpoints: SusiSocketReport::from_port_offset(port_offset),
         policy: AdaptiveExecutionPolicy::from_env(),
         embedded_workflow_ready: true,
+        recursive_contracts: discover_verified_container_contracts_in(&search_dirs),
     }
 }
 

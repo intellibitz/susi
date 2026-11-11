@@ -654,129 +654,22 @@ pub fn default_catalogue(cwd: &Path) -> EaiResult<PriceCatalogue> {
     PriceCatalogue::load_or_builtin(&cwd.join("deploy/harness/prices.json"))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn registry_json_lists_every_model_once_per_provider() {
-        let doc = registry_json();
-        let providers = doc["providers"].as_array().unwrap();
-        let flat = doc["models"].as_array().unwrap();
-        let nested: usize = providers
-            .iter()
-            .map(|p| p["models"].as_array().unwrap().len())
-            .sum();
-        assert_eq!(nested, flat.len());
-        assert!(doc["aliases"].is_object() || doc["aliases"].is_array());
-    }
-
-    #[test]
-    fn verify_failures_names_only_failed_providers() {
-        let report = json!({"ok": false, "providers": [
-            {"provider": "a", "ok": true},
-            {"provider": "b", "ok": false},
-        ]});
-        assert_eq!(verify_failures(&report), vec!["b".to_string()]);
-        assert!(verify_failures(&json!({"ok": true, "providers": []})).is_empty());
-    }
-
-    // `budget` and `run` read provider balances from their endpoints
-    // (`fleet::gather_budgets`), so unit tests stay on the pure helpers.
-    #[test]
-    fn spent_today_sums_only_today_and_reports_torn_lines() {
-        let dir = std::env::temp_dir().join(format!("susi-harness-op-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let ledger = dir.join("ledger.jsonl");
-        let now = 86_400_000 * 20_000 + 5;
-        std::fs::write(
-            &ledger,
-            format!(
-                "{}\n{}\nnot json\n",
-                json!({"started_unix_ms": now, "cost": 7}),
-                json!({"started_unix_ms": 5, "cost": 100}),
-            ),
-        )
-        .unwrap();
-        let mut seen = Vec::new();
-        let spent = spent_today(&ledger, now, &mut |n: String| seen.push(n));
-        assert_eq!(spent.micros(), 7);
-        assert_eq!(seen.len(), 1, "the torn line is reported: {seen:?}");
-        assert_eq!(resolve(&dir, Path::new("ledger.jsonl")), ledger);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn run_state_is_per_mission_by_default() {
-        let opts = RunOptions {
-            plan: "plan.json".into(),
-            repo: ".".into(),
-            state: "supervisor-state.json".into(),
-            gateway: "http://127.0.0.1:1".into(),
-            model: "auto".into(),
-            timeout: 1,
-            parallel: 1,
-            prefix: "h".into(),
-            workers: "auto".into(),
-            budget_usd: "1".into(),
-            catalogue: "c.json".into(),
-            daily_usd: "1".into(),
-            ledger: "l.jsonl".into(),
-            controls: "c.jsonl".into(),
-            rsi_log: "r.jsonl".into(),
-            attempts: 1,
-            adapter_state: "s".into(),
-            susi: "susi".into(),
-        };
-        assert_eq!(
-            run_state_path(&opts, "m1", Path::new("/w")),
-            Path::new("/w").join("supervisor-m1.json")
-        );
-        let mut named = opts.clone();
-        named.state = "mine.json".into();
-        assert_eq!(
-            run_state_path(&named, "m1", Path::new("/w")),
-            Path::new("mine.json")
-        );
-    }
-
-    #[test]
-    fn mission_failure_and_mission_alternates_and_tail_behave_deterministically() {
-        let mut report = SupervisorReport {
-            mission: "m-op".into(),
-            done: vec!["t1".into()],
-            failed: Vec::new(),
-            skipped: Vec::new(),
-            unstarted: Vec::new(),
-            budget_exhausted: false,
-            paused: false,
-            aborted: false,
-        };
-        assert_eq!(mission_failure(&report), None);
-        report.failed.push(("t2".into(), "reason".into()));
-        assert_eq!(
-            mission_failure(&report).as_deref(),
-            Some("mission m-op failed 1 task(s)")
-        );
-
-        let fleet = Fleet {
-            orchestrator: Some("gemini-pro".into()),
-            workers: vec!["deepseek-flash".into()],
-            fixers: vec!["claude-sonnet".into()],
-            ladder: vec!["deepseek-flash".into(), "claude-sonnet".into()],
-            standby: vec!["claude-sonnet".into(), "gpt-sol".into()],
-            left_off: Vec::new(),
-        };
-        assert_eq!(
-            mission_alternates(&fleet),
-            vec![
-                "deepseek-flash".to_string(),
-                "claude-sonnet".to_string(),
-                "gpt-sol".to_string()
-            ]
-        );
-        assert_eq!(tail("short", 10), "short");
-        assert_eq!(tail("abcdef", 3), "def");
-        assert!(now_unix_ms() > 0);
-    }
+/// Mandate 73 container capability contracts discovered on this host.
+pub fn recursive_contracts() -> EaiResult<Value> {
+    Ok(serde_json::to_value(
+        crate::supervisor::discover_verified_container_contracts(),
+    )?)
 }
+
+/// Execute a Mandate 73 [`crate::recursive::RecursiveTaskNode`] tree through the
+/// supervisor's live verified container contracts and isolated worker sandboxes.
+pub fn run_recursive(
+    run: &crate::supervisor::RecursiveTreeRun<'_>,
+) -> EaiResult<crate::recursive::ExecutionProvenanceReceipt> {
+    crate::supervisor::execute_recursive_tree(run)
+        .map_err(|error| EaiError::internal(error.to_string()))
+}
+
+#[cfg(test)]
+#[path = "tests/operator.rs"]
+mod tests;

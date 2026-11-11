@@ -116,10 +116,11 @@ pub use budget::BudgetReservation;
 pub use ledger::{verify_integrity, LedgerIntegrityReport};
 pub use supervisor::{
     build_adaptive_supervisor_report, discover_cli_fleet, discover_cli_fleet_in,
-    execute_adaptive_task_with, AdaptiveExecutionPolicy, AdaptiveSupervisorReport,
-    AdaptiveTaskOutcome, AdaptiveTaskRequest, CliAgentBackend, CliToolStatus,
-    EmbeddedWorkflowOrchestrator, SusiSocketReport, WorkflowEmbedError, WorkflowNode,
-    WorkflowWavePlan,
+    discover_verified_container_contracts, discover_verified_container_contracts_in,
+    execute_adaptive_task_with, execute_recursive_tree, execute_recursive_tree_with,
+    AdaptiveExecutionPolicy, AdaptiveSupervisorReport, AdaptiveTaskOutcome, AdaptiveTaskRequest,
+    CliAgentBackend, CliToolStatus, EmbeddedWorkflowOrchestrator, RecursiveTreeRun,
+    SusiSocketReport, WorkflowEmbedError, WorkflowNode, WorkflowWavePlan,
 };
 
 #[cfg(test)]
