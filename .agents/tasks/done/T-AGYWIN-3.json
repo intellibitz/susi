@@ -1,0 +1,40 @@
+{
+    "id":  "T-AGYWIN-3",
+    "title":  "Drop retracted refs/candidates/* across git_publish, harness, and docs, and fix Windows unused_mut in susi-vendor-tempfile",
+    "goal":  "Align core with CEO coordination item 92: remove retracted refs/candidates/* namespace from git_publish, susi-harness workflow policy, AGENTS.md, and docs/ceo-agent-mandate.md so local-snapshot adopt keeps local refs/heads/release/\u003cname\u003e from refs/tags/susi-snapshot/\u003cname\u003e without remote release branches, and eliminate Windows unused_mut warning in susi-vendor-tempfile.",
+    "size":  "s",
+    "state":  "done",
+    "status":  "done",
+    "created_by":  "agywin2",
+    "created_unix":  1794392300,
+    "base":  "dbd55c619ab4be03dbe003f862d8605bfbb50934",
+    "deps":  [
+                 "T-AGYWIN-2"
+             ],
+    "source_commits":  [
+                           "145cc4584ddcd7d44f6ab5e4ce1ae8ab46e115d9"
+                       ],
+    "scopes":  [
+                   ".agents/tasks/T-AGYWIN-3.json",
+                   ".agents/tasks/done/T-AGYWIN-3.json",
+                   "AGENTS.md",
+                   "crates/susi-harness/src/tests/workflow.rs",
+                   "crates/susi-harness/src/workflow.rs",
+                   "crates/susi-vendor-tempfile/src/lib.rs",
+                   "docs/ceo-agent-mandate.md",
+                   "xtask/src/git_publish.rs",
+                   "xtask/tests/git_publisher_native_hook.rs"
+               ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "xtask",
+                               "--test",
+                               "git_publisher_native_hook"
+                           ]
+               }
+}
