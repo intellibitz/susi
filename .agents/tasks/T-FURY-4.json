@@ -1,0 +1,37 @@
+{
+  "id": "T-FURY-4",
+  "title": "Claims release after a local-snapshot submit landing",
+  "goal": "`cargo local-workflow release` accepted only `ship`'s local integration ref as proof of landing, so work published through `local-snapshot submit` (Mandate 73's development-main publisher) kept its scope reservation forever. Release now also accepts work contained in the fetched `refs/remotes/origin/main`.",
+  "status": "in_progress",
+  "owner": "fury",
+  "created_by": "FURY",
+  "created_unix": 1794387272,
+  "size": "s",
+  "deps": [],
+  "base_commit": "bf6763d1976ec24656746c67705220b69f436639",
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-FURY-4.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow"
+    ]
+  },
+  "results": {
+    "tests": "cargo test --offline --locked -p xtask --bin local-workflow: 187 passed / 0 failed (new: release_accepts_work_the_publisher_landed_on_fetched_main)",
+    "clippy": "cargo clippy --offline --locked -p xtask --all-targets -- -D warnings: exit 0",
+    "fmt": "cargo fmt --all --check: exit 0",
+    "live": "before the fix, `cargo local-workflow release fury` refused with 'committed work has not passed local integration' although T-FURY-1 and T-FURY-3 were on origin/main (3950119c4, bf6763d19)"
+  },
+  "limitations": [
+    "The fetched origin/main is trusted as far as the local integration ref already is: both are local refs a local user can move."
+  ]
+}
