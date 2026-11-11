@@ -3,7 +3,7 @@
 use crate::executor::GawdAcpExecutor;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use susi_core::acp::{AcpContentBlock, AcpTurnContext, AcpTurnExecutor};
+use susi_core::acp::{AcpContentBlock, AcpMessageRole, AcpTurnContext, AcpTurnExecutor};
 
 fn acp_turn(text: &str) -> AcpTurnContext {
     AcpTurnContext {
@@ -11,7 +11,10 @@ fn acp_turn(text: &str) -> AcpTurnContext {
         turn_id: "t".into(),
         workspace: None,
         admitted_capabilities: Vec::new(),
+        role: AcpMessageRole::User,
         prompt: vec![AcpContentBlock::text(text)],
+        tool_calls: Vec::new(),
+        history: Vec::new(),
     }
 }
 

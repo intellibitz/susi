@@ -46,10 +46,6 @@ impl TaskStore {
         self.tasks().get(task_id).cloned()
     }
 
-    pub fn delete(&self, task_id: &str) {
-        self.tasks().remove(task_id);
-    }
-
     /// One `tasks/list` page: filtered by context and state, `pageSize`
     /// (default 50, at most 100) tasks from the numeric offset in
     /// `pageToken`; `nextPageToken` is the next offset, empty on the last

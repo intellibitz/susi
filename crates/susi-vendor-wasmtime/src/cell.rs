@@ -13,7 +13,6 @@
 //! importing memory fails to instantiate.
 
 use std::path::PathBuf;
-use std::sync::LazyLock;
 use susi_error::{EaiError, EaiResult};
 use wasmi::{Caller, Engine, Instance, Linker, Memory, Module, Store};
 
@@ -377,22 +376,6 @@ pub fn spawn_wasm_cell(wasm_path: PathBuf) -> EaiResult<WasmCell> {
     WasmCell::load(wasm_path)
 }
 
-/// One default Wasmi engine for module validation: plugin hot-reload
-/// compiles candidates to prove they load, and needs no metering.
-static VALIDATION_ENGINE: LazyLock<Engine> = LazyLock::new(Engine::default);
-
-/// Validate `wasm_bytes` structure and input size without instantiating it.
-/// Store resource limits and import capabilities are checked at instantiation.
-///
-/// # Errors
-/// The compile error text when the bytes are not a valid module.
-pub fn validate_module(wasm_bytes: &[u8]) -> Result<(), String> {
-    crate::resources::check_module_size(wasm_bytes).map_err(|error| error.to_string())?;
-    Module::validate(&VALIDATION_ENGINE, wasm_bytes)
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -595,7 +578,7 @@ mod tests {
     fn cap_memory_adds_the_cap_and_copies_other_sections() {
         let wasm = module(SENDER);
         let capped = cap_memory(&wasm).unwrap();
-        validate_module(&capped).unwrap();
+        let _ = WasmCell::from_bytes(&capped).unwrap();
         // Memory section of the fixture: one memory, flags 0, initial 1.
         let original_memory = [0x05, 0x03, 0x01, 0x00, 0x01];
         let cap_pages = (MAX_CELL_MEMORY_BYTES / 65536) as u64;

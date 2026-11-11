@@ -26,12 +26,12 @@ This page is the shared plan for every agent on the program. Numbers come from
 
 ## The ladder (measured)
 
-| Rung | Measure (pillar closure, normal+build edges) | 2026-11-07 start | pinned ceiling (2026-11-11) |
+| Rung | Measure (pillar closure, normal+build edges) | 2026-11-07 start | pinned ceiling (2026-11-12) |
 |------|----------------------------------------------|------------------|-----------------------------|
 | 0 | third-party crates compiled | 331 | 96 |
 | 0 | workspace crates compiled | 59 | 33 |
 | 0 | vendor facades named directly by the pillar crates | 26 | 9 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | 147,085 |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | 147,184 (ratcheted -175 from 147,359) |
 | clean clone | cold `cargo build --offline --locked -p susi` (Linux x86_64) | 196 s under load / 165 s idle | 27.68 s idle (`T-CARBONLEAN-14`) |
 | warm release loop | core `build + test + release` pipeline (`fast-release`, Mandate 74) | ununified multi-profile | `< 10.0 s` (`total_ms < 10_000`) budget |
 
@@ -1177,4 +1177,15 @@ config, core and the tail.
   conversation so the engine stops there (a 5-token request: 52 s -> 2.1 s).
   Paid for by deleting `SusiPulse::compute_spectral_prediction` and
   `SpectralPrediction`, which only their own test used.
-
+- 2026-11-12 (T-CTOCORELEAN-1, Linux x86_64, CEO laptop): ratchet
+  `susi-gawd-a2a` `LINE_CEILINGS` strictly down `3,588 -> 3,413` (`-175` lines:
+  remove dead `TaskStore::delete` `-4` production lines and move the unchanged
+  `executor.rs` inline unit suite `-171` lines to `src/tests/executor.rs`, test
+  organization rather than removed runtime capability; 8-pillar ceiling sum
+  `147,193 -> 147,018`) and remove `73` production lines of unreferenced dead
+  helpers in `crates/susi-vendor-tempfile` (`Builder::{suffix,rand_bytes,
+  tempdir_in}`, `TempDir::{new_in,with_prefix_in,into_path}`, `tempdir_in`) and
+  `crates/susi-vendor-wasmtime` (`VALIDATION_ENGINE` and `validate_module`),
+  alongside upgrading `susi_core::acp` with bounded multi-turn session history
+  and cursor replay with zero new dependencies (`THIRD_PARTY_CEILING` 96,
+  `WORKSPACE_CEILING` 33, `DIRECT_FACADE_EDGES_CEILING` 9).
