@@ -444,7 +444,7 @@ type HttpLog = Arc<std::sync::Mutex<Vec<(hyper::Method, hyper::StatusCode)>>>;
 /// The real Streamable HTTP service with `test_echo`, on a loopback port,
 /// logging each request's method and response status.
 async fn logged_http_service() -> (std::net::SocketAddr, HttpLog) {
-    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use susi_http_transport::http_conn::{Builder, TokioExecutor, TokioIo};
     let service = service();
     echo(&service);
     let http = crate::server::http_service(service);
@@ -466,7 +466,7 @@ async fn logged_http_service() -> (std::net::SocketAddr, HttpLog) {
                         Ok::<_, std::convert::Infallible>(response)
                     }
                 });
-                let _ = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new())
+                let _ = Builder::new(TokioExecutor::new())
                     .serve_connection(TokioIo::new(stream), svc)
                     .await;
             });

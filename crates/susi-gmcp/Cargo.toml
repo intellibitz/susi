@@ -18,7 +18,6 @@ tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 hyper = { package = "susi-vendor-hyper", path = "../susi-vendor-hyper" }
-hyper-util = { package = "susi-vendor-hyper-util", path = "../susi-vendor-hyper-util" }
 libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
 # Heavy specialist tools (syn AST),

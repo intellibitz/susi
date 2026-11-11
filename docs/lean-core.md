@@ -909,4 +909,19 @@ config, core and the tail.
   for the second consecutive wave: third-party 139 -> 138, workspace 36 -> 35,
   direct facade edges 12 -> 11 (`susi-gmcp` shipped lines unchanged at 25,860).
   GMCP requirement and `--mastery` evidence re-recorded in both phases.
+- 2026-11-11 (T-CARBONLEAN-7, Linux x86_64, CEO laptop): the
+  `susi-vendor-hyper-util` facade leaves core, removing 11 packages from
+  `Cargo.lock` (10 third-party crates: `core-foundation`, `futures-task`,
+  `futures-util`, `hyper-util`, `ipnet`, `percent-encoding`,
+  `system-configuration`, `system-configuration-sys`, `tower-layer`,
+  `tower-service`, plus `susi-vendor-hyper-util`; 126 cumulative `Cargo.lock`
+  packages removed across T-CARBONLEAN-1..7; Linux host packages 198 -> 190,
+  `-e normal` 189 -> 181). `susi_http_transport::http_conn` provides
+  `#![forbid(unsafe_code)]` `TokioIo`, `TokioExecutor`, `TokioTimer`, and the
+  24-octet `RFC 9113 §3.4` HTTP/2-preface-sniffing HTTP/1.1 + HTTP/2 connection
+  `Builder` with slowloris `header_read_timeout` enforcement for `susi-gmcp` and
+  `susi-server`. All three pillar reach ceilings ratchet down simultaneously for
+  the third consecutive wave: third-party 138 -> 128 (-10 crates), workspace
+  35 -> 34, direct facade edges 11 -> 10 (`susi-gmcp` shipped lines unchanged at
+  25,860). GMCP requirement and `--mastery` evidence re-recorded in both phases.
 
