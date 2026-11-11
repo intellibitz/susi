@@ -4,10 +4,11 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
-description = "SUSI vendor facade: sole workspace owner of `x25519-dalek`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
+description = "SUSI RFC 7748 X25519 Diffie-Hellman facade backed directly by curve25519-dalek (#![forbid(unsafe_code)], zero rand_core/x25519-dalek wrapper crate)."
 
 [dependencies]
-x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
+curve25519-dalek = { version = "4.1.3", default-features = false, features = ["digest", "zeroize"] }
+zeroize = { version = "1.9", default-features = false }
 
 [lints]
 workspace = true

@@ -1,0 +1,61 @@
+{
+  "id": "T-CARBONLEAN-16",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-16",
+  "title": "Lean core: back susi-vendor-x25519-dalek directly with curve25519-dalek + zeroize (THIRD_PARTY_CEILING 99 -> 96, Cargo.lock 185 -> 182)",
+  "goal": "Replace external x25519-dalek in crates/susi-vendor-x25519-dalek with a thin #![forbid(unsafe_code)] RFC 7748 X25519 Diffie-Hellman facade backed directly by the workspace's existing curve25519-dalek 4.1.3 arithmetic (EdwardsPoint::mul_base_clamped, MontgomeryPoint::mul_clamped, and constant-time IsIdentity) and zeroize::Zeroize. Removes 3 packages — including the zeroize_derive proc-macro — from Cargo.lock (rand_core 0.6.4, x25519-dalek 2.0.1, zeroize_derive 1.5.0; Cargo.lock 185 -> 182; 173 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..16) and lowers THIRD_PARTY_CEILING 99 -> 96.",
+  "status": "done",
+  "state": "done",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794401223,
+  "size": "xs",
+  "deps": [
+    "T-CARBONLEAN-15"
+  ],
+  "base": "527a58709f081bf7d431befe880642229b959fd0",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-16.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-vendor-x25519-dalek/Cargo.toml",
+    "crates/susi-vendor-x25519-dalek/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-vendor-x25519-dalek",
+      "--lib"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo check --workspace --all-targets --keep-going --offline --locked",
+    "cargo clippy --offline --locked -p susi-vendor-x25519-dalek -p susi-config -p susi --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-vendor-x25519-dalek -p susi-config --lib",
+    "cargo test --offline --locked --test peer_channel_hub --test architecture_tests --test core_docs_promise_no_ui_or_plugins --test lean_core_ceilings --test no_github_coupling --test orphan_sources --test thin_client_invariant --test zc_matrix --test task_records"
+  ],
+  "limitations": [
+    "Verified on native Linux x86_64 host only; Windows x86_64 MSVC build/test qualification remains distinct."
+  ],
+  "results": {
+    "lockfile_and_pillar_ceilings": "3 packages removed from Cargo.lock including 1 proc-macro crate (rand_core 0.6.4, x25519-dalek 2.0.1, zeroize_derive 1.5.0; Cargo.lock 185 -> 182; 173 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..16); THIRD_PARTY_CEILING 99 -> 96",
+    "license_and_lint_gates": "cargo deny --offline --locked check licenses -> licenses ok; cargo check --workspace --all-targets -> exit 0 (16,632 ms); cargo clippy -p susi-vendor-x25519-dalek -p susi-config -p susi --all-targets -- -D warnings -> 0 warnings (16,022 ms); cargo fmt --all --check -> 0 diffs",
+    "tests_passed": "397/397 passed (0 failed; 2 ignored in zc_matrix): susi-config (321), susi-vendor-x25519-dalek (2), peer_channel_hub (2), architecture_tests (44), core_docs_promise_no_ui_or_plugins (5), lean_core_ceilings (2), no_github_coupling (5), orphan_sources (3), thin_client_invariant (5), zc_matrix (5), task_records (3)",
+    "timings": {
+      "workspace_check_ms": 16632,
+      "clippy_crates_ms": 16022,
+      "tests_total_ms": 59041,
+      "incremental_build_p_susi_ms": 145,
+      "warm_noop_build_p_susi_ms": 129,
+      "startup_susi_version_ms": 11.52
+    }
+  }
+}
