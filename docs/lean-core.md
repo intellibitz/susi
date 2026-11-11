@@ -632,7 +632,7 @@ config, core and the tail.
   susi-http-transport, the same error codes and texts) on the
   axum/tokio/hyper stack already in core; the task store and its bounded
   retention are its own. A transcript of 79 real HTTP exchanges plus a push
-  delivery, recorded from ra2a 0.10.1 before it left (`5cea76841`), passes
+  delivery, recorded from ra2a 0.10.1 before it left (`26bb86ee6`), passes
   unchanged against the in-tree code. One deliberate difference: an SSE
   stream now ends after its final event; ra2a held it (and a concurrency
   slot) open. `susi-vendor-ra2a` and the ra2a notice supplement are deleted;
@@ -646,7 +646,8 @@ config, core and the tail.
   1,744 lines in place of ra2a's 10,221), re-pinned under the T-NOMCPSDK-1
   rule. Cold `cargo build -p susi` on 4 threads with other agents' builds
   running (load 3-7): base `46758d8d8` 82.8 / 74.0 / 84.3 s wall, 298.8 /
-  268.0 / 309.2 CPU-s, 371 units; with the change 75.7 / 64.4 s, 275.6 /
+  268.0 / 309.2 CPU-s, 371 units; with the change (`d94212915`, landed
+  rebased as `91ab08900`) 75.7 / 64.4 s, 275.6 /
   226.7 CPU-s, 342 units. The ratchet is the unit count, 371 -> 342; in the
   third base run the 29 removed units cost 27.0 CPU-s (ra2a 12.6, reqwest
   4.8, encoding_rs 2.2, chrono 1.4, num-traits 1.2, ...) while susi-gawd-a2a

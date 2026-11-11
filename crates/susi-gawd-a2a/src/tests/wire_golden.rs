@@ -5,7 +5,7 @@
 //!
 //! The transcript was recorded from the ra2a 0.10.1 stack before the SDK left
 //! core (`SUSI_A2A_GOLDEN=capture cargo test -p susi-gawd-a2a wire_golden`,
-//! commit 5cea76841), so the in-tree protocol is held to the bytes ra2a put
+//! commit 26bb86ee6), so the in-tree protocol is held to the bytes ra2a put
 //! on the wire. One difference is deliberate: ra2a kept an SSE stream open
 //! (and its concurrency slot taken) after the final task event; the in-tree
 //! stream ends there. The transcript compares the events, not the close.

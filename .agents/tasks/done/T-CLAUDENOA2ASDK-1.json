@@ -1,0 +1,76 @@
+{
+  "id": "T-CLAUDENOA2ASDK-1",
+  "title": "Compile budget: serve A2A in-tree without the ra2a SDK",
+  "goal": "CEO: bring Susi core under 30 s. ra2a 0.10.1 (through susi-vendor-ra2a) is the only path from the susi build to reqwest, hyper-tls, encoding_rs, chrono, tower-http, uuid, futures and thiserror. Serve the subset of A2A the daemon serves (agent card, JSON-RPC message send, SSE streaming, tasks get/list/cancel/resubscribe, push-notification configs and delivery, the 1.0 method names and the slash aliases, the error codes) from crates/susi-gawd-a2a/src/protocol on the axum/tokio/hyper stack already in core, with push delivery over susi-http-transport and the bounded task retention unchanged. A transcript of 79 real HTTP exchanges recorded from the ra2a stack before it left is the wire golden the in-tree protocol must reproduce. susi-vendor-ra2a is deleted; ceilings and the wave log record the before/after numbers.",
+  "status": "done",
+  "scopes": [
+    ".agents/build-time.jsonl",
+    ".agents/identity.json",
+    ".agents/tasks/T-CLAUDENOA2ASDK-1.json",
+    ".agents/tasks/done/T-CLAUDENOA2ASDK-1.json",
+    "ARCHITECTURE.md",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-gawd-a2a",
+    "crates/susi-gawd-swarm/src/lib.rs",
+    "crates/susi-vendor-ra2a",
+    "docs/evidence.md",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs",
+    "vendor/upstream-notices/ra2a-0.10.1"
+  ],
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794363042,
+  "owner": "claude",
+  "base": "46758d8d8f1538aa07db3fd693651c5bb970b2a6",
+  "host": "Claude Code cloud session, Linux x86_64, 4 vCPU, Rust 1.99.0 (pinned); other agents' builds running (load 3-7)",
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo clippy --offline --locked -p susi-gawd-a2a -p susi-daemon --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-gawd-a2a",
+    "cargo test --offline --locked -p susi --test lean_core_ceilings --test socket_parity --test architecture_tests --test duplication_tests --test orphan_sources --test task_records",
+    "cargo check --workspace --all-targets --offline --locked",
+    "cargo tree --offline --locked -p susi -e normal,build -i reqwest (no match)",
+    "cargo run --offline --locked -p xtask --bin xtask -- build-time (alternated with base)"
+  ],
+  "results": {
+    "wire_golden": "79 HTTP exchanges plus one push delivery recorded from ra2a 0.10.1 (26bb86ee6); the same transcript passes against the in-tree protocol (91ab08900), and a perturbed golden fails it",
+    "susi_gawd_a2a": "52/52 lib tests passed (44 before: all kept and ported; new: wire golden, 4 handler-path tests over HTTP (cancel of a working task, executor error, dead push endpoint, SSE end, tasks/list paging), 3 codec tests against the base64 0.22 crate's outputs, rpc error codes test replacing the ra2a error-normalizer unit test)",
+    "root_tests": "architecture_tests 43/43, duplication_tests 9/9, lean_core_ceilings 2/2, orphan_sources 3/3, socket_parity 5/5, task_records 3/3",
+    "dependency_graph": "36 Cargo.lock packages removed (ra2a, reqwest, hyper-tls, hyper-rustls, rustls, rustls-webpki, ring, encoding_rs, chrono, iana-time-zone, tower-http, uuid, mime_guess, unicase, windows-sys 0.52 and its target crates, ...); none added; reqwest, hyper-tls, encoding_rs, chrono, tower-http, uuid absent from the susi graph",
+    "pillar_reach": "unchanged at 46 workspace / 191 third-party / 20 facade edges (the A2A tier is outside the pillar closure); susi-gawd-a2a line ceiling 2,113 -> 3,702 (src/protocol 1,744 lines)",
+    "build_time": "cold cargo build -p susi, 4 threads, under load: base 46758d8d8 82.8/74.0/84.3 s, 298.8/268.0/309.2 CPU-s, 371 units; change 75.7/64.4 s, 275.6/226.7 CPU-s, 342 units; removed units cost 27.0 CPU-s in a base run (ra2a 12.6, reqwest 4.8, encoding_rs 2.2, chrono 1.4); no wall gain claimed from the overlapping totals"
+  },
+  "limitations": [
+    "Deliberate wire difference: an SSE stream ends after its final (terminal or interrupted) event; ra2a held the connection and a concurrency slot open. Events and bytes before that are identical.",
+    "Behaviours kept as ra2a had them, not improved: handler refusals on / are -32603 with a null id (task not found, not cancelable, invalid params); streamed tasks are not recorded in the task store, so tasks/get after message/stream reports not found; extended card is never configured.",
+    "Push delivery uses ureq through susi-http-transport instead of reqwest (same method, headers, body, 30 s budget); its User-Agent differs and proxy handling follows the transport.",
+    "tasks/list orders tasks by id (ra2a's order was a HashMap's); push configs list in config-id order.",
+    "Wall-clock gain not established: the container ran other agents' builds; only the unit count and the removed units' CPU are claimed.",
+    "vendor/reqwest and its [patch] entry remain (now unused, listed under patch.unused like fluent-uri); tests/architecture_tests.rs still requires the vendored sources. Removing them is separate cleanup.",
+    "No live daemon was started: the stack is exercised by serving the same app() composition serve() runs on a loopback port; DualListener/TLS code is unchanged."
+  ],
+  "landed": {
+    "main_commit": "60e4217ecc57941fd8060ebe52fba1350dd3d07d",
+    "source_commit": "60e4217ecc57941fd8060ebe52fba1350dd3d07d",
+    "route": "cargo run -p xtask --bin local-snapshot -- submit claude-noa2asdk-0239 (fast-forward of origin/main c8f52a5ac; rebased from 46758d8d8, no conflicts)"
+  },
+  "closed": {
+    "at_unix": 1794364834,
+    "commit": "60e4217ecc57941fd8060ebe52fba1350dd3d07d",
+    "by": "claude"
+  }
+}
