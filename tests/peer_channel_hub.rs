@@ -915,7 +915,22 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
     loop {
         let (ok, stdout, stderr) =
             run_cli(node, &["peers", "add", endpoint], Duration::from_secs(120));
-        assert!(ok, "peers add as {} failed: {stdout}{stderr}", node.name);
+        if !ok {
+            let detail = format!("{stdout}{stderr}").to_ascii_lowercase();
+            let transient = [
+                "peer channel",
+                "broken pipe",
+                "answered neither",
+                "unreachable",
+            ]
+            .iter()
+            .any(|needle| detail.contains(needle));
+            if transient && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+            panic!("peers add as {} failed: {stdout}{stderr}", node.name);
+        }
         if stdout.contains("admitted this node") {
             return format!("{stdout}{stderr}");
         }
