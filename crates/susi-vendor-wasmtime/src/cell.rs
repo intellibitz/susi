@@ -16,7 +16,6 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use susi_error::{EaiError, EaiResult};
 use wasmi::{Caller, Engine, Instance, Linker, Memory, Module, Store};
-use wasmparser::{Parser, Payload};
 
 /// Largest single `host_send` payload the host accepts.
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
@@ -81,71 +80,155 @@ pub(crate) fn metered_engine() -> EaiResult<Engine> {
 /// whose model-written modules get the same cap.
 pub(crate) fn cap_memory(wasm: &[u8]) -> EaiResult<Vec<u8>> {
     crate::resources::check_module_size(wasm)?;
-    let mut out = wasm_encoder::Module::new();
-    for payload in Parser::new(0).parse_all(wasm) {
-        let payload =
-            payload.map_err(|e| EaiError::sandbox(format!("Failed to parse WASM module: {e}")))?;
-        if let Payload::Version {
-            encoding: wasmparser::Encoding::Component,
-            ..
-        } = payload
-        {
+    let header = wasm
+        .get(..8)
+        .ok_or_else(|| parse_error("unexpected end of the module header"))?;
+    if header[..4] != crate::resources::WASM_MAGIC {
+        return Err(parse_error("magic header not detected"));
+    }
+    match (
+        u16::from_le_bytes([header[4], header[5]]),
+        u16::from_le_bytes([header[6], header[7]]),
+    ) {
+        (WASM_MODULE_VERSION, KIND_MODULE) => {}
+        (_, KIND_COMPONENT) => {
             return Err(EaiError::sandbox(
                 "WASM components are not supported as cells",
-            ));
+            ))
         }
-        if let Payload::MemorySection(reader) = payload {
-            out.section(&capped_memory_section(reader)?);
-            continue;
-        }
-        // Every other section is copied through as raw bytes; payloads that
-        // are not sections (header, code entries, end) carry nothing to copy.
-        if let Some((id, range)) = payload.as_section() {
-            let (Ok(start), Ok(end)) = (usize::try_from(range.start), usize::try_from(range.end))
-            else {
-                return Err(EaiError::sandbox(
-                    "WASM section range does not fit in memory",
-                ));
-            };
-            let data = wasm
-                .get(start..end)
-                .ok_or_else(|| EaiError::sandbox("WASM section range out of bounds"))?;
-            out.section(&wasm_encoder::RawSection { id, data });
+        (version, _) => {
+            return Err(parse_error(&format!(
+                "unknown binary version: {version:#x}"
+            )))
         }
     }
-    Ok(out.finish())
+    let mut out = Vec::with_capacity(wasm.len());
+    out.extend_from_slice(&crate::resources::WASM_MAGIC);
+    out.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]);
+    let mut at = 8;
+    while at < wasm.len() {
+        let id = wasm[at];
+        at += 1;
+        let size = usize::try_from(read_leb(wasm, &mut at, 32)?)
+            .map_err(|_| parse_error("section size does not fit in memory"))?;
+        let data = at
+            .checked_add(size)
+            .and_then(|end| wasm.get(at..end))
+            .ok_or_else(|| parse_error("section too large"))?;
+        at += size;
+        let rewritten;
+        let body = if id == MEMORY_SECTION {
+            rewritten = capped_memory_section(data)?;
+            rewritten.as_slice()
+        } else {
+            data
+        };
+        out.push(id);
+        write_leb(&mut out, body.len() as u64);
+        out.extend_from_slice(body);
+    }
+    Ok(out)
+}
+
+/// Binary-format constants (WebAssembly core spec, section 5.5; the
+/// component-model layer byte is 1).
+const WASM_MODULE_VERSION: u16 = 0x1;
+const KIND_MODULE: u16 = 0x0;
+const KIND_COMPONENT: u16 = 0x1;
+const MEMORY_SECTION: u8 = 5;
+
+fn parse_error(detail: &str) -> EaiError {
+    EaiError::sandbox(format!("Failed to parse WASM module: {detail}"))
+}
+
+/// Unsigned LEB128 of at most `bits` bits, advancing `at`.
+fn read_leb(bytes: &[u8], at: &mut usize, bits: u32) -> EaiResult<u64> {
+    let mut value = 0u64;
+    let mut shift = 0u32;
+    loop {
+        let byte = *bytes
+            .get(*at)
+            .ok_or_else(|| parse_error("unexpected end of a LEB128 integer"))?;
+        *at += 1;
+        let low = u64::from(byte & 0x7f);
+        if shift >= bits || (bits - shift < 7 && low >> (bits - shift) != 0) {
+            return Err(parse_error("integer representation too long or too large"));
+        }
+        value |= low << shift;
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+        shift += 7;
+    }
+}
+
+fn write_leb(out: &mut Vec<u8>, mut value: u64) {
+    loop {
+        let byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value == 0 {
+            out.push(byte);
+            return;
+        }
+        out.push(byte | 0x80);
+    }
 }
 
 /// Re-encode a memory section with each maximum clamped to the cell cap.
-fn capped_memory_section(
-    reader: wasmparser::MemorySectionReader<'_>,
-) -> EaiResult<wasm_encoder::MemorySection> {
-    let mut section = wasm_encoder::MemorySection::new();
-    for memory in reader {
-        let memory =
-            memory.map_err(|e| EaiError::sandbox(format!("Failed to read memory section: {e}")))?;
-        // Checked: this runs before Wasmi validates the module, so a
-        // malformed page-size exponent must error, not overflow the shift.
-        let page_bytes = 1u64
-            .checked_shl(memory.page_size_log2.unwrap_or(16))
-            .ok_or_else(|| EaiError::sandbox("invalid WASM memory page size"))?;
+///
+/// Each entry is `flags` (bit 0 maximum, 1 shared, 2 memory64, 3 custom page
+/// size), the initial size, the optional maximum and the optional page-size
+/// exponent; sizes are 64-bit LEB128 for memory64 and 32-bit otherwise.
+fn capped_memory_section(data: &[u8]) -> EaiResult<Vec<u8>> {
+    let mut at = 0;
+    let count = read_leb(data, &mut at, 32)?;
+    let mut out = Vec::with_capacity(data.len() + 8);
+    write_leb(&mut out, count);
+    for _ in 0..count {
+        let flags = *data
+            .get(at)
+            .ok_or_else(|| parse_error("unexpected end of the memory section"))?;
+        at += 1;
+        if flags & !0b1111 != 0 {
+            return Err(parse_error("invalid memory limits flags"));
+        }
+        let bits = if flags & 0b0100 != 0 { 64 } else { 32 };
+        let initial = read_leb(data, &mut at, bits)?;
+        let maximum = if flags & 0b0001 != 0 {
+            Some(read_leb(data, &mut at, bits)?)
+        } else {
+            None
+        };
+        let page_size_log2 = if flags & 0b1000 != 0 {
+            let log2 = read_leb(data, &mut at, 32)?;
+            if log2 >= 64 {
+                return Err(parse_error("invalid custom page size"));
+            }
+            Some(log2)
+        } else {
+            None
+        };
+        // The exponent is below 64 (checked above, before Wasmi validates
+        // the module), so the shift cannot overflow.
+        let page_bytes = 1u64 << page_size_log2.unwrap_or(16);
         let cap_pages = MAX_CELL_MEMORY_BYTES as u64 / page_bytes;
-        if memory.initial > cap_pages {
+        if initial > cap_pages {
             return Err(EaiError::sandbox(format!(
-                "module memory starts at {} page(s), above the {} MiB cap",
-                memory.initial,
+                "module memory starts at {initial} page(s), above the {} MiB cap",
                 MAX_CELL_MEMORY_BYTES / (1024 * 1024)
             )));
         }
-        section.memory(wasm_encoder::MemoryType {
-            minimum: memory.initial,
-            maximum: Some(memory.maximum.map_or(cap_pages, |m| m.min(cap_pages))),
-            memory64: memory.memory64,
-            shared: memory.shared,
-            page_size_log2: memory.page_size_log2,
-        });
+        out.push(flags | 0b0001);
+        write_leb(&mut out, initial);
+        write_leb(&mut out, maximum.map_or(cap_pages, |m| m.min(cap_pages)));
+        if let Some(log2) = page_size_log2 {
+            write_leb(&mut out, log2);
+        }
     }
-    Ok(section)
+    if at != data.len() {
+        return Err(parse_error("unexpected content in the memory section"));
+    }
+    Ok(out)
 }
 
 /// Represents a loaded WASM cell.
@@ -504,5 +587,91 @@ mod tests {
             );
         }
         assert!(cell.execute("_start").unwrap().ends_with("returned -4"));
+    }
+
+    /// The rewrite clamps an unbounded memory, keeps every other section
+    /// byte-for-byte and still yields a module Wasmi validates.
+    #[test]
+    fn cap_memory_adds_the_cap_and_copies_other_sections() {
+        let wasm = module(SENDER);
+        let capped = cap_memory(&wasm).unwrap();
+        validate_module(&capped).unwrap();
+        // Memory section of the fixture: one memory, flags 0, initial 1.
+        let original_memory = [0x05, 0x03, 0x01, 0x00, 0x01];
+        let cap_pages = (MAX_CELL_MEMORY_BYTES / 65536) as u64;
+        let mut expected_memory = vec![0x05];
+        let mut body = vec![0x01, 0x01, 0x01];
+        write_leb(&mut body, cap_pages);
+        write_leb(&mut expected_memory, body.len() as u64);
+        expected_memory.extend_from_slice(&body);
+        let at = wasm
+            .windows(original_memory.len())
+            .position(|w| w == original_memory)
+            .unwrap();
+        let mut expected = wasm[..at].to_vec();
+        expected.extend_from_slice(&expected_memory);
+        expected.extend_from_slice(&wasm[at + original_memory.len()..]);
+        assert_eq!(capped, expected);
+        // Idempotent: a capped module is already at the cap.
+        assert_eq!(cap_memory(&capped).unwrap(), capped);
+    }
+
+    #[test]
+    fn cap_memory_refuses_components_and_malformed_input() {
+        let component = [0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00];
+        let error = cap_memory(&component).unwrap_err().to_string();
+        assert!(error.contains("components are not supported"), "{error}");
+        for bad in [
+            &[0x00, 0x61, 0x73, 0x6d, 0x02, 0x00, 0x00, 0x00][..],
+            &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00][..],
+            // Section claims more bytes than remain.
+            &[
+                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x00,
+            ][..],
+            // Memory section with an unknown flag bit.
+            &[
+                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x03, 0x01, 0x10, 0x01,
+            ][..],
+            // Memory section with trailing bytes after its one entry.
+            &[
+                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x04, 0x01, 0x00, 0x01, 0x00,
+            ][..],
+            // Custom page size exponent 64.
+            &[
+                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x04, 0x01, 0x08, 0x01, 0x40,
+            ][..],
+            // Over-long 32-bit LEB128 initial size.
+            &[
+                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x08, 0x01, 0x00, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0x01,
+            ][..],
+        ] {
+            let error = cap_memory(bad).unwrap_err().to_string();
+            assert!(error.contains("Failed to parse WASM module"), "{error}");
+        }
+    }
+
+    #[test]
+    fn cap_memory_honours_custom_page_sizes_and_memory64_widths() {
+        // One memory, custom 1-byte pages (log2 0), initial 1, no maximum:
+        // the cap is MAX_CELL_MEMORY_BYTES pages of one byte.
+        let wasm = [
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x04, 0x01, 0x08, 0x01, 0x00,
+        ];
+        let capped = cap_memory(&wasm).unwrap();
+        let mut body = vec![0x01, 0x09, 0x01];
+        write_leb(&mut body, MAX_CELL_MEMORY_BYTES as u64);
+        body.push(0x00);
+        assert_eq!(&capped[8..10], &[0x05, body.len() as u8]);
+        assert_eq!(&capped[10..], body.as_slice());
+        // memory64 sizes may exceed 32 bits; above the cap they are refused
+        // by size, not as a parse error.
+        let mut wasm64 = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05];
+        let mut section = vec![0x01, 0x04];
+        write_leb(&mut section, 1u64 << 40);
+        write_leb(&mut wasm64, section.len() as u64);
+        wasm64.extend_from_slice(&section);
+        let error = cap_memory(&wasm64).unwrap_err().to_string();
+        assert!(error.contains("above the 256 MiB cap"), "{error}");
     }
 }
