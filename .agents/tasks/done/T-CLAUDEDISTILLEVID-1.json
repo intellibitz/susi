@@ -2,7 +2,7 @@
   "id": "T-CLAUDEDISTILLEVID-1",
   "title": "GMCP evidence stays valid on distilled release branches",
   "goal": "Distilling the 2026-11-11 release candidate failed accept verification (T-TRUTHDOCS-1's gmcp_requirements) with 'tested_commit ... is not in HEAD's history' for every GMCP vector: local-distill re-applies commits onto the release base, so evidence recorded on main is never an ancestor there and no distilled release could pass. Accept a tested commit reachable from the Source-Commits of HEAD's Distilled-Task commits, keep the byte-identical digest checks, test it on a real Git fixture, and re-record GMCP evidence for the changed test file.",
-  "status": "in_progress",
+  "status": "done",
   "scopes": [
     "tests/gmcp_requirements.rs",
     ".agents/gmcp/evidence",
@@ -11,10 +11,34 @@
     ".agents/tasks/done/T-CLAUDEDISTILLEVID-1.json"
   ],
   "size": "s",
-  "deps": ["T-CARBONDISTILL-1"],
-  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "gmcp_requirements"]},
+  "deps": [
+    "T-CARBONDISTILL-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
   "created_by": "claude",
   "created_unix": 1794364500,
   "owner": "claude",
-  "base": "d52ce1b47b4c1d60b40e42544f3007d414537ef3"
+  "base": "d52ce1b47b4c1d60b40e42544f3007d414537ef3",
+  "results": {
+    "tests": "cargo test -p susi --test gmcp_requirements: 88 passed, 0 failed on main b7a36b4c7 (87 before + tested_commit_history_follows_distillation_provenance)",
+    "evidence": "54 requirement checks re-recorded at 2f7bbc7d9 and 9 mastery checks at 8f8e2a20d with cargo local-release record-gmcp",
+    "clippy": "clean with -D warnings"
+  },
+  "limitations": "Linux x86_64 4-thread cloud container only; Windows not run.",
+  "landed": {
+    "main_commit": "b7a36b4c7c35466cf8eade628ead37b7b9fa9a79",
+    "source_commit": "e078077313ab4eb13f30422cfd268ae4896b3918",
+    "route": "local-snapshot submit claude-distillevid-20261111 (composed onto a newer main)"
+  }
 }
