@@ -447,3 +447,28 @@ fn the_plug_request_carries_the_conversation_only_when_there_is_one() {
         serde_json::json!({"prompt": "prose", "selected_model": "m", "model_path": null})
     );
 }
+
+#[test]
+fn calls_to_caller_supplied_tools_are_returned_not_run() {
+    use crate::susi_core::plane_bus::gemi::CALLER_TOOL_CALLS;
+    let reply = crate::local_tool_calls::caller_tool_reply(
+        "Let me check.\n<tool_call>\n{\"name\": \"get_weather\", \"arguments\": {\"city\": \"Paris\"}}\n</tool_call>",
+    );
+    let body: serde_json::Value =
+        serde_json::from_str(reply.strip_prefix(CALLER_TOOL_CALLS).unwrap()).unwrap();
+    assert_eq!(body["content"], "Let me check.");
+    assert_eq!(body["tool_calls"][0]["name"], "get_weather");
+    assert_eq!(body["tool_calls"][0]["arguments"]["city"], "Paris");
+    // Text without a call is the answer as it is.
+    assert_eq!(
+        crate::local_tool_calls::caller_tool_reply("The sky is blue."),
+        "The sky is blue."
+    );
+}
+
+#[test]
+fn max_tokens_reaches_the_engine_request() {
+    let chat = serde_json::json!({"messages": [{"role": "user", "content": "q"}], "max_tokens": 5});
+    let payload = crate::engines::local_plug::infer_payload("q", &chat, None, None);
+    assert_eq!(payload["max_tokens"], 5);
+}

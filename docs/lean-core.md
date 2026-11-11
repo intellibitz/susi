@@ -1166,4 +1166,15 @@ config, core and the tail.
   deleting `mcp_provider::looks_like_inference_tool` (only its tests called
   it) and `worker::seat_window_state` (nothing called it). Merged with
   T-CODEXHISTORY-1 (`21,262`), the measured and pinned size is `21,153`.
+- 2026-11-12 (T-CLAUDEGEMIFIX-2, Linux x86_64, CEO laptop), CEO direction "Fix
+  gemi completely": `susi-gemi` `21,153 -> 21,096`. An OpenAI request that
+  supplies its own `tools` got the model's raw `<tool_call>` markup back as
+  text (non-streamed), or, streamed, core tried to run the call against its
+  own registry and printed "`get_weather` is not a registered tool". Calls to
+  caller-supplied tools now return as `tool_calls` with
+  `finish_reason: "tool_calls"` (`local_tool_calls::caller_tool_reply`,
+  `plane_bus::gemi::CALLER_TOOL_CALLS`). `max_tokens` travels with the
+  conversation so the engine stops there (a 5-token request: 52 s -> 2.1 s).
+  Paid for by deleting `SusiPulse::compute_spectral_prediction` and
+  `SpectralPrediction`, which only their own test used.
 
