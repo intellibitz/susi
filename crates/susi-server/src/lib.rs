@@ -1644,6 +1644,12 @@ fn completion_stream(
                 failed.set(true);
                 return;
             }
+            // Routing notes are operator diagnostics, not the model's answer;
+            // a non-streamed reply never carries them, so neither does this.
+            if head.starts_with("[SUSI ROUTING]") {
+                tracing::debug!(note = %head.trim_end(), "routing note withheld from the stream");
+                return;
+            }
             if stop.is_empty() {
                 send_content(piece);
                 return;
@@ -2948,6 +2954,36 @@ mod tests {
             assert!(parse_completion(body.as_bytes(), false).is_err(), "{body}");
         }
         assert!(parse_completion(br#"{"prompt":" "}"#, true).is_err());
+    }
+    #[tokio::test]
+    async fn routing_notes_never_reach_streamed_content() {
+        let mut rx = completion_stream(
+            "m".into(),
+            false,
+            None,
+            Vec::new(),
+            false,
+            0,
+            None,
+            |callback, _| {
+                callback("Hello! ".into());
+                callback("[SUSI ROUTING] local 'm' selected (served alone): every provider rung stepped down\n".into());
+                callback("Bye.".into());
+                String::new()
+            },
+        );
+        let mut content = String::new();
+        while let Some(frame) = rx.recv().await {
+            if frame == "data: [DONE]\n\n" {
+                break;
+            }
+            let value: serde_json::Value =
+                serde_json::from_str(frame.strip_prefix("data: ").unwrap().trim()).unwrap();
+            if let Some(piece) = value["choices"][0]["delta"]["content"].as_str() {
+                content.push_str(piece);
+            }
+        }
+        assert_eq!(content, "Hello! Bye.");
     }
     #[tokio::test]
     async fn streaming_delivers_returned_answer_and_escapes_model_names() {

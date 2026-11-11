@@ -91,6 +91,9 @@ mod capability_matrix_by_class_tests;
 #[path = "tests/delegated_verification_by_risk.rs"]
 mod delegated_verification_by_risk_tests;
 #[cfg(test)]
+#[path = "tests/embed_budget.rs"]
+mod embed_budget_tests;
+#[cfg(test)]
 #[path = "tests/estate_operations_capability_floor.rs"]
 mod estate_operations_capability_floor_tests;
 #[cfg(test)]
