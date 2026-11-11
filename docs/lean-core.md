@@ -747,3 +747,35 @@ config, core and the tail.
   regex-syntax, susi-os-unicode), 44 -> 41 workspace, 19 -> 17 direct facade
   edges; `cargo tree -p susi` host packages 250 -> 243. Pillar line counts
   unchanged. No build-time gain is claimed.
+- 2026-11-11 (T-HARNESSSTD-1, Linux x86_64, CEO laptop, other agents'
+  builds running): axum leaves susi-harness. The metering gateway (the BYOK
+  OpenAI-compatible port, buffered and SSE-streamed answers), the public
+  ingress and the harness API are served by `crates/susi-harness/src/http.rs`,
+  a std, blocking, thread-per-connection HTTP/1.1 server whose handlers stay
+  async on the caller's Tokio runtime. A transcript of 69 raw exchanges
+  recorded from the axum 0.8.9 / hyper 1.12 stack first (`bfd0a8eea`:
+  routing, 404/405 + allow, HEAD, keep-alive and close on 1.0 and 1.1, 400
+  and 431 heads, chunked request bodies, 100-continue, the 2 MiB body limit
+  and its text, buffered and streamed completions chunk by chunk, the
+  ingress refusals, the harness API's guarded command route with axum's
+  415/400/422 JSON rejections and their paths, the first SSE event) passes
+  byte for byte against the std server. Kept as they were: the body limits
+  (2 MiB; 64 KiB for operator commands), no server-side read timeout,
+  authentication, loopback binding, handler drop when a client hangs up,
+  graceful stop (in-flight calls finish, idle connections close). Not
+  served any more: HTTP/2 prior knowledge, which axum's `http2` feature
+  accepted. Live: `harness-gateway` on a free loopback port against a local
+  stand-in provider answered `/health`, a buffered and a streamed
+  completion (chunks arrived 0.3 s apart as the provider sent them, the row
+  carried the provider's usage), the ingress 401 and an admitted call
+  booked under its account, and a SIGTERM during a stream finished the
+  stream and its row before the process exited (0.54 s). Pillar reach
+  154 -> 145 third-party (axum, axum-core, matchit, tower,
+  serde_path_to_error, serde_urlencoded, sync_wrapper, mime, ryu), 41 -> 40
+  workspace, 17 -> 16 direct facade edges; susi-gawd-a2a and
+  susi-leaf-services still use axum, so `cargo tree -p susi` host packages
+  stay 243 and no host build-time gain is claimed (`cargo tree -p
+  susi-harness`: 120 -> 107 packages). Lines: susi-harness 40,575 -> 39,446;
+  production code grew by 1,859 (the server, 1,843 lines, in place of the
+  nine crates' ~45,000 source lines) and the inline test modules of the
+  gateway, ingress and harness API (2,988 lines) moved unchanged to `src/tests`.

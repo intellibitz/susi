@@ -85,6 +85,7 @@ pub mod event;
 pub mod executor;
 pub mod fleet;
 pub mod gateway;
+pub mod http;
 pub mod ingress;
 pub mod ledger;
 pub mod lifecycle;
@@ -112,6 +113,10 @@ pub mod workflow;
 pub mod router;
 pub mod worker;
 
+#[cfg(test)]
+#[path = "tests/http_wire.rs"]
+mod http_wire;
+
 pub use budget::BudgetReservation;
 pub use ledger::{verify_integrity, LedgerIntegrityReport};
 pub use supervisor::{
@@ -122,33 +127,6 @@ pub use supervisor::{
     CliAgentBackend, CliToolStatus, EmbeddedWorkflowOrchestrator, RecursiveTreeRun,
     SusiSocketReport, WorkflowEmbedError, WorkflowNode, WorkflowWavePlan,
 };
-
-pub(crate) fn poll_body<F, T, E>(f: F) -> axum::body::Body
-where
-    F: FnMut(&mut std::task::Context<'_>) -> std::task::Poll<Option<Result<T, E>>>
-        + Send
-        + Unpin
-        + 'static,
-    T: Into<hyper::body::Bytes>,
-    E: Into<Box<dyn std::error::Error + Send + Sync>> + 'static,
-{
-    struct PollBody<F>(F);
-    impl<F, T, E> hyper::body::Body for PollBody<F>
-    where
-        F: FnMut(&mut std::task::Context<'_>) -> std::task::Poll<Option<Result<T, E>>> + Unpin,
-        T: Into<hyper::body::Bytes>,
-    {
-        type Data = hyper::body::Bytes;
-        type Error = E;
-        fn poll_frame(
-            mut self: std::pin::Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Option<Result<hyper::body::Frame<hyper::body::Bytes>, E>>> {
-            (self.0)(cx).map(|o| o.map(|r| r.map(|c| hyper::body::Frame::data(c.into()))))
-        }
-    }
-    axum::body::Body::new(PollBody(f))
-}
 
 #[cfg(test)]
 #[path = "tests/money.rs"]

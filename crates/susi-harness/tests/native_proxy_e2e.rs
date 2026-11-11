@@ -13,9 +13,6 @@
 //! A mock OpenAI-compatible upstream stands in for a provider, so the test is
 //! deterministic and spends nothing. Every byte is written under a tempdir.
 
-use axum::http::{header, StatusCode};
-use axum::routing::post;
-use axum::Router;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,6 +20,7 @@ use std::sync::Arc;
 use susi_harness::cache::ResponseCache;
 use susi_harness::catalog::PriceCatalogue;
 use susi_harness::gateway::GatewayState;
+use susi_harness::http::{header, post, Peer, Router, StatusCode};
 use susi_harness::ingress::{self, Account, Ingress};
 use susi_harness::ledger::{read_entries, Outcome};
 use susi_harness::money::MicroUsd;
@@ -42,9 +40,12 @@ fn catalogue() -> PriceCatalogue {
 async fn spawn(app: Router) -> SocketAddr {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
-    });
+    tokio::spawn(susi_harness::http::serve(
+        listener,
+        app,
+        Peer::Withhold,
+        std::future::pending(),
+    ));
     address
 }
 
@@ -92,7 +93,7 @@ async fn native_proxy_ingress_is_priced_cached_and_capped() {
     let upstream_calls = calls.clone();
     let app = Router::new().route(
         "/v1/chat/completions",
-        post(move |_body: String| {
+        post(move |_| {
             let upstream_calls = upstream_calls.clone();
             async move {
                 upstream_calls.fetch_add(1, Ordering::SeqCst);

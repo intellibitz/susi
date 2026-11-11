@@ -22,21 +22,16 @@ use crate::budget::Budget;
 use crate::catalog::PriceCatalogue;
 use crate::control::{self, ControlRecord};
 use crate::event::{append_event, read_events, Event, EventKind};
+use crate::http::{get, header, post, Body, Guard, HeaderMap, HeaderValue, IntoResponse, Json};
+use crate::http::{Peer, Request, Response, Router, StatusCode};
 use crate::ledger::{LedgerEntry, Outcome};
 use crate::mission_control::{GraphView, Replay, ReplayEvent};
 use crate::money::MicroUsd;
 use crate::pricing::ModelPrice;
-use axum::body::{to_bytes, Body};
-use axum::extract::{ConnectInfo, Request, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
-use axum::middleware::Next;
-use axum::response::Response;
-use axum::routing::{get, post};
-use axum::{Json, Router};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -673,18 +668,16 @@ const MAX_COMMAND_BODY_BYTES: usize = 64 * 1024;
 /// Build the harness API router (JSON and SSE only; no HTML route). Every
 /// `POST /api/command` must pass `authorize` or is refused with `401`.
 pub fn router(cockpit: Arc<Cockpit>, authorize: CommandAuthorizer) -> Router {
+    let (on_status, on_events) = (Arc::clone(&cockpit), Arc::clone(&cockpit));
     Router::new()
-        .route("/api/status", get(status))
-        .route("/api/events", get(events))
+        .route("/api/status", get(move |_| status(Arc::clone(&on_status))))
+        .route("/api/events", get(move |_| events(Arc::clone(&on_events))))
         .route(
             "/api/command",
-            post(command).layer(axum::middleware::from_fn_with_state(
-                authorize,
-                command_guard,
-            )),
+            post(move |request| command(Arc::clone(&cockpit), request))
+                .guard(MAX_COMMAND_BODY_BYTES, command_guard(authorize)),
         )
-        .route("/health", get(health))
-        .with_state(cockpit)
+        .route("/health", get(|_| health()))
 }
 
 /// Serve the harness API on an already-bound listener, with the peer address
@@ -698,74 +691,67 @@ pub async fn serve(
     cockpit: Arc<Cockpit>,
     authorize: CommandAuthorizer,
 ) -> std::io::Result<()> {
-    axum::serve(
+    crate::http::serve(
         listener,
-        router(cockpit, authorize).into_make_service_with_connect_info::<SocketAddr>(),
+        router(cockpit, authorize),
+        Peer::Pass,
+        std::future::pending(),
     )
     .await
 }
 
 /// RFC 9110 15.5.2: a 401 carries a challenge naming the scheme to retry with.
 fn unauthorized() -> Response {
-    let mut response = Response::new(Body::from(
+    let mut response = Response::new(
         r#"{"error":"POST /api/command requires Authorization: Bearer <api token>"}"#,
-    ));
+    );
     *response.status_mut() = StatusCode::UNAUTHORIZED;
     response.headers_mut().insert(
-        axum::http::header::WWW_AUTHENTICATE,
+        header::WWW_AUTHENTICATE,
         HeaderValue::from_static("Bearer realm=\"susi-harness\""),
     );
     response.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
+        header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
     response
 }
 
-async fn command_guard(
-    State(authorize): State<CommandAuthorizer>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let peer = request
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |info| info.0.ip());
-    let (parts, body) = request.into_parts();
-    let Ok(bytes) = to_bytes(body, MAX_COMMAND_BODY_BYTES).await else {
-        let mut response = Response::new(Body::empty());
-        *response.status_mut() = StatusCode::PAYLOAD_TOO_LARGE;
-        return response;
-    };
-    let context = CommandAuthContext {
-        peer,
-        headers: &parts.headers,
-        body: &bytes,
-    };
-    if !(authorize)(&context) {
-        return unauthorized();
-    }
-    next.run(Request::from_parts(parts, Body::from(bytes)))
-        .await
+/// The admission check in front of `/api/command` (every method): the
+/// server has read the body, at most [`MAX_COMMAND_BODY_BYTES`], and the
+/// host's policy sees it with the peer and the headers.
+fn command_guard(authorize: CommandAuthorizer) -> Guard {
+    Arc::new(move |request: &Request| {
+        let context = CommandAuthContext {
+            peer: request
+                .peer
+                .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |peer| peer.ip()),
+            headers: &request.headers,
+            body: &request.body,
+        };
+        (!(authorize)(&context)).then(unauthorized)
+    })
 }
 
 async fn health() -> &'static str {
     "ok"
 }
 
-async fn status(State(cockpit): State<Arc<Cockpit>>) -> Json<Snapshot> {
+async fn status(cockpit: Arc<Cockpit>) -> Json<Snapshot> {
     Json(cockpit.snapshot())
 }
 
 // Reached only after `command_guard` admitted the request (see `router`).
-async fn command(
-    State(cockpit): State<Arc<Cockpit>>,
-    Json(command): Json<ControlCommand>,
-) -> Json<ControlAck> {
+async fn command(cockpit: Arc<Cockpit>, request: Request) -> Response {
+    let command: ControlCommand = match request.json() {
+        Ok(command) => command,
+        Err(rejection) => return rejection,
+    };
     let Some(path) = &cockpit.controls_path else {
         return Json(ControlAck::refused(
             "the harness API is read-only: start it with --controls <log>",
-        ));
+        ))
+        .into_response();
     };
     let mission = command.mission_id().map(str::to_string);
     let summary = format!("operator command: {command:?}");
@@ -783,29 +769,39 @@ async fn command(
         event = event.with_mission(mission);
     }
     let _ = append_event(&cockpit.events_path, &event);
-    Json(ack)
+    Json(ack).into_response()
 }
 
-async fn events(State(cockpit): State<Arc<Cockpit>>) -> Response {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-    let body = crate::poll_body(move |cx| {
-        interval.poll_tick(cx).map(|_| {
+/// A snapshot as an SSE event once a second, the first at once, for as long
+/// as the client reads.
+async fn events(cockpit: Arc<Cockpit>) -> Response {
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        loop {
+            interval.tick().await;
             let data = serde_json::to_string(&cockpit.snapshot()).unwrap_or_default();
-            Some(Ok::<String, std::convert::Infallible>(format!(
-                "data: {data}\n\n"
-            )))
-        })
+            let mut event = String::with_capacity(data.len() + 8);
+            for line in data.split('\n') {
+                event.push_str("data: ");
+                event.push_str(line);
+                event.push('\n');
+            }
+            event.push('\n');
+            if sender.send(event.into_bytes()).await.is_err() {
+                break;
+            }
+        }
     });
-    let mut res = Response::new(body);
-    res.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
+    let mut response = Response::new(Body::Stream(receiver));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
         HeaderValue::from_static("text/event-stream"),
     );
-    res.headers_mut().insert(
-        axum::http::header::CACHE_CONTROL,
-        HeaderValue::from_static("no-cache"),
-    );
-    res
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
 }
 
 fn now_ms() -> u64 {
@@ -816,517 +812,5 @@ fn now_ms() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::control::ControlState;
-    use crate::event::{append_event, EventKind};
-    use crate::ledger::{append_entry, Dispatch, LedgerEntry, Outcome};
-    use crate::pricing::TokenUsage;
-    use std::net::SocketAddr;
-
-    fn entry(mission: &str, task: &str, micros: u64) -> LedgerEntry {
-        LedgerEntry::settle(Dispatch {
-            mission: mission.into(),
-            task: task.into(),
-            attempt: 1,
-            model: "deepseek-flash".into(),
-            provider: "deepseek".into(),
-            usage: TokenUsage::new(1_000_000, 0, 0),
-            price: ModelPrice {
-                input_miss: MicroUsd::from_micros(micros),
-                input_hit: MicroUsd::ZERO,
-                output: MicroUsd::ZERO,
-            },
-            started_unix_ms: 0,
-            ended_unix_ms: 1,
-            outcome: Outcome::Completed,
-        })
-    }
-
-    fn cockpit(dir: &std::path::Path) -> Cockpit {
-        let ledger_path = dir.join("ledger.jsonl");
-        let events_path = dir.join("events.jsonl");
-        append_entry(&ledger_path, &entry("m-1", "t-1", 100)).unwrap();
-        append_entry(&ledger_path, &entry("m-1", "t-2", 200)).unwrap();
-        append_entry(&ledger_path, &entry("m-2", "t-3", 50)).unwrap();
-        append_event(
-            &events_path,
-            &Event::new(1, 10, EventKind::MissionStarted, "started").with_mission("m-1"),
-        )
-        .unwrap();
-        Cockpit {
-            ledger_path,
-            events_path,
-            state_path: None,
-            plan_path: None,
-            controls_path: None,
-            catalogue_path: None,
-            graph_path: None,
-            budget: None,
-            mission: None,
-        }
-    }
-
-    #[test]
-    fn cockpit_graph_appears_beside_the_ledger() {
-        let dir = tempfile::tempdir().unwrap();
-        let cockpit = cockpit(dir.path());
-        assert!(cockpit.snapshot().graph.is_empty());
-        std::fs::write(
-            dir.path().join("graph.jsonl"),
-            "{\"from\":\"planner\",\"to\":\"coders\",\"kind\":\"plan\",\"payload\":{}}\n\
-             {\"from\":\"reviewer\",\"to\":\"coders\",\"kind\":\"approval\",\"payload\":{}}\n",
-        )
-        .unwrap();
-        let snapshot = cockpit.snapshot();
-        assert_eq!(snapshot.graph.messages.len(), 2);
-        assert_eq!(snapshot.graph.roles, vec!["planner", "reviewer"]);
-        assert!(snapshot.graph.approved());
-    }
-
-    #[test]
-    fn the_snapshot_replays_the_focused_mission_from_events_ledger_and_graph() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut cockpit = cockpit(dir.path());
-        cockpit.mission = Some("m-1".into());
-        append_event(
-            &cockpit.events_path,
-            &Event::new(2, 20, EventKind::TaskDispatched, "task t-1").with_mission("m-1"),
-        )
-        .unwrap();
-        let graph = dir.path().join("mission-graph.jsonl");
-        std::fs::write(
-            &graph,
-            "{\"from\":\"planner\",\"to\":\"coders\",\"kind\":\"plan\",\"payload\":{}}\n",
-        )
-        .unwrap();
-        cockpit.graph_path = Some(graph);
-
-        let snapshot = cockpit.snapshot();
-        assert_eq!(
-            snapshot
-                .replay
-                .iter()
-                .map(|step| (step.at_unix_ms, step.kind.as_str()))
-                .collect::<Vec<_>>(),
-            vec![
-                (1, "ledger:deepseek-flash"),
-                (1, "ledger:deepseek-flash"),
-                (10, "event:mission_started"),
-                (10, "graph:planner->coders:plan"),
-                (20, "event:task_dispatched"),
-            ]
-        );
-        let ledger_costs: Vec<u64> = snapshot
-            .replay
-            .iter()
-            .filter(|step| step.kind == "ledger:deepseek-flash")
-            .map(|step| step.cost_micro_usd)
-            .collect();
-        assert_eq!(ledger_costs, vec![100, 200]);
-    }
-
-    #[test]
-    fn a_named_graph_supplies_roles_and_per_role_spend() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut cockpit = cockpit(dir.path());
-        cockpit.mission = Some("m-1".into());
-        append_entry(&cockpit.ledger_path, &entry("m-1", "planner", 700)).unwrap();
-        append_entry(&cockpit.ledger_path, &entry("m-2", "planner", 900)).unwrap();
-        let graph = dir.path().join("mission-graph.jsonl");
-        std::fs::write(
-            &graph,
-            "{\"from\":\"planner\",\"to\":\"coders\",\"kind\":\"plan\",\"payload\":{}}\n\
-             {\"from\":\"coders\",\"to\":\"reviewer\",\"kind\":\"work\",\"payload\":{}}\n\
-             {\"from\":\"reviewer\",\"to\":\"planner\",\"kind\":\"approval\",\"payload\":{}}\n",
-        )
-        .unwrap();
-        cockpit.graph_path = Some(graph);
-        let snapshot = cockpit.snapshot();
-        assert_eq!(snapshot.graph.roles, vec!["coders", "planner", "reviewer"]);
-        assert_eq!(
-            snapshot
-                .role_spend
-                .iter()
-                .map(|spend| spend.role.as_str())
-                .collect::<Vec<_>>(),
-            vec!["coders", "planner", "reviewer"]
-        );
-        let planner = snapshot
-            .role_spend
-            .iter()
-            .find(|spend| spend.role == "planner")
-            .unwrap();
-        assert_eq!(planner.calls, 1);
-        assert_eq!(planner.cost_micro_usd, 700);
-        let coders = snapshot
-            .role_spend
-            .iter()
-            .find(|spend| spend.role == "coders")
-            .unwrap();
-        assert_eq!(coders.calls, 0);
-        assert_eq!(coders.cost_micro_usd, 0);
-    }
-
-    #[test]
-    fn a_snapshot_groups_and_sums_the_ledger() {
-        let dir = tempfile::tempdir().unwrap();
-        let snapshot = cockpit(dir.path()).snapshot();
-        assert_eq!(snapshot.total_cost_micro_usd, 350);
-        assert_eq!(snapshot.missions.len(), 2);
-        let first = &snapshot.missions[0];
-        assert_eq!(first.mission, "m-1");
-        assert_eq!(first.calls, 2);
-        assert_eq!(first.tasks, 2);
-        assert_eq!(first.cost_micro_usd, 300);
-        assert_eq!(first.state, "running");
-        assert_eq!(snapshot.events.len(), 1);
-        assert_eq!(snapshot.workers.len(), 1);
-        assert_eq!(snapshot.workers[0].calls, 3);
-    }
-
-    #[test]
-    fn a_plan_and_state_show_progress_and_budget() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut cockpit = cockpit(dir.path());
-        let plan = dir.path().join("plan.json");
-        std::fs::write(
-            &plan,
-            r#"{"mission":"m-1","tasks":[{"key":"a"},{"key":"b"},{"key":"c"}]}"#,
-        )
-        .unwrap();
-        let state = dir.path().join("state.json");
-        std::fs::write(
-            &state,
-            r#"{"records":{"a":{"status":"done"},"b":{"status":"failed","reason":"no"}}}"#,
-        )
-        .unwrap();
-        cockpit.plan_path = Some(plan);
-        cockpit.state_path = Some(state);
-        cockpit.budget = Some(Budget::new(MicroUsd::from_micros(1_000)));
-        let snapshot = cockpit.snapshot();
-        let mission = snapshot
-            .missions
-            .iter()
-            .find(|mission| mission.mission == "m-1")
-            .unwrap();
-        assert_eq!(mission.planned, 3);
-        assert_eq!(mission.done, 1);
-        assert_eq!(mission.failed, 1);
-        assert_eq!(snapshot.budget_micro_usd, Some(1_000));
-        assert_eq!(snapshot.budget_remaining_micro_usd, Some(700));
-        assert!(snapshot
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("failed")));
-        assert!(snapshot
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("no activity")));
-    }
-
-    #[test]
-    fn a_plan_that_never_started_is_warned() {
-        let dir = tempfile::tempdir().unwrap();
-        let plan = dir.path().join("plan.json");
-        std::fs::write(
-            &plan,
-            r#"{"mission":"m-9","tasks":[{"key":"a"},{"key":"b"}]}"#,
-        )
-        .unwrap();
-        let cockpit = Cockpit {
-            ledger_path: dir.path().join("ledger.jsonl"),
-            events_path: dir.path().join("events.jsonl"),
-            state_path: None,
-            plan_path: Some(plan),
-            controls_path: None,
-            catalogue_path: None,
-            graph_path: None,
-            budget: None,
-            mission: None,
-        };
-        let snapshot = cockpit.snapshot();
-        let mission = &snapshot.missions[0];
-        assert_eq!(mission.mission, "m-9");
-        assert_eq!(mission.planned, 2);
-        assert_eq!(mission.state, "reported");
-        assert!(snapshot
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("never started")));
-    }
-
-    #[test]
-    fn an_operator_pause_is_reflected_and_blocking() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut cockpit = cockpit(dir.path());
-        let controls = dir.path().join("controls.jsonl");
-        cockpit.controls_path = Some(controls.clone());
-        control::submit(
-            &controls,
-            ControlCommand::Pause {
-                mission_id: "m-1".into(),
-            },
-        )
-        .unwrap();
-        append_event(
-            &cockpit.events_path,
-            &Event::new(2, 20, EventKind::MissionPaused, "paused").with_mission("m-1"),
-        )
-        .unwrap();
-        let snapshot = cockpit.snapshot();
-        assert_eq!(snapshot.controls.len(), 1);
-        assert!(ControlState::from_records(&snapshot.controls).paused);
-        let mission = snapshot
-            .missions
-            .iter()
-            .find(|mission| mission.mission == "m-1")
-            .unwrap();
-        assert_eq!(mission.state, "paused");
-        assert!(snapshot
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("paused")));
-    }
-
-    #[tokio::test]
-    async fn the_router_serves_status_and_no_html_panel() {
-        let dir = tempfile::tempdir().unwrap();
-        let cockpit = Arc::new(cockpit(dir.path()));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address: SocketAddr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            let _ = super::serve(listener, cockpit, deny_writes()).await;
-        });
-
-        let status = get_text(address, "/api/status").await;
-        assert!(status.contains("\"m-1\""));
-        assert!(status.contains("350"));
-        assert!(status.contains("\"workers\""));
-
-        // Core ships no UI: the root path is not a route any more.
-        let root = tokio::task::spawn_blocking(move || {
-            let url = format!("http://{address}/");
-            susi_http_transport::http_call("GET", &url, &[], 5, 0).unwrap()
-        })
-        .await
-        .unwrap();
-        assert_eq!(root.status, 404);
-    }
-
-    /// A writer policy that admits only `Authorization: Bearer <token>`.
-    fn bearer(token: &'static str) -> CommandAuthorizer {
-        Arc::new(move |context: &CommandAuthContext<'_>| {
-            context.header("authorization") == Some(format!("Bearer {token}").as_str())
-        })
-    }
-
-    fn deny_writes() -> CommandAuthorizer {
-        Arc::new(|_: &CommandAuthContext<'_>| false)
-    }
-
-    async fn post_command(address: SocketAddr, body: &str, authorization: Option<&str>) -> String {
-        let auth = authorization
-            .map(|value| format!("Authorization: {value}\r\n"))
-            .unwrap_or_default();
-        let request = format!(
-            "POST /api/command HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n{auth}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        tokio::task::spawn_blocking(move || {
-            use std::io::{Read, Write};
-            let mut stream = std::net::TcpStream::connect(address).unwrap();
-            stream
-                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
-                .unwrap();
-            stream.write_all(request.as_bytes()).unwrap();
-            let mut collected = Vec::new();
-            let _ = stream.read_to_end(&mut collected);
-            String::from_utf8_lossy(&collected).into_owned()
-        })
-        .await
-        .unwrap()
-    }
-
-    /// Plan A2: an operator write without the API token is refused with 401
-    /// and never reaches the control log.
-    #[tokio::test]
-    async fn a_command_without_a_token_is_refused_with_401() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut cockpit = cockpit(dir.path());
-        let controls = dir.path().join("controls.jsonl");
-        cockpit.controls_path = Some(controls.clone());
-        let cockpit = Arc::new(cockpit);
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address: SocketAddr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            let _ = super::serve(listener, cockpit, bearer("test-token")).await;
-        });
-        let body = r#"{"command":"pause","mission_id":"m-1"}"#;
-        for authorization in [None, Some("Bearer wrong-token"), Some("test-token")] {
-            let response = post_command(address, body, authorization).await;
-            assert!(response.starts_with("HTTP/1.1 401"), "{response}");
-            assert!(
-                response
-                    .to_ascii_lowercase()
-                    .contains("www-authenticate: bearer"),
-                "{response}"
-            );
-        }
-        assert!(control::read_records(&controls).is_empty());
-    }
-
-    /// Without connect info the peer is unknown and treated as non-loopback,
-    /// so a loopback-only policy fails closed rather than open.
-    #[tokio::test]
-    async fn an_unknown_peer_is_not_treated_as_loopback() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut cockpit = cockpit(dir.path());
-        let controls = dir.path().join("controls.jsonl");
-        cockpit.controls_path = Some(controls.clone());
-        let cockpit = Arc::new(cockpit);
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address: SocketAddr = listener.local_addr().unwrap();
-        let loopback_only: CommandAuthorizer =
-            Arc::new(|context: &CommandAuthContext<'_>| context.peer.is_loopback());
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, super::router(cockpit, loopback_only)).await;
-        });
-        let body = r#"{"command":"pause","mission_id":"m-1"}"#;
-        let response = post_command(address, body, None).await;
-        assert!(response.starts_with("HTTP/1.1 401"), "{response}");
-        assert!(control::read_records(&controls).is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_command_over_http_is_recorded() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut cockpit = cockpit(dir.path());
-        let controls = dir.path().join("controls.jsonl");
-        cockpit.controls_path = Some(controls.clone());
-        let cockpit = Arc::new(cockpit);
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address: SocketAddr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            let _ = super::serve(listener, cockpit, bearer("test-token")).await;
-        });
-        let body = r#"{"command":"pause","mission_id":"m-1"}"#;
-        let response = post_command(address, body, Some("Bearer test-token")).await;
-        assert!(response.contains("\"accepted\":true"), "{response}");
-        let records = control::read_records(&controls);
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].command.mission_id(), Some("m-1"));
-    }
-
-    #[tokio::test]
-    async fn the_event_route_streams_sse() {
-        let dir = tempfile::tempdir().unwrap();
-        let cockpit = Arc::new(cockpit(dir.path()));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address: SocketAddr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            let _ = super::serve(listener, cockpit, deny_writes()).await;
-        });
-
-        let text = tokio::task::spawn_blocking(move || {
-            use std::io::{Read, Write};
-            let mut stream = std::net::TcpStream::connect(address).unwrap();
-            stream
-                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
-                .unwrap();
-            stream
-                .write_all(b"GET /api/events HTTP/1.1\r\nHost: localhost\r\n\r\n")
-                .unwrap();
-            let mut collected = Vec::new();
-            loop {
-                let mut buffer = [0u8; 1024];
-                match stream.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(read) => {
-                        collected.extend_from_slice(&buffer[..read]);
-                        if String::from_utf8_lossy(&collected).contains("data:") {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-            String::from_utf8_lossy(&collected).into_owned()
-        })
-        .await
-        .unwrap();
-        assert!(text.contains("text/event-stream"));
-        assert!(text.contains("data:"));
-    }
-
-    async fn get_text(address: SocketAddr, path: &str) -> String {
-        let url = format!("http://{address}{path}");
-        tokio::task::spawn_blocking(move || {
-            let call = susi_http_transport::http_call("GET", &url, &[], 5, 0).unwrap();
-            assert_eq!(call.status, 200);
-            call.into_utf8(64 * 1024).unwrap()
-        })
-        .await
-        .unwrap()
-    }
-
-    #[test]
-    fn snapshot_reports_prompt_cache_share_and_response_cache_hits() {
-        let dir = tempfile::tempdir().unwrap();
-        let ledger_path = dir.path().join("ledger.jsonl");
-        let events_path = dir.path().join("events.jsonl");
-
-        let mut hit_entry = LedgerEntry::settle(Dispatch {
-            mission: "m-cache".into(),
-            task: "t-1".into(),
-            attempt: 1,
-            model: "claude-opus".into(),
-            provider: "anthropic".into(),
-            usage: TokenUsage::new(10_000, 9_000, 1_500),
-            price: ModelPrice {
-                input_miss: MicroUsd::from_micros(5_000_000),
-                input_hit: MicroUsd::from_micros(500_000),
-                output: MicroUsd::from_micros(25_000_000),
-            },
-            started_unix_ms: 10,
-            ended_unix_ms: 20,
-            outcome: Outcome::Completed,
-        });
-        append_entry(&ledger_path, &hit_entry).unwrap();
-
-        hit_entry.cached = true;
-        hit_entry.cost = MicroUsd::ZERO;
-        append_entry(&ledger_path, &hit_entry).unwrap();
-
-        let cockpit = Cockpit {
-            ledger_path,
-            events_path,
-            state_path: None,
-            plan_path: None,
-            controls_path: None,
-            catalogue_path: None,
-            graph_path: None,
-            budget: None,
-            mission: None,
-        };
-        let snap = cockpit.snapshot();
-        assert_eq!(snap.total_input_tokens, 20_000);
-        assert_eq!(snap.total_cache_hit_tokens, 18_000);
-        assert_eq!(snap.total_output_tokens, 3_000);
-        assert_eq!(snap.cache_share_permille, 900);
-        assert_eq!(snap.cached_calls, 1);
-        assert_eq!(snap.workers.len(), 1);
-        assert_eq!(snap.workers[0].cache_share_permille, 900);
-        assert_eq!(snap.workers[0].cached_calls, 1);
-        assert_eq!(
-            snap.roi.actual_cost_micro_usd + snap.roi.total_saved_micro_usd,
-            snap.roi.frontier_baseline_micro_usd
-        );
-        assert!(snap.roi.prompt_cache_saved_micro_usd > 0);
-        assert!(snap.roi.response_cache_saved_micro_usd > 0);
-        assert_eq!(
-            snap.workers[0].saved_micro_usd,
-            snap.roi.total_saved_micro_usd
-        );
-    }
-}
+#[path = "tests/cockpit.rs"]
+mod tests;

@@ -14,9 +14,7 @@ susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
 susi-adapters-llm = { workspace = true }
-axum = { package = "susi-vendor-axum", path = "../susi-vendor-axum" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
-hyper = { package = "susi-vendor-hyper", path = "../susi-vendor-hyper" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
