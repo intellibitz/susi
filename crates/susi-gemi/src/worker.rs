@@ -182,11 +182,6 @@ pub fn seat_spec_for(provider: &str) -> Option<SeatSpec> {
         .find(|s| seat_name(&s.agent) == provider)
 }
 
-/// True when `provider` is a configured agent seat.
-pub fn is_seat(provider: &str) -> bool {
-    seat_spec_for(provider).is_some()
-}
-
 // ── Per-worker window/balance accounting ──────────────────────────────────
 
 /// window_start unix → calls spent in that window, per worker name —

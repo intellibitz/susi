@@ -26,32 +26,82 @@ pub fn extract_tool_calls(text: &str) -> (String, Vec<NormalizedToolCall>) {
     (prose, calls)
 }
 
-/// Cap on tools enumerated for a local model — every schema costs context
-/// tokens on models whose windows are small, and past a screenful the
-/// enumeration confuses more than it helps.
-const MAX_ENUMERATED_TOOLS: usize = 32;
+/// Most tools offered to a local model at once: each costs prompt tokens a
+/// small model reads slowly, and a long list makes it pick badly.
+const MAX_OFFERED_TOOLS: usize = 8;
 
-/// Prepend the registered tool schemas to a prompt bound for a local
-/// tool-capable model. There is no Jinja rendering — the engines receive a
-/// bare string — so the catalog goes in as the `<tool_call>` emission
-/// contract plus a `name — description` list, which is exactly the markup
-/// `extract_tool_calls` reads back on the answer. Returns the prompt
-/// untouched when nothing is registered (nothing for the model to call).
-pub fn prompt_with_tool_schemas(prompt: &str) -> String {
-    let tools = crate::susi_core::plane_bus::tools::list_tools();
-    let Some(entries) = tools.as_array() else {
-        return prompt.to_string();
-    };
-    let catalog: Vec<(&str, &str)> = entries
-        .iter()
-        .take(MAX_ENUMERATED_TOOLS)
+/// Words that say nothing about which tool fits ("list", "show" and the like
+/// appear in dozens of tool names and would rank unrelated tools first).
+const NOISE_WORDS: [&str; 34] = [
+    "the", "and", "for", "with", "what", "which", "this", "that", "from", "into", "your", "you",
+    "are", "was", "how", "why", "when", "where", "who", "can", "please", "now", "right", "show",
+    "list", "get", "set", "run", "use", "all", "any", "not", "but", "its",
+];
+
+fn words(text: &str) -> std::collections::BTreeSet<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| w.len() >= 3 && !NOISE_WORDS.contains(w))
+        .map(|w| {
+            w.strip_suffix('s')
+                .filter(|s| s.len() >= 3)
+                .unwrap_or(w)
+                .to_owned()
+        })
+        .collect()
+}
+
+/// A tool offered to the model: its name, its description and its record.
+type Offered<'a> = (&'a str, &'a str, &'a Value);
+
+/// The registered tools that fit `prompt`, as [`Offered`]:
+/// ranked by how many of its words appear in the tool's name and
+/// description, at most [`MAX_OFFERED_TOOLS`], none when nothing matches.
+/// Offering every registered tool in name order gave a 0.5B model 32
+/// unrelated tools and it called one of them.
+fn relevant_tools<'a>(listed: &'a Value, prompt: &str) -> Vec<Offered<'a>> {
+    let wanted = words(prompt);
+    let mut scored: Vec<(usize, Offered<'_>)> = listed
+        .as_array()
+        .into_iter()
+        .flatten()
         .filter_map(|tool| {
-            Some((
-                tool.get("name").and_then(Value::as_str)?,
-                tool.get("description")
-                    .and_then(Value::as_str)
-                    .unwrap_or("no description"),
-            ))
+            let name = tool.get("name").and_then(Value::as_str)?;
+            let about = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let score = words(&format!("{name} {about}"))
+                .intersection(&wanted)
+                .count();
+            (score > 0).then_some((score, (name, about, tool)))
+        })
+        .collect();
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    scored
+        .into_iter()
+        .take(MAX_OFFERED_TOOLS)
+        .map(|(_, found)| found)
+        .collect()
+}
+
+/// Prepend the registered tools that fit the request to a prompt bound for a
+/// local tool-capable model, as the `<tool_call>` emission contract plus a
+/// `name — description` list: exactly the markup `extract_tool_calls` reads
+/// back. The prompt is returned untouched when no tool fits.
+pub fn prompt_with_tool_schemas(prompt: &str) -> String {
+    let listed = crate::susi_core::plane_bus::tools::list_tools();
+    let catalog: Vec<(&str, &str)> = relevant_tools(&listed, prompt)
+        .into_iter()
+        .map(|(name, about, _)| {
+            (
+                name,
+                if about.is_empty() {
+                    "no description"
+                } else {
+                    about
+                },
+            )
         })
         .collect();
     match tools_block(&catalog) {
@@ -79,8 +129,8 @@ fn tools_block(catalog: &[(&str, &str)]) -> Option<String> {
 
 /// The request as a conversation with the registered tools' schemas, for a
 /// local engine that renders the model's own chat template (and therefore
-/// its own tool format, with each tool's parameters). `None` when nothing is
-/// registered. The prose prompt from [`prompt_with_tool_schemas`] is still
+/// its own tool format, with each tool's parameters). `None` when no tool
+/// fits the request ([`relevant_tools`]). The prose prompt from [`prompt_with_tool_schemas`] is still
 /// sent as the fallback, and the answer is read by [`extract_tool_calls`]
 /// either way.
 pub fn chat_request(user_prompt: &str) -> Option<Value> {
@@ -91,22 +141,17 @@ pub fn chat_request(user_prompt: &str) -> Option<Value> {
 }
 
 pub(crate) fn chat_request_from(listed: &Value, user_prompt: &str) -> Option<Value> {
-    let tools: Vec<Value> = listed
-        .as_array()?
-        .iter()
-        .take(MAX_ENUMERATED_TOOLS)
-        .filter_map(|tool| {
-            let name = tool.get("name").and_then(Value::as_str)?;
+    let tools: Vec<Value> = relevant_tools(listed, user_prompt)
+        .into_iter()
+        .map(|(name, about, tool)| {
             let parameters = ["input_schema", "inputSchema", "parameters"]
                 .iter()
                 .find_map(|key| tool.get(*key).filter(|schema| schema.is_object()))
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}}));
-            Some(serde_json::json!({"type": "function", "function": {
-                "name": name,
-                "description": tool.get("description").and_then(Value::as_str).unwrap_or(""),
-                "parameters": parameters,
-            }}))
+            serde_json::json!({"type": "function", "function": {
+                "name": name, "description": about, "parameters": parameters,
+            }})
         })
         .collect();
     (!tools.is_empty()).then(|| {

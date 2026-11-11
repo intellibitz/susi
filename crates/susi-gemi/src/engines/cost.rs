@@ -221,22 +221,6 @@ pub fn expected_call_cost_usd_in(
     )
 }
 
-/// As [`expected_call_cost_usd_in`], priced against the installed catalog.
-pub fn expected_call_cost_usd(
-    provider: &str,
-    prompt_tokens: u64,
-    completion_tokens: u64,
-    cache_hit_ratio: f64,
-) -> Option<f64> {
-    expected_call_cost_usd_in(
-        price_catalog().as_ref(),
-        provider,
-        prompt_tokens,
-        completion_tokens,
-        cache_hit_ratio,
-    )
-}
-
 /// Expected USD for one whole `class` task on `provider` — the canonical
 /// [`task_token_profile`] priced against the catalog, cache-hit rate
 /// included. `None` when no price record exists (VC-202-002).

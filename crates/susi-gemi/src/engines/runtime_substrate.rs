@@ -13,14 +13,6 @@ use crate::susi_error::{EaiError, EaiResult};
 const LOCAL_ENGINE_ABSENT: &str =
     "local model engine is not attached; register a LocalEnginePlug (susi-gpu-fabric) or build with --features local-engine";
 
-pub trait NeuralBackend: Send + Sync {}
-
-pub type ModelBackend = Box<dyn NeuralBackend>;
-
-pub struct ModelSubstrate {
-    pub(crate) weights: ModelBackend,
-}
-
 pub struct InferenceHost;
 
 impl InferenceHost {
@@ -110,10 +102,6 @@ impl InferenceHost {
             ))),
         }
     }
-
-    pub(crate) fn needs_qwen2_backend(arch: &str) -> bool {
-        arch == "qwen2"
-    }
 }
 
 fn resolve_model_id(model_id: &str) -> EaiResult<std::path::PathBuf> {
@@ -173,9 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn qwen2_is_the_only_dense_qwen_backend() {
-        assert!(InferenceHost::needs_qwen2_backend("qwen2"));
-        assert!(!InferenceHost::needs_qwen2_backend("llama"));
+    fn qwen3moe_is_admitted_and_gpt2_is_not() {
         assert!(InferenceHost::validate_architecture("qwen3moe").is_ok());
         assert!(InferenceHost::validate_architecture("gpt2").is_err());
     }

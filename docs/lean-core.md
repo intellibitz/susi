@@ -1124,3 +1124,15 @@ config, core and the tail.
   `{"tools": bool}`), caches a real answer per file, and treats "no engine
   attached" as unknown and uncached. Verified end to end on the CEO laptop:
   daemon -> plug host -> real model -> tool call -> core's tool dispatch.
+- 2026-11-12 (T-CLAUDETOOLPICK-1, Linux x86_64, CEO laptop): `susi-gemi`
+  `21,180 -> 21,172`. Local tool requests offered the first 32 of the 195
+  registered tools in name order (`a2a_delegate` ... `brain_matrix`) whatever
+  was asked; they now offer at most 8 that share words with the request, and
+  none when nothing fits. Paid for by deleting what nothing called: the
+  `ModelSubstrate`/`NeuralBackend`/`ModelBackend` leftovers of the engine
+  move and the module-wide `allow(dead_code)` that hid them,
+  `InferenceHost::needs_qwen2_backend`, `cost::expected_call_cost_usd` and
+  `worker::is_seat`. Measured through the daemon with the plug host and the
+  starter model: a weather question with `requires: "tools"` went from 152 s
+  and an unrelated tool call to 12 s and a plain answer.
+

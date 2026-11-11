@@ -5,17 +5,13 @@
 
 #[path = "runtime_native.rs"]
 mod runtime_native;
-#[allow(dead_code)]
 #[path = "runtime_substrate.rs"]
 mod runtime_substrate;
 
 pub use runtime_native::{
     engine_registry, LlamaCppEngine, NativeInferenceEngine, SusiFederatedEngine, SusiGgufEngine,
 };
-pub use runtime_substrate::{
-    apply_repeat_penalty, ContextSummarizer, InferenceHost, ModelBackend, ModelSubstrate,
-    NeuralBackend,
-};
+pub use runtime_substrate::{apply_repeat_penalty, ContextSummarizer, InferenceHost};
 
 use crate::models::ModelManager;
 use crate::susi_error::{EaiError, EaiResult};
@@ -1321,28 +1317,14 @@ mod tests {
 
     #[test]
     fn test_backend_dispatch_rejects_unsupported_architectures() {
-        // Regression: quantized_llama (the generic GGUF loader) never reads
-        // attn_{q,k,v}.bias, which Qwen2's GGUF export always carries since
-        // Qwen2 (unlike Llama) trains a bias term on its Q/K/V projections.
-        // Verified live against the real qwen2.5-0.5b-instruct-q4_k_m.gguf:
-        // loading it through quantized_llama produced fluent-looking but
-        // completely wrong output from the first token (reproduced
-        // identically on CPU and CUDA, and across Q4_K_M and Q8_0, ruling
-        // out a device or quantization-format cause) because every layer's
-        // attention silently dropped its trained bias.
-        assert!(InferenceHost::needs_qwen2_backend("qwen2"));
-        assert!(!InferenceHost::needs_qwen2_backend("qwen2moe"));
+        // Which weights loader serves an admitted architecture is the local
+        // engine plug's business (Susi Commercial Apps); core admits these.
         for arch in ["qwen3", "gemma", "gptoss", "unknown"] {
             assert!(InferenceHost::validate_architecture(arch).is_err());
         }
-        assert!(InferenceHost::validate_architecture("llama").is_ok());
-        assert!(InferenceHost::validate_architecture("qwen2").is_ok());
-        assert!(InferenceHost::validate_architecture("qwen2moe").is_ok());
-        assert!(InferenceHost::validate_architecture("qwen3moe").is_ok());
-        assert!(!InferenceHost::needs_qwen2_backend("llama"));
-        assert!(!InferenceHost::needs_qwen2_backend("qwen3"));
-        assert!(!InferenceHost::needs_qwen2_backend("qwen3moe"));
-        assert!(!InferenceHost::needs_qwen2_backend("gemma"));
+        for arch in ["llama", "qwen2", "qwen2moe", "qwen3moe"] {
+            assert!(InferenceHost::validate_architecture(arch).is_ok());
+        }
     }
 
     #[test]
