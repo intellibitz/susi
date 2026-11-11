@@ -2,7 +2,7 @@
   "id": "T-CLAUDEDISTILL-1",
   "title": "Distill the delegation and change-to-live work into release v0.21.55",
   "goal": "CEO direction 2026-11-11: dump features into main and distill them into release branches. Make append-only GMCP evidence logs composable (merge=union, the AGENTS.md union rule), distill T-CLAUDERECURSE-1, T-CLAUDESIGNENV-1 and T-CLAUDELOOP10-1 from development main onto v0.21.54 with local-distill (accept commands verified), bump to 0.21.55 on the release branch, re-record GMCP evidence for that exact tree, qualify it with release-qualify, and publish the immutable tag and release record.",
-  "status": "in_progress",
+  "status": "done",
   "owner": "claude",
   "created_by": "claude",
   "created_unix": 1794363701,
@@ -55,7 +55,8 @@
     "distilled": "4 tasks onto v0.21.54, accept commands passing; remote branch distill/v0-21-55-rc2 = c16d8bfa4",
     "qualification": "format, check, clippy, licenses passed; tests 5450 passed, 2 failed (host_only_privacy, environmental in this sandbox, same on main), 14 ignored; build and smoke not run",
     "blocked_by": "tag push refused (HTTP 403) from cloud sessions; host_only_privacy needs a LAN interface the cloud sandbox lacks; 2026-11-11 recheck: none of the four Remote Control folders (DESKTOP-53DT8GM, cachyos-x8664 x2, HP-Pavilion-15-Notebook) is offered to cloud sessions, and no laptop agent session was running to take the handoff",
-    "next": "On a laptop: qualify and tag distill/v0-21-55-rc2 (handoff in the evidence file), or cut rc3 with local-distill compose --base v0.21.54 --from origin/main --select T-RELEASE54REC-1 --select T-CLAUDERECURSE-1 --select T-CLAUDESIGNENV-1 --select T-CLAUDELOOP10-1 --select T-AGYCLOUD-2 (T-AGYCLOUD-2 layered the harness and daemon.harness over DelegationScope after rc2), then bump, re-record GMCP evidence and release-qualify"
+    "next": "On a laptop: qualify and tag distill/v0-21-55-rc2 (handoff in the evidence file), or cut rc3 with local-distill compose --base v0.21.54 --from origin/main --select T-RELEASE54REC-1 --select T-CLAUDERECURSE-1 --select T-CLAUDESIGNENV-1 --select T-CLAUDELOOP10-1 --select T-AGYCLOUD-2 (T-AGYCLOUD-2 layered the harness and daemon.harness over DelegationScope after rc2), then bump, re-record GMCP evidence and release-qualify",
+    "released": "v0.21.55 released 2026-11-11: tag v0.21.55 -> 0dd10a52d contains the distilled candidate distill/v0-21-55-rc2 (c16d8bfa4); release record releases/v0.21.55.json landed on main as 334ce99bc (T-CLAUDEREL55REC-1). The blockers above were resolved on a laptop host (board item 144)."
   },
   "limitations": [
     "Not a release until release-qualify passes all seven gates on the exact tree and the v0.21.55 tag is pushed.",
@@ -63,5 +64,10 @@
   ],
   "evidence": [
     ".agents/evidence/distill-v0-21-55-rc2-T-CLAUDEDISTILL-1.json"
-  ]
+  ],
+  "closed": {
+    "at_unix": 1794388038,
+    "commit": "334ce99bce0c94372720060e18d379636bcee8e8",
+    "by": "FURY2"
+  }
 }
