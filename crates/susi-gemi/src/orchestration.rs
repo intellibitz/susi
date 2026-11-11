@@ -626,7 +626,7 @@ pub fn orchestrate_mission(
         now,
     )?;
     if let Err(e) = append(journal, &topology) {
-        tracing::warn!("orchestration journal append failed: {e}");
+        eprintln!("susi-gemi: orchestration journal append failed: {e}");
     }
     Ok((topology, answer))
 }

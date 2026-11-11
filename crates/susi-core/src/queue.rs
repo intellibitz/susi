@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::thread::Thread;
-use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct PulseEntry {
@@ -82,8 +81,6 @@ impl SubstratePulseQueue {
     }
 
     pub fn ingest(&self, intent: &str, workspace: &Path, version: &str) -> EaiResult<()> {
-        info!(intent = %intent, "Ingesting new pulse into lock-free substrate queue");
-
         let priority = if intent.to_lowercase().contains("stop")
             || intent.to_lowercase().contains("wait")
             || intent.to_lowercase().contains("correction")

@@ -1,0 +1,44 @@
+{
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "--test",
+                               "lean_core_ceilings"
+                           ]
+               },
+    "id":  "T-AGYWIN-1",
+    "size":  "s",
+    "goal":  "Remove susi-vendor-tracing from crates/susi-core, crates/susi-gemi and crates/susi-sandbox-client by replacing diagnostic macros with direct stderr reporting, ratcheting WORKSPACE_CEILING 34 -\u003e 33, DIRECT_FACADE_EDGES_CEILING 10 -\u003e 9, and LINE_CEILINGS.",
+    "created_unix":  1794387900,
+    "state":  "in_progress",
+    "created_by":  "agywin1",
+    "status":  "in_progress",
+    "scopes":  [
+                   ".agents/tasks/T-AGYWIN-1.json",
+                   ".agents/tasks/done/T-AGYWIN-1.json",
+                   "Cargo.lock",
+                   "crates/susi-core/Cargo.toml",
+                   "crates/susi-core/src/bus.rs",
+                   "crates/susi-core/src/mac_policy.rs",
+                   "crates/susi-core/src/queue.rs",
+                   "crates/susi-core/src/task_manager.rs",
+                   "crates/susi-gemi/Cargo.toml",
+                   "crates/susi-gemi/src/engines/http_provider.rs",
+                   "crates/susi-gemi/src/engines/routing.rs",
+                   "crates/susi-gemi/src/engines/runtime_native.rs",
+                   "crates/susi-gemi/src/orchestration.rs",
+                   "crates/susi-gemi/src/scout_schedule.rs",
+                   "crates/susi-sandbox-client/Cargo.toml",
+                   "crates/susi-sandbox-client/src/manager/runtime/shared.rs",
+                   "docs/lean-core.md",
+                   "tests/lean_core_ceilings.rs"
+               ],
+    "title":  "Drop susi-vendor-tracing from pillar closure across susi-core, susi-gemi and susi-sandbox-client",
+    "deps":  [
+                 "T-CARBONLEAN-7"
+             ],
+    "base":  "789602ac2553cecbc86516efa319354d2f27e1ab"
+}

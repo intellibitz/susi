@@ -276,12 +276,18 @@ fn read_sticky_mode(dir: &Path) -> Option<PrivacyMode> {
     let path = dir.join("privacy_mode");
     match std::fs::read_to_string(&path) {
         Ok(text) => Some(PrivacyMode::parse_persisted(&text).unwrap_or_else(|| {
-            tracing::error!(path = %path.display(), "unrecognized privacy_mode; enforcing local_only");
+            eprintln!(
+                "susi-core: unrecognized privacy_mode at {}; enforcing local_only",
+                path.display()
+            );
             PrivacyMode::LocalOnly
         })),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => {
-            tracing::error!(%error, path = %path.display(), "unreadable privacy_mode; enforcing local_only");
+            eprintln!(
+                "susi-core: unreadable privacy_mode at {} ({error}); enforcing local_only",
+                path.display()
+            );
             Some(PrivacyMode::LocalOnly)
         }
     }
@@ -440,7 +446,7 @@ impl MacPolicy {
             persistence_error: None,
         };
         if let Err(error) = p.seed_defaults() {
-            tracing::error!(%error, "could not initialize in-memory MAC defaults");
+            eprintln!("susi-core: could not initialize in-memory MAC defaults: {error}");
         }
         p
     }
@@ -484,7 +490,11 @@ impl MacPolicy {
                 } else {
                     PrivacyMode::LocalOnly
                 };
-                tracing::error!(%error, dir = %dir.display(), mode = fallback.as_str(), "substrate MAC key unavailable; enforcing a restricted mode");
+                eprintln!(
+                    "susi-core: substrate MAC key unavailable at {} ({error}); enforcing {}",
+                    dir.display(),
+                    fallback.as_str()
+                );
                 let mut local = Self::new(process_local_key(), fallback, true);
                 local.persistence_error =
                     Some(format!("shared MAC signing key is unavailable: {error}"));

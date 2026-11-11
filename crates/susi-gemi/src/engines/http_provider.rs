@@ -498,17 +498,7 @@ pub fn register_configured_cloud_endpoints(
             crate::credential_scout::scout_configured_once(&crate::credential_scout::TransportCall)
         });
         register_endpoints(registry);
-        if let Ok(Some(report)) = scout.join() {
-            for verdict in &report.verdicts {
-                tracing::info!(
-                    vendor = %verdict.vendor,
-                    liveness = ?verdict.liveness,
-                    status = ?verdict.status,
-                    detail = %verdict.detail,
-                    "credential scout"
-                );
-            }
-        }
+        let _ = scout.join();
     });
 }
 
@@ -900,7 +890,6 @@ fn custom_endpoint_model(endpoint: &Endpoint, key: &str) -> Option<String> {
             .or_else(|| models.first())
             .cloned();
     }
-    tracing::debug!(endpoint = %endpoint.name, "Custom endpoint model listing unavailable; bundled model remains unverified");
     None
 }
 

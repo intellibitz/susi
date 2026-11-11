@@ -1645,11 +1645,6 @@ impl InferenceRouter {
 
     /// Announce the selected connection and retain routing detail in diagnostics.
     pub fn announce(escalation: &CloudEscalation) {
-        tracing::debug!(
-            provider = %escalation.provider,
-            reason = %escalation.reason,
-            "Automatic cloud routing decision"
-        );
         let _ = writeln!(
             io::stderr(),
             "Using your {} cloud connection.",
