@@ -53,9 +53,12 @@ breakage twice.
    it. Before claiming, `start` fetches `refs/susi/claims/*` and checks
    overlaps exactly as it checks local claims now. `list` shows every host's
    claims. The compare-and-swap push is the lock; there is no other.
-2. **The agent's source is its pushed branch.** `commit` pushes
-   `refs/heads/local-agent/<agent>` after the scope guard; the branch is the
-   hand-off between hosts.
+2. **The agent's source is its pushed agent ref.** `commit` pushes the local
+   `local-agent/<agent>` branch to `refs/agents/<agent>` after the scope
+   guard; that ref is the hand-off between hosts. It is not a branch on the
+   Git host, so no pull request can be opened against it (CEO decision
+   2026-11-11; `docs/agent-refs.md`). Pushing `refs/heads/local-agent/*` is
+   refused.
 3. **Ship runs on any host that can build its platform, against `origin`.**
    `ship <agent>` fetches `origin/main` and the agent branch, merges the
    candidate, runs the gate locally (format, licenses, clippy, affected tests,
@@ -71,7 +74,7 @@ breakage twice.
    recorded, instead of by hand. Qualification for release needs the pointers
    of every shipped platform at the same commit.
 5. **A gated host can integrate another agent's branch.** `ship --adopt
-   <branch>` takes a pushed `local-agent/*` branch whose claim is on `origin`
+   <branch>` takes a pushed `refs/agents/<agent>` ref whose claim is on `origin`
    and runs it through this host's gate. A host that cannot run the gate (no
    toolchain for the target, no time budget) pushes its branch and stops;
    it never pushes `main`.
@@ -95,7 +98,7 @@ makes them mechanical in `susi_harness::workflow::IntegrationPolicy`:
 
 | rule | harness mechanism |
 |------|-------------------|
-| one `local-agent/<agent>` branch per agent, never `main`, never `refs/susi/*` | `publish_branch`, `check_push_target`: a wave is planned only with each task's branch; a push target that is `main`, a coordinator ref, another agent's branch or anything else is a `PolicyViolation` |
+| one `refs/agents/<agent>` ref per agent (published from the local `local-agent/<agent>` branch), never `main`, never `refs/susi/*`, never a `refs/heads/local-agent/*` branch | `publish_branch`, `publish_ref`, `check_push_target`: a wave is planned only with each task's branch; a push target that is `main`, a coordinator ref, another agent's ref, a retired `local-agent/*` branch (`RetiredAgentBranch`) or anything else is a `PolicyViolation` |
 | `Task: T-<AGENT>-<n>` trailer on every commit, record scopes equal the claim | `check_commit_trailers` over the batch; the acceptance plan already refuses a record whose scopes differ |
 | destination first; no stubbed ports | `check_migration(MigrationProof)`: no commercial commit, not declared, not compiling, not tested, or a kept port with no plug, and core may not delete |
 | verify before every push | the brief lines list the exact commands; the gate runs them again on adoption |

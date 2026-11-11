@@ -199,6 +199,10 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// unchanged evolution.rs inline unit suite moved to src/tests/evolution.rs
 /// with T-CLAUDEREL56-1's env-lock fix. Test organization, not removed
 /// runtime capability.
+/// 2026-11-11: susi-harness 37,439 -> 37,434 (T-CLAUDEHARNESSCEIL-1,
+/// measured): T-CLAUDEAGENTREFS-1 removed the JSON `.claim` reader in
+/// `discover_active_claim_branches`, which no writer feeds (claims are
+/// `susi-local-claim-v2` text, read by the existing hazard scan).
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_523),
     ("susi-gawd-swarm", 20_116),
@@ -207,7 +211,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gemi", 21_145),
     ("susi-gemi-models", 15_945),
     ("susi-gmcp", 25_860),
-    ("susi-harness", 37_439),
+    ("susi-harness", 37_434),
 ];
 
 fn workspace_root() -> PathBuf {
