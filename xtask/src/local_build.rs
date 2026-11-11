@@ -18,7 +18,7 @@ impl Profile {
             [profile] if profile == "debug" => Ok(Self::Debug),
             [profile] if profile == "production" => Ok(Self::Production),
             _ => Err(io::Error::other(
-                "usage: cargo run -p xtask --bin xtask -- local-build debug|production",
+                "usage: cargo run -p xtask --bin xtask -- local-build debug|production|fast-release",
             )),
         }
     }
@@ -140,6 +140,9 @@ fn build_command(root: &Path, target: &Path, host: &str, profile: Profile) -> Co
 }
 
 pub(crate) fn run(args: &[String]) -> io::Result<()> {
+    if args.first().map(String::as_str) == Some("fast-release") {
+        return crate::fast_release::run_io(&args[1..]);
+    }
     let profile = Profile::parse(args)?;
     let root = workspace(&env::current_dir()?)?;
     let version = Command::new("rustc")
