@@ -1,0 +1,34 @@
+{
+  "id": "T-AGYFURY-2",
+  "feature_id": "F-HARNESS-GOVERNED-GIT-WORKFLOW-1",
+  "title": "Concurrent stdin pipe streaming and storage-only susi-distill tag discovery in susi-harness git_governor",
+  "goal": "Fix >64 KB OS pipe buffer deadlock when git cat-file --batch inspects large .agents/tasks ledgers by streaming stdin concurrently via std::thread::scope in run_git, and teach promote_release_candidate to fetch and audit storage-only refs/tags/susi-distill/* snapshot tags (including legacy-release-* tags after T-CODEXSTORAGEONLY-1) while ranking semver vX.Y.Z candidates ahead of ad-hoc date RCs.",
+  "status": "in_progress",
+  "owner": "agy-fury",
+  "created_by": "AGYFURYSWT5D3FC4",
+  "created_unix": 1794391687,
+  "size": "s",
+  "deps": [
+    "T-AGYFURY-1",
+    "T-CODEXSTORAGEONLY-1"
+  ],
+  "base_commit": "9be919018e0bcd83921f065a86d113ae4cbda5b4",
+  "scopes": [
+    ".agents/tasks/T-AGYFURY-2.json",
+    ".agents/tasks/done/T-AGYFURY-2.json",
+    "crates/susi-harness/src/git_governor.rs",
+    "crates/susi-harness/src/tests/git_governor.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "git_governor"
+    ]
+  }
+}

@@ -445,9 +445,10 @@ fn promote_release_candidate_ranks_natural_rc_numbers_promotes_verified_envelope
         ),
         pub_oid
     );
-    let (verified_parent, _) =
+    let (verified_parent, verified_name, _) =
         inspect_distill_envelope(&remote_bare, &pub_oid, Some("v0.21.56-candidate")).unwrap();
     assert_eq!(verified_parent, rc11_final);
+    assert_eq!(verified_name, "v0.21.56-candidate");
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/main"]),
         base_oid
@@ -468,4 +469,116 @@ fn promote_release_candidate_ranks_natural_rc_numbers_promotes_verified_envelope
         idempotent.published_remote_oid.as_deref(),
         Some(pub_oid.as_str())
     );
+}
+
+#[test]
+fn sweep_handles_large_task_ledger_without_pipe_deadlock_and_discovers_susi_distill_tags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (remote_bare, work, _base_oid) = setup_storage_and_work(tmp.path());
+
+    git(&work, &["checkout", "main"]);
+    let tasks_dir = work.join(".agents/tasks/done");
+    fs::create_dir_all(&tasks_dir).unwrap();
+    let filler = "x".repeat(4096);
+    for idx in 0..160u32 {
+        let doc = json!({
+            "id": format!("T-BULK-{idx}"),
+            "status": "done",
+            "notes": filler,
+            "results": if idx == 159 {
+                json!([{"branch": "local-agent/retired-bulk", "heads": [], "verdict": "RETIRE", "evidence": "bulk ledger retire"}])
+            } else {
+                json!([])
+            }
+        });
+        fs::write(
+            tasks_dir.join(format!("T-BULK-{idx:03}.json")),
+            format!("{}\n", serde_json::to_string_pretty(&doc).unwrap()),
+        )
+        .unwrap();
+    }
+    git(&work, &["add", ".agents/tasks/done"]);
+    git(
+        &work,
+        &[
+            "commit",
+            "-m",
+            "chore(tasks): add 160 bulk ledger files\n\nTask: T-BULK-1",
+        ],
+    );
+    git(&work, &["push", "origin", "main"]);
+    let bulk_main = git(&work, &["rev-parse", "HEAD"]);
+
+    git(
+        &work,
+        &["checkout", "-b", "local-agent/retired-bulk", &bulk_main],
+    );
+    fs::write(work.join("retired_bulk.txt"), "retired\n").unwrap();
+    git(&work, &["add", "retired_bulk.txt"]);
+    git(
+        &work,
+        &[
+            "commit",
+            "-m",
+            "feat: retired bulk branch\n\nTask: T-BULK-RET",
+        ],
+    );
+    git(&work, &["push", "origin", "local-agent/retired-bulk"]);
+    git(&work, &["checkout", "main"]);
+
+    let sweep = sweep_pending_branches(&AutoMergeConfig {
+        repo: work.clone(),
+        dry_run: true,
+        ..AutoMergeConfig::default()
+    })
+    .unwrap();
+    assert_eq!(sweep.retired_count, 1);
+
+    // Push ONLY storage-only `refs/tags/susi-distill/*` tags (retiring local/remote release/* branches)
+    // and verify `promote_release_candidate` discovers them and ranks semver over date RCs!
+    let _date_final = push_verified_rc(&work, &bulk_main, "2026-11-11-rc99", "T-DATE-99");
+    let date_env = git(&work, &["rev-parse", "HEAD"]);
+    git(
+        &work,
+        &[
+            "push",
+            "origin",
+            &format!("{date_env}:refs/tags/susi-distill/legacy-release-2026-11-11-rc99"),
+            ":refs/heads/release/2026-11-11-rc99",
+        ],
+    );
+
+    let sem_final = push_verified_rc(&work, &bulk_main, "v0.21.56-distilled-rc14", "T-SEM-14");
+    let sem_env = git(&work, &["rev-parse", "HEAD"]);
+    git(
+        &work,
+        &[
+            "push",
+            "origin",
+            &format!("{sem_env}:refs/tags/susi-distill/legacy-release-v0.21.56-distilled-rc14"),
+            ":refs/heads/release/v0.21.56-distilled-rc14",
+        ],
+    );
+    git(&work, &["checkout", "main"]);
+    git(&work, &["fetch", "--prune", "origin"]);
+
+    let promo = promote_release_candidate(&ReleasePromotionConfig {
+        repo: work,
+        remote: "origin".to_string(),
+        fetch_remote: true,
+        target_release_name: Some("v0.21.56-tag-promoted".to_string()),
+        candidate_rev: None,
+        dry_run: false,
+        receipt_out: None,
+    })
+    .unwrap();
+    assert_eq!(
+        promo.latest_verified_branch.as_deref(),
+        Some("release/v0.21.56-distilled-rc14")
+    );
+    let tag_oid = promo.published_remote_oid.unwrap();
+    let (fc, vname, _) =
+        inspect_distill_envelope(&remote_bare, &tag_oid, Some("v0.21.56-tag-promoted")).unwrap();
+    assert_eq!(fc, sem_final);
+    assert_eq!(vname, "v0.21.56-tag-promoted");
 }

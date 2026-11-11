@@ -1,29 +1,10 @@
 //! Susi-governed pure-Git branch integration and verified release promotion.
 //!
-//! Git hosting is pure storage (`git fetch`, `git push`, branches and tags);
-//! every development reconciliation and every release promotion happens inside
-//! Susi, governed by [`crate`] (`susi-harness`) or `daemon.harness` under an
-//! attenuated `DelegationScope`.
-//!
-//! Two streams remain strictly separated (Mandate 73):
-//!
-//! 1. **Unqualified development `main` (`sweep_pending_branches`, `submit_main`)**:
-//!    discovers pending development branches in Git storage, skips protected
-//!    `release/*` and `distill/*` streams, skips branches explicitly retired in
-//!    committed `.agents/tasks/**` governance ledgers, preserves dirty or
-//!    in-progress local agent worktrees, refuses secret/credential paths and
-//!    unadopted host-created web commits, isolates 3-way merge conflicts without
-//!    blocking clean sibling branches, composes deterministic real-time merge
-//!    commits in the Git object store (`git merge-tree --write-tree` +
-//!    `git commit-tree`), and publishes normal compare-and-swap fast-forwards to
-//!    `refs/heads/main`.
-//! 2. **Verified release promotion (`audit_release_streams`,
-//!    `promote_release_candidate`)**: verifies cryptographic
-//!    `susi-distillation-receipt-v1` envelopes (`receipt_sha256`, zero rejected
-//!    tasks, passing `accept_verification`), identifies superseding candidates
-//!    across `release/*` branches without ever merging `release/*` back into
-//!    `main`, and promotes canonical `refs/heads/release/<name>` branches via
-//!    non-force fast-forward updates.
+//! Git hosting is pure storage (`git fetch`, `git push`, branches and tags); every
+//! development reconciliation (`sweep_pending_branches`, `submit_main`) and verified
+//! release promotion (`promote_release_candidate`) executes inside Susi (`susi-harness`
+//! or `daemon.harness`), keeping Stream 1 (`unqualified_development_main`) strictly
+//! separated from Stream 2 (`qualified_release_promotion` / `susi-distill/*`).
 #![forbid(unsafe_code)]
 
 use crate::workflow::{classify_git_ref_stream, WorkflowStreamKind};
@@ -388,14 +369,19 @@ fn run_git(
     let mut child = cmd
         .spawn()
         .map_err(|e| EaiError::process(format!("failed to spawn git {}: {e}", args.join(" "))))?;
-    if let Some(input) = stdin_bytes {
-        if let Some(mut pipe) = child.stdin.take() {
-            pipe.write_all(input)
-                .map_err(|e| EaiError::io(format!("git stdin write failed: {e}")))?;
-        }
-    }
-    let out = child
-        .wait_with_output()
+    let (waited, stdin_res) = std::thread::scope(|s| {
+        let pipe = child.stdin.take();
+        let writer = s.spawn(move || -> Result<(), std::io::Error> {
+            if let (Some(input), Some(mut p)) = (stdin_bytes, pipe) {
+                p.write_all(input)?;
+            }
+            Ok(())
+        });
+        let w = child.wait_with_output();
+        (w, writer.join().unwrap_or(Ok(())))
+    });
+    stdin_res.map_err(|e| EaiError::io(format!("git stdin write failed: {e}")))?;
+    let out = waited
         .map_err(|e| EaiError::process(format!("git {} wait failed: {e}", args.join(" "))))?;
     Ok(GitOut {
         code: out.status.code().unwrap_or(-1),
@@ -751,22 +737,22 @@ struct DeltaAudit {
 fn extract_task_ids_from_message(msg: &str) -> Vec<String> {
     let mut found = Vec::new();
     for line in msg.lines() {
-        let trimmed = line.trim();
-        let Some(rest) = trimmed.strip_prefix("Task:") else {
+        let t = line.trim();
+        let Some(rest) = t.strip_prefix("Task:").or_else(|| t.strip_prefix("task:")) else {
             continue;
         };
-        for raw_id in rest
+        for raw in rest
             .split([',', ' '])
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            let valid = raw_id.len() >= 4
-                && (raw_id.starts_with("T-") || raw_id.starts_with("t-"))
-                && raw_id
+            if raw.len() >= 4
+                && (raw.starts_with("T-") || raw.starts_with("t-"))
+                && raw
                     .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'));
-            if valid {
-                let up = raw_id.to_ascii_uppercase();
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+            {
+                let up = raw.to_ascii_uppercase();
                 if !found.contains(&up) {
                     found.push(up);
                 }
@@ -1124,71 +1110,49 @@ pub fn sweep_pending_branches(config: &AutoMergeConfig) -> EaiResult<AutoMergeRe
 
         for (full_ref, short, head_oid, is_local) in candidates {
             let stream = classify_git_ref_stream(&full_ref, Some(remote));
+            let mut rec = BranchSweepEntry {
+                git_ref: full_ref,
+                branch: short.clone(),
+                head_oid: head_oid.clone(),
+                stream: stream.as_str().to_string(),
+                disposition: BranchSweepDisposition::AlreadyMerged,
+                resulting_main_oid: None,
+                tasks: Vec::new(),
+                detail: String::new(),
+            };
             if !stream.eligible_for_unqualified_main_sweep() {
                 protected_stream_count += 1;
-                entries.push(BranchSweepEntry {
-                    git_ref: full_ref,
-                    branch: short,
-                    head_oid,
-                    stream: stream.as_str().to_string(),
-                    disposition: BranchSweepDisposition::ProtectedStreamBoundary,
-                    resulting_main_oid: None,
-                    tasks: Vec::new(),
-                    detail: format!(
-                        "stream `{}` is governed separately from unqualified development main",
-                        stream.as_str()
-                    ),
-                });
+                rec.disposition = BranchSweepDisposition::ProtectedStreamBoundary;
+                rec.detail = format!(
+                    "stream `{}` is governed separately from unqualified development main",
+                    stream.as_str()
+                );
+                entries.push(rec);
                 continue;
             }
-
             if is_ancestor(&config.repo, &head_oid, &running_main)? {
                 already_merged_count += 1;
-                entries.push(BranchSweepEntry {
-                    git_ref: full_ref,
-                    branch: short,
-                    head_oid,
-                    stream: stream.as_str().to_string(),
-                    disposition: BranchSweepDisposition::AlreadyMerged,
-                    resulting_main_oid: None,
-                    tasks: Vec::new(),
-                    detail: "already an ancestor of main".to_string(),
-                });
+                rec.detail = "already an ancestor of main".to_string();
+                entries.push(rec);
                 continue;
             }
-
             if let Some(rule) = find_retired_rule(&short, &head_oid, &retired_rules) {
                 retired_count += 1;
-                entries.push(BranchSweepEntry {
-                    git_ref: full_ref,
-                    branch: short,
-                    head_oid,
-                    stream: stream.as_str().to_string(),
-                    disposition: BranchSweepDisposition::RetiredByGovernanceLedger,
-                    resulting_main_oid: None,
-                    tasks: vec![rule.task_id.clone()],
-                    detail: format!("retired by {}: {}", rule.task_id, rule.reason),
-                });
+                rec.disposition = BranchSweepDisposition::RetiredByGovernanceLedger;
+                rec.tasks = vec![rule.task_id.clone()];
+                rec.detail = format!("retired by {}: {}", rule.task_id, rule.reason);
+                entries.push(rec);
                 continue;
             }
-
             if is_local {
                 if let Some(hazard) = local_hazards.get(&short) {
                     deferred_or_refused_count += 1;
-                    entries.push(BranchSweepEntry {
-                        git_ref: full_ref,
-                        branch: short,
-                        head_oid,
-                        stream: stream.as_str().to_string(),
-                        disposition: BranchSweepDisposition::ActiveWorktreeOrClaim,
-                        resulting_main_oid: None,
-                        tasks: Vec::new(),
-                        detail: hazard.clone(),
-                    });
+                    rec.disposition = BranchSweepDisposition::ActiveWorktreeOrClaim;
+                    rec.detail = hazard.clone();
+                    entries.push(rec);
                     continue;
                 }
             }
-
             let delta = audit_delta(
                 &config.repo,
                 &running_main,
@@ -1196,25 +1160,17 @@ pub fn sweep_pending_branches(config: &AutoMergeConfig) -> EaiResult<AutoMergeRe
                 &host_committers,
                 &config.adopted_host_commits,
             )?;
-
+            rec.tasks = delta.tasks.clone();
             if !delta.secret_paths.is_empty() {
                 deferred_or_refused_count += 1;
-                entries.push(BranchSweepEntry {
-                    git_ref: full_ref,
-                    branch: short,
-                    head_oid,
-                    stream: stream.as_str().to_string(),
-                    disposition: BranchSweepDisposition::ConfidentialityRefused,
-                    resulting_main_oid: None,
-                    tasks: delta.tasks,
-                    detail: format!(
-                        "forbidden credential/secret paths: {}",
-                        delta.secret_paths.join(", ")
-                    ),
-                });
+                rec.disposition = BranchSweepDisposition::ConfidentialityRefused;
+                rec.detail = format!(
+                    "forbidden credential/secret paths: {}",
+                    delta.secret_paths.join(", ")
+                );
+                entries.push(rec);
                 continue;
             }
-
             if !delta.host_commits.is_empty() {
                 deferred_or_refused_count += 1;
                 let summary: Vec<String> = delta
@@ -1224,69 +1180,39 @@ pub fn sweep_pending_branches(config: &AutoMergeConfig) -> EaiResult<AutoMergeRe
                         format!("{} ({email}: {subj})", oid.get(..10).unwrap_or(oid))
                     })
                     .collect();
-                entries.push(BranchSweepEntry {
-                    git_ref: full_ref,
-                    branch: short,
-                    head_oid,
-                    stream: stream.as_str().to_string(),
-                    disposition: BranchSweepDisposition::HostCreatedCommitRefused,
-                    resulting_main_oid: None,
-                    tasks: delta.tasks,
-                    detail: format!(
-                        "merged_outside_susi (pass --adopt-host-commit <full-oid> to adopt): {}",
-                        summary.join("; ")
-                    ),
-                });
+                rec.disposition = BranchSweepDisposition::HostCreatedCommitRefused;
+                rec.detail = format!(
+                    "merged_outside_susi (pass --adopt-host-commit <full-oid> to adopt): {}",
+                    summary.join("; ")
+                );
+                entries.push(rec);
                 continue;
             }
-
             if config.require_task_trailer && !delta.missing_trailer_subjects.is_empty() {
                 deferred_or_refused_count += 1;
-                entries.push(BranchSweepEntry {
-                    git_ref: full_ref,
-                    branch: short,
-                    head_oid,
-                    stream: stream.as_str().to_string(),
-                    disposition: BranchSweepDisposition::MissingTaskGovernance,
-                    resulting_main_oid: None,
-                    tasks: delta.tasks,
-                    detail: format!(
-                        "commit(s) missing `Task: T-...` trailer: {}",
-                        delta.missing_trailer_subjects.join("; ")
-                    ),
-                });
+                rec.disposition = BranchSweepDisposition::MissingTaskGovernance;
+                rec.detail = format!(
+                    "commit(s) missing `Task: T-...` trailer: {}",
+                    delta.missing_trailer_subjects.join("; ")
+                );
+                entries.push(rec);
                 continue;
             }
-
             if is_ancestor(&config.repo, &running_main, &head_oid)? {
                 running_main = head_oid.clone();
                 merged_count += 1;
-                entries.push(BranchSweepEntry {
-                    git_ref: full_ref,
-                    branch: short,
-                    head_oid: head_oid.clone(),
-                    stream: stream.as_str().to_string(),
-                    disposition: BranchSweepDisposition::MergedFastForward,
-                    resulting_main_oid: Some(head_oid),
-                    tasks: delta.tasks,
-                    detail: "integrated via clean fast-forward".to_string(),
-                });
+                rec.disposition = BranchSweepDisposition::MergedFastForward;
+                rec.resulting_main_oid = Some(head_oid);
+                rec.detail = "integrated via clean fast-forward".to_string();
+                entries.push(rec);
                 continue;
             }
-
             match try_three_way_merge_tree(&config.repo, &running_main, &head_oid)? {
                 MergeTreeOutcome::Conflicts(conflicts) => {
                     deferred_or_refused_count += 1;
-                    entries.push(BranchSweepEntry {
-                        git_ref: full_ref,
-                        branch: short,
-                        head_oid,
-                        stream: stream.as_str().to_string(),
-                        disposition: BranchSweepDisposition::DeferredConflict,
-                        resulting_main_oid: None,
-                        tasks: delta.tasks,
-                        detail: format!("merge conflict: {}", conflicts.join(", ")),
-                    });
+                    rec.disposition = BranchSweepDisposition::DeferredConflict;
+                    rec.detail = format!("merge conflict: {}", conflicts.join(", "));
+                    entries.push(rec);
                 }
                 MergeTreeOutcome::Clean(tree_oid) => {
                     let merge_commit = create_governed_merge_commit(
@@ -1301,16 +1227,10 @@ pub fn sweep_pending_branches(config: &AutoMergeConfig) -> EaiResult<AutoMergeRe
                     )?;
                     running_main = merge_commit.clone();
                     merged_count += 1;
-                    entries.push(BranchSweepEntry {
-                        git_ref: full_ref,
-                        branch: short,
-                        head_oid,
-                        stream: stream.as_str().to_string(),
-                        disposition: BranchSweepDisposition::MergedThreeWay,
-                        resulting_main_oid: Some(merge_commit),
-                        tasks: delta.tasks,
-                        detail: "integrated via governed 3-way object-store merge".to_string(),
-                    });
+                    rec.disposition = BranchSweepDisposition::MergedThreeWay;
+                    rec.resulting_main_oid = Some(merge_commit);
+                    rec.detail = "integrated via governed 3-way object-store merge".to_string();
+                    entries.push(rec);
                 }
             }
         }
@@ -1570,7 +1490,7 @@ fn inspect_distill_envelope(
     repo: &Path,
     commit_oid: &str,
     expected_name: Option<&str>,
-) -> Result<(String, Value), String> {
+) -> Result<(String, String, Value), String> {
     let lineage = git_ok(repo, &["rev-list", "--parents", "-n", "1", commit_oid])
         .map_err(|e| e.to_string())?;
     let parents: Vec<&str> = lineage.split_whitespace().skip(1).collect();
@@ -1591,17 +1511,18 @@ fn inspect_distill_envelope(
     )
     .map_err(|e| e.to_string())?;
 
-    let rel_path = if let Some(name) = expected_name {
+    let (rel_path, verified_name) = if let Some(name) = expected_name {
         let wanted = format!("releases/distill/{name}.json");
         if changed != wanted {
             return Err(format!("expected envelope diff {wanted}, got {changed:?}"));
         }
-        wanted
-    } else if changed.starts_with("releases/distill/")
-        && changed.ends_with(".json")
-        && !changed.contains('\n')
+        (wanted, name.to_string())
+    } else if let Some(stem) = changed
+        .strip_prefix("releases/distill/")
+        .and_then(|s| s.strip_suffix(".json"))
+        .filter(|s| !s.contains('/') && !s.contains('\n') && valid_release_name(s))
     {
-        changed
+        (changed.clone(), stem.to_string())
     } else {
         return Err(format!(
             "commit does not add a single releases/distill/<name>.json receipt ({changed:?})"
@@ -1654,10 +1575,11 @@ fn inspect_distill_envelope(
     if record["final_tree"].as_str() != Some(tree.as_str()) {
         return Err("receipt final_tree does not match parent tree".to_string());
     }
-    let rejected = record["rejected"]
+    if !record["rejected"]
         .as_array()
-        .ok_or("missing rejected array")?;
-    if !rejected.is_empty() {
+        .ok_or("missing rejected array")?
+        .is_empty()
+    {
         return Err("receipt has non-empty rejected tasks".to_string());
     }
     let included = record["included"]
@@ -1675,12 +1597,13 @@ fn inspect_distill_envelope(
     if !included.is_empty() && tasks.len() != included.len() {
         return Err("accept_verification count does not match included tasks".to_string());
     }
-    for t in tasks {
-        if t["exit_code"].as_i64() != Some(0) || t["passed"].as_bool() != Some(true) {
-            return Err("one or more accept_verification checks did not pass".to_string());
-        }
+    if tasks
+        .iter()
+        .any(|t| t["exit_code"].as_i64() != Some(0) || t["passed"].as_bool() != Some(true))
+    {
+        return Err("one or more accept_verification checks did not pass".to_string());
     }
-    Ok(((*parent).to_string(), record))
+    Ok(((*parent).to_string(), verified_name, record))
 }
 
 fn synthesize_promoted_release_envelope(
@@ -1791,8 +1714,9 @@ fn synthesize_promoted_release_envelope(
     Ok(commit_out.stdout_trimmed())
 }
 
-/// Audit all `release/*` candidate streams in Git storage and optionally promote the latest
-/// verified distillation candidate onto a canonical `refs/heads/release/<name>` branch.
+/// Audit all local `release/*`, legacy remote `release/*`, and immutable `susi-distill/*`
+/// candidates, and optionally promote the latest verified candidate onto local-only
+/// `refs/heads/release/<name>` and remote `refs/tags/susi-distill/<name>`.
 pub fn promote_release_candidate(
     config: &ReleasePromotionConfig,
 ) -> EaiResult<ReleasePromotionReceipt> {
@@ -1805,13 +1729,14 @@ pub fn promote_release_candidate(
                 "--no-tags",
                 remote,
                 &format!("+refs/heads/release/*:refs/remotes/{remote}/release/*"),
+                "+refs/tags/susi-distill/*:refs/tags/susi-distill/*",
             ],
             None,
             &[],
         )?;
         if !fetch.ok() {
             return Err(EaiError::process(format!(
-                "git fetch {remote} release/* failed: {}",
+                "git fetch {remote} release candidates failed: {}",
                 fetch.stderr
             )));
         }
@@ -1819,13 +1744,15 @@ pub fn promote_release_candidate(
 
     let rem_prefix = format!("refs/remotes/{remote}/release/");
     let loc_prefix = "refs/heads/release/";
+    let tag_prefix = "refs/tags/susi-distill/";
     let refs_raw = git_ok(
         &config.repo,
         &[
             "for-each-ref",
-            "--format=%(refname)\t%(objectname)",
+            "--format=%(refname)\t%(objectname)\t%(*objectname)",
             loc_prefix,
             &rem_prefix,
+            tag_prefix,
         ],
     )?;
 
@@ -1834,31 +1761,42 @@ pub fn promote_release_candidate(
         verified_payload: Option<(String, Value)>,
     }
 
-    let mut seen_name_oid: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut seen_oid: BTreeSet<String> = BTreeSet::new();
     let mut parsed_candidates: Vec<ParsedReleaseCandidate> = Vec::new();
     for line in refs_raw.lines() {
-        let Some((full_ref, oid)) = line.split_once('\t') else {
-            continue;
-        };
-        let full_ref = full_ref.trim();
-        let oid = oid.trim();
-        let Some(rel_name) = full_ref
-            .strip_prefix(loc_prefix)
-            .or_else(|| full_ref.strip_prefix(&rem_prefix))
+        let mut parts = line.split('\t');
+        let (Some(full_ref), Some(obj_oid)) =
+            (parts.next().map(str::trim), parts.next().map(str::trim))
         else {
             continue;
         };
-        if !is_oid(oid) || !seen_name_oid.insert((rel_name.to_string(), oid.to_string())) {
+        let peeled = parts.next().map(str::trim).unwrap_or("");
+        let oid = if !peeled.is_empty() && is_oid(peeled) {
+            peeled
+        } else {
+            obj_oid
+        };
+        if !is_oid(oid) || !seen_oid.insert(oid.to_string()) {
             continue;
         }
-        match inspect_distill_envelope(&config.repo, oid, Some(rel_name)) {
-            Ok((final_commit, record)) => {
+        let (label_fallback, expected_name) = if let Some(rel) = full_ref
+            .strip_prefix(loc_prefix)
+            .or_else(|| full_ref.strip_prefix(&rem_prefix))
+        {
+            (rel.to_string(), Some(rel))
+        } else if let Some(tag_name) = full_ref.strip_prefix(tag_prefix) {
+            (tag_name.to_string(), None)
+        } else {
+            continue;
+        };
+        match inspect_distill_envelope(&config.repo, oid, expected_name) {
+            Ok((final_commit, verified_name, record)) => {
                 let inc = record["included"].as_array().map_or(0, Vec::len);
                 let sat = record["satisfied_in_base"].as_array().map_or(0, Vec::len);
                 parsed_candidates.push(ParsedReleaseCandidate {
                     audit: ReleaseCandidateAudit {
                         git_ref: full_ref.to_string(),
-                        release_name: rel_name.to_string(),
+                        release_name: verified_name,
                         head_oid: oid.to_string(),
                         final_commit_oid: Some(final_commit.clone()),
                         receipt_verified: true,
@@ -1877,11 +1815,11 @@ pub fn promote_release_candidate(
                 parsed_candidates.push(ParsedReleaseCandidate {
                     audit: ReleaseCandidateAudit {
                         git_ref: full_ref.to_string(),
-                        release_name: rel_name.to_string(),
+                        release_name: label_fallback,
                         head_oid: oid.to_string(),
                         final_commit_oid: None,
                         receipt_verified: false,
-                        qualification_status: "historical_or_custom_candidate".to_string(),
+                        qualification_status: "historical_or_composed_snapshot".to_string(),
                         included_task_count: 0,
                         satisfied_in_base_count: 0,
                         role: "unverified_or_historical".to_string(),
@@ -1893,18 +1831,22 @@ pub fn promote_release_candidate(
         }
     }
 
-    // Rank verified candidates by total verified task closure (`included + satisfied_in_base`),
-    // breaking ties by natural numeric-aware release name order so `rc11` outranks `rc9`.
+    let is_semver =
+        |s: &str| s.len() >= 2 && s.starts_with('v') && s.as_bytes()[1].is_ascii_digit();
     let best_idx = parsed_candidates
         .iter()
         .enumerate()
         .filter(|(_, item)| item.audit.receipt_verified)
         .max_by(|(_, a), (_, b)| {
-            let score_a = a.audit.included_task_count + a.audit.satisfied_in_base_count;
-            let score_b = b.audit.included_task_count + b.audit.satisfied_in_base_count;
-            score_a.cmp(&score_b).then_with(|| {
-                natural_rc_key(&a.audit.release_name).cmp(&natural_rc_key(&b.audit.release_name))
-            })
+            let sa = a.audit.included_task_count + a.audit.satisfied_in_base_count;
+            let sb = b.audit.included_task_count + b.audit.satisfied_in_base_count;
+            is_semver(&a.audit.release_name)
+                .cmp(&is_semver(&b.audit.release_name))
+                .then_with(|| {
+                    natural_rc_key(&a.audit.release_name)
+                        .cmp(&natural_rc_key(&b.audit.release_name))
+                })
+                .then_with(|| sa.cmp(&sb))
         })
         .map(|(i, _)| i);
 
@@ -1932,42 +1874,41 @@ pub fn promote_release_candidate(
                 "invalid release branch name {target_name:?} (expected lowercase ASCII, digits, `-`, `.`)"
             )));
         }
-        let (final_commit, source_record) =
-            if let Some(explicit_rev) = config.candidate_rev.as_deref() {
-                let oid = git_ok(
-                    &config.repo,
-                    &[
-                        "rev-parse",
-                        "--verify",
-                        &format!("{}^{{commit}}", explicit_rev.trim()),
-                    ],
-                )?;
-                inspect_distill_envelope(&config.repo, &oid, None).map_err(|e| {
-                    EaiError::config(format!(
-                        "refusing release promotion of unqualified commit {oid}: {e}"
-                    ))
-                })?
-            } else if let Some(idx) = best_idx {
-                parsed_candidates[idx]
-                    .verified_payload
-                    .clone()
-                    .ok_or_else(|| EaiError::internal("missing verified candidate payload"))?
-            } else {
-                return Err(EaiError::config(
-                    "no verified distillation candidate found to promote",
-                ));
-            };
+        let (final_commit, source_record) = if let Some(explicit_rev) =
+            config.candidate_rev.as_deref()
+        {
+            let oid = git_ok(
+                &config.repo,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    &format!("{}^{{commit}}", explicit_rev.trim()),
+                ],
+            )?;
+            let (fc, _, rec) = inspect_distill_envelope(&config.repo, &oid, None).map_err(|e| {
+                EaiError::config(format!(
+                    "refusing release promotion of unqualified commit {oid}: {e}"
+                ))
+            })?;
+            (fc, rec)
+        } else if let Some(idx) = best_idx {
+            parsed_candidates[idx]
+                .verified_payload
+                .clone()
+                .ok_or_else(|| EaiError::internal("missing verified candidate payload"))?
+        } else {
+            return Err(EaiError::config(
+                "no verified distillation candidate found to promote",
+            ));
+        };
 
-        // Per T-CODEXSTORAGEONLY-1 and Mandate 73: `refs/heads/release/<name>` stays local-only
-        // inside Susi (never pushed as a remote branch to GitHub), while remote Git storage
-        // receives an immutable `refs/tags/susi-distill/<name>` snapshot tag!
         let local_release_ref = format!("refs/heads/release/{target_name}");
         let snapshot_tag_ref = format!("refs/tags/susi-distill/{target_name}");
 
         let envelope_oid = if let Ok(existing_local) =
             git_ok(&config.repo, &["rev-parse", "--verify", &local_release_ref])
         {
-            let (existing_final, _) =
+            let (existing_final, _, _) =
                 inspect_distill_envelope(&config.repo, &existing_local, Some(target_name))
                     .map_err(|e| {
                         EaiError::config(format!(
@@ -2021,7 +1962,7 @@ pub fn promote_release_candidate(
                 let ok_same = existing_tag == envelope_oid
                     || existing_tag == final_commit
                     || inspect_distill_envelope(&config.repo, &existing_tag, Some(target_name))
-                        .is_ok_and(|(fc, _)| fc == final_commit);
+                        .is_ok_and(|(fc, _, _)| fc == final_commit);
                 if !ok_same {
                     return Err(EaiError::config(format!(
                         "immutable snapshot {snapshot_tag_ref} already exists on {remote} at {existing_tag}; choose a fresh candidate name"
@@ -2090,19 +2031,32 @@ pub fn promote_release_candidate(
     Ok(receipt)
 }
 
-fn natural_rc_key(name: &str) -> (String, u64) {
-    let digits_len = name
-        .bytes()
-        .rev()
-        .take_while(|b| b.is_ascii_digit())
-        .count();
-    if digits_len == 0 {
-        return (name.to_string(), 0);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum RcToken {
+    Text(String),
+    Num(u64),
+}
+
+fn natural_rc_key(name: &str) -> Vec<RcToken> {
+    let mut tokens = Vec::new();
+    let bytes = name.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            tokens.push(RcToken::Num(name[start..i].parse::<u64>().unwrap_or(0)));
+        } else {
+            let start = i;
+            while i < bytes.len() && !bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            tokens.push(RcToken::Text(name[start..i].to_string()));
+        }
     }
-    let split_at = name.len() - digits_len;
-    let prefix = name[..split_at].to_string();
-    let num = name[split_at..].parse::<u64>().unwrap_or(0);
-    (prefix, num)
+    tokens
 }
 
 #[cfg(test)]
