@@ -444,8 +444,11 @@ pull-and-merge reconciliation wired across every workflow step in both `susi` an
 Since 2026-11-11 (`T-CLAUDESTORAGEGUARD-1`): the storage guard
 (`local-snapshot guard`) and first-build hook enabling (root `build.rs`).
 
-Still open beyond this wave: running the storage guard on a schedule from the
-harness driver (today an agent or driver runs it); speculative-stack qualification and safe evidence
+Since `T-CLAUDESTORAGEGUARD-2` every `local-snapshot` publish runs the guard
+afterwards, so each dump to main witnesses the remote without a scheduler.
+
+Still open beyond this wave: starting the storage guard from the harness's own
+`submit-main` and `integrate` paths (blocked by the susi-harness line ceiling); speculative-stack qualification and safe evidence
 reuse across trees; claim heartbeats; advisory `main` health records; the
 secondary-mirror portability drill and bundle backups; and the multi-run harness
 parity evaluation for default-driver promotion.

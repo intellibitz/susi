@@ -427,3 +427,45 @@ fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immu
     assert_eq!(rel_status_json["branch_state"], "present_exact");
     assert_eq!(rel_status_json["remote_branch_state"], "local_only");
 }
+
+#[test]
+fn every_submit_witnesses_the_remote_and_reports_lost_history_without_blocking() {
+    let f = Fixture::new();
+    let seed = f.remote_main();
+    let worker = f.clone_worker("worker");
+    f.commit(&worker, "worker.txt", "first");
+    let other = f.advance_main_elsewhere("other");
+    let out = f.publish(Path::new(PUBLISHER), &worker, &["submit", "witness-one"]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("storage guard"));
+    let record = "refs/susi-guard/origin/heads/main";
+    let witnessed = f.remote_main();
+    assert_eq!(f.git(&worker, &["rev-parse", record]), witnessed);
+
+    // Another client with no hook rewinds main: the other agent's commit and
+    // the merge are gone, and this worker's own branch never contained them.
+    f.git(&f.remote, &["update-ref", "refs/heads/main", &seed]);
+    let second = f.commit(&worker, "worker.txt", "second");
+    let out = f.publish(Path::new(PUBLISHER), &worker, &["submit", "witness-two"]);
+    // The dump is never blocked; the loss is reported and the record is kept.
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(f.contains(&second, &f.remote_main()));
+    assert!(!f.contains(&other, &f.remote_main()));
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(stderr.contains("REWOUND refs/heads/main"), "{}", text(&out));
+    assert!(stderr.contains("did not block"), "{}", text(&out));
+    assert_eq!(f.git(&worker, &["rev-parse", record]), witnessed);
+    // What was lost is still in the witnessing clone.
+    assert!(isolated(&mut Command::new("git"), &worker)
+        .args(["merge-base", "--is-ancestor", &other, record])
+        .status()
+        .unwrap()
+        .success());
+
+    let quiet = isolated(&mut Command::new(PUBLISHER), &worker)
+        .env("SUSI_NO_STORAGE_GUARD", "1")
+        .args(["retry-main", "witness-two"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&quiet.stderr).contains("storage guard"));
+}

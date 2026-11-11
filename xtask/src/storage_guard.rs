@@ -335,6 +335,32 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
     }
 }
 
+/// The publishing commands after which this clone witnesses the remote.
+pub fn publishes(command: &str) -> bool {
+    matches!(command, "submit" | "retry-main" | "cut" | "retry")
+}
+
+/// Run after a publishing command, whatever its result: every dump to main
+/// makes the publishing clone a witness, so the guard needs no scheduler.
+/// Advisory only (main has no gates): it returns text for stderr when history
+/// was lost or the remote could not be read, never changes the command's
+/// result, and is silent when nothing is wrong. `SUSI_NO_STORAGE_GUARD=1`
+/// skips it.
+pub fn witness(root: &Path) -> Option<String> {
+    if std::env::var_os("SUSI_NO_STORAGE_GUARD").is_some_and(|value| value == "1") {
+        return None;
+    }
+    match audit(root, "origin") {
+        Ok(report) if report.findings.is_empty() => None,
+        Ok(report) => Some(format!(
+            "{}\n{}\nPublished history was lost on the storage remote. This did not block your command; repair it as printed above.",
+            report.summary("origin"),
+            report.findings.join("\n")
+        )),
+        Err(error) => Some(format!("storage guard could not check origin: {error}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Test assertions intentionally panic on a failed invariant.

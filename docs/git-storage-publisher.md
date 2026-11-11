@@ -92,11 +92,32 @@ example `susi-commercial-apps`) by starting the built binary there.
 
 Limits, stated plainly: the guard detects and recovers, it does not prevent. A
 clone only vouches for what it has seen, so a ref created and destroyed between
-two runs of every clone is not noticed; run it at session start, before a
-release move and on a schedule. Nothing schedules it yet. Prevention needs a
+two runs of every clone is not noticed. Prevention needs a
 remote the CEO controls, where Git's own `receive.denyNonFastForwards` and
 `receive.denyDeletes` settings refuse the push; those are Git, not a provider
 feature, and move with a self-hosted remote.
+
+### Every publish is a witness
+
+No scheduler is needed. After `submit`, `retry-main`, `cut` and `retry`,
+`local-snapshot` runs the guard against `origin` in the publishing clone,
+whatever the command's result. Every dump to main therefore checks the remote
+and refreshes that clone's record, and the busier development is, the more
+often the remote is witnessed. It is advisory, because main has no gates: a
+finding is printed on stderr and never changes the command's result or its
+stdout. It is silent when nothing is wrong. `SUSI_NO_STORAGE_GUARD=1` skips it.
+
+The publisher often repairs a loss by itself: a submission whose history
+contains the dropped commits republishes them with its normal fast-forward. A
+finding remains only when the lost commits are in no later submission, which
+is exactly when someone has to act.
+
+Not covered: the harness's own `submit-main` and `integrate` paths
+(`crates/susi-harness/src/git_governor.rs`) do not start the guard. That crate
+is at its lean-core line ceiling, which only goes down without a CEO decision
+(`docs/lean-core.md`), so the guard was not added there. A clone that
+publishes only through the harness witnesses the remote when someone runs
+`local-snapshot guard` in it.
 
 ## Hooks are on after a clone's first build
 

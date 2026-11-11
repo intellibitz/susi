@@ -19,6 +19,17 @@ fn main() -> ExitCode {
             Some((command, rest)) if command == "guard" => storage_guard::run(&root, rest),
             Some(_) | None => git_publish::run(&root, &args),
         });
+    if args
+        .first()
+        .is_some_and(|command| storage_guard::publishes(command))
+    {
+        let advisory = std::env::current_dir()
+            .ok()
+            .and_then(|root| storage_guard::witness(&root));
+        if let Some(advisory) = advisory {
+            eprintln!("local-snapshot: {advisory}");
+        }
+    }
     match result {
         Ok(message) => {
             println!("{message}");
