@@ -823,6 +823,7 @@ Options:
       --attempts <ATTEMPTS>            Hard cap on attempts per task [default: 3]
       --adapter-state <ADAPTER_STATE>  Where the adapter keeps prompts and results [default: harness-state]
       --susi <SUSI>                    The susi binary the adapter drives (default: this one)
+      --delegation <DELEGATION>        Host-signed susi-delegation/v1 envelope JSON (or @file) attenuating this run
   -h, --help                           Print help
 
 === susi harness scorecard ===

@@ -132,6 +132,9 @@ pub enum HarnessCommands {
         /// The susi binary the adapter drives (default: this one)
         #[arg(long)]
         susi: Option<PathBuf>,
+        /// Host-signed susi-delegation/v1 envelope JSON (or @file) attenuating this run
+        #[arg(long)]
+        delegation: Option<String>,
     },
     /// Print the self-build (RSI) scorecard for the mission lifecycle ledger
     Scorecard {
