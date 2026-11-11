@@ -13,7 +13,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use susi_core::acp::{AcpContentBlock, AcpTurnContext, AcpTurnExecutor};
+use susi_core::acp::{AcpContentBlock, AcpMessageRole, AcpTurnContext, AcpTurnExecutor};
 use susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
 
 /// Time-windowed operating-layer Service Level Objective (SLO) sample
@@ -208,6 +208,42 @@ impl GawdAcpExecutor {
     }
 }
 
+/// Bytes of earlier turns a mission carries; the newest are kept.
+const HISTORY_BUDGET: usize = 16 * 1024;
+
+/// The session's earlier turns, newest kept, ahead of the gated prompt so a
+/// multi-turn ACP client keeps its context. An earlier question goes only if
+/// it passes the gate itself; an earlier answer is the mission's own reply.
+fn mission_text(ctx: &AcpTurnContext, prompt: String) -> String {
+    let mut earlier = String::new();
+    let messages = ctx.inference_messages();
+    for m in &messages[..messages.len() - 1] {
+        let line = match m.role {
+            AcpMessageRole::User if gated(&m.content).is_ok() => format!("Asked: {}\n", m.content),
+            AcpMessageRole::Assistant => format!("Answered: {}\n", m.content),
+            AcpMessageRole::System | AcpMessageRole::User | AcpMessageRole::Tool => continue,
+        };
+        earlier.push_str(&line);
+    }
+    let mut cut = earlier.len().saturating_sub(HISTORY_BUDGET);
+    while !earlier.is_char_boundary(cut) {
+        cut += 1;
+    }
+    match &earlier[cut..] {
+        "" => prompt,
+        kept => format!("Earlier in this session:\n{kept}\nNow:\n{prompt}"),
+    }
+}
+
+/// An ACP session does not make text trusted: gate it before a mission can
+/// dispatch consequential tools.
+fn gated(text: &str) -> std::result::Result<String, String> {
+    enforce_action(
+        &wrap_tool_output("acp:request", text),
+        ActionClass::Consequential,
+    )
+}
+
 impl AcpTurnExecutor for GawdAcpExecutor {
     /// Blocks for the whole mission: callers on an async runtime run it on a
     /// blocking thread. A mission cannot be interrupted midway; a turn
@@ -222,12 +258,7 @@ impl AcpTurnExecutor for GawdAcpExecutor {
         if content.trim().is_empty() {
             return Err("ACP prompt carried no text to run as a mission".to_string());
         }
-        // An authenticated ACP session does not make the prompt trusted: gate
-        // it before the mission can dispatch consequential tools.
-        let content = enforce_action(
-            &wrap_tool_output("acp:request", &content),
-            ActionClass::Consequential,
-        )?;
+        let content = mission_text(ctx, gated(&content)?);
         if cancelled.load(Ordering::SeqCst) {
             return Ok(Vec::new());
         }
