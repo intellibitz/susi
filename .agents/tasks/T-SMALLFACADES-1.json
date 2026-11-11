@@ -70,8 +70,8 @@
   "results": {
     "differential": "susi_core::pattern against regex 1.13.1 (scratch harness, not committed): 15,600,012 generated (pattern, text) pairs over the 12 static patterns, 0 unexplained differences; 5,919 differences, all on texts holding U+0301 or a superscript digit next to a keyword (the documented \\b word-char rule); 2,200,000 checks on 10 small edge patterns (lazy/greedy, empty matches, $, alternation priority), 0 differences. Frozen as 30 table cases in pattern.rs tests.",
     "speed": "no-match scan of 1 MB texts: at most about 100 ms per pattern per MB on a loaded laptop (regex crate: under 10 ms); linear in the text",
-    "pillar_reach": "measured on the merge with origin/main 8f75369d4: third-party 180 -> 173 (aho-corasick, crossbeam-utils, dashmap, regex, regex-automata, regex-syntax, susi-os-unicode), workspace 45 -> 42, direct facade edges 19 -> 17",
-    "host_closure": "cargo tree -p susi -e normal,build distinct packages 261 (origin/main 8f75369d4) -> 254",
+    "pillar_reach": "measured on the merge with origin/main 5be3d0efb: third-party 161 -> 154 (aho-corasick, crossbeam-utils, dashmap, regex, regex-automata, regex-syntax, susi-os-unicode), workspace 44 -> 41, direct facade edges 19 -> 17",
+    "host_closure": "cargo tree -p susi -e normal,build distinct packages 250 (origin/main 5be3d0efb) -> 243",
     "lines": "pillar line counts unchanged; GAWD's FAILURE token and gemi's local_plug locks were already moved off regex/parking_lot by T-AGYCLOUD-4 (5b6b04d22), whose versions this change keeps"
   },
   "limitations": [

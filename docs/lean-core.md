@@ -701,8 +701,31 @@ config, core and the tail.
   the two `[patch.crates-io]` entries from `Cargo.toml` and `Cargo.lock`
   (`[[patch.unused]]`), and enforce zero `[[patch.unused]]` entries in
   `tests/architecture_tests.rs`.
-
-
+- 2026-11-11 (T-NETTRANSPORT-1, Linux x86_64, CEO laptop, 28 threads, other
+  agents compiling): the pillars' outbound client (`susi-http-transport`
+  `http_call`, used by GEMI's BYOK providers, gemi-models downloads, GMCP,
+  GAWD peers and the harness gateway) is HTTP/1.1 on std sockets
+  (`wire.rs`, `connect.rs`) instead of ureq, over the platform TLS the pillars
+  already link for their servers (native-tls: Schannel, platform OpenSSL,
+  Security.framework) with the platform trust store; verification is never
+  disabled. The ureq profile is kept: one total deadline over DNS, connect,
+  TLS, redirects and the body; its redirect rules; ALL/HTTPS/HTTP_PROXY with
+  NO_PROXY through CONNECT, loopback always direct. No `Accept-Encoding: gzip`
+  is sent and connections are not pooled. `susi-vendor-ureq` is deleted;
+  nothing is added. Pillar reach 180 -> 161 third-party, 45 -> 44 workspace
+  (facade edges stay 19). Cold `cargo build -p susi -j 8`, alternated with
+  base `bf0bb15a6` at load average 12-18: base 66.5 / 91.0 s, change 66.8 /
+  80.6 s; units 267 -> 256 (ureq, ureq-proto, flate2, miniz_oxide, adler2,
+  crc32fast, simd-adler32, der 0.8, pem-rfc7468 1.0, utf8-zero and the facade
+  leave the host build). The wall numbers are load noise; no wall gain is
+  claimed. Not done, with the reason: a pure-Rust TLS stack. rustls needs
+  rustls-webpki and untrusted (ISC) and webpki-roots (CDLA-Permissive-2.0),
+  which `deny.toml`'s strict licence list does not allow; its only offline
+  providers are ring (C and assembly, ISC) and aws-lc-rs (C); and openssl
+  would stay in the closure anyway, because GMCP, GEMI REST and A2A serve TLS
+  through native-tls. tokio, hyper, h2 and mio stay: susi-gmcp, susi-gemi,
+  susi-gawd and susi-harness depend on them directly (GMCP and harness
+  servers).
 - 2026-11-11 (T-SMALLFACADES-1, Linux x86_64, CEO laptop): three small
   facades leave core. `regex`: the truth gate's eleven static claim patterns
   (`susi-core` `truth.rs`, `verification.rs`) run on `susi_core::pattern`, a
@@ -719,8 +742,8 @@ config, core and the tail.
   blackboard are std maps behind those locks; a custom handler runs with no
   lock held. `susi-vendor-regex`, `susi-vendor-dashmap` and
   `susi-vendor-parking-lot` are deleted (regex stays in the workspace only as
-  criterion's dev-dependency, parking_lot as tokio's). Pillar reach 180 -> 173
+  criterion's dev-dependency, parking_lot as tokio's). Pillar reach 161 -> 154
   third-party (aho-corasick, crossbeam-utils, dashmap, regex, regex-automata,
-  regex-syntax, susi-os-unicode), 45 -> 42 workspace, 19 -> 17 direct facade
-  edges; `cargo tree -p susi` host packages 261 -> 254. Pillar line counts
+  regex-syntax, susi-os-unicode), 44 -> 41 workspace, 19 -> 17 direct facade
+  edges; `cargo tree -p susi` host packages 250 -> 243. Pillar line counts
   unchanged. No build-time gain is claimed.

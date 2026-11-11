@@ -136,6 +136,14 @@ pub enum OsCapabilitiesAction {
         #[arg(long)]
         delegation: Option<String>,
     },
+    /// Revoke a host-signed delegation envelope id in this process's ledger
+    #[allow(missing_docs)]
+    Revoke {
+        /// Envelope id (`susi-delegation/v1` `id` field) to revoke
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Actions of `susi os provision`: explicit cloud/local host provision.

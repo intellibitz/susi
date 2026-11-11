@@ -60,7 +60,6 @@ members = [
     "crates/susi-vendor-tracing",
     "crates/susi-vendor-tracing-appender",
     "crates/susi-vendor-tracing-subscriber",
-    "crates/susi-vendor-ureq",
     "crates/susi-vendor-url",
     "crates/susi-vendor-winapi",
     "crates/susi-vendor-x25519-dalek"]
