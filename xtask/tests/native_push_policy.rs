@@ -321,7 +321,7 @@ fn graft_environment_override_fails_closed_even_when_file_is_missing() {
 }
 
 #[test]
-fn release_branches_require_qualification_even_for_create_or_fast_forward() {
+fn release_branches_are_local_only_and_legacy_refs_can_be_deleted() {
     let r = Repo::new();
     let old = r.git(&["rev-parse", "HEAD"]);
     let new = r.commit("release candidate");
@@ -329,11 +329,11 @@ fn release_branches_require_qualification_even_for_create_or_fast_forward() {
         for previous in [ZERO, &old] {
             let input = format!("HEAD {new} {reference} {previous}");
             let error = r.check(&input).unwrap_err();
-            assert!(error.contains("requires exact native qualification"));
+            assert!(error.contains("is local-only"), "{error}");
         }
         assert!(r
             .check(&format!("(delete) {ZERO} {reference} {old}"))
-            .is_err());
+            .is_ok());
     }
     for reference in ["refs/heads/main", "refs/heads/release-notes"] {
         assert!(r.check(&format!("HEAD {new} {reference} {old}")).is_ok());
@@ -513,89 +513,4 @@ fn a_release_tag_must_point_at_the_record_commit_and_never_moves() {
         .check(&format!("HEAD {other} refs/tags/v1.2.3 {commit}"))
         .unwrap_err()
         .contains("immutable"));
-}
-
-#[test]
-fn accept_verified_distilled_release_branch_passes_while_tampered_or_unverified_is_refused() {
-    use sha2::{Digest, Sha256};
-    let r = Repo::new();
-    let base = r.git(&["rev-parse", "HEAD"]);
-    let composed = r.commit("distilled candidate");
-    let composed_tree = r.git(&["rev-parse", "HEAD^{tree}"]);
-
-    let build_envelope = |edit: &dyn Fn(&mut serde_json::Value), extra_file: bool| -> String {
-        r.git(&["checkout", "-q", &composed]);
-        let mut receipt = serde_json::json!({
-            "schema": "susi-distillation-receipt-v1",
-            "name": "v0.21.55-rc1",
-            "mode": "orchestrate",
-            "qualification_status": "accept_verified_candidate",
-            "base_commit": base,
-            "branch_ref": "refs/heads/release/v0.21.55-rc1",
-            "snapshot_tag_ref": "refs/tags/susi-distill/v0.21.55-rc1",
-            "accept_verification": [
-                {"task_id": "T-REL-1", "cmd": ["cargo", "--version"], "exit_code": 0, "passed": true, "output_sha256": "a".repeat(64)}
-            ],
-            "included": [{"task_id": "T-REL-1", "reason_code": "selected_and_composed"}],
-            "satisfied_in_base": [],
-            "deferred": [],
-            "rejected": [],
-            "final_commit": composed,
-            "final_tree": composed_tree,
-        });
-        edit(&mut receipt);
-        let canonical = serde_json::to_vec(&receipt).unwrap();
-        let sha: String = Sha256::digest(&canonical)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        receipt["receipt_sha256"] = sha.into();
-        std::fs::create_dir_all(r.0.join("releases/distill")).unwrap();
-        std::fs::write(
-            r.0.join("releases/distill/v0.21.55-rc1.json"),
-            serde_json::to_string_pretty(&receipt).unwrap(),
-        )
-        .unwrap();
-        if extra_file {
-            std::fs::write(r.0.join("sneaky.txt"), "extra\n").unwrap();
-        }
-        r.git(&["add", "-A"]);
-        r.git(&["commit", "-qm", "envelope"]);
-        r.git(&["rev-parse", "HEAD"])
-    };
-
-    let valid = build_envelope(&|_| {}, false);
-    r.git(&["update-ref", "refs/heads/release/v0.21.55-rc1", &valid]);
-    assert!(r
-        .check(&format!(
-            "refs/heads/release/v0.21.55-rc1 {valid} refs/heads/release/v0.21.55-rc1 {ZERO}"
-        ))
-        .is_ok());
-
-    let unverified = build_envelope(
-        &|rec| rec["qualification_status"] = "unqualified_candidate".into(),
-        false,
-    );
-    assert!(r
-        .check(&format!(
-            "HEAD {unverified} refs/heads/release/v0.21.55-rc1 {ZERO}"
-        ))
-        .is_err());
-
-    let failed_accept = build_envelope(
-        &|rec| rec["accept_verification"][0]["exit_code"] = 1.into(),
-        false,
-    );
-    assert!(r
-        .check(&format!(
-            "HEAD {failed_accept} refs/heads/release/v0.21.55-rc1 {ZERO}"
-        ))
-        .is_err());
-
-    let with_extra = build_envelope(&|_| {}, true);
-    assert!(r
-        .check(&format!(
-            "HEAD {with_extra} refs/heads/release/v0.21.55-rc1 {ZERO}"
-        ))
-        .is_err());
 }
