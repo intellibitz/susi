@@ -1514,7 +1514,20 @@ mod tests {
     }
 
     fn run_in(work: &Path, args: &[&str]) -> Result<String> {
-        let args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
+        let mut args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
+        // Test clones represent different agents.  Make that identity explicit
+        // so a release runner's inherited SUSI_AGENT cannot collapse alice and
+        // bob into one claimant.
+        let agent = work
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("test");
+        let insert_at = args
+            .iter()
+            .position(|arg| arg == "--cmd")
+            .unwrap_or(args.len());
+        args.insert(insert_at, "--agent".to_owned());
+        args.insert(insert_at + 1, agent.to_owned());
         run(work, &args)
     }
 
