@@ -1,0 +1,72 @@
+{
+  "id": "T-AGYCLOUD-2",
+  "native_worker": "agycloud-20261110",
+  "owner": "agycloud-20261110",
+  "title": "Wire susi_harness::recursive into supervisor and layer daemon.harness over susi_core::delegation",
+  "goal": "Reconcile the Mandate 73 recursion overlap documented in `docs/recursive-delegation.md`: wire `susi_harness::recursive` into production callers in `susi_harness::supervisor` and `susi_harness::operator` without adding a `susi-harness -> susi-core` dependency edge, layer `daemon.harness` socket operations and `RecursiveTaskNode` waves over `susi_core::delegation::DelegationScope` (`DelegationAuthority::host()` signed envelopes, permission subsets, micro-USD sibling budget reservations and refunds, deadlines, depth, fan-out, cycle detection, and cooperative cancellation), and expose signed envelope revocation (`CapabilityRegistry::revoke_delegation` / `serve_nested(\"revoke\")` and `daemon.harness` `revoke_delegation`).",
+  "feature": "recursive-delegation",
+  "size": "m",
+  "created_by": "agycloud-20261110",
+  "created_unix": 1794365500,
+  "state": "done",
+  "status": "done",
+  "base": "6917f7f40633d80b35dae09808575130a7067b83",
+  "mandate_revision": "286e653ab06677ef0aefee8a54bffc26455127af",
+  "deps": [
+    "T-CLAUDERECURSE-1",
+    "T-CLAUDESIGNENV-1",
+    "T-CARBONDRIVER-1"
+  ],
+  "scopes": [
+    ".agents/tasks/T-AGYCLOUD-2.json",
+    ".agents/tasks/done/T-AGYCLOUD-2.json",
+    "crates/susi-core/src/registry.rs",
+    "crates/susi-daemon/src/harness_ops.rs",
+    "crates/susi-harness/src/lib.rs",
+    "crates/susi-harness/src/operator.rs",
+    "crates/susi-harness/src/supervisor.rs",
+    "crates/susi-harness/src/tests/operator.rs",
+    "docs/recursive-delegation.md"
+  ],
+  "evidence": [
+    "crates/susi-core/src/registry.rs",
+    "crates/susi-daemon/src/harness_ops.rs",
+    "crates/susi-harness/src/supervisor.rs",
+    "crates/susi-harness/src/tests/operator.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "--",
+      "harness_ops"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu (Debian 12, Linux 6.12.105+, git 2.39.5, rustc 1.99.0)",
+    "fmt_check": "pass (0 diffs)",
+    "clippy_all_targets": "pass (susi-core, susi-harness, susi-daemon: 0 warnings with -D warnings, 44256 ms)",
+    "tests_passed": 79,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "susi_core_delegation_bus_registry": 45,
+      "susi_harness_recursive_operator_supervisor": 27,
+      "susi_daemon_harness_ops": 7
+    },
+    "timings_ms": {
+      "susi_core_warm_tests_ms": 469,
+      "susi_harness_tests_ms": 15174,
+      "susi_daemon_tests_ms": 16603,
+      "clippy_3crates_all_targets_ms": 44256
+    }
+  },
+  "limitations": [
+    "Standalone CLI `susi harness run`, GEMI worker delegation, and GAWD swarm hand-offs do not open `DelegationScope`s yet.",
+    "Envelope revocation is per admitting host process (`CapabilityRegistry::serve_nested` and `daemon.harness`); `susi os capabilities` CLI does not yet expose a `revoke` subcommand."
+  ]
+}
