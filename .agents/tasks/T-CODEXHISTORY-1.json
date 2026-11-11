@@ -52,5 +52,8 @@
     "The portable local-engine contract currently exposes four roles and string content; structured assistant tool_calls and tool_call_id fields remain normalized into text rather than a separate structured message field.",
     "Cloud and external-provider recovery receives the assembled prose goal; the full chat is preserved for the local engine path only.",
     "Linux x86_64 verification; Windows qualification remains a separate host task."
+  ],
+  "source_commits": [
+    "1cbde3c4176a7a529d45f05ba0102730eab7f1ac"
   ]
 }
