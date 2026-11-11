@@ -1,8 +1,6 @@
 //! Classification of legacy text outcomes. Passing this filter is not proof
 //! that a claim is true; it only makes the output eligible for synthesis.
 
-use std::sync::OnceLock;
-
 pub fn is_failure(output: &str) -> bool {
     let upper = output.to_uppercase();
     // Bracket / multi-word markers: substring match is exact enough.
@@ -25,11 +23,11 @@ pub fn is_failure(output: &str) -> bool {
     }
     // Single-token markers must be word-bounded — otherwise a verified
     // `Cargo.toml` comment about "test failures" poisons a native read.
-    static WORD_FAIL: OnceLock<regex::Regex> = OnceLock::new();
-    #[allow(clippy::expect_used)] // static pattern; compile failure is a build bug
-    let word_fail = WORD_FAIL
-        .get_or_init(|| regex::Regex::new(r"\bFAILURE\b").expect("static failure-token pattern"));
-    word_fail.is_match(&upper)
+    // Word chars are alphanumerics and `_`, as in `susi_core::pattern`.
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    upper.match_indices("FAILURE").any(|(at, token)| {
+        !word(upper[..at].chars().next_back()) && !word(upper[at + token.len()..].chars().next())
+    })
 }
 
 pub fn is_usable(output: &str) -> bool {
@@ -64,7 +62,8 @@ mod tests {
         assert!(!is_failure(cargo_comment), "{cargo_comment}");
         assert!(is_usable(cargo_comment));
         assert!(is_failure("FAILURE: boom"));
-        assert!(is_failure("mission FAILURE reported"));
+        assert!(is_failure("mission FAILURE reported") && is_failure("(FAILURE)"));
+        assert!(!is_failure("_FAILURE FAILURE_ 2FAILURE FAILURES"));
     }
 }
 

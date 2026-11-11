@@ -39,7 +39,6 @@ members = [
     "crates/susi-vendor-chacha20poly1305",
     "crates/susi-vendor-clap",
     "crates/susi-vendor-console-subscriber",
-    "crates/susi-vendor-dashmap",
     "crates/susi-vendor-ed25519-dalek",
     "crates/susi-vendor-futures",
     "crates/susi-vendor-getrandom",
@@ -48,9 +47,7 @@ members = [
     "crates/susi-vendor-hyper",
     "crates/susi-vendor-hyper-util",
     "crates/susi-vendor-libc",
-    "crates/susi-vendor-parking-lot",
     "crates/susi-vendor-rcgen",
-    "crates/susi-vendor-regex",
     "crates/susi-vendor-serde",
     "crates/susi-vendor-serde-json",
     "crates/susi-vendor-sha1",
@@ -158,7 +155,6 @@ susi-daemon-runtime = { path = "crates/susi-daemon-runtime" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
-dashmap = "6.2"
 reqwest = { version = "0.13.5", features = ["json", "blocking", "query"] }
 hex = "0.4"
 tracing = "0.1"
@@ -168,7 +164,6 @@ ed25519-dalek = { version = "2.2", default-features = false }
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 tokio = { version = "1.53", features = ["full", "tracing"] }
-parking_lot = "0.12"
 url = "2.5"
 criterion = "0.5"
 

@@ -17,13 +17,13 @@
 //! The active pack's files win per-file. `SUSI_EXTENSION_PACK` forces the
 //! active id.
 
-use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use susi_paths::sync::Mutex;
 
 /// Active extension pack (id + host root).
 #[derive(Debug, Clone)]

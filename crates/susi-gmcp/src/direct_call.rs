@@ -6,16 +6,15 @@
 
 use crate::protocol::is_tool_result_error;
 use crate::tool_registry::{GmcpClient, ToolRegistry};
-use dashmap::DashMap;
 use serde_json::{json, Value};
-use std::path::Path;
-use std::sync::OnceLock;
+use std::{collections::HashMap, path::Path, sync::OnceLock};
 use susi_error::{EaiError, EaiResult};
+use susi_paths::sync::RwLock;
 
-static CUSTOM_SCHEMAS: OnceLock<DashMap<String, Value>> = OnceLock::new();
+static CUSTOM_SCHEMAS: OnceLock<RwLock<HashMap<String, Value>>> = OnceLock::new();
 
-fn custom_schemas() -> &'static DashMap<String, Value> {
-    CUSTOM_SCHEMAS.get_or_init(DashMap::new)
+fn custom_schemas() -> &'static RwLock<HashMap<String, Value>> {
+    CUSTOM_SCHEMAS.get_or_init(RwLock::default)
 }
 
 /// Register a custom JSON schema for an MCP tool parameter validation.
@@ -25,18 +24,17 @@ pub fn register_tool_schema(server: &str, tool: &str, schema: Value) {
     } else {
         format!("{server}:{tool}")
     };
-    custom_schemas().insert(key, schema);
+    custom_schemas().write().insert(key, schema);
 }
 
 /// Retrieve the effective input schema for a given tool.
 pub fn get_tool_schema(server: &str, tool: &str) -> Value {
     let key = format!("{server}:{tool}");
-    if let Some(entry) = custom_schemas().get(&key) {
-        return entry.value().clone();
+    let schemas = custom_schemas().read();
+    if let Some(schema) = schemas.get(&key).or_else(|| schemas.get(tool)) {
+        return schema.clone();
     }
-    if let Some(entry) = custom_schemas().get(tool) {
-        return entry.value().clone();
-    }
+    drop(schemas);
 
     // Built-in schemas for common core tools
     match tool {
@@ -154,10 +152,10 @@ pub fn format_tool_response(output: &str, is_error: bool) -> Value {
 }
 
 pub type ToolHandlerFn = std::sync::Arc<dyn Fn(&Value, &Path) -> EaiResult<String> + Send + Sync>;
-static CUSTOM_HANDLERS: OnceLock<DashMap<String, ToolHandlerFn>> = OnceLock::new();
+static CUSTOM_HANDLERS: OnceLock<RwLock<HashMap<String, ToolHandlerFn>>> = OnceLock::new();
 
-fn custom_handlers() -> &'static DashMap<String, ToolHandlerFn> {
-    CUSTOM_HANDLERS.get_or_init(DashMap::new)
+fn custom_handlers() -> &'static RwLock<HashMap<String, ToolHandlerFn>> {
+    CUSTOM_HANDLERS.get_or_init(RwLock::default)
 }
 
 /// Register a custom handler function for a tool invocation.
@@ -167,12 +165,13 @@ pub fn register_tool_handler(server: &str, tool: &str, handler: ToolHandlerFn) {
     } else {
         format!("{server}:{tool}")
     };
-    custom_handlers().insert(key, handler);
+    custom_handlers().write().insert(key, handler);
 }
 
 fn dispatch_native(tool: &str, args: &Value, workspace: &Path) -> EaiResult<String> {
-    if let Some(entry) = custom_handlers().get(tool) {
-        return (entry.value())(args, workspace);
+    let handler = custom_handlers().read().get(tool).cloned(); // no lock while it runs
+    if let Some(handler) = handler {
+        return handler(args, workspace);
     }
 
     match tool {
@@ -256,13 +255,14 @@ pub fn call_tool_direct(
         || server == "builtin"
         || server == "core"
         || server.is_empty()
-        || custom_handlers().contains_key(tool)
+        || custom_handlers().read().contains_key(tool)
         || ToolRegistry::exists(tool);
 
     let exec_res =
         susi_core::capture::EvidenceSession::capture_call(&call_id, args, workspace, || {
-            if let Some(entry) = custom_handlers().get(&call_id) {
-                (entry.value())(args, workspace)
+            let handler = custom_handlers().read().get(&call_id).cloned();
+            if let Some(handler) = handler {
+                handler(args, workspace)
             } else if is_native {
                 dispatch_native(tool, args, workspace)
             } else {

@@ -1,13 +1,13 @@
 // Tier 1 swarm supervisor: dispatches and ranks agents for a mission, and
 // coordinates with peer nodes over the AOA federation protocol.
 
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::net::UdpSocket;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+use susi_paths::sync::RwLock;
 
 use crate::cancel_propagate::{run_cancellable, CancellableResult, CancellationHandle};
 use crate::peer_registry;

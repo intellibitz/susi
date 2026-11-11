@@ -6,7 +6,6 @@ use crate::engines::alpha_avail::{action_available, capability_names, FOUNDATION
 use crate::engines::alpha_pure::{reflex_features, DIM};
 use crate::susi_core::plane_bus::PlaneBus;
 use crate::susi_error::{eai_err as anyhow, EaiError, EaiResult};
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -14,6 +13,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
+use susi_paths::sync::RwLock;
 
 pub const LOCAL_ENGINE_BUS_PREFIX: &str = "gpu_fabric.local_engine.";
 pub const TOPIC_LOCAL_INFER_STREAM: &str = "gpu_fabric.local_engine.infer_stream";

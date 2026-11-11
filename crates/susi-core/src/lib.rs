@@ -60,6 +60,7 @@ pub mod mission_trace;
 pub mod model_health;
 pub mod net_guard;
 pub mod parallel;
+pub mod pattern;
 pub mod peer_admin;
 pub mod peer_probe;
 pub mod peer_roster;

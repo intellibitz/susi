@@ -1,8 +1,8 @@
 use crate::susi_error::EaiResult;
-use dashmap::DashMap;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, OnceLock, RwLock};
+use susi_paths::sync::RwLock as ToolMap;
 
 use crate::client::GmcpClient;
 use crate::hooks::hooks;
@@ -11,7 +11,7 @@ use crate::susi_core::mac_policy::{actions, MacPolicy};
 use crate::types::{McpTool, MetaCategory, MetaTool, SusiTool};
 
 pub struct ToolRegistry {
-    pub tools: DashMap<String, Arc<dyn SusiTool>>,
+    pub tools: ToolMap<HashMap<String, Arc<dyn SusiTool>>>,
 }
 
 impl ToolRegistry {
@@ -19,7 +19,7 @@ impl ToolRegistry {
         static REGISTRY: OnceLock<ToolRegistry> = OnceLock::new();
         REGISTRY.get_or_init(|| {
             let registry = ToolRegistry {
-                tools: DashMap::new(),
+                tools: ToolMap::default(),
             };
             hooks().bootstrap_tools(&registry);
             registry
@@ -69,17 +69,21 @@ impl ToolRegistry {
             desc: desc.to_string(),
             handler: tool.handler.clone(),
         });
-        registry.tools.insert(name.to_string(), Arc::new(tool));
+        registry
+            .tools
+            .write()
+            .insert(name.to_string(), Arc::new(tool));
     }
 
     pub fn list_tools() -> Vec<McpTool> {
         let registry = Self::global();
         let mut tools: Vec<McpTool> = registry
             .tools
+            .read()
             .iter()
-            .map(|r| McpTool {
-                name: r.key().clone(),
-                description: r.value().description(),
+            .map(|(name, tool)| McpTool {
+                name: name.clone(),
+                description: tool.description(),
             })
             .collect();
 
@@ -118,7 +122,7 @@ impl ToolRegistry {
 
     pub fn exists(name: &str) -> bool {
         let registry = Self::global();
-        if registry.tools.contains_key(name) {
+        if registry.tools.read().contains_key(name) {
             return true;
         }
         if crate::susi_core::registry::CapabilityRegistry::global()
@@ -244,10 +248,7 @@ impl ToolRegistry {
         }
 
         let registry = Self::global();
-        let tool = registry
-            .tools
-            .get(name)
-            .map(|entry| Arc::clone(entry.value()));
+        let tool = registry.tools.read().get(name).map(Arc::clone);
         if let Some(tool) = tool {
             match crate::susi_core::capture::EvidenceSession::capture_call(
                 name,
