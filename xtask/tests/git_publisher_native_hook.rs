@@ -13,8 +13,9 @@ const POLICY: &str = env!("CARGO_BIN_EXE_push-policy");
 /// find `push-policy` through the publisher's adjacent-helper discovery.
 fn path_without_helper() -> OsString {
     let helper_dir = Path::new(POLICY).parent().unwrap();
+    let helper_name = Path::new(POLICY).file_name().unwrap();
     let kept: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-        .filter(|p| p != helper_dir)
+        .filter(|p| p != helper_dir && !p.join(helper_name).exists())
         .collect();
     std::env::join_paths(kept).unwrap()
 }

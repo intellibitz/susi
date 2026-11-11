@@ -1,6 +1,5 @@
 //! Offline verification of version-bound upstream attribution supplements.
 use super::{digest, file_digest, hex, required, Result};
-use sha2::Digest;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -29,13 +28,60 @@ fn blob_sha1(bytes: &[u8]) -> String {
 }
 
 fn object_sha1(kind: &str, bytes: &[u8]) -> String {
-    let mut hash = sha1::Sha1::new();
-    hash.update(format!("{kind} {}\0", bytes.len()).as_bytes());
-    hash.update(bytes);
-    hash.finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    let mut msg = format!("{kind} {}\0", bytes.len()).into_bytes();
+    msg.extend_from_slice(bytes);
+    let bit_len = (msg.len() as u64).wrapping_mul(8);
+    msg.push(0x80);
+    while msg.len() % 64 != 56 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&bit_len.to_be_bytes());
+    let mut h0: u32 = 0x6745_2301;
+    let mut h1: u32 = 0xEFCD_AB89;
+    let mut h2: u32 = 0x98BA_DCFE;
+    let mut h3: u32 = 0x1032_5476;
+    let mut h4: u32 = 0xC3D2_E1F0;
+    for chunk in msg.as_chunks::<64>().0 {
+        let mut w = [0u32; 80];
+        for (dst, word) in w.iter_mut().zip(chunk.as_chunks::<4>().0) {
+            *dst = u32::from_be_bytes(*word);
+        }
+        for i in 16..80 {
+            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
+        }
+        let (mut a, mut b, mut c, mut d, mut e) = (h0, h1, h2, h3, h4);
+        for (i, &wi) in w.iter().enumerate() {
+            let (f, k) = match i {
+                0..=19 => ((b & c) | ((!b) & d), 0x5A82_7999),
+                20..=39 => (b ^ c ^ d, 0x6ED9_EBA1),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1B_BCDC),
+                _ => (b ^ c ^ d, 0xCA62_C1D6),
+            };
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(wi);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+        h0 = h0.wrapping_add(a);
+        h1 = h1.wrapping_add(b);
+        h2 = h2.wrapping_add(c);
+        h3 = h3.wrapping_add(d);
+        h4 = h4.wrapping_add(e);
+    }
+    let mut out = [0u8; 20];
+    out[0..4].copy_from_slice(&h0.to_be_bytes());
+    out[4..8].copy_from_slice(&h1.to_be_bytes());
+    out[8..12].copy_from_slice(&h2.to_be_bytes());
+    out[12..16].copy_from_slice(&h3.to_be_bytes());
+    out[16..20].copy_from_slice(&h4.to_be_bytes());
+    out.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn decode_object(value: &str) -> Result<Vec<u8>> {

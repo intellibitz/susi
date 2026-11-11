@@ -540,7 +540,7 @@ mod tests {
         ] {
             assert!(requests_retired_backend(features), "{features}");
         }
-        for features in ["", "metal", "tokio-console"] {
+        for features in ["", "metal"] {
             assert!(!requests_retired_backend(features), "{features}");
         }
     }

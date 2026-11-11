@@ -796,3 +796,18 @@ config, core and the tail.
   tree -p susi` host packages 243 -> 239; susi-gmcp 25,900 -> 25,891 and
   susi-gemi-models 15,950 -> 15,945 lines. Error texts for refused URLs now
   name the reason. No build-time gain is claimed.
+- 2026-11-11 (T-CARBONLEAN-1, Linux x86_64, CEO laptop): three workspace
+  facades leave core (`susi-vendor-console-subscriber`,
+  `susi-vendor-criterion`, `susi-vendor-sha1`), removing 63 packages (60
+  third-party crates including `tonic`, `prost`, `console-subscriber`,
+  `criterion`, `rayon`, `plotters`, `ciborium`, `flate2`, `zlib-rs`,
+  `wasm-bindgen`, `regex` and `sha1`, plus the three facades) from `Cargo.lock`
+  and `--workspace --all-targets` builds. `susi-daemon-runtime` (`nat.rs`
+  RFC 5389 STUN `MESSAGE-INTEGRITY`) and `xtask` (`upstream_notices.rs` Git
+  object SHA-1) run on inline pure-std RFC 3174 SHA-1 verified against RFC 3174
+  and RFC 2202 HMAC-SHA1 vectors (`cargo tree -p susi` host packages 239 ->
+  237). `crates/susi-core/benches/evidence_verify.rs` runs on
+  `std::time::Instant` and `std::hint::black_box` (`harness = false` kept;
+  935 ns/iter signature, 668 ns/iter truth verify). Lines: `susi-gawd-swarm`
+  20,635 -> 20,116 (unchanged `amas.rs` inline unit suite, 519 lines, moved to
+  `src/tests/amas.rs`, not a runtime cut).
