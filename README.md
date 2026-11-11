@@ -6,11 +6,16 @@
 
 Susi is an open, local-first AI operating substrate: one Rust daemon on your
 machine that puts the models, agents and tools you already have behind a
-standards socket on ports `9090-9094`, so any MCP client, OpenAI/Anthropic SDK
-or A2A peer talks to all of them the same way. It routes work across local
-engines (Ollama, llama.cpp, vLLM) and cloud providers by evidence, lets agents
-declare a mission complete only with receipts, and seals what they did into an
-append-only HMAC-SHA256 audit chain. The core is Apache-2.0 and free forever.
+standards socket on ports `9090-9094`, so any MCP client, ACP agent,
+OpenAI/Anthropic SDK or A2A peer talks to all of them the same way. It is built
+around **five Apache-2.0 core pillars** — **GAWD** (evidence-gated swarm & A2A
+coordination), **GEMI** (local/cloud model inference router), **GMCP** (MCP
+protocol & tool plane), **ACP** (Agent Client Protocol / Agent Communication
+Protocol standard open socket), and **Susi Harness** (recursive driver/engine
+with built-in parallel multi-agent workflow) — routes work across local engines
+(Ollama, llama.cpp, vLLM) and cloud providers by evidence, lets agents declare a
+mission complete only with receipts, and seals what they did into an append-only
+HMAC-SHA256 audit chain. The core is Apache-2.0 and free forever.
 
 Scoped claim (Mandate 45): Susi is an evidence-gated agent-of-agents substrate
 *on* your host, not a replacement operating system and not a chatbot wrapper.
@@ -28,11 +33,13 @@ exact scope is in [What RSI means here](docs/architecture.md#what-rsi-means-here
   governed tool path and an audit trail that survives a crash.
 
 Core is a pure CLI plus standards socket: it ships no UI and bundles no plugin
-content; the desktop, every visual view and curated plugin packs live in Susi
-Commercial Apps, which reaches core over the same public protocols. susi core
-is the free open-source socket. It speaks the standard host protocols and
-admits plugs. It does not ship a third-party product implementation; the third
-party writes that plug.
+content; the desktop, every visual view, enterprise SSO/RBAC/FinOps governance,
+turnkey workflows and curated plugin packs live in Susi Commercial Apps
+(`intellibitz/susi-commercial-apps` — closed-source, licensed, and paid corporate
+software), which reaches core over the same public protocols. susi core is the
+free open-source socket. It speaks the standard host protocols and admits plugs.
+It does not ship a third-party product implementation; the third party or Susi
+Commercial Apps writes that plug.
 
 ## Two-minute start
 
@@ -165,11 +172,17 @@ and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms)
 ### Developing susi
 
 The CEO never inspects code; agents own development, verification, integration
-and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–74).
-Work happens in isolated worktrees with disjoint scopes (`cargo local-workflow
-start <agent> --scope <path>`, `cargo local-build debug`), each commit carries
-`Task: T-<AGENT>-<n>` with its record in [`.agents/tasks/`](.agents/tasks/),
-and integration verifies the actual combined tree before anything lands;
+and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–74) and
+[`docs/ceo-mandate-74.md`](docs/ceo-mandate-74.md). Work happens in isolated
+worktrees with disjoint scopes (`cargo local-workflow start <agent> --scope <path>`,
+`cargo local-build debug`) and remote pull-and-merge reconciliation at every
+workflow step over portable Git storage (GitHub is storage only: zero GitHub
+Actions, zero hosted PRs). Susi core targets a `<10s` warm `build + test + release`
+pipeline budget (`docs/lean-core.md`). Each commit carries `Task: T-<AGENT>-<n>`
+with its record in [`.agents/tasks/`](.agents/tasks/), features land
+continuously on `main` and are deterministically distilled by Susi into
+qualified immutable releases (`releases/<tag>.json`), and release integration
+verifies the actual combined tree before a release ref moves;
 [`.agents/lanes/`](.agents/lanes/) documents history and never substitutes
 for a reservation. The full path, with the native Windows notes, is in
 [docs/evidence.md](docs/evidence.md#building-susi-the-workflow-mandates-4972).

@@ -1098,6 +1098,44 @@ impl Git<'_> {
         }
     }
 
+    /// Offline-safe remote pull for `origin/main` using plain Git transport only.
+    /// When `origin` is absent or temporarily unreachable, falls back cleanly to
+    /// existing local refs without error.
+    pub fn pull_origin_optional(&self) -> Result<bool> {
+        let has_origin = Command::new("git")
+            .current_dir(self.root)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .args(["remote", "get-url", "origin"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if !has_origin {
+            return Ok(false);
+        }
+        let fetched = Command::new("git")
+            .current_dir(self.root)
+            .env("GIT_NO_REPLACE_OBJECTS", "1")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .args([
+                "-c",
+                "core.hooksPath=",
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                "--recurse-submodules=no",
+                "origin",
+                "+refs/heads/main:refs/remotes/origin/main",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        Ok(fetched)
+    }
+
     fn resolve(&self, rev: &str) -> Result<String> {
         if rev.is_empty() || rev.starts_with('-') || rev.contains(char::is_whitespace) {
             return Err(format!("invalid revision {rev:?}"));
@@ -1302,10 +1340,11 @@ pub struct Args {
     pub out: Option<String>,
     pub json: bool,
     pub isolate: bool,
+    pub pull: bool,
     pub adopt_host_commits: Vec<String>,
 }
 
-const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- plan [--tasks <id>...] [--tasks-from-range <from>..<to>] [--base <rev>] [--out <file>] [--json] [--isolate] [--adopt-host-commit <full-commit-id>]...\n       cargo run --offline --locked -p xtask --bin distill -- lint --range <from>..<to> | --range <to> [--base <rev>] [--out <file>] [--json] [--strict]\n";
+const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- plan [--tasks <id>...] [--tasks-from-range <from>..<to>] [--base <rev>] [--out <file>] [--json] [--isolate] [--pull] [--adopt-host-commit <full-commit-id>]...\n       cargo run --offline --locked -p xtask --bin distill -- lint --range <from>..<to> | --range <to> [--base <rev>] [--out <file>] [--json] [--strict] [--pull]\n";
 
 pub fn parse_args(args: &[String]) -> Result<Args> {
     let mut it = args.iter().peekable();
@@ -1347,6 +1386,7 @@ pub fn parse_args(args: &[String]) -> Result<Args> {
             "--out" => a.out = Some(value("--out")?),
             "--json" => a.json = true,
             "--isolate" => a.isolate = true,
+            "--pull" => a.pull = true,
             "--adopt-host-commit" => a.adopt_host_commits.push(value("--adopt-host-commit")?),
             other => return Err(format!("unknown option {other}\n{USAGE}")),
         }
@@ -1363,6 +1403,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
     }
     let a = parse_args(args)?;
     let git = Git { root };
+    if a.pull {
+        let _ = git.pull_origin_optional()?;
+    }
     let mut range = None;
     let mut requested = a.tasks.clone();
     let mut default_base = "HEAD".to_owned();

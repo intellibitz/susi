@@ -25,6 +25,13 @@ agent-count or push-rate limit; measured hardware capacity and evidence govern.
 Published release tags are immutable. Preserve confidentiality and access controls.
 
 Read docs/ceo-mandate-74.md (Mandate 74, wins where older text differs): work in
-your own isolated worktree, dump labelled work straight into main with no gates
-and no PRs, let Susi distill releases with conflict-free parallel picks, harvest
-Apache-2.0 code with full attribution, and treat GitHub as a storage bucket only.
+your own isolated worktree with remote pull and merge reconciliation at every
+workflow step (`start`, `sync`, `commit`, `distill`, `ship`, `release`, and
+parallel harness steps), keep Susi core build+test+release under 10 seconds
+(`<10s` warm pipeline budget) across its 5 free-forever Apache-2.0 pillars
+(`GAWD`, `GEMI`, `GMCP`, `ACP`, and `Susi Harness` with parallel multi-agent
+workflow), dump labelled `Task:` work straight into main with no gates and no
+PRs, let Susi deterministically distill qualified releases with conflict-free
+parallel picks, harvest Apache-2.0 code with full attribution, keep all add-on
+features, UIs, SSO/RBAC, FinOps and enterprise packs closed, licensed and paid
+for corporates in `susi-commercial-apps`, and treat GitHub as a storage bucket only.
