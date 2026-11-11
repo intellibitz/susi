@@ -111,12 +111,11 @@ API prerequisite, vendor lock-in or required third-party coordinator. Remote
 `refs/heads/local-agent/<agent>` (CEO directive 2026-11-11): every other
 `refs/heads/*` branch (`release/*`, `release-staging/*`, `distill/*`, `wip/*`)
 is offered by GitHub as a pull request that could bypass Susi's integration
-rules, and is strictly forbidden. Release candidates and distillation outputs
-use non-branch refs (`refs/candidates/release/<name>` and
-`refs/candidates/distill/<name>`) plus immutable tags
-(`refs/tags/susi-distill/<name>`, `refs/tags/susi-snapshot/<name>`, and
-qualified `refs/tags/v<version>`). No agent opens, merges, or closes a pull
-request, or deletes remote branches without explicit CEO direction. Native
+rules, and is strictly forbidden. Release candidates stay local to Susi and
+publish solely as immutable tags (`refs/tags/susi-distill/<name>`,
+`refs/tags/susi-snapshot/<name>`, and qualified `refs/tags/v<version>`). No
+agent opens, merges, or closes a pull request, or deletes remote branches
+without explicit CEO direction. Native
 Windows x86_64 and Linux x86_64 development, integration and qualification must
 work locally. Keep portable source; do not add unapproved platform release legs.
 

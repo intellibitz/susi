@@ -41,8 +41,7 @@ Remote `refs/heads/*` branches on GitHub are restricted to `refs/heads/main` and
 `refs/heads/local-agent/<agent>` (CEO directive 2026-11-11): never push
 `refs/heads/release/*`, `refs/heads/release-staging/*`, `refs/heads/distill/*`,
 `refs/heads/wip/*`, or any other branch head, and never open, merge, or close a
-pull request. Release candidates and distillation outputs use non-branch refs
-(`refs/candidates/release/<name>`, `refs/candidates/distill/<name>`) and
+pull request. Release candidates stay local to Susi and publish exclusively as
 immutable tags (`refs/tags/susi-distill/<name>`, `refs/tags/v<version>`).
 Development branches may advance without a mandatory gate; release candidates
 require qualification and published release tags are

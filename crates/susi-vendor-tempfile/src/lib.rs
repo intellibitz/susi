@@ -196,14 +196,15 @@ pub fn tempdir_in<P: AsRef<Path>>(dir: P) -> io::Result<TempDir> {
     TempDir::new_in(dir)
 }
 
+#[cfg(unix)]
 fn create_exclusive_private_dir(path: &Path) -> io::Result<()> {
-    let mut builder = DirBuilder::new();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
-    }
-    builder.create(path)
+    use std::os::unix::fs::DirBuilderExt;
+    DirBuilder::new().mode(0o700).create(path)
+}
+
+#[cfg(not(unix))]
+fn create_exclusive_private_dir(path: &Path) -> io::Result<()> {
+    DirBuilder::new().create(path)
 }
 
 fn generate_token(len: usize, pid: u32, seq: u64, attempt: u32) -> String {
