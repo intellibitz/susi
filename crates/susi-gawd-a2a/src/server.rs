@@ -399,6 +399,10 @@ pub fn serve(
 }
 
 #[cfg(test)]
+#[path = "tests/wire_golden.rs"]
+mod wire_golden;
+
+#[cfg(test)]
 mod tests {
     use crate::susi_core::a2a_wire;
     use ra2a::server::{AgentExecutor, Event, EventQueue, RequestContext};
