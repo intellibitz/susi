@@ -1,0 +1,37 @@
+{
+  "id": "T-CODEXPORTISOLATION-1",
+  "title": "Make peer-channel port selection honor wildcard daemon listeners",
+  "goal": "Prevent parallel integration tests from selecting a peer-channel block already occupied on a non-loopback interface",
+  "status": "in_progress",
+  "scopes": [
+    "tests/peer_channel_hub.rs",
+    ".agents/tasks/T-CODEXPORTISOLATION-1.json"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "peer_channel_hub"
+    ]
+  },
+  "created_by": "CODEXPORTISOLATION",
+  "created_unix": 1794395469,
+  "owner": "CODEXPORTISOLATION",
+  "base": "57162b4829433373fba82d771b27c9fc0392d4cd",
+  "host": "x86_64-unknown-linux-gnu",
+  "results": {
+    "why": "peer_channel_hub checked only loopback while daemon tests can bind the same contract on all interfaces, so parallel runs could select an occupied block.",
+    "change": "The free-block probe now checks both wildcard and loopback TCP/UDP bindings, matching the host-wide daemon contract.",
+    "tests": "cargo fmt --all --check: exit 0; cargo test --offline --locked -p susi --test peer_channel_hub -- --nocapture: 2 passed, 0 failed; peer_channel_hub and host_only_privacy run concurrently: 2/2 passed in each process"
+  },
+  "limitations": [
+    "The probe remains a race with an unrelated process binding after the check; daemon startup retry behavior remains responsible for that race."
+  ]
+}
