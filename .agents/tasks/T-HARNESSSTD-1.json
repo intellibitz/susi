@@ -29,5 +29,28 @@
   "created_unix": 1794376404,
   "owner": "claude",
   "base": "bf0bb15a664744acfc37e9a849f6c904b7153585",
-  "host": "CachyOS Linux x86_64 (CEO laptop, 28 threads), lane harnessstd, other agents' builds running"
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 threads), lane harnessstd, other agents' builds running",
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo check --workspace --all-targets --keep-going --offline --locked",
+    "cargo clippy --workspace --all-targets --offline --locked -- -D warnings",
+    "cargo test --offline --locked -p susi-harness",
+    "cargo test --offline --locked -p susi --test architecture_tests --test orphan_sources --test lean_core_ceilings --test core_docs_promise_no_ui_or_plugins --test no_github_coupling",
+    "live: target/debug/harness-gateway on a free loopback port against a local stand-in provider, driven with curl"
+  ],
+  "results": {
+    "wire_golden": "69 raw HTTP/1.x exchanges recorded from axum 0.8.9 / hyper 1.12 (bfd0a8eea) pass byte for byte against the std server (src/tests/http_wire.rs, golden/harness_http_wire.json)",
+    "susi_harness": "528 lib tests passed, 0 failed (including the wire golden and the server's own tests: graceful shutdown, handler drop on hang-up, header order, header value validity, HTTP dates); bin unit tests 5+6+6+5+5+5+8 passed; native_proxy_e2e 4/4",
+    "live": "harness-gateway: /health 200; buffered completion 200 with the provider's body and a ledger row; streamed completion forwarded line by line as chunked (pieces 0.3 s apart as sent), row with the provider's usage; ingress 401 without a token, 200 and a row booked under the account with one; SIGTERM mid-stream: the stream and its row finished, process exited in 0.54 s, port closed",
+    "pillar_reach": "third-party 154 -> 145 (axum, axum-core, matchit, tower, serde_path_to_error, serde_urlencoded, sync_wrapper, mime, ryu), workspace 41 -> 40 (susi-vendor-axum), direct facade edges 17 -> 16",
+    "lines": "susi-harness 40,575 -> 39,446; production +1,859 (src/http.rs 1,843), inline test modules of gateway, ingress and cockpit (2,988 lines) moved unchanged to src/tests",
+    "build_graph": "cargo tree -p susi-harness: 120 -> 107 packages; cargo tree -p susi: 243 -> 243 (axum stays for susi-gawd-a2a and susi-leaf-services); no build-time gain claimed"
+  },
+  "limitations": [
+    "HTTP/2 prior knowledge (h2c), which axum's http2 feature accepted on these ports, is no longer served; every known client (opencode, the in-tree worker, the commercial desktop) speaks HTTP/1.1.",
+    "One thread per connection: an idle keep-alive connection holds a thread until the client closes it or the server stops (hyper held a task). There is no read or idle timeout, as there was none before.",
+    "axum's 15 s SSE keep-alive comment on /api/events is not sent: the stream sends a snapshot every second, so it never fired before either.",
+    "The JSON rejection path (serde_path_to_error's prefix) is reproduced by a syntax walk; it matches every recorded case (root, value, nested, array, unterminated, trailing comma, empty, wrong shape, missing/duplicate/unknown tag, wrong field type, trailing characters) but is not a general reimplementation of that crate.",
+    "Production lines of susi-harness grew by 1,859; the line ceiling falls only because 2,988 inline test lines moved to src/tests."
+  ]
 }
