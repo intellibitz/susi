@@ -31,7 +31,6 @@ sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
-signal-hook = { package = "susi-vendor-signal-hook", path = "../susi-vendor-signal-hook" }
 
 [features]
 default = []

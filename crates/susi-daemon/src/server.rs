@@ -21,13 +21,6 @@ use std::os::unix::io::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-#[cfg(windows)]
-use signal_hook::consts::{SIGINT, SIGTERM};
-#[cfg(not(windows))]
-use signal_hook::{
-    consts::{SIGINT, SIGTERM},
-    iterator::Signals,
-};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -108,17 +101,8 @@ impl DaemonContext {
 
     pub fn setup_signal_handlers(&self) -> Result<(), EaiError> {
         let shutdown = Arc::clone(&self.shutdown_signal);
-        // signal-hook's blocking `Signals` iterator is unix-only; on Windows
-        // the console SIGINT/SIGTERM land through the flag backend, which
-        // needs no dedicated worker thread.
-        #[cfg(windows)]
-        {
-            let _ = signal_hook::flag::register(SIGINT, Arc::clone(&shutdown));
-            let _ = signal_hook::flag::register(SIGTERM, shutdown);
-        }
         // Supervised like every other long-lived worker: a signal-handler
-        // thread that dies would leave the daemon deaf to SIGTERM.
-        #[cfg(not(windows))]
+        // thread that dies would leave the daemon deaf to SIGTERM / Ctrl-C.
         crate::service_supervision::Supervisor::global().spawn(
             "signal-handler",
             3,
@@ -126,15 +110,13 @@ impl DaemonContext {
             move || {
                 let shutdown = Arc::clone(&shutdown);
                 Some(move || {
-                    if let Ok(mut signals) = Signals::new([SIGTERM, SIGINT]) {
-                        for sig in signals.forever() {
-                            let msgs = crate::susi_sandbox::manager::SusiMessages::load_global();
-                            let def_msg = "[SusiDaemon] Received signal: {}".to_string();
-                            let msg = msgs.get("daemon", "signal_received").unwrap_or(&def_msg);
-                            eprintln!("{}", msg.replace("{}", &sig.to_string()));
-                            shutdown.store(true, Ordering::Release);
-                        }
-                    }
+                    let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                        .enable_io()
+                        .build()
+                    else {
+                        return;
+                    };
+                    rt.block_on(run_daemon_signal_loop(shutdown));
                 })
             },
         );
@@ -143,6 +125,87 @@ impl DaemonContext {
 
     pub fn is_shutdown_requested(&self) -> bool {
         self.shutdown_signal.load(Ordering::Acquire)
+    }
+}
+
+fn record_daemon_signal(shutdown: &AtomicBool, sig_label: &str) {
+    let msgs = crate::susi_sandbox::manager::SusiMessages::load_global();
+    let def_msg = "[SusiDaemon] Received signal: {}".to_string();
+    let msg = msgs.get("daemon", "signal_received").unwrap_or(&def_msg);
+    eprintln!("{}", msg.replace("{}", sig_label));
+    shutdown.store(true, Ordering::Release);
+}
+
+async fn run_daemon_signal_loop(shutdown: Arc<AtomicBool>) {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let Ok(mut sigterm) = signal(SignalKind::terminate()) else {
+            return;
+        };
+        let Ok(mut sigint) = signal(SignalKind::interrupt()) else {
+            return;
+        };
+        loop {
+            let label = tokio::select! {
+                res = sigterm.recv() => match res {
+                    Some(()) => "15",
+                    None => break,
+                },
+                res = sigint.recv() => match res {
+                    Some(()) => "2",
+                    None => break,
+                },
+            };
+            record_daemon_signal(&shutdown, label);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close, ctrl_shutdown};
+        let mut sig_int = ctrl_c().ok();
+        let mut sig_break = ctrl_break().ok();
+        let mut sig_close = ctrl_close().ok();
+        let mut sig_shutdown = ctrl_shutdown().ok();
+        if sig_int.is_none() && sig_break.is_none() && sig_close.is_none() && sig_shutdown.is_none()
+        {
+            return;
+        }
+        loop {
+            let label = tokio::select! {
+                Some(()) = async {
+                    match sig_int.as_mut() {
+                        Some(s) => s.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => "SIGINT",
+                Some(()) = async {
+                    match sig_break.as_mut() {
+                        Some(s) => s.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => "SIGBREAK",
+                Some(()) = async {
+                    match sig_close.as_mut() {
+                        Some(s) => s.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => "SIGTERM",
+                Some(()) = async {
+                    match sig_shutdown.as_mut() {
+                        Some(s) => s.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => "SIGTERM",
+            };
+            record_daemon_signal(&shutdown, label);
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            record_daemon_signal(&shutdown, "SIGINT");
+        }
     }
 }
 

@@ -7,7 +7,7 @@ publish = false
 description = "SUSI vendor facade: sole workspace owner of `clap`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
 
 [dependencies]
-clap = { version = "4.6", features = ["derive", "env"] }
+clap = { version = "4.6", default-features = false, features = ["std", "derive", "env", "help", "usage", "error-context", "suggestions"] }
 
 [lints]
 workspace = true

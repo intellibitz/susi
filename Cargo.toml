@@ -41,7 +41,6 @@ members = [
     "crates/susi-vendor-serde",
     "crates/susi-vendor-serde-json",
     "crates/susi-vendor-sha2",
-    "crates/susi-vendor-signal-hook",
     "crates/susi-vendor-windows-registry",
     "crates/susi-vendor-tokio",
     "crates/susi-vendor-tokio-rustls",
@@ -169,7 +168,6 @@ serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }
 winapi = { package = "susi-vendor-winapi", path = "crates/susi-vendor-winapi" }
-signal-hook = { package = "susi-vendor-signal-hook", path = "crates/susi-vendor-signal-hook" }
 tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing" }
 tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
