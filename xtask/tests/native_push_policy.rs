@@ -84,7 +84,9 @@ fn branch_deletion_non_fast_forward_missing_old_and_stale_local_are_rejected() {
         format!("{old} {old} refs/heads/main {new}"),
         format!("HEAD {old} refs/heads/main {ZERO}"),
         format!("HEAD {new} refs/heads/main {}", "1".repeat(40)),
-        format!("(delete) {ZERO} refs/heads/topic {new}"),
+        format!("(delete) {ZERO} refs/heads/local-agent/a {new}"),
+        format!("(delete) {ZERO} refs/heads/topic {ZERO}"),
+        format!("HEAD {ZERO} refs/heads/topic {new}"),
     ] {
         assert!(r.check(&input).is_err(), "accepted {input}");
     }
@@ -321,7 +323,7 @@ fn graft_environment_override_fails_closed_even_when_file_is_missing() {
 }
 
 #[test]
-fn only_main_and_local_agent_branches_are_admitted_and_candidate_refs_are_fast_forward() {
+fn branch_allowlist_admits_main_and_local_agent_retires_others_and_candidates_fast_forward() {
     let r = Repo::new();
     let old = r.git(&["rev-parse", "HEAD"]);
     let new = r.commit("release candidate");
@@ -340,13 +342,24 @@ fn only_main_and_local_agent_branches_are_admitted_and_candidate_refs_are_fast_f
             let error = r.check(&input).unwrap_err();
             assert!(error.contains("is forbidden"), "{error}");
         }
+        // Retiring a forbidden branch is a normal deletion naming its old tip.
+        assert_eq!(
+            r.check(&format!("(delete) {ZERO} {reference} {old}")),
+            Ok(())
+        );
+        // A malformed deletion (no old object, or not from "(delete)") stays refused.
         assert!(r
-            .check(&format!("(delete) {ZERO} {reference} {old}"))
+            .check(&format!("(delete) {ZERO} {reference} {ZERO}"))
             .is_err());
+        assert!(r.check(&format!("HEAD {ZERO} {reference} {old}")).is_err());
     }
     for reference in ["refs/heads/main", "refs/heads/local-agent/agywin1"] {
         assert!(r.check(&format!("HEAD {new} {reference} {ZERO}")).is_ok());
         assert!(r.check(&format!("HEAD {new} {reference} {old}")).is_ok());
+        let error = r
+            .check(&format!("(delete) {ZERO} {reference} {old}"))
+            .unwrap_err();
+        assert!(error.contains("branch deletion prohibited"), "{error}");
     }
     for candidate in [
         "refs/candidates/release/v0.21.56-rc14",
