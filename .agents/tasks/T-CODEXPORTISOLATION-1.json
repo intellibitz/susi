@@ -22,6 +22,7 @@
     ]
   },
   "created_by": "CODEXPORTISOLATION",
+  "native_worker": "codex-port-isolation",
   "created_unix": 1794395469,
   "owner": "CODEXPORTISOLATION",
   "base": "57162b4829433373fba82d771b27c9fc0392d4cd",
