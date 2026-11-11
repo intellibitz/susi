@@ -1,0 +1,30 @@
+{
+  "id": "T-FURY-6",
+  "title": "New claims start from the newest Susi landing",
+  "goal": "`cargo local-workflow start` based every claim on the local integration ref even when the fetched origin/main (where `local-snapshot submit` lands work) had moved past it, so claims started from a stale tree and a worktree whose work landed through the publisher could not be reused. The base is now the fetched origin/main when it descends from the integration ref.",
+  "status": "in_progress",
+  "owner": "fury",
+  "created_by": "FURY2",
+  "created_unix": 1794387889,
+  "size": "s",
+  "deps": [
+    "T-FURY-4"
+  ],
+  "base_commit": "7e176f6edc86a5e76f448895460d497906ebe4c3",
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-FURY-6.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow"
+    ]
+  }
+}

@@ -814,6 +814,36 @@ fn valid_oid(value: &str) -> bool {
 /// The fetched remote main (`refs/remotes/origin/main`), if this clone has it.
 const FETCHED_MAIN_REF: &str = "refs/remotes/origin/main";
 
+/// The commit a new claim starts from: the newest Susi landing. That is the
+/// local integration ref (`ship`) or the fetched origin/main (`local-snapshot
+/// submit`), whichever descends from the other; when they have diverged the
+/// integration ref wins, as before. Without either, the primary HEAD.
+fn claim_base(root: &Path) -> Result<String> {
+    let integrated = integration_head(root)?;
+    let fetched = fetched_main(root)?;
+    Ok(match (integrated, fetched) {
+        (Some(i), Some(f)) if i != f && is_ancestor(root, &i, &f)? => f,
+        (Some(i), _) => i,
+        (None, Some(f)) => f,
+        (None, None) => git(root, &["rev-parse", "HEAD"])?,
+    })
+}
+
+fn fetched_main(root: &Path) -> Result<Option<String>> {
+    let fetched = Command::new("git")
+        .arg("--literal-pathspecs")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .current_dir(root)
+        .args(["rev-parse", "--verify", "--quiet", FETCHED_MAIN_REF])
+        .output()?;
+    if !fetched.status.success() {
+        return Ok(None);
+    }
+    Ok(Some(
+        String::from_utf8_lossy(&fetched.stdout).trim().to_owned(),
+    ))
+}
+
 /// Whether `head` has landed: `ship` records it in the local integration ref,
 /// and `local-snapshot submit` (the development-main publisher) verifies it on
 /// the remote main, which a fetch mirrors into `origin/main`. Either is
@@ -824,17 +854,10 @@ fn landed(root: &Path, head: &str) -> Result<bool> {
             return Ok(true);
         }
     }
-    let fetched = Command::new("git")
-        .arg("--literal-pathspecs")
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .current_dir(root)
-        .args(["rev-parse", "--verify", "--quiet", FETCHED_MAIN_REF])
-        .output()?;
-    if !fetched.status.success() {
-        return Ok(false);
+    match fetched_main(root)? {
+        Some(main) => is_ancestor(root, head, &main),
+        None => Ok(false),
     }
-    let main = String::from_utf8_lossy(&fetched.stdout).trim().to_owned();
-    is_ancestor(root, head, &main)
 }
 
 fn integration_head(root: &Path) -> Result<Option<String>> {
@@ -2549,7 +2572,7 @@ fn start(root: &Path, claimant: &str, raw_scopes: &[String]) -> Result<PathBuf> 
         .ok_or("repository has no parent")?
         .join(format!("{base}-agent-{claimant}"));
     let branch = format!("local-agent/{claimant}");
-    let base_oid = integration_head(root)?.unwrap_or(git(root, &["rev-parse", "HEAD"])?);
+    let base_oid = claim_base(root)?;
     let claim_path = state.join("claims").join(format!("{claimant}.claim"));
     let worktree_text = text(&worktree)?;
     if worktree_text.chars().any(char::is_control) {
@@ -6154,6 +6177,18 @@ mod tests {
         git(&repo, &["update-ref", FETCHED_MAIN_REF, &merged]).unwrap();
         release(&repo, "pub").unwrap();
         assert!(claims(&state(&repo).unwrap()).unwrap().is_empty());
+        // The next claim starts from that published main (it descends from
+        // the stale integration ref) and reuses the worktree, whose branch
+        // holds nothing the published main lacks.
+        git(&repo, &["update-ref", INTEGRATION_REF, &main]).unwrap();
+        let again = start(&repo, "pub", &["pub.rs".to_owned()]).unwrap();
+        assert_eq!(again, worktree);
+        assert_eq!(git(&again, &["rev-parse", "HEAD"]).unwrap(), merged);
+        // Diverged refs keep the integration ref as the base.
+        release(&repo, "pub").unwrap();
+        let side = git(&repo, &["commit-tree", &tree, "-p", &main, "-m", "side"]).unwrap();
+        git(&repo, &["update-ref", INTEGRATION_REF, &side]).unwrap();
+        assert_eq!(claim_base(&repo).unwrap(), side);
     }
 
     #[test]
