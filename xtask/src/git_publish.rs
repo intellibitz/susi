@@ -1359,9 +1359,15 @@ mod tests {
     fn push_rewrite_with_spaces_cannot_redirect_a_pinned_endpoint() {
         let repo = Repo::new();
         let endpoint = repo.git().endpoint().unwrap();
-        repo.git()
-            .text(&["config", "remote.origin.pushurl", &endpoint.address])
-            .unwrap();
+        // Both URLs name the resolved address: on a Windows host whose TEMP
+        // is an 8.3 short path the fixture's origin URL is spelled short while
+        // the endpoint is canonical, and a pushurl alone would then fail the
+        // fetch/push match before the rewrite check under test is reached.
+        for key in ["remote.origin.url", "remote.origin.pushurl"] {
+            repo.git()
+                .text(&["config", key, &endpoint.address])
+                .unwrap();
+        }
         let key = format!(
             "url.{}.pushInsteadOf",
             repo.root.join("other remote.git").display()

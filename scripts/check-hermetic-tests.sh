@@ -189,13 +189,24 @@ nextest)
             doc_scope=("${scope[@]}")
             run_doc_tests=1
         else
-            libs=$(cargo metadata --no-deps --format-version 1 | jq -r --argjson want \
-                "$(printf '%s\n' "${wanted[@]}" | jq -R . | jq -s .)" '
-                .packages[]
-                | select(.name as $n | $want | index($n))
-                | select(any(.targets[]; any(.kind[]; . == "lib" or . == "rlib" or . == "proc-macro")))
-                | .name')
-            for lib in $libs; do doc_scope+=(-p "$lib"); done
+            # sed and grep over `cargo metadata`, no jq (a vanilla Windows host
+            # has none). Cargo writes each package as {"name":..,"version":..
+            # with its `targets` before `manifest_path`, and a target's `kind`
+            # is an array while a dependency's is a string: one line per
+            # package, cut at `manifest_path`, holds exactly its target kinds.
+            libs=$(cargo metadata --no-deps --format-version 1 |
+                sed 's/{"name":"\([^"]*\)","version"/\n\1\t/g' |
+                sed 's/"manifest_path".*//' |
+                grep -E '"kind":\[[^]]*"(lib|rlib|proc-macro)"' |
+                cut -f1)
+            for lib in $libs; do
+                for want in "${wanted[@]}"; do
+                    if [ "$lib" = "$want" ]; then
+                        doc_scope+=(-p "$lib")
+                        break
+                    fi
+                done
+            done
             [ "${#doc_scope[@]}" -eq 0 ] || run_doc_tests=1
         fi
     fi
