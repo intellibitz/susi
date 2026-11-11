@@ -36,14 +36,20 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// outbound client is HTTP/1.1 on std sockets over the platform TLS already
 /// in the closure, so ureq, ureq-proto, flate2 and its zlib backends,
 /// cookie_store, time and their tail left the pillars).
-const THIRD_PARTY_CEILING: usize = 161;
+/// 2026-11-11: 161 -> 154 (T-SMALLFACADES-1: regex, regex-automata,
+/// regex-syntax, aho-corasick, dashmap, crossbeam-utils and susi-os-unicode
+/// left with the regex and dashmap facades; the truth gate's claim patterns
+/// run on `susi_core::pattern`, shared maps on `susi_paths::sync`).
+const THIRD_PARTY_CEILING: usize = 154;
 /// Workspace crates the four pillars compile (themselves included).
 /// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
 /// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
 /// then 47 -> 46 (susi-vendor-mcp-server deleted).
 /// 2026-11-11: 46 -> 45 (T-AGYCLOUD-4: susi-vendor-futures deleted).
 /// 2026-11-11: 45 -> 44 (susi-vendor-ureq deleted, T-NETTRANSPORT-1).
-const WORKSPACE_CEILING: usize = 44;
+/// 2026-11-11: 44 -> 41 (susi-vendor-regex, susi-vendor-dashmap and
+/// susi-vendor-parking-lot deleted; T-SMALLFACADES-1).
+const WORKSPACE_CEILING: usize = 41;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
@@ -51,7 +57,9 @@ const WORKSPACE_CEILING: usize = 44;
 /// 2026-11-11: 20 -> 19 (T-AGYCLOUD-4: susi-gemi -> susi-vendor-parking-lot
 /// replaced with std::sync::RwLock; susi-harness -> susi-vendor-futures
 /// replaced with hyper::body::Body already in the pillar facade set).
-const DIRECT_FACADE_EDGES_CEILING: usize = 19;
+/// 2026-11-11: 19 -> 17 (susi-gmcp -> dashmap and parking-lot;
+/// T-SMALLFACADES-1).
+const DIRECT_FACADE_EDGES_CEILING: usize = 17;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
 /// hold standalone test suites (`#[cfg(test)] #[path = ..]` modules) and are

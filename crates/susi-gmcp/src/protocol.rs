@@ -9,7 +9,6 @@ use crate::mcp::{
     ErrorData, ServerHandler,
 };
 use crate::tools::ToolRegistry;
-use parking_lot::RwLock;
 use serde_json::{json, Value};
 use std::{
     borrow::Cow,
@@ -19,6 +18,7 @@ use std::{
     pin::Pin,
     sync::Arc,
 };
+use susi_paths::sync::RwLock;
 use tokio::sync::broadcast;
 
 pub type ProtocolFuture<T> = Pin<Box<dyn Future<Output = Result<T, ErrorData>> + Send>>;

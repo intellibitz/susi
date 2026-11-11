@@ -4,16 +4,17 @@
 //! and Capability Bloom Filter routing for autonomous cells.
 
 use crate::susi_abi::swarm::{SwarmCellManifest, SwarmPheromone};
-use dashmap::DashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
+use susi_paths::sync::RwLock;
 use tokio::sync::broadcast;
 
 /// The global stigmergic blackboard and capability router.
 pub struct SwarmBlackboard {
     /// Active Swarm Cells registered with the OS.
-    cells: DashMap<String, SwarmCellManifest>,
+    cells: RwLock<HashMap<String, SwarmCellManifest>>,
     /// Active Pheromones deposited in the environment.
-    pheromones: DashMap<String, SwarmPheromone>,
+    pheromones: RwLock<HashMap<String, SwarmPheromone>>,
     /// Global event bus for pub/sub (Point 18, 21).
     bus: broadcast::Sender<SwarmPheromone>,
 }
@@ -23,8 +24,8 @@ pub struct SwarmBlackboard {
 impl std::fmt::Debug for SwarmBlackboard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SwarmBlackboard")
-            .field("cells", &self.cells)
-            .field("pheromones", &self.pheromones)
+            .field("cells", &*self.cells.read())
+            .field("pheromones", &*self.pheromones.read())
             .finish_non_exhaustive()
     }
 }
@@ -34,25 +35,27 @@ impl SwarmBlackboard {
     pub fn new() -> Arc<Self> {
         let (bus, _) = broadcast::channel(10000);
         Arc::new(Self {
-            cells: DashMap::new(),
-            pheromones: DashMap::new(),
+            cells: RwLock::default(),
+            pheromones: RwLock::default(),
             bus,
         })
     }
 
     /// Registers a new cell in the Swarm OS (Point 12).
     pub fn register_cell(&self, manifest: SwarmCellManifest) {
-        self.cells.insert(manifest.cell_id.clone(), manifest);
+        self.cells
+            .write()
+            .insert(manifest.cell_id.clone(), manifest);
     }
 
     /// Unregisters a dead or failed cell (Point 26).
     pub fn unregister_cell(&self, cell_id: &str) {
-        self.cells.remove(cell_id);
+        self.cells.write().remove(cell_id);
     }
 
     /// Dynamically penalizes a cell's trust score for malformed syscalls (Point 41).
     pub fn penalize_cell(&self, cell_id: &str, penalty: f32) {
-        if let Some(mut cell) = self.cells.get_mut(cell_id) {
+        if let Some(cell) = self.cells.write().get_mut(cell_id) {
             cell.trust_score = (cell.trust_score - penalty).max(0.0);
         }
     }
@@ -60,6 +63,7 @@ impl SwarmBlackboard {
     /// Deposits a new pheromone into the environment (Point 25).
     pub fn deposit_pheromone(&self, pheromone: SwarmPheromone) {
         self.pheromones
+            .write()
             .insert(pheromone.id.clone(), pheromone.clone());
 
         // Broadcast the pheromone to all subscribers.
@@ -74,8 +78,7 @@ impl SwarmBlackboard {
     /// Routes an intent to capable cells using O(1) Bloom Filter matching (Point 22).
     pub fn find_capable_cells(&self, capability_hash: u64) -> Vec<SwarmCellManifest> {
         let mut capable = Vec::new();
-        for entry in self.cells.iter() {
-            let cell = entry.value();
+        for cell in self.cells.read().values() {
             if cell.bloom_filter.may_contain_hash(capability_hash) {
                 capable.push(cell.clone());
             }
@@ -112,7 +115,7 @@ impl SwarmBlackboard {
             .unwrap_or_default()
             .as_secs();
 
-        self.pheromones.retain(|_, p| {
+        self.pheromones.write().retain(|_, p| {
             // TTL is in milliseconds, convert to seconds
             let ttl_secs = p.ttl_ms / 1000;
             now <= p.deposited_at + ttl_secs
@@ -122,9 +125,9 @@ impl SwarmBlackboard {
     /// Queries the world model for a specific topic (Point 34).
     pub fn query_topic(&self, topic: &str) -> Vec<SwarmPheromone> {
         let mut results = Vec::new();
-        for entry in self.pheromones.iter() {
-            if entry.value().topic == topic {
-                results.push(entry.value().clone());
+        for pheromone in self.pheromones.read().values() {
+            if pheromone.topic == topic {
+                results.push(pheromone.clone());
             }
         }
         results

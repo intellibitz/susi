@@ -409,11 +409,11 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
     // "wrote to <path>" / "saved to <path>" — quoted or bare, including a bare
     // claim with no path (a write claim that names nothing is unverifiable,
     // surfaced by the caller as no-contract).
-    static WRITES: OnceLock<regex::Regex> = OnceLock::new();
+    static WRITES: OnceLock<crate::pattern::Pattern> = OnceLock::new();
     let writes = WRITES.get_or_init(|| {
         // Static literal — validity is fixed at compile time.
         #[allow(clippy::expect_used)]
-        regex::Regex::new(
+        crate::pattern::Pattern::new(
             r#"(?i)\b(?:wrote to|saved to)[ \t]+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s]+))"#,
         )
         .expect("static write-claim pattern")
@@ -436,11 +436,11 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
     // branch feature/login", "removed 2 packages", "Deleted 3 old log
     // files" (git/npm/prose) minted FileAbsent("branch"/"2"/"3"), which
     // "verified" and planted false deletion evidence.
-    static DELETES: OnceLock<regex::Regex> = OnceLock::new();
+    static DELETES: OnceLock<crate::pattern::Pattern> = OnceLock::new();
     let deletes = DELETES.get_or_init(|| {
         // Static literal — validity is fixed at compile time.
         #[allow(clippy::expect_used)]
-        regex::Regex::new(
+        crate::pattern::Pattern::new(
             r#"(?i)\b(?:deleted|removed)[ \t]+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;`"']*(?:\.[A-Za-z0-9]|/)[^\s,;`"']*))"#,
         )
         .expect("static delete-claim pattern")
@@ -462,11 +462,11 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
     // path or a bare one with both a '/' and an extension ("created
     // src/utils/mod.rs"). A bare filename ("created main.rs") often names a
     // nested file, and a false violation would fail a truthful mission.
-    static PATH_CLAIMS: OnceLock<regex::Regex> = OnceLock::new();
+    static PATH_CLAIMS: OnceLock<crate::pattern::Pattern> = OnceLock::new();
     let path_claims = PATH_CLAIMS.get_or_init(|| {
         // Static literal — validity is fixed at compile time.
         #[allow(clippy::expect_used)]
-        regex::Regex::new(
+        crate::pattern::Pattern::new(
             r#"(?i)\b(?:created|added|generated|wrote|updated)\s+(?:the\s+|a\s+|new\s+)*(?:file\s+)?(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;`"']*/[^\s,;`"']*\.[A-Za-z0-9]+))"#,
         )
         .expect("static path-claim pattern")
@@ -486,11 +486,11 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
     // `wrote "hello" to notes.txt` claims content, not only existence: a
     // quoted literal written to/into a path becomes FileContains (and
     // replaces a plain FileExists for the same path).
-    static CONTENT_WRITES: OnceLock<regex::Regex> = OnceLock::new();
+    static CONTENT_WRITES: OnceLock<crate::pattern::Pattern> = OnceLock::new();
     let content_writes = CONTENT_WRITES.get_or_init(|| {
         // Static literal — validity is fixed at compile time.
         #[allow(clippy::expect_used)]
-        regex::Regex::new(
+        crate::pattern::Pattern::new(
             r#"(?i)\b(?:wrote|saved|put|added|appended|inserted)\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)')\s+(?:to|into|in)\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;`"']*(?:\.[A-Za-z0-9]|/)[^\s,;`"']*))"#,
         )
         .expect("static content-write pattern")
@@ -520,12 +520,12 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
     // "moved/renamed X to Y" leaves X gone and Y present; "copied X to Y"
     // leaves Y present. Precise paths only (quoted, or with an extension or
     // a '/'), like the other file claims.
-    static MOVES: OnceLock<regex::Regex> = OnceLock::new();
+    static MOVES: OnceLock<crate::pattern::Pattern> = OnceLock::new();
     let moves = MOVES.get_or_init(|| {
         const PATH: &str = r#"(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;`"']*(?:\.[A-Za-z0-9]|/)[^\s,;`"']*))"#;
         // Static literal — validity is fixed at compile time.
         #[allow(clippy::expect_used)]
-        regex::Regex::new(&format!(
+        crate::pattern::Pattern::new(&format!(
             r"(?i)\b(moved|renamed|copied)\s+(?:the\s+)?(?:file\s+)?{PATH}\s+(?:to|as|into)\s+{PATH}"
         ))
         .expect("static move-claim pattern")
