@@ -114,6 +114,14 @@ struct FeatureManifest {
     disabled_capabilities: Vec<String>,
 }
 
+/// Tasks and stream commits a release base already carries through earlier
+/// distillations (`Distilled-Task:` / `Source-Commits:` trailers).
+#[derive(Debug, Default)]
+struct DistilledInBase {
+    tasks: BTreeSet<String>,
+    source_commits: BTreeSet<String>,
+}
+
 #[derive(Clone, Debug)]
 struct CommitInfo {
     oid: String,
@@ -513,12 +521,7 @@ impl Git<'_> {
         let body = fields.next().unwrap_or("");
         let mut task_trailers = Vec::new();
         for line in body.lines() {
-            if let Some(rest) = line.trim().strip_prefix("Task:") {
-                let token = rest.trim();
-                if !token.is_empty() {
-                    task_trailers.push(token.to_ascii_uppercase());
-                }
-            }
+            push_task_trailer_ids(line, &mut task_trailers);
         }
         let (parent, changed_paths) = match parents_str.split_whitespace().next() {
             Some(p) => {
@@ -545,6 +548,51 @@ impl Git<'_> {
             task_trailers,
             changed_paths,
         })
+    }
+
+    /// What `base` already carries from earlier distillations: the stream
+    /// commits named in `Source-Commits:` and the ids in `Distilled-Task:`
+    /// of every distilled commit in `from..base`, i.e. the history a release
+    /// base has and the development stream lacks. A release distilled from
+    /// main holds those commits as new composed commits, so without this the
+    /// next distillation onto that release would apply them a second time.
+    fn distilled_into_base(&self, from: &str, base: &str) -> Result<DistilledInBase> {
+        valid_oid(from)?;
+        valid_oid(base)?;
+        let range = format!("{from}..{base}");
+        let raw = self.bytes(&["log", "--no-merges", "-z", "--format=%B", &range], None)?;
+        let mut found = DistilledInBase::default();
+        for body in raw.split(|byte| *byte == 0) {
+            let body = std::str::from_utf8(body)
+                .map_err(|_| "non-UTF-8 commit message in Git log".to_owned())?;
+            let mut tasks = Vec::new();
+            let mut sources = Vec::new();
+            for line in body.lines() {
+                let line = line.trim();
+                if let Some(rest) = line.strip_prefix("Distilled-Task:") {
+                    tasks.extend(
+                        rest.split(|c: char| c == ',' || c.is_whitespace())
+                            .filter(|id| !id.is_empty())
+                            .map(str::to_ascii_uppercase),
+                    );
+                } else if let Some(rest) = line.strip_prefix("Source-Commits:") {
+                    for oid in rest.split(|c: char| c == ',' || c.is_whitespace()) {
+                        if oid.is_empty() {
+                            continue;
+                        }
+                        valid_oid(oid).map_err(|_| {
+                            format!("distilled commit in {range} names an invalid source commit '{oid}'")
+                        })?;
+                        sources.push(oid.to_owned());
+                    }
+                }
+            }
+            if !tasks.is_empty() {
+                found.tasks.extend(tasks);
+                found.source_commits.extend(sources);
+            }
+        }
+        Ok(found)
     }
 
     fn non_merge_commits(&self, base: &str, from: &str) -> Result<Vec<CommitInfo>> {
@@ -862,13 +910,7 @@ fn parse_batched_commit_stream(raw: &[u8]) -> Result<Vec<CommitInfo>> {
 
         let mut task_trailers = Vec::new();
         for line in body.lines() {
-            let trimmed = line.trim();
-            if trimmed.len() >= 5 && trimmed[..5].eq_ignore_ascii_case("task:") {
-                let token = trimmed[5..].trim();
-                if !token.is_empty() {
-                    task_trailers.push(token.to_ascii_uppercase());
-                }
-            }
+            push_task_trailer_ids(line, &mut task_trailers);
         }
         cursor += 4;
 
@@ -920,6 +962,29 @@ fn valid_oid(oid: &str) -> Result<()> {
         Ok(())
     } else {
         Err("expected a full lowercase Git object ID".to_owned())
+    }
+}
+
+/// Adds the task ids named by one `Task:` trailer line. A trailer may name
+/// several ids separated by commas and/or whitespace (labelling rule 1 in
+/// docs/distillation.md, as `distill lint` reads it); ids are uppercased and
+/// kept once each.
+fn push_task_trailer_ids(line: &str, out: &mut Vec<String>) {
+    let trimmed = line.trim();
+    let Some(prefix) = trimmed.get(..5) else {
+        return;
+    };
+    if !prefix.eq_ignore_ascii_case("task:") {
+        return;
+    }
+    for id in trimmed[5..].split(|c: char| c == ',' || c.is_whitespace()) {
+        if id.is_empty() {
+            continue;
+        }
+        let id = id.to_ascii_uppercase();
+        if !out.contains(&id) {
+            out.push(id);
+        }
     }
 }
 
@@ -2069,7 +2134,22 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
 
     let from_tasks = load_tasks_from_commit(git, &from_commit)?;
     let base_tasks = load_tasks_from_commit(git, &base_commit)?;
-    let stream_commits = git.non_merge_commits(&base_commit, &from_commit)?;
+    let distilled_in_base = git.distilled_into_base(&from_commit, &base_commit)?;
+    let stream_commits: Vec<CommitInfo> = git
+        .non_merge_commits(&base_commit, &from_commit)?
+        .into_iter()
+        .filter(|commit| !distilled_in_base.source_commits.contains(&commit.oid))
+        .collect();
+    let base_reason = |key: &str| -> (&'static str, &'static str) {
+        if distilled_in_base.tasks.contains(key) {
+            (
+                "already_distilled_in_base",
+                "was distilled into base by an earlier distillation (Distilled-Task/Source-Commits)",
+            )
+        } else {
+            ("already_in_base", "is already present in base")
+        }
+    };
 
     if args.mode == CommandMode::Orchestrate && requested.is_empty() {
         let mut seen = BTreeSet::new();
@@ -2152,11 +2232,12 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
                         outcomes.insert(key.clone(), TaskOutcome::Deferred);
                     }
                 } else {
+                    let (reason_code, how) = base_reason(key);
                     satisfied_in_base.push(BaseSatisfiedEntry {
                         task_id: key.clone(),
-                        reason_code: "already_in_base",
+                        reason_code,
                         detail: format!(
-                            "closed task record for {key} is already present in base {base_commit} with zero newer commits"
+                            "closed task record for {key} {how} {base_commit} with zero newer commits"
                         ),
                     });
                     outcomes.insert(key.clone(), TaskOutcome::SatisfiedInBase);
@@ -2222,7 +2303,10 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         }
 
         let attributed = match attribute_task_commits(git, &from_commit, task, &stream_commits) {
-            Ok(list) => list,
+            Ok(mut list) => {
+                list.retain(|commit| !distilled_in_base.source_commits.contains(&commit.oid));
+                list
+            }
             Err(err) => {
                 rejected.push(DecisionEntry {
                     task_id: task.id.clone(),
@@ -2237,12 +2321,13 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         };
 
         if attributed.is_empty() {
-            if base_tasks.valid.contains_key(key) {
+            if base_tasks.valid.contains_key(key) || distilled_in_base.tasks.contains(key) {
+                let (reason_code, how) = base_reason(key);
                 satisfied_in_base.push(BaseSatisfiedEntry {
                     task_id: task.id.clone(),
-                    reason_code: "already_in_base",
+                    reason_code,
                     detail: format!(
-                        "task {} is already present in base {base_commit} with zero newer commits",
+                        "task {} {how} {base_commit} with zero newer commits",
                         task.id
                     ),
                 });
@@ -3543,6 +3628,91 @@ mod tests {
         let receipt: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(receipt["satisfied_in_base"][0]["task_id"], "T-FOUNDATION-1");
         assert_eq!(receipt["included"][0]["task_id"], "T-APP-1");
+    }
+
+    #[test]
+    fn task_trailer_names_every_comma_or_space_separated_id() {
+        let mut ids = Vec::new();
+        push_task_trailer_ids("Task: T-A-1, t-b-1", &mut ids);
+        push_task_trailer_ids("  task:T-C-1 T-A-1", &mut ids);
+        push_task_trailer_ids("Distilled-Task: T-X-1", &mut ids);
+        push_task_trailer_ids("Tasks: T-Y-1", &mut ids);
+        push_task_trailer_ids("Task:", &mut ids);
+        assert_eq!(ids, ["T-A-1", "T-B-1", "T-C-1"]);
+    }
+
+    #[test]
+    fn distilling_onto_a_distilled_release_skips_what_it_already_carries() {
+        let fx = Fixture::new();
+        fx.write("README.md", "base\n");
+        let base = fx.commit_all("initial base");
+        fx.write("crates/a/lib.rs", "pub const A: u8 = 1;\n");
+        fx.write_task("T-A-1", &[], &["crates/a"]);
+        fx.commit_all("feat: a\n\nTask: T-A-1");
+        let out = fx
+            .run_args(&[
+                "compose",
+                "--name",
+                "rel-1",
+                "--base",
+                &base,
+                "--from",
+                "HEAD",
+                "--select",
+                "T-A-1",
+                "--release-candidate",
+                "--strict",
+                "--json",
+            ])
+            .unwrap();
+        let first: Value = serde_json::from_str(&out).unwrap();
+        let released = first["final_commit"].as_str().unwrap().to_owned();
+
+        // The release branch edits what T-A-1 added (as a version bump does),
+        // so applying T-A-1's source commit again would be an add/add conflict.
+        let main = fx
+            .git()
+            .text(&["rev-parse", "--abbrev-ref", "HEAD"])
+            .unwrap();
+        fx.git().text(&["checkout", "-q", &released]).unwrap();
+        fx.write("crates/a/lib.rs", "pub const A: u8 = 1; // released\n");
+        let release = fx.commit_all("chore: release-only edit");
+        fx.git().text(&["checkout", "-q", &main]).unwrap();
+
+        fx.write("crates/b/lib.rs", "pub const B: u8 = 2;\n");
+        fx.write_task("T-B-1", &["T-A-1"], &["crates/b"]);
+        fx.commit_all("feat: b\n\nTask: T-B-1");
+
+        let out = fx
+            .run_args(&[
+                "plan",
+                "--name",
+                "rel-2",
+                "--base",
+                &release,
+                "--from",
+                "HEAD",
+                "--tasks-from-range",
+                &format!("{base}..HEAD"),
+                "--strict",
+                "--json",
+            ])
+            .unwrap();
+        let second: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(second["satisfied_in_base"][0]["task_id"], "T-A-1");
+        assert_eq!(
+            second["satisfied_in_base"][0]["reason_code"],
+            "already_distilled_in_base"
+        );
+        let included: Vec<&str> = second["included"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["task_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(included, ["T-B-1"]);
+        assert!(second["deferred"].as_array().unwrap().is_empty());
+        assert!(second["rejected"].as_array().unwrap().is_empty());
     }
 
     #[test]

@@ -90,6 +90,27 @@ and `deps`. Feature licenses are checked against Susi's allowlist (`Apache-2.0`,
    `publish <name>` continues to push immutable `refs/tags/susi-distill/<name>`
    snapshots.
 
+## Distilling onto a distilled release
+
+A release tag cut by distillation (for example `v0.21.55`) is not on main: it
+holds new composed commits whose messages carry `Distilled-Task: <id>` and
+`Source-Commits: <oid>,...`. The next release distils onto that tag, and its
+range back to main still lists the original source commits. `plan`, `compose`
+and `orchestrate` read every distilled commit in `<from>..<base>` (one
+`git log` over the history the base has and the stream lacks), drop the
+stream commits named in `Source-Commits`, and report a task whose remaining
+commits are none as `satisfied_in_base` with reason
+`already_distilled_in_base`. Later commits of the same task still apply.
+Without this, applying a source commit a second time conflicts with
+release-only edits such as the version bump (seen for `v0.21.56` onto
+`v0.21.55`: `T-CLAUDERECURSE-1` on `crates/susi-cli-defs/src/os.rs`).
+
+A `Task:` trailer may name several ids separated by commas or whitespace
+(`Task: T-A-1, T-B-1`), as `distill lint` reads it; each id is attributed.
+A commit attributed to several tasks is still audited against each task's own
+scopes, so a commit that closes two tasks' records is out of scope for each
+one on its own.
+
 ## Evidence on distilled branches
 
 Composed commits are new commits on the release base, so development commits
