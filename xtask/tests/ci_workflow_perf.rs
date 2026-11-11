@@ -272,19 +272,23 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     assert!(gate.contains("timed_step clippy cargo clippy \"$@\""));
     let hook = read(".githooks/pre-push");
     assert!(!hook.contains("cargo clippy"));
-    // Worktrees are seeded, by the scripts and by `workflow start` alike;
-    // scripts/susi-worktree.sh is the stub for `workflow start` (Susi
-    // Commercial Apps' dev workflow since the lean-core move), which seeds in
-    // process and is tested there.
-    for path in [
-        "scripts/workflow-session-start.sh",
-        "crates/susi-harness/src/adapter.rs",
-    ] {
-        assert!(
-            read(path).contains("seed-target.sh"),
-            "{path} must seed the worktree's own target"
-        );
-    }
+    // Shell-launched sessions still use the small seeder script. The harness
+    // adapter uses native `workflow start`, which creates the private target
+    // itself and refuses the old shared-target link; it must not depend on the
+    // shell implementation.
+    assert!(
+        read("scripts/workflow-session-start.sh").contains("seed-target.sh"),
+        "workflow-session-start.sh must seed the worktree's own target"
+    );
+    let adapter = read("crates/susi-harness/src/adapter.rs");
+    assert!(
+        adapter.contains("target_is_link"),
+        "the native harness adapter must reject shared target links"
+    );
+    assert!(
+        adapter.contains("CARGO_TARGET_DIR") && adapter.contains("cwd.join(\"target\")"),
+        "the native harness adapter must use the worktree's private target"
+    );
     assert!(
         read("scripts/susi-worktree.sh").contains("exec \"$bin\" workflow start \"$@\""),
         "scripts/susi-worktree.sh is the stub for `susi workflow start`"
