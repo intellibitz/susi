@@ -3,3 +3,6 @@
 # Roadmap narratives: merged per vector id, so two agents editing
 # different vectors never conflict (scripts/merge-roadmap.py).
 .agents/roadmap.json merge=roadmap
+# Append-only JSONL evidence logs: keep every agent's records (AGENTS.md: union
+# conflicting evidence entries; never delete or renumber another agent's history).
+.agents/gmcp/evidence/*.jsonl merge=union
