@@ -97,10 +97,11 @@ fn free_blocks(n: usize, taken: &[u16]) -> Vec<u16> {
     found
 }
 
-/// Three free blocks at offsets of 500 and up.
-fn free_offsets() -> [u16; 3] {
-    let b = free_blocks(3, &[]);
-    [b[0], b[1], b[2]]
+/// Four free contract blocks at offsets of 2100 and up: three daemon blocks
+/// and one machine-wide reservation for the router's forwarded channel port.
+fn free_offsets() -> [u16; 4] {
+    let b = free_blocks(4, &[]);
+    [b[0], b[1], b[2], b[3]]
 }
 
 /// This host's routed non-loopback IPv4 address (UDP `connect` sends
@@ -116,14 +117,6 @@ fn lan_ip() -> std::net::IpAddr {
         "this test needs a routed non-loopback IPv4 address on this host (found {ip})"
     );
     ip
-}
-
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 
 struct Node {
@@ -610,7 +603,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     ));
-    let [oh, oa, ob] = free_offsets();
+    let [oh, oa, ob, oc] = free_offsets();
     let mut hub = make_node(&root, "hub", oh, 0x11, CLUSTER_KEY);
     let mut a = make_node(&root, "a", oa, 0x22, CLUSTER_KEY);
     let mut b = make_node(&root, "b", ob, 0x33, CLUSTER_KEY);
@@ -620,7 +613,9 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     let outsider = make_node(&root, "d", oa, 0x55, [0x77u8; 32]);
 
     // The hub's dedicated channel port, and the "router" in front of it.
-    let channel_port = free_port();
+    // Reserve the whole block, not just an ephemeral bind: another agent's
+    // gate must not select this forwarding port between probe and listen.
+    let channel_port = 9090 + oc;
     let channel = SocketAddr::from(([127, 0, 0, 1], channel_port));
     let (forward, capture) = recording_forwarder(std::net::IpAddr::from([127, 0, 0, 1]), channel);
 
@@ -977,11 +972,12 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     ));
-    let [oh, oa, ob] = free_offsets();
+    let [oh, oa, ob, oc] = free_offsets();
     let mut hub = make_node(&root, "jhub", oh, 0x71, CLUSTER_KEY);
     let mut a = make_node(&root, "ja", oa, 0x72, CLUSTER_KEY);
     let mut b = make_node(&root, "jb", ob, 0x73, CLUSTER_KEY);
-    let channel = SocketAddr::from(([127, 0, 0, 1], free_port()));
+    // `oc` is held by the machine-wide block reservation for this forwarder.
+    let channel = SocketAddr::from(([127, 0, 0, 1], 9090 + oc));
     // The hub's "public address": the forwarder on this host's routed
     // address, so no roster ever lists the hub under a loopback address
     // (which cluster code treats as the node itself).
