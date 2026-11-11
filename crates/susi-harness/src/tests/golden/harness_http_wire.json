@@ -1,0 +1,246 @@
+[
+  {
+    "exchange": "gateway GET /health",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\ndate: <date>\r\n\r\nok<open>"
+  },
+  {
+    "exchange": "gateway HEAD /health",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "gateway GET /health?probe=1",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\ndate: <date>\r\n\r\nok<open>"
+  },
+  {
+    "exchange": "gateway POST /health",
+    "response": "HTTP/1.1 405 Method Not Allowed\r\nallow: GET,HEAD\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "gateway GET /nope",
+    "response": "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "gateway GET /health/",
+    "response": "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "gateway GET /v1/chat/completions",
+    "response": "HTTP/1.1 405 Method Not Allowed\r\nallow: POST\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "gateway PUT /v1/chat/completions",
+    "response": "HTTP/1.1 405 Method Not Allowed\r\nallow: POST\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "gateway keep-alive then close",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\ndate: <date>\r\n\r\nokHTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\nconnection: close\r\ndate: <date>\r\n\r\nok<closed>"
+  },
+  {
+    "exchange": "gateway refused completion then keep-alive",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncontent-length: 48\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"request body is not JSON\"}}HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\ndate: <date>\r\n\r\nok<open>"
+  },
+  {
+    "exchange": "gateway POST /health then keep-alive",
+    "response": "HTTP/1.1 405 Method Not Allowed\r\nallow: GET,HEAD\r\ncontent-length: 0\r\ndate: <date>\r\n\r\nHTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\ndate: <date>\r\n\r\nok<open>"
+  },
+  {
+    "exchange": "gateway HTTP/1.0 GET /health",
+    "response": "HTTP/1.0 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\ndate: <date>\r\n\r\nok<closed>"
+  },
+  {
+    "exchange": "gateway HTTP/1.0 keep-alive GET /health",
+    "response": "HTTP/1.0 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\nconnection: keep-alive\r\ndate: <date>\r\n\r\nok<open>"
+  },
+  {
+    "exchange": "gateway garbage request",
+    "response": "HTTP/1.1 400 Bad Request\r\nconnection: close\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<closed>"
+  },
+  {
+    "exchange": "gateway oversized header",
+    "response": "HTTP/1.1 431 Request Header Fields Too Large\r\nconnection: close\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<closed>"
+  },
+  {
+    "exchange": "gateway completion not JSON",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncontent-length: 48\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"request body is not JSON\"}}<open>"
+  },
+  {
+    "exchange": "gateway completion without model",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncontent-length: 44\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"request has no model\"}}<open>"
+  },
+  {
+    "exchange": "gateway completion stream not boolean",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncontent-length: 54\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"`stream` must be true or false\"}}<open>"
+  },
+  {
+    "exchange": "gateway completion not UTF-8",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 87\r\ndate: <date>\r\n\r\nRequest body didn't contain valid UTF-8: invalid utf-8 sequence of 1 bytes from index 1<open>"
+  },
+  {
+    "exchange": "gateway completion over 2 MiB",
+    "response": "HTTP/1.1 413 Payload Too Large\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 56\r\ndate: <date>\r\n\r\nFailed to buffer the request body: length limit exceeded<open>"
+  },
+  {
+    "exchange": "gateway completion of exactly 2 MiB",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncontent-length: 48\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"request body is not JSON\"}}<open>"
+  },
+  {
+    "exchange": "gateway completion chunked request body",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncontent-length: 48\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"request body is not JSON\"}}<open>"
+  },
+  {
+    "exchange": "gateway buffered completion",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 207\r\ndate: <date>\r\n\r\n{\"id\":\"cmpl-1\",\"object\":\"chat.completion\",\"created\":1700000000,\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}<open>"
+  },
+  {
+    "exchange": "gateway streamed completion",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\ndate: <date>\r\n\r\n51\r\ndata: {\"id\":\"cmpl-s\",\"created\":1700000000,\"choices\":[{\"delta\":{\"content\":\"O\"}}]}\n\r\n1\r\n\n\r\n51\r\ndata: {\"id\":\"cmpl-s\",\"created\":1700000000,\"choices\":[{\"delta\":{\"content\":\"K\"}}]}\n\r\n1\r\n\n\r\n56\r\ndata: {\"id\":\"cmpl-s\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}}\n\r\n1\r\n\n\r\nD\r\ndata: [DONE]\n\r\n1\r\n\n\r\n0\r\n\r\n<open>"
+  },
+  {
+    "exchange": "gateway HTTP/1.0 streamed completion",
+    "response": "HTTP/1.0 200 OK\r\ncontent-type: text/event-stream\r\ndate: <date>\r\n\r\ndata: {\"id\":\"cmpl-s\",\"created\":1700000000,\"choices\":[{\"delta\":{\"content\":\"O\"}}]}\n\ndata: {\"id\":\"cmpl-s\",\"created\":1700000000,\"choices\":[{\"delta\":{\"content\":\"K\"}}]}\n\ndata: {\"id\":\"cmpl-s\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n<closed>"
+  },
+  {
+    "exchange": "gateway upstream failure",
+    "response": "HTTP/1.1 500 Internal Server Error\r\ncontent-type: application/json\r\ncontent-length: 28\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"boom\"}}<open>"
+  },
+  {
+    "exchange": "gateway expect 100-continue",
+    "response": "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 207\r\ndate: <date>\r\n\r\n{\"id\":\"cmpl-1\",\"object\":\"chat.completion\",\"created\":1700000000,\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}"
+  },
+  {
+    "exchange": "ingress GET /health",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\ndate: <date>\r\n\r\nok<open>"
+  },
+  {
+    "exchange": "ingress GET /v1/models without a token",
+    "response": "HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\ncontent-length: 99\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"no bearer token; send `Authorization: Bearer <token>`\",\"type\":\"susi_ingress\"}}<open>"
+  },
+  {
+    "exchange": "ingress GET /v1/models with a wrong token",
+    "response": "HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\ncontent-length: 79\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"the bearer token names no account\",\"type\":\"susi_ingress\"}}<open>"
+  },
+  {
+    "exchange": "ingress completion with a wrong key",
+    "response": "HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\ncontent-length: 79\r\ndate: <date>\r\n\r\n{\"error\":{\"message\":\"the bearer token names no account\",\"type\":\"susi_ingress\"}}<open>"
+  },
+  {
+    "exchange": "ingress completion admitted",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 207\r\ndate: <date>\r\n\r\n{\"id\":\"cmpl-1\",\"object\":\"chat.completion\",\"created\":1700000000,\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}<open>"
+  },
+  {
+    "exchange": "ingress POST /v1/models",
+    "response": "HTTP/1.1 405 Method Not Allowed\r\nallow: GET,HEAD\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "cockpit GET /health",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\ndate: <date>\r\n\r\nok<open>"
+  },
+  {
+    "exchange": "cockpit GET /",
+    "response": "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "cockpit GET /api/status",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 725\r\ndate: <date>\r\n\r\n{\"generated_unix_ms\":<ms>_________,\"total_cost_micro_usd\":0,\"total_input_tokens\":0,\"total_cache_hit_tokens\":0,\"total_output_tokens\":0,\"cache_share_permille\":0,\"cached_calls\":0,\"roi\":{\"actual_cost_micro_usd\":0,\"uncached_model_cost_micro_usd\":0,\"frontier_baseline_micro_usd\":0,\"prompt_cache_saved_micro_usd\":0,\"response_cache_saved_micro_usd\":0,\"model_arbitrage_saved_micro_usd\":0,\"total_saved_micro_usd\":0,\"cost_reduction_bps\":0,\"cache_savings_bps\":0,\"roi_multiplier_centi\":100},\"budget_micro_usd\":null,\"budget_remaining_micro_usd\":null,\"missions\":[],\"workers\":[],\"decisions\":[],\"controls\":[],\"warnings\":[],\"events\":[],\"graph\":{\"messages\":[],\"roles\":[],\"approvals\":0,\"rejections\":0,\"verdict\":null},\"role_spend\":[],\"replay\":[]}<open>"
+  },
+  {
+    "exchange": "cockpit GET /api/events first event",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\ntransfer-encoding: chunked\r\ndate: <date>\r\n\r\n2DD\r\ndata: {\"generated_unix_ms\":<ms>_________,\"total_cost_micro_usd\":0,\"total_input_tokens\":0,\"total_cache_hit_tokens\":0,\"total_output_tokens\":0,\"cache_share_permille\":0,\"cached_calls\":0,\"roi\":{\"actual_cost_micro_usd\":0,\"uncached_model_cost_micro_usd\":0,\"frontier_baseline_micro_usd\":0,\"prompt_cache_saved_micro_usd\":0,\"response_cache_saved_micro_usd\":0,\"model_arbitrage_saved_micro_usd\":0,\"total_saved_micro_usd\":0,\"cost_reduction_bps\":0,\"cache_savings_bps\":0,\"roi_multiplier_centi\":100},\"budget_micro_usd\":null,\"budget_remaining_micro_usd\":null,\"missions\":[],\"workers\":[],\"decisions\":[],\"controls\":[],\"warnings\":[],\"events\":[],\"graph\":{\"messages\":[],\"roles\":[],\"approvals\":0,\"rejections\":0,\"verdict\":null},\"role_spend\":[],\"replay\":[]}\n\n\r\n"
+  },
+  {
+    "exchange": "cockpit GET /api/command",
+    "response": "HTTP/1.1 401 Unauthorized\r\nwww-authenticate: Bearer realm=\"susi-harness\"\r\ncontent-type: application/json\r\nallow: POST\r\ncontent-length: 72\r\ndate: <date>\r\n\r\n{\"error\":\"POST /api/command requires Authorization: Bearer <api token>\"}<open>"
+  },
+  {
+    "exchange": "cockpit GET /api/command with a token",
+    "response": "HTTP/1.1 405 Method Not Allowed\r\nallow: POST\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "cockpit GET /api/command over 64 KiB",
+    "response": "HTTP/1.1 413 Payload Too Large\r\nallow: POST\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "cockpit command without a token",
+    "response": "HTTP/1.1 401 Unauthorized\r\nwww-authenticate: Bearer realm=\"susi-harness\"\r\ncontent-type: application/json\r\ncontent-length: 72\r\ndate: <date>\r\n\r\n{\"error\":\"POST /api/command requires Authorization: Bearer <api token>\"}<open>"
+  },
+  {
+    "exchange": "cockpit command over 64 KiB",
+    "response": "HTTP/1.1 413 Payload Too Large\r\ncontent-length: 0\r\ndate: <date>\r\n\r\n<open>"
+  },
+  {
+    "exchange": "cockpit command without content type",
+    "response": "HTTP/1.1 415 Unsupported Media Type\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 54\r\ndate: <date>\r\n\r\nExpected request with `Content-Type: application/json`<open>"
+  },
+  {
+    "exchange": "cockpit command as text/json",
+    "response": "HTTP/1.1 415 Unsupported Media Type\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 54\r\ndate: <date>\r\n\r\nExpected request with `Content-Type: application/json`<open>"
+  },
+  {
+    "exchange": "cockpit command as cloudevents+json",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 91\r\ndate: <date>\r\n\r\n{\"accepted\":false,\"message\":\"the harness API is read-only: start it with --controls <log>\"}<open>"
+  },
+  {
+    "exchange": "cockpit command accepted",
+    "response": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 91\r\ndate: <date>\r\n\r\n{\"accepted\":false,\"message\":\"the harness API is read-only: start it with --controls <log>\"}<open>"
+  },
+  {
+    "exchange": "cockpit command syntax error at the root",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 81\r\ndate: <date>\r\n\r\nFailed to parse the request body as JSON: expected `,` or `}` at line 1 column 20<open>"
+  },
+  {
+    "exchange": "cockpit command syntax error in a value",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 88\r\ndate: <date>\r\n\r\nFailed to parse the request body as JSON: mission_id: expected value at line 1 column 33<open>"
+  },
+  {
+    "exchange": "cockpit command syntax error in a nested value",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 88\r\ndate: <date>\r\n\r\nFailed to parse the request body as JSON: mission.id: expected ident at line 1 column 47<open>"
+  },
+  {
+    "exchange": "cockpit command syntax error in an array",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 94\r\ndate: <date>\r\n\r\nFailed to parse the request body as JSON: mission.tasks[1]: expected value at line 1 column 50<open>"
+  },
+  {
+    "exchange": "cockpit command unterminated",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 89\r\ndate: <date>\r\n\r\nFailed to parse the request body as JSON: EOF while parsing an object at line 1 column 18<open>"
+  },
+  {
+    "exchange": "cockpit command trailing comma",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 76\r\ndate: <date>\r\n\r\nFailed to parse the request body as JSON: trailing comma at line 1 column 20<open>"
+  },
+  {
+    "exchange": "cockpit command empty body",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 86\r\ndate: <date>\r\n\r\nFailed to parse the request body as JSON: EOF while parsing a value at line 1 column 0<open>"
+  },
+  {
+    "exchange": "cockpit command not an object",
+    "response": "HTTP/1.1 422 Unprocessable Entity\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 136\r\ndate: <date>\r\n\r\nFailed to deserialize the JSON body into the target type: [0]: invalid type: integer `1`, expected variant identifier at line 1 column 2<open>"
+  },
+  {
+    "exchange": "cockpit command missing tag",
+    "response": "HTTP/1.1 422 Unprocessable Entity\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 101\r\ndate: <date>\r\n\r\nFailed to deserialize the JSON body into the target type: missing field `command` at line 1 column 18<open>"
+  },
+  {
+    "exchange": "cockpit command duplicate tag",
+    "response": "HTTP/1.1 422 Unprocessable Entity\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 103\r\ndate: <date>\r\n\r\nFailed to deserialize the JSON body into the target type: duplicate field `command` at line 1 column 28<open>"
+  },
+  {
+    "exchange": "cockpit command unknown variant",
+    "response": "HTTP/1.1 422 Unprocessable Entity\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 204\r\ndate: <date>\r\n\r\nFailed to deserialize the JSON body into the target type: command: unknown variant `launch`, expected one of `start_mission`, `pause`, `resume`, `abort`, `redirect`, `top_up`, `decide` at line 1 column 19<open>"
+  },
+  {
+    "exchange": "cockpit command tag of the wrong type",
+    "response": "HTTP/1.1 422 Unprocessable Entity\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 141\r\ndate: <date>\r\n\r\nFailed to deserialize the JSON body into the target type: command: invalid type: integer `5`, expected variant identifier at line 1 column 12<open>"
+  },
+  {
+    "exchange": "cockpit command missing field",
+    "response": "HTTP/1.1 422 Unprocessable Entity\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 84\r\ndate: <date>\r\n\r\nFailed to deserialize the JSON body into the target type: missing field `mission_id`<open>"
+  },
+  {
+    "exchange": "cockpit command field of the wrong type",
+    "response": "HTTP/1.1 422 Unprocessable Entity\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 98\r\ndate: <date>\r\n\r\nFailed to deserialize the JSON body into the target type: invalid type: string \"high\", expected u8<open>"
+  },
+  {
+    "exchange": "cockpit command trailing characters",
+    "response": "HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 81\r\ndate: <date>\r\n\r\nFailed to parse the request body as JSON: trailing characters at line 1 column 38<open>"
+  }
+]

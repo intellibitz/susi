@@ -112,6 +112,10 @@ pub mod workflow;
 pub mod router;
 pub mod worker;
 
+#[cfg(test)]
+#[path = "tests/http_wire.rs"]
+mod http_wire;
+
 pub use budget::BudgetReservation;
 pub use ledger::{verify_integrity, LedgerIntegrityReport};
 pub use supervisor::{

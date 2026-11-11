@@ -1,0 +1,33 @@
+{
+  "id": "T-HARNESSSTD-1",
+  "title": "Lean core: serve the harness HTTP surfaces in-tree without axum and futures",
+  "goal": "Take axum (susi-vendor-axum: axum, axum-core, matchit, tower, serde_path_to_error, serde_urlencoded, sync_wrapper, mime, ...) and futures out of susi-harness, one of the four pillars. The BYOK OpenAI-compatible metering gateway (127.0.0.1:9188 for opencode and other clients, buffered and streamed SSE answers), the public ingress and the harness API (cockpit, JSON/SSE plus the guarded operator command) are served by a std, blocking, thread-per-connection HTTP/1.1 server in crates/susi-harness/src/http.rs. A transcript of real HTTP exchanges recorded from the axum 0.8 / hyper 1 stack first (status lines, header names, values and order, framing, chunk boundaries, bodies, connection reuse) is the golden the std server must reproduce byte for byte. Request size limits, timeouts (none server-side), authentication checks and loopback binding stay as they were.",
+  "status": "in_progress",
+  "scopes": [
+    ".agents/tasks/T-HARNESSSTD-1.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-harness",
+    "crates/susi-vendor-futures",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794376404,
+  "owner": "claude",
+  "base": "bf0bb15a664744acfc37e9a849f6c904b7153585",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 threads), lane harnessstd, other agents' builds running"
+}
