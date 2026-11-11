@@ -1,0 +1,40 @@
+{
+  "id": "T-AGYFURY-3",
+  "feature_id": "F-HARNESS-GOVERNED-GIT-WORKFLOW-1",
+  "title": "Governed remote branch clutter retirement with immutable snapshot preservation in susi-harness and push-policy",
+  "goal": "Implement susi-harness retire-branches (retire_remote_clutter) and native push-policy preservation checks so non-main remote refs/heads/* clutter (including merged and RETIRE-ledger local-agent/* branches when --include-local-agent is set) is preserved as immutable refs/tags/susi-distill/legacy-* tags confirmed on origin before compare-and-swap deletion, while unconditionally protecting refs/heads/main, active claims, and unmerged active agent branches.",
+  "status": "in_progress",
+  "owner": "agy-fury",
+  "created_by": "AGYFURYSWT5D3FC4",
+  "created_unix": 1794395780,
+  "size": "s",
+  "deps": [
+    "T-AGYFURY-2",
+    "T-AGYWIN-3"
+  ],
+  "base_commit": "d5824bb9498540ebc3b12cea9d5512c9db17694f",
+  "scopes": [
+    ".agents/tasks/T-AGYFURY-3.json",
+    ".agents/tasks/done/T-AGYFURY-3.json",
+    "crates/susi-harness/src/bin/susi-harness.rs",
+    "crates/susi-harness/src/git_governor.rs",
+    "crates/susi-harness/src/operator.rs",
+    "crates/susi-harness/src/tests/git_governor.rs",
+    "crates/susi-harness/src/tests/verify.rs",
+    "crates/susi-harness/src/verify.rs",
+    "xtask/src/push_policy.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "git_governor"
+    ]
+  }
+}
