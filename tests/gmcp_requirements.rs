@@ -2785,7 +2785,7 @@ fn gmcp_req_203_002_03_integration() {
         .find("http_envelope_rejection(&effective)")
         .expect("handle_request must run the canonical envelope gate");
     let dispatch = handler
-        .find("service.call(req)")
+        .find("service.handle(req)")
         .expect("handle_request must dispatch to the service");
     assert!(
         gate_call < dispatch,

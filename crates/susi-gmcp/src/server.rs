@@ -20,7 +20,6 @@ use std::{
     sync::Arc,
 };
 use tokio_rustls::TlsAcceptor;
-use tower_service::Service;
 
 use susi_http_transport::dual_transport::negotiate_transport;
 use susi_http_transport::http_conn;
@@ -372,7 +371,7 @@ fn origin_forbidden(headers: &hyper::HeaderMap, allow_origin: &str) -> bool {
 
 async fn handle_request(
     req: Request<Incoming>,
-    mut service: HttpService,
+    service: HttpService,
     peer: std::net::IpAddr,
     channel: Option<Arc<ChannelPeer>>,
 ) -> Result<Response<BoxBody>, Infallible> {
@@ -412,7 +411,7 @@ async fn handle_request(
         sig: sig_h.as_deref(),
     };
     // Buffer the body once up front: request signatures bind to the
-    // exact body bytes (v2 canonical), and `service.call` accepts any
+    // exact body bytes (v2 canonical), and `service.handle` accepts any
     // Body so the buffered bytes rebuild into the same request shape
     // downstream — JSON-RPC bodies are small and bounded anyway.
     let (mut parts, body) = req.into_parts();
@@ -525,7 +524,7 @@ async fn handle_request(
                 return Ok(json_response(StatusCode::BAD_REQUEST, &rejection));
             }
         }
-        service.call(req).await?
+        service.handle(req).await
     } else {
         response(
             StatusCode::NOT_FOUND,

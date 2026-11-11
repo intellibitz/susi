@@ -1,0 +1,59 @@
+{
+  "id": "T-AGYCLOUD-8",
+  "native_worker": "agycloud-20261111-w2",
+  "owner": "agycloud-20261111-w2",
+  "title": "Lean core: delete susi-vendor-tower-service facade and ratchet pillar ceilings",
+  "goal": "Call `StreamableHttpService::handle` directly in `susi-gmcp` (`server.rs` and `protocol_tests.rs`) instead of wrapping `StreamableHttpService` in `tower_service::Service`, delete `crates/susi-vendor-tower-service`, lower lean-core ceilings (`WORKSPACE_CEILING` 38 -> 37, `DIRECT_FACADE_EDGES_CEILING` 14 -> 13, `susi-gmcp` `LINE_CEILINGS`), and re-record GMCP requirement and mastery evidence.",
+  "feature": "lean-core",
+  "size": "s",
+  "created_by": "agycloud-20261111-w2",
+  "created_unix": 1794383960,
+  "state": "in_progress",
+  "status": "in_progress",
+  "base": "240b460cd57eb4ac44e403e8b677538e6950e2cd",
+  "mandate_revision": "26edc0bfbb18e4c09647633360787722cbafd8e9",
+  "deps": [
+    "T-CARBONLEAN-3"
+  ],
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-AGYCLOUD-8.json",
+    ".agents/tasks/done/T-AGYCLOUD-8.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-gmcp/src/mcp/http.rs",
+    "crates/susi-gmcp/src/protocol_tests.rs",
+    "crates/susi-gmcp/src/server.rs",
+    "crates/susi-vendor-tower-service",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/gmcp_requirements.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "evidence": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests",
+      "--test",
+      "orphan_sources",
+      "--test",
+      "gmcp_requirements"
+    ]
+  }
+}
