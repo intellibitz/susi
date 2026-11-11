@@ -1,0 +1,44 @@
+{
+  "id": "T-CLAUDEPORTBLOCKS-1",
+  "title": "Agents' listener tests no longer wait on or race each other",
+  "goal": "CEO direction 2026-11-12 (\"fix the port collisions between agents\"). Several agents run their gates on one laptop at once. tests/common/mod.rs SocketTestGuard took ONE machine-wide lock with a blocking lock() and no time limit, so while any agent's host_only_privacy or peer_channel_hub test ran, or hung, every other agent's waited (board item 193: two test binaries asleep for over two minutes). The lock was keyed on the temp folder, so agents with a different TMPDIR did not share it at all, and host_only_privacy::free_wide_offset always scanned from offset 4000, so two unsynchronised runs chose the same block. Fix: common::reserve_port_block reserves a port block machine-wide (one lock file per block under a fixed folder, non-blocking try_lock, held until the test process exits, dropped by the OS on a crash), and both listener tests take their blocks through it; SocketTestGuard now serialises the listener tests within one checkout (lock keyed on the checkout path) instead of across the machine. No network or privacy assertion is changed.",
+  "status": "done",
+  "scopes": [
+    ".agents/tasks/T-CLAUDEPORTBLOCKS-1.json",
+    "tests/common/mod.rs",
+    "tests/host_only_privacy.rs",
+    "tests/peer_channel_hub.rs",
+    "tests/port_block_reservation.rs"
+  ],
+  "size": "s",
+  "deps": [
+    "T-CODEXSOCKETRACE-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "port_block_reservation",
+      "--test",
+      "host_only_privacy",
+      "--test",
+      "peer_channel_hub"
+    ]
+  },
+  "created_by": "CLAUDEPORTBLOCKS",
+  "created_unix": 1794424344,
+  "owner": "claude",
+  "base": "1f9c825c9fe70f4020b8795bf35fc0ed86f9d11b",
+  "host": "CEO laptop, CachyOS Linux x86_64",
+  "limitations": [
+    "Agents still share the laptop's CPU: a loaded machine can slow a listener test, which this does not address.",
+    "port_fallback deliberately starts an unpinned daemon and relies on the product's own next-free-block fallback; it takes no reservation.",
+    "A test that picks ports without reserve_port_block is not protected.",
+    "Linux x86_64 only; on Windows the lock folder is the per-user temp folder."
+  ]
+}

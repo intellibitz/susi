@@ -78,11 +78,17 @@ fn free_blocks(n: usize, taken: &[u16]) -> Vec<u16> {
     // availability probe cannot race that test's daemon.
     let slots: Vec<u16> = (21..=35u16).map(|k| k * 100).collect();
     let start = (std::process::id() as usize) % slots.len();
-    let found: Vec<u16> = (0..slots.len())
-        .map(|i| slots[(start + i) % slots.len()])
-        .filter(|o| !taken.contains(o) && block_free(*o))
-        .take(n)
-        .collect();
+    // Each block is reserved machine-wide until this test process exits, so
+    // another agent's gate running this test never starts a daemon on it.
+    let mut found: Vec<u16> = Vec::with_capacity(n);
+    for offset in (0..slots.len()).map(|i| slots[(start + i) % slots.len()]) {
+        if found.len() == n {
+            break;
+        }
+        if !taken.contains(&offset) && common::reserve_port_block([offset], block_free).is_some() {
+            found.push(offset);
+        }
+    }
     assert_eq!(
         found.len(),
         n,

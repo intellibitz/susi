@@ -196,21 +196,21 @@ const BLOCK: [(u16, bool); 6] = [
 /// A block of host ports free on every interface, away from the blocks the
 /// port-fallback test and a default daemon use.
 fn free_wide_offset() -> u16 {
-    (40..=90u16)
-        .map(|k| k * 100)
-        .find(|offset| {
-            BLOCK.iter().all(|(port, tcp)| {
-                let port = port + offset;
-                if *tcp {
-                    TcpListener::bind(("0.0.0.0", port)).is_ok()
-                        && TcpListener::bind(("127.0.0.1", port)).is_ok()
-                } else {
-                    UdpSocket::bind(("0.0.0.0", port)).is_ok()
-                        && UdpSocket::bind(("127.0.0.1", port)).is_ok()
-                }
-            })
+    // Reserved machine-wide until this test process exits, so another
+    // agent's gate running the same test takes the next block instead.
+    common::reserve_port_block((40..=90u16).map(|k| k * 100), |offset| {
+        BLOCK.iter().all(|(port, tcp)| {
+            let port = port + offset;
+            if *tcp {
+                TcpListener::bind(("0.0.0.0", port)).is_ok()
+                    && TcpListener::bind(("127.0.0.1", port)).is_ok()
+            } else {
+                UdpSocket::bind(("0.0.0.0", port)).is_ok()
+                    && UdpSocket::bind(("127.0.0.1", port)).is_ok()
+            }
         })
-        .expect("no free block of host ports on this machine")
+    })
+    .expect("no free block of host ports on this machine")
 }
 
 /// `susi` under the throwaway `home`, as instance `instance`, pinned to
