@@ -1,0 +1,61 @@
+{
+  "id": "T-CARBONRELBRANCH-1",
+  "native_worker": "carbon-cachyos-distill",
+  "title": "Native distilled release/* branch receipt envelope, push-policy verification, and local-distill publish-branch",
+  "goal": "Admit accept-verified functional distillations onto `refs/heads/release/<name>` in Susi Core without weakening `vX.Y.Z` production release tag qualification: wrap `--release-candidate` compositions in a deterministic single-parent envelope commit adding only `releases/distill/<name>.json`, verify canonical `susi-distillation-receipt-v1` SHA-256 + `accept_verified_candidate` + zero-rejected + passing `accept.cmd` evidence inside `xtask/src/push_policy.rs`, and add `publish-branch` / `--publish-release-branch` to `local-distill`.",
+  "size": "m",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794375000,
+  "state": "done",
+  "status": "done",
+  "base": "2d9c77c6ebb4474221083a28243c413c7130813b",
+  "mandate_revision": "6a5bde015",
+  "deps": [
+    "T-CARBONDRIVER-1"
+  ],
+  "scopes": [
+    ".agents/tasks/T-CARBONRELBRANCH-1.json",
+    ".agents/tasks/done/T-CARBONRELBRANCH-1.json",
+    "docs/release-distillation.md",
+    "xtask/src/distill_compose.rs",
+    "xtask/src/push_policy.rs",
+    "xtask/tests/git_publisher_native_hook.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-distill",
+      "--test",
+      "native_push_policy",
+      "--test",
+      "git_publisher_native_hook"
+    ]
+  },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu",
+    "fmt_check": "pass (0 diffs)",
+    "clippy_xtask_all_targets": "pass (0 warnings, -D warnings)",
+    "tests_passed": 32,
+    "tests_failed": 0,
+    "test_breakdown": {
+      "xtask_bin_local_distill": 13,
+      "xtask_test_git_publisher_native_hook": 5,
+      "xtask_test_native_push_policy": 14
+    },
+    "timings_ms": {
+      "clippy_xtask_incremental_ms": 2520,
+      "xtask_test_build_ms": 760,
+      "xtask_32_tests_exec_ms": 4060
+    }
+  },
+  "limitations": [
+    "Distilled `refs/heads/release/<name>` branches carry an accept-verified `susi-distillation-receipt-v1` envelope (`qualification_status: accept_verified_candidate`), whereas immutable `vX.Y.Z` production release tags continue to require full native exact-tree qualification (`susi-release-qualification/v1`) across Linux x86_64 and Windows x86_64."
+  ]
+}

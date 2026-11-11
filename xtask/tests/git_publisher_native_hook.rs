@@ -358,4 +358,46 @@ fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immu
         ),
         expected_commit
     );
+
+    // Orchestrating an accept-verified release candidate and publishing refs/heads/release/<name>
+    // passes through the real pre-push hook + push-policy and records the envelope commit on origin.
+    let rel_orch = f.publish(
+        Path::new(DISTILL),
+        &worker,
+        &[
+            "orchestrate",
+            "--name",
+            "v0.21.55-hook-rc1",
+            "--base",
+            &base,
+            "--from",
+            "HEAD",
+            "--select",
+            "T-HOOKDISTILL-1",
+            "--verify-accept",
+            "--release-candidate",
+            "--publish-release-branch",
+            "--strict",
+        ],
+    );
+    assert!(rel_orch.status.success(), "{}", text(&rel_orch));
+    let local_rel = f.git(
+        &worker,
+        &["rev-parse", "refs/heads/release/v0.21.55-hook-rc1"],
+    );
+    let remote_rel = f.git(
+        &f.remote,
+        &["rev-parse", "refs/heads/release/v0.21.55-hook-rc1"],
+    );
+    assert_eq!(local_rel, remote_rel);
+
+    let rel_status = f.publish(
+        Path::new(DISTILL),
+        &worker,
+        &["status", "v0.21.55-hook-rc1", "--json"],
+    );
+    assert!(rel_status.status.success(), "{}", text(&rel_status));
+    let rel_status_json: serde_json::Value = serde_json::from_slice(&rel_status.stdout).unwrap();
+    assert_eq!(rel_status_json["branch_state"], "present_exact");
+    assert_eq!(rel_status_json["remote_branch_state"], "published_exact");
 }
