@@ -322,6 +322,18 @@ pub(crate) fn infer_payload(
     payload
 }
 
+/// The reply, marked [`crate::susi_core::plane_bus::gemi::LENGTH_CUT`] when
+/// the plug says the model stopped at the `max_tokens` the caller asked for.
+pub(crate) fn length_cut(reply: &Value, chat: &Value, text: &str) -> String {
+    let cut = reply["finish_reason"] == "length" && chat.get("max_tokens").is_some();
+    let mark = if cut {
+        crate::susi_core::plane_bus::gemi::LENGTH_CUT
+    } else {
+        ""
+    };
+    format!("{mark}{text}")
+}
+
 impl LocalEnginePlug for BuiltinLocalEnginePlug {
     fn name(&self) -> &str {
         "susi-builtin-local-engine"
@@ -349,7 +361,7 @@ impl LocalEnginePlug for BuiltinLocalEnginePlug {
             let val = res?;
             if let Some(t) = val.get("text").and_then(Value::as_str) {
                 callback(t.to_string());
-                return Ok(t.to_string());
+                return Ok(length_cut(&val, chat, t));
             }
         }
         Err(EaiError::inference(

@@ -128,14 +128,19 @@ fn healthy_blocking(
     }
 }
 
-fn openai_reply(json: &Value) -> Result<String, String> {
-    if let Some(reply) = wire::openai_chat_tool_reply(json)? {
-        return Ok(format!(
+fn openai_reply(json: &Value, chat: Option<&Value>) -> Result<String, String> {
+    let text = match wire::openai_chat_tool_reply(json)? {
+        Some(reply) => format!(
             "{}{reply}",
             crate::susi_core::plane_bus::gemi::CALLER_TOOL_CALLS
-        ));
-    }
-    wire::openai_chat_text(json)
+        ),
+        None => wire::openai_chat_text(json)?,
+    };
+    Ok(crate::engines::local_plug::length_cut(
+        &json["choices"][0],
+        chat.unwrap_or(&Value::Null),
+        &text,
+    ))
 }
 
 fn max_tokens_from_chat(chat: Option<&Value>) -> u32 {
@@ -165,7 +170,7 @@ fn generate_blocking(
             let body = wire::chat_request_body(model, prompt, chat);
             let owned = openai_headers(api_key, api_base);
             let refs = header_refs(&owned);
-            openai_reply(&wire::post_json_timeout(&url, &refs, &body, 120)?)
+            openai_reply(&wire::post_json_timeout(&url, &refs, &body, 120)?, chat)
         }
         InferenceProtocol::OpenAiCompletions => {
             let url = format!("{}/completions", api_base.trim_end_matches('/'));
@@ -191,7 +196,7 @@ fn generate_blocking(
                 &body,
                 120,
             )?;
-            openai_reply(&wire::anthropic_to_openai_chat(&json, model)?)
+            openai_reply(&wire::anthropic_to_openai_chat(&json, model)?, chat)
         }
         InferenceProtocol::Gemini => {
             if api_key.is_empty() {

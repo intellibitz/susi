@@ -861,14 +861,19 @@ async fn dispatch_gemi_route(
                 // body carries the raw model output, matching the
                 // streaming path's shape.
                 let body_text = unwrap_inference_render(&content).unwrap_or(content);
-                let (body_text, tool_calls) = caller_tool_calls(&body_text);
+                let (body_text, engine_cut) = length_cut(&body_text);
+                let (body_text, tool_calls) = caller_tool_calls(body_text);
                 let body_text = apply_stops(&body_text, &completion.stop);
                 let (body_text, capped) = cap_completion(&body_text, completion.max_tokens);
                 let mut payload = completion_response(
                     &served_model,
                     &body_text,
                     path == "/v1/completions",
-                    if capped { "length" } else { "stop" },
+                    if capped || engine_cut {
+                        "length"
+                    } else {
+                        "stop"
+                    },
                 );
                 if !tool_calls.is_empty() {
                     let message = &mut payload["choices"][0]["message"];
@@ -1484,6 +1489,14 @@ fn partial_stop_hold(text: &str, stops: &[String]) -> usize {
     hold
 }
 
+/// A GEMI reply without its [`gemi::LENGTH_CUT`] mark, and whether the model
+/// stopped at the caller's `max_tokens`.
+fn length_cut(reply: &str) -> (&str, bool) {
+    reply
+        .strip_prefix(gemi::LENGTH_CUT)
+        .map_or((reply, false), |rest| (rest, true))
+}
+
 /// Split a GEMI reply into its text and the OpenAI `tool_calls` it carries:
 /// the calls a model made with tools the caller supplied
 /// ([`gemi::CALLER_TOOL_CALLS`]). Any other reply has no calls.
@@ -1622,6 +1635,7 @@ fn completion_stream(
         let emitted_total_words = std::cell::Cell::new(0u64);
         let truncated = std::cell::Cell::new(false);
         let finish_tool_calls = std::cell::Cell::new(false);
+        let engine_cut = std::cell::Cell::new(false);
         let failed = std::cell::Cell::new(false);
         // `stop` sequences may span chunk boundaries — content is buffered
         // and only the portion that cannot yet complete a match is emitted.
@@ -1683,6 +1697,17 @@ fn completion_stream(
             if piece.is_empty() || truncated.get() || stopped.get() {
                 return;
             }
+            let piece = match piece.strip_prefix(gemi::LENGTH_CUT) {
+                Some(rest) => {
+                    engine_cut.set(true);
+                    rest.to_owned()
+                }
+                None => piece,
+            };
+            // The caller's tool calls end the stream as a `tool_calls` delta.
+            if piece.starts_with(gemi::CALLER_TOOL_CALLS) {
+                return;
+            }
             // Engine failure markers are not content — suppress them and
             // terminate the stream with an SSE error frame instead.
             let head = piece.trim_start();
@@ -1716,7 +1741,9 @@ fn completion_stream(
         let result = solve(&callback, &meta_cb);
         // Calls a model made with tools the caller supplied end the stream as
         // a `tool_calls` delta (OpenAI streaming shape), not as text.
-        let (result, tool_calls) = caller_tool_calls(&result);
+        let (result, cut) = length_cut(&result);
+        engine_cut.set(engine_cut.get() || cut);
+        let (result, tool_calls) = caller_tool_calls(result);
         // Some solver paths return a complete answer without invoking callbacks.
         if !emitted.get() && !failed.get() && !stopped.get() {
             callback(result);
@@ -1770,7 +1797,7 @@ fn completion_stream(
                 json!({}),
                 Some(if finish_tool_calls.get() {
                     "tool_calls"
-                } else if truncated.get() {
+                } else if truncated.get() || engine_cut.get() {
                     "length"
                 } else {
                     "stop"
@@ -3195,6 +3222,59 @@ mod tests {
         assert_eq!(calls[0]["index"], 0);
         assert_eq!(calls[0]["function"]["name"], "get_weather");
         assert_eq!(finish, "tool_calls");
+    }
+
+    #[tokio::test]
+    async fn a_reply_the_model_stopped_at_max_tokens_finishes_with_length() {
+        let cut = format!("{}Hello", gemi::LENGTH_CUT);
+        assert_eq!(length_cut(&cut), ("Hello", true));
+        assert_eq!(length_cut("Hello"), ("Hello", false));
+        let calls = format!(
+            "{}{}",
+            gemi::CALLER_TOOL_CALLS,
+            json!({"content": "", "tool_calls": [{"name": "t", "arguments": {}}]})
+        );
+        // A cloud provider hands its whole reply, marks included, to the
+        // stream callback as well as returning it.
+        for (reply, want_content, want_finish) in
+            [(cut, "Hello", "length"), (calls, "", "tool_calls")]
+        {
+            let streamed = reply.clone();
+            let mut rx = completion_stream(
+                "m".into(),
+                false,
+                None,
+                Vec::new(),
+                false,
+                0,
+                None,
+                move |callback, _| {
+                    callback(streamed);
+                    reply
+                },
+            );
+            let (mut content, mut finish) = (String::new(), String::new());
+            while let Some(frame) = rx.recv().await {
+                let Some(body) = frame.strip_prefix("data: ").map(str::trim) else {
+                    continue;
+                };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+                    continue;
+                };
+                content.push_str(
+                    value["choices"][0]["delta"]["content"]
+                        .as_str()
+                        .unwrap_or(""),
+                );
+                if let Some(reason) = value["choices"][0]["finish_reason"].as_str() {
+                    finish = reason.to_string();
+                }
+            }
+            assert_eq!(
+                (content.as_str(), finish.as_str()),
+                (want_content, want_finish)
+            );
+        }
     }
 
     #[tokio::test]
