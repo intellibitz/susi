@@ -1,0 +1,35 @@
+{
+  "id": "T-CLAUDEREL56-1",
+  "title": "susi-gawd evolution tests hold the env lock while the audit logger resolves the host key",
+  "goal": "The v0.21.56 distillation's accept verification failed on susi-gawd: evolution::tests::failed_intent_is_vetoed_before_synthesis and observed_but_unproven_intent_is_deferred failed 5 of 12 parallel runs of `cargo test -p susi-gawd --lib`. Both assert that SusiAuditLogger wrote an EVOLUTION_REFLEX_* entry; the logger signs with the HMAC key under the env-resolved substrate home, and the compliance tests in the same binary swap HOME and SUSI_HOME to a tempdir under commit_log::ENV_LOCK and delete it afterwards, so the evolution tests' key lookup could land in another test's deleted home and the append failed. Root fix: those two tests take the same ENV_LOCK. No assertion, bound or test is weakened. The test module moves unchanged otherwise to crates/susi-gawd/src/tests/evolution.rs (the crate's suite directory, like its other suites), so the lock adds no shipped lines under the pillar line ceiling.",
+  "status": "done",
+  "scopes": [
+    "crates/susi-gawd/src/evolution.rs",
+    "crates/susi-gawd/src/tests/evolution.rs",
+    ".agents/tasks/T-CLAUDEREL56-1.json"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib"
+    ]
+  },
+  "created_by": "CLAUDEREL56",
+  "created_unix": 1794390900,
+  "owner": "CLAUDEREL56",
+  "host": "CEO laptop, CachyOS Linux x86_64, Rust 1.99.0 (pinned); worktree on the local disk",
+  "results": {
+    "root_cause": "cargo test -p susi-gawd --lib on the composed candidate: 5 of 12 runs failed in the two evolution tests; with --skip compliance:: (the only HOME/SUSI_HOME-swapping tests) 0 of 12 failed",
+    "after_fix": "20 of 20 runs of cargo test -p susi-gawd --lib passed (285 passed, 0 failed, 3 ignored each)"
+  },
+  "limitations": [
+    "Other tests in other crates that write signed audit entries without the env lock may race the same way; only this binary's failure was observed."
+  ]
+}
