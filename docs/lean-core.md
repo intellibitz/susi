@@ -1013,3 +1013,14 @@ config, core and the tail.
   packages; 161 cumulative `Cargo.lock` packages removed across
   T-CARBONLEAN-1..13) and lowers `THIRD_PARTY_CEILING` 114 -> 108
   (`rustls-pki-types` also leaves the four-pillar closure).
+- 2026-11-11 (T-CARBONLEAN-14, Linux x86_64, CEO laptop): remove unused `log`
+  dependency from `vendor/native-tls` (`src/imp/openssl.rs` had four non-fatal
+  CA-probe/store `debug!` calls with no `log` logger registered in Susi Core),
+  dropping `log 0.4.35` from `Cargo.lock` (`194 -> 193` packages; 162
+  cumulative `Cargo.lock` packages removed across T-CARBONLEAN-1..14) and
+  lowering `THIRD_PARTY_CEILING` `108 -> 107`. Clean cold
+  `cargo build --offline --locked -p susi` into an empty target directory on the
+  Linux x86_64 host now completes in **27.68 s (`27,684 ms`)** (vs. 165 s
+  baseline and 60 s CEO target; incremental `129 ms`, warm no-op `136 ms`,
+  `susi --version` startup `9.35 ms`; Windows MSVC cold timing still to be
+  measured on a Windows host).

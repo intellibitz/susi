@@ -60,3 +60,8 @@ Temporary directory guards in `src/imp/security_framework.rs` (`TempKeychainDir`
 directory reservation rather than the external `tempfile` crate (`T-CARBONLEAN-8`),
 removing `tempfile` and `fastrand` from the workspace lockfile and `tempfile`,
 `fastrand`, `rustix`, and `linux-raw-sys` from the four-pillar dependency closure.
+
+The Unix OpenSSL backend (`src/imp/openssl.rs`) drops the external `log` crate
+(`T-CARBONLEAN-14`): Susi Core registers no `log` logger, so the four non-fatal
+CA-probe/store `debug!` calls were runtime no-ops; removing `log` drops `log`
+from `Cargo.lock` and lowers `THIRD_PARTY_CEILING` `108 -> 107`.

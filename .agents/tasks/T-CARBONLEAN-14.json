@@ -1,0 +1,62 @@
+{
+  "id": "T-CARBONLEAN-14",
+  "feature_id": "F-LEAN-CORE-FACADE-CUT-14",
+  "title": "Lean core: drop unused log dependency from vendor/native-tls and verify 27.68 s Linux cold build (THIRD_PARTY_CEILING 108 -> 107, Cargo.lock 194 -> 193)",
+  "goal": "Remove the unused external log dependency from vendor/native-tls (Cargo.toml and src/imp/openssl.rs, documented in vendor/native-tls/SUSI-PATCHES.md), removing log 0.4.35 from Cargo.lock (194 -> 193; 162 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..14), lowering THIRD_PARTY_CEILING 108 -> 107, and recording a clean cold cargo build -p susi benchmark (27,684 ms on Linux x86_64 against the 60 s CEO cold-build goal).",
+  "status": "done",
+  "state": "done",
+  "owner": "carbon-cachyos-distill",
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794398840,
+  "size": "xs",
+  "deps": [
+    "T-CARBONLEAN-13"
+  ],
+  "base": "fde51d26c9c22293b362ee51082038d18e7d240c",
+  "host": "CachyOS Linux x86_64 (CEO laptop, 28 hardware threads), isolated worktree /home/ramadoss/.cache/carbon-cachyos-distill-20261111/source-agent-carbon-cachyos-distill",
+  "scopes": [
+    ".agents/tasks/T-CARBONLEAN-14.json",
+    "Cargo.lock",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs",
+    "vendor/native-tls/Cargo.toml",
+    "vendor/native-tls/SUSI-PATCHES.md",
+    "vendor/native-tls/src/imp/openssl.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "zc_matrix"
+    ]
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo check --workspace --all-targets --keep-going --offline --locked",
+    "cargo clippy --offline --locked -p susi-vendor-tokio-rustls -p susi-http-transport -p susi --all-targets -- -D warnings",
+    "cargo test --offline --locked -p susi-vendor-tokio-rustls -p susi-http-transport --lib",
+    "cargo test --offline --locked --test zc_matrix --test lean_core_ceilings --test architecture_tests --test orphan_sources --test no_github_coupling --test core_docs_promise_no_ui_or_plugins --test task_records"
+  ],
+  "limitations": [
+    "Cold build timing (27,684 ms) and test verification measured on native Linux x86_64 host only; Windows x86_64 MSVC cold build timing (including windows-sys) requires separate native Windows host measurement."
+  ],
+  "results": {
+    "lockfile_and_pillar_ceilings": "1 package removed from Cargo.lock (log 0.4.35; Cargo.lock 194 -> 193; 162 cumulative Cargo.lock packages removed across T-CARBONLEAN-1..14); THIRD_PARTY_CEILING 108 -> 107",
+    "license_and_lint_gates": "cargo deny --offline --locked check licenses -> licenses ok; cargo clippy -p susi-vendor-tokio-rustls -p susi-http-transport -p susi --all-targets -- -D warnings -> 0 warnings (12,066 ms); cargo fmt --all --check -> 0 diffs",
+    "tests_passed": "121/121 passed (0 failed; 2 ignored in zc_matrix): susi-http-transport (48), susi-vendor-tokio-rustls (6), architecture_tests (44), core_docs_promise_no_ui_or_plugins (5), lean_core_ceilings (2), no_github_coupling (5), orphan_sources (3), zc_matrix (5), task_records (3)",
+    "timings": {
+      "cold_clean_build_p_susi_ms": 27684,
+      "incremental_build_p_susi_ms": 129,
+      "warm_noop_build_p_susi_ms": 136,
+      "startup_susi_version_ms": 9.35,
+      "clippy_crates_ms": 12066,
+      "tests_total_ms": 26492
+    }
+  }
+}
