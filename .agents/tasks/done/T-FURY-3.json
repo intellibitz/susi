@@ -8,7 +8,7 @@
   "created_unix": 1794386775,
   "size": "s",
   "deps": [],
-  "base_commit": "6b44f02bcc9033d76da32ddf7304b550e938e566",
+  "base_commit": "177a1d1d1e091f3b6aa83cbab5330bcd6f04113a",
   "scopes": [
     "xtask/src/distill_compose.rs",
     ".agents/tasks/T-FURY-3.json"
@@ -32,5 +32,10 @@
   },
   "limitations": [
     "ca8309f47 already on main keeps its misleading date; published history is never rewritten."
-  ]
+  ],
+  "closed": {
+    "at_unix": 1794386879,
+    "commit": "252745cfbbf50bd07f5ec94582fd3df9ff79aaad",
+    "by": "FURY"
+  }
 }
