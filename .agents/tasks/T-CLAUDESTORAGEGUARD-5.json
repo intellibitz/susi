@@ -1,0 +1,44 @@
+{
+  "id": "T-CLAUDESTORAGEGUARD-5",
+  "title": "Qualify the storage guard and first-build hooks on native Windows x86_64",
+  "goal": "CEO direction 2026-11-11 (\"run it all on windows too\"). T-CLAUDESTORAGEGUARD-1..4 were built and tested on Linux x86_64 only; the authoring session had no Windows host (no SSH connection, no Windows toolchain), and a Linux build is not evidence that Windows works. An agent on a native Windows x86_64 MSVC host runs the acceptance below on current main, records the counts under `results`, fixes what fails in its own scoped change, and closes this record. Also run, in a fresh clone whose core.hooksPath is unset: `cargo build --offline --locked -p susi` and confirm `git config --local --get core.hooksPath` prints `.githooks`; then `cargo run --offline --locked -p xtask --bin local-snapshot -- guard` twice against origin and confirm 0 findings, with the second run reporting every ref unchanged. Points to watch on Windows: paths with backslashes or 8.3 short names as file remotes in the fixtures, `git ls-remote`/`for-each-ref` line endings, and the console-window rule for the `git` child processes.",
+  "status": "pending",
+  "scopes": [
+    ".agents/tasks/T-CLAUDESTORAGEGUARD-5.json",
+    "build.rs",
+    "crates/susi-harness/src/operator.rs",
+    "crates/susi-harness/src/storage_guard.rs",
+    "crates/susi-harness/src/tests/operator.rs",
+    "crates/susi-harness/src/tests/storage_guard.rs",
+    "xtask/src/bin/local-snapshot.rs",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/tests/git_publisher_native_hook.rs"
+  ],
+  "size": "s",
+  "deps": [
+    "T-CLAUDESTORAGEGUARD-4"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "git_publisher_native_hook"
+    ],
+    "criteria": [
+      "On x86_64-pc-windows-msvc: `cargo test --offline --locked -p susi-harness --lib -- storage_guard a_harness_submission` passes (6 tests on Linux).",
+      "`cargo test --offline --locked -p xtask --bin local-snapshot --test git_publisher_native_hook --test native_push_policy` passes (31 + 7 + 17 on Linux).",
+      "`cargo test --offline --locked -p susi --test no_console_window --test architecture_tests --test lean_core_ceilings` passes.",
+      "A fresh clone's first build sets core.hooksPath=.githooks, and `local-snapshot guard` reports 0 findings against origin."
+    ]
+  },
+  "created_by": "CLAUDESTORAGEGUARD",
+  "created_unix": 1794421658,
+  "owner": null,
+  "base": "18bb972c3a4b64e2f58c532fef77cbbae861b31e",
+  "host": "needs a native Windows x86_64 MSVC host"
+}
