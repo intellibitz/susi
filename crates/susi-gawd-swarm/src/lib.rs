@@ -13,7 +13,7 @@
 
 //! GAWD **swarm** tier: AMA / AMAS orchestration, MissionDag, cloud recovery.
 //!
-//! Depends on [`susi_gawd_agents`] only. Must not import `ra2a` or `susi-gawd`.
+//! Depends on [`susi_gawd_agents`] only. Must not import the A2A tier or `susi-gawd`.
 
 pub use susi_error;
 

@@ -28,7 +28,8 @@ const PILLARS: [&str; 4] = ["susi-gawd", "susi-gemi", "susi-gmcp", "susi-harness
 /// left with T-CLAUDEWASMSTD-1, the rest had already gone unpinned).
 const THIRD_PARTY_CEILING: usize = 191;
 /// Workspace crates the four pillars compile (themselves included).
-/// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower),
+/// 2026-11-09: 50 -> 47 (susi-gawd-a2a, susi-vendor-ra2a, susi-vendor-tower;
+/// susi-vendor-ra2a was deleted on 2026-11-11, T-CLAUDENOA2ASDK-1),
 /// then 47 -> 46 (susi-vendor-mcp-server deleted).
 const WORKSPACE_CEILING: usize = 46;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
@@ -60,11 +61,19 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 20;
 /// 2026-11-10: gemi-models 16,737 -> 15,938: move the unchanged model-manager
 /// unit suite to src/tests while adding explicit retry-clock assertions
 /// (T-DOTLATENCY-1). Test organization, not removed runtime capability.
+/// 2026-11-11: susi-gawd-a2a 2,113 -> 3,702 when the A2A SDK facade
+/// (susi-vendor-ra2a over ra2a 0.10.1) left core and the tier took the
+/// protocol subset it serves in (`src/protocol`, 1,744 lines in place of
+/// ra2a's 10,221 source lines and its reqwest/hyper-tls/encoding_rs/chrono/
+/// tower-http/uuid tail; T-CLAUDENOA2ASDK-1, wave log). The same "crate
+/// leaving core, contract moving in" re-pin as T-NOMCPSDK-1. The A2A tier is
+/// outside the pillar closure since T-A2ASTD-1, so the reach ceilings above
+/// do not move; the host build loses the units.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_653),
     ("susi-gawd-swarm", 20_641),
     ("susi-gawd-agents", 11_263),
-    ("susi-gawd-a2a", 2_113),
+    ("susi-gawd-a2a", 3_702),
     ("susi-gemi", 21_290),
     ("susi-gemi-models", 15_950),
     ("susi-gmcp", 25_900),

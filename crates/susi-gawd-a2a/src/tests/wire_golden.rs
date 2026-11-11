@@ -4,8 +4,11 @@
 //! `golden/a2a_wire.json`.
 //!
 //! The transcript was recorded from the ra2a 0.10.1 stack before the SDK left
-//! core (`SUSI_A2A_GOLDEN=capture cargo test -p susi-gawd-a2a wire_golden`),
-//! so the in-tree protocol is held to the bytes ra2a put on the wire.
+//! core (`SUSI_A2A_GOLDEN=capture cargo test -p susi-gawd-a2a wire_golden`,
+//! commit 5cea76841), so the in-tree protocol is held to the bytes ra2a put
+//! on the wire. One difference is deliberate: ra2a kept an SSE stream open
+//! (and its concurrency slot taken) after the final task event; the in-tree
+//! stream ends there. The transcript compares the events, not the close.
 //! Generated values are normalized before comparison: a value bound by an
 //! earlier step reads `$NAME`, any other UUID reads `<uuid-vN>` (its version
 //! nibble), and an RFC 3339 UTC timestamp reads `<rfc3339>` (a timestamp
@@ -49,18 +52,12 @@ fn verifier() -> super::Verifier {
 fn app() -> axum::Router {
     let executor = crate::executor::GawdA2AExecutor::with_runner(Arc::new(runner));
     let card = executor.agent_card();
-    let handler = ra2a::server::DefaultRequestHandler::new(executor, card.clone())
-        .with_push_sender(Arc::new(ra2a::server::HttpPushSender::new()));
-    let state = ra2a::server::ServerState::new(Arc::new(handler), card);
-    ra2a::server::a2a_router(state)
-        .layer(axum::middleware::from_fn(super::jsonrpc_error_codes))
-        .layer(axum::middleware::from_fn_with_state(
-            verifier(),
-            super::auth_guard,
-        ))
-        .layer(tower::limit::ConcurrencyLimitLayer::new(
-            super::MAX_CONCURRENT_REQUESTS,
-        ))
+    super::app(
+        Arc::new(executor),
+        card,
+        Arc::new(crate::task_store::TaskStore::new()),
+        verifier(),
+    )
 }
 
 fn start(runtime: &tokio::runtime::Runtime) -> SocketAddr {

@@ -5,6 +5,7 @@
   "status": "in_progress",
   "scopes": [
     ".agents/build-time.jsonl",
+    ".agents/identity.json",
     ".agents/tasks/T-CLAUDENOA2ASDK-1.json",
     ".agents/tasks/done/T-CLAUDENOA2ASDK-1.json",
     "ARCHITECTURE.md",
@@ -16,11 +17,21 @@
     "docs/evidence.md",
     "docs/lean-core.md",
     "tests/architecture_tests.rs",
-    "tests/lean_core_ceilings.rs"
+    "tests/lean_core_ceilings.rs",
+    "vendor/upstream-notices/ra2a-0.10.1"
   ],
   "size": "l",
   "deps": [],
-  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gawd-a2a"]},
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a"
+    ]
+  },
   "created_by": "claude",
   "created_unix": 1794363042,
   "owner": "claude",

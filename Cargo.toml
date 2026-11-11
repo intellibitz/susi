@@ -50,7 +50,6 @@ members = [
     "crates/susi-vendor-hyper-util",
     "crates/susi-vendor-libc",
     "crates/susi-vendor-parking-lot",
-    "crates/susi-vendor-ra2a",
     "crates/susi-vendor-rcgen",
     "crates/susi-vendor-regex",
     "crates/susi-vendor-serde",

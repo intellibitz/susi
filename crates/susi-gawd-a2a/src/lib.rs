@@ -11,7 +11,8 @@
     )
 )]
 
-//! GAWD **A2A** tier: Agent2Agent wire protocol (`ra2a`).
+//! GAWD **A2A** tier: the Agent2Agent wire protocol, served in-tree
+//! ([`protocol`]) on the axum/tokio stack core already runs.
 //!
 //! Depends on [`susi_gawd_agents`] (`GawdAgentFleet`), never on swarm or the
 //! host `susi-gawd` crate. `susi-daemon` serves it on the A2A port; `susi-gawd`
@@ -31,6 +32,7 @@ pub use self_core::AlphaSelf;
 
 pub mod capabilities;
 pub mod executor;
+pub mod protocol;
 pub mod server;
 pub mod task_store;
 
@@ -40,8 +42,9 @@ pub use executor::GawdA2AExecutor;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ra2a::server::{AgentExecutor, EventQueue, RequestContext};
-    use ra2a::types::{Message, Part, PartContent, TaskState};
+    use crate::protocol::{
+        AgentExecutor, EventQueue, Message, Part, PartContent, RequestContext, TaskState,
+    };
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
@@ -94,12 +97,12 @@ mod tests {
         assert_eq!(card.supported_interfaces.len(), 1);
         assert_eq!(
             card.supported_interfaces[0].protocol_version,
-            ra2a::PROTOCOL_VERSION
+            crate::protocol::PROTOCOL_VERSION
         );
         let bindings: Vec<String> = card
             .supported_interfaces
             .iter()
-            .map(|i| i.protocol_binding.0.to_string())
+            .map(|i| i.protocol_binding.clone())
             .collect();
         assert!(
             bindings.iter().any(|b| b.contains("JSONRPC")),
@@ -178,9 +181,7 @@ mod tests {
         block_on(executor.execute(&ctx, &queue)).expect("execute");
 
         let event = rx.try_recv().expect("task event");
-        let ra2a::types::StreamResponse::Task(task) = event else {
-            panic!("expected Task event");
-        };
+        let task = event;
         assert_eq!(task.id.to_string(), "task-1");
         assert_eq!(task.context_id.to_string(), "ctx-1");
         assert_eq!(task.status.state, TaskState::Completed);
@@ -205,9 +206,7 @@ mod tests {
 
         block_on(executor.execute(&ctx, &queue)).expect("execute");
 
-        let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
-            panic!("expected Task event");
-        };
+        let task = rx.try_recv().expect("task event");
         assert_eq!(task.status.state, TaskState::Failed);
         assert!(!called.load(Ordering::SeqCst));
     }
@@ -224,9 +223,7 @@ mod tests {
 
         block_on(executor.execute(&ctx, &queue)).expect("execute");
 
-        let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("task event") else {
-            panic!("expected Task event");
-        };
+        let task = rx.try_recv().expect("task event");
         let message = task.status.message.expect("completed task carries message");
         let PartContent::Text(text) = &message.parts[0].content else {
             panic!("expected text response");
@@ -246,9 +243,7 @@ mod tests {
 
         block_on(executor.execute(&ctx, &queue)).expect("execute");
 
-        let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("event") else {
-            panic!("expected Task event");
-        };
+        let task = rx.try_recv().expect("event");
         assert_eq!(task.status.state, TaskState::Failed);
     }
 
@@ -261,9 +256,7 @@ mod tests {
         ctx.message = Some(Message::user(vec![]));
 
         block_on(executor.execute(&ctx, &queue)).expect("execute");
-        let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("event") else {
-            panic!("expected Task event");
-        };
+        let task = rx.try_recv().expect("event");
         assert_eq!(task.status.state, TaskState::Failed);
     }
 
@@ -276,9 +269,7 @@ mod tests {
 
         block_on(executor.cancel(&ctx, &queue)).expect("cancel");
 
-        let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("event") else {
-            panic!("expected Task event");
-        };
+        let task = rx.try_recv().expect("event");
         assert_eq!(task.id.to_string(), "task-4");
         assert_eq!(task.status.state, TaskState::Canceled);
         assert!(task.status.message.is_none());
