@@ -1,0 +1,43 @@
+{
+    "id":  "T-AGYWIN-2",
+    "title":  "Enforce GitHub storage-only branch allowlist and refs/candidates/{release,distill}/* across push-policy, git_publish, harness, and agent docs",
+    "goal":  "Restrict remote refs/heads/* in push_policy to refs/heads/main and refs/heads/local-agent/\u003cagent\u003e, admit fast-forward non-branch refs/candidates/{release,distill}/\u003cname\u003e, switch local-snapshot adopt ref to refs/candidates/release/\u003cname\u003e, harden IntegrationPolicy protected prefixes, and instruct all agents in AGENTS.md and docs/ceo-agent-mandate.md.",
+    "size":  "s",
+    "state":  "done",
+    "status":  "done",
+    "created_by":  "agywin1",
+    "created_unix":  1794388600,
+    "base":  "6c132588475b22b5f333b8bd6f65f70e279d8cca",
+    "deps":  [
+                 "T-CODEXSTORAGEONLY-1"
+             ],
+    "source_commits":  [
+                           "04214f5a4b7f138beceb45fcb3181f74f48853a3"
+                       ],
+    "scopes":  [
+                   ".agents/tasks/T-AGYWIN-2.json",
+                   ".agents/tasks/done/T-AGYWIN-2.json",
+                   "AGENTS.md",
+                   "crates/susi-harness/src/tests/workflow.rs",
+                   "crates/susi-harness/src/workflow.rs",
+                   "docs/ceo-agent-mandate.md",
+                   "xtask/src/git_publish.rs",
+                   "xtask/src/push_policy.rs",
+                   "xtask/tests/git_publisher_native_hook.rs",
+                   "xtask/tests/native_push_policy.rs"
+               ],
+    "accept":  {
+                   "cmd":  [
+                               "cargo",
+                               "test",
+                               "--offline",
+                               "--locked",
+                               "-p",
+                               "xtask",
+                               "--test",
+                               "native_push_policy",
+                               "--test",
+                               "git_publisher_native_hook"
+                           ]
+               }
+}

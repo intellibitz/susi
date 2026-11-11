@@ -538,27 +538,21 @@ fn is_oid(text: &str) -> bool {
     matches!(text.len(), 40 | 64) && text.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-// ---------------------------------------------------------------------------
-// Integration policy for autonomous and remote agents (Mandates 2026-11-08 & 73).
-// ---------------------------------------------------------------------------
-
-/// The refs only the gated host moves in branch-only mode.
+// Integration policy for autonomous and remote agents (Mandates 2026-11-08..11).
 const GATE_ONLY_REFS: &[&str] = &["main", "refs/heads/main", "HEAD"];
 
-/// Protected release refs that development pushes never move directly without
-/// release qualification.
+/// Protected release/candidate refs that worker pushes never move directly.
+#[rustfmt::skip]
 const PROTECTED_RELEASE_PREFIXES: &[&str] = &[
-    "release/",
-    "release-staging/",
-    "refs/heads/release/",
-    "refs/heads/release-staging/",
-    "refs/tags/v",
-    "refs/tags/susi-release/",
+    "release/", "release-staging/", "refs/heads/release/", "refs/heads/release-staging/",
+    "refs/candidates/release/", "refs/tags/v", "refs/tags/susi-release/", "refs/tags/susi-snapshot/",
 ];
 
 /// Distillation staging prefixes governed separately from unqualified `main`.
-const DISTILLATION_REF_PREFIXES: &[&str] =
-    &["distill/", "refs/heads/distill/", "refs/tags/susi-distill/"];
+#[rustfmt::skip]
+const DISTILLATION_REF_PREFIXES: &[&str] = &[
+    "distill/", "refs/heads/distill/", "refs/candidates/distill/", "refs/tags/susi-distill/",
+];
 
 /// Ref prefixes the native coordinator owns (claims, receipts, integration
 /// pointers).
@@ -872,6 +866,8 @@ impl IntegrationPolicy {
         }
         if PROTECTED_RELEASE_PREFIXES
             .iter()
+            .chain(DISTILLATION_REF_PREFIXES)
+            .chain(["wip/", "refs/heads/wip/", "refs/candidates/"].iter())
             .any(|prefix| target.starts_with(prefix) || short.starts_with(prefix))
         {
             return Err(PolicyViolation::ProtectedReleaseRef(target.to_string()));
@@ -1028,7 +1024,7 @@ impl IntegrationPolicy {
             PublicationMode::BranchOnly => {
                 let minutes = self.gate_cycle_secs.div_ceil(60);
                 Ok(vec![
-                    format!("Publish only on `{branch}`; never push `main`, never move `refs/susi/*`; the gated host integrates your branch."),
+                    format!("Publish only on `{branch}`; never push `main`, `release/*`, `distill/*`, `wip/*`, `refs/candidates/*`, or `refs/susi/*`, and never open/merge a pull request; the gated host integrates your branch."),
                     format!("Every commit ends with `Task: T-{upper}-<n>`; the task record in `.agents/tasks/` lists exactly the claimed scopes."),
                     "A move out of core counts only when the destination commit is on the commercial origin, declared, compiling and tested there; core deletes afterwards, in a change that names that commit. Never leave a port answering an error for a removed capability.".to_string(),
                     "Before every push, on the exact tree: cargo fmt --all --check; cargo check --workspace --all-targets --keep-going --offline --locked; cargo clippy --workspace --all-targets --offline --locked -- -D warnings; the touched crates' tests; the guard tests; GMCP evidence re-recorded for any gmcp change.".to_string(),
@@ -1041,7 +1037,7 @@ impl IntegrationPolicy {
                 format!("Every commit ends with `Task: T-{upper}-<n>`; record base commit, scopes, deps, `accept.cmd`, actual results and limitations in `.agents/tasks/` for distillation."),
                 "A move out of core counts only when the destination commit is on the commercial origin, declared, compiling and tested there; core deletes afterwards, in a change that names that commit. Never leave a port answering an error for a removed capability.".to_string(),
                 "Run focused checks in your private target dir (`fmt`, touched-crate `clippy -D warnings`, touched-crate tests, relevant guards) and report results honestly; full workspace gates belong to distilled release snapshots.".to_string(),
-                "Reconcile with the latest `origin/main` head and use atomic normal fast-forward updates; never force-push, never move `refs/susi/*` or `release/*` or `refs/tags/v*`, and never touch another agent's branch or claim.".to_string(),
+                "Reconcile with the latest `origin/main` head and use atomic normal fast-forward updates; never force-push, never open/merge a pull request, never push `release/*`, `distill/*`, `wip/*`, `refs/candidates/*`, `refs/susi/*`, or `refs/tags/v*`, and never touch another agent's branch or claim.".to_string(),
                 "Keep files LF-ended; report `main` as unqualified development and `landed` only after `git ls-remote` confirms the commit on origin.".to_string(),
             ]),
         }
