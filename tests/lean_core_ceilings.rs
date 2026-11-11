@@ -232,13 +232,20 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// publication witness the storage remote, so storage safety needs no
 /// hosting-provider rule. The crate measured 37,175 before the change, 259
 /// under its ceiling, so the ceiling moves by 102 while the source grows 361.
+/// 2026-11-12: susi-gemi 21,145 -> 21,047 and susi-gemi-models 15,945 ->
+/// 15,921 (T-CLAUDELEANPROMPT-1, measured). Removed runtime capability: none.
+/// `PromptFormat` (detect and wrap for four chat families) and
+/// `ModelManager::chat_template_supports_tools` were reached only by their
+/// own tests since the local engine left core; the engine that wraps prompts
+/// is Susi Commercial Apps' `susi-gpu-fabric`, which now renders the model's
+/// own chat template.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_523),
     ("susi-gawd-swarm", 20_116),
     ("susi-gawd-agents", 10_443),
     ("susi-gawd-a2a", 3_619),
-    ("susi-gemi", 21_145),
-    ("susi-gemi-models", 15_945),
+    ("susi-gemi", 21_047),
+    ("susi-gemi-models", 15_921),
     ("susi-gmcp", 25_860),
     ("susi-harness", 37_536),
 ];

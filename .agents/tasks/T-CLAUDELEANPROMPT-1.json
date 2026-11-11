@@ -1,0 +1,39 @@
+{
+  "id": "T-CLAUDELEANPROMPT-1",
+  "title": "Lean core: delete prompt-format code only its own tests reached",
+  "goal": "CEO vision 2026-11-12: core stays lean, no bloat. While tracing where chat templates are rendered (board items 182-195) it turned out that core's prompt-format code has no production caller since the local engine moved to Susi Commercial Apps: susi-gemi `PromptFormat` (detect + wrap) and the `prompt_format` field of `ModelSubstrate` are used only by five tests in engines/runtime.rs, and susi-gemi-models `ModelManager::chat_template_supports_tools` is `allow(dead_code)` with one test. They are deleted with their tests, and the two line ceilings are lowered to the measured values.",
+  "status": "done",
+  "scopes": [
+    ".agents/tasks/T-CLAUDELEANPROMPT-1.json",
+    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
+    "crates/susi-gemi-models/src/tests/model_manager.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/engines/runtime_substrate.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "-p",
+      "susi-gemi-models"
+    ]
+  },
+  "created_by": "CLAUDELEANPROMPT",
+  "created_unix": 1794424904,
+  "owner": "claude",
+  "base": "64c1073895ab6da319e8421627922b1cf3a2a98b",
+  "host": "CEO laptop, CachyOS Linux x86_64",
+  "limitations": [
+    "`tests/lean_core_ceilings.rs` `pillar_source_does_not_grow` is red on main for an unrelated reason until Codex's T-CODEXCEILING-1 lands (susi-gawd-agents 10,448 over its 10,443 ceiling since 2b3cb5c6c); the two values here were measured with the same counting rule and equal the previous ceilings before the change.",
+    "`ChatTemplateConfig` and `config/chat_templates.default.json` in susi-config are also test-only but persisted in prompts.json; left for a migration decision.",
+    "Linux x86_64 only."
+  ]
+}

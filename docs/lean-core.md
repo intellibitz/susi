@@ -1087,3 +1087,16 @@ config, core and the tail.
   published is lost unnoticed has zero hosting-provider dependency. The crate
   measured 37,175 lines before the change (259 under its ceiling), so the
   source grows 361 lines and the ceiling 102. No other ceiling moves.
+- 2026-11-12 (T-CLAUDELEANPROMPT-1, Linux x86_64, CEO laptop): delete prompt
+  code in core that only its own tests reached. `susi-gemi` loses
+  `PromptFormat` (control-token detection and four hand-written chat wrappers)
+  and the `prompt_format` field of `ModelSubstrate`; `susi-gemi-models` loses
+  `ModelManager::chat_template_supports_tools`, which was already marked
+  `allow(dead_code)`. Nothing in the default build or under `local-engine`
+  called them: the engine that wraps a local model's prompt is Susi Commercial
+  Apps' `susi-gpu-fabric`. Line ceilings lowered to the measured values:
+  `susi-gemi` `21,145 -> 21,047`, `susi-gemi-models` `15,945 -> 15,921`
+  (122 shipped lines; 83 more lines of their tests went with them). Not
+  removed: `ChatTemplateConfig` in `susi-config` is also test-only, but its
+  field is part of the persisted `prompts.json` shape, so removing it needs a
+  migration decision first.

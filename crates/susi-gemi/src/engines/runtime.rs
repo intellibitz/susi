@@ -47,9 +47,6 @@ fn reflex_serve_label(action: &str) -> String {
     raw.chars().take(48).collect()
 }
 
-#[cfg(test)]
-use runtime_substrate::PromptFormat;
-
 /// Prefer admitted native Candle weights for ordinary automatic text work. Output
 /// formatting is not a second reasoning step; the substantive request still
 /// passes both existing classifiers and explicit capability/policy gates.
@@ -1339,56 +1336,6 @@ mod tests {
         assert!(!InferenceHost::needs_qwen2_backend("qwen3"));
         assert!(!InferenceHost::needs_qwen2_backend("qwen3moe"));
         assert!(!InferenceHost::needs_qwen2_backend("gemma"));
-    }
-
-    #[test]
-    fn test_prompt_format_detects_chatml_from_qwen_template() {
-        // Regression: susi fed raw prompts to instruct-tuned GGUFs with no
-        // conversational scaffolding at all, which is fundamentally
-        // incompatible with how models fine-tuned on a specific chat
-        // template behave - verified live, this produced pure gibberish
-        // output on qwen2.5-0.5b-instruct starting from the first token.
-        // Real (truncated) Qwen2.5 tokenizer.chat_template excerpt.
-        let template = "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n{%- endif %}";
-        assert_eq!(PromptFormat::detect(Some(template)), PromptFormat::ChatMl);
-    }
-
-    #[test]
-    fn test_prompt_format_detects_llama3_and_gemma_and_mistral() {
-        assert_eq!(
-            PromptFormat::detect(Some("<|start_header_id|>user<|end_header_id|>")),
-            PromptFormat::Llama3
-        );
-        assert_eq!(
-            PromptFormat::detect(Some("<start_of_turn>user\n{{ content }}")),
-            PromptFormat::Gemma
-        );
-        assert_eq!(
-            PromptFormat::detect(Some("[INST] {{ content }} [/INST]")),
-            PromptFormat::Mistral
-        );
-    }
-
-    #[test]
-    fn test_prompt_format_falls_back_to_raw_when_unrecognized_or_absent() {
-        assert_eq!(PromptFormat::detect(None), PromptFormat::Raw);
-        assert_eq!(
-            PromptFormat::detect(Some("some unrecognized template syntax")),
-            PromptFormat::Raw
-        );
-    }
-
-    #[test]
-    fn test_chatml_wrap_produces_well_formed_turn_structure() {
-        let wrapped = PromptFormat::ChatMl.wrap("hello");
-        assert!(wrapped.starts_with("<|im_start|>system\n"));
-        assert!(wrapped.contains("<|im_start|>user\nhello<|im_end|>\n"));
-        assert!(wrapped.ends_with("<|im_start|>assistant\n"));
-    }
-
-    #[test]
-    fn test_raw_wrap_is_passthrough() {
-        assert_eq!(PromptFormat::Raw.wrap("hello"), "hello");
     }
 
     #[test]
