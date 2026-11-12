@@ -2,13 +2,6 @@
   "id": "T-CLAUDEHARNESSCEIL-1",
   "title": "susi-harness line ceiling to its measured 37,434; harness coordination doc names refs/agents",
   "goal": "The lean-core ceiling equals the measured harness size after T-CLAUDEAGENTREFS-1, and docs/harness-coordination.md describes the agent-ref hand-off",
-  "status": "done",
-  "scopes": [
-    "tests/lean_core_ceilings.rs",
-    "docs/lean-core.md",
-    "docs/harness-coordination.md",
-    ".agents/tasks/T-CLAUDEHARNESSCEIL-1.json"
-  ],
   "size": "s",
   "deps": [
     "T-CLAUDEAGENTREFS-1"
@@ -27,15 +20,27 @@
   },
   "created_by": "CLAUDEHARNESSCEIL",
   "created_unix": 1794397674,
-  "owner": "CLAUDEHARNESSCEIL",
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "base": "ebfed31f6de2b40fbf94bf7d812daa9a5cca8931",
   "host": "x86_64-unknown-linux-gnu",
+  "limitations": [
+    "documentation and a ceiling only; no runtime change"
+  ],
+  "owner": "CLAUDEHARNESSCEIL",
   "results": {
     "measured": "lean_core_ceilings --nocapture: susi-harness src = 37434 lines (ceiling was 37439); reach 33 workspace / 114 third-party / 9 facade edges, each already equal to its ceiling",
     "change": "LINE_CEILINGS susi-harness 37,439 -> 37,434 with its log line; wave-log entry in docs/lean-core.md; docs/harness-coordination.md: hand-off, ship --adopt and the rule table name refs/agents/<agent> and the RetiredAgentBranch refusal",
     "tests": "lean_core_ceilings 2/2, architecture_tests, core_docs_promise_no_ui_or_plugins, no_github_coupling, task_records all pass"
   },
-  "limitations": [
-    "documentation and a ceiling only; no runtime change"
-  ]
+  "scopes": [
+    "tests/lean_core_ceilings.rs",
+    "docs/lean-core.md",
+    "docs/harness-coordination.md",
+    ".agents/tasks/T-CLAUDEHARNESSCEIL-1.json"
+  ],
+  "status": "done"
 }
