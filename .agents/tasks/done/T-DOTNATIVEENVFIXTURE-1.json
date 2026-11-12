@@ -2,18 +2,8 @@
   "id": "T-DOTNATIVEENVFIXTURE-1",
   "title": "Use native intent ladder environment fixture",
   "goal": "Replace the shell-only environment dump fixture with a tiny installed-rustc-built executable. Preserve production ProcessRunner and all hermetic environment and credential scrub checks on native Windows and portable source.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "created_by": "dot-native-env-fixture",
-  "claimed_by": "dot-native-env-fixture",
-  "native_worker": "dot-native-env-fixture",
-  "created_unix": 1794303900,
   "size": "S",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/T-DOTNATIVEENVFIXTURE-1.json",
-    "crates/susi-gawd/src/tests/intent_ladder_startup.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -25,7 +15,22 @@
       "--locked"
     ]
   },
+  "created_by": "dot-native-env-fixture",
+  "created_unix": 1794303900,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "acceptance": "All susi-gawd library tests pass with the native fixture; focused intent ladder tests, strict package clippy, workspace format and task record validation pass. Original full gate red: 283 passed, 1 failed, 3 ignored, missing sh for the environment-dump fixture. No production runner or security policy changes.",
+  "claimed_by": "dot-native-env-fixture",
+  "native_worker": "dot-native-env-fixture",
+  "scopes": [
+    ".agents/tasks/T-DOTNATIVEENVFIXTURE-1.json",
+    "crates/susi-gawd/src/tests/intent_ladder_startup.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
   "verification": {
     "platform": "x86_64-pc-windows-msvc",
     "toolchain": "1.99.0",
