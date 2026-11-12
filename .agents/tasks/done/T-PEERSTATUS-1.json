@@ -1,0 +1,41 @@
+{
+  "id": "T-PEERSTATUS-1",
+  "title": "susi peers status shows a live but unreachable member as live, not offline",
+  "goal": "Follow-up to T-HOMECLUSTER-1 (core 923501f8b): a key-bound member that discovery still sees but whose status call fails now carries live_via_discovery. The status table printed every error row as 'offline'; it now prints 'live, status unavailable (<error>)' for those rows and keeps 'offline' for members discovery does not see. The row formatting moved into status_line with unit tests for both cases and for a reachable member.",
+  "size": "s",
+  "deps": [
+    "T-HOMECLUSTER-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--bin",
+      "susi",
+      "peers_cli"
+    ]
+  },
+  "created_by": "PEERSTATUS",
+  "created_unix": 1794179865,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "claimed_by": "peerstatus",
+  "native_worker": "peerstatus",
+  "scope": [
+    ".agents/tasks/t-peerstatus-1.json",
+    "src/cli/peers_cli.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-peerstatus-1.json",
+    "src/cli/peers_cli.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress"
+}

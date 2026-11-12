@@ -1,0 +1,24 @@
+{
+  "id": "T-OSPARITY1103-2",
+  "title": "Atomic plugin-pack state updates: lock extensions/state.json read-modify-write across core processes (lost-update fix)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "extensions_state_race"
+    ]
+  },
+  "created_by": "OSPARITY1103",
+  "created_unix": 1793740506,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
+}

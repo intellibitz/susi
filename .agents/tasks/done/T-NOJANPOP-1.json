@@ -1,0 +1,36 @@
+{
+  "id": "T-NOJANPOP-1",
+  "title": "Native inference fallback detects local engines without running their binaries",
+  "goal": "The native engine's local fallback scanned engines with HostProbe on every request, running `<engine> --version` for each installed engine; Jan's `jan` is its desktop launcher, so a running daemon opened and closed a Jan window about once a minute. Detect with DetectOnlyProbe instead (PATH lookup and port checks only).",
+  "size": "S",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--test",
+      "native_fallback_runs_no_engine"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794317770,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "owner": "nojanpop",
+  "scopes": [
+    "crates/susi-gemi/src/engines/runtime_native.rs",
+    "crates/susi-gemi/tests/native_fallback_runs_no_engine.rs",
+    "crates/susi-config/src/host_metrics.rs",
+    "tests/hook_enforcement.rs",
+    "tests/sync_hooks.rs",
+    ".agents/tasks/T-NOJANPOP-1.json"
+  ],
+  "status": "implemented"
+}

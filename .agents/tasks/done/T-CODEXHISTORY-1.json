@@ -1,0 +1,64 @@
+{
+  "id": "T-CODEXHISTORY-1",
+  "title": "Preserve full chat history for local engines",
+  "goal": "Carry the normalized OpenAI conversation and top-level tool schemas from the core 9091 server through GAWD and GEMI to the local engine, so a model adapter can render the model file's own chat template for multi-turn requests while preserving the existing prose fallback.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDELOCALTOOLS-1",
+    "T-CLAUDETOOLPICK-1",
+    "T-CLAUDETOOLCAP-1",
+    "T-CLAUDECOMMCHAT-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-server",
+      "--lib",
+      "preserves_the_normalized_conversation_and_tool_schemas_for_local_engines"
+    ]
+  },
+  "created_by": "CODEXHISTORY",
+  "created_unix": 1794429044,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "fbfe20a73fb22efd2f47b36ad8a975d6921bfba2",
+  "limitations": [
+    "The portable local-engine contract currently exposes four roles and string content; structured assistant tool_calls and tool_call_id fields remain normalized into text rather than a separate structured message field.",
+    "Cloud and external-provider recovery receives the assembled prose goal; the full chat is preserved for the local engine path only.",
+    "Linux x86_64 verification; Windows qualification remains a separate host task."
+  ],
+  "native_worker": "codex-history",
+  "owner": "codex",
+  "results": {
+    "base_reconciled": "origin/main fbfe20a73fb22efd2f47b36ad8a975d6921bfba2",
+    "compile": "affected-package cargo check passed after reconciliation",
+    "focused": "server conversation/tool-schema parser test, GAWD swarm tests, plane-bus tests and Gemi VC-201-042 tests passed before final gate",
+    "source_repin": "susi-gawd 12523 -> 12525; susi-gawd-swarm 20116 -> 20206; susi-gemi 21172 -> 21262",
+    "dependency_delta": "none",
+    "reach_delta": "none"
+  },
+  "scopes": [
+    "crates/susi-server/src/lib.rs",
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/plane_handler.rs",
+    "crates/susi-gawd/src/plane_handler.rs",
+    "crates/susi-gawd-swarm/src/ama/master.rs",
+    "crates/susi-gawd-swarm/src/cloud_recovery.rs",
+    "crates/susi-gemi/src/tests/vc_201_042_native.rs",
+    "tests/lean_core_ceilings.rs",
+    "docs/lean-core.md",
+    ".agents/tasks/t-codexhistory-1.json"
+  ],
+  "source_commits": [
+    "1cbde3c4176a7a529d45f05ba0102730eab7f1ac"
+  ],
+  "status": "implemented"
+}

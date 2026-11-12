@@ -1,0 +1,61 @@
+{
+  "id": "T-DOTREUSE-1",
+  "title": "Preserve truthful native gate provenance and bounded Windows execution",
+  "goal": "Bind receipts to the observed publication base, retain exact merge-parent and source ancestry checks and legacy verification, and keep native process execution bounded without skipping checks.",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "ship_"
+    ]
+  },
+  "created_by": "dot-reuse",
+  "created_unix": 1794222774,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "checkpoint": "Receipt v2 implemented and independently reviewed; ship regressions18/18 and verifier19/19 passed, Clippy passed. Ready for full native combined-tree gate. Commercial cap and PID fixes retained; no proof reuse enabled.",
+  "claimed_by": "dot-reuse",
+  "measurements": [
+    "Full unchanged local-workflow unit baseline4threads:135passed,0failed,327.88s; host contention prevents clean speed conclusion.",
+    "Previous gate task:T-DOTPROOF-1 recompiles a different feature artifact then runs5filtered tests; strict initial reuse cannot cover it.",
+    "Unchanged8thread comparison:135passed,0failed,448.46s. Concurrent host activity means no clean causal comparison; do not increase allocation or claim improvement."
+  ],
+  "native_worker": "dot-reuse",
+  "reuse_design": [
+    "Only exact-candidate/same-attempt completed whole binaries; filters/docs/custom harness/unknown flags run fresh.",
+    "Resolve acceptance with successful Cargo no-run JSON; require complete unambiguous artifact inventory and exact features/profile/package ID/target/triple/executable hash plus dependent product and dynamic artifact closure.",
+    "Bind final executable args/cwd/effective environment hash, toolchain/sysroot/config/lock/runner digest, clean-home role, immutable per-binary log/counts and unique execution ID. Never persist secret values.",
+    "Explicit reused-binary-coverage-v1 variant; only earlier successful executed sources, no forward refs/cycles/reuse-of-reuse; same candidate and attempt. Re-merge invalidates all coverage.",
+    "Gate receipt publication must retain reused-versus-executed distinction. Negative tests cover all identity changes, incomplete/duplicate inventories, failed or empty source, changed artifacts/logs, foreign attempt, unsupported selectors."
+  ],
+  "scopes": [
+    ".agents/tasks/T-DOTREUSE-1.json",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/gate_receipt.rs",
+    "xtask/src/native_provenance.rs",
+    "xtask/src/task_test_reuse.rs",
+    "xtask/src/test_runner.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "verification": [
+    "Focused legacy_ tests:4passed,0failed,10.20s.",
+    "Clippy -D warnings, formatting and whitespace checks passed.",
+    "Independent process API semantic review approved; unknown identity remains live. No proof reuse or concurrency behavior enabled.",
+    "Commercial selection/concurrency tests3passed0failed0.01s; Luna independently approved exact scope and negativecases.",
+    "Matched dev-workflow samples:8threads179pass87.56s;28threads178pass1deadlinefail70.85s. One sample each,not reliability guarantee.",
+    "Failure stage evidence:EOF4.111s,parent326ms,PowerShellspawn3.772s,no child-start/completion marker atEOF. Original4s assertion retained.",
+    "Receipt v2 independently reviewed: final locked-fetch observation, moved-main re-gating, exact first-parent and source ancestry, explicit legacy semantics; no bypass or old-receipt rewrite.",
+    "Final receipt change: ship_18passed0failed72.69s; gate_receipt19passed0failed16.80s; Clippy -D warnings passed. Regressions include main advancing mid-gate, two-source batch and concurrent ten-agent shipping."
+  ]
+}

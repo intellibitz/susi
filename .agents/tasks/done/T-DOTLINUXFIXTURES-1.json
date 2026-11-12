@@ -1,0 +1,109 @@
+{
+  "id": "T-DOTLINUXFIXTURES-1",
+  "title": "Repair Unix installer and hook fixtures",
+  "goal": "Keep missing-tool installer refusal coverage independent of host PATH layout and remove obsolete hook fixture code without lint exemptions or production changes.",
+  "size": "S",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "hook_enforcement",
+      "--test",
+      "installer_contract",
+      "--test",
+      "sync_hooks"
+    ]
+  },
+  "created_by": "dot-linux-fixtures",
+  "created_unix": 1794273137,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "All three affected test targets pass and strict affected-target Clippy reports no warnings. A synthetic PATH with build tools and Unix support utilities in the same directory still exposes the real missing-tool refusal while preserving tr, grep and cleanup. Git, Cargo and rustup absence stops installation before any install-directory write.",
+  "claimed_by": "dot-linux-fixtures",
+  "native_worker": "dot-linux-fixtures",
+  "scope": [
+    ".agents/tasks/t-dotlinuxfixtures-1.json",
+    "tests/hook_enforcement.rs",
+    "tests/installer_contract.rs",
+    "tests/sync_hooks.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-dotlinuxfixtures-1.json",
+    "tests/hook_enforcement.rs",
+    "tests/installer_contract.rs",
+    "tests/sync_hooks.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794273397,
+  "verification": {
+    "host": "x86_64-unknown-linux-gnu",
+    "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "tests": {
+      "hook_enforcement": 2,
+      "installer_contract": 8,
+      "sync_hooks": 5,
+      "failed": 0
+    },
+    "commands": [
+      {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 2.84
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "--offline",
+          "--locked",
+          "--test",
+          "hook_enforcement",
+          "--test",
+          "installer_contract",
+          "--test",
+          "sync_hooks"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.932
+      },
+      {
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "susi",
+          "--no-deps",
+          "--test",
+          "hook_enforcement",
+          "--test",
+          "installer_contract",
+          "--test",
+          "sync_hooks",
+          "--offline",
+          "--locked",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 10.037
+      }
+    ],
+    "regression": "The new co-located PATH test fails with the previous WITHOUT helper because tr, grep and rm disappear. The repaired test passes for absent git, Cargo and rustup before any install-directory write. The shell runner also preserves private TMPDIR.",
+    "workspace_clippy": "Blocked by three pre-existing useless_conversion findings in crates/susi-config/src/host_metrics.rs:398,400,401. No warning suppressions or production source changes were made.",
+    "remaining": "Local-only, pending combined-tree verification and gated Desktop integration. No full workspace test, publication or release qualification is claimed."
+  }
+}

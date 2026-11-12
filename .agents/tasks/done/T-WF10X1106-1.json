@@ -1,0 +1,34 @@
+{
+  "id": "T-WF10X1106-1",
+  "title": "10-agent lock-free parallel workflow, batched receipt lookup, and accurate affected crate selection",
+  "goal": "Eliminate lock contention, cross-repo host-gate blocking, sequential receipt cat-file spawns, and false-positive root_readers so 10 parallel agents work and ship without conflicts or waits.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "--offline",
+      "--locked",
+      "affected::tests"
+    ]
+  },
+  "created_by": "WF10X1106",
+  "created_unix": 1793977000,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "wf10x1106",
+  "scopes": [
+    ".agents/tasks/t-wf10x1106-1.json",
+    "xtask/src/affected.rs",
+    "xtask/src/bin/local-workflow.rs"
+  ],
+  "status": "completed"
+}

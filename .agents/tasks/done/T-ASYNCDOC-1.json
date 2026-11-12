@@ -1,0 +1,30 @@
+{
+  "id": "T-ASYNCDOC-1",
+  "title": "Document no-wait ships: per-ship slots, publish-only lock, affected re-gate, shared gate parallelism",
+  "goal": "docs/workflow-speed.md records how ships and checks stopped waiting for each other (T-ASYNCSHIP-1), what stays serialized and why it is safe, and the receipt fix for an integration ref behind origin/main, without reintroducing forbidden platform or UI wording.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  },
+  "created_by": "ASYNCDOC",
+  "created_unix": 1793990400,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "asyncdoc",
+  "scopes": [
+    ".agents/tasks/t-asyncdoc-1.json",
+    "docs/workflow-speed.md"
+  ],
+  "status": "in_progress"
+}

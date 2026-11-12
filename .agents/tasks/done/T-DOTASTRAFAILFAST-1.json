@@ -1,0 +1,50 @@
+{
+  "id": "T-DOTASTRAFAILFAST-1",
+  "title": "Stop weighted runners after gate failure",
+  "goal": "Prevent an already-dequeued test binary from starting after it waits for lanes and a prior binary fails, preserving every successful-run test and all gate checks.",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "test_runner::tests::"
+    ]
+  },
+  "created_by": "dot-astra-failfast",
+  "created_unix": 1794250862,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "checkpoint": "Local-only fix and validation complete. Restored final source passed complete local-workflow suite:159 passed,0 failed,0 ignored,0 filtered; test102.32s,outer124132ms including22s rebuild. Scheduler tests12/12 passed; mutation removing cancellation made new regression fail exit101. Scoped Clippy -D warnings, cargo fmt --all --check, git diff --check passed. No successful-gate speedup measured. Existing shipped receipt source93889365b6987b90dc0a22068c0e06be81661668 measured outer485298ms:clippy40435,test build78799,test binaries177791,acceptance32652+112881ms. Full combined gate/publication pending; claim retained for integration. CEO now assigns new fixes to Opus; Astra checkpoint only.",
+  "claimed_by": "dot-astra-failfast",
+  "native_worker": "dot-astra-failfast",
+  "scopes": [
+    "xtask/src/test_runner.rs",
+    ".agents/tasks/T-DOTASTRAFAILFAST-1.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "validation": {
+    "full_command": "cargo test --offline --locked -p xtask --bin local-workflow --target-dir F:/st/astra-failfast/target",
+    "full_passed": 159,
+    "full_failed": 0,
+    "full_ignored": 0,
+    "full_filtered": 0,
+    "test_seconds": 102.32,
+    "outer_ms": 124132,
+    "full_log": "F:/st/astra-failfast/full-launcher.log",
+    "full_log_sha256": "E6F1B88DF3A5C04DE30168E5719FFC623A09092085C1985038A36A47D844E5BF",
+    "source_sha256": "ECBF8FDD55599957BFE11F9C071DB74E7C318A8C6348128092BAD5DFE0D4F2C9",
+    "mutation_log": "F:/st/astra-failfast/mutation.log",
+    "mutation_expected_exit": 101,
+    "clippy_log": "F:/st/astra-failfast/clippy.log"
+  }
+}

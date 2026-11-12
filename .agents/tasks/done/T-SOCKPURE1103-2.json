@@ -1,0 +1,24 @@
+{
+  "id": "T-SOCKPURE1103-2",
+  "title": "Repair main: strip UTF-8 BOMs from six task records and keep xtask build-only (no rename) so architecture_tests pass",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "SOCKPURE1103",
+  "created_unix": 1793763408,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
+}

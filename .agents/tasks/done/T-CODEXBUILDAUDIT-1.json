@@ -1,0 +1,60 @@
+{
+  "id": "T-CODEXBUILDAUDIT-1",
+  "title": "Record current core cold-build evidence for v0.21.61",
+  "goal": "Record the exact current-host cold build measurement for the v0.21.61 core main tree without changing product code or ceilings.",
+  "size": "s",
+  "deps": [
+    "T-CARBONREL61-1",
+    "T-CARBONREL61-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "task_records"
+    ]
+  },
+  "created_by": "codex-coordinator",
+  "created_unix": 1794404124,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "67cea34c6349d611e0f59600dc063d712311be05",
+  "claimed_by": "codex-build-evidence",
+  "feature_id": "F-CORE-BUILDTIME-0.21.61-1",
+  "limitations": [
+    "This is an idle Linux-host measurement and does not qualify Windows x86_64.",
+    "It does not claim the 60-second target under load or on an unmeasured host."
+  ],
+  "native_worker": "codex-build-evidence",
+  "owner": "codex-coordinator",
+  "result": {
+    "commit": "67cea34c6349d611e0f59600dc063d712311be05",
+    "host_os": "linux",
+    "target": "x86_64-unknown-linux-gnu",
+    "toolchain": "rustc 1.99.0",
+    "threads": 28,
+    "units": 210,
+    "wall_s": 26.9,
+    "cpu_s": 136.6,
+    "workspace_s": 59.6,
+    "third_party_s": 77.0,
+    "serial_tail_s": 15.7,
+    "critical_path_s": 30.7,
+    "recorded_unix": 1794404124
+  },
+  "scopes": [
+    ".agents/build-time.jsonl",
+    ".agents/tasks/T-CODEXBUILDAUDIT-1.json"
+  ],
+  "state": "in_progress",
+  "status": "implemented_pending_integration",
+  "updated_unix": 1794404124
+}

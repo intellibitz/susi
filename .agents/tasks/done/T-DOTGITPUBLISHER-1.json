@@ -1,0 +1,47 @@
+{
+  "id": "T-DOTGITPUBLISHER-1",
+  "title": "Publish portable development source",
+  "goal": "Follow the CEO's 2026-11-10 ungated-main direction with pinned committed source, history-preserving concurrent Git publication and frozen qualification snapshots. Retain full release qualification and add no GitHub service dependency.",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-snapshot"
+    ]
+  },
+  "created_by": "dot-git-publisher",
+  "created_unix": 1794317569,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "checkpoint": "Before the latest graft-history guard, Windows source passed 24 tests (75.32s harness, 77.686s outer), strict bin clippy -D warnings (1.356s), native build (1.888s), cargo fmt --all --check (22.356s) and executable help smoke. The new guard and its 25th test require combined validation. Independent source review completed; real Git CAS-race regression passed. The owner-scoped build.rs push-policy entry requires the coordinated native push-policy source commit; this dependency checkpoint is not independently buildable before composition. Exact combined checks and origin publication remain pending. No Linux publisher qualification, automatic dual-host release orchestration, release attestation or production promotion is claimed. The adjacent native push-policy discovery and its 26th test are now included; these follow-ups await final exact-tree validation. The interrupted combined build produced no result files, and reconnect confirmed no active compiler or push process. No publication occurred.",
+  "claimed_by": "dot-git-publisher",
+  "historical_evidence_before_history_guard": {
+    "toolchain": "Rust 1.99.0 x86_64-pc-windows-msvc",
+    "module_sha256": "d49aff61c1369bc5770ba7c2fd73392d7534fd303f7403f88d467c7ec220ac15",
+    "native_binary_sha256": "837595462f5d508246e8d925a8fa5fc87ff45860884d13a82d9a5c46f3b48cd5",
+    "tests_passed": 24,
+    "tests_failed": 0,
+    "tests_ignored": 0
+  },
+  "native_worker": "dot-git-publisher",
+  "scopes": [
+    "xtask/build.rs",
+    "xtask/src/git_publish.rs",
+    "xtask/src/bin/local-snapshot.rs",
+    "docs/git-storage-publisher.md",
+    ".agents/tasks/T-DOTGITPUBLISHER-1.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress"
+}

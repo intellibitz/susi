@@ -1,0 +1,42 @@
+{
+  "id": "T-CTOWINSPEED-1",
+  "title": "Sub-10s warm cargo fast-release on Windows x86_64 via toolchain env preservation, idempotent binary staging, and OS-process soak filters",
+  "goal": "Achieve <10s warm inner-loop build + test + release execution (`cargo fast-release` `total_ms < 10_000`) on Windows x86_64 (`x86_64-pc-windows-msvc`): preserve `CARGO_HOME` and `RUSTUP_HOME` across isolated test sandboxes so child `cargo`/`rustc` invocations never re-download the toolchain; skip redundant 50 MB PE binary overwrites in `stage_one_binary` when byte-identical to avoid Windows Defender synchronous re-scan overhead; collapse `read_git_provenance` into a single `git rev-parse` process; and filter Windows multi-second OS-process (`tasklist`, `netstat`, `git`, `rustc`), NTFS `FlushFileBuffers` loop, and loopback TCP SYN-retransmit timeout soak tests into `skipped_soak_tests` (`--full-soak` runs all of them).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "xtask",
+      "--",
+      "fast_release"
+    ]
+  },
+  "created_by": "core-release",
+  "created_unix": 1794463632,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "207acd55f7d7442c7815c31434b85df9a8733088",
+  "feature_id": "F-WIN-FAST-RELEASE-10S-1",
+  "limitations": [
+    "Soak filters skipped in the default <10s inner loop remain recorded verbatim in `verification.skipped_soak_tests` and execute under `cargo fast-release --full-soak`."
+  ],
+  "owner": "core-release",
+  "scopes": [
+    ".agents/tasks/T-CTOWINSPEED-1.json",
+    "crates/susi-harness/src/tests/mcp.rs",
+    "xtask/src/fast_release.rs"
+  ],
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794463632
+}

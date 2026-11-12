@@ -1,0 +1,52 @@
+{
+  "id": "T-RELEASEHERMETIC-1",
+  "title": "Isolate Windows release promotion regression",
+  "goal": "Exercise unchanged production release scripts against a fixture-only catalog of pinned real child processes, preserve real ownership/stop/rollback checks, and prove unreadable live ownership and out-of-catalog process access fail closed.",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "release_workflow",
+      "--test",
+      "release_process_identity",
+      "--test",
+      "task_records"
+    ]
+  },
+  "created_by": "dot-release-hermetic",
+  "created_unix": 1794266258,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "checkpoint": "Existing fixture patch preserved. Independent isolated Windows fixture and process-identity tests passed. Native Cargo acceptance, combined-tree integration and publication remain pending.",
+  "claimed_by": "dot-release-hermetic",
+  "continuation": {
+    "actor": "dot (Astra)",
+    "assigned_by": "CEO",
+    "assigned_utc": "2026-11-10T09:17:06.0540274Z",
+    "purpose": "Continue the unfinished release-fixture task under its existing reservation, retaining original authorship and patch bytes.",
+    "original_claim_unchanged": true,
+    "preserved_test_source_sha256": {
+      "scripts/test-release-sync-windows.ps1": "87efdfe336379759d7e49d95e29b06f808304c62344872a9c64e2ee2d2b73c95",
+      "tests/release_workflow.rs": "29d3caee1592bc3843a18ae4998e78a202b4ad0d528bb61a9a43040bf04b3364"
+    },
+    "focused_verification": [
+      "windows_release_promotion: 1 passed, 0 failed, 40.24 seconds",
+      "cim_snapshot_identity_is_fail_closed: 1 passed, 0 failed, 0.98 seconds"
+    ]
+  },
+  "native_worker": "dot-release-hermetic",
+  "scopes": [
+    "scripts/test-release-sync-windows.ps1",
+    "tests/release_workflow.rs",
+    ".agents/tasks/T-RELEASEHERMETIC-1.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress"
+}

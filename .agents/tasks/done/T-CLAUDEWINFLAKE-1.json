@@ -1,0 +1,38 @@
+{
+  "id": "T-CLAUDEWINFLAKE-1",
+  "title": "adapter_upgrade tests no longer share a scratch folder on Windows",
+  "goal": "manager_without() named its scratch folder by process id and the clock in nanoseconds. Windows' clock is coarse, so two tests in one process drew the same name; one removed the folder while the other wrote its adapter override ('The system cannot find the path specified'). The name now also carries a per-process counter. Test code only.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-agents",
+      "--lib",
+      "adapter_upgrade"
+    ]
+  },
+  "created_by": "CLAUDEWINSTOP",
+  "created_unix": 1794430000,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "b77701ca440fc0bc83f9f51abdad5b8c74716087",
+  "claimed_by": "CLAUDEWINSTOP",
+  "feature_id": "F-CORE-WINDOWS-QUALIFICATION-1",
+  "native_worker": "CLAUDEWINSTOP",
+  "owner": "claude",
+  "scopes": [
+    "crates/susi-gawd-agents/src/adapter_upgrade.rs",
+    ".agents/tasks/T-CLAUDEWINFLAKE-1.json"
+  ],
+  "state": "done",
+  "status": "done",
+  "validation": "On x86_64-pc-windows-msvc: before, the group failed 1 run in 6 and once in the full v0.21.62 test gate; after, 25 runs in a row pass (5 tests each); clippy -p susi-gawd-agents --all-targets -D warnings clean."
+}

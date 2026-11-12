@@ -1,0 +1,47 @@
+{
+  "id": "T-CODEXSTRUCTUREDCHAT-1",
+  "title": "Preserve structured assistant tool turns for local model templates",
+  "goal": "Keep assistant tool_calls, tool_call_id results, and other message fields intact when Core normalizes an OpenAI chat request for the Commercial local-engine plug, while retaining the text conversation used by provider-neutral routing.",
+  "size": "s",
+  "deps": [
+    "T-CODEXHISTORY-1",
+    "T-CLAUDEGEMIFIX-2",
+    "T-CLAUDECOMMCHATTPL-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-server",
+      "--lib",
+      "preserves_structured_tool_turns_for_local_templates"
+    ]
+  },
+  "created_by": "codex",
+  "created_unix": 1794438420,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "2fa6a027d20eb499a8f1b4409cdcae806f405f6d",
+  "native_worker": "codex-structured-core",
+  "owner": "codex",
+  "results": {
+    "status": "implemented and locally verified",
+    "base": "2fa6a027d20eb499a8f1b4409cdcae806f405f6d",
+    "commit": "0c3bd584d4c61788a63a9066854877fa83df66b4",
+    "acceptance": "1 passed, 0 failed",
+    "focused_tests": "susi-server library: 56 passed, 0 failed",
+    "gate": "cargo local-workflow check: passed; fmt, clippy, 135/135 test binaries, 0 failed; 100.4s",
+    "published": "pending paired fast-forward to origin/main"
+  },
+  "scopes": [
+    "crates/susi-server/src/lib.rs",
+    ".agents/tasks/T-CODEXSTRUCTUREDCHAT-1.json"
+  ],
+  "status": "implemented"
+}

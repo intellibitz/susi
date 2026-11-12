@@ -1,0 +1,44 @@
+{
+  "id": "T-BATCH1102-5",
+  "title": "Sign scoped worker commits with an explicitly selected OpenPGP key",
+  "goal": "Verify the requested full fingerprint before atomically updating the worker head, preserve staged edits on failure, and keep ordinary local commits independent of GPG.",
+  "size": "s",
+  "deps": [
+    "T-COUNT1102-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow"
+    ]
+  },
+  "created_by": "BATCH1102",
+  "created_unix": 1793621653,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "receipt": {
+    "native_workflow_tests": 25,
+    "clean_verifier_source": "a7a843263b089b25e6357c1cb43450b096d127b5",
+    "clean_verifier_sha256": "666df1d6fe037be8d70db4b44b9e2a1ffe2fa9e6ca5d1bb8a4bd10aa4d7fcb22",
+    "clean_verifier_signed_fixture": "1072dd062aaaaf1fb2b9f11f5ea61e6f8558476e",
+    "fixture_commit": "5c8cb2e2f9eb927d68b36a8d70e6f08739feb8c8",
+    "fixture_signer": "9A9F7E04FC9B206247A2B9DD33F05C5B122DD08E",
+    "fixture_reservation_and_signing_ms": 2393,
+    "private_test_key_removed": true,
+    "independent_claim_during_signing": true,
+    "failed_signing_preserved_head": true
+  },
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-BATCH1102-5.json"
+  ]
+}

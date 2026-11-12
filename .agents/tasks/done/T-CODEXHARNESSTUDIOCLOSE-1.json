@@ -1,0 +1,46 @@
+{
+  "id": "T-CODEXHARNESSTUDIOCLOSE-1",
+  "title": "Make explicit Core harness MCP client close stop stdio children",
+  "goal": "Ensure an explicit MCP client close releases a stdio child immediately instead of waiting for the client object to be dropped.",
+  "size": "s",
+  "deps": [
+    "T-CODEXHARNESSCLOSE-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "mcp"
+    ]
+  },
+  "created_by": "codex",
+  "created_unix": 1794446987,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "7b9653f6e09c9413facd11e16d655db36e9e500a",
+  "native_worker": "codex-harness-stdio-close",
+  "owner": "codex",
+  "results": {
+    "status": "implemented and locally verified",
+    "change": "StdioTransport now implements the transport close hook with its existing child-stop path, so McpClient::close immediately kills and reaps the stdio child and remains idempotent.",
+    "acceptance": "cargo test --offline --locked -p susi-harness --lib mcp: 23 passed, 0 failed",
+    "fmt": "cargo fmt --all --check: passed",
+    "clippy": "cargo clippy --offline --locked -p susi-harness --all-targets -- -D warnings: passed",
+    "boundary": "Core harness MCP stdio lifecycle only; no dependency, Commercial, harvest, release, or credential changes",
+    "limitation": "The process-backed child-reap regression is Unix-only because the current host is Linux; the production close path uses portable std::process APIs."
+  },
+  "scopes": [
+    "crates/susi-harness/src/mcp.rs",
+    "crates/susi-harness/src/tests/mcp.rs",
+    ".agents/tasks/T-CODEXHARNESSTUDIOCLOSE-1.json"
+  ],
+  "status": "implemented"
+}

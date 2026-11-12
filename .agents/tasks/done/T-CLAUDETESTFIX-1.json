@@ -1,0 +1,31 @@
+{
+  "id": "T-CLAUDETESTFIX-1",
+  "title": "Root-fix the susi-gemi openrouter_ext provider test race",
+  "goal": "The Linux full-workspace run of release/v0.21.54 (9d2fe3d00) failed susi-gemi openrouter_ext::inline_tests::provider_reflects_manager_doctor_state_and_formats_provider_name; alone it passed, in full lib runs it failed 1 in 3. Cause: doctor() and provider() each resolve the OpenRouter key and endpoint from the process environment and the config under HOME, and the test held no env lock, so a sibling test moving HOME between the two calls made them disagree; it also read the operator's real key store. The test now holds crate::engines::env_test_lock() with an isolated EnvGuard home and a fixed test key, and also asserts the no-key refusal. The three other defects found in the same run (child HOME isolation, the console-helper name guard, unused sync_hooks helpers) were fixed on main by T-MAINFIX-1 first, so this task carries only this one.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib"
+    ]
+  },
+  "created_by": "CLAUDETESTFIX",
+  "created_unix": 1794343648,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "d771008a39d6557dcdb485bf62f3642fcd0a0d31",
+  "native_worker": "claudetestfix",
+  "scopes": [
+    ".agents/tasks/t-claudetestfix-1.json",
+    "crates/susi-gemi/src/openrouter_ext.rs"
+  ]
+}

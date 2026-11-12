@@ -1,0 +1,34 @@
+{
+  "id": "T-CLAUDESPEEDDOC-1",
+  "title": "Mark the GitHub handoffs in docs/workflow-speed.md as superseded",
+  "goal": "After the GitHub Actions removal (T-CLAUDERMGHA-1) and the full-local-gate release cut (T-CLAUDERELCUT-1), docs/workflow-speed.md must not describe GitHub verification handoffs, Test-run evidence reuse or SUSI_RELEASE_RERUN_TESTS as current; keep the historical measurements and say what replaced them.",
+  "size": "xs",
+  "deps": [
+    "T-CLAUDERELCUT-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "no_github_actions_workflow_returns"
+    ]
+  },
+  "created_by": "CLAUDESPEEDDOC",
+  "created_unix": 1793965228,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "speeddoc",
+  "scopes": [
+    ".agents/tasks/t-claudespeeddoc-1.json",
+    "docs/workflow-speed.md"
+  ]
+}

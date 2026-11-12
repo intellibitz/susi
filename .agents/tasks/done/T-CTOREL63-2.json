@@ -1,0 +1,76 @@
+{
+  "id": "T-CTOREL63-2",
+  "title": "Record Susi core v0.21.63 release and advance main to 0.21.63",
+  "goal": "Record releases/v0.21.63.json and byte-identical releases/qualification/v0.21.63.json for immutable tag v0.21.63 (7cd45b3786bbe85a085a1bf47afb23eeb08c5429) and advance development main to 0.21.63.",
+  "size": "s",
+  "deps": [
+    "T-CTOHARVEST-1",
+    "T-CTOMANDATE75-1",
+    "T-CLAUDEPORTBLOCKS-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "ship-v2",
+  "created_unix": 1794425628,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "4ecdd4e51fbd9ea2f9e7d924b3577a6a4e410823",
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.63-1",
+  "limitations": [
+    "Windows x86_64 reference build and qualification remain owed."
+  ],
+  "owner": "ship-v2",
+  "results": {
+    "tag": "v0.21.63",
+    "tag_object": "26286cdfc1aa50d8a2c86965458a2cfa1d1cdca3",
+    "tagged_commit": "7cd45b3786bbe85a085a1bf47afb23eeb08c5429",
+    "qualified_commit": "e0e92ad3a63d5185bbcf545604c422e5a927d1ba",
+    "qualified_tree": "9e14395bb8714c38bf493d91231a3379df2383fe",
+    "distill_candidate": "v0-21-63-distilled-rc1",
+    "distill_composed_commit": "c38d71a59a32596ae83823788cf3ffea4a98d55a",
+    "distill_envelope_commit": "a9701a5316f76b3ccb57cabbe82c50a164eaefa5",
+    "distill_receipt_sha256": "5563005c2ba55715f81ca9cad244c1c32e73986cd335f2100ca24c6ca32aba55",
+    "workspace_tests": {
+      "binaries": 255,
+      "passed": 5754,
+      "failed": 0,
+      "ignored": 14
+    },
+    "susi_sha256": "d3da10c10f0942c9702df68a5d88406eee78d0bcfba22abe2779720d8053d24d",
+    "susi_harness_sha256": "9c407340eefecf53d7277eee08896db76be65ed4393acba7619937467adf4519"
+  },
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CTOREL63-1.json",
+    ".agents/tasks/T-CTOREL63-2.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    "releases/qualification/v0.21.63.json",
+    "releases/v0.21.63.json"
+  ],
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794425628
+}

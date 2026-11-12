@@ -1,0 +1,32 @@
+{
+  "id": "T-MODELDIGEST-1",
+  "title": "Use the already admitted publisher digest through model transfer and publication",
+  "goal": "When publisher admission binds an immutable revision and checksum, issue only the intended GET and validate that same checksum before publishing. Preserve unpinned HEAD behavior, unknown files, partial-transfer recovery, ETag/range semantics and privacy checks. Report success only after the publisher receipt is stored. A failed publication or sidecar write must leave the task and its requested URL visibly failed, including when a later caller adopts the same bytes.",
+  "size": "s",
+  "deps": [
+    "T-VERSION43-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "--lib"
+    ]
+  },
+  "created_by": "MODELDIGEST",
+  "created_unix": 1793643126,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
+    "crates/susi-gemi-models/src/download.rs",
+    ".agents/tasks/T-MODELDIGEST-1.json"
+  ]
+}

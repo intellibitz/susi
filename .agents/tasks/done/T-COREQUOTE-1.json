@@ -1,0 +1,75 @@
+{
+  "id": "T-COREQUOTE-1",
+  "title": "Recover setup from a lone quote in cloud.env",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "-p",
+      "susi-config",
+      "--lib",
+      "lone_quote_is_empty_and_following_entries_survive"
+    ]
+  },
+  "created_by": "COREQUOTE",
+  "created_unix": 1793615733,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "attempts": [
+    {
+      "compiler_reported_seconds": 1562,
+      "phase": "first publication",
+      "result": "remote branch absent after local gate"
+    },
+    {
+      "phase": "publication retry",
+      "result": "remote branch verified",
+      "elapsed_ms": 197113
+    },
+    {
+      "phase": "preceding launcher workspace tests",
+      "result": "abnormal exit",
+      "elapsed_ms": 3078147
+    },
+    {
+      "phase": "individual core integration",
+      "interrupted_gate_ms": 1762,
+      "result": "withdrawn to combine teardown repair and core change",
+      "format_ms": 18079
+    },
+    {
+      "phase": "batch runner bootstrap",
+      "result": "missing workspace_test_count.rs when built alone",
+      "repair": "built with count1102 source; 24 coordinator tests passed"
+    }
+  ],
+  "baseline": {
+    "exit_code": -1073740791,
+    "elapsed_ms": 14600,
+    "version": "0.21.41"
+  },
+  "cold_test": {
+    "exit_code": 0,
+    "elapsed_ms": 264838,
+    "since_edit_ms": 270342.2379
+  },
+  "observed_edit_to_checkpoint_ms": 3910036.8237,
+  "scope": [
+    "crates/susi-config/src/cloud_env.rs",
+    ".agents/tasks/T-COREQUOTE-1.json"
+  ],
+  "warm_same_test": {
+    "elapsed_ms": 26098,
+    "cold_ms": 264838,
+    "since_edit_ms": 715562.1419,
+    "exit_code": 0
+  },
+  "warm_suite_ms": 18014
+}

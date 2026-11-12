@@ -1,0 +1,39 @@
+{
+  "id": "T-RELEASE46-1",
+  "title": "Release Susi 0.21.46",
+  "goal": "Publish 0.21.46 with: local reports skip the CLI composition root (susi review 4.8 s, keys 5.0 s, os-clean 4.9 s -> ~0.3 s), susi substrate 1.95 -> 1.09 s, susi extensions validate for pack authors, and CI latency budgets on the host contract conformance suite.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "RELEASE46",
+  "created_unix": 1793671014,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/t-release46-1.json",
+    "cargo.lock",
+    "cargo.toml",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-harness/cargo.toml",
+    "crates/susi-server/cargo.toml",
+    "readme.md"
+  ]
+}

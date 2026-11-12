@@ -1,0 +1,66 @@
+{
+  "id": "T-DOTICU78-1",
+  "title": "Qualify runtime ICU 78 Unicode 17 without direct linkage",
+  "accept": {
+    "criteria": [
+      "Compare all Unicode scalars and all eleven replacement properties plus lower upper title fold against the unchanged pinned Rust compiler; review differences.",
+      "Run fresh private stdlib consumer with actual system ICU 78; preserve Windows and older Linux contracts, fixed system directories, fail-closed behavior and no direct ICU imports.",
+      "Run affected host IDNA and regex runtime tests; acquire actual Opus contribution and Argon review.",
+      "Recheck actual consumer on cached Linux sysroot admission without weakening source or artifact guards."
+    ],
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "DOTICU78",
+  "created_unix": 1794264998,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "dot-icu78",
+  "progress": [
+    "Actual Claude Opus 5.5 designed the audit and category-based scalar-title fix; actual Gemini 4 Argon High source review and final Windows audit review approved with zero blockers.",
+    "Final Linux audit passes all 1,112,064 scalars, eleven properties and lower, upper, title and fold conversions with zero mismatches or panics. Georgian, U+0345, titlecase-letter and expansion regressions pass.",
+    "Final Windows audit passes 287,346 assigned scalars and the reviewed 70 differences. The original 71 to 70 delta removes only U+0345; all other difference lines remain byte-identical.",
+    "Fresh changed private sysroot and real Linux cache-hit consumers pass. Measured warm cached admission with recompilation and consumer execution took 0.742 seconds on the qualification host.",
+    "IDNA runtime tests pass 8 of 8; OS regex Unicode tests pass 3 of 3; regex-syntax tests pass 143 unit and 48 doc tests. The focused ICU ELF import policy test and two trusted-sysroot tests pass.",
+    "The full ELF suite has 8 passes and one unrelated OpenSSL path failure. Scoped clippy is blocked by three pre-existing susi-config host_metrics useless-conversion lints. These are separate claims.",
+    "Formatting and diff checks pass. No complete integration gate, publication, release, promotion or portable Linux baseline is claimed."
+  ],
+  "qualification": {
+    "consumer_sha256": "d73e8edc8baff7c2bf6d64910b0e51e401c97cc0260424dee674a6a5e36cb31e",
+    "windows_assigned_scalars": 287346,
+    "windows_reviewed_differences": 70,
+    "linux_scalars": 1112064,
+    "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "compiler": "1.99.0 b940084d7eb6a299eb4bfeb8e34901bc051e7ac4",
+    "remaining": "Desktop integration and combined-tree gates; final artifact and declared baseline qualification; no direct execution against Linux ICU 72, 74 or 76 on this host.",
+    "linux_mismatches": 0,
+    "sysroot_identity": "3564f7760a705d9293f77647c03dc1c13637ffa9eaacafc6741ae4b709a6e382",
+    "linux_icu": "78.3-1.1 / Unicode 17.0"
+  },
+  "scopes": [
+    "toolchain/windows-stdlib/platform_unicode.rs",
+    "toolchain/windows-stdlib/consumer.rs",
+    "toolchain/windows-stdlib/builder.rs",
+    "toolchain/windows-stdlib/qualify_linux.rs",
+    "toolchain/windows-stdlib/NATIVE-BUILDS.md",
+    "xtask/src/elf_imports.rs",
+    "xtask/src/trusted_sysroot.rs",
+    ".agents/tasks/T-DOTICU78-1.json",
+    "toolchain/windows-stdlib/qualify.rs"
+  ],
+  "status": "implemented_pending_integration"
+}

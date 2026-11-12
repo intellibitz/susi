@@ -1,0 +1,41 @@
+{
+  "id": "T-CLAUDEFASTHOOKS-1",
+  "title": "Local git hooks must not slow the dev workflow",
+  "goal": "CEO 2026-11-11: \"the local githooks should not slow dev workflow\". Measured on Linux (2026-11-11, loaded host): pre-commit 8-11 s per Rust commit (cargo fmt --all --check over the whole workspace); post-commit ran sync-branch, a network fetch (~0.6 s) plus an automatic merge of origin/main into the branch on every commit (it also pulled unqualified main into release/v0.21.54); pre-push refused every plain git push when push-policy was not installed. Now: pre-commit checks only the staged Rust files with rustfmt and their crate's edition (~0.6 s, most of it the workflow-guard probe) and falls back to the full cargo fmt only when that fast check fails, so it never refuses what cargo fmt accepts; post-commit does no network or merge work (~55 ms; sync-primary stays a throttled background fetch) and sync-branch is retired (branches reconcile at local-snapshot submit); pre-push keeps push-policy's transport safety but finds it on PATH or in the checkout's target, or builds it once offline, failing closed only when it cannot be built.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDENOGITHUB-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "sync_hooks",
+      "--test",
+      "hook_enforcement"
+    ]
+  },
+  "created_by": "CLAUDENOGITHUB",
+  "created_unix": 1794342744,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "992e7539d1be7069e9b182e73a2245ef3f21fbcb",
+  "native_worker": "claudenogithub",
+  "scopes": [
+    ".agents/tasks/t-claudefasthooks-1.json",
+    ".githooks/pre-commit",
+    ".githooks/post-commit",
+    ".githooks/pre-push",
+    ".githooks/sync-branch",
+    "docs/parallel-faq.md",
+    "tests/sync_hooks.rs"
+  ]
+}

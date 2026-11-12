@@ -1,0 +1,53 @@
+{
+  "id": "T-CLAUDEREL56-5",
+  "title": "Record core release v0.21.56 on main",
+  "goal": "Land releases/v0.21.56.json and the qualification record of tag v0.21.56 (the first release promoted from a distilled candidate, v0.21.56-distilled-rc25) on main, and advance development main to 0.21.56 in the files of the v0.21.55 bump so the record is not newer than the workspace.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDEREL56-4"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDEREL56",
+  "created_unix": 1794394000,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [
+    "Windows x86_64 reference build and qualification of v0.21.56 are owed (missing_targets)."
+  ],
+  "owner": "CLAUDEREL56",
+  "results": {},
+  "scopes": [
+    "releases/v0.21.56.json",
+    "releases/qualification/v0.21.56.json",
+    ".agents/tasks/T-CLAUDEREL56-4.json",
+    ".agents/tasks/T-CLAUDEREL56-5.json",
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    ".agents/gmcp/evidence"
+  ],
+  "status": "done"
+}

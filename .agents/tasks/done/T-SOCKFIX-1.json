@@ -1,0 +1,44 @@
+{
+  "id": "T-SOCKFIX-1",
+  "title": "Gossip honours bind_address",
+  "goal": "Every daemon listener honours the configured bind_address. Gossip (UDP 9095 plus offset) bound the wildcard in every privacy mode, so a daemon configured with bind_address 127.0.0.1 still listened for gossip on every interface. Gossip now binds bind_address at its port, falls back to an ephemeral port on that same address (never the wildcard), and host_only still narrows a wider address to loopback. The A2A UDP discovery responder and the four host-contract TCP listeners already bind bind_address (verified on a live daemon).",
+  "size": "S",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "gossip_binds_the_configured_bind_address_and_never_the_wildcard",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "sockfix",
+  "created_unix": 1794156009,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi-daemon --lib gossip_binds_the_configured_bind_address_and_never_the_wildcard --offline --locked passes: with bind_address 127.0.0.1 and host_only off, the real gossip socket's bound address is 127.0.0.1 at the requested port, a datagram to this host's routed address on that port reaches nothing, a taken port falls back to an ephemeral loopback port, and a wildcard bind_address is honoured as configured.",
+  "claimed_by": "sockfix",
+  "native_worker": "sockfix",
+  "scope": [
+    ".agents/tasks/t-sockfix-1.json",
+    "crates/susi-daemon/src/composition.rs",
+    "crates/susi-daemon/src/gossip.rs",
+    "crates/susi-daemon/src/port_fallback.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-sockfix-1.json",
+    "crates/susi-daemon/src/composition.rs",
+    "crates/susi-daemon/src/gossip.rs",
+    "crates/susi-daemon/src/port_fallback.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794156009
+}

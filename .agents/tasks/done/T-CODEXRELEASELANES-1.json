@@ -1,0 +1,42 @@
+{
+  "id": "T-CODEXRELEASELANES-1",
+  "title": "Make release-lane tests independent of inherited agent identity",
+  "goal": "Keep release-lane fixture agents distinct when the release runner exports SUSI_AGENT, so stale-claim and concurrent-lane tests exercise their intended ownership behavior on the exact release gate environment.",
+  "size": "xs",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "release-lanes"
+    ]
+  },
+  "created_by": "CODEXRELEASELANES",
+  "created_unix": 1794425401,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "4ecdd4e51fbd9ea2f9e7d924b3577a6a4e410823",
+  "feature_id": "F-CORE-RELEASE-LANES-HERMETIC-1",
+  "limitations": [
+    "The fix changes only the release-lanes test helper; production agent identity resolution remains unchanged."
+  ],
+  "native_worker": "codex-release-lanes",
+  "results": {
+    "fmt": "cargo fmt --all --check: passed",
+    "inherited_agent": "SUSI_AGENT=carbon cargo test --offline --locked -p xtask --bin release-lanes -- --nocapture: 33 passed, 0 failed",
+    "scope": "The test-only run_in helper passes each fixture checkout's basename as --agent before --cmd, preserving distinct alice/bob ownership under release-runner environments."
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXRELEASELANES-1.json",
+    "xtask/src/release_lanes.rs"
+  ],
+  "status": "implemented"
+}

@@ -1,0 +1,52 @@
+{
+  "id": "T-CODEXREL59REC-1",
+  "title": "Record core v0.21.59 qualification on development main",
+  "goal": "Publish the host-neutral git release record for immutable core tag v0.21.59, naming its exact qualified tree, Linux assets, gate counts, distilled source and the Windows x86_64 evidence still owed.",
+  "size": "xs",
+  "deps": [
+    "T-CODEXREL59-1",
+    "T-CARBONLEAN-14"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "codex-coordinator",
+  "created_unix": 1794400506,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "b03a16220c3b811a19fbfcd0458a727f2037a84b",
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.59-1",
+  "limitations": [
+    "The release record reports Linux qualification only; Windows x86_64 reference qualification remains owed."
+  ],
+  "owner": "codex-coordinator",
+  "results": {
+    "host": "x86_64-unknown-linux-gnu",
+    "release_record_commit": "76c878548647b4c7177271b5415c6b1cd6f955c3",
+    "qualified_commit": "efaf4280589f39adb509b12c8855579691022151",
+    "qualified_tree": "1b81ea62fc57ae7a91100457a23929e0e75b5068",
+    "tag": "v0.21.59",
+    "tag_remote_verified": true,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "verified_unix": 1794400506
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXREL59REC-1.json"
+  ],
+  "state": "done",
+  "status": "done",
+  "updated_unix": 1794400506
+}

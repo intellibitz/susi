@@ -1,0 +1,38 @@
+{
+  "id": "T-SOCKMODE1106-1",
+  "title": "Windows: loopback test servers restore blocking reads on accepted sockets",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-adapters-llm",
+      "--lib",
+      "--offline",
+      "--locked",
+      "inference_wire"
+    ],
+    "criteria": [
+      "every loopback test server that accepts from a non-blocking listener calls set_nonblocking(false) on the accepted stream before reading",
+      "inference_json_content_type_and_token_retry_reach_http_server no longer fails with WouldBlock (os error 10035) on Windows",
+      "zc_hooks_on_clone fixture git runs with no global or system config, so a developer's commit signing cannot hang it"
+    ]
+  },
+  "created_by": "SOCKMODE1106",
+  "created_unix": 1794020000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "sockmode1106",
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-sockmode1106-1.json",
+    "crates/susi-adapters-llm/src/inference_wire.rs",
+    "crates/susi-gemi/src/engines/http_provider.rs",
+    "tests/zc_hooks_on_clone.rs"
+  ],
+  "status": "implemented_pending_integration"
+}

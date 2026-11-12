@@ -1,0 +1,40 @@
+{
+  "id": "T-CLAUDEWINSTOP-1",
+  "title": "The shared HTTP server stops on Windows while a client holds an idle connection",
+  "goal": "On shutdown the shared HTTP transport closes idle connections by shutting their sockets down from the stopping thread. On Windows that does not wake a recv that is already blocked, so a connection waiting between requests stayed until its client closed it and serve() never returned: stopping the daemon could hang for as long as any client kept a keep-alive connection open. On Windows an idle connection now waits for its next request in 100 ms timed peeks and checks the stop flag between them. Other hosts are unchanged.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-http-transport"
+    ]
+  },
+  "created_by": "CLAUDEWINSTOP",
+  "created_unix": 1794421000,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "fd33b84af6e4af5ef56fa1fcd93743a7eaefc7ea",
+  "claimed_by": "CLAUDEWINSTOP",
+  "feature_id": "F-CORE-HTTP-WINDOWS-SHUTDOWN-1",
+  "limitations": [
+    "A stopping server is noticed by an idle connection within 100 ms, not at once.",
+    "A TLS connection that has received part of a record when the server stops still waits for the rest of that record."
+  ],
+  "native_worker": "CLAUDEWINSTOP",
+  "owner": "claude",
+  "scopes": [
+    "crates/susi-http-transport/src/server.rs",
+    ".agents/tasks/T-CLAUDEWINSTOP-1.json"
+  ],
+  "state": "done",
+  "status": "done",
+  "validation": "On x86_64-pc-windows-msvc: server::tests::shutdown_finishes_the_request_in_flight_and_closes_idle_connections failed 3 of 3 runs before (serve() did not return within 5 s) and susi-http-transport passes 48 of 48 in 3 of 3 runs after; clippy -p susi-http-transport --all-targets -D warnings clean. The change is cfg(windows), so Linux builds the same code as before; not run on Linux."
+}

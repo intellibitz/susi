@@ -1,0 +1,44 @@
+{
+  "id": "T-CLAUDEWTPRUNE-1",
+  "title": "No repository-wide git worktree prune in core tooling",
+  "goal": "local-workflow's clear_candidate and local-release's gate-tool checkout forget only their own worktree record instead of running a bare `git worktree prune`, which on this shared NTFS drive also deletes the records of live worktrees registered from the Windows boot (gitdir F:/..., a missing relative path to Linux Git); board item 147",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow"
+    ]
+  },
+  "created_by": "CLAUDEWTPRUNE",
+  "created_unix": 1794379757,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [
+    "does not prove what deleted the whole susi/.git/worktrees directory at 11:31 IST on 2026-11-11: Linux-registered records were lost too, which a bare prune does not explain",
+    "commercial `susi-commercial workflow prune` not audited here"
+  ],
+  "results": [
+    "new xtask/src/worktree_admin.rs: forget(root, checkout) removes only the .git/worktrees record whose gitdir names the removed checkout; locked and unreadable records are kept",
+    "tests: forgets_only_the_record_of_the_removed_checkout, a_locked_record_is_kept, a_bare_prune_would_also_delete_the_windows_record (demonstrates the hazard with real git 2.56)",
+    "cargo test -p xtask --bin local-workflow: 186 passed, 0 failed; --features release-tooling --bin local-release: 100 passed, 0 failed, 2 ignored (pre-existing)",
+    "strict clippy on xtask (all features, all targets) exit 0; workspace check exit 0"
+  ],
+  "scopes": [
+    "xtask/src/worktree_admin.rs",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/release_coordinator.rs",
+    ".agents/tasks/T-CLAUDEWTPRUNE-1.json"
+  ],
+  "status": "done"
+}

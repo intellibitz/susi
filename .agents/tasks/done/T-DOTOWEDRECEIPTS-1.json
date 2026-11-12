@@ -1,0 +1,42 @@
+{
+  "id": "T-DOTOWEDRECEIPTS-1",
+  "title": "Replace shell receipt scan with native Rust",
+  "goal": "Run the actual owed-receipt scanner on native Windows and Linux without shell or jq prerequisites, preserving published-tree and agent semantics.",
+  "size": "S",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "Codex",
+  "created_unix": 1794311891,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "dot-owed-receipts",
+  "scopes": [
+    ".agents/tasks/T-DOTOWEDRECEIPTS-1.json",
+    "crates/susi-unsafe-ratchet/src/bin/owed-task-receipts.rs",
+    "crates/susi-unsafe-ratchet/tests/ci_changed_crates.rs",
+    "crates/susi-unsafe-ratchet/tests/owed_receipts.rs",
+    "scripts/owed-task-receipts.sh"
+  ],
+  "status": "implemented_pending_integration",
+  "verification": [
+    "2026-11-10 native Windows x86_64, pinned Rust 1.99.0, private source/build/runtime state and sanitized native PATH. Original owed_receipts red: 0 passed, 5 failed, 0 ignored because sh was absent.",
+    "Additional actual Cargo red regressions: a broken closed receipt ref returned empty success (0 passed, 1 failed); a malformed remote/main ref was confused with absence (0 passed, 1 failed). Both now fail closed with diagnostics.",
+    "Final cargo test -p susi-unsafe-ratchet --offline --locked: 73 passed, 0 failed, 0 ignored, including 13 owed-receipt fixture tests and 3 native CLI parser tests. All original five behavioral tests and the existing Unix 90-receipt fixture were preserved.",
+    "Final cargo clippy -p susi-unsafe-ratchet --all-targets --offline --locked -- -D warnings, cargo fmt --all --check, and git diff --check passed. No dependency, manifest, source-ceiling, or baseline changes.",
+    "Exact source guards compiled with pinned rustc and actual production/facade dependencies: architecture_tests 41 passed, orphan_sources 3 passed, lean_core_ceilings 2 passed, core_docs_promise_no_ui_or_plugins 5 passed, task_records 3 passed. Architecture dependencies were physically copied and hash-verified from an inactive unchanged-base build; no shared writable target or stubs.",
+    "Legacy Bash adapter and its existing Unix-only hosted fixture were not executed on this Windows host; nested Cargo adapter behavior on Unix remains unverified. All native receipt behavior ran against real private Git repositories, with refs and worktree status invariants. No real receipt refs or user configuration changed.",
+    "Local independent review, native commit, combined integration gate and publication remain separate steps; no integration, push, release, or production qualification claimed."
+  ]
+}

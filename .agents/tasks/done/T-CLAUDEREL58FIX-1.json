@@ -1,0 +1,44 @@
+{
+  "id": "T-CLAUDEREL58FIX-1",
+  "title": "Fix the two v0.21.58 release-gate test failures at their root on main",
+  "goal": "release-qualify v0.21.58 on snapshot v0-21-58-rc1 (84fac48c0) failed its tests gate with 2 of 5668 tests. (1) tests/thin_client_invariant.rs cli_defs_links_only_the_clap_closure: T-CARBONLEAN-12 (0a6195c8c) built clap without default features, which removed anstream, anstyle-parse, anstyle-query, anstyle-wincon, colorchoice, is_terminal_polyfill, once_cell_polyfill, utf8parse, windows-link and windows-sys from susi-cli-defs's closure, but the reviewed allow-list still named them, so main failed the test deterministically. The list now names exactly the measured closure, which is the same 14 packages on x86_64-pc-windows-msvc and x86_64-unknown-linux-gnu (a narrowing only; nothing added). (2) xtask local-channel stage_and_rollback_swaps_verified_slots_and_refuses_tampering failed under load with ETXTBSY: exec of a just-written executable while a sibling test thread's forked child still held it open for writing. probe_version now retries the spawn on ErrorKind::ExecutableFileBusy only (bounded, 40 x 25 ms), the version-check errors keep their cause, and a Linux regression test holds a writer open and proves the probe waits it out.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "-p",
+      "xtask",
+      "--test",
+      "thin_client_invariant",
+      "--bin",
+      "local-channel"
+    ]
+  },
+  "created_by": "CLAUDEREL58FIX",
+  "created_unix": 1794397524,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [
+    "The ETXTBSY regression test is Linux-only (cfg(target_os = \"linux\")); Windows has no text-busy state for a file being executed."
+  ],
+  "owner": "CLAUDEREL58FIX",
+  "results": {
+    "thin_client_invariant": "5/5 (was 4/5 on main 84fac48c0); cargo tree --target {x86_64-pc-windows-msvc,x86_64-unknown-linux-gnu} -e normal,build -p susi-cli-defs both list: anstyle clap clap_builder clap_derive clap_lex heck idna_adapter proc-macro2 quote strsim susi-cli-defs susi-vendor-clap syn unicode-ident",
+    "local_channel": "34/34. Stress, 24 concurrent copies x 10 rounds of the test binary with --test-threads=16: before the fix 2/240 runs failed, both 'Local candidate version check failed (Text file busy (os error 26))'; after it 0/240 failed (240 x 34 passed). With TEXT_BUSY_ATTEMPTS set to 1 the new test fails with Os { code: 26, kind: ExecutableFileBusy }."
+  },
+  "scopes": [
+    "tests/thin_client_invariant.rs",
+    "xtask/src/bin/local-channel.rs",
+    ".agents/tasks/T-CLAUDEREL58FIX-1.json"
+  ],
+  "status": "done"
+}

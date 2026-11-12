@@ -1,0 +1,39 @@
+{
+  "id": "T-CLAUDENOGHCR-1",
+  "title": "Susi's own images name no GitHub registry, and the guard refuses one",
+  "goal": "Zero-GitHub audit (board item 296): the compose stack tagged Susi's image ghcr.io/intellibitz/susi:latest, a GitHub Container Registry address that breaks when the ecosystem moves host. Compose now tags the image it builds from source as ${SUSI_IMAGE:-susi:local}, and tests/no_github_coupling.rs refuses the literal ghcr.io/intellibitz so it cannot return. Other projects' images on ghcr.io (the GitHub MCP server) are user features and stay.",
+  "size": "xs",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "no_github_coupling"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794456341,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "938441b62ead2d6fba4010d27ec7fbe28cd1b27a",
+  "limitations": [
+    "docker compose was not run here; the change only renames the tag of the image compose already builds from deploy/compose/Dockerfile.susi.",
+    "Verified on Linux x86_64."
+  ],
+  "owner": "claude",
+  "results": {
+    "tests": "no_github_coupling 5/5 (matcher now finds ghcr.io/intellibitz and ignores ghcr.io/github/github-mcp-server)"
+  },
+  "scopes": [
+    "deploy/compose/docker-compose.yml",
+    "tests/no_github_coupling.rs",
+    ".agents/tasks/T-CLAUDENOGHCR-1.json"
+  ],
+  "status": "implemented"
+}

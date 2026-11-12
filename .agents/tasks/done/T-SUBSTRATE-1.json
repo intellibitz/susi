@@ -1,0 +1,28 @@
+{
+  "id": "T-SUBSTRATE-1",
+  "title": "Faster susi substrate on a stopped host",
+  "goal": "Probe the host contract once instead of twice (host_contract_ready repeated the TCP probes) and run Docker detection (~0.7 s even when Docker is down) concurrently with catalog priming. Measured with a stopped host: 1,951 -> 1,090 ms, identical output.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "SUBSTRATE",
+  "created_unix": 1793669486,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/tasks/t-substrate-1.json",
+    "src/cli/substrate_cli.rs"
+  ]
+}

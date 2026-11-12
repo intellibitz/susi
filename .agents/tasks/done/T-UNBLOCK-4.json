@@ -1,0 +1,54 @@
+{
+  "id": "T-UNBLOCK-4",
+  "title": "Give susi-gawd-agents tests private, never-deleted homes for the global registry and MAC policy",
+  "goal": "Fix the intermittent susi-gawd-agents lib tests test_external_executor_requires_explicit_invocation (failed in the full Linux workspace run) and openai_chat_peer_requires_api_base (found while repeat-running the crate) at their root: process-global state read from SUSI_HOME must not change or vanish under a test.",
+  "size": "S",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-agents",
+      "--lib"
+    ]
+  },
+  "created_by": "unblock",
+  "created_unix": 1794346616,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "eba6c9fbae98773ee9f96f376344ecee413fa4f3",
+  "decisions": {
+    "root_cause_fleet": "AgentMetaRegistry stores agents in SusiDirs::data_dir()/agent_registry.json, which follows the process's SUSI_HOME. Three fleet tests (fleet_synthesis, external_executor_requires_explicit_invocation, semantic_anchors) register a profile and then read it back through synthesize_fleet without holding SUSI_HOME_TEST_LOCK, while sibling tests (agent_meta_registry, agents_plane_handler, external_peers via EnvGuard) swap SUSI_HOME under that lock, so the register and the read could resolve different homes. Established from the code; this exact failure did not recur in 700+ targeted pre-fix runs (the window is the few milliseconds between register and read).",
+    "root_cause_privacy": "In this crate's tests MacPolicy::global() is the wired policy, bound to the SUSI_HOME current at first touch and reading its egress grants and key from that directory on every call. agent_meta_registry's fresh_registry_home reused one per-process directory and deleted it on every call; when the policy had bound to it, the grants vanished, the balanced posture blocked egress, and openai_chat_peer_requires_api_base got [PRIVACY] instead of [UNAVAILABLE]. Reproduced: 1 failure in 80 and 1 in 30 runs of the unmodified binary.",
+    "fix": "fresh_registry_home now uses a fresh directory per call and never deletes one; the three registry-touching fleet tests hold SUSI_HOME_TEST_LOCK with a private home for the whole round trip. The fleet unit tests moved verbatim to the crate's src/tests suite directory (the external/mod.rs pattern), so the shipped-line ceiling is respected (susi-gawd-agents 10,447 against 11,263). No assertion, bound or product behaviour changed."
+  },
+  "limitations": "Both races are timing-dependent; 100 green runs bound but do not prove their absence. The product's check order (privacy gate before the missing-api_base check) is unchanged.",
+  "provenance": {
+    "host": "CachyOS Linux x86_64 (CEO laptop)",
+    "agent": "unblock (Cursor subagent)",
+    "worktree": "susi-agent-unblock",
+    "branch": "local-agent/unblock"
+  },
+  "results": {
+    "host": "CachyOS Linux x86_64, busy shared laptop; tests with throwaway HOME/XDG_*/SUSI_HOME, *_API_KEY/HF_TOKEN/GITHUB_TOKEN unset, CARGO_HOME/RUSTUP_HOME real",
+    "full_run": "cargo test --offline --locked --workspace --no-fail-fast on eba6c9fba: 293 test binaries, 5,426 passed, 1 failed (test_external_executor_requires_explicit_invocation), 14 ignored",
+    "repeat_before": "unmodified susi-gawd-agents lib binary: 2 failures in 110 runs (openai_chat_peer_requires_api_base, assertion contains(\"UNAVAILABLE\"))",
+    "repeat_after": "fixed binary, 100 sequential runs: 100 passed (198 tests each)",
+    "guards": "architecture_tests 43, orphan_sources 5, lean_core_ceilings 2, core_docs_promise_no_ui_or_plugins 3: all passed",
+    "clippy": "cargo clippy --offline --locked -p susi-gawd-agents --all-targets -- -D warnings: exit 0",
+    "fmt": "cargo fmt --all --check: exit 0"
+  },
+  "scopes": [
+    ".agents/tasks/T-UNBLOCK-4.json",
+    "crates/susi-gawd-agents/src/agent_meta_registry.rs",
+    "crates/susi-gawd-agents/src/agents/fleet.rs",
+    "crates/susi-gawd-agents/src/tests/fleet.rs"
+  ],
+  "status": "done"
+}

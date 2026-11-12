@@ -1,0 +1,44 @@
+{
+  "id": "T-CODEXACPWORKSPACE-1",
+  "title": "Pass ACP session workspaces into GAWD missions",
+  "goal": "Ensure a GAWD-backed ACP turn runs against the validated workspace selected when the ACP session was opened, while preserving the existing test runner seam and confinement checks.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a",
+      "--lib"
+    ]
+  },
+  "created_by": "codex",
+  "created_unix": 1794448822,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "491898470c4cf95ee1f4259272f9c96b8ba4cc9d",
+  "native_worker": "codex-acp-workspace",
+  "owner": "codex",
+  "results": {
+    "status": "implemented",
+    "change": "GawdAcpExecutor now uses a workspace-aware production mission runner and passes the ACP session workspace through; the legacy with_runner test seam remains unchanged.",
+    "focused": "cargo test --offline --locked -p susi-gawd-a2a --lib: 56 passed, 0 failed, including the workspace propagation regression",
+    "format": "cargo fmt --all --check: passed",
+    "clippy": "cargo clippy --offline --locked -p susi-gawd-a2a --all-targets -- -D warnings: passed",
+    "lean_core_ceilings": "cargo test --offline --locked -p susi --test lean_core_ceilings: 2 passed, 0 failed; susi-gawd-a2a 3347/3347 shipped Rust lines",
+    "full_gate": "cargo local-workflow check: fmt and clippy passed; 145 test binaries built; concurrent suite failed once in host_only_privacy and once in peer_channel_hub. Isolated reruns passed: host_only_privacy 2/2 in 11.86s; peer_channel_hub 2/2 in 18.92s. The changed crate and ceiling guard are green.",
+    "boundary": "Core ACP-to-GAWD workspace propagation only; no cancellation, protocol, Commercial, dependency, Minijinja, release, or credential change"
+  },
+  "scopes": [
+    "crates/susi-gawd-a2a/src/executor.rs",
+    "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+    ".agents/tasks/T-CODEXACPWORKSPACE-1.json"
+  ],
+  "status": "implemented"
+}

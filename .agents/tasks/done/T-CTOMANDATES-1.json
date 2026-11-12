@@ -1,0 +1,46 @@
+{
+  "id": "T-CTOMANDATES-1",
+  "title": "CTO Mandate 74 governance harmonization: <10s warm core budget, 5 Apache-2.0 pillars, remote pull/merge on every step, distilled releases, and corporate commercial boundary",
+  "goal": "Codify and harmonize the CEO's 10 binding 2026-11-11 directives across AGENTS.md, CLAUDE.md, GEMINI.md, VISION.md, ARCHITECTURE.md, README.md, docs/ceo-mandate-74.md, docs/ceo-agent-mandate.md, docs/lean-core.md, and .agents/identity.json: (1) <10s warm core build+test+release pipeline budget recorded and enforced alongside honest cold timings, (2) continuous development on main deterministically distilled into qualified immutable releases (releases/<tag>.json), (3) all add-on features, UIs, enterprise packs, SSO/RBAC, FinOps, and turnkey workflows exclusively in susi-commercial-apps, (4) remote pull-and-merge reconciliation at every workflow step (start, sync, commit, distill, ship, release, and parallel harness steps), (5) GitHub as portable Git storage only with zero GitHub Actions or hosted PR/API gates, (6-7) sharpened harmonization across Mandates 62-74, (8) 5 Apache-2.0 core pillars (GAWD, GEMI, GMCP, ACP in susi-core::acp, and Susi Harness with built-in parallel multi-agent workflow), (9) closed, licensed, and paid corporate boundary for susi-commercial-apps, and (10) autonomous CTO execution with strict safety and durable evidence.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_"
+    ]
+  },
+  "created_by": "mandates",
+  "created_unix": 1794413081,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "fd33b84af6e4af5ef56fa1fcd93743a7eaefc7ea",
+  "claimed_by": "mandates",
+  "feature_id": "F-CTO-MANDATE-74",
+  "native_worker": "mandates",
+  "owner": "mandates",
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/tasks/T-CTOMANDATES-1.json",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "VISION.md",
+    "docs/ceo-agent-mandate.md",
+    "docs/ceo-mandate-74.md",
+    "docs/lean-core.md"
+  ],
+  "state": "done",
+  "status": "done",
+  "validation": "architecture_tests: 44 passed, 0 failed; agent_bootstrap: 3 passed, 0 failed; core_docs_promise_no_ui_or_plugins: 5 passed, 0 failed; lean_core_ceilings: 2 passed, 0 failed; no_github_coupling: 5 passed, 0 failed; task_records: 3 passed, 0 failed; crown_verify_tests: 5 passed, 0 failed; release_records: 5 passed, 0 failed; release_workflow: 1 passed, 0 failed; socket_boundary: 1 passed, 0 failed; susi-core --lib self_build: 5 passed, 0 failed; susi-gawd-agents --lib: 198 passed, 0 failed; cargo fmt --all --check and git diff --check: passed."
+}

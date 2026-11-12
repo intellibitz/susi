@@ -1,0 +1,67 @@
+{
+  "id": "T-DOTOPUSBACKFILL-1",
+  "title": "Backfill available weighted test lanes",
+  "goal": "Atomically select the earliest queued test binary fitting free weighted lanes, preserving failfast, aggregate budgets and successful suite identity.",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "test_runner::tests::"
+    ]
+  },
+  "created_by": "dot-opus-backfill",
+  "created_unix": 1794253709,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "checkpoint": "Implemented by actual Claude Opus5.5, independently reviewed and verified. Stable final source passes18 focused scheduler tests and all167 local-workflow tests (0 failed/ignored/filtered in full suite), strict xtask all-target Clippy and workspace fmt check. Native local checkpoint only; combined gate and publication remain pending. First-fit can defer heavy binaries; no throughput improvement is claimed. Full suite ran under concurrent native gate load.",
+  "claimed_by": "dot-opus-backfill",
+  "native_worker": "dot-opus-backfill",
+  "scopes": [
+    "xtask/src/test_runner.rs",
+    ".agents/tasks/T-DOTOPUSBACKFILL-1.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "validation": {
+    "source_sha256": "AF8F2E0D59251E38B504C304F6F6E8A3D823639B05815C355BE02FABCCE1D47D",
+    "base_source": "3a0d9c217b394f63e52b4d4c0135e7198a04cadf",
+    "focused_command": "cargo test --offline --locked -p xtask --bin local-workflow test_runner::tests::",
+    "focused_passed": 18,
+    "focused_failed": 0,
+    "focused_filtered": 149,
+    "focused_log": "F:/st/dot-opus-backfill/focused-final.stdout.log",
+    "full_command": "cargo test --offline --locked -p xtask --bin local-workflow",
+    "full_passed": 167,
+    "full_failed": 0,
+    "full_ignored": 0,
+    "full_filtered": 0,
+    "full_test_seconds": 295.14,
+    "full_outer_ms": 295540,
+    "full_log": "F:/st/dot-opus-backfill/full-suite.stdout.log",
+    "full_log_sha256": "D242B726E047CAB1771C6B34EE8687EBAF4914CFA37D183C0825B619F2219937",
+    "clippy_command": "cargo clippy --offline --locked -p xtask --all-targets -- -D warnings",
+    "clippy_exit": 0,
+    "clippy_log": "F:/st/dot-opus-backfill/clippy.stderr.log",
+    "fmt_command": "cargo fmt --all --check",
+    "fmt_exit": 0,
+    "diff_check_exit": 0,
+    "build_jobs": 4,
+    "test_threads": 4,
+    "private_target": "F:/st/dot-opus-backfill/target",
+    "isolation": "Environment allowlist, private HOME/USERPROFILE/APPDATA/SUSI_HOME/TEMP per check, SUSI_NO_REGISTRY_ENV=1; no inherited credentials.",
+    "timing_context": "Concurrent native full gate; not a throughput benchmark.",
+    "model": "claude-opus-5-5",
+    "model_result": "success",
+    "reviewer_addition": "Coordinator added direct poisoned-state/waiter regression after Opus; final focused/full/lint/format checks cover that exact source."
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "T-CLAUDELOCALTOOLS-1",
+  "title": "Core sends the local engine the conversation and tool schemas",
+  "goal": "CEO direction 2026-11-12 (\"let the local engine take full conversations and tool lists\"). Core sent the local engine one prompt string; for a request that needs tools it prepended a prose list of tool names and descriptions. It now also sends the same request as a conversation with the registered tools' schemas: `messages` and `tools` on the `gpu_fabric.local_engine.infer_stream` request, built by `local_tool_calls::chat_request` from the tool registry (name, description, and the tool's published parameter schema). The prose prompt is still sent and is the complete fallback. `LocalEnginePlug::run_chat_stream`, `NativeInferenceEngine::run_chat_stream` and `ContractCall::with_chat` carry it and each defaults to the plain-prompt call, so an engine or plug that does not know conversations is unaffected. Susi Commercial Apps' engine uses them since commercial 39da0d2 (T-CLAUDECOMMCHAT-1). The answer is read by the existing `extract_tool_calls` either way.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDELEANPROMPT-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "vc_201_042"
+    ]
+  },
+  "created_by": "CLAUDELOCALTOOLS",
+  "created_unix": 1794426281,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "faf6a100c37a9502eab2e784f4c048e2c1eaad4d",
+  "host": "CEO laptop, CachyOS Linux x86_64",
+  "limitations": [
+    "Core's inference path is prompt-based: it has no multi-turn history to send, so the conversation it sends is one user message plus the tools. The engine accepts longer conversations from a caller that has them.",
+    "Only requests that declare `requires: tools` send the conversation; plain prompts are unchanged.",
+    "No end-to-end run of core's daemon with the commercial plug host and a real model was made. Each side is tested on its own: core's request shape and fallbacks here, the engine's rendering and a real model in T-CLAUDECOMMCHAT-1.",
+    "The tool registry's schema field name is read as `input_schema`, `inputSchema` or `parameters`; a tool publishing none gets an empty object schema.",
+    "Linux x86_64 only."
+  ],
+  "owner": "claude",
+  "scopes": [
+    ".agents/tasks/T-CLAUDELOCALTOOLS-1.json",
+    "crates/susi-gemi/src/engines/local_plug.rs",
+    "crates/susi-gemi/src/engines/native_lifecycle.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/engines/runtime_native.rs",
+    "crates/susi-gemi/src/local_tool_calls.rs",
+    "crates/susi-gemi/src/tests/vc_201_042_native.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "status": "done"
+}

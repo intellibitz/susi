@@ -1,0 +1,42 @@
+{
+  "id": "T-RECEIPTS2-1",
+  "title": "Gate receipts: harness lists for serial test gates; a verifier that re-runs clippy, survives long Windows paths and checks out the committed bytes",
+  "goal": "Four defects found by verifying the first gate receipt (.agents/receipts/fe3521e36f44b54a333b6110df75e64bd7ea80a5.json, landed at 0edc66c48 by T-RECEIPTS-1) on a clean clone. (1) A test gate run as plain `cargo test` with its --target-dir under the candidate prints cwd-relative executable paths in its `Running` headers; the receipt parser matched only absolute paths, so the task-acceptance gate recorded 280 passes but an empty harness list. The parser now matches both forms, using the gate's working directory, as native_test_counts does. (2) `cargo xtask verify-receipt` re-added --target-dir at the end of the argv, after clippy's `--`, so clippy-driver rejected it and the clippy gate re-ran with exit 101; the option now goes before any `--`. (3) The verifier's scratch worktree failed on Windows with 'Filename too long' under a deep clone path; its git worktree commands now pass core.longpaths=true, as the ship tool's do. (4) With its home moved, the verifier's Git read only the system core.autocrlf=true (the Git for Windows default), checked the scratch tree out with CRLF, and 40 GMCP ledger tests failed on pinned source hashes that pass in the gate; the verifier's checkout and the gate's candidate checkout (merge_onto) now pin core.autocrlf=false and core.eol=lf, so both test the committed bytes whatever the host's Git configuration.",
+  "size": "S",
+  "deps": [
+    "T-RECEIPTS-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "receipts2",
+  "created_unix": 1794133351,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p xtask --offline --locked (gate_receipt parser, argv placement and long-path tests plus the ship tests that publish a receipt commit)",
+  "claimed_by": "receipts2",
+  "native_worker": "receipts2",
+  "scope": [
+    ".agents/tasks/t-receipts2-1.json",
+    "docs/gate-receipts.md",
+    "xtask"
+  ],
+  "scopes": [
+    ".agents/tasks/t-receipts2-1.json",
+    "docs/gate-receipts.md",
+    "xtask"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794133351
+}

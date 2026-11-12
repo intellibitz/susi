@@ -1,0 +1,35 @@
+{
+  "id": "T-CLAUDEA2AGOLDEN-1",
+  "title": "A2A wire golden survives version bumps",
+  "goal": "The recorded A2A transcript compares the agent card's version as <engine-version>, so a release bump no longer breaks wire_matches_the_recorded_ra2a_transcript (broken on main by the 0.21.55 bump 334ce99bc)",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a"
+    ]
+  },
+  "created_by": "CLAUDEA2AGOLDEN",
+  "created_unix": 1794376529,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [],
+  "results": [
+    "cargo test -p susi-gawd-a2a: 52 passed, 0 failed (wire golden included)",
+    "the card's version value stays checked by lib.rs agent_card_reports_the_package_version"
+  ],
+  "scopes": [
+    "crates/susi-gawd-a2a/src/tests/wire_golden.rs",
+    "crates/susi-gawd-a2a/src/tests/golden/a2a_wire.json",
+    ".agents/tasks/T-CLAUDEA2AGOLDEN-1.json"
+  ],
+  "status": "done"
+}

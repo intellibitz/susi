@@ -1,0 +1,46 @@
+{
+  "id": "T-CLAUDEONECUT-1",
+  "title": "One release version, one cut: release-qualify checks and reserves the version on the storage remote",
+  "goal": "release-qualify looked for the tag in the local checkout only. On 2026-11-11 v0.21.62 was qualified twice at once: on Windows from its release-lanes line and on Linux from a distilled candidate; the second could not be published. Before any gate runs, release-qualify now refuses a tag already on the remote, refuses a tree that does not contain an open release line of that version, and reserves the version with a create-only blob refs/claims/release-version/<tag> (renewed by its holder, taken over after four hours, dropped when a gate fails).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "release-qualify",
+      "release_version_guard"
+    ]
+  },
+  "created_by": "CLAUDEWINSTOP",
+  "created_unix": 1794428000,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "a42994ce9601ebb3bb7a564688c1e8ff48a78d0c",
+  "claimed_by": "CLAUDEWINSTOP",
+  "feature_id": "F-CORE-RELEASE-ONE-CUT-1",
+  "limitations": [
+    "The reservation covers release-qualify only. release-lanes init does not reserve a version, and local-distill does not check one.",
+    "A reservation left by a cut that passed but was never published blocks that version for four hours.",
+    "Susi Commercial Apps has its own reservation (refs/release-cuts) and is not changed here."
+  ],
+  "native_worker": "CLAUDEWINSTOP",
+  "owner": "claude",
+  "scopes": [
+    "xtask/src/release_version_guard.rs",
+    "xtask/src/bin/release-qualify.rs",
+    "docs/releases.md",
+    ".agents/tasks/T-CLAUDEONECUT-1.json"
+  ],
+  "state": "done",
+  "status": "done",
+  "validation": "On x86_64-pc-windows-msvc: 4 new tests on real Git with a bare remote pass (two cuts race and one wins; renewal; own-only release; stale takeover at exactly four hours; published tag refused; bypassed release line refused and a tree on the line admitted; unreachable remote is an error); release-qualify's 14 tests pass; clippy -p xtask --all-targets -D warnings clean. Not exercised: a real release cut through the repository's pre-push hook, and Linux."
+}

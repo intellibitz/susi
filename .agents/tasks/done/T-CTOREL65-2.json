@@ -1,0 +1,74 @@
+{
+  "id": "T-CTOREL65-2",
+  "title": "Record Susi core v0.21.65 release and advance main to 0.21.65",
+  "goal": "Record releases/v0.21.65.json and byte-identical releases/qualification/v0.21.65.json for immutable tag v0.21.65 (74ddc863893ae310516b9e84f1dcb895681f99f6) and advance development main to 0.21.65.",
+  "size": "s",
+  "deps": [
+    "T-CTOWINSPEED-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "core-release",
+  "created_unix": 1794466000,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "60fc6c9e94fa69125d52d970bc327acac1a9e022",
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.65-1",
+  "limitations": [
+    "Linux x86_64 reference build and qualification remain owed."
+  ],
+  "owner": "core-release",
+  "results": {
+    "tag": "v0.21.65",
+    "tag_object": "98204c749da6480e3b82caf898e46086a9d6c395",
+    "tagged_commit": "74ddc863893ae310516b9e84f1dcb895681f99f6",
+    "qualified_commit": "ae261bd76585bc50983730eef8de3a67f0a3aa54",
+    "qualified_tree": "fcfa3736f0bf51c9bba833f6fde402bfd5f81ec8",
+    "distill_candidate": "v0-21-65-distilled-rc1",
+    "distill_composed_commit": "7b4a74cd54f25de198d72d2717b12034bb57d8c8",
+    "distill_envelope_commit": "90daead4568eff5e471ddc2bf664b120a2570ed7",
+    "distill_receipt_sha256": "207944f97e9802f44b2e11718d2e70881a942a027cc5612092673327b5618ee5",
+    "fast_release_warm_ms": {
+      "build_ms": 1273,
+      "test_ms": 6879,
+      "release_ms": 749,
+      "total_ms": 9047
+    },
+    "susi_sha256": "7de92b18626e00b66cd5260f0fb511a9c177f97791c4656d7b621d2a0b483573",
+    "susi_harness_sha256": "5f78e4dbee61e0698a37bc92a4aece48b58fa190760c9176ae9a1c2d9977a271"
+  },
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CTOREL65-1.json",
+    ".agents/tasks/T-CTOREL65-2.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    "releases/qualification/v0.21.65.json",
+    "releases/v0.21.65.json"
+  ],
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794466000
+}

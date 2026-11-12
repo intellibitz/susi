@@ -1,0 +1,35 @@
+{
+  "id": "T-LINUXPORTABILITY1102-1",
+  "title": "Remove duplicate Unix fixture lint attributes",
+  "goal": "Keep strict Linux lint and preserve all fixture tests",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "hermetic_scope",
+      "arguments_scope_the_check_to_those_crates"
+    ]
+  },
+  "created_by": "LINUXPORTABILITY1102",
+  "created_unix": 1793614404,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    "tests/auto_merge.rs",
+    "tests/github_enforce.rs",
+    "tests/hermetic_scope.rs",
+    "tests/hook_enforcement.rs",
+    "tests/main_failure_report.rs",
+    "tests/release_tag_provenance.rs",
+    "tests/release_await_tests.rs",
+    "tests/workflow_publication.rs",
+    "tests/workflow_compliance.rs",
+    ".agents/tasks/T-LINUXPORTABILITY1102-1.json"
+  ]
+}

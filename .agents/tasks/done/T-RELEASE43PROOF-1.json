@@ -1,0 +1,36 @@
+{
+  "id": "T-RELEASE43PROOF-1",
+  "title": "Preserve measured 0.21.43 Windows production qualification and rollback",
+  "goal": "Bind source, compiler and image evidence, clean guest timestamps, actual standalone PATH and Shell, retained .42, process survival, and comparative model timing to immutable receipts.",
+  "size": "s",
+  "deps": [
+    "T-VERSION43-1",
+    "T-RELEASE42PROOF-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release",
+      "real_qualification_promotion_rollback_and_failure_preserve_verified_release"
+    ]
+  },
+  "created_by": "RELEASE43PROOF",
+  "created_unix": 1793642742,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/evidence/release43-windows.json",
+    ".agents/tasks/T-RELEASE43PROOF-1.json"
+  ]
+}

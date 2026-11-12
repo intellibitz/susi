@@ -1,0 +1,42 @@
+{
+  "id": "T-RECEIPTS-1",
+  "title": "Gated landings leave a third-party re-runnable receipt in the tree",
+  "goal": "Every `cargo local-workflow ship` landing writes `.agents/receipts/<verified-commit>.json` (schema susi-gate-receipt-v1: the exact cargo commands the gate ran with their exit codes and durations, the test-binary list with pass/fail/ignored counts, toolchain and host triple, the integration head and the origin/main it merged, sha256 of Cargo.lock and of the rustc version string, and a digest of the body) as a receipt-only commit the same ship publishes on top of the verified head, recorded at refs/susi/receipts/<verified-commit> inside the acceptance ref transaction; publication is refused when the receipt cannot be written. `cargo xtask verify-receipt <commit>` re-runs the recorded commands against that commit in a scratch worktree on a clean clone and reports which results match. Documented in docs/gate-receipts.md.",
+  "size": "M",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "receipts",
+  "created_unix": 1794125264,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p xtask --offline --locked (gate_receipt writer, digest, log parsing, mismatch detection and the ship tests that publish a receipt commit)",
+  "claimed_by": "receipts",
+  "native_worker": "receipts",
+  "scope": [
+    ".agents/receipts",
+    ".agents/tasks/t-receipts-1.json",
+    "docs/gate-receipts.md",
+    "xtask"
+  ],
+  "scopes": [
+    ".agents/receipts",
+    ".agents/tasks/t-receipts-1.json",
+    "docs/gate-receipts.md",
+    "xtask"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794125264
+}

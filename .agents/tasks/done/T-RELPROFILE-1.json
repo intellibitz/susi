@@ -1,0 +1,33 @@
+{
+  "id": "T-RELPROFILE-1",
+  "title": "Restore the optimized release and dist profiles after the build-profile purge",
+  "goal": "58062432f set [profile.release] to opt-level 0 (no LTO, 256 codegen units, incremental, unstripped) and removed [profile.dist], so cargo local-build production, the installer's --release build and the published binaries would ship unoptimized; the v0.21.52 Linux binaries had to be built with CARGO_PROFILE_RELEASE_* environment overrides. Restore the optimized release profile (opt-level 3, thin LTO, 16 codegen units, no incremental cache, panic=abort, stripped) and the dist profile (fat LTO, one codegen unit), keep the fast dev and test profiles, and pin the settings with a test so a purge cannot silently return.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf",
+      "release_profiles_stay_optimized"
+    ]
+  },
+  "created_by": "RELPROFILE",
+  "created_unix": 1794033600,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "relprofile",
+  "scopes": [
+    ".agents/tasks/t-relprofile-1.json",
+    "cargo.toml",
+    "xtask/tests/ci_workflow_perf.rs"
+  ]
+}

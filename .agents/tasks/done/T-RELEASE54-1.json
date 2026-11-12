@@ -1,0 +1,54 @@
+{
+  "id": "T-RELEASE54-1",
+  "title": "Release Susi core 0.21.54 from development main snapshot v0-21-54-rc2",
+  "goal": "CEO choice 2026-11-11: cut 0.21.54 from development main. Source: refs/tags/susi-snapshot/v0-21-54-rc2 = origin/main 5a0e36229f54e87551fb38ab1587cb627c3ce972 (tree 50da984d15c5007ed859fbf878129581bd03dde9). rc1 (57dfb2e78) failed 2 of 5399 tests on Linux (the susi-gemi line ceiling, fixed by e52dd0abb, and the native_link #[path] mounts, fixed by cec707cf8); both are in rc2. This release branch adds only the version bump of the seven engine manifests, Cargo.lock, the README badge and the three governance ledgers from 0.21.53 to 0.21.54 (as 1692eee74), then `release-qualify v0.21.54` qualifies that exact tree and commits releases/qualification/v0.21.54.json; the tag points at that record commit. Windows x86_64 qualification is owed (recorded in owed_platforms).",
+  "size": "m",
+  "deps": [
+    "T-CLAUDERELADAPTER-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDERCV",
+  "created_unix": 1794345340,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "5a0e36229f54e87551fb38ab1587cb627c3ce972",
+  "distillation": {
+    "mode": "whole development main at the snapshot commit",
+    "snapshot": "refs/tags/susi-snapshot/v0-21-54-rc2",
+    "superseded": [
+      "refs/tags/susi-snapshot/v0-21-54-rc1 (2 Linux test failures)",
+      "release/v0.21.54-handdistilled (local only; 13 Linux test failures, 9 in its base)"
+    ]
+  },
+  "native_worker": "claudercv",
+  "scopes": [
+    ".agents/tasks/t-release54-1.json",
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "cargo.lock",
+    "cargo.toml",
+    "readme.md",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gemi/cargo.toml",
+    "crates/susi-gmcp/cargo.toml",
+    "crates/susi-harness/cargo.toml",
+    "crates/susi-server/cargo.toml",
+    "releases/qualification/v0.21.54.json"
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "id": "T-DOTLINUXBYOKSAFE-1",
+  "title": "Adopt reviewed cloud defaults and truthful status without credential handoff",
+  "goal": "Adopt the six reviewed config/status/error files from upstream d7d7b563469e682cdd5febb0b76bea384b9a82f0. Exclude crates/susi-daemon/src/server.rs entirely: credential-file handoff is rejected and deferred. host_metrics.rs remains with its owner. Coordinate the exact +12 model-source delta with the lean-ceiling owner without undoing lower limits; require combined-tree gates before landing.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "-p",
+      "susi-gemi-models",
+      "-p",
+      "susi-server",
+      "--lib"
+    ]
+  },
+  "created_by": "DOTLINUXBYOKSAFE",
+  "created_unix": 1794315321,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "claimed_by": "dot-linuxbyok-safe",
+  "native_worker": "dot-linuxbyok-safe",
+  "scopes": [
+    ".agents/tasks/t-dotlinuxbyoksafe-1.json",
+    "config/cloud-vendors.json",
+    "config/coding-models.json",
+    "config/config.default.json",
+    "crates/susi-daemon/src/status_report.rs",
+    "crates/susi-gemi-models/src/cloud.rs",
+    "crates/susi-server/src/lib.rs"
+  ],
+  "source_commit": "d7d7b563469e682cdd5febb0b76bea384b9a82f0",
+  "source_task": "T-LINUXBYOK-1",
+  "state": "in_progress",
+  "verification": {
+    "source_commit": "aeea86295c2814ac86994cd7f419d3735469e702",
+    "source_tree": "8cc65065b60c1401b18f0a71e173a6bc059cf730",
+    "host": "x86_64-pc-windows-msvc",
+    "format": {
+      "exit": 0,
+      "command": "cargo fmt --all --check"
+    },
+    "libraries": {
+      "server": {
+        "ignored": 0,
+        "passed": 49
+      },
+      "wall_seconds": 415.9657402,
+      "daemon": {
+        "ignored": 5,
+        "passed": 367
+      },
+      "exit": 0,
+      "passed": 666,
+      "ignored": 10,
+      "command": "cargo test --offline --locked -j 2 -p susi-daemon -p susi-gemi-models -p susi-server --lib",
+      "failed": 0,
+      "gemi_models": {
+        "ignored": 5,
+        "passed": 250
+      }
+    },
+    "clippy": {
+      "wall_seconds": 141.6701343,
+      "command": "cargo clippy --offline --locked -j 2 -p susi-daemon -p susi-gemi-models -p susi-server --all-targets -- -D warnings",
+      "exit": 0
+    },
+    "affected_gate_packages": 21,
+    "combined_gate_passed": false,
+    "credential_handoff_included": false
+  },
+  "verification_status": "Native Windows development checks passed on aeea86295c2814ac86994cd7f419d3735469e702: formatting, 666 library tests passed with 10 existing ignored and zero failures, strict clippy for the three touched Rust packages. Full 21-package affected gate and composed-tree ceiling guard remain pending. This is not a release attestation."
+}

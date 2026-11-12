@@ -1,0 +1,33 @@
+{
+  "id": "T-DISKFULL-1",
+  "title": "local-workflow ship survives a disk-full gate: refuse a doomed gate up front, reclaim idle caches and rerun once, name the cause",
+  "goal": "A whole-workspace gate that ran out of disk failed after ten minutes of compiling with rustc's 'IO failure on output stream' and 'failed to parse process output', and the ship reported a generic gate failure. Before the gates start, measure the free space of the candidate's filesystem and refuse a gate below a measured floor (12 GiB for a whole-workspace gate on a cold target, 4 GiB warm, 2 GiB narrowed) after reclaiming the ship's own idle caches: warm targets stashed for idle slots, those slots' leftover candidate targets and the legacy integration target, never a busy slot's or this candidate's. When a gate still fails with a disk-full signature, reclaim and run that gate once more, keep the first log beside the rerun's, and record the reclaim in the evidence; a failure that remains names the free space instead of reading like a compiler bug. The same applies to the commercial gate.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "disk_"
+    ]
+  },
+  "created_by": "DISKFULL",
+  "created_unix": 1794036000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "diskfull",
+  "scopes": [
+    ".agents/tasks/t-diskfull-1.json",
+    "xtask/cargo.toml",
+    "xtask/src/bin/local-workflow.rs"
+  ]
+}

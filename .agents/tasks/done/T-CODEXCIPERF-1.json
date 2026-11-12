@@ -1,0 +1,43 @@
+{
+  "id": "T-CODEXCIPERF-1",
+  "title": "Align the workflow target guard with the native harness adapter",
+  "goal": "Keep the workflow performance guard truthful after native workflow start replaced shell target seeding in the harness adapter",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "CODEXCIPERF",
+  "created_unix": 1794394971,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "57162b4829433373fba82d771b27c9fc0392d4cd",
+  "host": "x86_64-unknown-linux-gnu",
+  "limitations": [
+    "This changes only a source-shape guard; native adapter behavior remains covered by its adapter tests.",
+    "The current main test gate has a pre-existing parallel integration-test failure in host_only_privacy and peer_channel_hub; this task is not shippable until the gate is green."
+  ],
+  "owner": "CODEXCIPERF",
+  "results": {
+    "why": "The guard required crates/susi-harness/src/adapter.rs to contain the retired shell seeder string, but the adapter now creates a private target through native workflow start.",
+    "change": "The guard continues checking the shell session seeder and separately checks the adapter's native private-target contract: shared-link rejection and CARGO_TARGET_DIR rooted at the worktree.",
+    "tests": "cargo fmt --all --check: exit 0; cargo test --offline --locked -p xtask --test ci_workflow_perf -- --nocapture: 27 passed, 0 failed, 0 ignored; cargo local-workflow check: format and clippy passed, 110 test binaries built, but host_only_privacy (2 tests) and peer_channel_hub (2 tests) failed under the six-lane runner; each binary passed alone (2/2) and together (2/2 each)"
+  },
+  "scopes": [
+    "xtask/tests/ci_workflow_perf.rs",
+    ".agents/tasks/T-CODEXCIPERF-1.json"
+  ],
+  "status": "implemented"
+}

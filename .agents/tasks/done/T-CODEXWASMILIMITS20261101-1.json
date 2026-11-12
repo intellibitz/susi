@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXWASMILIMITS20261101-1",
+  "title": "Bound per-store Wasmi resources and queued host payloads",
+  "goal": "Prevent multiple memories tables or host messages from multiplying cell budgets",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-wasmtime",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEXWASMILIMITS20261101",
+  "created_unix": 1793551262,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
+}

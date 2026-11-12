@@ -1,0 +1,37 @@
+{
+  "id": "T-AGENTCLAUDECIPURGE-1",
+  "title": "Harden local-workflow scope_base, warm worktree reuse, lock-free status, and windows_runtime_lifecycle LTO",
+  "goal": "Harden scope_base and ship_scope_base ancestry in local-workflow, add clean released-worktree reuse preserving warm target, add lock-free status [--json], pass CARGO_PROFILE_RELEASE_LTO=thin in windows_runtime_lifecycle, and close completed task records.",
+  "size": "M",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "claude-ci-purge",
+  "created_unix": 1794001800,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "claude-ci-purge",
+  "scopes": [
+    ".agents/tasks/t-agentclaudecipurge-1.json",
+    ".agents/tasks/t-asyncship-1.json",
+    ".agents/tasks/t-claude-cipurge-1.json",
+    ".agents/tasks/t-wf10x1106-1.json",
+    "tests/windows_runtime_lifecycle.rs",
+    "xtask/src/affected.rs",
+    "xtask/src/bin/local-workflow.rs"
+  ],
+  "status": "completed"
+}

@@ -1,0 +1,39 @@
+{
+  "id": "T-CODEXRECORDS-1",
+  "title": "Keep release-record guards compatible with distillation envelopes",
+  "goal": "Allow the release-record guard to ignore the host-neutral releases/distill envelope directory while continuing to validate every top-level release record and qualification record.",
+  "size": "S",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "codex-coordinator",
+  "created_unix": 1794385643,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "b91a3070e4bab89516cba11b3d76198b5a147ac2",
+  "claimed_by": "release-records-scope",
+  "limitations": [
+    "The distillation envelope schema is validated by the distillation tooling; this guard only excludes its directory from top-level release-record enumeration."
+  ],
+  "native_worker": "release-records-scope",
+  "owner": "codex-coordinator",
+  "scopes": [
+    ".agents/tasks/T-CODEXRECORDS-1.json",
+    ".agents/receipts",
+    "tests/release_records.rs"
+  ],
+  "status": "implemented"
+}

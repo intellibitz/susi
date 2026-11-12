@@ -1,0 +1,30 @@
+{
+  "id": "T-LOCALREPORT-1",
+  "title": "Local reports skip the CLI composition root",
+  "goal": "susi review and susi os-clean read only the host's own files but ran the full CLI composition root, whose cloud-endpoint registration (model catalog walk plus credential scout) took 4.2 s. They now wire only the plane handlers. Measured (debug, isolated home, median of 3): review 4,845 -> 267 ms, os-clean 4,906 -> 277 ms, identical output. susi keys list likewise: 4,955 -> 328 ms on an isolated home and 5,461 -> 288 ms on the real home, output identical.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lazy_catalog_priming"
+    ]
+  },
+  "created_by": "LOCALREPORT",
+  "created_unix": 1793670030,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/tasks/t-localreport-1.json",
+    "src/cli/defs.rs",
+    "src/main.rs",
+    "tests/lazy_catalog_priming.rs"
+  ]
+}

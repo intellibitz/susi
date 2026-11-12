@@ -1,0 +1,44 @@
+{
+  "id": "T-COORD1106-1",
+  "title": "Laptop-held release coordinator: independent gate tools, pinned provenance verifier, forward-adoption permit and trust registry",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release",
+      "--offline",
+      "--locked",
+      "coordinator"
+    ],
+    "criteria": [
+      "local-release coordinate builds unsafe_measure and unsafe_ratchet from a previously released source (newest reachable v* tag by default), never the candidate, and holds them outside the repository",
+      "it admits only native provenance receipts at the candidate head that share one coordinator digest, use whole-workspace gates and are rooted as durable evidence",
+      "the provenance verifier is the held local-workflow executable whose digest equals every receipt's coordinator_sha256, and the policy digest comes from that executable",
+      "the permit names a forward-adoption baseline with historical_ownership incomplete and a git-rooted diagnostics blob listing unreceipted commits since the last promoted release",
+      "the pinned verifier must report verified=true before the permit and manifest enter the registry; registry objects are content-addressed and never overwritten",
+      "it prints SUSI_RELEASE_TRUST_REGISTRY, SUSI_RELEASE_GATE_TRUST and SUSI_RELEASE_GATE_TRUST_SHA256 for local-release qualify",
+      "the whole-workspace gate's foreground-seeding test releases the background copy only after the foreground run has announced it is waiting, instead of racing a fixed 3 s sleep on a loaded host"
+    ]
+  },
+  "created_by": "COORD1106",
+  "created_unix": 1794048000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "coord1106b",
+  "scopes": [
+    ".agents/tasks/t-coord1106-1.json",
+    "tests/worktree_target_dir.rs",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/release_coordinator.rs"
+  ],
+  "status": "implemented_pending_integration"
+}

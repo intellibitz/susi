@@ -1,0 +1,31 @@
+{
+  "id": "T-BUDGET-1",
+  "title": "Enforce host contract latency budgets in CI",
+  "goal": "susi-conformance --max-ms N fails any passing check slower than N ms, and the Windows CI conformance step runs with --max-ms 2000, so a latency regression on the public contract (like the 10.3 s cold tools/list fixed in 0.21.45) fails main like a contract violation.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-conformance"
+    ]
+  },
+  "created_by": "BUDGET",
+  "created_unix": 1793667955,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/tasks/t-budget-1.json",
+    ".github/workflows/test.yml",
+    "crates/susi-conformance/src/bin/susi-conformance.rs",
+    "crates/susi-conformance/src/lib.rs",
+    "docs/host-contract-conformance.md"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-GROKSOCKET1104-1",
+  "title": "Record the open-source socket boundary",
+  "goal": "Core is the free socket and third-party product code may only shrink",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "socket_boundary",
+      "third_party_product_implementations_only_shrink"
+    ]
+  },
+  "created_by": "GROKSOCKET1104",
+  "created_unix": 1793815282,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
+}

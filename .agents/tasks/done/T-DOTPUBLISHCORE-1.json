@@ -1,0 +1,63 @@
+{
+  "id": "T-DOTPUBLISHCORE-1",
+  "title": "Publish reviewed desktop integration",
+  "goal": "Publish the accepted ten-claim core integration through the normal native ship workflow, including its full current-host gates and portable gate receipt. This task changes only publication metadata; it does not qualify or promote a release.",
+  "deps": [
+    "T-RELEASEHERMETIC-1",
+    "T-DOTGMCPROADMAP-1",
+    "T-DOTHTTPDESK20261110-1",
+    "T-DOTNATIVEENVFIXTURE-1",
+    "T-DOTSWARMFIXTURES20261110-1",
+    "T-DOTLATENCYDESK20261110-1",
+    "T-DOTOWEDRECEIPTS-1",
+    "T-DOTADVISORYSNAPSHOT-1",
+    "T-DOTLINUXBYOKSAFE-1",
+    "T-DOTDEVSETUP-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "task_records",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "dot-publish-core",
+  "created_unix": 1794321842,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "accepted_integration": {
+    "workspace_tests": {
+      "ignored": 23,
+      "passed": 5278,
+      "failed": 0
+    },
+    "durable_receipts": 20,
+    "reviewed_source_paths": 43,
+    "completed_gate_stages": 24,
+    "commit": "52d9c7da19f7f8a732200fb6817129ed035c8e7a",
+    "tree": "42bfb5dca873da8efff859ea09a88f366ad050bc"
+  },
+  "checkpoint": "Accepted integration and exact source tree reviewed; publication remains pending. The unfinished runner, credential-file handoff, and new capacity/publisher experiments are excluded.",
+  "claimed_by": "dot-publish-core",
+  "native_worker": "dot-publish-core",
+  "publication_plan": {
+    "target": "refs/heads/main",
+    "method": "Normal native ship. Recheck origin, gate the complete merged candidate, and publish its verified portable receipt commit without force or protection changes.",
+    "observed_origin_main": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "repository": "intellibitz/susi",
+    "qualification_boundary": "Source publication only. No release tag, production promotion, or installed or development daemon restart."
+  },
+  "scopes": [
+    ".agents/tasks/T-DOTPUBLISHCORE-1.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress"
+}

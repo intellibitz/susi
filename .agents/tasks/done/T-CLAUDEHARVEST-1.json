@@ -1,0 +1,48 @@
+{
+  "id": "T-CLAUDEHARVEST-1",
+  "title": "local-harvest: quarantine intake, per-file license scan, manifests, notices and Apache-2.0 section 4 audit",
+  "goal": "CEO Mandate 74 section 5 harvest tooling as a native, repo-agnostic Rust xtask bin. intake pins an upstream commit at refs/susi/upstream/<slug>/<sha> (local, create-only) and records the source URL in <git-common-dir>/susi-harvest; scan verifies each file's license at the pinned commit from git objects only (SPDX header, else nearest license file classified by text; allowlist Apache-2.0, Apache-2.0 WITH LLVM-exception, MIT, BSD-2/3-Clause; copyleft/source-available phrases rejected); import writes approved blobs, .agents/harvest/<id>.json (susi-harvest-manifest-v1), LICENSES/Apache-2.0.txt and THIRD_PARTY_NOTICES and prints Harvest/Origin/Origin-License trailers; notices regenerates or checks THIRD_PARTY_NOTICES deterministically; audit checks schema, allowed licenses, destination presence, 4(a) license text, 4(b) Modified-by notices, 4(c) copyright retention, 4(d) notices freshness and Harvest trailers in a commit range. Upstream content is never checked out, built or executed.",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-harvest"
+    ]
+  },
+  "created_by": "CLAUDEHARVEST",
+  "created_unix": 1794392864,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    "xtask/src/harvest.rs",
+    "xtask/src/bin/local-harvest.rs",
+    "xtask/Cargo.toml",
+    "xtask/build.rs",
+    "docs/harvest.md",
+    ".agents/tasks/T-CLAUDEHARVEST-1.json"
+  ],
+  "state": "done",
+  "status": "done",
+  "validation": {
+    "host": "Windows 11, Git 2.56, pinned rustc 1.99.0",
+    "local_harvest_tests": {
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    },
+    "clippy": "cargo clippy --offline --locked -p xtask --bin local-harvest --tests -- -D warnings: passed",
+    "format": "rustfmt --edition 2021 --check on changed files: passed",
+    "smoke": "built local-harvest.exe links on Windows; `audit` and `notices --check --json` pass on this repository with zero manifests",
+    "fixture_scope": "Unit tests drive run() against throwaway upstream/work Git repos in the temp dir with isolated Git config: intake by ref and by SHA, scan accept/reject (Apache via LICENSE, MIT via SPDX header, GPL directory rejected), import outputs and refusals, notices determinism and staleness, audit 4(a)/(b)/(c) with the quarantine ref and upstream objects pruned, and Harvest trailer range checks. No real third-party code has been harvested yet.",
+    "not_done": "audit is not yet wired into release qualification; license detection is heuristic and not legal review (docs/harvest.md)."
+  }
+}

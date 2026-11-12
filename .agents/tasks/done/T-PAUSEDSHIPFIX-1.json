@@ -1,0 +1,35 @@
+{
+  "id": "T-PAUSEDSHIPFIX-1",
+  "title": "Keep core ship working after it displaces an unrelated integration ref",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "--offline",
+      "--locked"
+    ],
+    "criteria": [
+      "a displaced integration ref is never recorded as a receipt's previous; the publish base is",
+      "receipts already written with a displaced previous still verify when the claim base is on the published lineage",
+      "a second ship after a displacing ship succeeds"
+    ]
+  },
+  "created_by": "PAUSEDSHIPFIX",
+  "created_unix": 1793955000,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "pausedshipfix1106",
+  "scopes": [
+    ".agents/tasks/t-pausedshipfix-1.json",
+    "xtask/src/bin/local-workflow.rs"
+  ],
+  "status": "implemented_pending_integration"
+}

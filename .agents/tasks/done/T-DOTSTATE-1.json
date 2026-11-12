@@ -1,0 +1,41 @@
+{
+  "id": "T-DOTSTATE-1",
+  "title": "Reuse locked workflow identity within source batches",
+  "goal": "Remove repeated same-root Git metadata queries while rechecking batch boundaries and every source worktree.",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "workflow_context"
+    ]
+  },
+  "created_by": "dot-state",
+  "created_unix": 1794235588,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "checkpoint": "Workflow-context tests 2/2 and ship regressions 18/18 passed (77.44s); Luna review, Clippy and fmt passed. Ready for full native gate.",
+  "claimed_by": "dot-state",
+  "measurements": [
+    "Ten-agent Trace2 common-dir queries: 96 before, 79 after; total rev-parse 233 before, 216 after. Instrumented wall times 96.68s and 99.99s are not a speedup.",
+    "Untraced old/new/new/old samples: 60.53s, 50.27s, 55.31s, 60.40s. Two samples per version under variable host load; first old partly overlapped Clippy. No broad performance guarantee.",
+    "Each claimant still resolves its worktree common directory live; root checked before and after each batch; no commit/update_scopes cache.",
+    "Foreign workflow, root Git-file redirection and claimant Git-file redirection tests passed in 10.94s; no publish and claims retained."
+  ],
+  "native_worker": "dot-state",
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-DOTSTATE-1.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress"
+}

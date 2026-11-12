@@ -1,0 +1,45 @@
+{
+  "id": "T-CLAUDECOLLAB-1",
+  "title": "Mandate 76 tightened: agents always work in collaborative mode on the Susi-native board",
+  "goal": "CEO directive 2026-11-12: agents must always work in collaborative mode and use the Susi-native board; one or many agents can and will be working. State it in Mandate 76 (.agents/identity.json, whose implementation-truth sentence still described the retired file board), docs/ceo-mandate-76.md and AGENTS.md. The tooling is Commercial T-CLAUDECOMMCOLLAB-1. Text only.",
+  "size": "xs",
+  "deps": [
+    "T-CLAUDEBOARDRETIRE-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794483300,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "ee2cb5a359c1b5de795027be0a4db5b6fffe78ee",
+  "limitations": [
+    "Text only in this repository.",
+    "An agent with access to this public repository only still cannot read the board.",
+    "Verified on Linux x86_64 only."
+  ],
+  "owner": "claude",
+  "reuse": {
+    "decision": "existing",
+    "searched": "Both repositories: Mandate 76 and the native board already exist; this is wording only."
+  },
+  "scopes": [
+    ".agents/identity.json",
+    "docs/ceo-mandate-76.md",
+    "AGENTS.md",
+    ".agents/tasks/T-CLAUDECOLLAB-1.json"
+  ],
+  "status": "implemented"
+}

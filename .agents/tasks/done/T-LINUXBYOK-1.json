@@ -1,0 +1,42 @@
+{
+  "id": "T-LINUXBYOK-1",
+  "title": "Linux BYOK: daemon keys, current Kimi and SiliconFlow defaults, truthful local model",
+  "goal": "Provider keys reach the systemd-started daemon on Linux, GEMI's Kimi and SiliconFlow defaults answer, and status never reports a cloud model as the local model",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "-p",
+      "susi-gemi-models",
+      "-p",
+      "susi-server",
+      "-p",
+      "susi-config",
+      "--lib"
+    ]
+  },
+  "created_by": "LINUXBYOK",
+  "created_unix": 1794313138,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/tasks/T-LINUXBYOK-1.json",
+    "config/cloud-vendors.json",
+    "config/coding-models.json",
+    "config/config.default.json",
+    "crates/susi-config/src/host_metrics.rs",
+    "crates/susi-daemon/src/server.rs",
+    "crates/susi-daemon/src/status_report.rs",
+    "crates/susi-gemi-models/src/cloud.rs",
+    "crates/susi-server/src/lib.rs"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "T-GAWDTESTS5TA1104-1",
+  "title": "Expand unit tests from 4 to 5 per suite across 16 crates/susi-gawd/src/tests/*.rs Wave A modules",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "--",
+      "vc_201_004_tests::"
+    ]
+  },
+  "created_by": "GAWDTESTS5TA1104",
+  "created_unix": 1793813414,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
+}

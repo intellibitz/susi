@@ -1,0 +1,25 @@
+{
+  "id": "T-GEMI5TE1104-1",
+  "title": "susi-gemi Wave E 5-test inline floor across 12 leaf and engine modules",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib"
+    ]
+  },
+  "created_by": "GEMI5TE1104",
+  "created_unix": 1793806200,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
+}

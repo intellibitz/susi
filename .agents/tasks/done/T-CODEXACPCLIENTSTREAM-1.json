@@ -1,0 +1,57 @@
+{
+  "id": "T-CODEXACPCLIENTSTREAM-1",
+  "title": "Let Core ACP clients consume SSE frames live",
+  "goal": "Add a bounded callback-backed AcpSocketClient stream API so ACP clients observe lifecycle and delta frames before a running mission completes, while preserving the collecting wrapper and plain HTTP limits.",
+  "size": "m",
+  "deps": [
+    "T-CODEXACPLIVESTREAM-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib"
+    ]
+  },
+  "created_by": "codex",
+  "created_unix": 1794457247,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "9fb74337fb5db41819fe55e52259e90fb7eaafc2",
+  "native_worker": "acp-client-stream",
+  "owner": "codex",
+  "results": {
+    "status": "implemented",
+    "source_commits": [
+      "0489d2e0320bcba1cf6ad375eb2ab520b3cc2591"
+    ],
+    "boundary": "Core ACP client transport only; no new dependency, Commercial, Minijinja, release, harvest, Windows, Jan artifact or credential change",
+    "coverage": "AcpSocketClient now exposes prompt_stream_sse_with with bounded, callback-backed SSE parsing; prompt_stream_sse remains the collecting wrapper. Response implements Read without changing into_bytes limits.",
+    "acceptance": {
+      "cargo test --offline --locked -p susi-core --lib": "506 passed, 0 failed, 0 ignored",
+      "cargo clippy --offline --locked -p susi-core --all-targets -- -D warnings": "passed",
+      "cargo fmt --all --check": "passed",
+      "cargo test --offline --locked -p susi --test task_records": "3 passed, 0 failed",
+      "cargo test --offline --locked -p susi --test architecture_tests": "45 passed, 0 failed",
+      "cargo test --offline --locked -p susi --test orphan_sources": "3 passed, 0 failed",
+      "cargo test --offline --locked -p susi --test lean_core_ceilings -- --nocapture": "2 passed, 0 failed; ceilings unchanged",
+      "cargo test --offline --locked -p susi --test core_docs_promise_no_ui_or_plugins": "5 passed, 0 failed",
+      "cargo run --offline --locked -p xtask --bin local-workflow -- check": "passed; fmt 3.7s, clippy 13.7s, 145 of 145 test binaries, 0 failed, total 77.6s"
+    },
+    "limitations": "The callback is bounded by MAX_HTTP_BODY_BYTES and stops on callback error; the existing collecting API remains available. Transport cancellation and session cancellation remain the existing ACP controls."
+  },
+  "scopes": [
+    "crates/susi-core/src/plain_http.rs",
+    "crates/susi-core/src/acp.rs",
+    "crates/susi-core/src/tests/acp_conformance.rs",
+    ".agents/tasks/T-CODEXACPCLIENTSTREAM-1.json"
+  ],
+  "status": "implemented"
+}

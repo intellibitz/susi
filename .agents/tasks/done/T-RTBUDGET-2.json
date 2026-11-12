@@ -1,0 +1,35 @@
+{
+  "id": "T-RTBUDGET-2",
+  "title": "Record the measured user-response budgets and their evidence in the Step 1 acceptance record",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "startup-gate",
+      "--offline",
+      "--locked"
+    ],
+    "criteria": [
+      "docs/step1-acceptance.md states the declared budgets, their rationale and the executable they judge",
+      "it records the measured before and after medians with the floor of each run, and which runs were taken under load",
+      "it states what is not yet established: a quiet-host confirmation of the both-fixes build, and enforcement inside production qualification"
+    ]
+  },
+  "created_by": "RTBUDGET2",
+  "created_unix": 1794000000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "rtbudget2",
+  "scopes": [
+    ".agents/tasks/t-rtbudget-2.json",
+    "docs/step1-acceptance.md"
+  ],
+  "status": "implemented_pending_integration"
+}

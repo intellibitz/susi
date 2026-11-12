@@ -1,0 +1,55 @@
+{
+  "id": "T-A2ASTD-1",
+  "title": "Compile budget: the A2A HTTP stack off the path into susi-gawd",
+  "goal": "susi-gawd compiles without waiting for the A2A HTTP stack (tokio -> hyper -> axum -> ra2a -> susi-gawd-a2a). susi-gawd uses no item of susi-gawd-a2a; it only re-exported the tier, and the daemon is the one caller (it serves port 9094 through susi_gawd_a2a::server::serve). The dependency moves from susi-gawd to susi-daemon, no crate is added and no source line of the A2A server changes, so bearer auth, host_only, bind_address and the A2A conformance behaviour are unchanged by construction. The pillar reach ceilings drop to their measured values while the host binary keeps compiling the same units; the measured critical path before and after is recorded in .agents/build-time.jsonl and docs/lean-core.md.",
+  "size": "S",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-a2a",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "a2astd",
+  "created_unix": 1794175980,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi-gawd-a2a --lib --offline --locked passes: the agent card, the per-capability skills, the JSON-RPC round trip through the real ra2a router, the A2A 1.0 method names, the standard error codes on / and /stream, the bearer challenge and the VC-201-087/092 task semantics, all with susi-gawd no longer depending on susi-gawd-a2a.",
+  "claimed_by": "a2astd",
+  "native_worker": "a2astd",
+  "scope": [
+    ".agents/build-time.jsonl",
+    ".agents/tasks/t-a2astd-1.json",
+    "cargo.lock",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-daemon/src/server.rs",
+    "crates/susi-gawd-a2a/src/lib.rs",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gawd/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "scopes": [
+    ".agents/build-time.jsonl",
+    ".agents/tasks/t-a2astd-1.json",
+    "cargo.lock",
+    "crates/susi-daemon/cargo.toml",
+    "crates/susi-daemon/src/server.rs",
+    "crates/susi-gawd-a2a/src/lib.rs",
+    "crates/susi-gawd/cargo.toml",
+    "crates/susi-gawd/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794185206
+}

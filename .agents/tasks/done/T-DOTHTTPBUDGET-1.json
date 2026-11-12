@@ -1,0 +1,26 @@
+{
+  "id": "T-DOTHTTPBUDGET-1",
+  "title": "Reduce HTTP deadline fixture latency without losing total-budget coverage",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-http-transport",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "dothttpbudget20261110",
+  "created_unix": 1794282327,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    "crates/susi-http-transport/src/client.rs",
+    ".agents/tasks/t-dothttpbudget-1.json"
+  ]
+}

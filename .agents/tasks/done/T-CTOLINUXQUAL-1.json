@@ -1,0 +1,62 @@
+{
+  "id": "T-CTOLINUXQUAL-1",
+  "title": "Qualify Susi Core v0.21.66 natively on Linux x86_64 and complete dual-platform release record",
+  "goal": "Close the open Mandate 48 Linux x86_64 host-qualification duty from Susi-native board #64 by running all 7 release qualification gates (format, check, clippy, licenses, tests, build, smoke) on the exact v0.21.66 release tree 941b21ff7cfe4ef3bef61c84cb01280a9786c485 (commit b02f85f21869776490081ef94820b58b506d3869) on x86_64-unknown-linux-gnu without mutating immutable tag refs/tags/v0.21.66, recording the Linux reference build sha256 digests and gate evidence in releases/v0.21.66.json (clearing missing_targets), and verifying <10s warm cargo fast-release.",
+  "size": "s",
+  "deps": [
+    "T-SWARMCORE-5",
+    "T-CLAUDERELEASESYNCHOST-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "antigravity",
+  "created_unix": 1794484738,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "0179d3ee8ec27fc188f67e672782b29c39ff3492",
+  "base_commit": "0179d3ee8ec27fc188f67e672782b29c39ff3492",
+  "feature_id": "F-CORE-LINUX-QUAL-0.21.66-1",
+  "limitations": [],
+  "owner": "AGENTCTOCORELINUXQUAL",
+  "results": {
+    "tag": "v0.21.66",
+    "tagged_commit": "93e6fb3edc182e198c1620f3b0d6165fd01972e9",
+    "qualified_commit": "b02f85f21869776490081ef94820b58b506d3869",
+    "qualified_tree": "941b21ff7cfe4ef3bef61c84cb01280a9786c485",
+    "host": "x86_64-unknown-linux-gnu",
+    "susi_linux_x86_64_sha256": "7cbf20c49214f99f257bd93aaab60d9dd2a583139853bb0729050bc39214ff61",
+    "susi_linux_x86_64_bytes": 31218784,
+    "susi_harness_linux_x86_64_sha256": "55e7b65befb1704e634c9bc7b171f5408150db763fe6a287d9ee1350506dda0a",
+    "susi_harness_linux_x86_64_bytes": 2472920,
+    "linux_workspace_tests": {
+      "binaries": 256,
+      "passed": 5813,
+      "failed": 0,
+      "ignored": 14
+    },
+    "warm_fast_release_ms": 1953
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Checked xtask/src/bin/release-qualify.rs, xtask/src/release_qualification.rs, tests/release_records.rs, scripts/susi-release-sync.sh, and susi-commercial-apps/scripts/refresh-certified-core.sh; reused the existing susi-release-record/v1 multi-target asset schema and Mandate 48 host-qualification updater without writing new runtime code."
+  },
+  "scopes": [
+    "releases/v0.21.66.json",
+    ".agents/tasks/T-CTOLINUXQUAL-1.json"
+  ],
+  "status": "implemented",
+  "updated_unix": 1794486060
+}

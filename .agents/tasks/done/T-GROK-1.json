@@ -1,0 +1,24 @@
+{
+  "id": "T-GROK-1",
+  "title": "Docs: agent handoff and rescue rules for unfinished work",
+  "goal": "Add AGENTS.md section on rescuing unfinished work in task copies",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "agent_bootstrap"
+    ]
+  },
+  "created_by": "GROK",
+  "created_unix": 1793810500,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
+}

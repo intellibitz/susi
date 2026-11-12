@@ -1,0 +1,44 @@
+{
+  "id": "T-CODEXDISTILLPULL-1",
+  "title": "Fetch explicit remote refs during local distillation pull",
+  "goal": "Make local-distill --pull resolve published snapshot and handoff refs from the configured origin without manual refspec fetches, while refusing arbitrary revisions and immutable-ref replacement.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-distill"
+    ]
+  },
+  "created_by": "codex",
+  "created_unix": 1794448005,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "a524f4bb1b24acb7b255905d422319707f9cd78b",
+  "native_worker": "codex-distill-pull",
+  "owner": "codex",
+  "results": {
+    "status": "implemented",
+    "change": "local-distill --pull fetches validated refs/tags and refs/agents inputs when absent locally, verifies the advertised object, and refuses to overwrite a differing local ref; arbitrary revisions and non-main remote branches are not fetched.",
+    "focused": "cargo test --offline --locked -p xtask --bin local-distill: 33 passed, 0 failed; includes 2 new remote-ref regressions and the existing pull/reconciliation test",
+    "task_record_guard": "cargo test --offline --locked -p susi --test task_records: 3 passed, 0 failed",
+    "format": "cargo fmt --all --check: passed",
+    "clippy": "cargo clippy --offline --locked -p xtask --bin local-distill --all-targets -- -D warnings: passed",
+    "native_gate": "cargo local-workflow check completed all 114 binaries but was blocked by concurrent peer_channel_hub process/port contention; port_fallback 1/1, host_only_privacy 2/2 and peer_channel_hub 2/2 pass when run in isolation. No changed-path test failed.",
+    "boundary": "Core distillation workflow only; no product, dependency, Commercial, Minijinja, release, or credential change"
+  },
+  "scopes": [
+    "xtask/src/distill_compose.rs",
+    ".agents/tasks/T-CODEXDISTILLPULL-1.json"
+  ],
+  "status": "implemented"
+}

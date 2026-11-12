@@ -1,0 +1,46 @@
+{
+  "id": "T-CTODISTILLFUNC-1",
+  "title": "Functional-only release distillation (--functional-only) and confined in-tree symlinked-license harvest resolution",
+  "goal": "Implement deterministic functional vs. non-functional task and commit classification in `distill plan` and `local-distill` (`plan`, `compose`, `orchestrate`) under `--functional-only` so non-functional receipt, release-record, docs, and chore commits are skipped without blocking functional dependents or triggering out-of-scope diffs while recording `functional_only` and `skipped_non_functional_tasks` in plan manifests and distillation receipts and passing `task_records`, `distill lint`, and `release-qualify --from-distill`; close the multi-crate symlinked-license gap in `xtask/src/harvest.rs` by resolving Git `120000` license and NOTICE symlinks strictly confined inside the quarantined commit tree (<= 4 hops, regular blob target) while continuing to hard-reject symlinked source files; and add end-to-end integration tests in `tests/functional_distillation.rs`.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "functional_distillation"
+    ]
+  },
+  "created_by": "carbon",
+  "created_unix": 1794429600,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "a7841f83cd1d65ed86a44f9be217f9ec62ba0209",
+  "base_commit": "a7841f83cd1d65ed86a44f9be217f9ec62ba0209",
+  "claimed_by": "cto-distill-func-ship",
+  "feature_id": "F-FUNC-DISTILL-1",
+  "limitations": [
+    "Symlink resolution is deliberately restricted to nearest license and NOTICE evidence inside the pinned quarantined commit tree (<= 4 hops, regular file blobs only); symlinked source files remain hard-rejected.",
+    "Verified on Linux x86_64."
+  ],
+  "native_worker": "cto-distill-func-ship",
+  "owner": "distill-func",
+  "scopes": [
+    ".agents/tasks/T-CTODISTILLFUNC-1.json",
+    "tests/functional_distillation.rs",
+    "xtask/src/distill.rs",
+    "xtask/src/distill/functional.rs",
+    "xtask/src/distill/lint.rs",
+    "xtask/src/distill_compose.rs",
+    "xtask/src/harvest.rs"
+  ],
+  "state": "implemented",
+  "status": "implemented",
+  "updated_unix": 1794430900
+}

@@ -1,0 +1,35 @@
+{
+  "id": "T-DOTHOSTMETRICS-1",
+  "title": "Preserve statvfs numeric semantics under Linux strict Clippy",
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "--lib",
+      "--offline",
+      "--locked"
+    ],
+    "criteria": [
+      "Linux strict scoped Clippy has no useless statvfs conversions or suppressions.",
+      "Filesystem block counts widen to u64 before saturating multiplication for u32 and u64 ABI fields.",
+      "Existing host metrics tests and new width, saturation, and zero regressions pass.",
+      "Windows implementation remains unchanged; independent review completes before native checkpoint."
+    ]
+  },
+  "created_by": "DOTHOSTMETRICS",
+  "created_unix": 1794266743,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "dot-host-metrics",
+  "scopes": [
+    ".agents/tasks/T-DOTHOSTMETRICS-1.json",
+    "crates/susi-config/src/host_metrics.rs"
+  ],
+  "status": "in_progress"
+}

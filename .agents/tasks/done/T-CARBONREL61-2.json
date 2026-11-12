@@ -1,0 +1,70 @@
+{
+  "id": "T-CARBONREL61-2",
+  "title": "Record Susi core v0.21.61 release and advance main to 0.21.61",
+  "goal": "Record releases/v0.21.61.json and byte-identical releases/qualification/v0.21.61.json for immutable tag v0.21.61 (779edbcc7acf2b0fe487d38fcd8c9dbcf6c8f7ce) and advance development main to 0.21.61.",
+  "size": "s",
+  "deps": [
+    "T-CARBONLEAN-16"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "carbon-cachyos-distill",
+  "created_unix": 1794402942,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "50432a2aa368a55e2e01441c41429e3922cb542c",
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.61-1",
+  "limitations": [
+    "Windows x86_64 reference build and qualification remain owed."
+  ],
+  "owner": "carbon-cachyos-distill",
+  "results": {
+    "tag": "v0.21.61",
+    "tag_object": "7add8063bc00515dac4e09170a9ac18d048d85f4",
+    "tagged_commit": "779edbcc7acf2b0fe487d38fcd8c9dbcf6c8f7ce",
+    "qualified_commit": "79dd83ba04c9ed377742138c345f45f89c1d5190",
+    "qualified_tree": "6c75a710d180106b75da4ebad602f9711fb93b77",
+    "workspace_tests": {
+      "binaries": 251,
+      "passed": 5675,
+      "failed": 0,
+      "ignored": 14
+    },
+    "susi_sha256": "0ae11e62817db7d7ffeba2a0929b2831b4cf6ffff5f96dec454e2bc8652cc6a5",
+    "susi_harness_sha256": "466ddfa5f31efb8aa23352623be68574902c464e17115833c7afe2a4ac770e04"
+  },
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CARBONREL61-1.json",
+    ".agents/tasks/T-CARBONREL61-2.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    "releases/qualification/v0.21.61.json",
+    "releases/v0.21.61.json"
+  ],
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794402942
+}

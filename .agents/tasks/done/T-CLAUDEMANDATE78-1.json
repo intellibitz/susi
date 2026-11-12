@@ -1,0 +1,53 @@
+{
+  "id": "T-CLAUDEMANDATE78-1",
+  "title": "Codify CEO Mandate 78: never reinvent the wheel, reuse Apache-2.0 work first",
+  "goal": "CEO directive 2026-11-12: Susi core and Susi Commercial Apps never reinvent the wheel; Apache-2.0 projects must be used, to reduce bloat and keep the ecosystem blazing fast; a continuation of Mandate 75's Raw Source (main) -> Distill (release) pipeline. Author docs/ceo-mandate-78.md (look before you build, reuse by harvest under Mandate 75, delete what reuse replaces, smaller and faster never the opposite, record the decision), register Mandate 78 in .agents/identity.json, make it discoverable from AGENTS.md, CLAUDE.md, GEMINI.md and README.md, add the optional `reuse` object to the task schema, add an advisory distill-lint count of landed tasks without a reuse decision (not a finding), and guard it in tests.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDEFRESH-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794480700,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "6222f456f89634a3879b6ad5c93421cd6c501e38",
+  "feature_id": "F-CLAUDE-MANDATE-78",
+  "limitations": [
+    "The lint count is advice: it is not a finding and never fails --strict.",
+    "Nothing verifies that an agent actually searched before building, that a build reason is true, that superseded code was deleted, or that the tree is free of reinvented wheels.",
+    "Verified on Linux x86_64 only."
+  ],
+  "owner": "claude",
+  "reuse": {
+    "decision": "existing",
+    "searched": "Both repositories: the harvest tooling (local-harvest raw-features, route, pickup, audit) and distill lint already exist; this task adds a rule and one advisory count to the existing lint rather than a new tool."
+  },
+  "scopes": [
+    ".agents/identity.json",
+    ".agents/schemas/task.schema.json",
+    ".agents/tasks/T-CLAUDEMANDATE78-1.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "README.md",
+    "docs/ceo-mandate-78.md",
+    "tests/agent_bootstrap.rs",
+    "tests/architecture_tests.rs",
+    "xtask/src/distill/lint.rs"
+  ],
+  "status": "implemented"
+}

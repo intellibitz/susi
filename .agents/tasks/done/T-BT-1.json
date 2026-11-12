@@ -1,0 +1,42 @@
+{
+  "id": "T-BT-1",
+  "title": "Record the idle compile-budget measurement of landed main 240ee4dfb (iteration 362 adopted)",
+  "goal": "docs/lean-core.md gains the 240ee4dfb column (81.7 s wall, 822.7 CPU-s, 417 units, serial tail 29.9 s) and a wave-log entry naming the next levers (susi-vendor-mcp-server/rmcp, tokio/hyper, windows-sys, syn); .agents/build-time.jsonl carries the record.",
+  "size": "S",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "bt",
+  "created_unix": 1794109030,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi --test core_docs_promise_no_ui_or_plugins --offline --locked",
+  "claimed_by": "bt",
+  "native_worker": "bt",
+  "scope": [
+    ".agents/build-time.jsonl",
+    ".agents/tasks/t-bt-1.json",
+    "docs/lean-core.md"
+  ],
+  "scopes": [
+    ".agents/build-time.jsonl",
+    ".agents/tasks/t-bt-1.json",
+    "docs/lean-core.md"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794109030
+}

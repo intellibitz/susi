@@ -1,0 +1,41 @@
+{
+  "id": "T-CODEXPEERPORTS-1",
+  "title": "Keep peer-channel integration ports disjoint from port-fallback",
+  "goal": "Move the peer-channel fixture's daemon offset scan above the port-fallback test's 0..2000 range so parallel workspace gates cannot race a free-port probe with another test daemon.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "peer_channel_hub"
+    ]
+  },
+  "created_by": "codex-coordinator",
+  "created_unix": 1794405541,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "67cea34c6349d611e0f59600dc063d712311be05",
+  "claimed_by": "codex-peer-ports",
+  "feature_id": "F-CORE-PEER-TEST-PORTS-1",
+  "limitations": [
+    "The fixture still requires a routed non-loopback IPv4 interface, as documented by the existing test contract."
+  ],
+  "native_worker": "codex-peer-ports",
+  "owner": "codex-coordinator",
+  "scopes": [
+    ".agents/tasks/T-CODEXPEERPORTS-1.json",
+    "tests/peer_channel_hub.rs"
+  ],
+  "state": "in_progress",
+  "status": "implemented_pending_integration",
+  "updated_unix": 1794405541
+}

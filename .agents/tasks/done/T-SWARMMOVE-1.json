@@ -1,0 +1,33 @@
+{
+  "id": "T-SWARMMOVE-1",
+  "title": "Swarm product modules leave the open core (parallel roadmap agents to Susi Frontier Lab)",
+  "goal": "Core half of the destination-first swarm move (CEO 2026-11-08 22:10, lean-core pillar shrink). The destination landed first: commercial 029b5e0 (gated merge b9a23c4, receipt a2d40ae on intellibitz/susi-commercial-apps origin/main) declares roadmap_agents, agent_integration and the cloud implementation executor in susi-frontier-lab, where all 54 tests of the moved core files pass. Core now deletes crates/susi-gawd-swarm/src/roadmap_agents.rs and agent_integration.rs with their two suites (parallel_roadmap_e2e, swarm_gap_verified_closure), and the implementation section of crates/susi-gawd/src/cloud_rsi.rs (CloudImplExec, ImplModel, ImplBrief, PatchPlan, Delegator, delegate_capability_gaps) with its five tests. No binary called any of it: its only callers were each other and their tests. The patch cycle stays in core and the commercial executor reaches it through the GMCP apply_patch_cycle tool. The other swarm modules named in docs/lean-core.md stay, for the reasons recorded there: amas (cluster discovery, attested peer dispatch, leader election, lock broadcast; used by peer_registry, deliberation and the daemon), cloud_failover and cloud_lockout (parallel_dispatch is built on their Runner, FailoverBudget and LockoutTracker), ama and cloud_recovery (the mission engine behind gawd.solve, the daemon and the CLI). Roadmap vectors VC-201-027 and VC-201-028 record where their evidence now runs. The same change lowers the line ceilings to the measured values (susi-gawd-swarm 23,002 -> 20,673, susi-gawd 13,288 -> 12,653) and adds the docs/lean-core.md wave-log entry and swarm row. Landed as core 51ca610b9 (receipt 5f23245e0). Follow-up: the idle before/after measurement (five clean runs each, alternated in both orders) is recorded in .agents/build-time.jsonl and the docs/lean-core.md wave log; no wall-clock gain is measurable above run-to-run noise.",
+  "size": "M",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings"
+    ]
+  },
+  "created_by": "swarmmove",
+  "created_unix": 1794158277,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "claimed_by": "swarmmove",
+  "native_worker": "swarmmove",
+  "scopes": [
+    ".agents/build-time.jsonl",
+    ".agents/tasks/t-swarmmove-1.json",
+    "docs/lean-core.md"
+  ],
+  "state": "in_progress",
+  "status": "in_progress"
+}

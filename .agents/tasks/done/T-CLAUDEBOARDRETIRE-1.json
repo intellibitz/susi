@@ -1,0 +1,35 @@
+{
+  "id": "T-CLAUDEBOARDRETIRE-1",
+  "title": "Mandate 76: the old file board is retired; the native board is the only board",
+  "goal": "CEO decision 2026-11-12 ('retire the old board'): the file board in the workspace rules file is retired and archived read-only; the native board is the only board. Update docs/ceo-mandate-76.md to say so and that numbering is done by the board tool. Text only.",
+  "size": "xs",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794470900,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "0b554d5e5bcb63812276678deeeaf6a952a5277c",
+  "limitations": [
+    "Verified on Linux x86_64 only."
+  ],
+  "owner": "claude",
+  "scopes": [
+    "docs/ceo-mandate-76.md",
+    ".agents/tasks/T-CLAUDEBOARDRETIRE-1.json"
+  ],
+  "status": "implemented"
+}

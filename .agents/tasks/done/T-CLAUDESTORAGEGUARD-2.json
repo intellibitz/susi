@@ -1,0 +1,44 @@
+{
+  "id": "T-CLAUDESTORAGEGUARD-2",
+  "title": "Every local-snapshot publish witnesses the storage remote",
+  "goal": "CEO decision 2026-11-11 (\"wire it\"): the storage guard of T-CLAUDESTORAGEGUARD-1 must run without anyone remembering it. After submit, retry-main, cut and retry, local-snapshot runs the guard against origin in the publishing clone, whatever the command's result. It is advisory, as main has no gates: a finding goes to stderr and never changes the exit status or stdout; it is silent when nothing is wrong; SUSI_NO_STORAGE_GUARD=1 skips it. No scheduler and no hosting-provider feature is involved.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDESTORAGEGUARD-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "git_publisher_native_hook"
+    ]
+  },
+  "created_by": "CLAUDESTORAGEGUARD",
+  "created_unix": 1794420547,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "6370ebf6f1dff019163a03503c59a23d7efbce64",
+  "host": "CEO laptop, CachyOS Linux x86_64",
+  "limitations": [
+    "The harness's own submit-main and integrate paths (crates/susi-harness/src/git_governor.rs) do not start the guard: susi-harness is at its lean-core line ceiling, which only goes down without a CEO decision.",
+    "Tested on Linux x86_64 only."
+  ],
+  "owner": "claude",
+  "scopes": [
+    ".agents/tasks/T-CLAUDESTORAGEGUARD-2.json",
+    "docs/ceo-mandate-74.md",
+    "docs/git-storage-publisher.md",
+    "xtask/src/bin/local-snapshot.rs",
+    "xtask/src/storage_guard.rs",
+    "xtask/tests/git_publisher_native_hook.rs"
+  ],
+  "status": "done"
+}

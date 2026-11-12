@@ -1,0 +1,43 @@
+{
+  "id": "T-CLAUDEHARVESTAPACHE-1",
+  "title": "Harvest takes Apache-2.0 code only",
+  "goal": "CEO vision 2026-11-12: Susi freely picks up features from any raw source in the cloud and integrates them into core and Commercial Apps, so core stays lean and Commercial Apps gets existing open-source innovation, with \"only apache 2.0 license only for pure compliance\". The harvest tooling existed (Mandate 74 section 5) but also admitted MIT, BSD-2-Clause, BSD-3-Clause and `Apache-2.0 WITH LLVM-exception`. `local-harvest` (scan, import, audit) and the distillation harvest audit (`harvest_spdx_allowed`) now admit Apache-2.0 only: a dual-licensed file is taken under its Apache-2.0 alternative; everything else is refused and nothing is written. No harvest manifest existed in either repository, so nothing already imported is affected. The dependency allowlist (Mandate 68) is a separate rule and is not changed.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-harvest"
+    ]
+  },
+  "created_by": "CLAUDEHARVESTAPACHE",
+  "created_unix": 1794422114,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "521398f15bb1d6234feec6cb350b481e76d5d171",
+  "host": "CEO laptop, CachyOS Linux x86_64",
+  "limitations": [
+    "License detection is still text and SPDX matching, not legal review (docs/harvest.md).",
+    "The MIT/BSD license-text fields of the manifest schema remain readable but are no longer produced.",
+    "No feature was harvested in this task: choosing a source is a product decision and fetching one is a separate, named step.",
+    "Tested on Linux x86_64 only."
+  ],
+  "owner": "claude",
+  "scopes": [
+    ".agents/tasks/T-CLAUDEHARVESTAPACHE-1.json",
+    "docs/ceo-mandate-74.md",
+    "docs/harvest.md",
+    "xtask/src/distill/mandate74.rs",
+    "xtask/src/harvest.rs"
+  ],
+  "status": "done"
+}
