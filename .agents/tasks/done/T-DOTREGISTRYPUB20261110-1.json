@@ -1,11 +1,8 @@
 {
-  "created_unix": 1794302041,
-  "checkpoint": "Independent review passed. The paired median first-useful-output improvement is 88.685 ms for fresh homes and 104.270 ms for reused homes. Serialized integration, the full workspace gate, publication, and production qualification remain pending. No production-budget or under-60-second delivery claim is made.",
-  "status": "in_progress",
+  "id": "T-DOTREGISTRYPUB20261110-1",
+  "title": "Reduce registry publication filesystem overhead",
   "goal": "Avoid repeated existing-parent preparation only for unsynced atomic metadata writes while retaining complete publication, permissions, errors and atomicity; measure end-to-end benefit.",
   "deps": [],
-  "title": "Reduce registry publication filesystem overhead",
-  "created_by": "dotregistrypub20261110",
   "accept": {
     "cmd": [
       "cargo",
@@ -17,13 +14,21 @@
       "--locked"
     ]
   },
+  "created_by": "dotregistrypub20261110",
+  "created_unix": 1794302041,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "agent": "Codex",
+  "checkpoint": "Independent review passed. The paired median first-useful-output improvement is 88.685 ms for fresh homes and 104.270 ms for reused homes. Serialized integration, the full workspace gate, publication, and production qualification remain pending. No production-budget or under-60-second delivery claim is made.",
+  "native_worker": "dotregistrypub20261110",
   "scopes": [
     ".agents/tasks/t-dotregistrypub20261110-1.json",
     "crates/susi-config/src/json_util.rs"
   ],
-  "native_worker": "dotregistrypub20261110",
-  "id": "T-DOTREGISTRYPUB20261110-1",
+  "status": "in_progress",
   "verification": {
     "lock_sha256": "04c2ff102009fb02dc1d95fc5dc0862714ce6e382af1b487f19797fe9b6d458d",
     "guards": "Architecture: 41 passed; documentation: 5 passed; lean ceilings: 2 passed; orphan sources: 3 passed; task records: 3 passed.",
