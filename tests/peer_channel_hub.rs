@@ -477,23 +477,43 @@ fn run_cli(node: &Node, args: &[&str], limit: Duration) -> (bool, String, String
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd.spawn().unwrap();
+    // Drain both pipes while the child runs. A CLI can emit diagnostics while
+    // a daemon is under load; polling wait() without readers lets a full pipe
+    // deadlock the child until this test's timeout kills it.
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let stdout_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut stdout = stdout;
+        let _ = stdout.read_to_end(&mut bytes);
+        bytes
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut stderr = stderr;
+        let _ = stderr.read_to_end(&mut bytes);
+        bytes
+    });
     let deadline = Instant::now() + limit;
     loop {
         if let Some(status) = child.try_wait().unwrap() {
-            let out = child.wait_with_output().unwrap();
+            let stdout = stdout_reader.join().unwrap_or_default();
+            let stderr = stderr_reader.join().unwrap_or_default();
             return (
                 status.success(),
-                String::from_utf8_lossy(&out.stdout).into_owned(),
-                String::from_utf8_lossy(&out.stderr).into_owned(),
+                String::from_utf8_lossy(&stdout).into_owned(),
+                String::from_utf8_lossy(&stderr).into_owned(),
             );
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
-            let out = child.wait_with_output().unwrap();
+            let _ = child.wait();
+            let _stdout = stdout_reader.join().unwrap_or_default();
+            let stderr = stderr_reader.join().unwrap_or_default();
             panic!(
                 "susi {args:?} as {} did not finish within {limit:?}; stderr:\n{}",
                 node.name,
-                String::from_utf8_lossy(&out.stderr)
+                String::from_utf8_lossy(&stderr)
             );
         }
         std::thread::sleep(Duration::from_millis(10));
