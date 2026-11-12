@@ -2152,7 +2152,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=76).collect::<Vec<_>>(),
+        (1..=77).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2171,6 +2171,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (74, "Dump to main, distill releases, harvest"),
         (75, "Raw Source (main) -> Distill (release)"),
         (76, "through the Susi Board"),
+        (77, "exactly one root directory per machine"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -2368,6 +2369,44 @@ fn ceo_mandate_76_makes_susi_board_collaboration_discoverable() {
         assert!(
             doc.contains(phrase),
             "Mandate 76 lost requirement: {phrase}"
+        );
+    }
+}
+
+/// Mandate 77 (CEO 2026-11-12): one isolated working directory per agent.
+#[test]
+fn ceo_mandate_77_makes_agent_roots_discoverable() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-mandate-77.md"),
+            "{path}: Mandate 77 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-77.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "## 1. One root per agent per machine",
+        "`.susi-agent-root`",
+        "Roots never nest and never overlap",
+        "## 2. Everything an agent creates lives under its root",
+        "## 4. Never write in another agent's root",
+        "nothing is\n   moved to satisfy this mandate",
+        "susi-commercial workflow root show",
+        "SUSI_ALLOW_FOREIGN_ROOT",
+        "Implementation truth",
+        "Not enforced",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 77 lost requirement: {phrase}"
         );
     }
 }
