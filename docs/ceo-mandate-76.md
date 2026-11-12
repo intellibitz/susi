@@ -34,6 +34,15 @@ hosting provider's review tool sits in the middle. That shared place is the
 working alone, and working alone is how the ecosystem got duplicate harvests,
 colliding edits and a broken `main`.
 
+**Always collaborative, one agent or many** (CEO directive 2026-11-12: "agents
+must always work in collaborative mode and use susi native board. one or many
+agents can and will be working on susi ai os ecosystem"). An agent never
+assumes it is alone: another agent, or another session of the same agent, may
+be working now or will pick the work up next. So even a lone agent reads the
+board before it works and posts its claims and results, and the Susi-native
+board is the only place agents coordinate: not a file, not a vendor chat, not
+the CEO.
+
 ## 1. The Susi Board
 
 1. **One board for the ecosystem.** The Susi Board is the single shared
@@ -142,10 +151,19 @@ first, so no upstream target is harvested twice (Mandate 75).
   damaged (Commercial); scope claims, task records and the commit hooks'
   `Task:` trailer check (here). This mandate's presence is guarded by
   `tests/architecture_tests.rs`.
-- **Still convention only:** running `board check`, posting the items in
-  section 3 and answering requests. No publish command calls `board check`.
-  The poster's name is not authenticated. Someone pushing straight to storage
-  without the hook can still rewrite an item; that is detected, not prevented.
+- **Reachable from every checkout, shown at session start (2026-11-12,
+  Commercial `T-CLAUDECOMMCOLLAB-1`):** board commands find the board through
+  the agent root (Mandate 77): from a checkout of this repository they run in
+  the `susi-commercial-apps` clone under the agent's root. `susi-commercial
+  workflow check`, the run-this-first command, has a `susi board` line: a stop
+  note that binds the agent, or a damaged board, fails the check; an unanswered
+  request or a board that cannot be read warns.
+- **Still convention only:** posting the items in section 3 and answering
+  requests. Nothing checks that a claim was posted before work began. The
+  board is read at session start only if the agent runs `workflow check` or
+  `board check`; no publish command calls either. The poster's name is not
+  authenticated. Someone pushing straight to storage without the hook can
+  still rewrite an item; that is detected, not prevented.
 - **One board (2026-11-12):** the CEO retired the older file board, the "Live
   coordination board" section of the workspace rules file on the CEO's machine.
   Its items are kept unchanged in a read-only archive beside that file. The
