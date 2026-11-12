@@ -15,7 +15,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use susi_error::{EaiError, EaiResult};
 
 /// The protocol revision this client offers in `initialize`.
-pub const PROTOCOL_VERSION: &str = "2024-11-05";
+pub const PROTOCOL_VERSION: &str = "2025-11-25";
 
 /// Protocol revisions this client recognises in a server's `initialize`
 /// answer, newest first.
