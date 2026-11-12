@@ -2,18 +2,9 @@
   "id": "T-CLAUDEWINREL-1",
   "title": "Windows x86_64 release gates for the current core candidate and commercial v3.1.4-rc5",
   "goal": "Windows x86_64 qualification is owed for core v0.21.55 and commercial v3.1.4-rc5 (both Linux-qualified). v0.21.55's tree cannot pass on Windows (release-qualify failed to link before T-CLAUDEWINQUAL-1). Run release-qualify's seven gates (same argv) on native x86_64-pc-windows-msvc for core release/2026-11-11-rc3 and the commercial T-RELCOMM4-1 gates for release/v3.1.4-rc5, in isolated homes with provider keys unset, record results as evidence, and fix Windows-only failures on main so the next tagged core release qualifies on both platforms. No tag is created or pushed by this task; commercial signing stays with the CEO's authority secret.",
-  "status": "in_progress",
-  "owner": "claude",
-  "created_by": "claude",
-  "created_unix": 1794377169,
   "size": "m",
   "deps": [
     "T-CLAUDEWINQUAL-1"
-  ],
-  "host": "HP Pavilion laptop, Windows 10 x86_64, 4 logical CPUs, 16 GB, Rust 1.99.0 MSVC",
-  "scopes": [
-    ".agents/tasks/T-CLAUDEWINREL-1.json",
-    ".agents/evidence/winrel-T-CLAUDEWINREL-1.json"
   ],
   "accept": {
     "cmd": [
@@ -26,5 +17,19 @@
       "--test",
       "task_records"
     ]
-  }
+  },
+  "created_by": "claude",
+  "created_unix": 1794377169,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "host": "HP Pavilion laptop, Windows 10 x86_64, 4 logical CPUs, 16 GB, Rust 1.99.0 MSVC",
+  "owner": "claude",
+  "scopes": [
+    ".agents/tasks/T-CLAUDEWINREL-1.json",
+    ".agents/evidence/winrel-T-CLAUDEWINREL-1.json"
+  ],
+  "status": "in_progress"
 }
