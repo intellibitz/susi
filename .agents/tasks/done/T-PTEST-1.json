@@ -2,15 +2,31 @@
   "id": "T-PTEST-1",
   "title": "Run the local gate's test binaries concurrently, each in a private home",
   "goal": "Replace the serial `cargo test` run of a narrowed ship or check gate with Cargo's `--no-run` build followed by a concurrent runner (xtask/src/test_runner.rs) that launches every test binary beside the others, each with its own HOME/APPDATA/LOCALAPPDATA/XDG/SUSI_HOME tree and Cargo's runtime environment, appends each binary's output to the gate log under Cargo's own `Running` header so the existing pass counters and receipts read it unchanged, stops launching after the first failure, records per-binary durations for longest-first scheduling, and runs doctests through the companion doc gate. Measured on the 2026-11-07 Wave 10 ship: 574 s of serial binary time inside a 784 s test gate, 124 of 173 binaries under one second. Also restores rustfmt cleanliness of crates/susi-core/src/lib.rs (a double blank line pushed to main without the gate) so the format gate passes again. Repairs main after ungated pushes: drops the dangling `pub mod vc_201_093_mastery` in susi-gawd-a2a and restores rustfmt cleanliness of susi-gawd-swarm, susi-gemi-models and susi-core lib.rs. Also removes three orphaned #[cfg(test)] attributes in susi-vendor-models that compiled set_selected_model_override out, and formats susi-gawd lib.rs. Restores susi-config::windows_environment (migrated out by iteration 193) which src/installed_channel/transaction.rs still calls on Windows. Final placement of the Windows environment broadcast: crates/susi-vendor-winapi/src/environment.rs (the Win32 facade), called by src/installed_channel/transaction.rs; susi-config stays free of it per the open-core boundary test.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "ptest",
-  "native_worker": "ptest",
-  "created_by": "ptest",
-  "created_unix": 1794053400,
-  "updated_unix": 1794057571,
   "size": "M",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "--offline",
+      "--locked",
+      "test_runner"
+    ]
+  },
+  "created_by": "ptest",
+  "created_unix": 1794053400,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p xtask --bin local-workflow --offline --locked test_runner",
+  "claimed_by": "ptest",
+  "native_worker": "ptest",
   "scope": [
     ".agents/tasks/t-ptest-1.json",
     "cargo.lock",
@@ -53,18 +69,7 @@
     "xtask/src/bin/local-workflow.rs",
     "xtask/src/test_runner.rs"
   ],
-  "acceptance": "cargo test -p xtask --bin local-workflow --offline --locked test_runner",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "xtask",
-      "--bin",
-      "local-workflow",
-      "--offline",
-      "--locked",
-      "test_runner"
-    ]
-  }
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794057571
 }
