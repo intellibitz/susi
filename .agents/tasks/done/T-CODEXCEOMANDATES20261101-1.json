@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXCEOMANDATES20261101-1",
+  "title": "Make CEO mandates canonical across runtime delegation and agent directives",
+  "goal": "Preserve agent-only Rust native local delivery requirements and remove contradictory mandatory legacy bootstrap",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "ceo_mandates_are_complete_and_keep_evidence_honest",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEXCEOMANDATES20261101",
+  "created_unix": 1793549534,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
+}
