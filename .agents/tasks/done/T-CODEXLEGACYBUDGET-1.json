@@ -1,33 +1,12 @@
 {
   "id": "T-CODEXLEGACYBUDGET-1",
   "title": "Preserve max_tokens on legacy prompt-form completions",
-  "feature": "F-CORE-LEGACY-BUDGET-1",
   "goal": "Carry a validated legacy /v1/completions max_tokens budget into the normalized GEMI provider request so local and OpenAI-compatible completion engines stop at the caller's requested limit.",
-  "state": "implemented",
-  "status": "implemented",
-  "claimed_by": "codex-legacy-budget",
-  "native_worker": "codex-legacy-budget",
-  "created_by": "CODEXLEGACYBUDGET",
-  "created_unix": 1794434284,
   "size": "S",
-  "base_commit": "396f6992619512792fc6a7ae55d1ad72f8a37beb",
   "deps": [
     "T-CLAUDEGEMIFIX-2",
     "T-CODEXCLOUDTOOLS-1"
   ],
-  "scopes": [
-    "crates/susi-server/src/lib.rs",
-    "crates/susi-gemi/src/engines/http_provider.rs",
-    "crates/susi-gemi/src/tests",
-    ".agents/tasks/T-CODEXLEGACYBUDGET-1.json"
-  ],
-  "scope": [
-    "crates/susi-server/src/lib.rs",
-    "crates/susi-gemi/src/engines/http_provider.rs",
-    "crates/susi-gemi/src/tests",
-    ".agents/tasks/T-CODEXLEGACYBUDGET-1.json"
-  ],
-  "acceptance": "cargo test --offline --locked -p susi-server --lib parses_legacy_max_tokens_and_carries_budget",
   "accept": {
     "cmd": [
       "cargo",
@@ -40,6 +19,22 @@
       "parses_legacy_max_tokens_and_carries_budget"
     ]
   },
+  "created_by": "CODEXLEGACYBUDGET",
+  "created_unix": 1794434284,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test --offline --locked -p susi-server --lib parses_legacy_max_tokens_and_carries_budget",
+  "base_commit": "396f6992619512792fc6a7ae55d1ad72f8a37beb",
+  "claimed_by": "codex-legacy-budget",
+  "feature": "F-CORE-LEGACY-BUDGET-1",
+  "limitations": [
+    "Legacy prompt-form completions continue to refuse caller-supplied tools and retain their existing prompt-only response shape.",
+    "No live provider credentials or model files are used; native Windows qualification remains a separate host task."
+  ],
+  "native_worker": "codex-legacy-budget",
   "results": {
     "source_commit": "bb446735ea9127bd4bf16db91148323b6210f308",
     "checks": [
@@ -78,8 +73,18 @@
     "dependencies_changed": false,
     "credentials_used": false
   },
-  "limitations": [
-    "Legacy prompt-form completions continue to refuse caller-supplied tools and retain their existing prompt-only response shape.",
-    "No live provider credentials or model files are used; native Windows qualification remains a separate host task."
-  ]
+  "scope": [
+    "crates/susi-server/src/lib.rs",
+    "crates/susi-gemi/src/engines/http_provider.rs",
+    "crates/susi-gemi/src/tests",
+    ".agents/tasks/T-CODEXLEGACYBUDGET-1.json"
+  ],
+  "scopes": [
+    "crates/susi-server/src/lib.rs",
+    "crates/susi-gemi/src/engines/http_provider.rs",
+    "crates/susi-gemi/src/tests",
+    ".agents/tasks/T-CODEXLEGACYBUDGET-1.json"
+  ],
+  "state": "implemented",
+  "status": "implemented"
 }
