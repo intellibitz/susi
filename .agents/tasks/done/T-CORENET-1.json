@@ -2,14 +2,30 @@
   "id": "T-CORENET-1",
   "title": "susi-core off the async runtime and the HTTP stack",
   "goal": "Cut the cold `cargo build -p susi` critical path by taking susi-core off tokio, hyper, h2, mio and ureq. The peer MCP client's transport becomes a std::net HTTP/1.1 module inside susi-core (plain http:// only, https refused by name, one total budget, Content-Length/chunked/until-close bodies, redirects never followed, the security behaviour of mcp_client unchanged: attested credentials, no bearer off-host, sealed bodies). Provider futures become runtime-agnostic (core's run_blocking thread future and block_on), so the owner-side provider dispatch needs no runtime; the never-set async evidence task-local and the truth verifier's runtime go (cross_examine is synchronous). Callers import inference_wire from susi-adapters-llm, its real home. susi-core's normal dependencies lose susi-http-transport, susi-adapters-llm and susi-vendor-tokio.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "corenet",
-  "native_worker": "corenet",
-  "created_by": "corenet",
-  "created_unix": 1794148549,
   "size": "M",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "--lib",
+      "plain_http",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "corenet",
+  "created_unix": 1794148549,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi-core --lib plain_http --offline --locked passes: framed POST and DELETE requests, Content-Length, chunked and until-close bodies, interim 1xx skipped, error statuses returned and redirects not followed, the body cap, malformed bodies refused, one budget bounding a silent server and a stalled body, https:// and header injection refused.",
+  "claimed_by": "corenet",
+  "native_worker": "corenet",
   "scope": [
     ".agents/build-time.jsonl",
     ".agents/tasks/t-corenet-1.json",
@@ -66,18 +82,7 @@
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
   ],
-  "acceptance": "cargo test -p susi-core --lib plain_http --offline --locked passes: framed POST and DELETE requests, Content-Length, chunked and until-close bodies, interim 1xx skipped, error statuses returned and redirects not followed, the body cap, malformed bodies refused, one budget bounding a silent server and a stalled body, https:// and header injection refused.",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "susi-core",
-      "--lib",
-      "plain_http",
-      "--offline",
-      "--locked"
-    ]
-  },
+  "state": "in_progress",
+  "status": "in_progress",
   "updated_unix": 1794148549
 }
