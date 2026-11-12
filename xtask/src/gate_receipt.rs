@@ -2248,22 +2248,7 @@ mod tests {
         guard.unwrap().recheck().unwrap();
     }
 
-    fn copy_dir_all(src: &Path, dst: &Path) {
-        fs::create_dir_all(dst).unwrap();
-        for entry in fs::read_dir(src).unwrap() {
-            let entry = entry.unwrap();
-            let ty = entry.file_type().unwrap();
-            let dst_path = dst.join(entry.file_name());
-            if ty.is_dir() {
-                copy_dir_all(&entry.path(), &dst_path);
-            } else {
-                fs::copy(entry.path(), &dst_path).unwrap();
-                if let Ok(meta) = entry.metadata() {
-                    let _ = fs::set_permissions(&dst_path, meta.permissions());
-                }
-            }
-        }
-    }
+    use super::test_fixture_fs::copy_dir_all;
 
     struct Scratch(PathBuf);
     impl Scratch {
@@ -3528,3 +3513,10 @@ mod tests {
             .contains("one commit"));
     }
 }
+
+// local-workflow mounts this file beside distill_compose, which mounts the same
+// fixtures; `xtask` mounts this file alone, so it cannot borrow that mount.
+#[cfg(test)]
+#[allow(clippy::duplicate_mod)]
+#[path = "test_fixture_fs.rs"]
+mod test_fixture_fs;

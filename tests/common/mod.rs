@@ -281,3 +281,81 @@ pub fn run_script_bounded(
         ),
     }
 }
+
+/// Newest modification time under `path`, skipping `target` and `.git`.
+pub fn newest_mtime(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    let mut newest = meta.modified().ok();
+    if meta.is_dir() {
+        let entries = std::fs::read_dir(path).ok()?;
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if matches!(name.to_str(), Some("target" | ".git")) {
+                continue;
+            }
+            if let Some(sub) = newest_mtime(&entry.path()) {
+                newest = Some(newest.map_or(sub, |cur| cur.max(sub)));
+            }
+        }
+    }
+    newest
+}
+
+/// Whether every prebuilt xtask binary in `bins` is newer than the sources it is built from.
+pub fn bins_are_fresh(workspace_root: &std::path::Path, bins: &[&std::path::Path]) -> bool {
+    let mut oldest_bin: Option<std::time::SystemTime> = None;
+    for bin in bins {
+        let Ok(meta) = std::fs::metadata(bin) else {
+            return false;
+        };
+        if !meta.is_file() {
+            return false;
+        }
+        let Ok(mtime) = meta.modified() else {
+            return false;
+        };
+        oldest_bin = Some(oldest_bin.map_or(mtime, |cur| cur.min(mtime)));
+    }
+    let Some(oldest_bin) = oldest_bin else {
+        return false;
+    };
+    let watched = [
+        "Cargo.toml",
+        "Cargo.lock",
+        "xtask",
+        "crates/susi-paths",
+        "crates/susi-config",
+        "crates/susi-build-policy",
+        "crates/susi-build-os-ucrt",
+        "crates/susi-windows-runtime",
+        "crates/susi-vendor-sha2",
+        "crates/susi-vendor-serde-json",
+    ];
+    for rel in watched {
+        let path = workspace_root.join(rel);
+        if path.exists() {
+            let Some(src_mtime) = newest_mtime(&path) else {
+                return false;
+            };
+            if src_mtime > oldest_bin {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Recursively copies `src` into `dst`, keeping file permissions.
+pub fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir_all(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).unwrap();
+        }
+    }
+}

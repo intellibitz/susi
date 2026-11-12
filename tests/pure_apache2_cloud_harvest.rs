@@ -20,6 +20,8 @@
 //! 5. A picked-up commit on Raw `main` passes both `local-harvest audit` and
 //!    `distill lint --strict` for Release distillation!
 
+mod common;
+use common::bins_are_fresh;
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
@@ -75,67 +77,6 @@ const GPL3_LICENSE_TEXT: &str = "\
 
 static SANDBOX_SEQ: AtomicUsize = AtomicUsize::new(0);
 static XTASK_BINS: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
-
-fn newest_mtime(path: &Path) -> Option<SystemTime> {
-    let meta = fs::symlink_metadata(path).ok()?;
-    let mut newest = meta.modified().ok();
-    if meta.is_dir() {
-        let entries = fs::read_dir(path).ok()?;
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            if matches!(name.to_str(), Some("target" | ".git")) {
-                continue;
-            }
-            if let Some(sub) = newest_mtime(&entry.path()) {
-                newest = Some(newest.map_or(sub, |cur| cur.max(sub)));
-            }
-        }
-    }
-    newest
-}
-
-fn bins_are_fresh(workspace_root: &Path, bins: &[&Path]) -> bool {
-    let mut oldest_bin: Option<SystemTime> = None;
-    for bin in bins {
-        let Ok(meta) = fs::metadata(bin) else {
-            return false;
-        };
-        if !meta.is_file() {
-            return false;
-        }
-        let Ok(mtime) = meta.modified() else {
-            return false;
-        };
-        oldest_bin = Some(oldest_bin.map_or(mtime, |cur| cur.min(mtime)));
-    }
-    let Some(oldest_bin) = oldest_bin else {
-        return false;
-    };
-    let watched = [
-        "Cargo.toml",
-        "Cargo.lock",
-        "xtask",
-        "crates/susi-paths",
-        "crates/susi-config",
-        "crates/susi-build-policy",
-        "crates/susi-build-os-ucrt",
-        "crates/susi-windows-runtime",
-        "crates/susi-vendor-sha2",
-        "crates/susi-vendor-serde-json",
-    ];
-    for rel in watched {
-        let path = workspace_root.join(rel);
-        if path.exists() {
-            let Some(src_mtime) = newest_mtime(&path) else {
-                return false;
-            };
-            if src_mtime > oldest_bin {
-                return false;
-            }
-        }
-    }
-    true
-}
 
 fn xtask_bins() -> &'static (PathBuf, PathBuf) {
     XTASK_BINS.get_or_init(|| {

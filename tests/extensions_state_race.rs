@@ -9,6 +9,8 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Failed setup or a lost load must fail this integration test.
 
+mod common;
+use common::copy_dir_all;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -79,20 +81,6 @@ fn scratch_home(iteration: usize) -> PathBuf {
             .unwrap()
             .as_nanos()
     ))
-}
-
-fn copy_dir_all(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for entry in std::fs::read_dir(src).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        let target = dst.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy_dir_all(&path, &target);
-        } else {
-            std::fs::copy(&path, &target).unwrap();
-        }
-    }
 }
 
 fn template_extensions() -> &'static (PathBuf, String) {
