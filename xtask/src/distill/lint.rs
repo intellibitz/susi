@@ -324,6 +324,61 @@ pub fn add_host_findings(
     }
 }
 
+/// CEO Mandate 78 took effect at this Unix time; a task record created
+/// earlier is not asked for a reuse decision.
+pub const REUSE_EFFECTIVE_UNIX: u64 = 1_794_480_600;
+
+/// Why a task record states no usable reuse decision (CEO Mandate 78), when
+/// it should: the record was created after the mandate, is of size `m` or
+/// larger, and its `reuse` object is missing, names no known decision, or
+/// leaves out what its decision needs. `None` when nothing is owed.
+pub fn reuse_gap(record: &Value) -> Option<&'static str> {
+    if record["created_unix"].as_u64().unwrap_or(0) < REUSE_EFFECTIVE_UNIX {
+        return None;
+    }
+    let size = record["size"].as_str().unwrap_or("").to_ascii_lowercase();
+    if matches!(size.as_str(), "xs" | "s") {
+        return None;
+    }
+    let reuse = &record["reuse"];
+    let stated = |key: &str| {
+        reuse[key]
+            .as_str()
+            .is_some_and(|text| !text.trim().is_empty())
+    };
+    match reuse["decision"].as_str() {
+        None => Some("no reuse decision"),
+        Some("existing" | "dependency") => None,
+        Some("harvest") if stated("source") => None,
+        Some("harvest") => Some("a harvest names no source"),
+        Some("build") if stated("reason") => None,
+        Some("build") => Some("a build gives no reason"),
+        Some(_) => Some("unknown reuse decision"),
+    }
+}
+
+/// Add Mandate 78's advice to a lint report: the landed tasks whose record
+/// states no reuse decision. Advice only: it is not counted in `findings`, so
+/// it never fails `--strict`.
+pub fn add_reuse_advice(report: &mut Value, gaps: &[(String, &'static str)]) {
+    let listed: Vec<Value> = gaps
+        .iter()
+        .map(|(task, why)| json!({"task": task, "why": why}))
+        .collect();
+    if let Some(sum) = report["summary"].as_object_mut() {
+        sum.insert(
+            "advisory_tasks_without_reuse_decision".into(),
+            json!(listed.len()),
+        );
+    }
+    if let Some(obj) = report.as_object_mut() {
+        obj.insert(
+            "tasks_without_reuse_decision".into(),
+            json!(capped(&listed)),
+        );
+    }
+}
+
 pub fn render_lint_text(report: &Value) -> String {
     use std::fmt::Write as _;
     let mut s = String::new();
@@ -571,6 +626,24 @@ pub fn run_lint(root: &Path, args: &[String]) -> Result<String> {
         claim_scopes(&git)?
     };
     let mut report = lint(&commits, &records, &claims);
+    // Mandate 78: which landed tasks state no reuse decision (advice only).
+    let landed: BTreeSet<&str> = commits
+        .iter()
+        .flat_map(|c| c.tasks.iter().map(String::as_str))
+        .collect();
+    let mut reuse_gaps = Vec::new();
+    for record in records.iter().filter(|r| landed.contains(r.id.as_str())) {
+        let (code, bytes) = git.raw(&["show", &format!("{base}:{}", record.path)], None)?;
+        if code != 0 {
+            continue;
+        }
+        if let Ok(raw) = serde_json::from_slice::<Value>(&bytes) {
+            if let Some(why) = reuse_gap(&raw) {
+                reuse_gaps.push((record.id.clone(), why));
+            }
+        }
+    }
+    add_reuse_advice(&mut report, &reuse_gaps);
     let scan_range = match &from_commit {
         Some(f) => format!("{f}..{to_commit}"),
         None => to_commit.clone(),
@@ -620,7 +693,8 @@ pub fn run_lint(root: &Path, args: &[String]) -> Result<String> {
                 "every commit carries a `Task: <id>` trailer",
                 "every task record declares scopes; commits stay inside them (own record and declared evidence exempt)",
                 "close the record when its work lands",
-                "every commit and merge is created by an agent's local Git or Susi tooling, never by the Git host (merges happen in Susi; the host is storage only)"
+                "every commit and merge is created by an agent's local Git or Susi tooling, never by the Git host (merges happen in Susi; the host is storage only)",
+                "advice, not a finding (CEO Mandate 78): a task of size m or larger states its reuse decision in its record's `reuse` object"
             ]),
         );
     }
@@ -772,6 +846,62 @@ mod tests {
         assert_eq!(c[0].tasks, vec!["T-A-1", "T-B-1"]);
         assert_eq!(c[0].files, vec!["README", "src/a/x.rs"]);
         assert!(c[1].tasks.is_empty() && c[1].files.is_empty());
+    }
+
+    #[test]
+    fn reuse_decisions_are_advice_and_never_findings() {
+        let after = REUSE_EFFECTIVE_UNIX + 1;
+        let record = |size: &str, created: u64, reuse: Value| json!({"size": size, "created_unix": created, "reuse": reuse});
+        // Not owed: older records and small tasks.
+        assert_eq!(
+            reuse_gap(&record("l", REUSE_EFFECTIVE_UNIX - 1, Value::Null)),
+            None
+        );
+        assert_eq!(reuse_gap(&record("S", after, Value::Null)), None);
+        assert_eq!(reuse_gap(&record("xs", after, Value::Null)), None);
+        // Owed and stated.
+        for ok in [
+            json!({"decision": "existing"}),
+            json!({"decision": "dependency"}),
+            json!({"decision": "harvest", "source": "https://example.invalid/x@0123abc"}),
+            json!({"decision": "build", "reason": "no Apache-2.0 project implements the GMCP task plane"}),
+        ] {
+            assert_eq!(reuse_gap(&record("m", after, ok.clone())), None, "{ok}");
+        }
+        // Owed and missing or incomplete.
+        assert_eq!(
+            reuse_gap(&record("M", after, Value::Null)),
+            Some("no reuse decision")
+        );
+        assert_eq!(
+            reuse_gap(&json!({"created_unix": after})),
+            Some("no reuse decision")
+        );
+        assert_eq!(
+            reuse_gap(&record(
+                "l",
+                after,
+                json!({"decision": "build", "reason": " "})
+            )),
+            Some("a build gives no reason")
+        );
+        assert_eq!(
+            reuse_gap(&record("l", after, json!({"decision": "harvest"}))),
+            Some("a harvest names no source")
+        );
+        assert_eq!(
+            reuse_gap(&record("l", after, json!({"decision": "copied"}))),
+            Some("unknown reuse decision")
+        );
+        // Advice is reported beside the findings and never added to them.
+        let mut report = json!({"summary": {"findings": 0}});
+        add_reuse_advice(&mut report, &[("T-A-1".to_owned(), "no reuse decision")]);
+        assert_eq!(report["summary"]["findings"], 0);
+        assert_eq!(
+            report["summary"]["advisory_tasks_without_reuse_decision"],
+            1
+        );
+        assert_eq!(report["tasks_without_reuse_decision"][0]["task"], "T-A-1");
     }
 
     #[test]

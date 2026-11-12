@@ -2152,7 +2152,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=77).collect::<Vec<_>>(),
+        (1..=78).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2172,6 +2172,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (75, "Raw Source (main) -> Distill (release)"),
         (76, "through the Susi Board"),
         (77, "exactly one root directory per machine"),
+        (78, "never reinvent the wheel"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -2442,6 +2443,49 @@ fn non_rust_scripts_only_decrease() {
         found.len() <= SCRIPT_CEILING,
         "{} shell/PowerShell/Python files, ceiling {SCRIPT_CEILING}: a new script is not admitted (Mandate 63)",
         found.len()
+    );
+}
+
+/// Mandate 78 (CEO 2026-11-12): never reinvent the wheel.
+#[test]
+fn ceo_mandate_78_makes_reuse_first_discoverable() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-mandate-78.md"),
+            "{path}: Mandate 78 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-78.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "never reinvent the wheel",
+        "## 2. Look before you build",
+        "**Inside Susi.**",
+        "**Apache-2.0 only**",
+        "Take only the part that is needed",
+        "## 4. Delete what reuse replaces",
+        "not permission to add dependencies",
+        "`reuse` object",
+        "Implementation truth",
+        "Not enforced",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 78 lost requirement: {phrase}"
+        );
+    }
+    let schema = std::fs::read_to_string(root.join(".agents/schemas/task.schema.json")).unwrap();
+    assert!(
+        schema.contains("\"reuse\""),
+        "the task schema must describe `reuse`"
     );
 }
 

@@ -53,6 +53,17 @@
       }
     },
     "roadmap": { "type": ["string", "null"] },
-    "authored": { "type": "boolean" }
+    "authored": { "type": "boolean" },
+    "reuse": {
+      "description": "CEO Mandate 78: whether existing work was reused for this task's capability.",
+      "type": "object",
+      "required": ["decision"],
+      "properties": {
+        "decision": { "enum": ["existing", "harvest", "dependency", "build"] },
+        "searched": { "type": "string" },
+        "source": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    }
   }
 }

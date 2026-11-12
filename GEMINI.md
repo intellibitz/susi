@@ -2,7 +2,7 @@
 
 Read `AGENTS.md` before editing. It is the canonical engineering contract and
 contains the CEO's agent-only, Rust-only, native Windows and local-development
-requirements (identity.json Mandates 62–77). Follow its native isolated workflow
+requirements (identity.json Mandates 62–78). Follow its native isolated workflow
 and evidence gates; do not substitute legacy shell or GitHub prerequisites.
 
 The CEO never inspects code. Agents own implementation, verification, integration
@@ -35,6 +35,13 @@ PRs, let Susi deterministically distill qualified releases with conflict-free
 parallel picks, harvest pure Apache-2.0 code with full attribution, keep all add-on
 features, UIs, SSO/RBAC, FinOps and enterprise packs closed, licensed and paid
 for corporates in `susi-commercial-apps`, and treat GitHub as a storage bucket only.
+
+Read docs/ceo-mandate-78.md (Mandate 78, 2026-11-12): never reinvent the wheel.
+Before building a capability, look for it inside Susi, then in Apache-2.0
+projects, then in the locked dependency graph; reuse by harvesting only the
+needed part under Mandate 75's rules; delete the hand-rolled code a reuse
+replaces; stay inside the lean ceilings and the `<10s` budget; record the
+decision in the task record's `reuse` object.
 
 Read docs/ceo-mandate-77.md (Mandate 77, 2026-11-12): work only under your own
 agent root, one directory per agent per machine, marked with `.susi-agent-root`.

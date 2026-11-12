@@ -1,5 +1,26 @@
 **START HERE: read the CEO mandates below, inspect local state, and reserve an isolated worktree before editing.**
 
+## CEO Mandate 78 (2026-11-12): Never Reinvent the Wheel — Reuse Apache-2.0 Work First
+
+Read [CEO Mandate 78](docs/ceo-mandate-78.md). It continues Mandate 75: raw
+features are dumped into `main` and distilled into releases, and agents look
+for existing work before writing new.
+
+- **Look before you build:** first inside Susi (both repositories), then in
+  Apache-2.0 projects (`local-harvest raw-features` / `route`), then in what the
+  locked dependency graph already has. Build only when none is suitable, and
+  say why.
+- **Reuse the right way:** harvest under Mandate 75's rules (pure `Apache-2.0`,
+  pinned commit, manifest, notices, `Origin:` trailers), take only the part
+  that is needed, and post the upstream target on the Susi Board first.
+- **Delete what reuse replaces** in the same change; never wrap a duplicate.
+- **Smaller and faster, never the opposite:** reuse stays inside the lean
+  ceilings, the `<10s` budget, Rust-only and the dependency ceilings. It is not
+  permission to add dependencies.
+- **Record the decision** in the task record's `reuse` object (`existing`,
+  `harvest`, `dependency` or `build` with a reason). `distill lint` counts
+  landed tasks that state none, as advice.
+
 ## CEO Mandate 77 (2026-11-12): One Isolated Working Directory per Agent (Agent Roots)
 
 Read [CEO Mandate 77](docs/ceo-mandate-77.md). Every agent works only under its
@@ -234,6 +255,7 @@ library), 54 (a release gate, never a main gate, no pull-request adapters), 68
 | 75 | **Raw Source (`main`) & Distill (`release`), Cloud Feature Pickup, and Pure `Apache-2.0` Compliance (2026-11-12):** symmetric Raw Source (`main`) -> Distill (`release`) pipeline across `susi` and `susi-commercial-apps` with one-version-one-cut guards; `local-harvest raw-features` / `route` / `pickup` routing 5-pillar `<10s` capabilities to Core and all UIs/packs/connectors/workflows to `susi-commercial-apps`; **Pure `Apache-2.0` ONLY** cloud harvest compliance (full §4(a)–(d) notices, refusing standalone MIT/BSD, LLVM-exception, `AND`, copyleft and unlicensed raw source); additive multi-agent (`Claude`, `Codex`, `Carbon`) Git and Susi Board collaboration. |
 | 76 | **Multi-agent collaboration through the Susi Board (2026-11-12):** every agent reads the Susi Board at session start and before claiming, publishing or cutting a release; posts Claim, Landed, Cut, Heads-up, Request, Handoff, Decision and Blocked items; appends only and never rewrites another agent's item; respects open claims and answers requests addressed to it; keeps the board truthful, free of secrets and commercial source, and free of any GitHub or hosted-service dependency. The board coordinates, Git stays the record, and no gate is added ([`docs/ceo-mandate-76.md`](docs/ceo-mandate-76.md)). |
 | 77 | **One isolated working directory per agent (2026-11-12):** every agent has exactly one root directory per machine, named for the agent and marked with `.susi-agent-root`; all of its clones, worktrees, build targets and scratch files live under it; it never creates, changes or deletes anything under another agent's root or the CEO's working directory, and asks the owner on the Susi Board instead. `susi-commercial workflow root show | init` finds and registers a root; `workflow start` and the commit guard refuse to work inside another agent's root ([`docs/ceo-mandate-77.md`](docs/ceo-mandate-77.md)). |
+| 78 | **Never reinvent the wheel (2026-11-12):** before building a capability, look for it inside Susi, then in Apache-2.0 projects, then in the locked dependency graph; reuse by harvesting only the needed part under Mandate 75's pure-`Apache-2.0` rules; delete the hand-rolled code a reuse replaces; stay inside the lean ceilings, the `<10s` budget, Rust-only and the dependency ceilings; record the decision in the task record's `reuse` object ([`docs/ceo-mandate-78.md`](docs/ceo-mandate-78.md)). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
