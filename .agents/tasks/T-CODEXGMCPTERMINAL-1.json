@@ -11,6 +11,7 @@
   "created_by": "codex",
   "created_unix": 1794513507,
   "owner": "codex",
+  "native_worker": "codex-gmcp-terminal-1",
   "base_commit": "bd580274e21575ca6132b66440ccdd558168d8b4",
   "scopes": [
     "crates/susi-gmcp/src/mcp/task_manager.rs",
