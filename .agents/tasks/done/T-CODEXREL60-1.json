@@ -1,0 +1,65 @@
+{
+  "id": "T-CODEXREL60-1",
+  "title": "Promote core v0.21.60 qualification record to development main",
+  "goal": "Advance development main to the qualified v0.21.60 release record after the accept-verified distilled candidate and immutable Linux tag. Windows x86_64 remains a separate owed platform.",
+  "size": "s",
+  "deps": [
+    "T-CARBONLEAN-15"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "codex-coordinator",
+  "created_unix": 1794402200,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "8094838da05f426b293905ba1106bcb61a5234f7",
+  "feature_id": "F-CORE-RELEASE-0.21.60-1",
+  "limitations": [
+    "Windows x86_64 reference qualification is not available on this Linux host."
+  ],
+  "owner": "codex-coordinator",
+  "results": {
+    "qualified_commit": "5ee3049278d737fd4ec734528fe892311c976491",
+    "qualified_tree": "76c42e455dcfee0401842c39ba6d37a2de4b5544",
+    "tag": "v0.21.60",
+    "tag_remote_verified": true,
+    "linux_tests": {
+      "binaries": 252,
+      "passed": 5675,
+      "failed": 0,
+      "ignored": 14
+    },
+    "windows_owed": true
+  },
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CODEXREL60-1.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794402200
+}
