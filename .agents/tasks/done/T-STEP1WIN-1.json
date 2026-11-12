@@ -1,17 +1,6 @@
 {
   "id": "T-STEP1WIN-1",
-  "native_worker": "step1win",
   "title": "Step 1 on native Windows x86_64: verify #1668 and #114 on main, close T-GROK-2, record what qualification needs",
-  "created_by": "STEP1WIN",
-  "created_unix": 1793978845,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/evidence/step1-windows-t-step1win-1.json",
-    ".agents/tasks/done/t-grok-2.json",
-    ".agents/tasks/t-grok-2.json",
-    ".agents/tasks/t-step1win-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -27,5 +16,21 @@
       "hermetic_forbidden passes on native Windows, where canonicalize yields the verbatim disk-prefix spelling, and T-GROK-2 moves to done with that evidence",
       "the Windows evidence record states what ran (core and commercial gates, live core contract, host-only commercial qualification) with digests, and what did not run and why"
     ]
-  }
+  },
+  "created_by": "STEP1WIN",
+  "created_unix": 1793978845,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "step1win",
+  "scopes": [
+    ".agents/evidence/step1-windows-t-step1win-1.json",
+    ".agents/tasks/done/t-grok-2.json",
+    ".agents/tasks/t-grok-2.json",
+    ".agents/tasks/t-step1win-1.json"
+  ],
+  "status": "implemented_pending_integration"
 }
