@@ -4,9 +4,25 @@
   "goal": "Give a version worker an unchanged manifest without giving up the installer's live source. Reject dirty worktrees, unheld paths, the last scope and scopes covering unintegrated changes.",
   "size": "s",
   "deps": [],
-  "scopes": ["xtask/src/bin/local-workflow.rs", ".agents/tasks/T-BATCH1102-7.json"],
-  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--bin", "local-workflow"]},
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow"
+    ]
+  },
   "created_by": "BATCH1102",
+  "created_unix": 1793623560,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "receipt": {
     "coordinator_tests_passed": 26,
     "verifier_sha256": "4fc0311cc439bde253413904b18e31e6adace1b9755e10f5eb3078ccc8290a2e",
@@ -14,5 +30,8 @@
     "unchanged_worker_source": "aaf1177b4cedb7346ad3c349da6520cb9fce71c8",
     "other_scopes_preserved": 18
   },
-  "created_unix": 1793623560
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-BATCH1102-7.json"
+  ]
 }
