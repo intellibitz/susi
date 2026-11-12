@@ -2,7 +2,25 @@
   "id": "T-RELEASE45-1",
   "title": "Release Susi 0.21.45",
   "goal": "Publish 0.21.45 with: the in-place installed launcher (150 ms -> ~32 ms per command, and captured susi start returns), state-only susi status (3.7 s before), non-blocking MCP tools/list (10.3 s cold before), public /health and standard A2A JSON-RPC codes, path-free model ids, the susi-conformance host contract suite, parallel leaf-service boot, the open-core boundary, enterprise multi-tenancy and Kubernetes packaging moved to commercial apps, and the CI fixes that made 0.21.44's release suite red.",
+  "size": "s",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "RELEASE45",
+  "created_unix": 1793665098,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "scopes": [
     ".agents/evidence.json",
     ".agents/identity.json",
@@ -17,11 +35,5 @@
     "crates/susi-harness/cargo.toml",
     "crates/susi-server/cargo.toml",
     "readme.md"
-  ],
-  "size": "s",
-  "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "--test", "architecture_tests"]
-  },
-  "created_by": "RELEASE45",
-  "created_unix": 1793665098
+  ]
 }
