@@ -2,7 +2,27 @@
   "id": "T-EXTVALIDATE-1",
   "title": "Author-side extension pack validation",
   "goal": "susi extensions validate <dir> lets third-party pack authors apply the host's admission rules (manifest schema and API major, known permissions, path containment, checksums, ed25519 signatures) to a pack anywhere on disk without reading or changing host trust state, and prints the SHA-256 the host would pin on load.",
+  "size": "s",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-config",
+      "--lib",
+      "extensions"
+    ]
+  },
+  "created_by": "EXTVALIDATE",
+  "created_unix": 1793669086,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "scopes": [
     ".agents/tasks/t-extvalidate-1.json",
     "crates/susi-config/src/extensions.rs",
@@ -10,11 +30,5 @@
     "docs/extension-pack.md",
     "docs/integrating-with-susi.md",
     "src/cli/extensions_cli.rs"
-  ],
-  "size": "s",
-  "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-config", "--lib", "extensions"]
-  },
-  "created_by": "EXTVALIDATE",
-  "created_unix": 1793669086
+  ]
 }
