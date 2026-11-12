@@ -1,17 +1,6 @@
 {
   "id": "T-STEP1LOOP-1",
-  "native_worker": "step1loop",
   "title": "Step 1 change-to-live loop: one deliver command, timed per phase, under 60 s on the dev channel",
-  "created_by": "STEP1LOOP",
-  "created_unix": 1793972400,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/tasks/t-step1loop-1.json",
-    "docs/step1-acceptance.md",
-    "xtask/src/affected.rs",
-    "xtask/src/bin/local-channel.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -29,5 +18,21 @@
       "every delivery records per-phase wall clock, startup, first output and completion of the governed goal, and optional rollback proof as evidence JSON beside channel.json",
       "measured repetitions for a root-package change and a deepest-crate change are recorded in docs/step1-acceptance.md, with what the loop does not cover"
     ]
-  }
+  },
+  "created_by": "STEP1LOOP",
+  "created_unix": 1793972400,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "step1loop",
+  "scopes": [
+    ".agents/tasks/t-step1loop-1.json",
+    "docs/step1-acceptance.md",
+    "xtask/src/affected.rs",
+    "xtask/src/bin/local-channel.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
