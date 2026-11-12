@@ -17,7 +17,7 @@
     "crates/susi-gawd-a2a/src/executor.rs",
     "crates/susi-core/src/tests/acp_conformance.rs",
     "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
-    ".agents/tasks/T-CODEXACPCANCEL-1.json"
+    ".agents/tasks/t-codexacpcancel-1.json"
   ],
   "accept": {
     "cmd": [
