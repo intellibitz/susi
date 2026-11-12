@@ -1,0 +1,31 @@
+{
+  "id": "T-SWARMCORE-1",
+  "feature_id": "F-CORE-WIN-CLIPPY-HARNESS-1",
+  "title": "Guard unix-only Duration import in susi-harness MCP tests",
+  "goal": "Scope std::time::Duration import in crates/susi-harness/src/tests/mcp.rs to #[cfg(unix)] where the two unix stdio child timeout tests use it, resolving -D unused-imports during Windows x86_64 release qualification.",
+  "state": "done",
+  "status": "completed",
+  "owner": "SWARMCOREFIX",
+  "created_by": "SWARMCOREFIX",
+  "created_unix": 1794482419,
+  "updated_unix": 1794482419,
+  "size": "xs",
+  "base": "a960518c48fbe033bb986030143e968f3d7ea955",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-SWARMCORE-1.json",
+    "crates/susi-harness/src/tests/mcp.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "mcp"
+    ]
+  }
+}
