@@ -2,16 +2,31 @@
   "id": "T-GATECOLOR-1",
   "title": "Native gate evidence parses coloured cargo output",
   "goal": "Hosted CI exports CARGO_TERM_COLOR=always, so the native gate's outer-suite parser saw no 'Running' lines and real_native_cargo_gates_accept_a_passing_fixture failed on main (Test root-cli hash:2/3) and in the v0.21.44 release suite. Gate commands run with colour off and the parser strips ANSI sequences.",
+  "size": "s",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--bin",
+      "local-workflow",
+      "native_test_counts"
+    ]
+  },
+  "created_by": "GATECOLOR",
+  "created_unix": 1793661446,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "scopes": [
     ".agents/tasks/t-gatecolor-1.json",
     "xtask/src/bin/local-workflow.rs",
     "xtask/src/native_test_counts.rs"
-  ],
-  "size": "s",
-  "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "xtask", "--bin", "local-workflow", "native_test_counts"]
-  },
-  "created_by": "GATECOLOR",
-  "created_unix": 1793661446
+  ]
 }
