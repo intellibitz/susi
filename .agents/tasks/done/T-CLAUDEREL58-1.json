@@ -2,23 +2,6 @@
   "id": "T-CLAUDEREL58-1",
   "title": "Release v0.21.58: version bump on the snapshot v0-21-58-rc2",
   "goal": "Core release v0.21.58 is cut from a snapshot of development main (docs/releases.md, Cutting a release), as v0.21.57 was: local-snapshot cut v0-21-58-rc2 published refs/tags/susi-snapshot/v0-21-58-rc2 = eb63cb5a1 (rc1 = 84fac48c0 failed the tests gate on 2 tests, fixed at the root on main by T-CLAUDEREL58FIX-1). It ships everything on main since v0.21.57, including agentrefs (T-CLAUDEAGENTREFS-1: agents publish to refs/agents/<agent>), the lean-core waves after v0.21.57 (T-CARBONLEAN-12), port isolation, harvest audit and retire-branches. This commit is only the version bump 0.21.57 -> 0.21.58 in the files of the v0.21.57 bump 3d3214893; release-qualify v0.21.58 then runs every release gate on this exact tree.",
-  "status": "done",
-  "scopes": [
-    ".agents/evidence.json",
-    ".agents/identity.json",
-    ".agents/roadmap.json",
-    "Cargo.lock",
-    "Cargo.toml",
-    "README.md",
-    "crates/susi-daemon/Cargo.toml",
-    "crates/susi-gawd/Cargo.toml",
-    "crates/susi-gemi/Cargo.toml",
-    "crates/susi-gmcp/Cargo.toml",
-    "crates/susi-harness/Cargo.toml",
-    "crates/susi-server/Cargo.toml",
-    ".agents/gmcp/evidence",
-    ".agents/tasks/T-CLAUDEREL58-1.json"
-  ],
   "size": "s",
   "deps": [],
   "accept": {
@@ -35,6 +18,14 @@
   },
   "created_by": "CLAUDEREL58RC2",
   "created_unix": 1794397699,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [
+    "Windows x86_64 is not qualified (owed_platforms); no Windows host is reachable from this Linux laptop."
+  ],
   "owner": "CLAUDEREL58RC2",
   "results": {
     "snapshot": "local-snapshot cut v0-21-58-rc2: refs/tags/susi-snapshot/v0-21-58-rc2 -> eb63cb5a1c3f4495cb2ddf70380bacd9bef16f36 (tree 1a496ea6fc6c0e740a602a472fc168dba779e1cd), published and verified; rc1 (84fac48c0) failed the tests gate on thin_client_invariant cli_defs_links_only_the_clap_closure and local-channel stage_and_rollback_swaps_verified_slots_and_refuses_tampering (ETXTBSY), both fixed on main by T-CLAUDEREL58FIX-1",
@@ -43,7 +34,21 @@
     "tag": "v0.21.58 annotated 98aa2ddda -> 3de408fb5 (record commit adding only releases/qualification/v0.21.58.json); pushed through push-policy; git ls-remote confirms",
     "assets": "susi sha256 8d180ae4ce14bddd5ce2d53b35ee421a674b5344e55955f5f88c8e4b9674fbeb (susi 0.21.58); susi-harness sha256 a58a473c4009a55941b35a958424b44f80f32239b10fac45b0ccd7fab90dc3d3 (susi-harness 0.21.58)"
   },
-  "limitations": [
-    "Windows x86_64 is not qualified (owed_platforms); no Windows host is reachable from this Linux laptop."
-  ]
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CLAUDEREL58-1.json"
+  ],
+  "status": "done"
 }
