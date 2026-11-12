@@ -17,6 +17,11 @@
   },
   "created_by": "step1-install",
   "created_unix": 1793553500,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "candidate_evidence": {
     "outcome": "native-uncached-install-and-first-goal-passed",
     "integration_status": "awaiting-serialized-integration-gates",
