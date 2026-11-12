@@ -1,0 +1,48 @@
+{
+  "id": "T-CLIDEFSWAVE2A-1",
+  "title": "D-SP-4 Stage 4d-4t: Move remaining 17 clap command families into susi-cli-defs",
+  "goal": "Move model, open_weight, openrouter, os, patch, peers, plan, privacy, run, services, setup, substrate, tasks, telemetry, top, tx, and workflow clap definitions from src/cli/*_cli.rs into crates/susi-cli-defs while preserving susi --help output.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-cli-defs",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "cli-defs-wave2a",
+  "created_unix": 1794002800,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "cli-defs-wave2a",
+  "scopes": [
+    ".agents/tasks/t-clidefswave2a-1.json",
+    "crates/susi-cli-defs",
+    "src/cli/model_cli.rs",
+    "src/cli/open_weight_cli.rs",
+    "src/cli/openrouter_cli.rs",
+    "src/cli/os_cli.rs",
+    "src/cli/patch_cli.rs",
+    "src/cli/peers_cli.rs",
+    "src/cli/plan_cli.rs",
+    "src/cli/privacy_cli.rs",
+    "src/cli/run_cli.rs",
+    "src/cli/services_cli.rs",
+    "src/cli/setup_cli.rs",
+    "src/cli/substrate_cli.rs",
+    "src/cli/tasks_cli.rs",
+    "src/cli/telemetry_cli.rs",
+    "src/cli/top_cli.rs",
+    "src/cli/tx_cli.rs",
+    "src/cli/workflow_cli.rs",
+    "tests/architecture_tests.rs"
+  ],
+  "status": "completed"
+}
