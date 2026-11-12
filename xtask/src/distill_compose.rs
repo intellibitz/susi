@@ -470,6 +470,105 @@ impl Git<'_> {
         Ok(Some(Endpoint { address, digest }))
     }
 
+    fn local_ref_oid(&self, reference: &str) -> Result<Option<String>> {
+        let output = self.output(&["show-ref", "--verify", "--hash", reference], None)?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let oid = String::from_utf8(output.stdout)
+            .map_err(|_| "Git returned non-UTF-8 ref output".to_owned())?
+            .trim()
+            .to_owned();
+        if oid.is_empty() {
+            return Ok(None);
+        }
+        valid_oid(&oid)?;
+        Ok(Some(oid))
+    }
+
+    /// Fetches an explicitly named immutable remote ref when it is absent locally.
+    ///
+    /// Distillation accepts snapshot/release tags and agent handoff refs as remote
+    /// inputs. It never fetches arbitrary revisions or remote branches here, and it
+    /// never overwrites an existing local ref: a changed remote ref is an error.
+    fn fetch_explicit_remote_ref(&self, endpoint: &Endpoint, reference: &str) -> Result<()> {
+        let fetchable =
+            reference.starts_with("refs/tags/") || reference.starts_with("refs/agents/");
+        if !fetchable {
+            return Ok(());
+        }
+        if reference
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace())
+        {
+            return Err(format!("invalid explicit remote ref: {reference}"));
+        }
+        let format_check = self.output(&["check-ref-format", reference], None)?;
+        if !format_check.status.success() {
+            return Err(format!("invalid explicit remote ref: {reference}"));
+        }
+
+        let local = self.local_ref_oid(reference)?;
+        let remote = match self.remote_ref(endpoint, reference) {
+            Ok(remote) => remote,
+            Err(_) if local.is_some() => return Ok(()),
+            Err(error) => {
+                return Err(format!("cannot inspect remote ref {reference}: {error}"));
+            }
+        };
+        let Some(remote_oid) = remote else {
+            return Ok(());
+        };
+
+        if let Some(local_oid) = local {
+            if local_oid == remote_oid {
+                return Ok(());
+            }
+            return Err(format!(
+                "remote ref {reference} differs from the existing local ref; refusing to overwrite an immutable ref"
+            ));
+        }
+
+        let refspec = format!("{reference}:{reference}");
+        let fetched = self.output(
+            &[
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                "--recurse-submodules=no",
+                "--",
+                &endpoint.address,
+                &refspec,
+            ],
+            None,
+        )?;
+        if !fetched.status.success() {
+            return Err(format!(
+                "Git fetch of remote ref {reference} failed ({})",
+                fetched.status
+            ));
+        }
+        match self.local_ref_oid(reference)? {
+            Some(local_oid) if local_oid == remote_oid => Ok(()),
+            Some(_) => Err(format!(
+                "Git fetch produced a different object for remote ref {reference}"
+            )),
+            None => Err(format!(
+                "Git fetch did not create expected remote ref {reference}"
+            )),
+        }
+    }
+
+    fn pull_explicit_remote_ref(&self, reference: &str) -> Result<()> {
+        if !reference.starts_with("refs/tags/") && !reference.starts_with("refs/agents/") {
+            return Ok(());
+        }
+        let Ok(Some(endpoint)) = self.endpoint_optional() else {
+            return Ok(());
+        };
+        self.fetch_explicit_remote_ref(&endpoint, reference)
+    }
+
     /// Offline-safe remote pull + 3-way object-store reconciliation against `origin/main`.
     /// When `origin` is unconfigured or temporarily unreachable, falls back cleanly to
     /// local `effective_from`. When `origin/main` has advanced past `effective_from`,
@@ -479,6 +578,7 @@ impl Git<'_> {
         let Ok(Some(endpoint)) = self.endpoint_optional() else {
             return self.resolve_commit(effective_from);
         };
+        self.fetch_explicit_remote_ref(&endpoint, effective_from)?;
         let fetch_out = self.output(
             &[
                 "fetch",
@@ -2572,6 +2672,9 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         .or_else(|| plan_spec.as_ref().and_then(|p| p.base_commit.as_deref()))
         .unwrap_or("HEAD");
 
+    if args.pull {
+        git.pull_explicit_remote_ref(&args.base_rev)?;
+    }
     let base_commit = if args.pull && args.base_rev == "origin/main" {
         let _ = git.pull_and_reconcile_source("HEAD");
         git.resolve_commit(&args.base_rev)?
@@ -5705,6 +5808,95 @@ mod tests {
         let expected_ref = format!("refs/susi/upstream/upstream-demo/{up_sha}");
         assert_eq!(q_json["quarantine_ref"], json!(expected_ref));
         assert_eq!(fx.git().resolve_commit(&expected_ref).unwrap(), up_sha);
+    }
+
+    #[test]
+    fn pull_fetches_remote_only_explicit_snapshot_refs_for_base_and_source() {
+        let fx = Fixture::new();
+        fx.write("README.md", "base\n");
+        let base = fx.commit_all("initial base");
+        fx.git()
+            .text(&["push", "origin", &format!("{base}:refs/heads/main")])
+            .unwrap();
+
+        fx.write(
+            "crates/remote_tag/lib.rs",
+            "pub fn remote_tag() -> u32 { 7 }\n",
+        );
+        fx.write_task("T-REMOTE-TAG-1", &[], &["crates/remote_tag"]);
+        let feature = fx.commit_all("feat: remote tag input\n\nTask: T-REMOTE-TAG-1");
+
+        let base_tag = "susi-distill/v0-21-64-remote-base";
+        let source_tag = "susi-distill/v0-21-64-remote-source";
+        let base_ref = format!("refs/tags/{base_tag}");
+        let source_ref = format!("refs/tags/{source_tag}");
+        fx.git()
+            .text(&["tag", "-a", base_tag, "-m", "remote base", &base])
+            .unwrap();
+        fx.git()
+            .text(&["tag", "-a", source_tag, "-m", "remote source", &feature])
+            .unwrap();
+        let base_spec = format!("{base_ref}:{base_ref}");
+        let source_spec = format!("{source_ref}:{source_ref}");
+        fx.git()
+            .text(&["push", "origin", &base_spec, &source_spec])
+            .unwrap();
+        fx.git().text(&["tag", "-d", base_tag]).unwrap();
+        fx.git().text(&["tag", "-d", source_tag]).unwrap();
+        assert!(fx.git().local_ref_oid(&base_ref).unwrap().is_none());
+        assert!(fx.git().local_ref_oid(&source_ref).unwrap().is_none());
+
+        let output = fx
+            .run_args(&[
+                "compose",
+                "--name",
+                "remote-only-tags-1",
+                "--base",
+                &base_ref,
+                "--from",
+                &source_ref,
+                "--select",
+                "T-REMOTE-TAG-1",
+                "--pull",
+                "--strict",
+                "--json",
+            ])
+            .unwrap();
+        let receipt: Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(receipt["included"][0]["task_id"], "T-REMOTE-TAG-1");
+        assert_eq!(fx.git().resolve_commit(&base_ref).unwrap(), base);
+        assert_eq!(fx.git().resolve_commit(&source_ref).unwrap(), feature);
+    }
+
+    #[test]
+    fn pull_refuses_to_overwrite_a_different_local_explicit_remote_ref() {
+        let fx = Fixture::new();
+        fx.write("README.md", "base\n");
+        let base = fx.commit_all("initial base");
+        fx.git()
+            .text(&["push", "origin", &format!("{base}:refs/heads/main")])
+            .unwrap();
+
+        let tag = "susi-distill/v0-21-64-immutable-check";
+        let reference = format!("refs/tags/{tag}");
+        fx.git()
+            .text(&["tag", "-a", tag, "-m", "remote tag", &base])
+            .unwrap();
+        let spec = format!("{reference}:{reference}");
+        fx.git().text(&["push", "origin", &spec]).unwrap();
+        fx.git().text(&["tag", "-d", tag]).unwrap();
+
+        fx.write("local-only.txt", "local\n");
+        let local = fx.commit_all("local ref target");
+        fx.git()
+            .text(&["tag", "-a", tag, "-m", "different local tag", &local])
+            .unwrap();
+        let error = fx.git().pull_explicit_remote_ref(&reference).unwrap_err();
+        assert!(
+            error.contains("refusing to overwrite an immutable ref"),
+            "{error}"
+        );
+        assert_eq!(fx.git().resolve_commit(&reference).unwrap(), local);
     }
 
     #[test]
