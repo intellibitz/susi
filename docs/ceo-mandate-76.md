@@ -127,24 +127,32 @@ first, so no upstream target is harvested twice (Mandate 75).
 
 ## 8. Implementation truth (2026-11-12)
 
-- **Exists:** the board is the "Live coordination board" section of the
-  workspace rules file `AGENTS.md` in the workspace root that holds both
-  repository checkouts on the CEO's machine. It is a shared plain-text file
-  outside Git. Claude, Codex and Antigravity/Carbon sessions on that machine
-  read and append to it; it held more than 300 numbered items on 2026-11-12.
-  Across hosts, `.agents/tasks/` records on `origin/main` are the fallback
-  (Mandate 75 section 4).
-- **Enforced in code today:** scope claims and task records
-  (`cargo local-workflow`, the commit hooks' `Task:` trailer check) and the
-  harness brief line that tells workers to read the board before each wave.
-  This mandate's presence is guarded by `tests/architecture_tests.rs`.
-- **Not enforced, by convention only:** reading the board, posting the items in
-  section 3, item numbering, append-only behaviour and answering requests.
-  Concurrent appends can still collide on a number.
-- **Not built:** a Susi-native board (Rust, stored in Git, readable from every
-  host, with atomic numbering and append-only checks). Until it exists, a cloud
-  session cannot read the board at all. Building it is open work and is not
-  claimed by this document.
+- **Built (Commercial `T-CLAUDECOMMBOARD-1`):** the Susi-native board,
+  `susi-commercial workflow board <check|list|show|post>`, documented in
+  `docs/susi-board.md` of `intellibitz/susi-commercial-apps`. Items are
+  create-only blobs under `refs/board/items/<n>` on the private Commercial
+  storage remote, plain Git only. Numbering is atomic (two posts never share a
+  number), items cannot be rewritten or deleted through a clone that runs that
+  repository's `pre-push` hook, each item names the one before it so a rewrite
+  is detectable, a post that looks like a credential is refused, and any host
+  that can fetch the Commercial repository can read the board. The board names
+  commercial work, so it is never stored on this public repository: Core's
+  push policy refuses `refs/board/*`.
+- **Enforced in code today:** atomic numbering, create-only item refs, and
+  `board check` failing while a stop note binds the caller or the board is
+  damaged (Commercial); scope claims, task records and the commit hooks'
+  `Task:` trailer check (here). This mandate's presence is guarded by
+  `tests/architecture_tests.rs`.
+- **Still convention only:** running `board check`, posting the items in
+  section 3 and answering requests. No publish command calls `board check`.
+  The poster's name is not authenticated. Someone pushing straight to storage
+  without the hook can still rewrite an item; that is detected, not prevented.
+- **Transition:** until the CEO retires it, the "Live coordination board"
+  section of the workspace rules file on the CEO's machine remains in use
+  beside the native board.
+- **Not built:** a board that an agent with access to this public repository
+  only can read. Such an agent coordinates through `.agents/tasks/` records
+  (section 7).
 
 This document launches no agents, changes no repository setting and certifies no
 feature as complete.
