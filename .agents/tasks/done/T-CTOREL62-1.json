@@ -1,16 +1,8 @@
 {
   "id": "T-CTOREL62-1",
-  "feature_id": "F-CORE-RELEASE-0.21.62-1",
   "title": "Prepare core v0.21.62 from distilled candidate v0-21-62-distilled-rc1",
   "goal": "Apply only the version bump permitted after the accept-verified distilled candidate envelope (shipping T-CTOMANDATES-1, T-CTO-SPEED-1, T-CTOSPEED-1, T-CTO-PILLARS-1, T-CTOPILLARS-1, and T-CLAUDEWINSTOP-1), then qualify the exact Linux x86_64 release tree. Windows x86_64 remains a separate owed platform.",
-  "state": "done",
-  "status": "completed",
-  "owner": "integrator",
-  "created_by": "integrator",
-  "created_unix": 1794417790,
-  "updated_unix": 1794417790,
   "size": "s",
-  "base": "a8366f2959dae42ef0f900e9786490a551ee17da",
   "deps": [
     "T-CLAUDEWINSTOP-1",
     "T-CTOMANDATES-1",
@@ -19,6 +11,31 @@
     "T-CTO-PILLARS-1",
     "T-CTOPILLARS-1"
   ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "integrator",
+  "created_unix": 1794417790,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "a8366f2959dae42ef0f900e9786490a551ee17da",
+  "feature_id": "F-CORE-RELEASE-0.21.62-1",
+  "limitations": [
+    "Windows x86_64 reference qualification is not available on this Linux host."
+  ],
+  "owner": "integrator",
   "scopes": [
     ".agents/evidence.json",
     ".agents/identity.json",
@@ -34,19 +51,7 @@
     "crates/susi-harness/Cargo.toml",
     "crates/susi-server/Cargo.toml"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi",
-      "--test",
-      "release_records"
-    ]
-  },
-  "limitations": [
-    "Windows x86_64 reference qualification is not available on this Linux host."
-  ]
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794417790
 }
