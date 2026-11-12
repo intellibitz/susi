@@ -2,14 +2,29 @@
   "id": "T-DOTWORKERLEASE-1",
   "title": "Release external worker leases explicitly",
   "goal": "Make lease lifetime explicit while retaining fail-closed contention behavior.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "dot-worker-lease",
-  "native_worker": "dot-worker-lease",
-  "created_by": "dot-worker-lease",
-  "created_unix": 1794275428,
   "size": "S",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "--lib",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "dot-worker-lease",
+  "created_unix": 1794275428,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "Affected library tests and strict scoped Clippy pass; deterministic inherited-descriptor regression fails without explicit unlock. Independent review and combined-tree checks pending.",
+  "claimed_by": "dot-worker-lease",
+  "native_worker": "dot-worker-lease",
   "scope": [
     ".agents/tasks/t-dotworkerlease-1.json",
     "crates/susi-gawd-agents/src/external/mod.rs",
@@ -24,18 +39,8 @@
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
   ],
-  "acceptance": "Affected library tests and strict scoped Clippy pass; deterministic inherited-descriptor regression fails without explicit unlock. Independent review and combined-tree checks pending.",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "susi-gawd-agents",
-      "--lib",
-      "--offline",
-      "--locked"
-    ]
-  },
+  "state": "in_progress",
+  "status": "in_progress",
   "verification": {
     "library_tests": {
       "passed": 198,
