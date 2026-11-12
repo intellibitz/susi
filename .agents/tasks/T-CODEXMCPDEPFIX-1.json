@@ -1,0 +1,34 @@
+{
+  "id": "T-CODEXMCPDEPFIX-1",
+  "title": "Normalize MCP task dependency metadata for distillation",
+  "goal": "Correct the landed MCP façade task record so its dependency list contains only resolvable Core task IDs while preserving the external Commercial plug provenance in the boundary record.",
+  "status": "implemented",
+  "owner": "codex",
+  "native_worker": "mcp-depfix",
+  "created_by": "codex",
+  "created_unix": 1794459790,
+  "size": "s",
+  "base_commit": "2d841c2726f3686405a819a7658139a0c891a418",
+  "deps": [],
+  "scopes": [
+    ".agents/tasks/T-CODEXMCPBUS-1.json",
+    ".agents/tasks/T-CODEXMCPDEPFIX-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "task_records"
+    ]
+  },
+  "results": {
+    "status": "implemented",
+    "acceptance": "cargo test --offline --locked -p susi --test task_records: passed",
+    "reason": "The original deps values contained explanatory prose and an external repository commit, which the strict distiller correctly treated as unresolved task IDs. The external Commercial plug remains documented in T-CODEXMCPBUS-1.results.boundary."
+  }
+}
