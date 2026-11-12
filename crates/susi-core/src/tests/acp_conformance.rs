@@ -1,8 +1,10 @@
 use super::*;
 use crate::mac_policy::{self, MacPolicy, PrivacyMode};
 use serde_json::json;
-use std::io::Cursor;
+use std::io::{Cursor, Read, Write};
+use std::net::TcpListener;
 use std::sync::mpsc;
+use std::time::Duration;
 
 #[test]
 fn discovery_and_initialize_negotiate_protocol_version() {
@@ -236,6 +238,62 @@ fn http_socket_admission_session_lifecycle_and_sse_streaming() {
     assert_eq!(after_close.unwrap()["error"]["code"], ACP_ERR_NOT_FOUND);
 
     server.shutdown();
+}
+
+#[test]
+fn acp_client_callback_observes_sse_before_the_final_frame() {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (server_started_tx, server_started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0_u8; 4096];
+        let _ = stream.read(&mut request).unwrap();
+        let first_frame = b"event: acp.turn.event\ndata: {\"phase\":\"started\"}\n\n";
+        let final_frame = b"event: acp.turn.result\ndata: {\"stop_reason\":\"end_turn\"}\n\n";
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            first_frame.len() + final_frame.len()
+        );
+        stream
+            .write_all(head.as_bytes())
+            .and_then(|_| stream.write_all(first_frame))
+            .unwrap();
+        stream.flush().unwrap();
+        server_started_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        stream.write_all(final_frame).unwrap();
+        stream.flush().unwrap();
+    });
+
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let client = AcpSocketClient::new(format!("http://{addr}"), None);
+    let client_thread = std::thread::spawn(move || {
+        let mut frames = Vec::new();
+        let result = client.prompt_stream_sse_with(1, "acp-sess-live", "hello", |frame| {
+            observed_tx.send(frame.clone()).unwrap();
+            frames.push(frame);
+            Ok(())
+        });
+        (result, frames)
+    });
+
+    server_started_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    let first = observed_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("first SSE frame must arrive before the server releases the final frame");
+    assert_eq!(first.0, "acp.turn.event");
+    assert_eq!(first.1["phase"], "started");
+    release_tx.send(()).unwrap();
+
+    let (result, frames) = client_thread.join().unwrap();
+    assert_eq!(result.unwrap(), 200);
+    assert_eq!(frames.len(), 2);
+    assert_eq!(frames[1].0, "acp.turn.result");
+    server.join().unwrap();
 }
 
 struct BlockingExecutor {
