@@ -3,6 +3,7 @@
 //! early. Also the daemon start/stop primitives used by `start`/`stop`/
 //! `restart` after boot.
 
+use super::acp_cli;
 use super::agent_cli;
 use super::ambient_cli;
 use super::auto_cli;
@@ -63,6 +64,11 @@ pub(crate) fn dispatch(
     // the substrate (no daemon ensure, no mission pipeline).
     if let Some(Commands::ServiceRun { name, port }) = command {
         return Ok(run_plane(PlanePrep::None, || service_run(&name, port)));
+    }
+    if let Some(Commands::Acp { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            acp_cli::execute(action, cwd)
+        }));
     }
     if let Some(Commands::Run(args)) = command {
         return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {

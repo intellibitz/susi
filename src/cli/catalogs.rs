@@ -45,6 +45,7 @@ pub(crate) fn command_catalogs(command: &Commands) -> Catalogs {
         Commands::Frontier { action } => frontier_catalogs(action.as_ref()),
         Commands::Models { action } => models_catalogs(action.as_ref()),
         Commands::Mcp { action } => mcp_catalogs(action.as_ref()),
+        Commands::Acp { .. } => Catalogs::NONE,
         // These three dispatch in `control_plane_cli::dispatch` before the
         // CLI composition root runs, and prime inside their own handlers
         // (`substrate_cli::PRIMED`, `crown_cli::PRIMED`, `auto prime`'s full

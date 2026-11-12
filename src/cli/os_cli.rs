@@ -221,16 +221,56 @@ fn revoke_on_sibling_bus(bus_root: &Path, self_pid: &str, id: &str) -> SiblingRe
     pid_dirs.sort();
 
     for pid_dir in pid_dirs {
-        let candidate = [
-            pid_dir.join("topics").join("daemon.harness"),
-            pid_dir.join("prefixes").join("daemon."),
-        ]
-        .into_iter()
-        .find_map(|file| {
-            let raw = std::fs::read_to_string(&file).ok()?;
-            let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
+        let parse_loopback = |doc: &serde_json::Value| -> Option<SocketAddr> {
             let addr: SocketAddr = doc.get("endpoint")?.as_str()?.parse().ok()?;
             addr.ip().is_loopback().then_some(addr)
+        };
+        let manifest_candidate = std::fs::read_dir(&pid_dir).ok().and_then(|rd| {
+            let mut files: Vec<std::path::PathBuf> = rd
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                        n == "routes.json" || (n.starts_with("routes.") && n.ends_with(".json"))
+                    })
+                })
+                .collect();
+            files.sort();
+            files.into_iter().find_map(|file| {
+                let raw = std::fs::read_to_string(&file).ok()?;
+                let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
+                let serves_harness = doc
+                    .get("topics")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|ts| {
+                        ts.iter().any(|t| {
+                            t.as_str() == Some(susi_core::plane_bus::topics::DAEMON_HARNESS)
+                        })
+                    })
+                    || doc
+                        .get("prefixes")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|ps| {
+                            ps.iter().any(|p| {
+                                p.as_str().is_some_and(|pfx| {
+                                    susi_core::plane_bus::topics::DAEMON_HARNESS.starts_with(pfx)
+                                })
+                            })
+                        });
+                serves_harness.then(|| parse_loopback(&doc)).flatten()
+            })
+        });
+        let candidate = manifest_candidate.or_else(|| {
+            [
+                pid_dir.join("topics").join("daemon.harness"),
+                pid_dir.join("prefixes").join("daemon."),
+            ]
+            .into_iter()
+            .find_map(|file| {
+                let raw = std::fs::read_to_string(&file).ok()?;
+                let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
+                parse_loopback(&doc)
+            })
         });
         let Some(addr) = candidate else { continue };
 
