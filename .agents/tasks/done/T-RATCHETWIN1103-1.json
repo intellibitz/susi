@@ -4,11 +4,6 @@
   "goal": "CEO decision 2026-11-03: continue the paused 0.21.47 promotion. Its native integration on Windows failed on susi-unsafe-ratchet measurement_contract: actual_scanner_handles_legacy_source_and_refuses_dirty_or_unparseable_source ('metadata workspace root does not match source root') and changed_or_missing_reviewed_module_cannot_reuse_an_unchanged_entrypoint (os error 3). Both also fail deterministically on Windows origin/main. Root causes: (1) scan() compared the verbatim \\\\?\\C:\\ canonical root with the C:\\ path that cargo metadata reports; (2) the test replaced a raw Windows path inside JSON-escaped text. Fix both root causes with no skips and no platform gating. Prove it with at least 10 consecutive Windows passes of both tests. This is the GitHub publication of the same fix committed in the native lane release47-1103 under T-RELEASE47-1. That task is claimed on GitHub by another worker, so this task carries the publication.",
   "size": "s",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/t-ratchetwin1103-1.json",
-    "crates/susi-unsafe-ratchet/src/measurement.rs",
-    "crates/susi-unsafe-ratchet/tests/measurement_contract.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -22,5 +17,15 @@
     ]
   },
   "created_by": "RATCHETWIN1103",
-  "created_unix": 1793730600
+  "created_unix": 1793730600,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/tasks/t-ratchetwin1103-1.json",
+    "crates/susi-unsafe-ratchet/src/measurement.rs",
+    "crates/susi-unsafe-ratchet/tests/measurement_contract.rs"
+  ]
 }
