@@ -1,36 +1,10 @@
 {
   "id": "T-CTOREL65-2",
-  "feature_id": "F-CORE-RELEASE-RECORD-0.21.65-1",
   "title": "Record Susi core v0.21.65 release and advance main to 0.21.65",
   "goal": "Record releases/v0.21.65.json and byte-identical releases/qualification/v0.21.65.json for immutable tag v0.21.65 (74ddc863893ae310516b9e84f1dcb895681f99f6) and advance development main to 0.21.65.",
-  "state": "done",
-  "status": "completed",
-  "owner": "core-release",
-  "created_by": "core-release",
-  "created_unix": 1794466000,
-  "updated_unix": 1794466000,
   "size": "s",
-  "base": "60fc6c9e94fa69125d52d970bc327acac1a9e022",
   "deps": [
     "T-CTOWINSPEED-1"
-  ],
-  "scopes": [
-    ".agents/evidence.json",
-    ".agents/identity.json",
-    ".agents/roadmap.json",
-    ".agents/tasks/T-CTOREL65-1.json",
-    ".agents/tasks/T-CTOREL65-2.json",
-    "Cargo.lock",
-    "Cargo.toml",
-    "README.md",
-    "crates/susi-daemon/Cargo.toml",
-    "crates/susi-gawd/Cargo.toml",
-    "crates/susi-gemi/Cargo.toml",
-    "crates/susi-gmcp/Cargo.toml",
-    "crates/susi-harness/Cargo.toml",
-    "crates/susi-server/Cargo.toml",
-    "releases/qualification/v0.21.65.json",
-    "releases/v0.21.65.json"
   ],
   "accept": {
     "cmd": [
@@ -44,6 +18,19 @@
       "release_records"
     ]
   },
+  "created_by": "core-release",
+  "created_unix": 1794466000,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "60fc6c9e94fa69125d52d970bc327acac1a9e022",
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.65-1",
+  "limitations": [
+    "Linux x86_64 reference build and qualification remain owed."
+  ],
+  "owner": "core-release",
   "results": {
     "tag": "v0.21.65",
     "tag_object": "98204c749da6480e3b82caf898e46086a9d6c395",
@@ -63,7 +50,25 @@
     "susi_sha256": "7de92b18626e00b66cd5260f0fb511a9c177f97791c4656d7b621d2a0b483573",
     "susi_harness_sha256": "5f78e4dbee61e0698a37bc92a4aece48b58fa190760c9176ae9a1c2d9977a271"
   },
-  "limitations": [
-    "Linux x86_64 reference build and qualification remain owed."
-  ]
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CTOREL65-1.json",
+    ".agents/tasks/T-CTOREL65-2.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    "releases/qualification/v0.21.65.json",
+    "releases/v0.21.65.json"
+  ],
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794466000
 }
