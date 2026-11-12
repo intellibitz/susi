@@ -2,18 +2,7 @@
   "id": "T-DOTSCHEDULER-1",
   "title": "Bound test-runner libtest threads by acquired lanes",
   "goal": "For the exact xtask/bin/local-workflow test binary, reserve two real test-runner lanes and assign proportional RUST_TEST_THREADS from one raw aggregate budget. Clamp effective lanes to the budget, preserve CARGO_BUILD_JOBS, and keep unrelated binaries unchanged or conservatively bounded.",
-  "created_by": "dot-scheduler",
-  "created_unix": 1794241314,
-  "state": "in_progress",
-  "status": "in_progress",
-  "native_worker": "dot-scheduler",
-  "claimed_by": "dot-scheduler",
   "deps": [],
-  "scopes": [
-    "xtask/src/test_runner.rs",
-    "xtask/src/bin/local-workflow.rs",
-    ".agents/tasks/T-DOTSCHEDULER-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -27,12 +16,28 @@
       "test_runner::tests::"
     ]
   },
+  "created_by": "dot-scheduler",
+  "created_unix": 1794241314,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "checkpoint": "Reviewed scheduler passes11 focused tests, Clippy and fmt. Reversed identical-artifact selected-suite sequence baseline230233ms, weighted174514ms, weighted171518ms, baseline190022ms: all96 binaries ran,973 passed,0 failed,7 ignored each. All96 artifact SHA256s unchanged after4runs. Two samples per variant show a benefit in this setup, not a guarantee or under60s completion. Native combined gate/publication pending. Bound is configured libtest threads, not all nested OS threads.",
+  "claimed_by": "dot-scheduler",
   "measurements": [
     "Same96 test-artifact SHA256 values verified unchanged after both runs; fresh runtime homes, same seed duration schedule, same6 lanes/28 rawbudget and nestedCargo4jobs.",
     "Weighted exact xtask/bin/local-workflow assigned2/6lanes and8/28libtestthreads; other targets remain one proportionalunit.",
     "Critical local-workflow binary baseline230.19s vs weighted162.62s. Total selected suite230.23s vs174.51s.",
     "Private ordinary-toolchain artifactbuild88.30s is separate from runner timings. Native trusted-sysroot/license/provenance gates still required.",
     "Second pair weighted171518ms then baseline190022ms; firstpair baseline230233ms then weighted174514ms. Freshhomes and same seeded scheduling/96artifact hashes throughout. Baseline variability is disclosed; no statistical reliability claim."
-  ]
+  ],
+  "native_worker": "dot-scheduler",
+  "scopes": [
+    "xtask/src/test_runner.rs",
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-DOTSCHEDULER-1.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress"
 }
