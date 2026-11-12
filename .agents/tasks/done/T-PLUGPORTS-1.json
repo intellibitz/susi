@@ -2,29 +2,32 @@
   "id": "T-PLUGPORTS-1",
   "title": "Serve the capabilities core gave up through plane-bus plug ports (embeddings, browser, local engine)",
   "goal": "Core's remaining 'moved to commercial' errors (embed_provider, browser_automate) become plane-bus ports answered by a plug on the bus rendezvous (the commercial susi-plug-host), and the default build consults the bus for the local inference engine when a plug is wired. Mandate rule 4: no stubs for removed capabilities. Also fixes the gate stall found on the way: environment-resolved config reads never seed config.json (VersionedJsonStore::ReadPolicy), and the gemi-models ladder test is bounded.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "plugports",
-  "native_worker": "plugports",
-  "created_by": "plugports",
-  "created_unix": 1794111127,
-  "updated_unix": 1794122412,
   "size": "S",
   "deps": [],
-  "scopes": [
-    ".agents/gmcp/evidence",
-    ".agents/tasks/t-plugports-1.json",
-    "crates/susi-config/src/config.rs",
-    "crates/susi-config/src/versioned_store.rs",
-    "crates/susi-gemi-models/src/cloud.rs",
-    "crates/susi-gemi-models/src/hf_discovery.rs",
-    "crates/susi-gemi-models/src/lifecycle/provision.rs",
-    "crates/susi-gemi/src/engines/local_plug.rs",
-    "crates/susi-gmcp/src/embed_provider.rs",
-    "crates/susi-gmcp/src/tools/core.rs",
-    "docs/lean-core.md",
-    "tests/lean_core_ceilings.rs"
-  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "--lib",
+      "--features",
+      "tools-rich",
+      "embed_provider",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "plugports",
+  "created_unix": 1794111127,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi-gmcp --lib --features tools-rich embed_provider --offline --locked",
+  "claimed_by": "plugports",
+  "native_worker": "plugports",
   "scope": [
     ".agents/gmcp/evidence",
     ".agents/tasks/t-plugports-1.json",
@@ -39,19 +42,21 @@
     "docs/lean-core.md",
     "tests/lean_core_ceilings.rs"
   ],
-  "acceptance": "cargo test -p susi-gmcp --lib --features tools-rich embed_provider --offline --locked",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "susi-gmcp",
-      "--lib",
-      "--features",
-      "tools-rich",
-      "embed_provider",
-      "--offline",
-      "--locked"
-    ]
-  }
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-plugports-1.json",
+    "crates/susi-config/src/config.rs",
+    "crates/susi-config/src/versioned_store.rs",
+    "crates/susi-gemi-models/src/cloud.rs",
+    "crates/susi-gemi-models/src/hf_discovery.rs",
+    "crates/susi-gemi-models/src/lifecycle/provision.rs",
+    "crates/susi-gemi/src/engines/local_plug.rs",
+    "crates/susi-gmcp/src/embed_provider.rs",
+    "crates/susi-gmcp/src/tools/core.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794122412
 }
