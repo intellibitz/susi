@@ -1,15 +1,10 @@
 {
   "id": "T-CLAUDEWINIMPORT-1",
-  "native_worker": "winimport",
   "title": "ci_workflow_perf: import Path only on unix so Windows clippy passes",
   "goal": "After the GitHub Actions removal (T-CLAUDERMGHA-1) every remaining use of std::path::Path in xtask/tests/ci_workflow_perf.rs is inside #[cfg(unix)] helpers, so `cargo clippy -D warnings` on x86_64-pc-windows-msvc fails with unused import `Path` (reported by the CEO's Windows pre-push hook). Gate the import on unix.",
   "size": "xs",
   "deps": [
     "T-CLAUDERMGHA-1"
-  ],
-  "scopes": [
-    ".agents/tasks/t-claudewinimport-1.json",
-    "xtask/tests/ci_workflow_perf.rs"
   ],
   "accept": {
     "cmd": [
@@ -24,5 +19,15 @@
     ]
   },
   "created_by": "CLAUDEWINIMPORT",
-  "created_unix": 1793966006
+  "created_unix": 1793966006,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "winimport",
+  "scopes": [
+    ".agents/tasks/t-claudewinimport-1.json",
+    "xtask/tests/ci_workflow_perf.rs"
+  ]
 }
