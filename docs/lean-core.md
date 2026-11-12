@@ -31,7 +31,7 @@ This page is the shared plan for every agent on the program. Numbers come from
 | 0 | third-party crates compiled | 331 | 96 |
 | 0 | workspace crates compiled | 59 | 33 |
 | 0 | vendor facades named directly by the pillar crates | 26 | 9 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | 147,184 (ratcheted -175 from 147,359) |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | 146,127 (ratcheted -825 from 146,952) |
 | clean clone | cold `cargo build --offline --locked -p susi` (Linux x86_64) | 196 s under load / 165 s idle | 27.68 s idle (`T-CARBONLEAN-14`) |
 | warm release loop | core `build + test + release` pipeline (`fast-release`, Mandate 74) | ununified multi-profile | `< 10.0 s` (`total_ms < 10_000`) budget |
 
@@ -1205,3 +1205,27 @@ config, core and the tail.
   `[dev-dependencies]` facade edges across `susi-core`, `susi-gawd`,
   `susi-gemi-models`, `susi-gemi`, `susi-gmcp`, `susi-harness`,
   `susi-leaf-services` and `susi-tools` with zero new dependencies.
+- 2026-11-12 (T-CARBONCLOUD-9, Linux x86_64): delete `501` shipped lines of
+  zero-caller dead helpers across `susi-gemi` (`20,804 -> 20,709`, `-95` shipped
+  lines: `UsageLedger::measured_cost_per_success`,
+  `ScoutReport::verified_fraction`, `credential_scout::scout_configured`,
+  `InferenceRouter::list_cloud_providers`,
+  `GemiEngine::generate_reasoning_deep_opts`), `susi-gemi-models`
+  (`15,939 -> 15,563`, `-376` shipped lines:
+  `HardwareProfiler::get_bootstrap_model_ladder`,
+  `ModelDownloadProgress::computed_percentage`, `RESIDENCY_PROBE`,
+  `ModelManager::{register_residency_probe,resident,fits_memory,weight_allocation_fits_memory,cold_load_fits_memory}`,
+  `ModelCache::{is_loaded,is_reusable,is_reusable_admitted,reusable_with_digest}`,
+  `cloud_credentials::{cli_keys_list,cli_keys_set,cli_keys_remove}`,
+  `PriceCatalog::{cost_usd,accept_version}`), and `susi-gawd-agents`
+  (`10,443 -> 10,413`, `-30` shipped lines: `BudgetLedger::consent_granted`,
+  `cloud_intent::record_dispatch_outcome`, `AgentManager::with_poll_interval`),
+  and ratchet `LINE_CEILINGS` down by `-825` lines (`146,952 -> 146,127`:
+  `susi-gemi` `21,096 -> 20,709`, `susi-gemi-models` `15,939 -> 15,563`,
+  `susi-gawd-agents` `10,443 -> 10,413`, and `susi-gmcp` re-pinned
+  `25,860 -> 25,828`; `susi-gawd`, `susi-gawd-swarm`, `susi-gawd-a2a`, and
+  `susi-harness` unchanged). `fast-release/susi` binary size shrank
+  `89,610,120 -> 89,605,056` bytes (`-5,064` bytes); warm `fast-release`
+  measured `0.10 s` no-op (`326 ms` wall) and `3.88 s` `src/main.rs`
+  recompile+link (`3,917 ms` wall, `< 10.0 s` budget; `18.63 s` 8-crate
+  non-incremental rebuild).

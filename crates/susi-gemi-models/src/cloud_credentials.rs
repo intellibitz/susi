@@ -235,74 +235,6 @@ pub fn remove_by_id(dir: &Path, id: &str) -> EaiResult<()> {
     Ok(())
 }
 
-/// CLI Helper: Format all stored BYOK credentials for display.
-pub fn cli_keys_list(dir: &Path) -> EaiResult<String> {
-    let creds = list_all(dir)?;
-    if creds.is_empty() {
-        return Ok(
-            "No BYOK credentials registered in local store (~/.susi/cloud-credentials).".into(),
-        );
-    }
-    let mut out = format!("BYOK Credential Store ({} record(s)):\n\n", creds.len());
-    out.push_str(&format!(
-        "{:<12} {:<24} {:<16} {:<14} {:<12}\n",
-        "ID", "VENDOR", "KEY", "SPEND / BUDGET", "STATUS"
-    ));
-    out.push_str(&"-".repeat(80));
-    out.push('\n');
-
-    for c in creds {
-        let id_short = &c.id[..8];
-        let spend_str = match (c.current_spend_usd, c.max_budget_usd) {
-            (Some(s), Some(b)) => format!("${:.2} / ${:.2}", s, b),
-            (Some(s), None) => format!("${:.2} / ∞", s),
-            (None, Some(b)) => format!("$0.00 / ${:.2}", b),
-            (None, None) => "$0.00 / ∞".to_string(),
-        };
-        let status = if c.is_budget_exceeded() {
-            "EXCEEDED"
-        } else {
-            "ACTIVE"
-        };
-
-        out.push_str(&format!(
-            "{:<12} {:<24} {:<16} {:<14} {:<12}\n",
-            id_short,
-            c.vendor_env,
-            c.mask_key(),
-            spend_str,
-            status
-        ));
-    }
-    Ok(out)
-}
-
-/// CLI Helper: Set a BYOK key for a vendor with optional budget and label.
-pub fn cli_keys_set(
-    dir: &Path,
-    vendor_env: &str,
-    key: &str,
-    budget_usd: Option<f64>,
-    label: Option<String>,
-) -> EaiResult<String> {
-    let id = save_with_options(dir, vendor_env, key, budget_usd, label)?;
-    let short_id = &id[..8];
-    Ok(format!(
-        "Registered BYOK credential [{short_id}] for {vendor_env} successfully."
-    ))
-}
-
-/// CLI Helper: Remove BYOK credential by ID or vendor environment name.
-pub fn cli_keys_remove(dir: &Path, target: &str) -> EaiResult<String> {
-    if target.len() == 64 && target.bytes().all(|b| b.is_ascii_hexdigit()) {
-        remove_by_id(dir, target)?;
-        Ok(format!("Removed BYOK credential [{}]", &target[..8]))
-    } else {
-        remove_vendor(dir, target)?;
-        Ok(format!("Removed all BYOK credentials for {target}"))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,10 +280,6 @@ mod tests {
         record_spend(root.path(), &id, 5.0).unwrap();
         let cred = get_by_id(root.path(), &id).unwrap().unwrap();
         assert!(cred.is_budget_exceeded());
-
-        let list_str = cli_keys_list(root.path()).unwrap();
-        assert!(list_str.contains("OPENAI_API_KEY"));
-        assert!(list_str.contains("EXCEEDED"));
     }
 
     #[test]
@@ -364,60 +292,32 @@ mod tests {
     }
 
     #[test]
-    fn mask_key_handles_short_keys_and_cli_keys_set_remove_by_id_work() {
+    fn mask_key_handles_short_keys_resave_preserves_spend_and_remove_by_id_works() {
         let root = susi_paths::tempfile::tempdir().unwrap();
+        assert!(list_all(root.path()).unwrap().is_empty());
+
         let short_id =
-            save_with_options(root.path(), "OPENAI_API_KEY", "short123", None, None).unwrap();
+            save_with_options(root.path(), "OPENAI_API_KEY", "short123", Some(20.0), None).unwrap();
         let short_cred = get_by_id(root.path(), &short_id).unwrap().unwrap();
         assert_eq!(short_cred.mask_key(), "***");
         assert!(record_spend(root.path(), &short_id, -1.0).is_err());
 
-        let msg = cli_keys_set(
-            root.path(),
-            "ANTHROPIC_API_KEY",
-            "sk-ant-1234567890",
-            Some(25.0),
-            Some("team".into()),
-        )
-        .unwrap();
-        assert!(msg.contains("ANTHROPIC_API_KEY"));
-
-        let removed_msg = cli_keys_remove(root.path(), &short_id).unwrap();
-        assert!(removed_msg.contains(&short_id[..8]));
-        assert!(get_by_id(root.path(), &short_id).unwrap().is_none());
-    }
-
-    #[test]
-    fn cli_keys_list_empty_store_and_resave_preserves_existing_spend() {
-        let root = susi_paths::tempfile::tempdir().unwrap();
-        let empty_msg = cli_keys_list(root.path()).unwrap();
-        assert!(empty_msg.contains("No BYOK credentials registered"));
-
-        let id = save_with_options(
+        record_spend(root.path(), &short_id, 7.5).unwrap();
+        let resave_id = save_with_options(
             root.path(),
             "OPENAI_API_KEY",
-            "sk-persist-spend-1234",
-            Some(20.0),
-            None,
-        )
-        .unwrap();
-        record_spend(root.path(), &id, 7.5).unwrap();
-
-        let id2 = save_with_options(
-            root.path(),
-            "OPENAI_API_KEY",
-            "sk-persist-spend-1234",
+            "short123",
             Some(50.0),
             Some("updated-cap".into()),
         )
         .unwrap();
-        assert_eq!(id, id2);
-        let updated = get_by_id(root.path(), &id).unwrap().unwrap();
+        assert_eq!(short_id, resave_id);
+        let updated = get_by_id(root.path(), &short_id).unwrap().unwrap();
         assert_eq!(updated.current_spend_usd, Some(7.5));
         assert_eq!(updated.max_budget_usd, Some(50.0));
 
-        let vendor_msg = cli_keys_remove(root.path(), "OPENAI_API_KEY").unwrap();
-        assert!(vendor_msg.contains("Removed all BYOK credentials for OPENAI_API_KEY"));
+        remove_by_id(root.path(), &short_id).unwrap();
+        assert!(get_by_id(root.path(), &short_id).unwrap().is_none());
         assert!(list_all(root.path()).unwrap().is_empty());
     }
 }

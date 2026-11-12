@@ -7,7 +7,6 @@
 //! price table the summary reports *measured* cost-per-success.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use susi_error::{EaiError, EaiResult};
 
 /// Token usage as reported by the vendor (absent for engines that don't
@@ -164,29 +163,6 @@ impl UsageLedger {
             }
         }
         s
-    }
-
-    /// Measured cost-per-success for every provider, best first — the
-    /// number `susi brain` shows next to the tier table.
-    #[must_use]
-    pub fn measured_cost_per_success(
-        &self,
-        prices: &BTreeMap<String, TokenPrice>,
-    ) -> Vec<(String, f64)> {
-        let mut providers: Vec<String> = self.records.iter().map(|r| r.provider.clone()).collect();
-        providers.sort();
-        providers.dedup();
-        let mut out: Vec<(String, f64)> = providers
-            .iter()
-            .filter_map(|p| {
-                let price = prices.get(p).copied();
-                self.summary(p, "", price)
-                    .usd_per_success
-                    .map(|c| (p.clone(), c))
-            })
-            .collect();
-        out.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        out
     }
 
     pub fn save(&self, path: &std::path::Path) -> EaiResult<()> {

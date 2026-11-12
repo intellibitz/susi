@@ -1044,16 +1044,6 @@ impl InferenceRouter {
         }
     }
 
-    pub fn list_cloud_providers(names: &[String]) -> Vec<String> {
-        let mut clouds: Vec<String> = names
-            .iter()
-            .filter(|n| Self::is_cloud_provider_name(n))
-            .cloned()
-            .collect();
-        clouds.sort();
-        clouds
-    }
-
     /// PHASE 2: Dynamic Model Router based on requested capabilities and constraints.
     /// The `requires` token's task class sets the capability floor before any
     /// cost ceiling applies (VC-202-004).
@@ -1721,22 +1711,6 @@ mod tests {
         ));
         assert!(!InferenceRouter::is_cloud_provider_name("ollama-llama3"));
         assert!(!InferenceRouter::is_cloud_provider_name("vllm-mistral"));
-    }
-
-    #[test]
-    fn list_clouds_filters_locals() {
-        let names = vec![
-            "ollama-llama3".into(),
-            "openai-gpt-4o-mini".into(),
-            "deepseek-deepseek-chat".into(),
-            "googlegemini-gemini-3.6-flash".into(),
-        ];
-        let clouds = InferenceRouter::list_cloud_providers(&names);
-        assert_eq!(clouds.len(), 3);
-        assert!(clouds
-            .iter()
-            .all(|c| InferenceRouter::is_cloud_provider_name(c)));
-        assert!(!clouds.iter().any(|c| c.contains("ollama")));
     }
 
     #[test]

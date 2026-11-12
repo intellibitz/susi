@@ -205,17 +205,6 @@ fn vc_201_044_download_publish_called_by_production() {
 }
 
 #[test]
-fn test_automatic_admission_is_a_hard_gate() {
-    let _environment = crate::susi_core::commit_log::ENV_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    assert!(!ModelManager::fits_memory(32.0, 8.0, 2.0, 1.25));
-    assert!(!ModelManager::fits_memory(5.0, 8.0, 2.0, 1.25));
-    assert!(ModelManager::fits_memory(4.0, 8.0, 2.0, 1.25));
-    assert!(!ModelManager::fits_memory(1.0, f32::NAN, 0.0, 1.0));
-}
-
-#[test]
 fn starter_download_is_small_even_with_large_gpu() {
     let _environment = crate::susi_core::commit_log::ENV_LOCK
         .lock()

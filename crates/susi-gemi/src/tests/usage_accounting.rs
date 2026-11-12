@@ -32,34 +32,6 @@ fn usage_accounting_aggregates_per_provider_class() {
 }
 
 #[test]
-fn usage_accounting_measured_cost_per_success() {
-    let mut l = UsageLedger::new();
-    // openai: 2 successes costing (1000+1000)in + (500+500)out
-    l.record(rec("openai", "", 1000, 500, true));
-    l.record(rec("openai", "", 1000, 500, true));
-    l.record(rec("local", "", 5000, 5000, true));
-    let mut prices = BTreeMap::new();
-    prices.insert(
-        "openai".to_string(),
-        TokenPrice {
-            input_per_million: 2.0,
-            output_per_million: 10.0,
-        },
-    );
-    prices.insert(
-        "local".to_string(),
-        TokenPrice {
-            input_per_million: 0.0,
-            output_per_million: 0.0,
-        },
-    );
-    let ranked = l.measured_cost_per_success(&prices);
-    // openai per success: (1000*2 + 500*10)/1e6 = 0.007
-    assert_eq!(ranked[0].0, "local");
-    assert!((ranked[1].1 - 0.007).abs() < 1e-9);
-}
-
-#[test]
 fn usage_accounting_failures_count_calls_not_success() {
     let mut l = UsageLedger::new();
     l.record(rec("p", "", 100, 50, false));

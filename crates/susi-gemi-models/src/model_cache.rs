@@ -168,60 +168,6 @@ impl<T> ModelCache<T> {
         out
     }
 
-    /// True when `path` currently has weights in the cache (any version).
-    /// A slot mid-load counts as loaded: its memory is already committed.
-    pub fn is_loaded(&self, path: &Path) -> bool {
-        let Ok(path) = path.canonicalize() else {
-            return false;
-        };
-        let Some(slot) = self.slot(&path) else {
-            return false;
-        };
-        slot.try_lock().ok().is_none_or(|entry| entry.is_some())
-    }
-
-    /// A completed cache entry that can be reused by `get_or_load` with these
-    /// exact inputs. Loading, obsolete files and a different runtime budget
-    /// are not residency evidence. Observation never waits for a model load.
-    pub fn is_reusable(&self, path: &Path, device: &Device, kv_capacity: usize) -> bool {
-        self.reusable_with_digest(path, device, kv_capacity, None)
-    }
-    pub fn is_reusable_admitted(
-        &self,
-        path: &Path,
-        device: &Device,
-        kv_capacity: usize,
-        artifact: &VerifiedArtifact,
-    ) -> bool {
-        self.reusable_with_digest(path, device, kv_capacity, Some(artifact.digest()))
-    }
-    fn reusable_with_digest(
-        &self,
-        path: &Path,
-        device: &Device,
-        kv_capacity: usize,
-        digest: Option<&str>,
-    ) -> bool {
-        let Ok(path) = path.canonicalize() else {
-            return false;
-        };
-        let Ok(version) = ModelVersion::read(&path) else {
-            return false;
-        };
-        let Some(slot) = self.slot(&path) else {
-            return false;
-        };
-        let Some(guard) = slot.try_lock().ok() else {
-            return false;
-        };
-        guard.as_ref().is_some_and(|entry| {
-            entry.version == version
-                && digest.is_none_or(|digest| entry.admitted_digest.as_deref() == Some(digest))
-                && entry.device.same_device(device)
-                && entry.kv_capacity == kv_capacity
-        })
-    }
-
     /// Idle entries (no request holds the weights) on devices matching
     /// `on_device`, as `(last_used, path, weight bytes)`, least recently
     /// used first. Entries mid-load or mid-generation are never included.
@@ -430,8 +376,12 @@ mod tests {
                 Ok((1, None))
             })
             .unwrap();
-        assert!(cache.reusable_with_digest(&file.0, &Device::Cpu, 32, Some("original")));
-        assert!(!cache.reusable_with_digest(&file.0, &Device::Cpu, 32, Some("replacement")));
+        let hit = cache
+            .get_or_load_with_digest((&file.0, Some("original")), &Device::Cpu, 32, |_| {
+                panic!("same digest must hit cache")
+            })
+            .unwrap();
+        assert!(Arc::ptr_eq(&original, &hit));
         let updated = cache
             .get_or_load_with_digest((&file.0, Some("replacement")), &Device::Cpu, 32, |_| {
                 Ok((2, None))
@@ -439,7 +389,6 @@ mod tests {
             .unwrap();
         assert_eq!(*original.read().unwrap_or_else(|e| e.into_inner()), 1);
         assert_eq!(*updated.read().unwrap_or_else(|e| e.into_inner()), 2);
-        assert!(cache.reusable_with_digest(&file.0, &Device::Cpu, 32, Some("replacement")));
     }
 
     #[test]
@@ -460,55 +409,10 @@ mod tests {
             .set_times(std::fs::FileTimes::new().set_modified(modified))
             .unwrap();
         assert_eq!(receipt.metadata().unwrap().modified().unwrap(), modified);
-        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
         let reloaded = cache
             .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(2))
             .unwrap();
         assert_eq!(*reloaded.read().unwrap_or_else(|e| e.into_inner()), 2);
-    }
-
-    #[test]
-    fn residency_requires_current_identity_capacity_and_completed_load() {
-        let file = Fixture::new();
-        let other = Fixture::new();
-        let cache = ModelCache::default();
-        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
-        let weights = cache
-            .get_or_load(&file.0, &Device::Cpu, 32, |_| {
-                // A loading slot must not be advertised as reusable allocation.
-                assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
-                Ok(7)
-            })
-            .unwrap();
-        let alias = file.0.parent().unwrap().join(".").join("weights.gguf");
-        assert!(cache.is_reusable(&alias, &Device::Cpu, 32));
-        assert!(!cache.is_reusable(&other.0, &Device::Cpu, 32)); // same basename
-        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 64));
-        let busy = weights.write().unwrap_or_else(|e| e.into_inner());
-        assert!(cache.is_reusable(&file.0, &Device::Cpu, 32));
-        drop(busy);
-        std::fs::write(file.0.with_extension("license.json"), "changed-license").unwrap();
-        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
-        cache
-            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(8))
-            .unwrap();
-        assert!(cache.is_reusable(&file.0, &Device::Cpu, 32));
-        std::fs::write(
-            file.0.with_extension("provenance.json"),
-            "changed-provenance",
-        )
-        .unwrap();
-        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
-        cache
-            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(9))
-            .unwrap();
-        std::fs::write(&file.0, "changed weight bytes").unwrap();
-        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
-        cache
-            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(10))
-            .unwrap();
-        cache.evict(&file.0).unwrap();
-        assert!(!cache.is_reusable(&file.0, &Device::Cpu, 32));
     }
 
     #[test]
@@ -646,9 +550,8 @@ mod tests {
             .collect();
         assert_eq!(order, vec![a.0.canonicalize().unwrap()]);
         assert!(cache.idle_lru(&c.0, |_| false).is_empty());
-        assert!(cache.is_loaded(&a.0));
-        drop(cache.evict(&a.0).unwrap());
-        assert!(!cache.is_loaded(&a.0));
+        assert!(cache.evict(&a.0).unwrap().is_some());
+        assert!(cache.idle_lru(&c.0, |_| true).is_empty());
     }
 
     #[test]

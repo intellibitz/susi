@@ -69,11 +69,9 @@ fn manager_with_config_validates_workspace_and_accessors() {
         "{err}"
     );
 
-    let exec_mgr = AgentManager::new(&root)
-        .unwrap()
-        .with_poll_interval(Duration::from_millis(125));
+    let exec_mgr = AgentManager::new(&root).unwrap();
     assert_eq!(exec_mgr.kind(), CatalogKind::Execution);
-    assert_eq!(exec_mgr.poll_interval(), Duration::from_millis(125));
+    assert_eq!(exec_mgr.poll_interval(), Duration::from_secs(3));
 
     let fw_mgr = AgentManager::frameworks(&root).unwrap();
     assert_eq!(fw_mgr.kind(), CatalogKind::Framework);

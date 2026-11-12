@@ -123,13 +123,6 @@ pub struct ScoutReport {
 }
 
 impl ScoutReport {
-    /// Fraction of attempted probes verified — `None` when every probe hit
-    /// a transport failure and there is nothing to score.
-    pub fn verified_fraction(&self) -> Option<f32> {
-        let attempted = self.probes - self.transport_failures;
-        (attempted > 0).then(|| self.verified as f32 / attempted as f32)
-    }
-
     /// A report for a provider that could not be probed at all — the name
     /// did not resolve, or the sweep failed before a prompt was sent.
     /// Every probe counts as a transport failure so drift detection sees
@@ -258,12 +251,11 @@ mod inline_tests {
     }
 
     #[test]
-    fn transport_dead_marks_every_probe_as_transport_failure_with_none_fraction() {
+    fn transport_dead_marks_every_probe_as_transport_failure() {
         let dead = ScoutReport::transport_dead("dead-provider", "connection refused".to_string());
         assert_eq!(dead.probes, SCOUT_PROBES.len());
         assert_eq!(dead.verified, 0);
         assert_eq!(dead.transport_failures, SCOUT_PROBES.len());
-        assert_eq!(dead.verified_fraction(), None);
     }
 
     #[test]
@@ -279,7 +271,6 @@ mod inline_tests {
         assert_eq!(report.probes, 6);
         assert_eq!(report.verified, 6);
         assert_eq!(report.transport_failures, 0);
-        assert_eq!(report.verified_fraction(), Some(1.0));
         assert!(report
             .results
             .iter()
@@ -300,11 +291,10 @@ mod inline_tests {
         assert_eq!(report.probes, 6);
         assert_eq!(report.verified, 0);
         assert_eq!(report.transport_failures, 2);
-        assert_eq!(report.verified_fraction(), Some(0.0));
     }
 
     #[test]
-    fn record_outcomes_returns_probe_count_and_partial_verified_fraction_is_exact() {
+    fn record_outcomes_returns_probe_count() {
         // `record_outcome` persists to whatever `SUSI_BRAIN_EVIDENCE_FILE`
         // a concurrent test has set; without the lock it overwrote the
         // brain backup test's corrupted file and `.bak` mid-recovery.
@@ -323,7 +313,6 @@ mod inline_tests {
         assert_eq!(report.probes, 6);
         assert_eq!(report.verified, 3);
         assert_eq!(report.transport_failures, 0);
-        assert_eq!(report.verified_fraction(), Some(0.5));
         assert_eq!(record_outcomes(&report), 6);
     }
 }

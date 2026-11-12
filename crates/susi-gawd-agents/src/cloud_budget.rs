@@ -253,19 +253,6 @@ impl BudgetLedger {
         })
     }
 
-    /// Authorize a `NeedsConsent`/`NeedsPriceConsent` path after the user
-    /// consented — equivalent to `PaidAuthorized` for this account now.
-    /// Consent is a deliberate caller upgrade, not a ledger decision.
-    #[must_use]
-    pub fn consent_granted(policy: SpendPolicy) -> SpendPolicy {
-        match policy {
-            SpendPolicy::AskFirst { max_spend_micro } => {
-                SpendPolicy::PaidAuthorized { max_spend_micro }
-            }
-            SpendPolicy::FreeOnly | SpendPolicy::PaidAuthorized { .. } => policy,
-        }
-    }
-
     /// Reconcile a held reservation with actual usage. `actual = None`
     /// (usage unreported) charges the full estimate — conservative, never
     /// zero. `actual > estimate` charges actual (retry/overrun honesty);
@@ -454,7 +441,9 @@ mod tests {
             Denial::NeedsPriceConsent { .. }
         ));
         // After consent the same reserve succeeds.
-        let authorized = BudgetLedger::consent_granted(ask);
+        let authorized = SpendPolicy::PaidAuthorized {
+            max_spend_micro: 500,
+        };
         assert!(l
             .reserve(req("acct", authorized, false, FreeHeadroom::Exhausted, 200),)
             .is_ok());
