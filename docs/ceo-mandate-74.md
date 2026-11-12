@@ -62,7 +62,10 @@ storage bucket only.
    publishing. `susi-commercial workflow fresh` reports how far a worktree is
    behind; the commit guard prints a note when it is behind at all and refuses
    the commit beyond a limit (20 commits; an unreachable remote never
-   refuses). A merge is never refused: it is the remedy.
+   refuses). A merge is never refused: it is the remedy. At start and resume
+   the tool pulls for you: `susi-commercial workflow check` and
+   `workflow fresh --pull` merge `origin/main` into a worktree that has no
+   uncommitted changes, and never touch one that has.
 5. **GitHub is portable Git storage only:** `origin` for both `intellibitz/susi`
    and `intellibitz/susi-commercial-apps` is pure Git transport storage — zero
    GitHub Actions, zero hosted PRs or status checks, zero `gh` CLI or GitHub

@@ -116,7 +116,10 @@ pure Apache-2.0 code with full attribution, keep all add-ons closed/licensed/pai
   stay continuously reconciled.
   **Every agent must work on the latest remote** (tightened 2026-11-12): fetch
   and merge `origin/main` before starting work, when resuming work, and before
-  every commit. `susi-commercial workflow fresh` reports the lag; the commit
+  every commit. `susi-commercial workflow check` (run it first, when you start
+  and when you resume) and `workflow fresh --pull` do the pull for you on a
+  worktree with no uncommitted changes, and never touch one that has.
+  `susi-commercial workflow fresh` reports the lag; the commit
   guard notes any lag and refuses a commit more than 20 commits behind
   (`git config susi.maxBehind <n>` changes the limit; an unreachable remote
   never refuses; a merge is never refused).

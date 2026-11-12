@@ -1,0 +1,34 @@
+{
+  "id": "T-CLAUDEAUTOPULL-1",
+  "title": "Mandate 74: the tool pulls the latest remote at start and resume",
+  "goal": "CEO decision 2026-11-12: the tool pulls the latest remote when an agent starts or resumes work. State it in Mandate 74 (.agents/identity.json), AGENTS.md and docs/ceo-mandate-74.md: `susi-commercial workflow check` and `workflow fresh --pull` merge origin/main into a worktree with no uncommitted changes and never touch one that has. The implementation is Commercial T-CLAUDECOMMAUTOPULL-1. Text only.",
+  "status": "implemented",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794480000,
+  "size": "xs",
+  "deps": [
+    "T-CLAUDEFRESH-1"
+  ],
+  "base": "d194ea2dfb79ac56267922175983c24dd5ab1a54",
+  "scopes": [
+    ".agents/identity.json",
+    "AGENTS.md",
+    "docs/ceo-mandate-74.md",
+    ".agents/tasks/T-CLAUDEAUTOPULL-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "limitations": [
+    "Text only; the pull runs only when the agent runs one of the named commands (there is no session-start hook).",
+    "Verified on Linux x86_64 only."
+  ]
+}
