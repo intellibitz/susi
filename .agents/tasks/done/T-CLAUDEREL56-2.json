@@ -2,12 +2,6 @@
   "id": "T-CLAUDEREL56-2",
   "title": "Lower the susi-gawd line ceiling to its measured value after the evolution suite moved",
   "goal": "T-CLAUDEREL56-1 moved evolution.rs's inline unit suite to src/tests/evolution.rs (excluded from the shipped-line count). Ratchet LINE_CEILINGS susi-gawd to the measured value and record it in the wave log, per the lean-core rule that ceilings only go down. Kept separate from T-CLAUDEREL56-1 so that fix composes onto release bases whose ceilings file differs.",
-  "status": "done",
-  "scopes": [
-    "tests/lean_core_ceilings.rs",
-    "docs/lean-core.md",
-    ".agents/tasks/T-CLAUDEREL56-2.json"
-  ],
   "size": "s",
   "deps": [
     "T-CLAUDEREL56-1"
@@ -26,9 +20,20 @@
   },
   "created_by": "CLAUDEREL56",
   "created_unix": 1794391500,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [],
   "owner": "CLAUDEREL56",
   "results": {
     "measured": "cargo test -p susi --test lean_core_ceilings -- --nocapture: lean-core: susi-gawd src = 12523 lines (ceiling was 12653)"
   },
-  "limitations": []
+  "scopes": [
+    "tests/lean_core_ceilings.rs",
+    "docs/lean-core.md",
+    ".agents/tasks/T-CLAUDEREL56-2.json"
+  ],
+  "status": "done"
 }
