@@ -4,18 +4,6 @@
   "goal": "On a Linux x86_64 host, run the native local gate on the current integration head, measure cold and warm debug builds, isolated startup and health, and a genuine source change that reaches the rebuilt live executable. Record failures with root causes and do not claim any Windows-only Step 1 item.",
   "size": "m",
   "deps": [],
-  "scopes": [
-    ".agents/evidence/step1-linux-T-CLAUDE-STEP1LINUX-1.json",
-    ".agents/tasks/T-CLAUDE-STEP1LINUX-1.json",
-    ".agents/tasks/T-PAUSEDCI-1.json",
-    ".agents/tasks/done/T-PAUSEDCI-1.json",
-    ".agents/tasks/T-PAUSEDMACARM-1.json",
-    ".agents/tasks/done/T-PAUSEDMACARM-1.json",
-    ".agents/tasks/T-SPEEDDOC1106-1.json",
-    ".agents/tasks/done/T-SPEEDDOC1106-1.json",
-    ".agents/tasks/T-GROK-2.json",
-    ".agents/tasks/done/T-GROK-2.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -33,5 +21,22 @@
   },
   "created_by": "CLAUDE",
   "created_unix": 1793974200,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/evidence/step1-linux-T-CLAUDE-STEP1LINUX-1.json",
+    ".agents/tasks/T-CLAUDE-STEP1LINUX-1.json",
+    ".agents/tasks/T-PAUSEDCI-1.json",
+    ".agents/tasks/done/T-PAUSEDCI-1.json",
+    ".agents/tasks/T-PAUSEDMACARM-1.json",
+    ".agents/tasks/done/T-PAUSEDMACARM-1.json",
+    ".agents/tasks/T-SPEEDDOC1106-1.json",
+    ".agents/tasks/done/T-SPEEDDOC1106-1.json",
+    ".agents/tasks/T-GROK-2.json",
+    ".agents/tasks/done/T-GROK-2.json"
+  ],
   "status": "implemented_pending_integration"
 }
