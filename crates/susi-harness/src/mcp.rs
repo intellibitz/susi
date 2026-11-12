@@ -502,6 +502,11 @@ impl Transport for StdioTransport {
             .flush()
             .map_err(|error| EaiError::io(format!("mcp flush: {error}")))
     }
+
+    fn close(&mut self) -> EaiResult<()> {
+        self.stop_child();
+        Ok(())
+    }
 }
 
 impl Drop for StdioTransport {
