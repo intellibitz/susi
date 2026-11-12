@@ -2,21 +2,35 @@
   "id": "T-CODEXFULLACCESS-1",
   "title": "Run Codex sub-agents with full access instead of the removed --full-auto flag",
   "goal": "Codex CLI 0.166 rejects exec --full-auto, so every Codex sub-run through the adaptive harness exits 2. Invoke codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check - so Codex workers get the same non-interactive full permissions as the other CLI tools.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "codexfullaccess",
-  "native_worker": "codexfullaccess",
-  "created_by": "codexfullaccess",
-  "created_unix": 1794336223,
-  "updated_unix": 1794336223,
   "size": "S",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--offline",
+      "--locked",
+      "--lib",
+      "adaptive"
+    ]
+  },
+  "created_by": "codexfullaccess",
+  "created_unix": 1794336223,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "claimed_by": "codexfullaccess",
+  "native_worker": "codexfullaccess",
   "scopes": [
     ".agents/tasks/T-CODEXFULLACCESS-1.json",
     "crates/susi-harness/src/adaptive.rs",
     "crates/susi-harness/src/tests/adaptive.rs"
   ],
-  "accept": {
-    "cmd": ["cargo", "test", "-p", "susi-harness", "--offline", "--locked", "--lib", "adaptive"]
-  }
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794336223
 }
