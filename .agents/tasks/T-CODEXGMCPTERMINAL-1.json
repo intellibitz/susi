@@ -16,6 +16,7 @@
   "scopes": [
     "crates/susi-gmcp/src/mcp/task_manager.rs",
     "crates/susi-gmcp/tests/task_manager_terminal.rs",
+    ".agents/gmcp/evidence",
     ".agents/tasks/T-CODEXGMCPTERMINAL-1.json"
   ],
   "accept": {
