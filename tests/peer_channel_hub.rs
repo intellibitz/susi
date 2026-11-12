@@ -921,8 +921,19 @@ fn binds(node: &Node, other: &Node) -> bool {
 fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
     let deadline = Instant::now() + limit;
     loop {
-        let (ok, stdout, stderr) =
-            run_cli(node, &["peers", "add", endpoint], Duration::from_secs(120));
+        // `peers add` has bounded channel, endpoint-proof and admission
+        // calls, but a busy six-lane gate can leave one client process
+        // waiting behind the daemon's scheduler. Keep each transient try
+        // short so the bounded retry window can make progress instead of
+        // spending almost all of it in one child.
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "{} was never admitted by the hub within {limit:?}",
+            node.name
+        );
+        let attempt_limit = remaining.min(Duration::from_secs(60));
+        let (ok, stdout, stderr) = run_cli(node, &["peers", "add", endpoint], attempt_limit);
         if !ok {
             let detail = format!("{stdout}{stderr}").to_ascii_lowercase();
             let transient = [
@@ -1003,7 +1014,11 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
     };
 
     let endpoint = forward.to_string();
-    let limit = Duration::from_secs(150);
+    // The daemons are deliberately started together. Under the native
+    // six-lane workspace gate their listener and leader threads can be
+    // delayed by several transient scheduling windows; keep the whole retry
+    // bounded while allowing multiple 60-second client attempts.
+    let limit = Duration::from_secs(300);
     let joined_a = join(&a, &endpoint, limit);
     let deadline = Instant::now() + limit;
     while !binds(&hub, &a) {
