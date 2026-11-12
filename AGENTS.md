@@ -6,10 +6,12 @@ Read [CEO Mandate 78](docs/ceo-mandate-78.md). It continues Mandate 75: raw
 features are dumped into `main` and distilled into releases, and agents look
 for existing work before writing new.
 
-- **Look before you build:** first inside Susi (both repositories), then in
-  Apache-2.0 projects (`local-harvest raw-features` / `route`), then in what the
-  locked dependency graph already has. Build only when none is suitable, and
-  say why.
+- **Look before you build:** before writing new code, look first inside Susi
+  (both repositories), then at Apache-2.0 work of every kind — code, libraries,
+  frameworks, tools, products and services (`local-harvest raw-features` /
+  `route`) — then at what the locked dependency graph already has. Harvest
+  needed source; admit an existing product or service as a plug instead of
+  rebuilding it. Build only when none is suitable, and say why.
 - **Reuse the right way:** harvest under Mandate 75's rules (pure `Apache-2.0`,
   pinned commit, manifest, notices, `Origin:` trailers), take only the part
   that is needed, and post the upstream target on the Susi Board first.
@@ -17,9 +19,13 @@ for existing work before writing new.
 - **Smaller and faster, never the opposite:** reuse stays inside the lean
   ceilings, the `<10s` budget, Rust-only and the dependency ceilings. It is not
   permission to add dependencies.
-- **Record the decision** in the task record's `reuse` object (`existing`,
-  `harvest`, `dependency` or `build` with a reason). `distill lint` counts
-  landed tasks that state none, as advice.
+- **Record where you looked, before your first commit,** in the task record's
+  `reuse` object: `decision` (`existing`, `harvest`, `dependency` or `build`),
+  `searched`, and the `source` of a harvest or the `reason` for a build. The
+  commit hook refuses a commit for a feature-sized task that has not
+  (`susi-commercial workflow reuse`; sizes `xs` and `s` are exempt;
+  `SUSI_ALLOW_NO_REUSE=1` only knowingly). `distill lint` counts the same
+  gaps, as advice.
 
 ## CEO Mandate 77 (2026-11-12): One Isolated Working Directory per Agent (Agent Roots)
 

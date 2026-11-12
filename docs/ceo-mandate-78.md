@@ -17,8 +17,10 @@ distinct from verified runtime status; section 8 records implementation truth.
 never reinvent the wheel — before building a capability, look for it inside
 Susi and then in Apache-2.0 projects; reuse what exists by harvesting only the
 part you need under Mandate 75's rules; delete the hand-rolled code a reuse
-replaces; record the decision in the task record; and never let reuse break
-the lean ceilings, the `<10s` budget or Rust-only.
+replaces; record where you looked and what you decided in the task record
+before your first commit (the commit hooks refuse a feature-sized task that
+has not); and never let reuse break the lean ceilings, the `<10s` budget or
+Rust-only.
 
 ## 0. The CEO's vision
 
@@ -42,17 +44,27 @@ governance, its product behaviour — is not a wheel.
 
 ## 2. Look before you build
 
-Before writing a capability, an agent looks for it, in this order:
+Before writing new code, an agent looks for what already exists, in this order:
 
 1. **Inside Susi.** In both repositories. A second implementation of something
    Susi already has is the first kind of reinvention.
-2. **In Apache-2.0 projects**, on any Git host, with
-   `local-harvest raw-features` and `route` (`docs/harvest.md`).
+2. **In Apache-2.0 work of every kind** (CEO directive 2026-11-12: "already
+   available apache 2.0 code/product/tools/service/framework etc."), on any Git
+   host, with `local-harvest raw-features` and `route` (`docs/harvest.md`):
+
+   | What exists | How Susi uses it |
+   |-------------|------------------|
+   | Code or a library | Harvest the needed source under Mandate 75 (section 3). |
+   | A framework | Harvest the part that is needed; never re-implement its design from scratch, and never import the whole of it for one feature. |
+   | A product or a service | Do not rebuild it. Speak its standard protocol and admit it as a plug over Susi's socket; the plug lives in `susi-commercial-apps`, because core ships no named product (open-core boundary, `AGENTS.md`). |
+   | A tool | Use it for development where it helps. The shipped, compliant Susi path must still need no foreign program (Mandate 63). |
+
 3. **In what Susi already depends on.** A capability already present in the
    locked dependency graph is used before anything new is added.
 
 Only when none of these has a suitable answer does the agent build it, and it
-says why.
+says why. The look comes first: it is done, and recorded (section 6), before
+the first commit of new code.
 
 ## 3. Reuse the right way
 
@@ -98,8 +110,18 @@ Every task that adds a capability states its reuse decision in its task record
 | `source` | for `harvest`: the upstream repository and pinned commit |
 | `reason` | for `build`: why nothing existing was suitable |
 
-A task that only fixes, documents, tests or removes says `"decision": "existing"`
-or is small enough to be exempt (sizes `xs` and `s`).
+`searched` is required with every decision: it is the evidence that the agent
+looked. A task that only fixes, documents, tests or removes says
+`"decision": "existing"` with what it looked at, or is small enough to be
+exempt (sizes `xs` and `s`).
+
+**Enforced at commit.** A commit whose `Task:` trailer names a task that owes
+a reuse decision and has not recorded it is refused, with what to record
+(`susi-commercial workflow reuse`, run by the commit hooks of both
+repositories). A task owes one when its record was created after the rule took
+effect and its size is not `xs` or `s`; a record with no size owes one. Merges
+and reverts are exempt. The override, for an emergency, is
+`SUSI_ALLOW_NO_REUSE=1`.
 
 ## 7. In the pipeline
 
@@ -116,13 +138,18 @@ to replace it.
   `docs/harvest.md`); the pure-`Apache-2.0` admission check and the release-time
   harvest audit (Mandate 75); the lean ceilings and the `<10s` budget.
 - **New with this mandate:** the optional `reuse` object in the task record
-  schema, and an advisory count in `distill lint`
-  (`advisory_tasks_without_reuse_decision`) of landed tasks of size `m` or
-  larger, created after this mandate, whose record states no reuse decision. It
+  schema; `susi-commercial workflow reuse`, which the commit hooks of both
+  repositories run and which refuses a commit for a feature-sized task with no
+  recorded reuse decision; and an advisory count in `distill lint`
+  (`advisory_tasks_without_reuse_decision`) under the same rule. The lint count
   is advice: it does not add to the lint's findings and never fails `--strict`.
-- **Not enforced:** that an agent actually searched before building; that a
-  `build` reason is true; that superseded code was deleted; that a reuse made
-  Susi smaller or faster. Nothing scans the tree for reinvented wheels.
+- **Not enforced, and what the check does not prove:** the check proves the
+  agent wrote down where it looked and what it decided before committing. It
+  cannot prove
+  the look was thorough, that a `build` reason is true, that superseded code
+  was deleted, or that a reuse made Susi smaller or faster. Nothing scans the
+  tree for reinvented wheels. The hook is local and can be skipped with
+  `--no-verify`; the lint then still reports the task.
 - **Known tension, stated plainly:** core's lean-core program drives third-party
   dependencies down. Reuse in core therefore means harvesting the needed
   Apache-2.0 source within the ceilings, not adding crates.

@@ -329,9 +329,11 @@ pub fn add_host_findings(
 pub const REUSE_EFFECTIVE_UNIX: u64 = 1_794_480_600;
 
 /// Why a task record states no usable reuse decision (CEO Mandate 78), when
-/// it should: the record was created after the mandate, is of size `m` or
-/// larger, and its `reuse` object is missing, names no known decision, or
-/// leaves out what its decision needs. `None` when nothing is owed.
+/// it should: the record was created after the mandate, is not of size `xs`
+/// or `s`, and its `reuse` object is missing, names no known decision, does
+/// not say where the agent looked, or leaves out what its decision needs.
+/// `None` when nothing is owed. The commit hooks apply the same rule as a
+/// refusal through `susi-commercial workflow reuse`; keep the two in step.
 pub fn reuse_gap(record: &Value) -> Option<&'static str> {
     if record["created_unix"].as_u64().unwrap_or(0) < REUSE_EFFECTIVE_UNIX {
         return None;
@@ -346,14 +348,19 @@ pub fn reuse_gap(record: &Value) -> Option<&'static str> {
             .as_str()
             .is_some_and(|text| !text.trim().is_empty())
     };
-    match reuse["decision"].as_str() {
-        None => Some("no reuse decision"),
-        Some("existing" | "dependency") => None,
-        Some("harvest") if stated("source") => None,
-        Some("harvest") => Some("a harvest names no source"),
-        Some("build") if stated("reason") => None,
-        Some("build") => Some("a build gives no reason"),
-        Some(_) => Some("unknown reuse decision"),
+    let Some(decision) = reuse["decision"].as_str() else {
+        return Some("no reuse decision");
+    };
+    if !matches!(decision, "existing" | "harvest" | "dependency" | "build") {
+        return Some("unknown reuse decision");
+    }
+    if !stated("searched") {
+        return Some("does not say where the agent looked");
+    }
+    match decision {
+        "harvest" if !stated("source") => Some("a harvest names no source"),
+        "build" if !stated("reason") => Some("a build gives no reason"),
+        _ => None,
     }
 }
 
@@ -861,10 +868,10 @@ mod tests {
         assert_eq!(reuse_gap(&record("xs", after, Value::Null)), None);
         // Owed and stated.
         for ok in [
-            json!({"decision": "existing"}),
-            json!({"decision": "dependency"}),
-            json!({"decision": "harvest", "source": "https://example.invalid/x@0123abc"}),
-            json!({"decision": "build", "reason": "no Apache-2.0 project implements the GMCP task plane"}),
+            json!({"decision": "existing", "searched": "both repositories"}),
+            json!({"decision": "dependency", "searched": "Cargo.lock"}),
+            json!({"decision": "harvest", "searched": "three projects", "source": "https://example.invalid/x@0123abc"}),
+            json!({"decision": "build", "searched": "both repositories and five projects", "reason": "no Apache-2.0 project implements the GMCP task plane"}),
         ] {
             assert_eq!(reuse_gap(&record("m", after, ok.clone())), None, "{ok}");
         }
@@ -881,17 +888,25 @@ mod tests {
             reuse_gap(&record(
                 "l",
                 after,
-                json!({"decision": "build", "reason": " "})
+                json!({"decision": "build", "searched": "x", "reason": " "})
             )),
             Some("a build gives no reason")
         );
         assert_eq!(
-            reuse_gap(&record("l", after, json!({"decision": "harvest"}))),
+            reuse_gap(&record(
+                "l",
+                after,
+                json!({"decision": "harvest", "searched": "x"})
+            )),
             Some("a harvest names no source")
         );
         assert_eq!(
             reuse_gap(&record("l", after, json!({"decision": "copied"}))),
             Some("unknown reuse decision")
+        );
+        assert_eq!(
+            reuse_gap(&record("l", after, json!({"decision": "existing"}))),
+            Some("does not say where the agent looked")
         );
         // Advice is reported beside the findings and never added to them.
         let mut report = json!({"summary": {"findings": 0}});

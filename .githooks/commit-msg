@@ -34,6 +34,14 @@ if [ ! -f "$root/.agents/tasks/$task.json" ]; then
     echo "❌ Mandate 50: $task is not an open task in this checkout (merge origin/main or commit the task file first)." >&2
     exit 1
 fi
+# Mandate 78: look before you build. A feature-sized task's record says where
+# its agent looked for existing work (`reuse`); without it the commit is
+# refused. The rule lives in the native tool; skipped when the installed tool
+# predates it.
+if [ -z "${SUSI_ALLOW_NO_REUSE:-}" ] && command -v susi-commercial >/dev/null 2>&1 &&
+    susi-commercial workflow reuse --help >/dev/null 2>&1; then
+    (cd "$root" && susi-commercial workflow reuse "$task") || exit 1
+fi
 # One token per worker: two worktrees sharing an identity can renew, close
 "$root/scripts/check-worker-identity.sh" || exit 1
 "$root/scripts/check-task-scope.sh" "$task" || exit 1

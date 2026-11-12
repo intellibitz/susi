@@ -55,7 +55,7 @@
     "roadmap": { "type": ["string", "null"] },
     "authored": { "type": "boolean" },
     "reuse": {
-      "description": "CEO Mandate 78: whether existing work was reused for this task's capability.",
+      "description": "CEO Mandate 78: where the agent looked for existing work before building, and what it decided. `searched` is required in practice: the commit hooks refuse a feature-sized task without it.",
       "type": "object",
       "required": ["decision"],
       "properties": {
