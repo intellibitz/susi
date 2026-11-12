@@ -74,6 +74,15 @@ pub trait Transport: Send {
     /// Learn the protocol revision the server chose, so a transport that
     /// carries it on the wire (HTTP's `MCP-Protocol-Version`) can send it.
     fn set_protocol_version(&mut self, _version: &str) {}
+
+    /// Release any session owned by this transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transport error when an owned session cannot be released.
+    fn close(&mut self) -> EaiResult<()> {
+        Ok(())
+    }
 }
 
 /// Upper bound on `tools/list` pages one listing follows.
@@ -86,6 +95,7 @@ pub struct McpClient<T: Transport> {
     next_id: u64,
     initialized: bool,
     negotiated_version: Option<String>,
+    closed: bool,
 }
 
 impl<T: Transport> McpClient<T> {
@@ -96,7 +106,24 @@ impl<T: Transport> McpClient<T> {
             next_id: 0,
             initialized: false,
             negotiated_version: None,
+            closed: false,
         }
+    }
+
+    /// Release the underlying MCP session. The operation is idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transport cannot release its session.
+    pub fn close(&mut self) -> EaiResult<()> {
+        if self.closed {
+            return Ok(());
+        }
+        self.transport.close()?;
+        self.closed = true;
+        self.initialized = false;
+        self.negotiated_version = None;
+        Ok(())
     }
 
     /// The protocol revision the server answered `initialize` with, once the
@@ -129,6 +156,9 @@ impl<T: Transport> McpClient<T> {
     ///
     /// Returns the server's error or a transport error.
     pub fn initialize(&mut self) -> EaiResult<Value> {
+        if self.closed {
+            return Err(EaiError::internal("mcp client is closed"));
+        }
         if self.initialized {
             return Ok(json!({}));
         }
@@ -265,6 +295,9 @@ impl<T: Transport> McpClient<T> {
     }
 
     fn request(&mut self, method: &str, params: Value) -> EaiResult<Value> {
+        if self.closed {
+            return Err(EaiError::internal("mcp client is closed"));
+        }
         self.next_id = self.next_id.saturating_add(1);
         let id = self.next_id;
         let request = json!({
@@ -295,6 +328,14 @@ impl<T: Transport> McpClient<T> {
             .get("result")
             .cloned()
             .ok_or_else(|| EaiError::internal(format!("mcp {method}: response has no result")))
+    }
+}
+
+impl<T: Transport> Drop for McpClient<T> {
+    fn drop(&mut self) {
+        if !self.closed {
+            let _ = self.transport.close();
+        }
     }
 }
 
@@ -538,6 +579,46 @@ impl Transport for HttpSocketTransport {
 
     fn set_protocol_version(&mut self, version: &str) {
         self.protocol_version = Some(version.to_string());
+    }
+
+    fn close(&mut self) -> EaiResult<()> {
+        let Some(session) = self.session_id.take() else {
+            return Ok(());
+        };
+        let authorization = self.bearer.as_ref().map(|token| format!("Bearer {token}"));
+        let mut headers: Vec<(&str, &str)> = vec![("mcp-session-id", session.as_str())];
+        if let Some(version) = self.protocol_version.as_deref() {
+            headers.push(("mcp-protocol-version", version));
+        }
+        if let Some(authorization) = authorization.as_deref() {
+            headers.push(("authorization", authorization));
+        }
+        let call = susi_http_transport::http_call_with_body(
+            "DELETE",
+            &self.url,
+            &headers,
+            None,
+            self.timeout_secs,
+            0,
+        )
+        .map_err(|error| EaiError::network(format!("mcp http {}: {error}", self.url)));
+        match call {
+            Ok(call) if (200..300).contains(&call.status) || call.status == 405 => {
+                self.protocol_version = None;
+                Ok(())
+            }
+            Ok(call) => {
+                self.session_id = Some(session);
+                Err(EaiError::network(format!(
+                    "mcp http {} refused session close with HTTP {}",
+                    self.url, call.status
+                )))
+            }
+            Err(error) => {
+                self.session_id = Some(session);
+                Err(error)
+            }
+        }
     }
 }
 
