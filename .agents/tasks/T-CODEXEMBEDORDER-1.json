@@ -1,0 +1,44 @@
+{
+  "id": "T-CODEXEMBEDORDER-1",
+  "title": "Deduplicate preferred embedding provider attempts",
+  "goal": "Keep a named embedding provider first without retrying it when the general provider list follows, preserving the bounded fallback cascade and its error behavior.",
+  "status": "implemented",
+  "owner": "codex",
+  "native_worker": "codex-embed-order",
+  "created_by": "codex",
+  "base_commit": "bd580274e21575ca6132b66440ccdd558168d8b4",
+  "size": "s",
+  "deps": [],
+  "created_unix": 1794513245,
+  "scopes": [
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/tests/embed_budget.rs",
+    ".agents/tasks/T-CODEXEMBEDORDER-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "embed_budget"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inspected the current embed_from provider cascade, CapabilityRegistry ordering, existing embed-budget tests, and the core/commercial split. The defect is in the existing core ordering logic; no third-party code or dependency is needed.",
+    "reason": "Reuse the existing registry and provider contract; this is a one-loop correctness fix."
+  },
+  "results": {
+    "change": "GemiEngine::embed_from now collects each registered provider once and stably moves the named provider to the front, instead of appending the preferred provider and retrying it in the general cascade.",
+    "focused": "cargo test --offline --locked -p susi-gemi --lib embed_budget: 3 passed, 0 failed; the new regression observed one preferred-provider call and successful fallback.",
+    "clippy": "cargo clippy --offline --locked -p susi-gemi --all-targets -- -D warnings: passed.",
+    "format": "cargo fmt --all --check and git diff --check: passed.",
+    "ceilings": "cargo test --offline --locked -p susi --test lean_core_ceilings: 2 passed, 0 failed; susi-gemi remains within its 20,709-line ceiling.",
+    "integration": "cargo test --offline --locked -p susi --test host_only_privacy: 2 passed, 0 failed; isolated cargo test --offline --locked -p susi --test peer_channel_hub: 2 passed, 0 failed.",
+    "native_check": "cargo local-workflow check built and ran all 134 binaries; after the line-neutral fix, the only failure was the existing concurrent peer_channel_hub broken-pipe race. Its isolated rerun passed 2/2. No unrelated failure was masked."
+  }
+}
