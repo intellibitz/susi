@@ -2,24 +2,9 @@
   "id": "T-CLAUDELANES-1",
   "title": "release-lanes: many agents advance one release line in parallel without conflicts (Mandate 74 section 3)",
   "goal": "Turn a local-distill plan into lanes with disjoint file scopes on refs/candidates/release/<name>, with atomic create-if-absent lane claims under refs/claims/release-lanes, in-memory cherry-pick -x picks with patch-id dedup, exact-tree evidence, atomic fast-forward advancement that releases the claim, and a bounded ship loop that re-picks after a lost race. No force, no deletion of release lines, no hosting API.",
-  "created_by": "claude-release-lanes",
-  "created_unix": 1794392700,
-  "state": "done",
-  "status": "done",
-  "native_worker": "claude-release-lanes",
-  "claimed_by": "claude-release-lanes",
   "size": "m",
   "deps": [
     "T-CLAUDEMANDATE74-1"
-  ],
-  "scopes": [
-    "xtask/src/release_lanes.rs",
-    "xtask/src/bin/release-lanes.rs",
-    "xtask/Cargo.toml",
-    "xtask/build.rs",
-    "docs/release-lanes.md",
-    "docs/ceo-mandate-74.md",
-    ".agents/tasks/T-CLAUDELANES-1.json"
   ],
   "accept": {
     "cmd": [
@@ -34,5 +19,25 @@
       "release_lanes::"
     ]
   },
+  "created_by": "claude-release-lanes",
+  "created_unix": 1794392700,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "claimed_by": "claude-release-lanes",
+  "native_worker": "claude-release-lanes",
+  "scopes": [
+    "xtask/src/release_lanes.rs",
+    "xtask/src/bin/release-lanes.rs",
+    "xtask/Cargo.toml",
+    "xtask/build.rs",
+    "docs/release-lanes.md",
+    "docs/ceo-mandate-74.md",
+    ".agents/tasks/T-CLAUDELANES-1.json"
+  ],
+  "state": "done",
+  "status": "done",
   "validation": "cargo test --locked -p xtask --bin release-lanes release_lanes::: 6 passed, 0 failed; cargo clippy -p xtask --bin release-lanes --tests -D warnings: clean; end to end on real Susi history through the real push-policy hook into a scratch bare remote: 3 tasks, 2 lanes, 2 agents, one lost race recovered by ship, release tree matched main for every selected file. Full workspace suite not run."
 }
