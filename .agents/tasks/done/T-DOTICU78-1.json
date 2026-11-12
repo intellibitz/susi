@@ -1,22 +1,6 @@
 {
   "id": "T-DOTICU78-1",
-  "native_worker": "dot-icu78",
   "title": "Qualify runtime ICU 78 Unicode 17 without direct linkage",
-  "created_by": "DOTICU78",
-  "created_unix": 1794264998,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    "toolchain/windows-stdlib/platform_unicode.rs",
-    "toolchain/windows-stdlib/consumer.rs",
-    "toolchain/windows-stdlib/builder.rs",
-    "toolchain/windows-stdlib/qualify_linux.rs",
-    "toolchain/windows-stdlib/NATIVE-BUILDS.md",
-    "xtask/src/elf_imports.rs",
-    "xtask/src/trusted_sysroot.rs",
-    ".agents/tasks/T-DOTICU78-1.json",
-    "toolchain/windows-stdlib/qualify.rs"
-  ],
   "accept": {
     "criteria": [
       "Compare all Unicode scalars and all eleven replacement properties plus lower upper title fold against the unchanged pinned Rust compiler; review differences.",
@@ -37,6 +21,15 @@
       "--locked"
     ]
   },
+  "created_by": "DOTICU78",
+  "created_unix": 1794264998,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "dot-icu78",
   "progress": [
     "Actual Claude Opus 5.5 designed the audit and category-based scalar-title fix; actual Gemini 4 Argon High source review and final Windows audit review approved with zero blockers.",
     "Final Linux audit passes all 1,112,064 scalars, eleven properties and lower, upper, title and fold conversions with zero mismatches or panics. Georgian, U+0345, titlecase-letter and expansion regressions pass.",
@@ -57,5 +50,17 @@
     "linux_mismatches": 0,
     "sysroot_identity": "3564f7760a705d9293f77647c03dc1c13637ffa9eaacafc6741ae4b709a6e382",
     "linux_icu": "78.3-1.1 / Unicode 17.0"
-  }
+  },
+  "scopes": [
+    "toolchain/windows-stdlib/platform_unicode.rs",
+    "toolchain/windows-stdlib/consumer.rs",
+    "toolchain/windows-stdlib/builder.rs",
+    "toolchain/windows-stdlib/qualify_linux.rs",
+    "toolchain/windows-stdlib/NATIVE-BUILDS.md",
+    "xtask/src/elf_imports.rs",
+    "xtask/src/trusted_sysroot.rs",
+    ".agents/tasks/T-DOTICU78-1.json",
+    "toolchain/windows-stdlib/qualify.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
