@@ -2,16 +2,39 @@
   "id": "T-CLAUDEMANDATECLEANUP-1",
   "title": "CEO-approved mandate cleanup: retire and merge stale mandates, fix contradictions",
   "goal": "CEO decision 2026-11-12 after a critical review of the mandates ('Yes, apply them': deletions and contradiction fixes, no new mandates). In .agents/identity.json keep IDs 1..77 and retire in place 28, 29, 30 (library-specific), merge 2/7/8 into 1, 3 into 69, 36 into 25, 38 into 10, 44 into 70, 43 into 63, and reword 5, 35, 54, 68, 72, 73, 74. Align AGENTS.md, CLAUDE.md, GEMINI.md, docs/ceo-agent-mandate.md and docs/ceo-mandate-74.md (release lines are refs/candidates/release/<name>; handoff ref is refs/agents/<agent>; the <10s budget is the warm fast check; agent names are roles and the roster is the registered roots). Move the test pins with the text and add a ceiling test for non-Rust scripts.",
-  "feature_id": "F-CLAUDE-MANDATE-CLEANUP",
-  "status": "implemented",
-  "owner": "claude",
-  "created_by": "claude",
-  "created_unix": 1794471600,
   "size": "s",
   "deps": [
     "T-CLAUDEMANDATE77-1"
   ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "claude",
+  "created_unix": 1794471600,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "base": "7da35d417bb45c365a7c2471fc1ecd6161366439",
+  "feature_id": "F-CLAUDE-MANDATE-CLEANUP",
+  "limitations": [
+    "Text and tests only: no runtime behaviour, hook or tool changed. The delegated brief in crates/susi-core/src/self_build.rs still carries the older Mandate 73 wording.",
+    "Mandate 48 (the installed Susi builds its successor) was left unchanged although the installed release is far behind main; whether to enforce or relax it is a CEO decision.",
+    "Source comments that cite retired mandate numbers were not rewritten; the IDs still resolve to a pointer.",
+    "Verified on Linux x86_64 only."
+  ],
+  "owner": "claude",
+  "results": {
+    "verified": "cargo test --workspace --offline --locked on this tree: 5814 passed, 0 failed, 14 ignored (Linux x86_64); architecture_tests 48/0 including the new script ceiling; agent_bootstrap 3/0; no_github_coupling 5/0; cargo fmt --all --check clean"
+  },
   "scopes": [
     ".agents/identity.json",
     ".agents/tasks/T-CLAUDEMANDATECLEANUP-1.json",
@@ -24,23 +47,5 @@
     "tests/agent_bootstrap.rs",
     "tests/architecture_tests.rs"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "--test",
-      "architecture_tests"
-    ]
-  },
-  "limitations": [
-    "Text and tests only: no runtime behaviour, hook or tool changed. The delegated brief in crates/susi-core/src/self_build.rs still carries the older Mandate 73 wording.",
-    "Mandate 48 (the installed Susi builds its successor) was left unchanged although the installed release is far behind main; whether to enforce or relax it is a CEO decision.",
-    "Source comments that cite retired mandate numbers were not rewritten; the IDs still resolve to a pointer.",
-    "Verified on Linux x86_64 only."
-  ],
-  "results": {
-    "verified": "cargo test --workspace --offline --locked on this tree: 5814 passed, 0 failed, 14 ignored (Linux x86_64); architecture_tests 48/0 including the new script ceiling; agent_bootstrap 3/0; no_github_coupling 5/0; cargo fmt --all --check clean"
-  }
+  "status": "implemented"
 }
