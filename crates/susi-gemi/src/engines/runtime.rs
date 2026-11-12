@@ -758,11 +758,10 @@ impl GemiEngine {
         budget: std::time::Duration,
     ) -> Result<Vec<f32>, String> {
         let names = registry.list_providers();
-        let mut ordered: Vec<&str> = Vec::with_capacity(names.len());
+        let mut ordered: Vec<&str> = names.iter().map(String::as_str).collect();
         if let Some(w) = model_hint {
-            ordered.extend(names.iter().map(String::as_str).filter(|n| *n == w));
+            ordered.sort_by_key(|name| *name != w);
         }
-        ordered.extend(names.iter().map(String::as_str));
         let runtime =
             Self::provider_runtime().ok_or_else(|| "embed runtime unavailable".to_string())?;
         let mut last_err = String::from("no embedding-capable provider registered");
