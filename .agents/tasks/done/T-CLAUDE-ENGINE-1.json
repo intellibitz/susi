@@ -4,17 +4,6 @@
   "goal": "Qualification requires real local Candle generations, but since T-GROKSLIM1104-1 the default graph leaves the engine out and every release step built with --no-default-features only. Select the product features (local-engine) in every release step, and make the engine-less build refuse the starter install before downloading instead of failing with a misleading transfer error.",
   "size": "s",
   "deps": [],
-  "scopes": [
-    "xtask/src/product_features.rs",
-    "xtask/src/local_build.rs",
-    "xtask/src/main.rs",
-    "xtask/src/bin/local-release.rs",
-    "xtask/src/complete_release_gates.rs",
-    "xtask/src/advisory_evidence.rs",
-    "crates/susi-gemi-models/src/lifecycle/provision.rs",
-    ".agents/evidence/step1-engine-T-CLAUDE-ENGINE-1.json",
-    ".agents/tasks/T-CLAUDE-ENGINE-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -34,5 +23,21 @@
   },
   "created_by": "CLAUDE",
   "created_unix": 1793976600,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    "xtask/src/product_features.rs",
+    "xtask/src/local_build.rs",
+    "xtask/src/main.rs",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/complete_release_gates.rs",
+    "xtask/src/advisory_evidence.rs",
+    "crates/susi-gemi-models/src/lifecycle/provision.rs",
+    ".agents/evidence/step1-engine-T-CLAUDE-ENGINE-1.json",
+    ".agents/tasks/T-CLAUDE-ENGINE-1.json"
+  ],
   "status": "implemented_pending_integration"
 }
