@@ -355,8 +355,11 @@ workers need one shared coordinator, not independent local locks.
 
 ## Production and self-improvement
 
-Keep the installed production executable and daemon stable while building its
-successor. Production qualification requires an identified source tree and
+The installed Susi is the stable copy (Mandate 48, CEO decision 2026-11-12): it
+changes only by promotion of a fully qualified release and is not the tool that
+builds its successor. Development is driven by private debug builds from
+current `main`, one per agent. The installed copy tracks the latest qualified
+release; report it on the Susi Board when it falls behind. Production qualification requires an identified source tree and
 locked graph, strict license and Rust-only audits, format/lint checks, nonempty
 required tests, executable smoke checks, artifact digest and reproducible
 source/toolchain/target/feature evidence. Then atomically promote, retain the
