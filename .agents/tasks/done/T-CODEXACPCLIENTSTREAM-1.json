@@ -2,19 +2,9 @@
   "id": "T-CODEXACPCLIENTSTREAM-1",
   "title": "Let Core ACP clients consume SSE frames live",
   "goal": "Add a bounded callback-backed AcpSocketClient stream API so ACP clients observe lifecycle and delta frames before a running mission completes, while preserving the collecting wrapper and plain HTTP limits.",
-  "status": "implemented",
-  "owner": "codex",
-  "native_worker": "acp-client-stream",
-  "created_by": "codex",
-  "created_unix": 1794457247,
   "size": "m",
-  "base_commit": "9fb74337fb5db41819fe55e52259e90fb7eaafc2",
-  "deps": ["T-CODEXACPLIVESTREAM-1"],
-  "scopes": [
-    "crates/susi-core/src/plain_http.rs",
-    "crates/susi-core/src/acp.rs",
-    "crates/susi-core/src/tests/acp_conformance.rs",
-    ".agents/tasks/T-CODEXACPCLIENTSTREAM-1.json"
+  "deps": [
+    "T-CODEXACPLIVESTREAM-1"
   ],
   "accept": {
     "cmd": [
@@ -27,6 +17,16 @@
       "--lib"
     ]
   },
+  "created_by": "codex",
+  "created_unix": 1794457247,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "9fb74337fb5db41819fe55e52259e90fb7eaafc2",
+  "native_worker": "acp-client-stream",
+  "owner": "codex",
   "results": {
     "status": "implemented",
     "source_commits": [
@@ -46,5 +46,12 @@
       "cargo run --offline --locked -p xtask --bin local-workflow -- check": "passed; fmt 3.7s, clippy 13.7s, 145 of 145 test binaries, 0 failed, total 77.6s"
     },
     "limitations": "The callback is bounded by MAX_HTTP_BODY_BYTES and stops on callback error; the existing collecting API remains available. Transport cancellation and session cancellation remain the existing ACP controls."
-  }
+  },
+  "scopes": [
+    "crates/susi-core/src/plain_http.rs",
+    "crates/susi-core/src/acp.rs",
+    "crates/susi-core/src/tests/acp_conformance.rs",
+    ".agents/tasks/T-CODEXACPCLIENTSTREAM-1.json"
+  ],
+  "status": "implemented"
 }
