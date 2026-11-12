@@ -1,15 +1,6 @@
 {
   "id": "T-RUNNERDEFAULT1106-1",
-  "native_worker": "runnerdefault1106",
   "title": "cargo test is the default test runner again; nextest is opt-in",
-  "created_by": "RUNNERDEFAULT1106",
-  "created_unix": 1794000000,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/tasks/t-runnerdefault1106-1.json",
-    "xtask/src/bin/local-workflow.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -25,5 +16,19 @@
       "the ship/integrate gate and check run cargo test unless SUSI_LOCAL_TEST_RUNNER=nextest",
       "the doctest gate is added only with nextest"
     ]
-  }
+  },
+  "created_by": "RUNNERDEFAULT1106",
+  "created_unix": 1794000000,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "runnerdefault1106",
+  "scopes": [
+    ".agents/tasks/t-runnerdefault1106-1.json",
+    "xtask/src/bin/local-workflow.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
