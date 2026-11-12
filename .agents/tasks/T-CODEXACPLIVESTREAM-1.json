@@ -2,7 +2,7 @@
   "id": "T-CODEXACPLIVESTREAM-1",
   "title": "Emit ACP SSE mission events live",
   "goal": "Replace the buffered ACP SSE response path with a bounded callback-backed stream so clients receive turn lifecycle and delta events while the mission is still running, without weakening validation, authorization or cancellation.",
-  "status": "in_progress",
+  "status": "implemented",
   "owner": "codex",
   "native_worker": "acp-live-stream",
   "created_by": "codex",
@@ -27,5 +27,22 @@
       "--lib"
     ]
   },
-  "results": {}
+  "results": {
+    "status": "implemented",
+    "boundary": "Core ACP SSE transport only; no dependency, Commercial, Minijinja, release, harvest, Windows or credential change",
+    "source_commits": [
+      "4c75ea31d8b5fdf414ebfc13cbceccafba19a7bb"
+    ],
+    "acceptance": {
+      "cargo test --offline --locked -p susi-gawd-a2a --lib": "58 passed, 0 failed, 0 ignored",
+      "cargo clippy --offline --locked -p susi-gawd-a2a --all-targets -- -D warnings": "passed",
+      "cargo test --offline --locked -p susi --test lean_core_ceilings -- --nocapture": "2 passed, 0 failed; susi-gawd-a2a 3347/3347 shipped Rust lines",
+      "cargo fmt --all --check": "passed",
+      "cargo local-workflow check": "passed; 145 test binaries, 0 failed; format 3.6s, clippy 12.2s, test build 20.7s, tests 57.6s, doc-tests 2.6s; total 76.0s"
+    },
+    "coverage": "The callback-backed engine path delivers turn_started and message_delta before a deliberately blocked executor is released; the HTTP route preflights malformed/request-validation failures as application/json and sends valid turns through a bounded 16-frame SSE channel with backpressure.",
+    "limitations": [
+      "A client disconnect stops frame delivery but does not add a new transport-level cancellation signal beyond the existing ACP session/cancel contract."
+    ]
+  }
 }
