@@ -599,6 +599,9 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    // The link registry is process-global while both integration tests share
+    // this binary. Do not let a prior test's stopped daemons poison this one.
+    link::close_links();
     let root = std::env::temp_dir().join(format!(
         "susi-pc-hub-{}-{}",
         std::process::id(),
@@ -892,6 +895,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
         hub_d.assert_log_contains("is bound to a different node key");
     }
 
+    link::close_links();
     drop(hub_d);
     drop(a_d);
     drop(b_d);
@@ -979,6 +983,7 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    link::close_links();
     let root = std::env::temp_dir().join(format!(
         "susi-pc-join-{}-{}",
         std::process::id(),
@@ -1128,6 +1133,7 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
     assert_opaque("join traffic toward the hub", &c.to_hub, &ids);
     assert_opaque("join traffic from the hub", &c.from_hub, &ids);
     drop(c);
+    link::close_links();
     drop(hub_d);
     drop(a_d);
     drop(b_d);
