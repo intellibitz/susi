@@ -2,17 +2,10 @@
   "id": "T-PEERCHAN-1",
   "title": "Sealed peer channel: identity-keyed members across NAT through one hub port",
   "goal": "Every byte between Susi machines travels inside a sealed peer channel built on the crypto core already links (X25519, ChaCha20-Poly1305, SHA-256, Ed25519 node identities): Noise XXpsk0 with the node keys as static keys and the cluster key as PSK, per hop (link) and end to end (call). A hub listens on one dedicated, configurable channel port (peer_channel_listen, default 29090, never the 9090-9095 block); members behind NAT dial out, keep a persistent uplink with keepalive and reconnect, and are called over it; member-to-member calls are relayed by the hub as end-to-end ciphertext it cannot open. Membership is identity-keyed (signed requests verify by node key, not source address; the channel admits by proven identity), remote plaintext on the contract ports is refused unconditionally (allow_remote_plaintext retired with a one-time notice), UDP discovery answers the local network only, and the threat model and docs/peer-channel.md describe the construction, the topology, the forwarded port and firewall rule, and the upgrade path.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "peerchan",
-  "native_worker": "peerchan",
-  "created_by": "peerchan",
-  "created_unix": 1794156964,
   "size": "L",
   "deps": [
     "T-CORENET-1"
   ],
-  "acceptance": "cargo test -p susi --test peer_channel_hub --offline --locked passes: a hub and two members in isolated homes on offsets of 500 and up, members connecting only outbound through a recording forwarder; member-to-hub, member-to-member (relayed) and hub-to-member MCP initialize calls succeed with every roster advertising addresses the traffic never comes from; plaintext HTTP on the channel port, a replayed handshake, a wrong identity, a node without the cluster key, an impostor of a member's node id and an unbound identity asking for a relay are refused; the forwarder capture and the hub's relay trace show no request line, header, JSON or node id.",
   "accept": {
     "cmd": [
       "cargo",
@@ -25,6 +18,16 @@
       "--locked"
     ]
   },
+  "created_by": "peerchan",
+  "created_unix": 1794156964,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi --test peer_channel_hub --offline --locked passes: a hub and two members in isolated homes on offsets of 500 and up, members connecting only outbound through a recording forwarder; member-to-hub, member-to-member (relayed) and hub-to-member MCP initialize calls succeed with every roster advertising addresses the traffic never comes from; plaintext HTTP on the channel port, a replayed handshake, a wrong identity, a node without the cluster key, an impostor of a member's node id and an unbound identity asking for a relay are refused; the forwarder capture and the hub's relay trace show no request line, header, JSON or node id.",
+  "claimed_by": "peerchan",
+  "native_worker": "peerchan",
   "scope": [
     ".agents/gmcp/evidence",
     ".agents/tasks/t-peerchan-1.json",
@@ -89,5 +92,7 @@
     "tests/peer_credential_attestation.rs",
     "tests/peer_request_signing.rs"
   ],
+  "state": "in_progress",
+  "status": "in_progress",
   "updated_unix": 1794177908
 }
