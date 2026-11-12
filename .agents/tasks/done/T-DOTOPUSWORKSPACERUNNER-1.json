@@ -2,21 +2,7 @@
   "id": "T-DOTOPUSWORKSPACERUNNER-1",
   "title": "Evidence whole-workspace concurrent test execution",
   "goal": "Execute complete Cargo workspace binary inventory concurrently with exact immutable artifact/input accounting and mandatory matching doctests, preserving legacy serial evidence and fresh production qualification.",
-  "created_by": "dot-opus-workspace-runner",
-  "created_unix": 1794254980,
-  "state": "in_progress",
-  "status": "in_progress",
-  "native_worker": "dot-opus-workspace-runner",
-  "claimed_by": "dot-opus-workspace-runner",
   "deps": [],
-  "scopes": [
-    "xtask/src/bin/local-workflow.rs",
-    "xtask/src/native_provenance.rs",
-    "xtask/src/test_binary_evidence.rs",
-    "xtask/src/gate_receipt.rs",
-    "docs/gate-receipts.md",
-    ".agents/tasks/T-DOTOPUSWORKSPACERUNNER-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -31,11 +17,39 @@
       "local-workflow"
     ]
   },
+  "created_by": "dot-opus-workspace-runner",
+  "created_unix": 1794254980,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "checkpoint": "Unfinished experimental typed whole-workspace execution and fresh replay. Production activation, publication, and full public replay fail closed pending an accepted repository-input contract; default serial and historical nextest remain unchanged. Strict inventory, exact guarded execution, matching docs, complete native-proof validation, and typed replay fixtures are implemented. Final focused Clippy and affected evidence, receipt, and provenance tests pass. No source snapshot implementation is authorized. Full correctness qualification, representative clean-clone qualification, scheduler integration, and same-artifact benefit measurement remain pending. No acceptance, speed, or publication claim.",
+  "claimed_by": "dot-opus-workspace-runner",
+  "native_worker": "dot-opus-workspace-runner",
   "recovery": {
     "method": "Original-source recovery; exact bytes verified before continuing. Library materialization failed on Windows metadata support.",
     "original_task_sha256": "F08D1B41B98194920F78D357CB8CCDDADCB803BB9C726A0CFE1505FFEAF4DF1A"
   },
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/native_provenance.rs",
+    "xtask/src/test_binary_evidence.rs",
+    "xtask/src/gate_receipt.rs",
+    "docs/gate-receipts.md",
+    ".agents/tasks/T-DOTOPUSWORKSPACERUNNER-1.json"
+  ],
+  "setup_handoff": {
+    "preserved_head": "6fba2920f3d991db8a4ea12ca7ec3f04b64d4afa",
+    "preserved_tree": "101120dafc7a295f700057dda9f4d1819d105875",
+    "scope_change": "Restore xtask/src/main.rs exactly to the reserved base, then shrink only that unchanged scope. Original nine module declarations remain preserved in the original commit and verified bundle.",
+    "preserved_bundle_sha256": "59414bfc39708b395f887c292fb018cbcae1af187b733eeecf3c77fecc44b5fc",
+    "remaining_work": "All other unfinished runner files remain byte-identical. This partial worktree is not qualified, accepted, integrated, or published; standalone compilation after removing the runner module wiring has not been established.",
+    "authorization": "CEO explicitly approved takeover of this task to preserve unfinished work and separate the setup repair using normal native workflow.",
+    "coordinator": "dot / Astra"
+  },
+  "state": "in_progress",
+  "status": "in_progress",
   "validation": {
     "notes": "Separate focused observations, not a full acceptance run. Real whole-workspace capture compiled 197 test executables without executing tests. Legitimate identical host/target build-script records are supported with role/profile constraints; conflicting maps and private-root overrides are rejected. An ignored include fixture demonstrates the unresolved input boundary, so production activation remains unavailable.",
     "typed_replay_tests": {
@@ -181,14 +195,5 @@
         "outer_ms": 9825
       }
     }
-  },
-  "setup_handoff": {
-    "preserved_head": "6fba2920f3d991db8a4ea12ca7ec3f04b64d4afa",
-    "preserved_tree": "101120dafc7a295f700057dda9f4d1819d105875",
-    "scope_change": "Restore xtask/src/main.rs exactly to the reserved base, then shrink only that unchanged scope. Original nine module declarations remain preserved in the original commit and verified bundle.",
-    "preserved_bundle_sha256": "59414bfc39708b395f887c292fb018cbcae1af187b733eeecf3c77fecc44b5fc",
-    "remaining_work": "All other unfinished runner files remain byte-identical. This partial worktree is not qualified, accepted, integrated, or published; standalone compilation after removing the runner module wiring has not been established.",
-    "authorization": "CEO explicitly approved takeover of this task to preserve unfinished work and separate the setup repair using normal native workflow.",
-    "coordinator": "dot / Astra"
   }
 }
