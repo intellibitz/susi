@@ -25,9 +25,7 @@
 # decision 00:22: release binaries are built from git tags).
 #
 # Usage:
-#   susi-release-sync.sh                 sync to the newest release qualified for
-#                                        this host, if newer (a release whose record
-#                                        has no reference build for the host is skipped)
+#   susi-release-sync.sh                 sync to the newest release if newer
 #   susi-release-sync.sh --check         report installed vs newest; no changes
 #   susi-release-sync.sh --tag vX.Y.Z    install a specific release (rollback/pin)
 #   susi-release-sync.sh --rollback      restore susi.prev
@@ -44,8 +42,6 @@
 #                          features; CUDA/MKL retired). An override is not the
 #                          reference build.
 #   SUSI_RELEASE_IDLE_WAIT seconds to wait for an idle susi before swapping (default: 1800)
-#   SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST  set to install, with --tag, a release that
-#                          was not qualified for this host (default: refused)
 #
 # Exit codes: 0 up to date or installed; 1 failure; 75 deferred (susi busy —
 # the timer retries, and the cached build makes the retry cheap).
@@ -100,54 +96,11 @@ need_remote() {
 
 # ---- versions -------------------------------------------------------------
 
-release_tags() {
+latest_tag() {
     git ls-remote --tags --refs "$REMOTE" 'v*' \
         | awk '{sub("refs/tags/", "", $2); print $2}' \
         | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-        | sort -V
-}
-
-latest_tag() {
-    release_tags | tail -n 1
-}
-
-# Make sure the private release checkout exists and that FETCH_HEAD is the
-# remote's default branch, where the release records live.
-fetch_records() {
-    if [ ! -d "$SRC/.git" ]; then
-        log "cloning $REMOTE into $SRC"
-        git clone --quiet --no-checkout "$REMOTE" "$SRC"
-    fi
-    git -C "$SRC" remote set-url origin "$REMOTE"
-    git -C "$SRC" fetch --quiet origin HEAD
-}
-
-# 0 when the release record of $1 (read from FETCH_HEAD) has a reference build
-# for this host: the release was qualified here. A record lists every released
-# target either as a build or under missing_targets (tests/release_records.rs),
-# so "no build for this host" means "not qualified for this host".
-qualified_for_host() {
-    local tag="$1" asset text
-    asset="$(host_asset)"
-    [ -n "$asset" ] || return 1
-    text="$(git -C "$SRC" show "FETCH_HEAD:releases/${tag}.json" 2>/dev/null)" || return 1
-    case "$text" in *"\"file\": \"${asset}\""*) return 0 ;; *) return 1 ;; esac
-}
-
-# The newest release tag qualified for this host (CEO Mandate 48: the installed
-# susi tracks the latest release qualified for the host it runs on). Prints
-# nothing when there is none. Call fetch_records first.
-latest_qualified_tag() {
-    local tag skipped=0
-    while IFS= read -r tag; do
-        if qualified_for_host "$tag"; then
-            printf '%s\n' "$tag"
-            return 0
-        fi
-        skipped=$((skipped + 1))
-        [ "$skipped" -gt 5 ] || log "skipping ${tag}: not qualified for this host (no $(host_asset) reference build in its record)"
-    done < <(release_tags | sort -V -r)
-    return 0
+        | sort -V | tail -n 1
 }
 
 installed_version() {
@@ -221,6 +174,27 @@ read_record() {
 # tests/release_records.rs).
 record_field() {
     sed -n "s/^[[:space:]]*\"$1\": \"\([^\"]*\)\",\{0,1\}[[:space:]]*\$/\1/p" "$RECORD" | head -n 1
+}
+
+# The release record is the authority for host support. Only a `target` inside
+# `missing_targets` can make a release unavailable; asset targets and prose
+# elsewhere in the record do not count.
+host_target() {
+    command -v rustc >/dev/null 2>&1 || die "rustc was not found; cannot determine the native host target"
+    local target
+    target="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p' | head -n 1 || true)"
+    [ -n "$target" ] || die "rustc did not report a native host target"
+    printf '%s' "$target"
+}
+
+record_missing_target() {
+    local target="$1"
+    awk -v wanted="$target" '
+        /"missing_targets"[[:space:]]*:/ { in_missing = 1; next }
+        in_missing && /"checks"[[:space:]]*:/ { exit(found ? 0 : 1) }
+        in_missing && index($0, "\"target\": \"" wanted "\"") { found = 1; exit 0 }
+        END { exit(found ? 0 : 1) }
+    ' "$RECORD"
 }
 
 # The record names this tag and the commit it points at, and its build
@@ -450,11 +424,16 @@ sync_release() {
         return 0
     fi
 
-    local features commit built
+    local features commit built target
     checkout_tag "$tag"
     read_record "$tag"
-    if [ -z "$(record_sha "$(host_asset)")" ] && [ -z "${SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST:-}" ]; then
-        die "${tag} was not qualified for this host: releases/${tag}.json has no $(host_asset) reference build. The installed susi tracks the latest release qualified here (to install it anyway, knowingly: SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST=1)"
+    target="$(host_target)"
+    if record_missing_target "$target"; then
+        if [ "$explicit" = 0 ]; then
+            log "skipping ${tag}: release record lists native host ${target} in missing_targets"
+            return 0
+        fi
+        die "${tag} is not qualified for native host ${target}; it is listed in missing_targets"
     fi
     features="$(detect_features "$(record_field features)")" || return 1
     commit="$(git -C "$SRC" rev-parse HEAD)"
@@ -556,25 +535,19 @@ main() {
     case "$mode" in
         rollback) wait_for_idle; rollback ;;
         check)
-            local latest qualified
+            local latest
             need_remote
             latest="$(latest_tag)" || die "cannot reach ${REMOTE}"
-            fetch_records || die "cannot reach ${REMOTE}"
-            qualified="$(latest_qualified_tag 2>/dev/null)"
-            printf 'installed: %s (%s)\nlatest:    %s\nqualified: %s (newest release qualified for this host)\n' \
-                "$(installed_version || true)" "$(installed_channel || true)" "${latest:-none}" "${qualified:-none}"
+            printf 'installed: %s (%s)\nlatest:    %s\n' \
+                "$(installed_version || true)" "$(installed_channel || true)" "${latest:-none}"
             ;;
         sync)
             local explicit=1
             need_remote
             if [ -z "$tag" ]; then
                 explicit=0
-                fetch_records || die "cannot reach ${REMOTE}"
-                tag="$(latest_qualified_tag)" || die "cannot reach ${REMOTE}"
-                if [ -z "$tag" ]; then
-                    log "no release on ${REMOTE} is qualified for this host; leaving the installed susi as it is"
-                    return 0
-                fi
+                tag="$(latest_tag)" || die "cannot reach ${REMOTE}"
+                [ -n "$tag" ] || die "no vX.Y.Z tags on ${REMOTE}"
             fi
             [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "not a release tag: ${tag}"
             sync_release "$tag" "$explicit"
