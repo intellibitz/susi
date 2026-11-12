@@ -540,6 +540,32 @@ fn peers_status(node: &Node) -> std::collections::HashMap<String, serde_json::Va
         .collect()
 }
 
+/// Poll the product status surface until every requested member answers
+/// without an error. A sealed HTTP exchange can be retried after a transient
+/// channel close; the final returned rows are still required to be successful.
+fn peers_status_until(
+    node: &Node,
+    others: &[&Node],
+    limit: Duration,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let deadline = Instant::now() + limit;
+    loop {
+        let rows = peers_status(node);
+        if others.iter().all(|other| {
+            rows.get(&other.node_id)
+                .is_some_and(|row| row.get("error").is_none())
+        }) {
+            return rows;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{} could not reach every requested peer within {limit:?}: {rows:?}",
+            node.name
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn allow_all(_: &SocketAddr) -> Result<(), String> {
     Ok(())
 }
@@ -742,7 +768,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     // machines only inside the channel (a member's CLI via its hub; the
     // hub's CLI via its own daemon and the members' uplinks).
     for (caller, others) in [(&a, [&hub, &b]), (&hub, [&a, &b])] {
-        let rows = peers_status(caller);
+        let rows = peers_status_until(caller, &others, up);
         for other in others {
             let row = rows.get(&other.node_id).unwrap_or_else(|| {
                 panic!("{} lists no row for {}: {rows:?}", caller.name, other.name)

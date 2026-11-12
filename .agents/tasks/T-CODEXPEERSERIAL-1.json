@@ -17,7 +17,8 @@
     "peer_channel_hub": "2 passed, 0 failed with --test-threads=4",
     "isolation": "process-local mutex serializes both tests before port-block allocation",
     "join_under_load": "fixture returns after local sealed admission; callers retain explicit hub-roster assertions instead of waiting on the optional follow-up acknowledgement",
-    "cli_io": "run_cli drains stdout and stderr concurrently so a busy child cannot deadlock on a full pipe"
+    "cli_io": "run_cli drains stdout and stderr concurrently so a busy child cannot deadlock on a full pipe",
+    "status_retry": "the first topology test retries peers status through transient sealed HTTP truncation and still requires every requested row to be error-free within the bounded window"
   },
   "scopes": [
     ".agents/tasks/T-CODEXPEERSERIAL-1.json",
