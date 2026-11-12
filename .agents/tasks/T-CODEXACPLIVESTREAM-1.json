@@ -1,0 +1,31 @@
+{
+  "id": "T-CODEXACPLIVESTREAM-1",
+  "title": "Emit ACP SSE mission events live",
+  "goal": "Replace the buffered ACP SSE response path with a bounded callback-backed stream so clients receive turn lifecycle and delta events while the mission is still running, without weakening validation, authorization or cancellation.",
+  "status": "in_progress",
+  "owner": "codex",
+  "native_worker": "acp-live-stream",
+  "created_by": "codex",
+  "created_unix": 1794460000,
+  "size": "m",
+  "base_commit": "7c2312db6baf400800e4ba6ed9dd00c7047e252d",
+  "deps": ["T-CODEXACPCANCEL-1", "T-CODEXACPWORKSPACE-1"],
+  "scopes": [
+    "crates/susi-core/src/acp.rs",
+    "crates/susi-gawd-a2a/src/server.rs",
+    "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+    ".agents/tasks/T-CODEXACPLIVESTREAM-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a",
+      "--lib"
+    ]
+  },
+  "results": {}
+}
