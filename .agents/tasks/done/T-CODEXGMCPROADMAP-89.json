@@ -20,5 +20,23 @@
   },
   "roadmap": "VC-203-007",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256246
+  "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794508871,
+    "commit": "e327a3978a2d7171d5543a0ad21132ff371b2c16",
+    "by": "CLAUDEQUEUE1"
+  },
+  "reuse": {
+    "decision": "existing",
+    "reason": "The gate and the bounded reader already exist; the fix changes how the reader reports a dead line and how the gate counts it, and the test reuses the 203.007.03 adapter helpers. No new dependency and no net new shipped line.",
+    "searched": "Susi Core: crates/susi-gmcp/src/jsonrpc_gate.rs (StdioGate, classify_envelope), crates/susi-gmcp/src/stdio.rs (BoundedLines), crates/susi-gmcp/src/mcp/transport.rs, the adapter helpers of gmcp_req_203_007_03_integration and the hostile fixtures of gmcp_req_203_004_04 and gmcp_req_203_006_04 in tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp and tests/gmcp_requirements.rs"
+  },
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    "crates/susi-gmcp/src/jsonrpc_gate.rs",
+    "crates/susi-gmcp/src/stdio.rs",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CODEXGMCPROADMAP-89.json"
+  ]
 }
