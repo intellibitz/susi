@@ -2,27 +2,8 @@
   "id": "T-DOTLINUXFIXTURES-1",
   "title": "Repair Unix installer and hook fixtures",
   "goal": "Keep missing-tool installer refusal coverage independent of host PATH layout and remove obsolete hook fixture code without lint exemptions or production changes.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "dot-linux-fixtures",
-  "native_worker": "dot-linux-fixtures",
-  "created_by": "dot-linux-fixtures",
-  "created_unix": 1794273137,
   "size": "S",
   "deps": [],
-  "scope": [
-    ".agents/tasks/t-dotlinuxfixtures-1.json",
-    "tests/hook_enforcement.rs",
-    "tests/installer_contract.rs",
-    "tests/sync_hooks.rs"
-  ],
-  "scopes": [
-    ".agents/tasks/t-dotlinuxfixtures-1.json",
-    "tests/hook_enforcement.rs",
-    "tests/installer_contract.rs",
-    "tests/sync_hooks.rs"
-  ],
-  "acceptance": "All three affected test targets pass and strict affected-target Clippy reports no warnings. A synthetic PATH with build tools and Unix support utilities in the same directory still exposes the real missing-tool refusal while preserving tr, grep and cleanup. Git, Cargo and rustup absence stops installation before any install-directory write.",
   "accept": {
     "cmd": [
       "cargo",
@@ -37,6 +18,30 @@
       "sync_hooks"
     ]
   },
+  "created_by": "dot-linux-fixtures",
+  "created_unix": 1794273137,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "All three affected test targets pass and strict affected-target Clippy reports no warnings. A synthetic PATH with build tools and Unix support utilities in the same directory still exposes the real missing-tool refusal while preserving tr, grep and cleanup. Git, Cargo and rustup absence stops installation before any install-directory write.",
+  "claimed_by": "dot-linux-fixtures",
+  "native_worker": "dot-linux-fixtures",
+  "scope": [
+    ".agents/tasks/t-dotlinuxfixtures-1.json",
+    "tests/hook_enforcement.rs",
+    "tests/installer_contract.rs",
+    "tests/sync_hooks.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-dotlinuxfixtures-1.json",
+    "tests/hook_enforcement.rs",
+    "tests/installer_contract.rs",
+    "tests/sync_hooks.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
   "updated_unix": 1794273397,
   "verification": {
     "host": "x86_64-unknown-linux-gnu",
