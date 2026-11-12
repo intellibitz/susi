@@ -246,55 +246,156 @@ fn read_response(
     Some(out)
 }
 
+async fn read_line_async<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    out: &mut Vec<u8>,
+) -> Option<Vec<u8>> {
+    use tokio::io::AsyncBufReadExt;
+    let mut line = Vec::new();
+    match tokio::time::timeout(Duration::from_secs(10), reader.read_until(b'\n', &mut line)).await {
+        Ok(Ok(n)) if n > 0 => {
+            out.extend_from_slice(&line);
+            Some(line)
+        }
+        _ => None,
+    }
+}
+
+async fn read_response_async<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    head_request: bool,
+    until: Until,
+) -> Option<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut out = Vec::new();
+    let status_line = read_line_async(reader, &mut out).await?;
+    let status: u16 = String::from_utf8_lossy(&status_line)
+        .split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    let mut length = None;
+    let mut chunked = false;
+    loop {
+        let line = read_line_async(reader, &mut out).await?;
+        if line == b"\r\n" {
+            break;
+        }
+        let text = String::from_utf8_lossy(&line).to_ascii_lowercase();
+        if let Some(value) = text.strip_prefix("content-length:") {
+            length = value.trim().parse::<usize>().ok();
+        }
+        if text.starts_with("transfer-encoding:") && text.contains("chunked") {
+            chunked = true;
+        }
+    }
+    if head_request || (100..200).contains(&status) || status == 204 || status == 304 {
+        return Some(out);
+    }
+    if chunked {
+        loop {
+            let size_line = read_line_async(reader, &mut out).await?;
+            let size = usize::from_str_radix(
+                String::from_utf8_lossy(&size_line)
+                    .trim()
+                    .split(';')
+                    .next()
+                    .unwrap_or("0"),
+                16,
+            )
+            .unwrap_or(0);
+            if size == 0 {
+                read_line_async(reader, &mut out).await?;
+                return Some(out);
+            }
+            let mut data = vec![0u8; size + 2];
+            tokio::time::timeout(Duration::from_secs(10), reader.read_exact(&mut data))
+                .await
+                .ok()?
+                .ok()?;
+            out.extend_from_slice(&data);
+            if until == Until::FirstChunk {
+                return Some(out);
+            }
+        }
+    }
+    if let Some(length) = length {
+        let mut data = vec![0u8; length];
+        tokio::time::timeout(Duration::from_secs(10), reader.read_exact(&mut data))
+            .await
+            .ok()?
+            .ok()?;
+        out.extend_from_slice(&data);
+        return Some(out);
+    }
+    let mut rest = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(10), reader.read_to_end(&mut rest)).await;
+    out.extend_from_slice(&rest);
+    Some(out)
+}
+
 /// Send `request` and read every response it draws (an interim `100` and
 /// its final answer, or one answer per pipelined request), then whether the
 /// server closed the connection.
 fn exchange(address: SocketAddr, request: &[u8], expected: usize, until: Until) -> String {
-    let stream = connect(address);
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let head_request = request.starts_with(b"HEAD ");
-    // A large body is written from its own thread: the server may answer
-    // and close before it has read all of it.
-    let writer = {
-        let mut stream = stream.try_clone().unwrap();
-        let request = request.to_vec();
-        std::thread::spawn(move || {
-            let _ = stream.write_all(&request);
-        })
-    };
-    let mut reader = BufReader::new(stream.try_clone().unwrap());
-    let mut transcript = Vec::new();
-    let mut finals = 0;
-    while finals < expected {
-        let Some(response) = read_response(&mut reader, head_request, until) else {
-            break;
-        };
-        if !response.starts_with(b"HTTP/1.1 100") {
-            finals += 1;
-        }
-        transcript.extend_from_slice(&response);
-    }
-    if until == Until::Framed {
-        // Whether the server ends the connection after its answer: a quiet
-        // half second reads as kept open.
-        let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
-        let mut rest = [0u8; 1];
-        let state: &[u8] = match reader.read(&mut rest) {
-            Ok(0) => b"<closed>",
-            Ok(_) => b"<more>",
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                b"<open>"
+    let payload = request.to_vec();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let transcript = rt.block_on(async move {
+        let stream = tokio::net::TcpStream::connect(address).await.unwrap();
+        let (read_half, mut write_half) = stream.into_split();
+        // A large body is written from its own task: the server may answer
+        // without draining all of it, and aborting the task closes the single
+        // underlying socket cleanly even when the send window is full on Windows.
+        let writer = tokio::spawn(async move {
+            let _ = write_half.write_all(&payload).await;
+            write_half
+        });
+        let mut reader = tokio::io::BufReader::new(read_half);
+        let mut transcript = Vec::new();
+        let mut finals = 0;
+        while finals < expected {
+            let Some(response) = read_response_async(&mut reader, head_request, until).await else {
+                break;
+            };
+            if !response.starts_with(b"HTTP/1.1 100") {
+                finals += 1;
             }
-            Err(_) => b"<reset>",
-        };
-        transcript.extend_from_slice(state);
-    }
-    let _ = stream.shutdown(std::net::Shutdown::Both);
-    let _ = writer.join();
+            transcript.extend_from_slice(&response);
+        }
+        if until == Until::Framed {
+            // Whether the server ends the connection after its answer: a quiet
+            // half second reads as kept open.
+            let mut rest = [0u8; 1];
+            let state: &[u8] = match tokio::time::timeout(
+                Duration::from_millis(500),
+                reader.read(&mut rest),
+            )
+            .await
+            {
+                Ok(Ok(0)) => b"<closed>",
+                Ok(Ok(_)) => b"<more>",
+                Err(_) => b"<open>",
+                Ok(Err(error))
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    b"<open>"
+                }
+                Ok(Err(_)) => b"<reset>",
+            };
+            transcript.extend_from_slice(state);
+        }
+        writer.abort();
+        let _ = writer.await;
+        transcript
+    });
     normalize(&String::from_utf8(transcript).expect("responses are UTF-8"))
 }
 

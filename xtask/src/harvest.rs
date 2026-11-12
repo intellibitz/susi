@@ -2345,11 +2345,11 @@ fn pickup(git: &Git, cli: &Cli) -> Result<Report> {
 fn default_slug_from_url(url: &str) -> String {
     let trimmed = url
         .trim()
-        .trim_end_matches('/')
+        .trim_end_matches(['/', '\\'])
         .trim_end_matches(".git")
-        .trim_end_matches('/');
+        .trim_end_matches(['/', '\\']);
     let tail = trimmed
-        .rsplit(['/', ':'])
+        .rsplit(['/', '\\', ':'])
         .find(|seg| !seg.is_empty())
         .unwrap_or("raw-source");
     let cleaned: String = tail
@@ -3919,5 +3919,13 @@ mod tests {
         assert!(check_url("--upload-pack=x").is_err());
         assert!(check_rev("+main").is_err());
         assert!(parse_cli(&["scan".to_owned(), "--bogus".to_owned()]).is_err());
+        assert_eq!(
+            default_slug_from_url(r"C:\tmp\susi-pure-cloud-harvest\cloud-acp-substrate.git\"),
+            "cloud-acp-substrate"
+        );
+        assert_eq!(
+            default_slug_from_url("https://example.invalid/org/cloud-acp-substrate.git/"),
+            "cloud-acp-substrate"
+        );
     }
 }
