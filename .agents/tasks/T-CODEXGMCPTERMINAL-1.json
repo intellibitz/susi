@@ -1,0 +1,41 @@
+{
+  "schema": "susi/task/v1",
+  "id": "T-CODEXGMCPTERMINAL-1",
+  "agent": "CODEXGMCPTERMINAL",
+  "feature_id": "F-CORE-GMCP-TASK-CANCEL-GUARD-1",
+  "title": "Reject cancellation of terminal GMCP tasks",
+  "goal": "Make the GMCP task manager reject cancellation requests for completed, failed, and cancelled tasks with invalid_params, without mutating their state or timestamps, while preserving cooperative cancellation for active tasks.",
+  "status": "implemented",
+  "size": "s",
+  "deps": [],
+  "created_by": "codex",
+  "created_unix": 1794513507,
+  "owner": "codex",
+  "base_commit": "bd580274e21575ca6132b66440ccdd558168d8b4",
+  "scopes": [
+    "crates/susi-gmcp/src/mcp/task_manager.rs",
+    "crates/susi-gmcp/tests/task_manager_terminal.rs",
+    ".agents/tasks/T-CODEXGMCPTERMINAL-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--test",
+      "task_manager_terminal"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inspected the existing crates/susi-gmcp TaskManager and TaskStatus implementation, the pinned local task contract docs/gmcp/contract-203-004.md clause MCP-2025-1125-basic-utilities-tasks-mdx-0494, the checked-in GMCP task specification, and current Board claims. The existing manager and locked dependency graph are sufficient; no new dependency or harvested source is needed.",
+    "reason": "This is a bounded correction to the existing GMCP task lifecycle and reuses its current terminal-status predicate, error type, and unit-test harness."
+  },
+  "limitations": [
+    "Acceptance is run on the native Linux x86_64 host; no Windows run in this lane.",
+    "The change covers tasks/cancel terminal-state validation only; other GMCP task or transport gaps remain out of scope."
+  ]
+}
