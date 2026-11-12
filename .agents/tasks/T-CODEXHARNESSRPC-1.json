@@ -30,10 +30,15 @@
   "results": {
     "status": "implemented and locally verified",
     "base": "841d89c609ace1e2382925ac2d000ac4932990b2",
+    "source_commits": [
+      "ac94cff94a886a13560a02be6ea2e2bb2049d8f9",
+      "ad7446bb54ce61c06b8df5a6d643a6575d6c2e60"
+    ],
+    "commit": "ad7446bb54ce61c06b8df5a6d643a6575d6c2e60",
     "acceptance": "susi-harness mcp tests: 15 passed, 0 failed",
     "clippy": "cargo clippy --offline --locked -p susi-harness --all-targets -- -D warnings: passed",
     "lean_core": "mcp unit suite moved unchanged to src/tests/mcp.rs; shipped mcp.rs is 557 lines",
-    "gate": "pending exact local gate",
-    "published": "pending verified fast-forward to origin/main"
+    "gate": "format 0; licenses 0; clippy 0; affected workspace 3448 passed, 0 failed, 10 ignored; task acceptance 15 passed, 0 failed; host x86_64-unknown-linux-gnu",
+    "published": "origin/main 88289a6e8d18b70a267c90f8d1c071be68a77d67 via verified merge dbb5cf855a7addc3b13d5350534b274a186b82d4; receipt .agents/receipts/dbb5cf855a7addc3b13d5350534b274a186b82d4.json"
   }
 }
