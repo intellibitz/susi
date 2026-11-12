@@ -293,6 +293,40 @@ impl<T: Transport> McpClient<T> {
     }
 }
 
+/// Read the next response from an MCP stdio stream.
+///
+/// Servers may send JSON-RPC notifications (for example progress or log
+/// events) between a request and its response. Notifications have a method
+/// but no id and never carry a result or error, so they are not candidates for
+/// the request's response. A message with an id, malformed JSON, or a
+/// response-shaped message without an id is returned to the client layer,
+/// which preserves its normal correlation checks.
+fn read_stdio_response<R: BufRead>(reader: &mut R) -> EaiResult<Value> {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|error| EaiError::io(format!("mcp read: {error}")))?;
+        if read == 0 {
+            return Err(EaiError::io("mcp server closed the stream"));
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        let message: Value = serde_json::from_str(&line)
+            .map_err(|error| EaiError::internal(format!("mcp response: {error}")))?;
+        let notification = message.get("id").is_none()
+            && message.get("method").and_then(Value::as_str).is_some()
+            && message.get("result").is_none()
+            && message.get("error").is_none();
+        if notification {
+            continue;
+        }
+        return Ok(message);
+    }
+}
+
 /// A JSON-RPC transport over a child process's stdio.
 #[derive(Debug)]
 pub struct StdioTransport {
@@ -341,15 +375,7 @@ impl Transport for StdioTransport {
         self.stdin
             .flush()
             .map_err(|error| EaiError::io(format!("mcp flush: {error}")))?;
-        let mut response = String::new();
-        self.stdout
-            .read_line(&mut response)
-            .map_err(|error| EaiError::io(format!("mcp read: {error}")))?;
-        if response.trim().is_empty() {
-            return Err(EaiError::io("mcp server closed the stream"));
-        }
-        serde_json::from_str(&response)
-            .map_err(|error| EaiError::internal(format!("mcp response: {error}")))
+        read_stdio_response(&mut self.stdout)
     }
 
     fn notify(&mut self, notification: &Value) -> EaiResult<()> {
