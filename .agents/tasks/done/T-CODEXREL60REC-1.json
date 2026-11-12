@@ -1,22 +1,11 @@
 {
   "id": "T-CODEXREL60REC-1",
-  "feature_id": "F-CORE-RELEASE-RECORD-0.21.60-1",
   "title": "Record core v0.21.60 qualification on development main",
   "goal": "Publish the host-neutral git release record for immutable core tag v0.21.60, naming its exact qualified tree, Linux assets, gate counts, distilled source and the Windows x86_64 evidence still owed.",
-  "state": "done",
-  "status": "done",
-  "owner": "codex-coordinator",
-  "created_by": "codex-coordinator",
-  "created_unix": 1794402651,
-  "updated_unix": 1794402651,
   "size": "xs",
-  "base": "d9a85aeb79ac6ea8a4978019b64c737c4d22503a",
   "deps": [
     "T-CODEXREL60-1",
     "T-CARBONLEAN-15"
-  ],
-  "scopes": [
-    ".agents/tasks/T-CODEXREL60REC-1.json"
   ],
   "accept": {
     "cmd": [
@@ -30,6 +19,19 @@
       "release_records"
     ]
   },
+  "created_by": "codex-coordinator",
+  "created_unix": 1794402651,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "d9a85aeb79ac6ea8a4978019b64c737c4d22503a",
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.60-1",
+  "limitations": [
+    "The release record reports Linux qualification only; Windows x86_64 reference qualification remains owed."
+  ],
+  "owner": "codex-coordinator",
   "results": {
     "host": "x86_64-unknown-linux-gnu",
     "release_record_commit": "c604cb5b47d0810621f6ac629e2f5b12c4811f2d",
@@ -41,7 +43,10 @@
     "tests_failed": 0,
     "verified_unix": 1794402651
   },
-  "limitations": [
-    "The release record reports Linux qualification only; Windows x86_64 reference qualification remains owed."
-  ]
+  "scopes": [
+    ".agents/tasks/T-CODEXREL60REC-1.json"
+  ],
+  "state": "done",
+  "status": "done",
+  "updated_unix": 1794402651
 }
