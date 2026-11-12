@@ -2,25 +2,8 @@
   "id": "T-DOTRETIREHANDOFF-1",
   "title": "Retire GitHub branch handoff",
   "goal": "Permanently fail closed with native local-workflow guidance, without Git or network calls. Preserve unrelated branch tests.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "dot-retire-handoff",
-  "native_worker": "dot-retire-handoff",
-  "created_by": "Codex",
-  "created_unix": 1794339441,
   "size": "S",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/t-dotretirehandoff-1.json",
-    "scripts/ci-branch-handoff.sh",
-    "xtask/tests/branch_test_handoff.rs"
-  ],
-  "scope": [
-    ".agents/tasks/t-dotretirehandoff-1.json",
-    "scripts/ci-branch-handoff.sh",
-    "xtask/tests/branch_test_handoff.rs"
-  ],
-  "acceptance": "Native retired handoff source contract passes; serialized combined-tree gate remains required before landing.",
   "accept": {
     "cmd": [
       "cargo",
@@ -35,5 +18,27 @@
       "--test-threads=1"
     ]
   },
+  "created_by": "Codex",
+  "created_unix": 1794339441,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "Native retired handoff source contract passes; serialized combined-tree gate remains required before landing.",
+  "claimed_by": "dot-retire-handoff",
+  "native_worker": "dot-retire-handoff",
+  "scope": [
+    ".agents/tasks/t-dotretirehandoff-1.json",
+    "scripts/ci-branch-handoff.sh",
+    "xtask/tests/branch_test_handoff.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-dotretirehandoff-1.json",
+    "scripts/ci-branch-handoff.sh",
+    "xtask/tests/branch_test_handoff.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
   "verification": "2026-11-10: pinned rustfmt --edition 2021 --check xtask/tests/branch_test_handoff.rs passed. rustc --edition=2021 --test xtask/tests/branch_test_handoff.rs -o <private-state>/branch_test_handoff.exe compiled; CARGO_MANIFEST_DIR points to this worktree xtask. Exact retired_handoff_always_fails_closed_without_git_or_network --exact --test-threads=1: 1 passed, 0 failed, 2 filtered out. All child processes used cleared environment and private home/temp/output. Cargo, unrelated Bash tests, full gate and combined-tree integration not run here; serialized publisher owns qualification. Codex. Follow-up: pinned rustfmt check and standalone rustc compilation passed again. Exact retired_handoff_always_fails_closed_without_git_or_network: 1 passed, 0 failed, 2 filtered. Exact remote_gate_does_not_claim_local_acceptance_or_cache_a_false_proof: 1 passed, 0 failed, 2 filtered, 7.77s. Matrix copies real retired script, local bare non-GitHub origin, both SUSI_BRANCH_CI_HANDOFF/SUSI_FINISH_REMOTE_GATE flags 0/1 and local success/failure (8 combinations). Legacy behavior uses already-installed Git Bash on Windows; native retirement contract requires no shell. Unix execution and broader branch-selection test not run. Native hook migration owns hook dispatch/push safety coverage. No production or combined-tree qualification claimed."
 }
