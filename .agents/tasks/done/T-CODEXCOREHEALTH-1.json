@@ -1,16 +1,7 @@
 {
   "id": "T-CODEXCOREHEALTH-1",
-  "feature_id": "F-CORE-PILLARS-STORAGE-HEALTH-1",
   "title": "Verify current core five-pillar and storage workflow after main advances",
   "goal": "Run focused native evidence against the current development main for the newly landed ACP/five-pillar workflow, storage guard and release-record invariants; fix only a reproducible defect within the claimed scopes.",
-  "status": "completed",
-  "scopes": [
-    "xtask/src/storage_guard.rs",
-    "xtask/tests/git_publisher_native_hook.rs",
-    "tests/five_pillars_workflow.rs",
-    "tests/release_records.rs",
-    ".agents/tasks/T-CODEXCOREHEALTH-1.json"
-  ],
   "size": "s",
   "deps": [],
   "accept": {
@@ -26,15 +17,29 @@
     ]
   },
   "created_by": "CODEXCOREHEALTH",
-  "native_worker": "codex-core-health",
   "created_unix": 1794421026,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "base": "06b3d5f136cfd2f697428bdfe414816c2b026d57",
+  "feature_id": "F-CORE-PILLARS-STORAGE-HEALTH-1",
+  "limitations": [
+    "This is Linux x86_64 evidence; Windows qualification remains a separate release obligation."
+  ],
+  "native_worker": "codex-core-health",
   "results": {
     "status": "verified",
     "cargo_test": "cargo test --offline --locked -p xtask --test git_publisher_native_hook: 6 passed, 0 failed; cargo test --offline --locked -p susi --test five_pillars_workflow --test release_records: 6 passed, 0 failed",
     "scope": "Current core main 06b3d5f13; storage publisher, five-pillar workflow and release-record invariants all passed without a code change."
   },
-  "limitations": [
-    "This is Linux x86_64 evidence; Windows qualification remains a separate release obligation."
-  ]
+  "scopes": [
+    "xtask/src/storage_guard.rs",
+    "xtask/tests/git_publisher_native_hook.rs",
+    "tests/five_pillars_workflow.rs",
+    "tests/release_records.rs",
+    ".agents/tasks/T-CODEXCOREHEALTH-1.json"
+  ],
+  "status": "completed"
 }
