@@ -1,0 +1,38 @@
+{
+  "id": "T-CODEXHARNESSSTDIO-1",
+  "title": "Skip interleaved MCP stdio notifications",
+  "goal": "Allow the Core harness MCP stdio transport to ignore valid server notifications before a response while preserving malformed JSON and mismatched response-id failures.",
+  "status": "implemented",
+  "owner": "codex",
+  "native_worker": "codex-harness-stdio",
+  "created_by": "codex",
+  "created_unix": 1794450600,
+  "size": "s",
+  "base_commit": "67f8c7e9c8cd85dc6fe390c99e4d3e921f492605",
+  "deps": [],
+  "scopes": [
+    "crates/susi-harness/src/mcp.rs",
+    "crates/susi-harness/src/tests/mcp.rs",
+    ".agents/tasks/T-CODEXHARNESSSTDIO-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "mcp"
+    ]
+  },
+  "results": {
+    "status": "implemented and locally verified",
+    "change": "StdioTransport now skips blank lines and JSON-RPC notification envelopes before returning a response; response-shaped messages remain subject to McpClient JSON-RPC version and id correlation checks",
+    "acceptance": "cargo test --offline --locked -p susi-harness --lib mcp: 17 passed, 0 failed",
+    "fmt": "cargo fmt --all --check: passed",
+    "clippy": "cargo clippy --offline --locked -p susi-harness --all-targets -- -D warnings: passed",
+    "boundary": "Core harness MCP transport only; no dependency, Commercial, Minijinja, release, or credential changes"
+  }
+}
