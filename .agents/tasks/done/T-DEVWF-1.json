@@ -2,10 +2,29 @@
   "id": "T-DEVWF-1",
   "title": "Developer workflow (admin module) leaves open core for Susi Commercial Apps",
   "goal": "Core half of moving crates/susi-gawd/src/admin (task queue, worktree workflow, hook guard, primary parking, target seeding, version sync, release gate; with worker_identity, cloud_session and zc_agent_identity, about 16,300 lines) out of the open core for the cold-build budget (CEO 2026-11-08 22:10). Destination landed first: susi-commercial-apps 5c4793332 (change ae20411, receipt 3b09dbb72), crate susi-dev-workflow, commands susi-commercial tasks | workflow | admin. Core keeps the compliance audit (read-only version step) and the intent evidence ledger in susi_gawd::compliance, and `susi tasks eval-corpus`. Dropped commands refuse naming their commercial command (susi tasks <verb>, susi workflow <verb>, susi admin sync|verify|release, intent-ladder --adopt-gap, the MCP intent_ladder adopt_gap mode); the hooks and scripts probe susi-commercial first and the workflow guard is skipped with a notice when no binary has it; local-workflow seeds through whichever binary has `workflow seed-target`. Tests of the moved product leave with it; core keeps its own e2e checks (Mandate 53) and the task-record schema pin.",
-  "status": "in_progress",
-  "state": "in_progress",
-  "native_worker": "devwf",
+  "size": "L",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "release_e2e_checks",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "devwf",
+  "created_unix": 1794160654,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "claimed_by": "devwf",
+  "native_worker": "devwf",
   "scope": [
     ".agents/build-time.jsonl",
     ".agents/tasks/t-devwf-1.json",
@@ -130,20 +149,6 @@
     "xtask/src/bin/local-workflow.rs",
     "xtask/tests/ci_workflow_perf.rs"
   ],
-  "size": "L",
-  "deps": [],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "susi",
-      "--test",
-      "release_e2e_checks",
-      "--offline",
-      "--locked"
-    ]
-  },
-  "created_by": "devwf",
-  "created_unix": 1794160654
+  "state": "in_progress",
+  "status": "in_progress"
 }
