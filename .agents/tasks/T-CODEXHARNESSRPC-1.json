@@ -12,6 +12,7 @@
   "deps": [],
   "scopes": [
     "crates/susi-harness/src/mcp.rs",
+    "crates/susi-harness/src/tests/mcp.rs",
     ".agents/tasks/T-CODEXHARNESSRPC-1.json"
   ],
   "accept": {
@@ -31,6 +32,7 @@
     "base": "841d89c609ace1e2382925ac2d000ac4932990b2",
     "acceptance": "susi-harness mcp tests: 15 passed, 0 failed",
     "clippy": "cargo clippy --offline --locked -p susi-harness --all-targets -- -D warnings: passed",
+    "lean_core": "mcp unit suite moved unchanged to src/tests/mcp.rs; shipped mcp.rs is 557 lines",
     "gate": "pending exact local gate",
     "published": "pending verified fast-forward to origin/main"
   }
