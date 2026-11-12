@@ -117,9 +117,12 @@ Gated, measured but not yet accepted: Step 1 of the CEO's vision stays open
 until the final combined source publishes an acceptance receipt and the exact
 production artifact passes the installed journey with A/B promotion, health
 and rollback shown; the user-response budgets are met on a quiet host for one
-build only and production qualification does not yet enforce them; the
-compile budget is 60 s and the last idle measurement is 81.7 s
-([docs/lean-core.md](docs/lean-core.md)).
+build only and production qualification does not yet enforce them; the cold compile target is <60 s. The recorded Linux x86_64 cold build
+improved from 81.7 s to 27.68 s on 2026-11-11 (`T-CARBONLEAN-14`); this is
+historical host-specific evidence, not a timing of the current tree or a
+Windows measurement. The separate warm `cargo fast-release` budget is <10 s
+for build + focused tests + artifact/provenance; it does not replace full
+release qualification ([docs/lean-core.md](docs/lean-core.md)).
 
 Admitted, not delivered in core: the in-process GGUF model runtime left core
 with no destination yet (two `tests/zc_matrix.rs` tests ignored by CEO

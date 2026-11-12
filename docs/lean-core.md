@@ -70,28 +70,34 @@ means four pillars plus the host that serves them.
 | Move to commercial (plugs) | `susi-vendor-models`, `-vendor-agents`, `-vendor-web`, `-vendor-cloud`, `-vendor-chrome`, `-vendor-candle`, `-vendor-fastembed`, `-vendor-tantivy`, `-vendor-bollard` + `susi-sandbox` (Docker), `susi-tools` (MCP client adapters; the registry stays in core), `susi-agents` (external-agent plane), `susi-universal-cell` | Antigravity, crate by crate, gated |
 | Delete when unreferenced | pure facades nothing reaches after the moves (`anyhow`, `console-subscriber`, `tracing-appender`, `tracing-subscriber`, `md-5`, `rcgen`, `tokio-stream`, `criterion`, `proptest` ...) | after each move |
 
-## How work is split
+## Current delivery workflow
 
-- **Antigravity**: rung 1 and the "move" bucket. Crate-level, one gated ship
-  per crate. Before every push: grep every cfg for callers
-  (`#[cfg(windows)]` code never compiles on its Linux clone), then
-  `cargo check --workspace --all-targets --keep-going` and
-  `cargo fmt --all --check` on the exact tree. Push a `local-agent/<name>`
-  branch for the laptop gate to integrate; never `main` directly. Lower the
-  ceilings in `tests/lean_core_ceilings.rs` in the same change.
-- **Claude**: the ceilings, rung 2 (std socket), build speed (the gate's
-  concurrent test runner is in; the whole-workspace path and target-level
-  narrowing are next), and contributor readiness.
-- Both: a change that touches `Cargo.toml` or `Cargo.lock` widens the gate to
-  the whole workspace (about 26 minutes); batch manifest changes.
+Mandates [74](ceo-mandate-74.md), [75](ceo-mandate-75.md) and
+[79](ceo-mandate-79.md) govern current work. Earlier ownership assignments,
+crate classifications and dated wave logs describe the migration plan and
+historical evidence; they do not reserve current scopes or prove that a
+current release meets the budgets.
+
+- Work under your own agent root and isolated worktree. Read the Susi Board,
+  reserve disjoint paths, and fetch and merge `origin/main` at session start,
+  resume and before every commit.
+- Keep migration changes inside the lean ceilings, inspect platform-specific
+  callers, and run checks appropriate to the change. A manifest or lockfile
+  change merits workspace verification. These development checks are not
+  mandatory gates for publishing to `main`.
+- Publish labelled work to unqualified development `main` through a normal
+  fast-forward update. Agent publication uses `refs/agents/<agent>`; do not
+  create other remote branch heads or pull requests.
+- Distill releases separately and qualify the exact combined tree with the
+  full required checks, provenance and native platform evidence. The <10 s
+  warm fast check never substitutes for full release qualification.
 
 ## Contributing from outside
 
-A contributor can clone and `cargo build` online today (measured above). The
-gated `cargo local-workflow` path needs a host that holds the gate; an outside
-contributor opens a pull request and an agent integrates it through the gate.
-Whether to accept outside pull requests at all is a CEO decision; until it is
-made, `CONTRIBUTING.md` stands as written.
+Use the portable Git contribution workflow in [CONTRIBUTING.md](../CONTRIBUTING.md).
+An authorized agent reconciles contributed commits into labelled development
+work. GitHub is storage only; contributions do not require a hosted pull request
+or a laptop-only integration gate. Source publication does not qualify a release.
 
 ## Sub-10-second warm Build + Test + Release budget (CEO Mandate 74, 2026-11-11)
 

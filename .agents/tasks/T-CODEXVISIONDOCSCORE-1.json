@@ -1,0 +1,29 @@
+{
+  "id": "T-CODEXVISIONDOCSCORE-1",
+  "title": "Reconcile CEO alignment documentation and historical performance evidence",
+  "goal": "Vision: V-1. Align README, CONTRIBUTING, lean-core workflow and evidence summary with Mandates 74-79; cite recorded timings without claiming current acceptance.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "core_docs_promise_no_ui_or_plugins"
+    ]
+  },
+  "created_by": "CODEXVISIONDOCSCORE",
+  "created_unix": 1794514777,
+  "reuse": {
+    "decision": "existing",
+    "searched": [
+      "CEO mandates 74-79 in both repositories",
+      "Core docs/lean-core.md and T-CARBONLEAN-14 historical receipt",
+      "Existing README and workflow documentation"
+    ],
+    "reason": "Documentation reconciliation only; no code, dependency or external source added."
+  },
+  "limitations": "Documentation-only alignment. Historical timings are not measurements of the current tree. Native Windows and end-to-end production acceptance were not performed. Installed workflow binary predates workflow vision cycle; standing V-1 read directly."
+}

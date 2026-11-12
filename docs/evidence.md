@@ -207,11 +207,16 @@ project's own statements; a gap leaves this list only when its record says so.
   (`desktop.browser.capture`) are plane-bus plug ports in core; without the
   commercial plug host they report a typed capability gap
   (`docs/lean-core.md`, T-PLUGPORTS-1).
-- Known gap: the compile budget is 60 s for a cold `cargo build -p susi`; the
-  last idle measurement on landed main `240ee4dfb` is 81.7 s wall and 822.7
-  rustc CPU-seconds (from 196 s under load and 165 s idle at the start of the
-  program). Lean-core rungs 2-4 (std-only socket, last dependencies, offline
-  clean clone) are open (`docs/lean-core.md`).
+- Performance evidence: the cold compile target is <60 s. The historical
+  81.7 s wall / 822.7 rustc CPU-second measurement on `240ee4dfb` was followed
+  by a 27.684 s cold Linux x86_64 build recorded on 2026-11-11 in
+  [T-CARBONLEAN-14](../.agents/tasks/done/T-CARBONLEAN-14.json). That receipt
+  describes its own host and source, not the current tree; native Windows
+  cold timing still needs a separate measurement. The warm `cargo fast-release`
+  build + focused tests + artifact/provenance target is separately <10 s.
+  Neither a cold build nor the warm fast check proves full workspace or
+  installed-product acceptance; see [lean-core](lean-core.md) and
+  [Step 1 acceptance](step1-acceptance.md).
 - Known gap: the clean-machine installed journey on record is the Windows
   x86_64 one; Linux x86_64 is released from the same source and its source
   support is recorded, but no equivalent core journey record exists for it

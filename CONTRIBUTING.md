@@ -27,7 +27,7 @@ SUSI welcomes contributions from **external open-source engineers**, **protocol/
 
 ## 2. Open-Core & Architecture Boundaries
 
-Before opening a Pull Request, please keep these repository invariants in mind (enforced by `tests/architecture_tests.rs` and `tests/core_docs_promise_no_ui_or_plugins.rs`):
+Before contributing, please keep these repository invariants in mind (enforced by `tests/architecture_tests.rs` and `tests/core_docs_promise_no_ui_or_plugins.rs`):
 
 1. **Pure CLI + Standards Socket**: Core ships no UI (no HTML/CSS/JS/GUI/TUI crates) and bundles no third-party plugin catalogs. Visual views and curated commercial packs live in `Susi Commercial Apps`.
 2. **Zero `unsafe` & Zero Production Panics**:
@@ -47,7 +47,11 @@ cd susi
 scripts/setup-dev.sh
 ```
 
-`scripts/setup-dev.sh` configures `.githooks` (`rustfmt` on pre-commit, scoped `clippy` on pre-push) and the union merge driver for `.agents/evidence.json`.
+`scripts/setup-dev.sh` configures the repository hooks and merge drivers.
+Pre-commit checks staged Rust formatting; pre-push enforces transport safety.
+Clippy and tests are development checks and release qualification, not mandatory
+`main` publication gates. Native workflow commands are available through
+`susi-commercial workflow`; the shell setup helper is optional.
 
 ### Running the Verification Suite
 Run these checks locally before submitting your changes:
@@ -80,20 +84,30 @@ SUSI_HOME=/tmp/susi-dev SUSI_PORT_OFFSET=700 cargo run -- stop
 
 ## 4. Submitting Changes
 
-### External Human Contributors (Fork & Pull Request)
-1. Fork `intellibitz/susi` and create a feature branch (`git checkout -b feat/my-improvement`).
-2. Make your changes and add unit or integration tests covering both the happy path and relevant failure mode.
-3. Verify formatting, Clippy, and tests locally.
-4. Open a Pull Request against `main` using the PR template. You do **not** need to hand-edit `.agents/evidence.json` or `.agents/tasks/` in external fork PRs—maintainers and repository agents reconcile task ledgers during integration.
+### Portable Git contributions
 
-### Autonomous Agents (`cargo local-workflow`)
-Autonomous agents operating inside a local multi-worktree environment must follow [`AGENTS.md`](AGENTS.md):
-```bash
-cargo local-workflow start worker-a --scope crates/susi-paths
-# Implement and verify in the isolated worktree
-cargo local-workflow commit worker-a "feat(paths): description"
-cargo local-workflow integrate worker-a
-```
+1. Develop in an isolated clone or worktree and preserve the core boundaries above.
+2. Run checks appropriate to the change and include results and known limitations.
+3. Share an identified commit or Git ref with an authorized maintainer or agent
+   through the project's coordination channel. No hosted pull request is required;
+   repository agents must not open, merge or close pull requests.
+4. The integrating agent records a task and feature, reconciles `origin/main`,
+   and publishes a normal fast-forward update. Only `refs/heads/main` is a remote
+   branch; agent work uses `refs/agents/<agent>`.
+
+### Autonomous agents
+
+Follow [AGENTS.md](AGENTS.md), including agent roots, the Susi Board, task claims
+and the vision cycle. Use `susi-commercial workflow start`, `sync`, `commit`
+and `ship` from your isolated worktree; consult each command's `--help` for
+arguments. Fetch and merge `origin/main` at session start, resume and before
+committing. Label commits with `Task:` and `Feature:` trailers.
+
+`main` is an unqualified raw-source stream with no mandatory publication test
+gate. Susi distills selected work into release candidates and qualifies the
+exact combined tree before publishing immutable release snapshots. See the
+[CEO agent mandate](docs/ceo-agent-mandate.md) and
+[Mandate 75](docs/ceo-mandate-75.md).
 
 ---
 
