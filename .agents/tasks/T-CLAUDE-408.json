@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-408",
+  "title": "Register CEO Mandate 79: vision-driven continuous self-improvement",
+  "goal": "Vision: V-1. Record the CEO directive of 2026-11-12 as Mandate 79 (docs, AGENTS.md, identity.json, CLAUDE.md, GEMINI.md, README.md) and as the first vision record .agents/visions/V-1.json; the loop's tool lives in susi-commercial-apps (workflow vision).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "ceo_mandate_79"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1794503593
+}

@@ -172,14 +172,16 @@ and qualification are recorded in [docs/evidence.md](docs/evidence.md#platforms)
 ### Developing susi
 
 The CEO never inspects code; agents own development, verification, integration
-and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–78),
+and production qualification under [`AGENTS.md`](AGENTS.md) (Mandates 49–79),
 [`docs/ceo-mandate-74.md`](docs/ceo-mandate-74.md),
 [`docs/ceo-mandate-75.md`](docs/ceo-mandate-75.md) and
 [`docs/ceo-mandate-76.md`](docs/ceo-mandate-76.md) (agents collaborate through the
 Susi Board) and [`docs/ceo-mandate-77.md`](docs/ceo-mandate-77.md) (each agent works
 under its own root directory) and
 [`docs/ceo-mandate-78.md`](docs/ceo-mandate-78.md) (never reinvent the wheel:
-reuse Apache-2.0 work first). Work happens in isolated
+reuse Apache-2.0 work first) and
+[`docs/ceo-mandate-79.md`](docs/ceo-mandate-79.md) (vision-driven continuous
+self-improvement: Apache-2.0 projects are the raw source Susi is distilled from). Work happens in isolated
 worktrees with disjoint scopes (`cargo local-workflow start <agent> --scope <path>`,
 `cargo local-build debug`) and remote pull-and-merge reconciliation at every
 workflow step over portable Git storage (GitHub is storage only: zero GitHub

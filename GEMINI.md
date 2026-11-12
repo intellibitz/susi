@@ -2,7 +2,7 @@
 
 Read `AGENTS.md` before editing. It is the canonical engineering contract and
 contains the CEO's agent-only, Rust-only, native Windows and local-development
-requirements (identity.json Mandates 62–78). Follow its native isolated workflow
+requirements (identity.json Mandates 62–79). Follow its native isolated workflow
 and evidence gates; do not substitute legacy shell or GitHub prerequisites.
 
 The CEO never inspects code. Agents own implementation, verification, integration
@@ -46,6 +46,13 @@ keep the local release binary at the latest release qualified for this host).
 Before writing new code, look for what already exists, inside Susi and among
 Apache-2.0 code, libraries, frameworks, tools, products and services, and
 record where you looked in the task record (Mandate 78).
+
+Read docs/ceo-mandate-79.md (Mandate 79, 2026-11-12): Susi keeps improving like
+AI models do. Apache-2.0 projects are the raw source; both repositories are the
+branches they are distilled into. Record any vision the CEO or a delegate sets
+(`susi-commercial workflow vision set`), run `susi-commercial workflow vision
+cycle` after `workflow check`, take up untaken visions and look again at every
+harvested upstream that has moved.
 
 Read docs/ceo-mandate-78.md (Mandate 78, 2026-11-12): never reinvent the wheel.
 Before building a capability, look for it inside Susi, then in Apache-2.0

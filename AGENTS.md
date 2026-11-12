@@ -1,5 +1,26 @@
 **START HERE: read the CEO mandates below, inspect local state, and reserve an isolated worktree before editing.**
 
+## CEO Mandate 79 (2026-11-12): Vision-Driven Continuous Self-Improvement
+
+Read [CEO Mandate 79](docs/ceo-mandate-79.md). It continues Mandates 75 and 78:
+Susi keeps improving the way AI models do, generation after generation.
+Apache-2.0 open-source projects are the raw source; Susi core and Susi
+Commercial Apps are the branches they are distilled into.
+
+- **Record every vision:** when the CEO, or anyone acting on the CEO's behalf,
+  sets a vision, record it at once in their words
+  (`susi-commercial workflow vision set "<statement>" --by <who>`); records are
+  create-only `.agents/visions/V-<n>.json`.
+- **Run the cycle:** `susi-commercial workflow vision cycle` at session start
+  and after every task. Take up every standing vision that no task names
+  (`Vision: V-<n>` in the task goal), and look again at every harvested
+  upstream that has moved past the commit Susi last distilled.
+- **Harvest only what serves a vision,** under Mandates 75 and 78; upstream
+  moving is a reason to look, never a reason to import.
+- **Each generation is measured:** a release improves on the last only on
+  evidence; the loop never bypasses qualification, the lean ceilings or the
+  `<10s` budget, and never claims a vision is met.
+
 ## CEO Mandate 78 (2026-11-12): Never Reinvent the Wheel — Reuse Apache-2.0 Work First
 
 Read [CEO Mandate 78](docs/ceo-mandate-78.md). It continues Mandate 75: raw
@@ -267,6 +288,7 @@ library), 54 (a release gate, never a main gate, no pull-request adapters), 68
 | 76 | **Multi-agent collaboration through the Susi Board (2026-11-12):** every agent reads the Susi Board at session start and before claiming, publishing or cutting a release; posts Claim, Landed, Cut, Heads-up, Request, Handoff, Decision and Blocked items; appends only and never rewrites another agent's item; respects open claims and answers requests addressed to it; keeps the board truthful, free of secrets and commercial source, and free of any GitHub or hosted-service dependency. The board coordinates, Git stays the record, and no gate is added ([`docs/ceo-mandate-76.md`](docs/ceo-mandate-76.md)). |
 | 77 | **One isolated working directory per agent (2026-11-12):** every agent has exactly one root directory per machine, named for the agent and marked with `.susi-agent-root`; all of its clones, worktrees, build targets and scratch files live under it; it never creates, changes or deletes anything under another agent's root or the CEO's working directory, and asks the owner on the Susi Board instead. `susi-commercial workflow root show | init` finds and registers a root; `workflow start` and the commit guard refuse to work inside another agent's root ([`docs/ceo-mandate-77.md`](docs/ceo-mandate-77.md)). |
 | 78 | **Never reinvent the wheel (2026-11-12):** before building a capability, look for it inside Susi, then in Apache-2.0 projects, then in the locked dependency graph; reuse by harvesting only the needed part under Mandate 75's pure-`Apache-2.0` rules; delete the hand-rolled code a reuse replaces; stay inside the lean ceilings, the `<10s` budget, Rust-only and the dependency ceilings; record the decision in the task record's `reuse` object ([`docs/ceo-mandate-78.md`](docs/ceo-mandate-78.md)). |
+| 79 | **Vision-driven continuous self-improvement (2026-11-12):** Susi keeps improving like a model family, generation after generation; Apache-2.0 open-source projects are the raw source and both repositories are the branches they are distilled into; a vision set by the CEO or on the CEO's behalf is recorded as a create-only `.agents/visions/V-<n>.json` and every agent runs the improvement cycle (`susi-commercial workflow vision cycle`), taking up untaken visions and looking again at every harvested upstream that has moved; harvest only what serves a vision under Mandates 75 and 78; a generation counts only on evidence ([`docs/ceo-mandate-79.md`](docs/ceo-mandate-79.md)). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and

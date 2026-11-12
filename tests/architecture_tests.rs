@@ -2151,7 +2151,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=78).collect::<Vec<_>>(),
+        (1..=79).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2172,6 +2172,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (76, "through the Susi Board"),
         (77, "exactly one root directory per machine"),
         (78, "never reinvent the wheel"),
+        (79, "the branches those projects are distilled into"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -2443,6 +2444,50 @@ fn non_rust_scripts_only_decrease() {
         "{} shell/PowerShell/Python files, ceiling {SCRIPT_CEILING}: a new script is not admitted (Mandate 63)",
         found.len()
     );
+}
+
+/// Mandate 79 (CEO 2026-11-12): vision-driven continuous self-improvement.
+#[test]
+fn ceo_mandate_79_makes_the_vision_loop_discoverable() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-mandate-79.md"),
+            "{path}: Mandate 79 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-79.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "anyone acting on the CEO's behalf",
+        "distilled branches of the open-source world",
+        "susi-commercial workflow vision set",
+        "susi-commercial workflow vision cycle",
+        "Records are create-only",
+        "pure `Apache-2.0`",
+        "never claims a vision is met",
+        "Implementation truth",
+        "Not enforced",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 79 lost requirement: {phrase}"
+        );
+    }
+    // The directive itself is the first recorded vision.
+    let vision: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/visions/V-1.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(vision["schema"], "susi.vision/v1");
+    assert_eq!(vision["set_by"], "ceo");
 }
 
 /// Mandate 78 (CEO 2026-11-12): never reinvent the wheel.
