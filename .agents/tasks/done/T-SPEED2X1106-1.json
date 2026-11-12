@@ -1,17 +1,6 @@
 {
   "id": "T-SPEED2X1106-1",
-  "native_worker": "speed2-1106",
   "title": "Fast trusted sysroot check, release-tooling coverage for narrowed xtask gates, acceptance timings",
-  "created_by": "SPEED2X1106",
-  "created_unix": 1793975000,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/tasks/t-speed2x1106-1.json",
-    "docs/workflow-speed.md",
-    "xtask/src/bin/local-workflow.rs",
-    "xtask/src/sysroot_sources.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -28,5 +17,21 @@
       "a narrowed gate covering xtask enables xtask/release-tooling",
       "acceptance recording reports its sub-step timings"
     ]
-  }
+  },
+  "created_by": "SPEED2X1106",
+  "created_unix": 1793975000,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "speed2-1106",
+  "scopes": [
+    ".agents/tasks/t-speed2x1106-1.json",
+    "docs/workflow-speed.md",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/sysroot_sources.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
