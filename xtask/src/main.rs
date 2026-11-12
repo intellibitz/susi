@@ -13,6 +13,7 @@
 mod build_time;
 mod compiler_env;
 mod extension_watch;
+mod fast_release;
 // Shared with the local-workflow binary, which writes the receipts this
 // binary verifies; the writer half is unused here.
 #[allow(dead_code)]
@@ -382,6 +383,14 @@ fn main() {
 
     if args.first().map(String::as_str) == Some("build-time") {
         if let Err(error) = build_time::run(&args[1..]) {
+            eprintln!("xtask: {error}");
+            exit(1);
+        }
+        return;
+    }
+
+    if args.first().map(String::as_str) == Some("fast-release") {
+        if let Err(error) = fast_release::run(&args[1..]) {
             eprintln!("xtask: {error}");
             exit(1);
         }

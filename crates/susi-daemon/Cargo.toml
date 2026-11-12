@@ -1,6 +1,6 @@
 [package]
 name = "susi-daemon"
-version = "0.21.61"
+version = "0.21.66"
 license = "Apache-2.0"
 edition = "2024"
 

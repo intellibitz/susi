@@ -13,6 +13,8 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+#[path = "distill/functional.rs"]
+pub mod functional;
 #[path = "distill/hostmerge.rs"]
 pub mod hostmerge;
 #[path = "distill/lint.rs"]
@@ -115,6 +117,9 @@ pub struct Facts {
     pub relanded: BTreeMap<String, String>,
     /// Re-land claims that did not verify, as warnings.
     pub reland_warnings: BTreeSet<String>,
+    /// Non-functional housekeeping commits observed among planned commits when
+    /// `--functional-only` is active.
+    pub non_functional_commits: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,6 +137,8 @@ pub struct Plan {
     pub outcomes: BTreeMap<String, Outcome>,
     pub conflicts: Vec<Conflict>,
     pub warnings: BTreeSet<String>,
+    pub functional_only: bool,
+    pub skipped_non_functional_tasks: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -142,6 +149,10 @@ pub struct Options {
     /// Host-created commits the planning agent explicitly adopts (full ids).
     /// Each adoption is listed in the manifest.
     pub adopt_host_commits: BTreeSet<String>,
+    /// Skip non-functional housekeeping tasks/commits (receipts, release
+    /// records, docs-only, task-only chores) and strip non-functional commits
+    /// from functional tasks.
+    pub functional_only: bool,
 }
 
 // ---------------------------------------------------------------- parsing
@@ -622,6 +633,32 @@ fn depends_on(a: &str, b: &str, idx: &BTreeMap<&str, Resolved<'_>>) -> bool {
     false
 }
 
+fn is_non_functional_task(id: &str, idx: &BTreeMap<&str, Resolved<'_>>, facts: &Facts) -> bool {
+    let mut raw_commits: BTreeSet<String> =
+        facts.trailer_commits.get(id).cloned().unwrap_or_default();
+    if let Some(res) = idx.get(id) {
+        if let Some(c) = &res.record.closed_commit {
+            if facts.reachable.contains(c) {
+                raw_commits.insert(c.clone());
+            }
+        }
+    }
+    if !raw_commits.is_empty() {
+        return raw_commits
+            .iter()
+            .all(|c| facts.non_functional_commits.contains(c));
+    }
+    if let Some(res) = idx.get(id) {
+        return !res.record.scopes.is_empty()
+            && res
+                .record
+                .scopes
+                .iter()
+                .all(|s| !functional::is_functional_path(s));
+    }
+    false
+}
+
 /// Compute the plan. Pure: all repository facts come in through `facts`.
 pub fn plan(
     records: &[Record],
@@ -630,6 +667,16 @@ pub fn plan(
     options: &Options,
 ) -> Result<Plan> {
     if requested.is_empty() {
+        if options.functional_only {
+            return Ok(Plan {
+                requested: Vec::new(),
+                outcomes: BTreeMap::new(),
+                conflicts: Vec::new(),
+                warnings: BTreeSet::new(),
+                functional_only: true,
+                skipped_non_functional_tasks: Vec::new(),
+            });
+        }
         return Err("no task ids requested".into());
     }
     if requested.len() > MAX_REQUESTED {
@@ -644,24 +691,68 @@ pub fn plan(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    let wanted: BTreeSet<&String> = requested.iter().collect();
     let idx = index(records);
-    let nodes = closure(&requested, &idx)?;
+    let mut skipped_set: BTreeSet<String> = BTreeSet::new();
+    let nodes = if options.functional_only {
+        let mut active = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        let mut queue: VecDeque<String> = requested.iter().cloned().collect();
+        while let Some(id) = queue.pop_front() {
+            if !visited.insert(id.clone()) {
+                continue;
+            }
+            if visited.len() > MAX_RECORDS {
+                return Err("dependency closure exceeds the record limit".into());
+            }
+            let is_external_comm_dep = !wanted.contains(&id)
+                && !idx.contains_key(id.as_str())
+                && !facts.trailer_commits.contains_key(&id)
+                && functional::is_cross_repo_commercial_task_id(&id);
+            if is_external_comm_dep || is_non_functional_task(&id, &idx, facts) {
+                skipped_set.insert(id);
+                continue;
+            }
+            if let Some(r) = idx.get(id.as_str()) {
+                queue.extend(
+                    r.record
+                        .deps
+                        .iter()
+                        .filter(|d| !visited.contains(*d))
+                        .cloned(),
+                );
+            }
+            active.insert(id);
+        }
+        active
+    } else {
+        closure(&requested, &idx)?
+    };
     let edges: BTreeMap<String, Vec<String>> = nodes
         .iter()
         .filter_map(|n| {
-            idx.get(n.as_str())
-                .map(|r| (n.clone(), r.record.deps.clone()))
+            idx.get(n.as_str()).map(|r| {
+                let deps = r
+                    .record
+                    .deps
+                    .iter()
+                    .filter(|d| !skipped_set.contains(*d))
+                    .cloned()
+                    .collect();
+                (n.clone(), deps)
+            })
         })
         .collect();
     let cycles = cycle_members(&nodes, &edges);
-    let wanted: BTreeSet<&String> = requested.iter().collect();
     let mut outcomes: BTreeMap<String, Outcome> = nodes
         .iter()
         .map(|id| {
-            (
-                id.clone(),
-                intrinsic(id, wanted.contains(id), &idx, &cycles, facts),
-            )
+            let mut o = intrinsic(id, wanted.contains(id), &idx, &cycles, facts);
+            if options.functional_only {
+                o.commits
+                    .retain(|c| !facts.non_functional_commits.contains(c));
+            }
+            (id.clone(), o)
         })
         .collect();
     for o in outcomes.values_mut() {
@@ -677,7 +768,10 @@ pub fn plan(
         .collect();
     for (i, (a, ra)) in included.iter().enumerate() {
         for (b, rb) in included.iter().skip(i + 1) {
-            let paths = overlap(&ra.scopes, &rb.scopes);
+            let mut paths = overlap(&ra.scopes, &rb.scopes);
+            if options.functional_only {
+                paths.retain(|p| functional::is_functional_path(p));
+            }
             if paths.is_empty() || depends_on(a, b, &idx) || depends_on(b, a, &idx) {
                 continue;
             }
@@ -692,7 +786,11 @@ pub fn plan(
     }
     let mut entangled: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (id, resolved) in &idx {
-        if nodes.contains(*id) || resolved.record.status == Status::Abandoned {
+        if nodes.contains(*id)
+            || skipped_set.contains(*id)
+            || resolved.record.status == Status::Abandoned
+            || (options.functional_only && is_non_functional_task(id, &idx, facts))
+        {
             continue;
         }
         let in_base =
@@ -701,7 +799,10 @@ pub fn plan(
             continue;
         }
         for (a, ra) in &included {
-            let paths = overlap(&ra.scopes, &resolved.record.scopes);
+            let mut paths = overlap(&ra.scopes, &resolved.record.scopes);
+            if options.functional_only {
+                paths.retain(|p| functional::is_functional_path(p));
+            }
             if !paths.is_empty() {
                 entangled
                     .entry((*a).clone())
@@ -782,6 +883,8 @@ pub fn plan(
         outcomes,
         conflicts,
         warnings,
+        functional_only: options.functional_only,
+        skipped_non_functional_tasks: skipped_set.into_iter().collect(),
     })
 }
 
@@ -809,11 +912,23 @@ pub fn range_tasks(range: &RangeFacts) -> Vec<String> {
 
 pub fn compare(plan: &Plan, range: &RangeFacts) -> Value {
     let from_range: BTreeSet<String> = range_tasks(range).into_iter().collect();
+    let skipped: BTreeSet<&str> = plan
+        .skipped_non_functional_tasks
+        .iter()
+        .map(String::as_str)
+        .collect();
     let kind_of = |id: &String| plan.outcomes.get(id).map(|o| o.kind);
     let range_not_included: Vec<Value> = from_range
         .iter()
         .filter(|id| kind_of(id) != Some(Kind::Included))
         .map(|id| {
+            if plan.functional_only && skipped.contains(id.as_str()) {
+                return json!({
+                    "id": id,
+                    "outcome": "skipped_non_functional",
+                    "reasons": ["non_functional_commit_only"],
+                });
+            }
             let o = plan.outcomes.get(id);
             json!({"id": id, "outcome": o.map(|o| o.kind.label()).unwrap_or("absent"),
                    "reasons": o.map(|o| o.reasons.iter().cloned().collect::<Vec<_>>()).unwrap_or_default()})
@@ -908,15 +1023,46 @@ pub fn manifest(
     );
     m.insert("requested".into(), json!(plan.requested));
     m.insert("closure_size".into(), json!(plan.outcomes.len()));
-    m.insert(
-        "summary".into(),
-        json!({
-            "included": plan.outcomes.values().filter(|o| o.kind == Kind::Included).count(),
-            "deferred": plan.outcomes.values().filter(|o| o.kind == Kind::Deferred).count(),
-            "rejected": plan.outcomes.values().filter(|o| o.kind == Kind::Rejected).count(),
-            "conflicts": plan.conflicts.len(),
-        }),
+    let mut summary = Map::new();
+    summary.insert(
+        "included".into(),
+        json!(plan
+            .outcomes
+            .values()
+            .filter(|o| o.kind == Kind::Included)
+            .count()),
     );
+    summary.insert(
+        "deferred".into(),
+        json!(plan
+            .outcomes
+            .values()
+            .filter(|o| o.kind == Kind::Deferred)
+            .count()),
+    );
+    summary.insert(
+        "rejected".into(),
+        json!(plan
+            .outcomes
+            .values()
+            .filter(|o| o.kind == Kind::Rejected)
+            .count()),
+    );
+    summary.insert("conflicts".into(), json!(plan.conflicts.len()));
+    if plan.functional_only {
+        summary.insert(
+            "skipped_non_functional".into(),
+            json!(plan.skipped_non_functional_tasks.len()),
+        );
+    }
+    m.insert("summary".into(), Value::Object(summary));
+    if plan.functional_only {
+        m.insert("functional_only".into(), json!(true));
+        m.insert(
+            "skipped_non_functional_tasks".into(),
+            json!(plan.skipped_non_functional_tasks),
+        );
+    }
     m.insert("included".into(), take(Kind::Included, &mut groups));
     m.insert("deferred".into(), take(Kind::Deferred, &mut groups));
     m.insert("rejected".into(), take(Kind::Rejected, &mut groups));
@@ -971,6 +1117,16 @@ pub fn render_text(manifest: &Value) -> String {
                 reasons.join("; ")
             };
             s.push_str(&format!("  {id:<34} {status:<12} {detail}\n"));
+        }
+    }
+    if manifest.get("functional_only").and_then(Value::as_bool) == Some(true) {
+        let skipped = get("skipped_non_functional_tasks");
+        let skipped = skipped.as_array().cloned().unwrap_or_default();
+        s.push_str(&format!("\nSKIPPED NON-FUNCTIONAL ({})\n", skipped.len()));
+        for item in &skipped {
+            if let Some(id) = item.as_str() {
+                s.push_str(&format!("  {id}\n"));
+            }
         }
     }
     let conflicts = get("conflicts");
@@ -1098,6 +1254,44 @@ impl Git<'_> {
         }
     }
 
+    /// Offline-safe remote pull for `origin/main` using plain Git transport only.
+    /// When `origin` is absent or temporarily unreachable, falls back cleanly to
+    /// existing local refs without error.
+    pub fn pull_origin_optional(&self) -> Result<bool> {
+        let has_origin = Command::new("git")
+            .current_dir(self.root)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .args(["remote", "get-url", "origin"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if !has_origin {
+            return Ok(false);
+        }
+        let fetched = Command::new("git")
+            .current_dir(self.root)
+            .env("GIT_NO_REPLACE_OBJECTS", "1")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .args([
+                "-c",
+                "core.hooksPath=",
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                "--recurse-submodules=no",
+                "origin",
+                "+refs/heads/main:refs/remotes/origin/main",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        Ok(fetched)
+    }
+
     fn resolve(&self, rev: &str) -> Result<String> {
         if rev.is_empty() || rev.starts_with('-') || rev.contains(char::is_whitespace) {
             return Err(format!("invalid revision {rev:?}"));
@@ -1211,6 +1405,114 @@ impl Git<'_> {
         Ok(commits)
     }
 
+    fn manifest_touch_log(
+        &self,
+        rev_spec: &str,
+        records: &[Record],
+    ) -> Result<Vec<(String, Vec<String>)>> {
+        let by_path: BTreeMap<&str, &str> = records
+            .iter()
+            .map(|r| (r.path.as_str(), r.id.as_str()))
+            .collect();
+        let out = self.ok(&[
+            "log",
+            "--no-merges",
+            "--root",
+            "-z",
+            "--name-only",
+            "--format=%x1e%H%x1f",
+            rev_spec,
+            "--",
+            TASK_DIR,
+        ])?;
+        let text = String::from_utf8_lossy(&out);
+        let mut commits = Vec::new();
+        for rec in text.split('\u{1e}') {
+            if rec.is_empty() {
+                continue;
+            }
+            let Some((oid_raw, paths_blob)) = rec.split_once('\u{1f}') else {
+                continue;
+            };
+            let oid = oid_raw.trim();
+            if !is_oid(oid) {
+                continue;
+            }
+            let mut ids = BTreeSet::new();
+            for item in paths_blob.split('\0') {
+                let p = item.trim_matches(['\n', '\r']);
+                if p.is_empty() {
+                    continue;
+                }
+                if let Some(id) = by_path
+                    .get(p)
+                    .map(|s| (*s).to_owned())
+                    .or_else(|| functional::task_id_from_manifest_path(p))
+                {
+                    ids.insert(id);
+                }
+            }
+            if !ids.is_empty() {
+                commits.push((oid.to_owned(), ids.into_iter().collect()));
+            }
+        }
+        Ok(commits)
+    }
+
+    fn non_functional_commits(&self, oids: &BTreeSet<String>) -> Result<BTreeSet<String>> {
+        if oids.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        let mut stdin_bytes = Vec::new();
+        for oid in oids {
+            if is_oid(oid) {
+                stdin_bytes.extend_from_slice(oid.as_bytes());
+                stdin_bytes.push(b'\n');
+            }
+        }
+        if stdin_bytes.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        let (code, out) = self.raw(
+            &[
+                "log",
+                "--no-walk=unsorted",
+                "--root",
+                "--stdin",
+                "-z",
+                "--name-only",
+                "--format=%x1e%H%x1f%s%x1f",
+            ],
+            Some(stdin_bytes),
+        )?;
+        if code != 0 {
+            return Err(format!("git log --no-walk --stdin failed ({code})"));
+        }
+        let text = String::from_utf8_lossy(&out);
+        let mut non_func = BTreeSet::new();
+        for rec in text.split('\u{1e}') {
+            if rec.is_empty() {
+                continue;
+            }
+            let mut parts = rec.splitn(3, '\u{1f}');
+            let Some(oid) = parts.next().map(str::trim).filter(|s| is_oid(s)) else {
+                continue;
+            };
+            let subject = parts.next().unwrap_or("").trim();
+            let paths_blob = parts.next().unwrap_or("");
+            let changed_paths: Vec<String> = paths_blob
+                .split('\0')
+                .map(|p| p.trim_matches(['\n', '\r']))
+                .filter(|p| !p.is_empty())
+                .map(str::to_owned)
+                .collect();
+            if !functional::is_functional_commit(subject, &changed_paths) {
+                non_func.insert(oid.to_owned());
+            }
+        }
+        Ok(non_func)
+    }
+
     fn is_ancestor(&self, commit: &str, of: &str) -> Result<bool> {
         if !is_oid(commit) {
             return Ok(false);
@@ -1237,7 +1539,13 @@ impl Git<'_> {
 
 /// Facts for exactly the records the plan can reach (closure is recomputed
 /// cheaply here so the Git layer checks only what it must).
-fn gather(git: &Git<'_>, base: &str, records: &[Record], requested: &[String]) -> Result<Facts> {
+fn gather(
+    git: &Git<'_>,
+    base: &str,
+    records: &[Record],
+    requested: &[String],
+    functional_only: bool,
+) -> Result<Facts> {
     let mut facts = Facts::default();
     for (oid, tasks) in git.trailer_log(&[base])? {
         for t in tasks {
@@ -1246,6 +1554,17 @@ fn gather(git: &Git<'_>, base: &str, records: &[Record], requested: &[String]) -
                 .entry(t)
                 .or_default()
                 .insert(oid.clone());
+        }
+    }
+    if functional_only {
+        for (oid, tasks) in git.manifest_touch_log(base, records)? {
+            for t in tasks {
+                facts
+                    .trailer_commits
+                    .entry(t)
+                    .or_default()
+                    .insert(oid.clone());
+            }
         }
     }
     let idx = index(records);
@@ -1271,6 +1590,9 @@ fn gather(git: &Git<'_>, base: &str, records: &[Record], requested: &[String]) -
                 facts.existing_paths.insert(e.clone());
             }
         }
+    }
+    if functional_only {
+        facts.non_functional_commits = git.non_functional_commits(&planned)?;
     }
     let hosts = hostmerge::identities(git.root)?;
     for (oid, c) in hostmerge::among(git.root, &planned, &hosts)? {
@@ -1302,10 +1624,12 @@ pub struct Args {
     pub out: Option<String>,
     pub json: bool,
     pub isolate: bool,
+    pub pull: bool,
+    pub functional_only: bool,
     pub adopt_host_commits: Vec<String>,
 }
 
-const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- plan [--tasks <id>...] [--tasks-from-range <from>..<to>] [--base <rev>] [--out <file>] [--json] [--isolate] [--adopt-host-commit <full-commit-id>]...\n       cargo run --offline --locked -p xtask --bin distill -- lint --range <from>..<to> | --range <to> [--base <rev>] [--out <file>] [--json] [--strict]\n";
+const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- plan [--tasks <id>...] [--tasks-from-range <from>..<to>] [--base <rev>] [--out <file>] [--json] [--isolate] [--functional-only] [--pull] [--adopt-host-commit <full-commit-id>]...\n       cargo run --offline --locked -p xtask --bin distill -- lint --range <from>..<to> | --range <to> [--base <rev>] [--out <file>] [--json] [--strict] [--pull]\n";
 
 pub fn parse_args(args: &[String]) -> Result<Args> {
     let mut it = args.iter().peekable();
@@ -1347,6 +1671,8 @@ pub fn parse_args(args: &[String]) -> Result<Args> {
             "--out" => a.out = Some(value("--out")?),
             "--json" => a.json = true,
             "--isolate" => a.isolate = true,
+            "--functional-only" => a.functional_only = true,
+            "--pull" => a.pull = true,
             "--adopt-host-commit" => a.adopt_host_commits.push(value("--adopt-host-commit")?),
             other => return Err(format!("unknown option {other}\n{USAGE}")),
         }
@@ -1363,8 +1689,10 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
     }
     let a = parse_args(args)?;
     let git = Git { root };
-    let mut range = None;
-    let mut requested = a.tasks.clone();
+    if a.pull {
+        let _ = git.pull_origin_optional()?;
+    }
+    let mut range_endpoints = None;
     let mut default_base = "HEAD".to_owned();
     if let Some(spec) = &a.range {
         let (from, to) = spec
@@ -1372,7 +1700,30 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
             .filter(|(f, t)| !f.is_empty() && !t.is_empty() && !t.starts_with('.'))
             .ok_or("range must be <from>..<to>")?;
         let (fc, tc) = (git.resolve(from)?, git.resolve(to)?);
-        let commits = git.trailer_log(&["--no-merges", &format!("{fc}..{tc}")])?;
+        default_base = to.to_owned();
+        range_endpoints = Some((from.to_owned(), to.to_owned(), fc, tc));
+    }
+    let base_rev = a.base.clone().unwrap_or(default_base);
+    let base = git.resolve(&base_rev)?;
+    let (records, unreadable) = git.records(&base)?;
+    let mut range = None;
+    let mut requested = a.tasks.clone();
+    if let Some((from, to, fc, tc)) = range_endpoints {
+        let range_spec = format!("{fc}..{tc}");
+        let mut commits = git.trailer_log(&["--no-merges", &range_spec])?;
+        if a.functional_only {
+            let mut manifest_by_oid: BTreeMap<String, Vec<String>> = git
+                .manifest_touch_log(&range_spec, &records)?
+                .into_iter()
+                .collect();
+            for (oid, tasks) in &mut commits {
+                if let Some(extra) = manifest_by_oid.remove(oid) {
+                    let mut merged: BTreeSet<String> = tasks.iter().cloned().collect();
+                    merged.extend(extra);
+                    *tasks = merged.into_iter().collect();
+                }
+            }
+        }
         let files_raw = git.ok(&["diff", "--name-only", "-z", &fc, &tc])?;
         let files = files_raw
             .split(|b| *b == 0)
@@ -1380,20 +1731,16 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
             .map(|f| String::from_utf8_lossy(f).to_string())
             .collect();
         let rf = RangeFacts {
-            from: from.to_owned(),
-            to: to.to_owned(),
+            from,
+            to,
             commits,
             files,
             before_from: BTreeSet::new(),
         };
         requested.extend(range_tasks(&rf));
-        default_base = to.to_owned();
         range = Some((rf, fc));
     }
-    let base_rev = a.base.clone().unwrap_or(default_base);
-    let base = git.resolve(&base_rev)?;
-    let (records, unreadable) = git.records(&base)?;
-    let facts = gather(&git, &base, &records, &requested)?;
+    let facts = gather(&git, &base, &records, &requested, a.functional_only)?;
     let plan = plan(
         &records,
         &requested,
@@ -1401,6 +1748,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<String> {
         &Options {
             isolate: a.isolate,
             adopt_host_commits: hostmerge::parse_adoptions(&a.adopt_host_commits)?,
+            functional_only: a.functional_only,
         },
     )?;
     let comparison = match range {

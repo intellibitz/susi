@@ -1,0 +1,38 @@
+{
+  "schema": "susi-release-record/v1",
+  "product": "susi",
+  "version": "0.21.66",
+  "tag": "v0.21.66",
+  "commit": "93e6fb3edc182e198c1620f3b0d6165fd01972e9",
+  "tagged": "2026-11-12T14:43:17+05:30",
+  "build": {
+    "toolchain": "1.99.0",
+    "host": "x86_64-pc-windows-msvc",
+    "source": "the release-qualify build gate on the qualified tree 941b21ff7cfe (commit b02f85f21869; the tagged commit adds only releases/qualification/v0.21.66.json), Cargo.lock sha256 edd2bc1a1e8c4be795f67fcbbdd12f6ee841e3bcf7a7d77879883a665fc6d508",
+    "profile": "dist",
+    "features": "susi/local-engine",
+    "env": ["CARGO_PROFILE_DIST_LTO=false", "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"],
+    "command": "cargo build --offline --locked --profile dist -p susi-harness -p susi --features susi/local-engine -j 4"
+  },
+  "reproducible": false,
+  "assets": [
+    { "file": "susi-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi", "bin": "susi", "sha256": "1ae09ab48416ad88f31ad215d336cc548fa38cc054bd02883983afc5faa0cabd" },
+    { "file": "susi-harness-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi-harness", "bin": "susi-harness", "sha256": "0f2195abdd7546e4f041fbff4bc092a250ae436e6aef6dffa7b09a012394c7a6" }
+  ],
+  "missing_targets": [
+    { "target": "x86_64-unknown-linux-gnu", "reason": "qualified on a Windows x86_64 host; the Linux x86_64 reference build and qualification are owed (owed_platforms in the qualification record)" }
+  ],
+  "checks": {
+    "qualification_record": "releases/qualification/v0.21.66.json",
+    "release_qualify": { "gates": ["format", "check", "clippy", "licenses", "tests", "build", "smoke"], "all_exit_0": true },
+    "workspace_tests": { "binaries": 256, "passed": 5834, "failed": 0, "ignored": 21 },
+    "e2e_checks": "the release test gate ran cargo test --workspace --offline --locked --no-fail-fast across all 256 test binaries (5834 passed, 0 failed) on the exact release tree, including http_wire, pure_apache2_cloud_harvest, and all 12 native windows_runtime_lifecycle cases; the dist binaries were checked with --version",
+    "locally_qualified": true,
+    "qualification_note": "qualified natively on x86_64-pc-windows-msvc via xtask release-qualify from verified snapshot refs/tags/susi-snapshot/v0-21-66-rc1 (732ffe425910); every gate exited 0 (5834 workspace tests passed, 0 failed); Linux x86_64 is not qualified yet"
+  },
+  "provenance": [
+    "commit and tagged time: the immutable annotated tag v0.21.66 (git cat-file -p v0.21.66; git for-each-ref --format=%(taggerdate:iso-strict))",
+    "sha256: the dist build and smoke gates on Windows x86_64 (x86_64-pc-windows-msvc), recorded in releases/qualification/v0.21.66.json with each gate log digest",
+    "source: verified snapshot refs/tags/susi-snapshot/v0-21-66-rc1 = 732ffe425910 (tree aa01f6b306f9), carrying live MCP plug facade restoration (94db45ed8) and Windows qualification gate fixes T-SWARMCORE-1 and T-SWARMCORE-3; the release branch adds only the v0.21.66 version bump and T-SWARMCORE-4"
+  ]
+}

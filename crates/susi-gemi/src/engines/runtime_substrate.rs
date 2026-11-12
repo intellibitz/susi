@@ -13,59 +13,6 @@ use crate::susi_error::{EaiError, EaiResult};
 const LOCAL_ENGINE_ABSENT: &str =
     "local model engine is not attached; register a LocalEnginePlug (susi-gpu-fabric) or build with --features local-engine";
 
-pub trait NeuralBackend: Send + Sync {}
-
-pub type ModelBackend = Box<dyn NeuralBackend>;
-
-pub struct ModelSubstrate {
-    pub(crate) weights: ModelBackend,
-    pub(crate) prompt_format: PromptFormat,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PromptFormat {
-    ChatMl,
-    Llama3,
-    Gemma,
-    Mistral,
-    Raw,
-}
-
-impl PromptFormat {
-    pub(crate) fn detect(chat_template: Option<&str>) -> Self {
-        let Some(tpl) = chat_template else {
-            return Self::Raw;
-        };
-        if tpl.contains("<|im_start|>") {
-            Self::ChatMl
-        } else if tpl.contains("<|start_header_id|>") {
-            Self::Llama3
-        } else if tpl.contains("<start_of_turn>") {
-            Self::Gemma
-        } else if tpl.to_lowercase().contains("[inst]") {
-            Self::Mistral
-        } else {
-            Self::Raw
-        }
-    }
-
-    pub(crate) fn wrap(self, prompt: &str) -> String {
-        match self {
-            Self::ChatMl => format!(
-                "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
-            ),
-            Self::Llama3 => format!(
-                "<|start_header_id|>system<|end_header_id|>\n\nYou are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-            ),
-            Self::Gemma => {
-                format!("<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n")
-            }
-            Self::Mistral => format!("[INST] {prompt} [/INST]"),
-            Self::Raw => prompt.to_string(),
-        }
-    }
-}
-
 pub struct InferenceHost;
 
 impl InferenceHost {
@@ -155,10 +102,6 @@ impl InferenceHost {
             ))),
         }
     }
-
-    pub(crate) fn needs_qwen2_backend(arch: &str) -> bool {
-        arch == "qwen2"
-    }
 }
 
 fn resolve_model_id(model_id: &str) -> EaiResult<std::path::PathBuf> {
@@ -218,9 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn qwen2_is_the_only_dense_qwen_backend() {
-        assert!(InferenceHost::needs_qwen2_backend("qwen2"));
-        assert!(!InferenceHost::needs_qwen2_backend("llama"));
+    fn qwen3moe_is_admitted_and_gpt2_is_not() {
         assert!(InferenceHost::validate_architecture("qwen3moe").is_ok());
         assert!(InferenceHost::validate_architecture("gpt2").is_err());
     }

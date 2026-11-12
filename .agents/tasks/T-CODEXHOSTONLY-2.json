@@ -1,0 +1,39 @@
+{
+  "id": "T-CODEXHOSTONLY-2",
+  "feature_id": "F-CORE-HOSTONLY-READINESS-2",
+  "title": "Wait for every host-only listener before privacy assertions",
+  "goal": "Make the host-only integration test deterministic under concurrent native test binaries by waiting for all advertised loopback HTTP listeners, without weakening any host-only or off-host refusal assertion.",
+  "status": "implemented",
+  "scopes": [
+    "tests/host_only_privacy.rs",
+    ".agents/tasks/T-CODEXHOSTONLY-2.json"
+  ],
+  "size": "xs",
+  "deps": ["T-CODEXSOCKETRACE-1"],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "host_only_privacy"
+    ]
+  },
+  "created_by": "CODEXHOSTONLY",
+  "native_worker": "codex-hostonly-ready",
+  "created_unix": 1794421732,
+  "base": "b77701ca440fc0bc83f9f51abdad5b8c74716087",
+  "results": {
+    "status": "verified",
+    "focused": "cargo test --offline --locked -p susi --test host_only_privacy -- --nocapture: 2 passed, 0 failed",
+    "serial_gate": "SUSI_LOCAL_TEST_RUNNER=serial cargo local-workflow check reached the known clean-main distilled_release_promotion fixture failure; host_only_privacy remained 2 passed, 0 failed",
+    "diff_check": "git diff --check: passed",
+    "scope": "Readiness now waits for all advertised loopback listeners (9090, 9091, 9093, 9094 and the offset), then retries the loopback HTTP response after off-host policy probes. Host-only and off-host refusal assertions are unchanged."
+  },
+  "limitations": [
+    "This fixes readiness ordering in the integration test; it does not alter daemon listener binding or host-only policy code."
+  ]
+}

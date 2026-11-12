@@ -121,6 +121,10 @@ pub struct ContractCall<'c> {
     pub prompt: String,
     pub callback: &'c dyn Fn(String),
     pub model_hint: Option<String>,
+    /// The same request as a conversation with tool schemas
+    /// (`{"messages": [..], "tools": [..]}`), for an engine that renders the
+    /// model's own chat template. `prompt` stays the complete fallback.
+    pub chat: Option<serde_json::Value>,
 }
 
 impl<'c> ContractCall<'c> {
@@ -129,7 +133,14 @@ impl<'c> ContractCall<'c> {
             prompt: prompt.to_string(),
             callback,
             model_hint: model_hint.map(str::to_string),
+            chat: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_chat(mut self, chat: Option<serde_json::Value>) -> Self {
+        self.chat = chat;
+        self
     }
 }
 
@@ -242,10 +253,16 @@ impl RuntimeBackend for NativeEngineBackend<'_> {
     fn infer(&self, prompt: &str) -> EaiResult<InferOutcome> {
         let model = self.resolved_model();
 
-        match self
-            .engine
-            .run_inference_stream(prompt, self.call.callback, model.as_deref())
-        {
+        let answer = match &self.call.chat {
+            Some(chat) => {
+                self.engine
+                    .run_chat_stream(prompt, chat, self.call.callback, model.as_deref())
+            }
+            None => self
+                .engine
+                .run_inference_stream(prompt, self.call.callback, model.as_deref()),
+        };
+        match answer {
             Ok(output) if !output.trim().is_empty() => Ok(InferOutcome::Done { output }),
             Ok(_) => Ok(InferOutcome::Unavailable {
                 reason: "engine returned empty output".to_string(),

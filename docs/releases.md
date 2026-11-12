@@ -36,6 +36,17 @@ JSON parser. The test therefore also pins the layout: the scalar fields sit on
 lines of their own, `env` is one line, each asset is one line, and every value
 passed to cargo is a plain word.
 
+### Which release a host installs
+
+The installed Susi is the stable copy and tracks the latest release qualified
+for the host it runs on (CEO Mandate 48). A record lists every released target
+either with a reference build under `assets` or under `missing_targets`, so a
+release whose record has no reference build for a host was not qualified there.
+`scripts/susi-release-sync.sh` therefore installs the newest tag whose record
+has a reference build for this host and skips newer ones that do not; `--check`
+prints both. An explicit `--tag` of a release not qualified for the host is
+refused unless `SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST=1` is set knowingly.
+
 ### What the sha256 means
 
 The `sha256` of an asset is the digest of the **reference build**: the binary
@@ -93,6 +104,29 @@ request or composition happens on the Git host:
 | Development integration | `main` | nothing: main is unqualified development (mandate 73) |
 | Accept-verified candidate | the local-only `release/<name>` from `local-distill` (snapshot tag `susi-distill/<name>`) | the selected tasks compose onto their base and each task's `accept.cmd` passed on the composed tree; not a release |
 | Qualified release | tag `vX.Y.Z` | every release gate passed on the exact tree, reached only through `release-qualify` |
+
+### One version, one cut
+
+Before any gate runs, `release-qualify` asks the storage remote (`--remote`,
+default `origin`) whether the version is free, and reserves it
+(`xtask/src/release_version_guard.rs`):
+
+- a tag that is already published is refused: cut the next version;
+- an open release line `refs/candidates/release/vX.Y.Z` (`docs/release-lanes.md`)
+  must be contained in the tree being qualified, so a cut never bypasses a
+  line other agents are advancing;
+- the version is reserved with a create-only blob
+  `refs/claims/release-version/vX.Y.Z` naming the agent, host and commit. Of
+  two concurrent cuts exactly one gets it; the other is refused with the
+  holder's name. The same agent renews it for the same commit, anyone may take
+  it over after four hours, and a cut whose gates fail gives it back.
+
+`--verify-only` runs the checks and reserves nothing. `--skip-remote-check`
+is for a host that cannot reach the remote; it restores the old local-only
+check and says so in nothing but the command line, so use it knowingly.
+v0.21.62 is why this exists: it was qualified twice at once, on Windows from
+its release line and on Linux from a distilled candidate, and only one tree
+could be published.
 
 A release is qualified from a snapshot of main (above) or from a distilled
 candidate:

@@ -1,4 +1,4 @@
-//! Pure-std temporary directory leaf (`TempDir`, `Builder`, `tempdir`, `tempdir_in`).
+//! Pure-std temporary directory leaf (`TempDir`, `Builder`, `tempdir`).
 //!
 //! Consumers depend on this crate under the dep key `tempfile`
 //! (`package = "susi-vendor-tempfile"`), so `use tempfile::...` paths resolve
@@ -26,8 +26,6 @@ static NEXT_TEMP_SEQ: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Debug)]
 pub struct Builder {
     prefix: OsString,
-    suffix: OsString,
-    rand_len: usize,
 }
 
 impl Default for Builder {
@@ -42,8 +40,6 @@ impl Builder {
     pub fn new() -> Self {
         Self {
             prefix: OsString::from(DEFAULT_PREFIX),
-            suffix: OsString::new(),
-            rand_len: DEFAULT_RAND_BYTES,
         }
     }
 
@@ -53,43 +49,18 @@ impl Builder {
         self
     }
 
-    /// Set a custom filename suffix.
-    pub fn suffix<S: AsRef<OsStr> + ?Sized>(&mut self, suffix: &S) -> &mut Self {
-        self.suffix = suffix.as_ref().to_os_string();
-        self
-    }
-
-    /// Set the number of random alphanumeric characters in the directory name.
-    pub fn rand_bytes(&mut self, rand: usize) -> &mut Self {
-        self.rand_len = rand;
-        self
-    }
-
     /// Atomically create a new temporary directory inside [`std::env::temp_dir`].
     pub fn tempdir(&self) -> io::Result<TempDir> {
-        self.tempdir_in(std::env::temp_dir())
+        self.create_in(&std::env::temp_dir())
     }
 
-    /// Atomically create a new temporary directory inside `dir`.
-    pub fn tempdir_in<P: AsRef<Path>>(&self, dir: P) -> io::Result<TempDir> {
-        let base = dir.as_ref();
+    fn create_in(&self, base: &Path) -> io::Result<TempDir> {
         let pid = std::process::id();
-        let retries = if self.rand_len == 0 {
-            1
-        } else {
-            MAX_COLLISION_RETRIES
-        };
-
-        for attempt in 0..retries {
+        for attempt in 0..MAX_COLLISION_RETRIES {
             let seq = NEXT_TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
-            let mut name =
-                OsString::with_capacity(self.prefix.len() + self.rand_len + self.suffix.len() + 8);
+            let mut name = OsString::with_capacity(self.prefix.len() + DEFAULT_RAND_BYTES + 8);
             name.push(&self.prefix);
-            if self.rand_len > 0 {
-                let token = generate_token(self.rand_len, pid, seq, attempt);
-                name.push(&token);
-            }
-            name.push(&self.suffix);
+            name.push(generate_token(DEFAULT_RAND_BYTES, pid, seq, attempt));
 
             let candidate = base.join(name);
             match create_exclusive_private_dir(&candidate) {
@@ -123,19 +94,9 @@ impl TempDir {
         Builder::new().tempdir()
     }
 
-    /// Create a new temporary directory inside `dir`.
-    pub fn new_in<P: AsRef<Path>>(dir: P) -> io::Result<Self> {
-        Builder::new().tempdir_in(dir)
-    }
-
     /// Create a new temporary directory with `prefix` inside [`std::env::temp_dir`].
     pub fn with_prefix<S: AsRef<OsStr>>(prefix: S) -> io::Result<Self> {
         Builder::new().prefix(&prefix).tempdir()
-    }
-
-    /// Create a new temporary directory with `prefix` inside `dir`.
-    pub fn with_prefix_in<S: AsRef<OsStr>, P: AsRef<Path>>(prefix: S, dir: P) -> io::Result<Self> {
-        Builder::new().prefix(&prefix).tempdir_in(dir)
     }
 
     /// Path to the temporary directory.
@@ -149,12 +110,6 @@ impl TempDir {
     pub fn keep(mut self) -> PathBuf {
         self.disarmed = true;
         std::mem::take(&mut self.path)
-    }
-
-    /// Alias for [`TempDir::keep`].
-    #[must_use]
-    pub fn into_path(self) -> PathBuf {
-        self.keep()
     }
 
     /// Deterministically remove the temporary directory and surface any I/O error.
@@ -189,11 +144,6 @@ impl Drop for TempDir {
 /// Create a new temporary directory inside [`std::env::temp_dir`].
 pub fn tempdir() -> io::Result<TempDir> {
     TempDir::new()
-}
-
-/// Create a new temporary directory inside `dir`.
-pub fn tempdir_in<P: AsRef<Path>>(dir: P) -> io::Result<TempDir> {
-    TempDir::new_in(dir)
 }
 
 #[cfg(unix)]
@@ -320,13 +270,11 @@ mod tests {
     }
 
     #[test]
-    fn builder_prefix_suffix_and_rand_bytes_work() {
+    fn builder_prefix_reserves_6_char_random_token() {
         let parent = tempdir().unwrap();
         let child = Builder::new()
             .prefix("alpha-")
-            .suffix("-omega")
-            .rand_bytes(10)
-            .tempdir_in(parent.path())
+            .create_in(parent.path())
             .unwrap();
         let name = child
             .path()
@@ -335,8 +283,7 @@ mod tests {
             .to_str()
             .expect("utf-8 temp name");
         assert!(name.starts_with("alpha-"));
-        assert!(name.ends_with("-omega"));
-        assert_eq!(name.len(), "alpha-".len() + 10 + "-omega".len());
+        assert_eq!(name.len(), "alpha-".len() + DEFAULT_RAND_BYTES);
     }
 
     #[test]
@@ -352,7 +299,7 @@ mod tests {
                 for _ in 0..32 {
                     let td = Builder::new()
                         .prefix("race-")
-                        .tempdir_in(parent.path())
+                        .create_in(parent.path())
                         .unwrap();
                     assert!(seen.lock().unwrap().insert(td.path().to_path_buf()));
                     local.push(td);

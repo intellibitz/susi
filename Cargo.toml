@@ -53,7 +53,7 @@ exclude = ["vendor"]
 
 [package]
 name = "susi"
-version = "0.21.61"
+version = "0.21.66"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi: RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem. Evidence-gated agent substrate. Open-admit OpenAI-compat/MCP/protocol peers, consensus swarm, HMAC audit, absolute truth, bearer-authenticated host ports."
@@ -238,4 +238,37 @@ incremental = true
 split-debuginfo = "unpacked"
 
 [profile.dev.package.sha2]
+opt-level = 3
+
+[profile.test.package.sha2]
+opt-level = 3
+
+# Sub-10s unified core build + verification test + distilled candidate release
+# profile (`cargo fast-release` / `cargo local-build fast-release`).
+#
+# - `panic = "unwind"` matches Cargo's test harness so `cargo build` and
+#   `cargo test --no-run` share 100% of compiled `.rlib`/`.rmeta` dependency
+#   artifacts in `<target>/fast-release/deps/` with zero duplicate compilation.
+# - Registry dependencies compile at `-O2` (`sha2` at `-O3`) once and stay
+#   cached across workspace source edits, while workspace crates keep
+#   `incremental = true`, `codegen-units = 16`, `debug = 0`, and `lto = false`
+#   so warm edits in `susi-core` or `susi` build, test, and distill under 10s
+#   without touching `debug` or `release` artifacts (Mandate 67).
+[profile.fast-release]
+inherits = "dev"
+opt-level = 0
+debug = 0
+strip = "debuginfo"
+debug-assertions = false
+overflow-checks = false
+lto = false
+codegen-units = 16
+incremental = true
+panic = "unwind"
+split-debuginfo = "unpacked"
+
+[profile.fast-release.package."*"]
+opt-level = 2
+
+[profile.fast-release.package.sha2]
 opt-level = 3

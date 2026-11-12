@@ -537,38 +537,6 @@ fn foreground_install_rejects_non_https_sources() {
     assert!(ModelManager::install_model_foreground("not a URL").is_err());
 }
 
-/// Templates that ship a tools block must register; the plain
-/// messages-only loop must not.
-#[test]
-fn chat_template_tool_detection_covers_shipping_dialects() {
-    let _environment = crate::susi_core::commit_log::ENV_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    for capable in [
-        // qwen2.5-style: a `tools` JSON block plus <tool_call> delimiters
-        "{% if tools is not none %}<|im_start|>tools{% endif %}{% for m in messages %}{{ m }}{% endfor %}<tool_call>",
-        // llama-3.1-style: tools rendered into the system prompt
-        "{{ bos_token }}{% if tools %}builtin tools{% endif %}{% for m in messages %}{% endfor %}",
-        // mistral-style: available-tools section
-        "[AVAILABLE_TOOLS]{{ tools }}[/AVAILABLE_TOOLS]{{ messages }}",
-    ] {
-        assert!(
-            ModelManager::chat_template_supports_tools(capable),
-            "tool-capable template must be detected"
-        );
-    }
-    for plain in [
-        "{% for m in messages %}{{ m.role }}{{ m.content }}{% endfor %}",
-        "{{ bos_token }}{{ prompt }}",
-        "",
-    ] {
-        assert!(
-            !ModelManager::chat_template_supports_tools(plain),
-            "tool-less template must not qualify"
-        );
-    }
-}
-
 #[test]
 fn supports_tool_calling_is_false_without_a_parseable_template() {
     let _environment = crate::susi_core::commit_log::ENV_LOCK

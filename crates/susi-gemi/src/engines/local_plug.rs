@@ -36,6 +36,19 @@ pub trait LocalEnginePlug: Send + Sync {
         callback: &dyn Fn(String),
         selected_model: Option<&str>,
     ) -> EaiResult<String>;
+    /// As `run_inference_stream`, with the conversation and the tool schemas
+    /// (`{"messages": [..], "tools": [..]}`) for a plug that renders the
+    /// model's own chat template. `prompt` remains the complete fallback, so
+    /// a plug that does not know them answers exactly as before.
+    fn run_chat_stream(
+        &self,
+        prompt: &str,
+        _chat: &Value,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
+    ) -> EaiResult<String> {
+        self.run_inference_stream(prompt, callback, selected_model)
+    }
     fn preload(&self, path: &Path) -> EaiResult<Value>;
     fn unload(&self, path: &Path) -> EaiResult<Value>;
     fn loaded_models(&self) -> Vec<Value>;
@@ -289,6 +302,38 @@ impl BuiltinLocalEnginePlug {
     }
 }
 
+/// The `infer_stream` request. `model_path`: the weights core resolved for
+/// `selected_model`, so the plug loads exactly that file. `messages` and
+/// `tools`: the same request as a conversation. All additive; older plugs
+/// ignore them.
+pub(crate) fn infer_payload(
+    prompt: &str,
+    chat: &Value,
+    selected_model: Option<&str>,
+    model_path: Option<std::path::PathBuf>,
+) -> Value {
+    let mut payload =
+        json!({ "prompt": prompt, "selected_model": selected_model, "model_path": model_path });
+    for key in ["messages", "tools", "max_tokens"] {
+        if let Some(value) = chat.get(key) {
+            payload[key] = value.clone();
+        }
+    }
+    payload
+}
+
+/// The reply, marked [`crate::susi_core::plane_bus::gemi::LENGTH_CUT`] when
+/// the plug says the model stopped at the `max_tokens` the caller asked for.
+pub(crate) fn length_cut(reply: &Value, chat: &Value, text: &str) -> String {
+    let cut = reply["finish_reason"] == "length" && chat.get("max_tokens").is_some();
+    let mark = if cut {
+        crate::susi_core::plane_bus::gemi::LENGTH_CUT
+    } else {
+        ""
+    };
+    format!("{mark}{text}")
+}
+
 impl LocalEnginePlug for BuiltinLocalEnginePlug {
     fn name(&self) -> &str {
         "susi-builtin-local-engine"
@@ -300,16 +345,23 @@ impl LocalEnginePlug for BuiltinLocalEnginePlug {
         callback: &dyn Fn(String),
         selected_model: Option<&str>,
     ) -> EaiResult<String> {
-        // `model_path`: the weights core resolved for `selected_model`, so the
-        // plug loads exactly that file (additive; older plugs ignore it).
+        self.run_chat_stream(prompt, &Value::Null, callback, selected_model)
+    }
+
+    fn run_chat_stream(
+        &self,
+        prompt: &str,
+        chat: &Value,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
+    ) -> EaiResult<String> {
         let model_path = selected_model.and_then(crate::models::ModelManager::get_model_path);
-        let payload =
-            json!({ "prompt": prompt, "selected_model": selected_model, "model_path": model_path });
+        let payload = infer_payload(prompt, chat, selected_model, model_path);
         if let Some(res) = call_bus_plug(TOPIC_LOCAL_INFER_STREAM, payload) {
             let val = res?;
             if let Some(t) = val.get("text").and_then(Value::as_str) {
                 callback(t.to_string());
-                return Ok(t.to_string());
+                return Ok(length_cut(&val, chat, t));
             }
         }
         Err(EaiError::inference(

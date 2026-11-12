@@ -312,3 +312,178 @@ fn vc_201_042_native_engines_through_contract_production_path_wired() {
     assert!(module_src.contains("InferenceHost::loaded_models"));
     assert!(module_src.contains("InferenceHost::unload"));
 }
+
+// ── Conversations and tool lists (T-CLAUDELOCALTOOLS-1) ──────────────────
+
+/// An engine that knows conversations, and records what it was given.
+#[derive(Default)]
+struct ChatEngine {
+    chats: Mutex<Vec<(String, serde_json::Value)>>,
+    plain: Mutex<Vec<String>>,
+}
+
+impl NativeInferenceEngine for ChatEngine {
+    fn name(&self) -> String {
+        "ChatNative".to_string()
+    }
+    fn run_inference(&self, prompt: &str) -> EaiResult<String> {
+        self.run_inference_stream(prompt, &|_| {}, None)
+    }
+    fn run_inference_stream(
+        &self,
+        prompt: &str,
+        _callback: &dyn Fn(String),
+        _selected_model: Option<&str>,
+    ) -> EaiResult<String> {
+        self.plain.lock().unwrap().push(prompt.to_string());
+        Ok("plain answer".to_string())
+    }
+    fn run_chat_stream(
+        &self,
+        prompt: &str,
+        chat: &serde_json::Value,
+        _callback: &dyn Fn(String),
+        _selected_model: Option<&str>,
+    ) -> EaiResult<String> {
+        self.chats
+            .lock()
+            .unwrap()
+            .push((prompt.to_string(), chat.clone()));
+        Ok("chat answer".to_string())
+    }
+}
+
+fn answer(engine: Arc<dyn NativeInferenceEngine>, call: &ContractCall<'_>) -> String {
+    let host = Arc::new(FakeHost::default());
+    host.models.lock().unwrap().push("m".to_string());
+    infer_via_host(engine, host, EngineKind::Native, call).unwrap()
+}
+
+#[test]
+fn a_request_with_tools_reaches_the_engine_as_a_conversation_and_keeps_its_prose_fallback() {
+    let listed = serde_json::json!([
+        {"name": "get_time", "description": "Current time in a city such as Paris", "input_schema": {
+            "type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}},
+        {"name": "paris_time_zone"},
+        {"name": "brain_matrix", "description": "Show the measured model capability matrix"},
+        {"description": "no name: not a tool the model can call"}
+    ]);
+    let chat =
+        crate::local_tool_calls::chat_request_from(&listed, "what time is it in Paris?").unwrap();
+    assert_eq!(
+        chat["messages"],
+        serde_json::json!([{"role": "user", "content": "what time is it in Paris?"}])
+    );
+    let tools = chat["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 2);
+    assert_eq!(tools[0]["type"], "function");
+    assert_eq!(tools[0]["function"]["name"], "get_time");
+    assert_eq!(tools[0]["function"]["parameters"]["required"][0], "city");
+    // Ranked by fit (get_time matches "time" and "paris" plus its description;
+    // paris_time_zone only its name), an unrelated tool is not offered, and a
+    // tool that publishes no schema still gets a valid empty one.
+    assert_eq!(tools[1]["function"]["name"], "paris_time_zone");
+    assert_eq!(
+        tools[1]["function"]["parameters"],
+        serde_json::json!({"type": "object", "properties": {}})
+    );
+    // Nothing registered, or nothing that fits: no conversation to send, so
+    // the model answers in prose instead of calling an unrelated tool.
+    let unrelated = serde_json::json!([{"name": "benchmark_run", "description": "Measure local inference latency"}]);
+    assert!(crate::local_tool_calls::chat_request_from(
+        &unrelated,
+        "What is the weather in Paris right now?"
+    )
+    .is_none());
+    assert!(crate::local_tool_calls::chat_request_from(&serde_json::json!([]), "hi").is_none());
+    assert!(
+        crate::local_tool_calls::chat_request_from(&serde_json::json!({"error": "x"}), "hi")
+            .is_none()
+    );
+
+    // The contract hands both to an engine that knows conversations...
+    let engine = Arc::new(ChatEngine::default());
+    let call = ContractCall::new("PROSE TOOLS\n\nwhat time is it in Paris?", &noop, Some("m"))
+        .with_chat(Some(chat.clone()));
+    assert_eq!(answer(engine.clone(), &call), "chat answer");
+    let seen = engine.chats.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert!(
+        seen[0].0.starts_with("PROSE TOOLS"),
+        "the prose prompt is still sent"
+    );
+    assert_eq!(seen[0].1, chat);
+    assert!(engine.plain.lock().unwrap().is_empty());
+    drop(seen);
+
+    // ...an engine that does not know them gets the prose prompt, as before...
+    let old = FakeEngine::with_output("old answer");
+    assert_eq!(answer(old.clone(), &call), "old answer");
+    assert!(old.calls.lock().unwrap()[0].0.starts_with("PROSE TOOLS"));
+
+    // ...and a request without tools is a plain prompt for every engine.
+    let plain = ContractCall::new("hello", &noop, Some("m"));
+    assert_eq!(answer(engine.clone(), &plain), "plain answer");
+    assert_eq!(engine.plain.lock().unwrap().as_slice(), ["hello"]);
+}
+
+#[test]
+fn the_plug_request_carries_the_conversation_only_when_there_is_one() {
+    use crate::engines::local_plug::infer_payload;
+    let chat = serde_json::json!({
+        "messages": [{"role": "user", "content": "q"}],
+        "tools": [{"type": "function", "function": {"name": "t"}}],
+        "ignored": true
+    });
+    let with = infer_payload("prose", &chat, Some("m"), None);
+    assert_eq!(with["prompt"], "prose");
+    assert_eq!(with["selected_model"], "m");
+    assert_eq!(with["messages"], chat["messages"]);
+    assert_eq!(with["tools"], chat["tools"]);
+    assert!(with.get("ignored").is_none());
+    // A plain request is byte for byte what it was before.
+    assert_eq!(
+        infer_payload("prose", &serde_json::Value::Null, Some("m"), None),
+        serde_json::json!({"prompt": "prose", "selected_model": "m", "model_path": null})
+    );
+}
+
+#[test]
+fn calls_to_caller_supplied_tools_are_returned_not_run() {
+    use crate::susi_core::plane_bus::gemi::CALLER_TOOL_CALLS;
+    let reply = crate::local_tool_calls::caller_tool_reply(
+        "Let me check.\n<tool_call>\n{\"name\": \"get_weather\", \"arguments\": {\"city\": \"Paris\"}}\n</tool_call>",
+    );
+    let body: serde_json::Value =
+        serde_json::from_str(reply.strip_prefix(CALLER_TOOL_CALLS).unwrap()).unwrap();
+    assert_eq!(body["content"], "Let me check.");
+    assert_eq!(body["tool_calls"][0]["name"], "get_weather");
+    assert_eq!(body["tool_calls"][0]["arguments"]["city"], "Paris");
+    // Text without a call is the answer as it is.
+    assert_eq!(
+        crate::local_tool_calls::caller_tool_reply("The sky is blue."),
+        "The sky is blue."
+    );
+}
+
+#[test]
+fn max_tokens_reaches_the_engine_request() {
+    let chat = serde_json::json!({"messages": [{"role": "user", "content": "q"}], "max_tokens": 5});
+    let payload = crate::engines::local_plug::infer_payload("q", &chat, None, None);
+    assert_eq!(payload["max_tokens"], 5);
+    // The engine says it stopped at that limit; the reply is marked for the
+    // server only when the caller asked for one.
+    use crate::engines::local_plug::length_cut;
+    use crate::susi_core::plane_bus::gemi::LENGTH_CUT;
+    let cut = serde_json::json!({"text": "Once upon", "finish_reason": "length"});
+    assert_eq!(
+        length_cut(&cut, &chat, "Once upon"),
+        format!("{LENGTH_CUT}Once upon")
+    );
+    assert_eq!(
+        length_cut(&cut, &serde_json::Value::Null, "Once upon"),
+        "Once upon"
+    );
+    let done = serde_json::json!({"text": "Hi."});
+    assert_eq!(length_cut(&done, &chat, "Hi."), "Hi.");
+}

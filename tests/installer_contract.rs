@@ -254,7 +254,7 @@ export HOME="$scratch/home" SUSI_HOME="$scratch/install" NONINTERACTIVE=1
 # below, so filtering whole PATH directories would lose the utilities.
 mkdir -p "$scratch/co-located"
 into="$scratch/co-located"
-for utility in bash tr grep rm mkdir ln; do
+for utility in bash tr grep rm mkdir ln chmod; do
     {link_utility}
 done
 printf '#!/usr/bin/env bash\nexit 97\n' >"$scratch/co-located/{missing}"
@@ -429,4 +429,69 @@ detect_features
     let output = run_bash(&script);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("retired"));
+}
+
+/// CEO Mandate 48: the installed susi tracks the latest release qualified for
+/// the host it runs on. The updater skips a release whose record has no
+/// reference build for this host, however new its tag.
+#[test]
+fn release_sync_picks_the_newest_release_qualified_for_this_host() {
+    let source = include_str!("../scripts/susi-release-sync.sh");
+    let selection = source
+        .split_once("release_tags() {")
+        .unwrap()
+        .1
+        .split_once("\ninstalled_version()")
+        .unwrap()
+        .0;
+    let host_asset = source
+        .split_once("host_asset() {")
+        .unwrap()
+        .1
+        .split_once("\n}\n")
+        .unwrap()
+        .0;
+    // v0.3.0 is the newest tag but was qualified on Windows only; v0.2.0 was
+    // qualified on Linux; v0.1.0 has no record at all.
+    let script = |system: &str, tags: &str| {
+        format!(
+            r#"set -euo pipefail
+REMOTE=fake SRC=/nonexistent
+log() {{ echo "$*" >&2; }}
+uname() {{ case "$1" in -s) echo {system} ;; *) echo x86_64 ;; esac; }}
+git() {{
+    case "$*" in
+        *ls-remote*) for t in {tags}; do echo "0000 refs/tags/$t"; done ;;
+        *releases/v0.3.0.json) echo '    {{ "file": "susi-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc" }}' ;;
+        *releases/v0.2.0.json) echo '    {{ "file": "susi-linux-x86_64", "target": "x86_64-unknown-linux-gnu" }}' ;;
+        *) return 1 ;;
+    esac
+}}
+host_asset() {{{host_asset}
+}}
+release_tags() {{{selection}
+latest_tag
+latest_qualified_tag
+"#
+        )
+    };
+    let all = "v0.1.0 v0.2.0 v0.3.0 not-a-release";
+    let linux = run_bash(&script("Linux", all));
+    assert!(linux.status.success(), "{linux:?}");
+    assert_eq!(String::from_utf8_lossy(&linux.stdout), "v0.3.0\nv0.2.0\n");
+    let skipped = String::from_utf8_lossy(&linux.stderr);
+    assert!(
+        skipped.contains("skipping v0.3.0: not qualified for this host"),
+        "{skipped}"
+    );
+    // On Windows the same remote yields the newest tag.
+    let windows = run_bash(&script("MINGW64_NT", all));
+    assert_eq!(String::from_utf8_lossy(&windows.stdout), "v0.3.0\nv0.3.0\n");
+    // Nothing qualified here: no tag is chosen, and that is not an error.
+    let none = run_bash(&script("Linux", "v0.1.0 v0.3.0"));
+    assert!(none.status.success(), "{none:?}");
+    assert_eq!(String::from_utf8_lossy(&none.stdout), "v0.3.0\n");
+    // The explicit path refuses too, unless knowingly overridden.
+    assert!(source.contains("SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST"));
+    assert!(source.contains("was not qualified for this host"));
 }

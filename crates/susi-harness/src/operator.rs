@@ -670,6 +670,16 @@ pub fn run_recursive(
         .map_err(|error| EaiError::internal(error.to_string()))
 }
 
+/// After a live publication the publishing clone witnesses the storage remote
+/// (`crate::storage_guard`): lost history becomes a note, never a failure.
+fn witness_storage(repo: &std::path::Path, remote: &str, dry_run: bool, notes: Notes<'_>) {
+    if !dry_run {
+        if let Some(note) = crate::storage_guard::witness(repo, remote) {
+            notes(note);
+        }
+    }
+}
+
 /// Automatically discover and integrate eligible pending development branches
 /// into unqualified `<remote>/main` (`susi-harness integrate` / `daemon.harness`
 /// `"integrate_pending"`).
@@ -687,6 +697,7 @@ pub fn integrate_pending(
         receipt.retired_count,
         receipt.deferred_or_refused_count,
     ));
+    witness_storage(&config.repo, &config.remote, receipt.dry_run, notes);
     Ok(serde_json::to_value(receipt)?)
 }
 
@@ -701,6 +712,7 @@ pub fn submit_main(
         "submit-main ({}): {} -> {}",
         receipt.mode, receipt.source_oid, receipt.final_main_oid
     ));
+    witness_storage(&config.repo, &config.remote, receipt.dry_run, notes);
     Ok(serde_json::to_value(receipt)?)
 }
 
@@ -718,6 +730,7 @@ pub fn promote_release(
         receipt.latest_verified_branch,
         receipt.promoted_branch_ref,
     ));
+    witness_storage(&config.repo, &config.remote, receipt.dry_run, notes);
     Ok(serde_json::to_value(receipt)?)
 }
 

@@ -225,15 +225,74 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// measured): T-CLAUDEAGENTREFS-1 removed the JSON `.claim` reader in
 /// `discover_active_claim_branches`, which no writer feeds (claims are
 /// `susi-local-claim-v2` text, read by the existing hazard scan).
+/// 2026-11-11: susi-harness 37,434 -> 37,536 (T-CLAUDESTORAGEGUARD-3,
+/// measured; CEO decision 2026-11-11, "raise it", docs/lean-core.md). The one
+/// rise here that is new capability, not a move: src/storage_guard.rs (347
+/// lines) and 14 lines in operator.rs and lib.rs make every harness
+/// publication witness the storage remote, so storage safety needs no
+/// hosting-provider rule. The crate measured 37,175 before the change, 259
+/// under its ceiling, so the ceiling moves by 102 while the source grows 361.
+/// 2026-11-12: susi-gemi 21,145 -> 21,047 and susi-gemi-models 15,945 ->
+/// 15,921 (T-CLAUDELEANPROMPT-1, measured). Removed runtime capability: none.
+/// `PromptFormat` (detect and wrap for four chat families) and
+/// `ModelManager::chat_template_supports_tools` were reached only by their
+/// own tests since the local engine left core; the engine that wraps prompts
+/// is Susi Commercial Apps' `susi-gpu-fabric`, which now renders the model's
+/// own chat template.
+/// 2026-11-12: susi-gemi 21,047 -> 21,180 (T-CLAUDELOCALTOOLS-1, measured;
+/// CEO direction 2026-11-12, "let the local engine take full conversations
+/// and tool lists", docs/lean-core.md). New capability, not a move: a request
+/// that needs tools now also reaches the local engine as a conversation with
+/// the registered tools' schemas, so the engine can render the model's own
+/// tool format. 133 lines, 35 over the ceiling this crate had this morning.
+/// 2026-11-12: susi-gemi-models 15,921 -> 15,939 (T-CLAUDETOOLCAP-1,
+/// measured; CEO direction 2026-11-12, "fix it and finish the end-to-end
+/// run"). `supports_tool_calling` answered `false` for every local model since
+/// the GGUF reader left core, so a request that needs tools was refused before
+/// it reached the engine. It now asks the engine (18 lines).
+/// 2026-11-12: susi-gemi 21,180 -> 21,172 (T-CLAUDETOOLPICK-1, measured).
+/// Local tool requests now offer the tools that fit the request (at most 8)
+/// instead of the first 32 by name; the new selection is paid for by deleting
+/// what nothing called: the dead `ModelSubstrate`/`NeuralBackend` leftovers
+/// of the engine move, `needs_qwen2_backend`, `cost::expected_call_cost_usd`
+/// and `worker::is_seat`.
+/// 2026-11-12: susi-gawd-a2a 3,619 -> 3,588 (T-CLAUDEACPGAWD-1, measured):
+/// ACP turns on 9094 now run as GAWD missions (`GawdAcpExecutor`) instead of
+/// core's echo executor; the ceiling ratchets down to the measured size.
+/// 2026-11-12: T-CODEXHISTORY-1, measured after carrying the normalized
+/// OpenAI conversation and tool schemas from the server through GAWD/GEMI to
+/// the local engine. CEO direction is board item 215; no dependency or
+/// reach-ceiling changes are made.
+/// `susi-gawd` 12,523 -> 12,525, `susi-gawd-swarm` 20,116 -> 20,206 and
+/// `susi-gemi` 21,172 -> 21,262.
+/// 2026-11-12: susi-gemi 21,172 -> 21,063 (T-CLAUDEGEMIFIX-1, measured):
+/// `/v1/embeddings` gets one 30 s budget across providers; paid for by
+/// deleting what only its own tests called (`looks_like_inference_tool`,
+/// `worker::seat_window_state`). With T-CODEXHISTORY-1 merged the
+/// measured size is 21,153.
+/// 2026-11-12: susi-gemi 21,153 -> 21,096 (T-CLAUDEGEMIFIX-2, measured):
+/// calls to caller-supplied tools return to the caller as OpenAI
+/// `tool_calls` and `max_tokens` reaches the engine; paid for by deleting
+/// `SusiPulse::compute_spectral_prediction` and `SpectralPrediction`, which
+/// only their own test used.
+/// 2026-11-12: susi-gawd-a2a 3,588 -> 3,413 (T-CTOCORELEAN-1, measured):
+/// remove dead `TaskStore::delete` (-4 production lines) and move the unchanged
+/// `executor.rs` inline unit suite (-171 lines; test organization, not removed
+/// runtime capability) to `src/tests/executor.rs`, the crate's convention,
+/// alongside pruning 73 production lines of unreferenced dead helpers in
+/// `susi-vendor-tempfile` and `susi-vendor-wasmtime`.
+/// 2026-11-12: susi-gawd-a2a 3,413 -> 3,347 (T-CLAUDEACPHISTORY-1, measured):
+/// ACP session history reaches the GAWD mission (+31), paid by moving the
+/// inline `capabilities` unit tests to `src/tests/capabilities.rs` (-97).
 const LINE_CEILINGS: [(&str, usize); 8] = [
-    ("susi-gawd", 12_523),
-    ("susi-gawd-swarm", 20_116),
+    ("susi-gawd", 12_525),
+    ("susi-gawd-swarm", 20_206),
     ("susi-gawd-agents", 10_443),
-    ("susi-gawd-a2a", 3_619),
-    ("susi-gemi", 21_145),
-    ("susi-gemi-models", 15_945),
+    ("susi-gawd-a2a", 3_347),
+    ("susi-gemi", 21_096),
+    ("susi-gemi-models", 15_939),
     ("susi-gmcp", 25_860),
-    ("susi-harness", 37_434),
+    ("susi-harness", 37_536),
 ];
 
 fn workspace_root() -> PathBuf {

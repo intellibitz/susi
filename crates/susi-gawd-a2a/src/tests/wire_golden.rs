@@ -57,6 +57,9 @@ fn app() -> susi_http_transport::server::Router {
     let card = executor.agent_card();
     super::app(
         Arc::new(executor),
+        Arc::new(crate::executor::GawdAcpExecutor::with_runner(Arc::new(
+            |prompt: &str| Ok(format!("gawd mission: {prompt}")),
+        ))),
         card,
         Arc::new(crate::task_store::TaskStore::new()),
         verifier(),

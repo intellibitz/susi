@@ -442,6 +442,17 @@ pub fn with_watched<T>(payload: &Value, call: impl FnOnce() -> T) -> T {
 pub mod gemi {
     use super::*;
 
+    /// Prefix of a GEMI reply that carries the tool calls a model made with
+    /// tools the caller supplied: `{"content": .., "tool_calls": [{"name",
+    /// "arguments"}]}` follows. The caller runs its own tools, so GEMI returns
+    /// the calls instead of executing them; the 9091 server turns them into
+    /// OpenAI `tool_calls`.
+    pub const CALLER_TOOL_CALLS: &str = "[SUSI CALLER_TOOL_CALLS]";
+
+    /// Prefix of a GEMI reply the model stopped because it reached the
+    /// caller's `max_tokens`, so the 9091 server answers `"length"`.
+    pub const LENGTH_CUT: &str = "[SUSI LENGTH_CUT]";
+
     /// Bounded provider identifier accepted across CLI, HTTP, MCP, and the
     /// plane bus. This is a wire invariant and deliberately performs no I/O.
     pub fn valid_provider_id(value: &str) -> bool {
@@ -751,7 +762,27 @@ pub mod gemi {
             on_meta: &dyn Fn(&str),
             requires: Option<&str>,
         ) -> String {
-            Self::stream(prompt, workspace, on_chunk, model, on_meta, false, requires)
+            Self::generate_reasoning_stream_with_model_meta_chat(
+                prompt, workspace, on_chunk, model, on_meta, requires, None,
+            )
+        }
+
+        /// Streaming reasoning with the complete caller conversation for a
+        /// local engine that can render the model's own template. The prose
+        /// prompt remains the fallback for older engines and cloud providers.
+        #[allow(clippy::too_many_arguments)]
+        pub fn generate_reasoning_stream_with_model_meta_chat(
+            prompt: &str,
+            workspace: &Path,
+            on_chunk: &dyn Fn(String),
+            model: Option<&str>,
+            on_meta: &dyn Fn(&str),
+            requires: Option<&str>,
+            chat: Option<Value>,
+        ) -> String {
+            Self::stream(
+                prompt, workspace, on_chunk, model, on_meta, false, requires, chat,
+            )
         }
 
         /// Streaming reasoning that never takes a reflex tier — for
@@ -763,7 +794,22 @@ pub mod gemi {
             workspace: &Path,
             on_chunk: &dyn Fn(String),
         ) -> String {
-            Self::stream(prompt, workspace, on_chunk, None, &|_| {}, true, None)
+            Self::stream(prompt, workspace, on_chunk, None, &|_| {}, true, None, None)
+        }
+
+        /// Deep streaming reasoning with a caller conversation.
+        #[allow(clippy::too_many_arguments)]
+        pub fn generate_reasoning_stream_deep_meta_chat(
+            prompt: &str,
+            workspace: &Path,
+            on_chunk: &dyn Fn(String),
+            model: Option<&str>,
+            on_meta: &dyn Fn(&str),
+            chat: Option<Value>,
+        ) -> String {
+            Self::stream(
+                prompt, workspace, on_chunk, model, on_meta, true, None, chat,
+            )
         }
 
         #[allow(clippy::too_many_arguments)] // private helper behind the two public stream entry points; a params struct would only wrap them
@@ -775,6 +821,7 @@ pub mod gemi {
             on_meta: &dyn Fn(&str),
             deep: bool,
             requires: Option<&str>,
+            chat: Option<Value>,
         ) -> String {
             let bus = PlaneBus::global();
             let (stream_id, rx) = bus.open_stream();
@@ -787,6 +834,7 @@ pub mod gemi {
                     "model": model,
                     "deep": deep,
                     "requires": requires,
+                    "chat": chat,
                     "on_demand_engine_start": crate::susi_core::provider::OnDemandEngineStart::allowed(),
                 }),
             );
@@ -822,7 +870,7 @@ pub mod gemi {
         }
 
         pub fn generate_reasoning_deep(prompt: &str, workspace: &Path) -> String {
-            Self::deep(prompt, workspace, None, None, None)
+            Self::deep(prompt, workspace, None, None, None, None)
         }
 
         pub fn generate_reasoning_deep_with_model(
@@ -830,7 +878,7 @@ pub mod gemi {
             workspace: &Path,
             model: &str,
         ) -> String {
-            Self::deep(prompt, workspace, Some(model), None, None)
+            Self::deep(prompt, workspace, Some(model), None, None, None)
         }
 
         /// Deep reasoning with the request's declared capability
@@ -843,18 +891,32 @@ pub mod gemi {
             model: Option<&str>,
             requires: Option<&str>,
         ) -> String {
-            Self::deep(prompt, workspace, model, None, requires)
+            Self::generate_reasoning_deep_full_chat(prompt, workspace, model, requires, None)
+        }
+
+        /// Non-streaming deep reasoning with the complete caller
+        /// conversation, preserving the plain prompt fallback.
+        pub fn generate_reasoning_deep_full_chat(
+            prompt: &str,
+            workspace: &Path,
+            model: Option<&str>,
+            requires: Option<&str>,
+            chat: Option<Value>,
+        ) -> String {
+            Self::deep(prompt, workspace, model, None, requires, chat)
         }
 
         /// Shared non-streaming inference request: `model` selects the
         /// caller-named model, `requires` forwards the declared
         /// capability into the engine's local-rung gate.
+        #[allow(clippy::too_many_arguments)]
         fn deep(
             prompt: &str,
             workspace: &Path,
             model: Option<&str>,
             min_complexity: Option<&str>,
             requires: Option<&str>,
+            chat: Option<Value>,
         ) -> String {
             let topic = if model.is_some() {
                 topics::GEMI_INFER_GENERATE_DEEP_MODEL
@@ -869,6 +931,7 @@ pub mod gemi {
                     "model": model,
                     "min_complexity": min_complexity,
                     "requires": requires,
+                    "chat": chat,
                     "on_demand_engine_start": crate::susi_core::provider::OnDemandEngineStart::allowed(),
                 }),
             )
@@ -902,7 +965,7 @@ pub mod gemi {
             workspace: &Path,
             complexity: &str,
         ) -> String {
-            Self::deep(prompt, workspace, None, Some(complexity), None)
+            Self::deep(prompt, workspace, None, Some(complexity), None, None)
         }
 
         pub fn verify_axiomatic_alignment(text: &str, workspace: &Path) -> Result<String, String> {
@@ -1137,6 +1200,50 @@ pub mod gawd {
         .to_string()
     }
 
+    /// Solve a mission while carrying the caller's cooperative cancellation
+    /// flag through the watched PlaneBus request and into the GAWD handler.
+    pub fn solve_mission_cancellable(
+        intent: &str,
+        workspace: &Path,
+        version: &str,
+        cancel: crate::progress::Cancel,
+    ) -> String {
+        crate::progress::with_cancel(Some(cancel), || {
+            req_watched(
+                topics::GAWD_SOLVE,
+                json!({
+                    "intent": intent,
+                    "workspace": workspace.display().to_string(),
+                    "version": version,
+                    "model": null
+                }),
+            )
+        })
+        .unwrap_or_else(|e| json!({ "error": e }))
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+    }
+
+    /// Solve a mission for an ACP/A2A caller, preserving the active cancel
+    /// scope and refusing an empty or unreachable GAWD answer.
+    pub fn solve_mission_for_acp(
+        intent: &str,
+        workspace: &Path,
+        version: &str,
+    ) -> Result<String, String> {
+        let answer = crate::progress::current_cancel().map_or_else(
+            || solve_mission(intent, workspace, version),
+            |cancel| solve_mission_cancellable(intent, workspace, version, cancel),
+        );
+        if answer.trim().is_empty() {
+            Err("mission produced no result (GAWD plane unreachable or empty answer)".to_string())
+        } else {
+            Ok(answer)
+        }
+    }
+
     /// The user's own mission, as `susi <goal>` runs it in process, for a
     /// caller that forwards the goal to the daemon (`mission_run`). The
     /// handler may start a stopped local engine on demand, and the answer
@@ -1178,6 +1285,21 @@ pub mod gawd {
         model: Option<&str>,
         requires: Option<&str>,
     ) -> String {
+        solve_mission_generative_with_chat(intent, workspace, version, model, requires, None)
+    }
+
+    /// Generative mission solve with the caller's normalized conversation.
+    /// Non-local providers continue to receive the assembled prose intent;
+    /// the chat payload is carried through the GAWD/GEMI local path.
+    #[allow(clippy::too_many_arguments)]
+    pub fn solve_mission_generative_with_chat(
+        intent: &str,
+        workspace: &Path,
+        version: &str,
+        model: Option<&str>,
+        requires: Option<&str>,
+        chat: Option<Value>,
+    ) -> String {
         req_ok(
             topics::GAWD_SOLVE,
             json!({
@@ -1186,7 +1308,8 @@ pub mod gawd {
                 "version": version,
                 "model": model,
                 "generative": true,
-                "requires": requires
+                "requires": requires,
+                "chat": chat
             }),
         )
         .get("text")

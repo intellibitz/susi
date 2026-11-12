@@ -10,6 +10,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn SetErrorMode(mode: u32) -> u32;
+}
+
 fn run(mut command: Command, directory: &Path, label: &str, seconds: u64) -> Output {
     let stdout = directory.join(format!("{label}.stdout"));
     let stderr = directory.join(format!("{label}.stderr"));
@@ -38,6 +44,16 @@ fn run(mut command: Command, directory: &Path, label: &str, seconds: u64) -> Out
 }
 
 fn main() {
+    #[cfg(windows)]
+    {
+        const SEM_FAILCRITICALERRORS: u32 = 0x0001;
+        const SEM_NOGPFAULTERRORBOX: u32 = 0x0002;
+        // SAFETY: `SetErrorMode` configures inheritable process error flags so
+        // child qualification probes never stall on Windows error dialogs.
+        unsafe {
+            SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+        }
+    }
     let args: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
     assert!(
         matches!(args.len(), 5..=7),
@@ -158,7 +174,7 @@ fn main() {
             if mode == "init-failure" {
                 command.env("SUSI_PROBE_FAIL_INIT", "1");
             }
-            let output = run(command, root, &label, 20);
+            let output = run(command, root, &label, 60);
             let expected = match mode {
                 "normal" => 37,
                 "exit" => 29,

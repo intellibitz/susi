@@ -71,6 +71,9 @@ fn serve(runtime: &tokio::runtime::Runtime, executor: Arc<dyn AgentExecutor>) ->
     let card = crate::executor::GawdA2AExecutor::new().agent_card();
     let app = super::app(
         executor,
+        Arc::new(crate::executor::GawdAcpExecutor::with_runner(Arc::new(
+            |prompt: &str| Ok(format!("gawd mission: {prompt}")),
+        ))),
         card,
         Arc::new(TaskStore::new()),
         Arc::new(|_: &super::VerifierContext| true),

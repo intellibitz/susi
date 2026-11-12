@@ -175,37 +175,12 @@ impl ModelManager {
         header_is_valid && minimum_bytes.is_none_or(|minimum| size_bytes >= minimum)
     }
 
-    /// Whether a Jinja chat template carries a tools block. Detection is
-    /// lexical — there is no machine-readable capability flag in GGUF — and
-    /// covers the forms the supported architectures actually ship: the
-    /// `tools` parameter check (llama/qwen3: `tools is not none`, `if tools`),
-    /// tool-call delimiters (`<tool_call>`, `[TOOL_CALLS]`), and Mistral's
-    /// `[AVAILABLE_TOOLS]`/`available_tools` convention. False positives from
-    /// a stray mention in prompt prose only cost a preference point, never a
-    /// wrong exclusion — the caller drops tool-less models only when a
-    /// capable sibling exists.
-    #[allow(dead_code)]
-    pub(crate) fn chat_template_supports_tools(template: &str) -> bool {
-        let t = template.to_lowercase();
-        [
-            "tools is not none",
-            "tools is defined",
-            "if tools",
-            "tool_call",
-            "available_tools",
-            "[tool",
-        ]
-        .iter()
-        .any(|marker| t.contains(marker))
-    }
-
-    /// Reads the GGUF header's `tokenizer.chat_template` and reports whether
-    /// the model can be asked for tool calls. The local engines do not emit
-    /// tool-call parsing yet; this is the capability record that lets
-    /// selection prefer capable models now and lets a hard `needs_tools`
-    /// filter exist the day they do. Cached per (path, len, mtime) like
-    /// `valid_gguf_payload` — `Content::read` stops at the metadata table but
-    /// still walks every tensor-info entry, which is not free on big models.
+    /// Whether the model at `path` can be asked for tool calls: whether its
+    /// chat template has a tools block. Core does not read GGUF metadata; the
+    /// local engine that renders the template answers
+    /// ([`Self::TOPIC_MODEL_CAPABILITIES`]). Cached per (path, len, mtime).
+    /// With no engine attached the answer is not known: `false`, and not
+    /// remembered, so a model becomes tool-capable when an engine arrives.
     pub fn supports_tool_calling(path: &Path) -> bool {
         let Ok(meta) = path.metadata() else {
             return false;
@@ -213,18 +188,37 @@ impl ModelManager {
         let Ok(modified) = meta.modified() else {
             return Self::judge_gguf_template_supports_tools(path).unwrap_or(false);
         };
-        super::file_verdicts::remembered("gguf_tool_template", path, (meta.len(), modified), || {
-            Self::judge_gguf_template_supports_tools(path)
-        })
+        // `_v2`: verdicts remembered before the engine was asked said `false`
+        // for every model and must not be reused.
+        super::file_verdicts::remembered(
+            "gguf_tool_template_v2",
+            path,
+            (meta.len(), modified),
+            || Self::judge_gguf_template_supports_tools(path),
+        )
     }
 
-    /// Whether the GGUF at `path` declares a tool-capable chat template;
-    /// `None` when an I/O error ended the read.
+    /// The local engine plug's answer to "what can this model file do":
+    /// request `{"path": ..}`, reply `{"tools": bool}`.
+    pub const TOPIC_MODEL_CAPABILITIES: &'static str = "gpu_fabric.local_engine.model_capabilities";
+
+    /// `None` when an I/O error ended the read, no engine is attached, or the
+    /// engine did not answer: unknown, never remembered.
     fn judge_gguf_template_supports_tools(path: &Path) -> Option<bool> {
-        match gguf_magic_whole_enough(path) {
-            Some(true) => Some(false),
-            other => other,
+        if !gguf_magic_whole_enough(path)? {
+            return Some(false);
         }
+        let bus = crate::susi_core::plane_bus::PlaneBus::global();
+        if !bus.is_wired(Self::TOPIC_MODEL_CAPABILITIES) {
+            return None;
+        }
+        bus.request(
+            Self::TOPIC_MODEL_CAPABILITIES,
+            serde_json::json!({ "path": path.display().to_string() }),
+        )
+        .ok()?
+        .get("tools")?
+        .as_bool()
     }
 
     /// Whether any discovered local GGUF declares a tool-capable chat

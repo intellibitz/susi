@@ -1,28 +1,144 @@
 **START HERE: read the CEO mandates below, inspect local state, and reserve an isolated worktree before editing.**
 
-## CEO Mandate 74 (2026-11-11): dump to main, distill releases, harvest
+## CEO Mandate 77 (2026-11-12): One Isolated Working Directory per Agent (Agent Roots)
 
-Read [CEO Mandate 74](docs/ceo-mandate-74.md) first; it wins where older text
-differs. **Agent reminder:** work in your own isolated worktree, dump labelled
-work straight into `main` with no gates and no PRs, let Susi distill releases
-with conflict-free parallel picks, harvest Apache-2.0 code with full
-attribution, and treat GitHub as a storage bucket only.
+Read [CEO Mandate 77](docs/ceo-mandate-77.md). Every agent works only under its
+own root: one directory per agent per machine, named for the agent.
 
-- `main` is an append-only feature dump: no gates, no workflows, no pull requests.
-  Label every dump (one feature per commit series, `Task:` trailers, task record).
-- Susi, never GitHub, distills `release/<name>` branches: disjoint lanes, atomic
-  claim refs, `cherry-pick -x`, exact-tree qualification, atomic fast-forward pushes.
-- Git is the source code manager; GitHub is storage only. Zero dependency on any
-  hosting provider; a cloud move is a remote change.
-- Any Apache-2.0 repository anywhere may be harvested with per-file license
-  verification, a harvest manifest, Apache-2.0 notices and `Origin:` trailers.
-- Core (GAWD, GEMI, GMCP, ACP, harness) is Apache-2.0 and free forever. The
-  harness is driver and engine, and becomes default driver only on measured parity.
+- **Find or register your root first:** `susi-commercial workflow root show`,
+  or `susi-commercial workflow root init --agent <name>` (default
+  `~/susi-agents/<name>`). A root is marked by a `.susi-agent-root` file naming
+  its owner; existing roots are registered in place, never moved.
+- **Everything you create lives under it:** your own clones of both
+  repositories, every worktree, build target, private `SUSI_HOME` and scratch
+  file.
+- **Never write in another agent's root or the CEO's working directory.** You
+  may read it and fetch from it; to change something there, ask the owner on
+  the Susi Board.
+- **Enforced:** `workflow start` and the commit guard refuse to work inside a
+  root that belongs to a different agent. A checkout in no registered root is
+  reported, not refused.
+
+## CEO Mandate 76 (2026-11-12): Multi-Agent Collaboration through the Susi Board
+
+Read [CEO Mandate 76](docs/ceo-mandate-76.md). Every agent collaborates with
+every other agent through the Susi Board; the CEO is not a message relay.
+
+- **Read the board** at session start, before claiming a scope, before every
+  publish to `main`, and before cutting a release. A stop note halts publishing.
+- **Post on the board:** a Claim before the first edit (task ID, paths, worktree,
+  acceptance), Landed after the commit is on `origin`, and Cut, Heads-up,
+  Request, Handoff, Decision or Blocked when they apply.
+- **Append only:** add the next numbered item, re-check the number after
+  appending, never edit or delete another agent's item.
+- **Respect claims and answer each other:** never edit inside another agent's
+  open claim, ask the owner on the board, and answer what is addressed to you
+  before starting new work.
+- **Truthful, confidential, portable:** only verified facts; no credentials or
+  commercial source on the board; plain text with zero GitHub or hosted-service
+  dependency. The board coordinates; Git stays the record; it adds no gate.
+
+## CEO Mandate 75 (2026-11-12): Raw Source (main) & Distill (release), Cloud Raw-Source Pickup, and Pure Apache-2.0 Compliance
+
+Read [CEO Mandate 75](docs/ceo-mandate-75.md) first; it builds on Mandate 74 and
+wins where older text differs.
+
+- **Raw Source (`main`) -> Distill (`release`) across both repositories:** Both
+  `intellibitz/susi` and `intellibitz/susi-commercial-apps` run strictly on the
+  **Raw Source (`main`) -> Distill (`release`)** pipeline. Raw features (both
+  agent-authored and cloud-harvested) land freely and continuously on `main` with
+  remote pull and merge reconciliation at every workflow step and structured
+  final-paragraph commit trailers (`Task:`, `Feature:`, and when harvested
+  `Harvest:`, `Origin: <url>@<sha>:<path>`, `Origin-License: Apache-2.0`). Susi —
+  never GitHub — deterministically distills verified features into conflict-free
+  `release` candidate lines (`refs/candidates/release/*`,
+  `refs/candidates/distill/*`, one-version-one-cut `release_version_guard`
+  claims) and immutable `vX.Y.Z` snapshots.
+- **Cloud raw-source feature pickup (`Core` vs. `Commercial Apps`):** Use
+  `local-harvest raw-features`, `local-harvest route`, and `local-harvest pickup`
+  (`docs/harvest.md`) to freely discover and integrate capabilities from cloud raw
+  sources without reinventing the wheel: route lean, zero-UI, zero-vendor-product
+  capabilities inside the **5 open-core pillars** (`GAWD`, `GEMI`, `GMCP`, `ACP`,
+  `Susi Harness`) within `<10s` (`total_ms < 10_000`) and `lean_core_ceilings` to
+  `intellibitz/susi`; route all product features, UIs, enterprise packs,
+  connectors, SSO/RBAC, FinOps and turnkey workflows exclusively to closed,
+  licensed, paid `intellibitz/susi-commercial-apps`.
+- **PURE `Apache-2.0` ONLY for cloud harvest compliance:** Across both `susi` and
+  `susi-commercial-apps`, cloud raw-source feature pickup and harvesting accepts
+  **ONLY `Apache-2.0`** (pure `Apache-2.0`, or dual-licensed `Apache-2.0 OR ...`
+  electing and binding `"Apache-2.0"` exclusively). Standalone `MIT`-only,
+  `BSD-2-Clause`-only, `BSD-3-Clause`-only, `Apache-2.0 WITH LLVM-exception`
+  (unless pure `Apache-2.0` is offered via `OR`), `AND` combinations, `ISC`,
+  `MPL`, `GPL`/`LGPL`/`AGPL`, `SSPL`/`BUSL`, source-available, and unlicensed raw
+  source are hard-refused. Every harvested file carries full Apache-2.0 §4(a)–(d)
+  compliance (`LICENSES/Apache-2.0.txt`, `Modified by` notice on modified/ported
+  files, preserved upstream notices, and deterministic `THIRD_PARTY_NOTICES`).
+  Existing `deny.toml` crate-graph closure remains truthful for `Cargo.lock`
+  (Mandate 68), while pure-`Apache-2.0` raw-source pickup is preferred over adding
+  new external crate dependencies.
+- **Multi-agent Git & Susi Board collaboration:** `Claude`, `Codex`,
+  `Antigravity` (`Carbon`), `Grok` and `Susi Harness` collaborate additively over
+  portable Git storage (`origin`) and the shared Susi coordination board,
+  deconflicting upstream harvest targets before import and preserving peer work.
+
+## CEO Mandate 74 (2026-11-11): <10s core, 5 pillars, remote pull & merge, distilled releases, corporate commercial boundary
+
+Read [CEO Mandate 74](docs/ceo-mandate-74.md) alongside
+[CEO Mandate 75](docs/ceo-mandate-75.md) (Mandate 75 refines cloud raw-source
+pickup to Pure `Apache-2.0` only); they win where older text
+differs. **Agent reminder:** work in your own isolated worktree with remote pull
+and merge at every step, keep Susi core build+test+release under 10 seconds across
+its 5 Apache-2.0 pillars, dump labelled work straight into `main` with no gates
+and no PRs, let Susi distill releases with conflict-free parallel picks, harvest
+pure Apache-2.0 code with full attribution, keep all add-ons closed/licensed/paid in
+`susi-commercial-apps`, and treat GitHub as a storage bucket only.
+
+- **Blazing-fast `<10s` Susi core budget:** Core build + verification test suite
+  + distilled release artifact and SHA-256 provenance manifest must complete in
+  **under 10 seconds (`< 10.0s` / `total_ms < 10_000` warm pipeline budget)**,
+  recording `build_ms`, `test_ms`, `release_ms`, `total_ms` and durable evidence
+  while reporting cold vs. warm timings separately and honestly (Mandates 1, 62, 69).
+  The `<10s` budget is the warm fast check (`cargo fast-release`); it is not
+  the full workspace suite, which takes minutes and is what qualifies a
+  release. Report both, never one as the other.
+- **Continuous `main` & deterministic release distillation:** `main` is an
+  append-only, ungated feature dump (no gates, no workflows, no pull requests).
+  Label every dump (one feature per commit series, `Task: T-<AGENT>-<n>` trailers,
+  `.agents/tasks/` record). Susi, never GitHub, deterministically distills
+  qualified releases (`releases/<tag>.json`, `.agents/releases/<name>.json` on
+  `refs/candidates/release/<name>`, and immutable release tags): disjoint lanes,
+  atomic claim refs, `cherry-pick -x`, exact-tree qualification, atomic
+  fast-forward pushes.
+- **Remote pull and merge at every workflow step:** Every step (`start`, `sync`,
+  `commit`, `distill`, `ship`, `release`, and parallel Susi Harness steps)
+  supports remote `fetch` + pull and merge reconciliation with `origin` when
+  reachable (offline-safe when disconnected) so distributed agents and laptops
+  stay continuously reconciled.
+- **GitHub is portable Git storage only:** Pure Git transport (`origin` for
+  `susi` and `susi-commercial-apps`); zero GitHub Actions, zero hosted PR/status
+  gates, zero `gh` CLI or GitHub API lock-in; moving clouds is a remote URL change.
+- **5 Apache-2.0 free-forever core pillars:** **GAWD** (swarm/A2A coordination),
+  **GEMI** (model inference router), **GMCP** (MCP protocol & tool plane),
+  **ACP** (Agent Client Protocol / Agent Communication Protocol standard socket),
+  and **Susi Harness** (driver & engine with built-in parallel multi-agent
+  workflow; becomes default driver only on measured parity).
+- **Closed, licensed, paid corporate commercial suite:** All add-on features,
+  UIs, enterprise packs, SSO/RBAC, FinOps, corporate fleet governance, and
+  turnkey workflows go **exclusively** into **Susi Commercial Apps**
+  (`intellibitz/susi-commercial-apps`), which is closed-source, licensed
+  (`SUSI-ENT-v1` / Ed25519 `SUSI-CUST-v1`), and paid software for commercial
+  entities and corporates.
+- **Attributed Pure Apache-2.0 harvesting (Mandate 75):** Any pure `Apache-2.0`
+  repository (or dual-licensed `Apache-2.0 OR ...` electing `"Apache-2.0"`
+  exclusively) anywhere may be harvested with quarantine intake, per-file license
+  verification, a harvest manifest, Apache-2.0 section 4 notices and `Origin:`
+  trailers; standalone MIT/BSD, `Apache-2.0 WITH LLVM-exception`, `AND`, copyleft
+  and unlicensed raw source is refused.
 
 ## CEO operating mandate (2026-11-10, Mandate 73)
 
 Read [the consolidated CEO agent mandate](docs/ceo-agent-mandate.md) before work.
-Three isolated laptops each have **dot, opus, carbon and grok**. An **available authorized driver** coordinates local agents on each laptop:
+Three isolated laptops each run the CEO's agent roles, **dot, opus, carbon and grok**: role names, not vendors and not a head count. The agents actually present on a machine are those with a registered agent root (Mandate 77). An **available authorized driver** coordinates local agents on each laptop:
 dot, duet, another agent, or Susi harness when its capabilities are verified.
 Cloud sessions are independent and fully autonomous
 within the user's authorization. Susi's master brain owns distillation, task and
@@ -43,12 +159,15 @@ The only remote branch on GitHub is `refs/heads/main` (CEO directives
 see `docs/agent-refs.md`); never push `refs/heads/local-agent/*`,
 `refs/heads/release/*`, `refs/heads/release-staging/*`, `refs/heads/distill/*`,
 `refs/heads/wip/*`, or any other branch head, and never open, merge, or close a
-pull request. Release candidates stay local to Susi and publish exclusively as
-immutable tags (`refs/tags/susi-distill/<name>`, `refs/tags/v<version>`).
+pull request. A release line lives on storage as the non-branch ref
+`refs/candidates/release/<name>` (fast-forward only, never deleted,
+`docs/release-lanes.md`); a `refs/heads/release/*` branch stays local. Snapshots
+and releases publish as immutable tags (`refs/tags/susi-distill/<name>`,
+`refs/tags/v<version>`).
 Development branches may advance without a mandatory gate; release candidates
 require qualification and published release tags are
 immutable snapshots with source, license, toolchain, tests and artifact provenance.
-Preserve GAWD, GEMI, GMCP and the harness as lean Apache-2.0 core, commercial
+Preserve GAWD, GEMI, GMCP, ACP and the Susi harness as lean Apache-2.0 core, commercial
 confidentiality, existing access controls, safety, production health and rollback.
 This is a mandate, not a claim that all agents, providers or workflow features
 are deployed. No security setting, credential grant or branch protection changes
@@ -78,6 +197,16 @@ behavior: treat that as migration work, not as authority to disregard the CEO.
 These are requirements, **not claims of completed implementation**. Consult
 `docs/native-rust-direction.md` and live verification for current status.
 
+**Retired and merged mandates (CEO decision 2026-11-12).** Mandate IDs are never
+renumbered or reused; a retired ID stays in `.agents/identity.json` with a
+pointer. Merged: 2, 7 and 8 into 1 (truth); 3 into 69 (bloat); 36 into 25
+(destructive-command guard); 38 into 10 (secrets); 44 into 70 (zero
+configuration); 43 into 63 (Rust-only). Retired: 28, 29 and 30, which mandated
+`tokio`, `rayon` and `parking_lot`; the goal is kept in Mandate 5 and the choice
+of library follows the dependency ceilings. Reworded: 5 and 35 (goal, not
+library), 54 (a release gate, never a main gate, no pull-request adapters), 68
+(dependency allowlist vs. Apache-2.0-only for copied source), 72, 73 and 74.
+
 | Mandate | Required outcome |
 | --- | --- |
 | 62 | Agent-only end-to-end delivery; no CEO code inspection or technical repair. |
@@ -92,6 +221,10 @@ These are requirements, **not claims of completed implementation**. Consult
 | 71 | **Susi: AI that earns its next upgrade.** Promote demonstrated improvement, with durable evidence and rollback. |
 | 72 | **Platform scope, licensing and budget:** Susi core is Apache-2.0 and free forever, with releases and CI on vanilla Windows x86_64 and Linux x86_64 only (portable source kept); Susi Commercial Apps is private/paid and also builds, tests and releases for x86_64 Windows and Linux only; its macOS/ARM64 support is paused (CEO decision 2026-11-05) until the CEO reopens it. |
 | 73 | **Independent agents and Susi integration:** three isolated laptops with an available authorized local driver, recursive driver/engine adapters across container components, independent autonomous cloud sessions, capacity-based unlimited development contributions, master-brain distillation, portable Git storage and immutable release snapshots. |
+| 74 | **Autonomous CTO ecosystem mandate (2026-11-11):** `<10s` warm core build+test+release budget (`total_ms < 10_000`); 5 Apache-2.0 free-forever core pillars (**GAWD**, **GEMI**, **GMCP**, **ACP**, **Susi Harness** with parallel multi-agent workflow); remote pull and merge at every workflow step over portable Git storage (zero GitHub Actions/PRs/API); ungated labelled `main` deterministically distilled into immutable releases; attributed Apache-2.0 harvesting; all add-ons/UIs/SSO/RBAC/FinOps closed, licensed, and paid for corporates in `susi-commercial-apps`. |
+| 75 | **Raw Source (`main`) & Distill (`release`), Cloud Feature Pickup, and Pure `Apache-2.0` Compliance (2026-11-12):** symmetric Raw Source (`main`) -> Distill (`release`) pipeline across `susi` and `susi-commercial-apps` with one-version-one-cut guards; `local-harvest raw-features` / `route` / `pickup` routing 5-pillar `<10s` capabilities to Core and all UIs/packs/connectors/workflows to `susi-commercial-apps`; **Pure `Apache-2.0` ONLY** cloud harvest compliance (full §4(a)–(d) notices, refusing standalone MIT/BSD, LLVM-exception, `AND`, copyleft and unlicensed raw source); additive multi-agent (`Claude`, `Codex`, `Carbon`) Git and Susi Board collaboration. |
+| 76 | **Multi-agent collaboration through the Susi Board (2026-11-12):** every agent reads the Susi Board at session start and before claiming, publishing or cutting a release; posts Claim, Landed, Cut, Heads-up, Request, Handoff, Decision and Blocked items; appends only and never rewrites another agent's item; respects open claims and answers requests addressed to it; keeps the board truthful, free of secrets and commercial source, and free of any GitHub or hosted-service dependency. The board coordinates, Git stays the record, and no gate is added ([`docs/ceo-mandate-76.md`](docs/ceo-mandate-76.md)). |
+| 77 | **One isolated working directory per agent (2026-11-12):** every agent has exactly one root directory per machine, named for the agent and marked with `.susi-agent-root`; all of its clones, worktrees, build targets and scratch files live under it; it never creates, changes or deletes anything under another agent's root or the CEO's working directory, and asks the owner on the Susi Board instead. `susi-commercial workflow root show | init` finds and registers a root; `workflow start` and the commit guard refuse to work inside another agent's root ([`docs/ceo-mandate-77.md`](docs/ceo-mandate-77.md)). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and
@@ -111,10 +244,14 @@ selected dependency graph and actual linked artifacts before production approval
 ## Open-core boundary
 
 Susi core is the free, Apache-2.0, open-source socket. It is the standard-protocol
-AI OS for one host: MCP, A2A, OpenAI-compatible HTTP, Anthropic Messages, extension
-admission, and the Wasm host those plugs run in, built around four primary pillars
-on `susi-core` (`susi-gawd`, `susi-gemi`, `susi-gmcp`, and `susi-harness`). It stays
-lean. Speed is a measured budget (Mandate 69), not a slogan.
+AI OS for one host: MCP, ACP (Agent Client Protocol / Agent Communication
+Protocol), A2A, OpenAI-compatible HTTP, Anthropic Messages, extension admission,
+and the Wasm host those plugs run in, built around **five primary core pillars**
+on `susi-core`: **GAWD** (`susi-gawd*`), **GEMI** (`susi-gemi*`), **GMCP**
+(`susi-gmcp`), **ACP** (`susi-core::acp` open socket), and **Susi Harness**
+(`susi-harness`, with built-in parallel multi-agent workflow). It stays lean and
+blazing fast: `<10s` (`total_ms < 10_000`) warm core build+test+release pipeline
+budget (Mandates 69 and 74), measured and enforced rather than asserted.
 
 Core does not ship a third-party product implementation. A third party writes the
 plug, and core admits it over the socket. Do not add an implementation of a named
@@ -126,33 +263,44 @@ Embedding that vendor's product is not. The crates `susi-vendor-agents` (≤ 9 f
 debt: their Rust source may only shrink.
 `third_party_product_implementations_only_shrink` holds the ceiling.
 
-Susi Commercial Apps is the production-ready, zero-config, UI-driven product a
-CEO uses across the local and cloud AI ecosystem. It is private and paid. It
-writes and ships the plugs. Organisation-scale capabilities (multi-user
-administration, SSO/RBAC, fleet management across hosts, central spend governance,
-executive dashboards and turnkey workflows) live there, on this socket. Never
-commit proprietary code, licensing keys or non-public product plans here, and
-never move commercial code into this repository or the reverse. Never admit a
-dependency whose license would bind software built on top of Susi.
-The Apache-2.0 license grants code rights, not rights to the Susi name or marks.
+Susi Commercial Apps (`intellibitz/susi-commercial-apps`) is the closed-source,
+proprietary, cryptographically licensed (`SUSI-ENT-v1` / Ed25519 `SUSI-CUST-v1`),
+and paid software suite built for commercial entities, corporates and CEOs across
+the local and cloud AI ecosystem. Every add-on feature, UI, desktop/operator
+workspace, enterprise ACP agent bridge, multi-user administration, SSO/RBAC,
+fleet management across hosts, central FinOps spend governance, executive
+dashboards and turnkey corporate packs lives exclusively there, admitted over
+this public socket. Never commit proprietary code, licensing keys or non-public
+product plans here, and never move commercial code into this repository or the
+reverse. Never admit a dependency whose license would bind software built on top
+of Susi. The Apache-2.0 license grants code rights, not rights to the Susi name
+or marks.
 
-## Lean-core program (CEO directive 2026-11-07)
+## Lean-core program (CEO directive 2026-11-07, updated 2026-11-11 Mandate 74)
 
-Susi core becomes minimal: GAWD, GEMI, GMCP and the harness (with its parallel
-multi-agent workflow) are the only components; everything else is a plug that
-lives in `susi-commercial-apps` and is admitted over the socket. The plan, the
-crate classification, the measured ladder toward zero third-party dependencies
-and the split of work between agents are in `docs/lean-core.md`. The ceilings
-in `tests/lean_core_ceilings.rs` only go down: every cut lowers them in the
-same change, and nothing raises one without a CEO decision recorded in the doc.
+Susi core becomes minimal and blazing fast (`<10s` warm build+test+release
+pipeline budget; `<60s` cold compile budget): **GAWD, GEMI, GMCP, ACP and the
+Susi harness** (with its built-in parallel multi-agent workflow) are the only
+primary components; everything else is an add-on plug that lives exclusively in
+`susi-commercial-apps` and is admitted over the socket. The plan, the crate
+classification, the measured ladder toward zero third-party dependencies and the
+split of work between agents are in `docs/lean-core.md`. The ceilings in
+`tests/lean_core_ceilings.rs` only go down: every cut lowers them in the same
+change, and nothing raises one without a CEO decision recorded in the doc.
 Before migrating a module out of core, grep every cfg (`#[cfg(windows)]` code
 is invisible to a Linux build), then `cargo check --workspace --all-targets`
 and `cargo fmt --all --check` on the exact tree, and ship through the gate.
 
 ## Native local agent loop
 
-1. Inspect the actual repository, local integration head and existing changes.
-   Preserve others' work. Do not work in the primary checkout or on `main`.
+Every workflow step below (`start`, `sync`, `commit`, `distill`, `ship`,
+`release`, and parallel Susi Harness worker steps) supports **remote pull and
+merge reconciliation** against `origin` over pure Git transport whenever
+reachable (falling back cleanly to offline local Git operation when
+disconnected, Mandate 66).
+
+1. Inspect the actual repository, fetch/reconcile `origin/main` when reachable,
+   and preserve others' work. Do not work in the primary checkout or on `main`.
 2. Reserve a unique identity and disjoint scopes in a private branch/worktree.
    `cargo local-workflow start <name> --scope <path>` is the available native
    reservation path. `cargo local-workflow list` inspects local reservations.
@@ -207,8 +355,11 @@ workers need one shared coordinator, not independent local locks.
 
 ## Production and self-improvement
 
-Keep the installed production executable and daemon stable while building its
-successor. Production qualification requires an identified source tree and
+The installed Susi is the stable copy (Mandate 48, CEO decision 2026-11-12): it
+changes only by promotion of a fully qualified release and is not the tool that
+builds its successor. Development is driven by private debug builds from
+current `main`, one per agent. The installed copy tracks the latest qualified
+release; report it on the Susi Board when it falls behind. Production qualification requires an identified source tree and
 locked graph, strict license and Rust-only audits, format/lint checks, nonempty
 required tests, executable smoke checks, artifact digest and reproducible
 source/toolchain/target/feature evidence. Then atomically promote, retain the
@@ -393,14 +544,17 @@ migration, but must not become prerequisites or contradict these mandates.
 
 ## Handoff and rescue of unfinished work
 
-Many task copies hold work not yet on GitHub, because pushes are blocked when a
-copy is far behind `main`. If you own such a copy: sync it with `main` (resolve
-conflicts only inside your own work); push to a branch named `wip/<task-name>`,
-never straight to `main`; never commit secrets or key files, and double-check
+Many task copies hold work not yet on GitHub storage, because pushes are refused
+when a non-fast-forward update is attempted against `main`. If you own such a
+copy: pull and merge `origin/main` (resolve conflicts only inside your own
+scoped work); publish unfinished handoffs to the non-branch agent ref
+`refs/agents/<agent>` (`docs/agent-refs.md`) or dump completed labelled work to
+`main` via fast-forward (never push `refs/heads/wip/*` or open a pull request,
+Mandates 73 and 74); never commit secrets or key files, and double-check
 certificate or key files first; sign your task-log entry with your agent name
 (Codex, Claude, Gemini or Grok) and state what is finished and what is left; do
-not delete your copy, Grok Bot removes copies after the work is confirmed on
-GitHub; skip any copy another agent is actively using.
+not delete another agent's copy, and skip any copy another agent is actively
+using.
 
 If you hit your weekly limit, leave a note in the task log for the next agent
 saying where you stopped.
@@ -420,8 +574,9 @@ push gates. It preserves:
 - No force-push of shared history, and no modification of access controls.
 - Actual origin evidence before claiming landing; honest test commands and counts.
 
-`local-agent/<agent>` remains the supported contribution/handoff branch when a
-worker cannot run the authorized main gate. Existing
+A worker that cannot publish to `main` hands its work off on the non-branch ref
+`refs/agents/<agent>` (`docs/agent-refs.md`), never on a `refs/heads/*` branch;
+`local-agent/<agent>` is its local branch name only. Existing
 `susi_harness::workflow::IntegrationPolicy` branch-only and cadence restrictions
 are migration work, not proof that the new workflow is complete and not permission
 to bypass a live control. Follow `docs/ceo-agent-mandate.md` and the current-state

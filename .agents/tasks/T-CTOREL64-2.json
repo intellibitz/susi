@@ -1,0 +1,70 @@
+{
+  "id": "T-CTOREL64-2",
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.64-1",
+  "title": "Record Susi core v0.21.64 release and advance main to 0.21.64",
+  "goal": "Record releases/v0.21.64.json and byte-identical releases/qualification/v0.21.64.json for immutable tag v0.21.64 (7bbd6f954513686bc5f23c30d94e128c6dff15a3) and advance development main to 0.21.64.",
+  "state": "done",
+  "status": "completed",
+  "owner": "gate-ship",
+  "created_by": "gate-ship",
+  "created_unix": 1794437298,
+  "updated_unix": 1794437298,
+  "size": "s",
+  "base": "3b29e28548ddad34ba13138d4ecd60ccdd764ea5",
+  "deps": [
+    "T-CTODISTILLFUNC-1",
+    "T-CTOCORELEAN-1"
+  ],
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CTOREL64-1.json",
+    ".agents/tasks/T-CTOREL64-2.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    "releases/qualification/v0.21.64.json",
+    "releases/v0.21.64.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "results": {
+    "tag": "v0.21.64",
+    "tag_object": "30cca4f2fb8621482758b35188cab17ba13dbcab",
+    "tagged_commit": "7bbd6f954513686bc5f23c30d94e128c6dff15a3",
+    "qualified_commit": "8526769118cf1b5e0ff8edee9eaa334fbf1263e9",
+    "qualified_tree": "9e52bc218e3e62934bfc998b4014e7e35f1dcbdb",
+    "distill_candidate": "v0-21-64-distilled-rc2",
+    "distill_composed_commit": "0a575a517c5c77c5e35cc7b6c132fc2f366bd99d",
+    "distill_envelope_commit": "1bba9e28a3ad78493b75dd0103547fb75227d1b1",
+    "distill_receipt_sha256": "b1691f3b633abfc9f2e96ca73e5ea78ab19e18c155ab2d516577b3aae56a2309",
+    "workspace_tests": {
+      "binaries": 256,
+      "passed": 5781,
+      "failed": 0,
+      "ignored": 14
+    },
+    "susi_sha256": "b880eeefdedd9ae72da0a4f1daa621c00ac89a22d2b70b55c3eaa1a0f2903a4f",
+    "susi_harness_sha256": "c49ddddee91bfea01c5f25e3b86d060e04f466175d9fbff1786c774ab776d28b"
+  },
+  "limitations": [
+    "Windows x86_64 reference build and qualification remain owed."
+  ]
+}

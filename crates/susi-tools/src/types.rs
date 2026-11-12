@@ -6,6 +6,10 @@ use std::sync::Arc;
 pub struct McpTool {
     pub name: String,
     pub description: String,
+    /// JSON Schema for a built-in tool's arguments. Dynamic proxies omit it
+    /// when the backing server's schema is unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<serde_json::Value>,
 }
 
 /// Dynamic Trait for SUSI Substrate Tools
@@ -88,6 +92,7 @@ mod tests {
         let tool = super::McpTool {
             name: "read_file".into(),
             description: "Read a file — UTF-8 \"quoted\"".into(),
+            input_schema: None,
         };
         let value = serde_json::to_value(&tool).unwrap();
         assert_eq!(
@@ -144,10 +149,28 @@ mod tests {
         let tool = super::McpTool {
             name: "list_dir".into(),
             description: "List directory contents".into(),
+            input_schema: None,
         };
         let cloned = tool.clone();
         assert_eq!(cloned.name, "list_dir");
         assert_eq!(cloned.description, "List directory contents");
         assert!(format!("{cloned:?}").contains("list_dir"));
+    }
+
+    #[test]
+    fn mcp_tool_preserves_a_typed_input_schema_when_present() {
+        let tool = super::McpTool {
+            name: "write_file".into(),
+            description: "Write a file".into(),
+            input_schema: Some(json!({
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            })),
+        };
+        let encoded = serde_json::to_value(&tool).unwrap();
+        assert_eq!(encoded["input_schema"]["required"], json!(["path"]));
+        let decoded: super::McpTool = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.input_schema, tool.input_schema);
     }
 }

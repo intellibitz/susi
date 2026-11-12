@@ -1,0 +1,47 @@
+{
+  "id": "T-CODEXSOCKETRACE-1",
+  "title": "Serialize listener-heavy integration tests across the host",
+  "goal": "Keep host-only and sealed peer-channel integration tests deterministic when the native gate runs test binaries concurrently, without weakening their network assertions.",
+  "status": "implemented",
+  "scopes": [
+    "tests/common/mod.rs",
+    "tests/host_only_privacy.rs",
+    "tests/peer_channel_hub.rs",
+    ".agents/tasks/T-CODEXSOCKETRACE-1.json"
+  ],
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "host_only_privacy",
+      "--test",
+      "peer_channel_hub"
+    ]
+  },
+  "created_by": "CODEXSOCKETRACES",
+  "native_worker": "codex-socket-races",
+  "created_unix": 1794407206,
+  "owner": "CODEXSOCKETRACES",
+  "base": "94f4559ab7801c9866e79569049b841728c1ed3d",
+  "host": "x86_64-unknown-linux-gnu",
+  "results": {
+    "why": "The native gate runs integration binaries concurrently; listener-heavy tests could contend for daemon scheduling and the two peer-channel tests could select resources simultaneously.",
+    "change": "Both binaries acquire a crash-safe OS file lock for their real-listener lifetime, shared through tests/common/mod.rs. Existing port probes, privacy assertions and sealed-channel assertions remain unchanged.",
+    "tests": {
+      "acceptance": "cargo test --offline --locked -p susi --test host_only_privacy --test peer_channel_hub: 4 passed, 0 failed",
+      "concurrent_processes": "host_only_privacy 2 passed, 0 failed; peer_channel_hub 2 passed, 0 failed",
+      "native_gate": "cargo local-workflow check: format passed; strict clippy passed; 110/110 test binaries ran with 0 failed; doc-tests passed; total 54.8s",
+      "diff": "cargo fmt --all --check and git diff --check passed"
+    }
+  },
+  "limitations": [
+    "The lock coordinates Susi integration binaries that use it; unrelated user processes can still occupy a port and are handled by each test's existing bounded failure paths."
+  ]
+}

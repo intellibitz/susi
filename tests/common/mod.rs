@@ -15,6 +15,95 @@ pub struct HomeGuard {
     env: Option<susi_paths::test_env::EnvGuard>,
 }
 
+/// Serializes integration tests that spawn real Susi listeners.
+///
+/// One folder every checkout on this machine agrees on, whatever its own
+/// temp folder is: agents run their gates side by side in separate checkouts
+/// (often with a private `TMPDIR`), and a lock they do not share protects
+/// nothing. Lock files here are empty and are never deleted; the OS drops a
+/// lock when its process ends, so a crashed test leaves nothing stale.
+fn machine_lock_dir() -> PathBuf {
+    let dir = if cfg!(unix) {
+        PathBuf::from("/tmp/susi-test-locks")
+    } else {
+        std::env::temp_dir().join("susi-test-locks")
+    };
+    std::fs::create_dir_all(&dir).expect("create the machine-wide test lock folder");
+    #[cfg(unix)]
+    {
+        // Another account's agent must be able to create its lock files too.
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o1777));
+    }
+    dir
+}
+
+fn open_lock_file(name: &str) -> std::fs::File {
+    std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(machine_lock_dir().join(name))
+        .expect("open a test lock file")
+}
+
+/// Cargo runs different integration-test binaries concurrently, while the
+/// daemon tests exercise the host network stack and several child daemons at
+/// once. An OS lock serialises those tests **within one checkout** without a
+/// process-local mutex or a stale pid file.
+///
+/// It is keyed on the checkout, not on the machine: a machine-wide lock made
+/// every agent's gate wait, with no time limit, for whichever agent's listener
+/// test was running or had hung. Port blocks are what agents actually share,
+/// and [`reserve_port_block`] hands each test its own.
+pub struct SocketTestGuard {
+    _lock: std::fs::File,
+}
+
+impl SocketTestGuard {
+    /// Acquire this checkout's socket-test reservation.
+    pub fn acquire() -> Self {
+        // FNV-1a of the checkout path: a stable, dependency-free file name.
+        let checkout = env!("CARGO_MANIFEST_DIR");
+        let hash = checkout.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+        let lock = open_lock_file(&format!("socket-tests-{hash:016x}.lock"));
+        lock.lock().expect("acquire the socket integration lock");
+        Self { _lock: lock }
+    }
+}
+
+/// Reservations this test process holds, kept until it exits.
+static HELD_PORT_BLOCKS: std::sync::Mutex<Vec<std::fs::File>> = std::sync::Mutex::new(Vec::new());
+
+/// Reserve one port block for this test process, machine-wide.
+///
+/// A bind probe alone is a race: two test processes (two agents' gates, or
+/// two binaries of one gate) both see a block free and both start a daemon on
+/// it. Here the first `candidates` offset whose lock file this process can
+/// take without waiting, and which `is_free` then confirms, is reserved until
+/// the process exits. Nobody waits: a held block is skipped. `None` when no
+/// candidate is both unreserved and free.
+pub fn reserve_port_block(
+    candidates: impl IntoIterator<Item = u16>,
+    is_free: impl Fn(u16) -> bool,
+) -> Option<u16> {
+    for offset in candidates {
+        let lock = open_lock_file(&format!("port-block-{offset}.lock"));
+        if lock.try_lock().is_ok() && is_free(offset) {
+            HELD_PORT_BLOCKS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(lock);
+            return Some(offset);
+        }
+        // Dropping `lock` releases a block that was reserved but not free.
+    }
+    None
+}
+
 impl HomeGuard {
     /// `tag` keeps concurrent test binaries' temp dirs apart.
     pub fn new(tag: &str) -> Self {

@@ -182,11 +182,6 @@ pub fn seat_spec_for(provider: &str) -> Option<SeatSpec> {
         .find(|s| seat_name(&s.agent) == provider)
 }
 
-/// True when `provider` is a configured agent seat.
-pub fn is_seat(provider: &str) -> bool {
-    seat_spec_for(provider).is_some()
-}
-
 // ── Per-worker window/balance accounting ──────────────────────────────────
 
 /// window_start unix → calls spent in that window, per worker name —
@@ -203,22 +198,6 @@ fn windows() -> &'static Mutex<WindowUsage> {
 fn prepaid_used() -> &'static Mutex<HashMap<String, f64>> {
     static U: OnceLock<Mutex<HashMap<String, f64>>> = OnceLock::new();
     U.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Calls spent in the worker's current window plus the window reset time.
-/// `None` when `provider` is not a configured seat.
-pub fn seat_window_state(provider: &str, now: u64) -> Option<(u64, u64, u64)> {
-    let spec = seat_spec_for(provider)?;
-    let map = windows().lock().unwrap_or_else(|e| e.into_inner());
-    let (start, used) = map.get(provider).copied().unwrap_or((0, 0));
-    let in_window = start > 0 && now.saturating_sub(start) < spec.window_secs;
-    let used = if in_window { used } else { 0 };
-    let reset = if in_window {
-        start + spec.window_secs
-    } else {
-        now + spec.window_secs
-    };
-    Some((used, spec.calls_per_window, reset))
 }
 
 /// Record one delegated call against the seat's window.

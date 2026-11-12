@@ -7,7 +7,7 @@
 //! `docs/peer-channel.md`), end to end over real sockets:
 //!
 //! - three daemons (`susi daemon-start`) in throwaway homes on explicit
-//!   port offsets of 500 and up: a hub `H` that listens on a dedicated
+//!   port offsets of 2100 and up: a hub `H` that listens on a dedicated
 //!   channel port, and two members `A`, `B` that have no listener at all and
 //!   reach `H` only by dialing out, through a recording TCP forwarder that
 //!   stands in for the home router's port forward;
@@ -40,6 +40,8 @@ use susi_config::peer_channel_link::{self as link, Target};
 use susi_core::commit_log;
 use susi_paths::test_env::{isolate_home, EnvGuard};
 
+mod common;
+
 const CLUSTER_KEY: [u8; 32] = [0x5Au8; 32];
 
 /// Ports of one contract block at offset 0 (TCP true, UDP false).
@@ -67,17 +69,26 @@ fn block_free(offset: u16) -> bool {
     })
 }
 
-/// Free contract blocks at offsets of 500 and up (to 1900), `n` of them,
+/// Free contract blocks at offsets of 2100 and up (to 3500), `n` of them,
 /// skipping `taken`. The scan starts at a per-process point so concurrent
 /// test processes rarely probe the same block first.
 fn free_blocks(n: usize, taken: &[u16]) -> Vec<u16> {
-    let slots: Vec<u16> = (5..=19u16).map(|k| k * 100).collect();
+    // `port_fallback` owns the 0..=2000 range while the workspace gate runs
+    // binaries in parallel; keep this fixture in a disjoint range so its
+    // availability probe cannot race that test's daemon.
+    let slots: Vec<u16> = (21..=35u16).map(|k| k * 100).collect();
     let start = (std::process::id() as usize) % slots.len();
-    let found: Vec<u16> = (0..slots.len())
-        .map(|i| slots[(start + i) % slots.len()])
-        .filter(|o| !taken.contains(o) && block_free(*o))
-        .take(n)
-        .collect();
+    // Each block is reserved machine-wide until this test process exits, so
+    // another agent's gate running this test never starts a daemon on it.
+    let mut found: Vec<u16> = Vec::with_capacity(n);
+    for offset in (0..slots.len()).map(|i| slots[(start + i) % slots.len()]) {
+        if found.len() == n {
+            break;
+        }
+        if !taken.contains(&offset) && common::reserve_port_block([offset], block_free).is_some() {
+            found.push(offset);
+        }
+    }
     assert_eq!(
         found.len(),
         n,
@@ -86,10 +97,11 @@ fn free_blocks(n: usize, taken: &[u16]) -> Vec<u16> {
     found
 }
 
-/// Three free blocks at offsets of 500 and up.
-fn free_offsets() -> [u16; 3] {
-    let b = free_blocks(3, &[]);
-    [b[0], b[1], b[2]]
+/// Four free contract blocks at offsets of 2100 and up: three daemon blocks
+/// and one machine-wide reservation for the router's forwarded channel port.
+fn free_offsets() -> [u16; 4] {
+    let b = free_blocks(4, &[]);
+    [b[0], b[1], b[2], b[3]]
 }
 
 /// This host's routed non-loopback IPv4 address (UDP `connect` sends
@@ -105,14 +117,6 @@ fn lan_ip() -> std::net::IpAddr {
         "this test needs a routed non-loopback IPv4 address on this host (found {ip})"
     );
     ip
-}
-
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 
 struct Node {
@@ -231,7 +235,10 @@ impl Daemon {
     fn assert_log_contains(&self, expected: &str) {
         // accept() drops the refused socket before its caller writes the log.
         // EOF therefore proves refusal, not that the diagnostic is readable yet.
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // The daemon's bounded shutdown path can be scheduled behind other
+        // gate binaries; keep the assertion bounded without making a healthy
+        // process look flaky under the normal six-lane runner.
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let log = self.log();
             if log.contains(expected) {
@@ -587,6 +594,7 @@ fn assert_opaque(what: &str, bytes: &[u8], ids: &[&str]) {
 
 #[test]
 fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
+    let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -598,7 +606,7 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     ));
-    let [oh, oa, ob] = free_offsets();
+    let [oh, oa, ob, oc] = free_offsets();
     let mut hub = make_node(&root, "hub", oh, 0x11, CLUSTER_KEY);
     let mut a = make_node(&root, "a", oa, 0x22, CLUSTER_KEY);
     let mut b = make_node(&root, "b", ob, 0x33, CLUSTER_KEY);
@@ -608,7 +616,9 @@ fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
     let outsider = make_node(&root, "d", oa, 0x55, [0x77u8; 32]);
 
     // The hub's dedicated channel port, and the "router" in front of it.
-    let channel_port = free_port();
+    // Reserve the whole block, not just an ephemeral bind: another agent's
+    // gate must not select this forwarding port between probe and listen.
+    let channel_port = 9090 + oc;
     let channel = SocketAddr::from(([127, 0, 0, 1], channel_port));
     let (forward, capture) = recording_forwarder(std::net::IpAddr::from([127, 0, 0, 1]), channel);
 
@@ -912,7 +922,22 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
     loop {
         let (ok, stdout, stderr) =
             run_cli(node, &["peers", "add", endpoint], Duration::from_secs(120));
-        assert!(ok, "peers add as {} failed: {stdout}{stderr}", node.name);
+        if !ok {
+            let detail = format!("{stdout}{stderr}").to_ascii_lowercase();
+            let transient = [
+                "peer channel",
+                "broken pipe",
+                "answered neither",
+                "unreachable",
+            ]
+            .iter()
+            .any(|needle| detail.contains(needle));
+            if transient && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+            panic!("peers add as {} failed: {stdout}{stderr}", node.name);
+        }
         if stdout.contains("admitted this node") {
             return format!("{stdout}{stderr}");
         }
@@ -938,6 +963,7 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
 /// other through the hub.
 #[test]
 fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
+    let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -949,11 +975,12 @@ fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     ));
-    let [oh, oa, ob] = free_offsets();
+    let [oh, oa, ob, oc] = free_offsets();
     let mut hub = make_node(&root, "jhub", oh, 0x71, CLUSTER_KEY);
     let mut a = make_node(&root, "ja", oa, 0x72, CLUSTER_KEY);
     let mut b = make_node(&root, "jb", ob, 0x73, CLUSTER_KEY);
-    let channel = SocketAddr::from(([127, 0, 0, 1], free_port()));
+    // `oc` is held by the machine-wide block reservation for this forwarder.
+    let channel = SocketAddr::from(([127, 0, 0, 1], 9090 + oc));
     // The hub's "public address": the forwarder on this host's routed
     // address, so no roster ever lists the hub under a loopback address
     // (which cluster code treats as the node itself).

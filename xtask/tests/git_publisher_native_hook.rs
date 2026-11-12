@@ -5,9 +5,22 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 const PUBLISHER: &str = env!("CARGO_BIN_EXE_local-snapshot");
 const POLICY: &str = env!("CARGO_BIN_EXE_push-policy");
+
+// Every test launches the same native publisher and policy helpers. Keep the
+// fixture processes apart: on Linux, a sibling test can otherwise try to
+// exec a copied helper while another thread still has that path open for
+// replacement, yielding ETXTBSY instead of a meaningful test result.
+static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn test_lock() -> MutexGuard<'static, ()> {
+    TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// The inherited search path without the build directory, so the hook can only
 /// find `push-policy` through the publisher's adjacent-helper discovery.
@@ -172,11 +185,13 @@ fn text(out: &Output) -> String {
 
 #[test]
 fn built_publisher_and_policy_are_adjacent() {
+    let _lock = test_lock();
     assert_eq!(Path::new(PUBLISHER).parent(), Path::new(POLICY).parent());
 }
 
 #[test]
 fn submit_composes_divergent_main_through_the_real_hook_and_adjacent_policy() {
+    let _lock = test_lock();
     let f = Fixture::new();
     let worker = f.clone_worker("worker");
     let source = f.commit(&worker, "worker.txt", "worker change");
@@ -203,6 +218,7 @@ fn submit_composes_divergent_main_through_the_real_hook_and_adjacent_policy() {
 
 #[test]
 fn missing_adjacent_policy_fails_closed_and_retry_publishes_the_pinned_source() {
+    let _lock = test_lock();
     let f = Fixture::new();
     let worker = f.clone_worker("worker");
     let source = f.commit(&worker, "worker.txt", "worker change");
@@ -230,6 +246,7 @@ fn missing_adjacent_policy_fails_closed_and_retry_publishes_the_pinned_source() 
 
 #[test]
 fn snapshot_tag_passes_the_real_hook_and_is_adopted_by_a_fresh_clone() {
+    let _lock = test_lock();
     let f = Fixture::new();
     let worker = f.clone_worker("worker");
     let main = f.remote_main();
@@ -259,6 +276,7 @@ fn snapshot_tag_passes_the_real_hook_and_is_adopted_by_a_fresh_clone() {
 
 #[test]
 fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immutable() {
+    let _lock = test_lock();
     const DISTILL: &str = env!("CARGO_BIN_EXE_local-distill");
     assert_eq!(Path::new(DISTILL).parent(), Path::new(POLICY).parent());
 
@@ -426,4 +444,90 @@ fn local_distill_publish_passes_the_real_hook_and_adjacent_policy_and_stays_immu
     let rel_status_json: serde_json::Value = serde_json::from_slice(&rel_status.stdout).unwrap();
     assert_eq!(rel_status_json["branch_state"], "present_exact");
     assert_eq!(rel_status_json["remote_branch_state"], "local_only");
+}
+
+#[test]
+fn every_submit_witnesses_the_remote_and_reports_lost_history_without_blocking() {
+    let _lock = test_lock();
+    let f = Fixture::new();
+    let seed = f.remote_main();
+    let worker = f.clone_worker("worker");
+    f.commit(&worker, "worker.txt", "first");
+    let other = f.advance_main_elsewhere("other");
+    let out = f.publish(Path::new(PUBLISHER), &worker, &["submit", "witness-one"]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("storage guard"));
+    let record = "refs/susi-guard/origin/heads/main";
+    let witnessed = f.remote_main();
+    assert_eq!(f.git(&worker, &["rev-parse", record]), witnessed);
+
+    // Another client with no hook rewinds main: the other agent's commit and
+    // the merge are gone, and this worker's own branch never contained them.
+    f.git(&f.remote, &["update-ref", "refs/heads/main", &seed]);
+    let second = f.commit(&worker, "worker.txt", "second");
+    let out = f.publish(Path::new(PUBLISHER), &worker, &["submit", "witness-two"]);
+    // The dump is never blocked; the loss is reported and the record is kept.
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(f.contains(&second, &f.remote_main()));
+    assert!(!f.contains(&other, &f.remote_main()));
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(stderr.contains("REWOUND refs/heads/main"), "{}", text(&out));
+    assert!(stderr.contains("did not block"), "{}", text(&out));
+    assert_eq!(f.git(&worker, &["rev-parse", record]), witnessed);
+    // What was lost is still in the witnessing clone.
+    assert!(isolated(&mut Command::new("git"), &worker)
+        .args(["merge-base", "--is-ancestor", &other, record])
+        .status()
+        .unwrap()
+        .success());
+
+    let quiet = isolated(&mut Command::new(PUBLISHER), &worker)
+        .env("SUSI_NO_STORAGE_GUARD", "1")
+        .args(["retry-main", "witness-two"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&quiet.stderr).contains("storage guard"));
+}
+
+/// `local-workflow ship` is the gated landing of Susi core and, through its
+/// cargo alias, of Susi Commercial Apps. Whatever the ship's result, the
+/// shipping clone witnesses the storage remote afterwards.
+#[test]
+fn a_ship_witnesses_the_remote_whatever_its_result() {
+    let _lock = test_lock();
+    let f = Fixture::new();
+    let worker = f.clone_worker("worker");
+    let record = "refs/susi-guard/origin/heads/main";
+    let ship = |extra: &[(&str, &str)]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_local-workflow"));
+        isolated(&mut command, &worker).args(["ship", "no-such-reservation"]);
+        for (key, value) in extra {
+            command.env(key, value);
+        }
+        command.output().unwrap()
+    };
+    let skipped = ship(&[("SUSI_NO_STORAGE_GUARD", "1")]);
+    assert!(!skipped.status.success(), "{}", text(&skipped));
+    assert!(isolated(&mut Command::new("git"), &worker)
+        .args(["rev-parse", "-q", "--verify", record])
+        .output()
+        .unwrap()
+        .stdout
+        .is_empty());
+
+    let out = ship(&[]);
+    assert!(!out.status.success(), "{}", text(&out));
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("storage guard"));
+    assert_eq!(f.git(&worker, &["rev-parse", record]), f.remote_main());
+
+    // History dropped behind this clone's back is reported by the next ship.
+    let lost = f.advance_main_elsewhere("other");
+    ship(&[]);
+    f.git(
+        &f.remote,
+        &["update-ref", "refs/heads/main", &format!("{lost}^")],
+    );
+    let out = ship(&[]);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(stderr.contains("REWOUND refs/heads/main"), "{}", text(&out));
 }

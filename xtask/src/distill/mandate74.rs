@@ -276,33 +276,21 @@ pub fn compute_commit_patch_id(root: &Path, commit_oid: &str) -> Result<Option<S
     Ok(first_tok)
 }
 
-/// Checks whether an SPDX license expression is allowlisted under CEO Mandate 68 & Mandate 74 §5.1.
+/// Checks whether harvested code under this SPDX expression may be taken
+/// (Mandate 74 §5.1, CEO decision 2026-11-12: Apache-2.0 only). The expression
+/// must be `Apache-2.0`, or a dual license whose alternatives are Apache-2.0
+/// and other permissive licenses (Susi takes the Apache-2.0 alternative). An
+/// `AND` with any other license, an exception (`WITH`), or a non-permissive
+/// alternative is refused.
 pub fn harvest_spdx_allowed(expr: &str) -> bool {
-    let trimmed = expr.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    // Normalize `Apache-2.0 WITH LLVM-exception` into a single token before splitting.
-    let normalized = trimmed.replace(
-        "Apache-2.0 WITH LLVM-exception",
-        "Apache-2.0-WITH-LLVM-exception",
-    );
-    let cleaned = normalized.replace(['(', ')'], " ");
+    const ELECTABLE_AWAY: [&str; 3] = ["MIT", "BSD-2-Clause", "BSD-3-Clause"];
+    let cleaned = expr.replace(['(', ')'], " ");
     let tokens: Vec<&str> = cleaned.split_whitespace().collect();
-    if tokens.is_empty() {
-        return false;
-    }
-    const ALLOWED: [&str; 5] = [
-        "Apache-2.0",
-        "Apache-2.0-WITH-LLVM-exception",
-        "MIT",
-        "BSD-2-Clause",
-        "BSD-3-Clause",
-    ];
-    tokens
-        .iter()
-        .all(|tok| matches!(*tok, "AND" | "OR") || ALLOWED.contains(tok))
-        && tokens.iter().any(|tok| ALLOWED.contains(tok))
+    let alternatives: Vec<&[&str]> = tokens.split(|tok| *tok == "OR").collect();
+    alternatives.iter().any(|alt| *alt == ["Apache-2.0"])
+        && alternatives
+            .iter()
+            .all(|alt| matches!(alt, [one] if *one == "Apache-2.0" || ELECTABLE_AWAY.contains(one)))
 }
 
 fn normalize_rel_path(raw: &str) -> Result<String, String> {
@@ -1197,12 +1185,17 @@ mod tests {
     }
 
     #[test]
-    fn harvest_spdx_allowlist_accepts_apache2_variants_and_rejects_copyleft_or_custom() {
+    fn harvest_spdx_allowlist_accepts_only_apache2_and_rejects_everything_else() {
         assert!(harvest_spdx_allowed("Apache-2.0"));
         assert!(harvest_spdx_allowed("Apache-2.0 OR MIT"));
         assert!(harvest_spdx_allowed("MIT OR Apache-2.0"));
-        assert!(harvest_spdx_allowed("Apache-2.0 WITH LLVM-exception"));
-        assert!(harvest_spdx_allowed("BSD-3-Clause AND MIT"));
+        assert!(harvest_spdx_allowed("(MIT OR Apache-2.0)"));
+        // CEO decision 2026-11-12: only Apache-2.0 code is harvested.
+        assert!(!harvest_spdx_allowed("Apache-2.0 WITH LLVM-exception"));
+        assert!(!harvest_spdx_allowed("BSD-3-Clause AND MIT"));
+        assert!(!harvest_spdx_allowed("Apache-2.0 AND MIT"));
+        assert!(!harvest_spdx_allowed("MIT"));
+        assert!(!harvest_spdx_allowed("BSD-3-Clause"));
 
         assert!(!harvest_spdx_allowed(""));
         assert!(!harvest_spdx_allowed("GPL-3.0-only"));

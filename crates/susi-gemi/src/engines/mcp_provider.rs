@@ -136,90 +136,6 @@ fn extract_text_payload(raw: &str) -> String {
     raw.to_string()
 }
 
-/// True when an MCP tool looks like a chat / completion / reasoning backend
-/// rather than a generic capability (search, git, sql, …).
-pub fn looks_like_inference_tool(server: &str, tool: &str, description: &str) -> bool {
-    let blob = format!("{} {} {}", server, tool, description).to_ascii_lowercase();
-
-    const NEGATIVE: &[&str] = &[
-        "postgres",
-        "sqlite",
-        "mysql",
-        "database",
-        "sql ",
-        "github",
-        "gitlab",
-        "browser",
-        "puppeteer",
-        "filesystem",
-        "file_read",
-        "file_write",
-        "search_web",
-        "web_search",
-        "fetch_url",
-        "http_request",
-        "email",
-        "calendar",
-        "slack",
-        "discord",
-    ];
-    if NEGATIVE.iter().any(|n| blob.contains(n)) {
-        // Still allow if the tool itself is clearly generative.
-        let tool_l = tool.to_ascii_lowercase();
-        if !(tool_l.contains("chat")
-            || tool_l.contains("complet")
-            || tool_l.contains("generate")
-            || tool_l == "reason"
-            || tool_l.contains("llm"))
-        {
-            return false;
-        }
-    }
-
-    // Registry-classified intelligence / reasoning servers (see scout_reasoning_remotes).
-    if plane_tools::scout_reasoning_remotes()
-        .get("remotes")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter().any(|s| {
-                s.as_str()
-                    .is_some_and(|name| name.eq_ignore_ascii_case(server))
-            })
-        })
-        .unwrap_or(false)
-    {
-        return true;
-    }
-
-    const POSITIVE: &[&str] = &[
-        "chat",
-        "completion",
-        "complet",
-        "generate",
-        "inference",
-        "infer",
-        "language model",
-        "llm",
-        "prompt",
-        "reason",
-        "ask",
-        "openai",
-        "anthropic",
-        "claude",
-        "gemini",
-        "deepseek",
-        "minimax",
-        "moonshot",
-        "kimi",
-        "groq",
-        "mistral",
-        "together",
-        "fireworks",
-        "openrouter",
-    ];
-    POSITIVE.iter().any(|p| blob.contains(p))
-}
-
 /// Discover live MCP tools and register LLM-shaped ones as `Provider`s.
 pub fn register_mcp_inference_providers(registry: &CapabilityRegistry) {
     let candidates: Vec<(String, String, String)> = Vec::new();
@@ -242,44 +158,6 @@ pub fn register_mcp_inference_providers(registry: &CapabilityRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn inference_heuristic_accepts_chat_tools() {
-        assert!(looks_like_inference_tool(
-            "openai-bridge",
-            "chat",
-            "Chat completion via OpenAI"
-        ));
-        assert!(looks_like_inference_tool(
-            "my-llm",
-            "generate",
-            "Generate text with a local gateway"
-        ));
-        assert!(looks_like_inference_tool(
-            "brain",
-            "reason",
-            "Reasoning pulse"
-        ));
-    }
-
-    #[test]
-    fn inference_heuristic_rejects_data_tools() {
-        assert!(!looks_like_inference_tool(
-            "database",
-            "query",
-            "Run SQL against postgres"
-        ));
-        assert!(!looks_like_inference_tool(
-            "github",
-            "create_issue",
-            "Create a GitHub issue"
-        ));
-        assert!(!looks_like_inference_tool(
-            "search",
-            "web_search",
-            "Search the web"
-        ));
-    }
 
     #[test]
     fn extract_text_from_mcp_json_shapes() {

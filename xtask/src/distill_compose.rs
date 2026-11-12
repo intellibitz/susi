@@ -20,6 +20,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+#[path = "distill/functional.rs"]
+mod functional;
 #[path = "distill/hostmerge.rs"]
 mod hostmerge;
 #[path = "distill/mandate74.rs"]
@@ -34,7 +36,7 @@ const MAX_CLOSURE_DEPTH: usize = 256;
 const ZERO_SHA1: &str = "0000000000000000000000000000000000000000";
 const ZERO_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose|orchestrate> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--tasks-from-range <A..B>] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--verify-accept] [--publish-snapshot] [--release-candidate] [--strict] [--adopt-host-commit <full-commit-id>]... [--receipt-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|status> <name> [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- submit-main [--rev <rev>] [--max-attempts <n>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- verify-harvest [--rev <rev>] [--range <A..B>] [--strict] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- quarantine-fetch <url> <sha> --slug <slug> [--json]\nDistillation composes an audited candidate from labelled contributions. Release candidates stay local; publish pushes only immutable snapshot tags. Full release qualification gates remain separate.";
+const USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin local-distill -- <plan|compose|orchestrate> --name <name> --base <rev> [--from <rev>] [--select <TASK_ID>...] [--tasks-from-range <A..B>] [--feature <path-or-rev:path>] [--plan-manifest <path>] [--functional-only] [--verify-accept] [--publish-snapshot] [--release-candidate] [--pull] [--strict] [--adopt-host-commit <full-commit-id>]... [--receipt-out <path>] [--release-tag <vX.Y.Z>] [--release-record-out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- <publish|status> <name> [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- release-record --name <name> --tag <vX.Y.Z> [--commit <oid>] [--tagged <iso8601>] [--toolchain <ver>] [--host <triple>] [--asset <file>:<target>:<package>:<bin>:<sha256>]... [--out <path>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- submit-main [--rev <rev>] [--max-attempts <n>] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- verify-harvest [--rev <rev>] [--range <A..B>] [--strict] [--json]\n       cargo run --offline --locked -p xtask --bin local-distill -- quarantine-fetch <url> <sha> --slug <slug> [--json]\nDistillation composes an audited candidate from labelled contributions. Release candidates stay local; publish pushes only immutable snapshot tags. Full release qualification gates remain separate.";
 const RELEASE_BRANCH_STORAGE_ONLY: &str = "release branch publication is disabled: release candidates are local-only; GitHub is storage only; use `publish <name>` for an immutable refs/tags/susi-distill/<name> snapshot";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,14 +58,18 @@ struct DistillArgs {
     tasks_from_range: Option<String>,
     feature_spec: Option<String>,
     plan_manifest: Option<PathBuf>,
+    functional_only: bool,
     verify_accept: bool,
     publish_snapshot: bool,
     release_candidate: bool,
+    pull: bool,
     strict: bool,
     /// Host-created commits the distilling agent explicitly adopts (full ids);
     /// every adoption is written into the receipt.
     adopt_host_commits: BTreeSet<String>,
     receipt_out: Option<PathBuf>,
+    release_tag: Option<String>,
+    release_record_out: Option<PathBuf>,
     json_output: bool,
 }
 
@@ -98,10 +104,33 @@ struct QuarantineFetchArgs {
 }
 
 #[derive(Clone, Debug)]
+struct ReleaseAssetSpec {
+    file: String,
+    target: String,
+    package: String,
+    bin: String,
+    sha256: String,
+}
+
+#[derive(Clone, Debug)]
+struct ReleaseRecordArgs {
+    name: String,
+    tag: String,
+    commit: Option<String>,
+    tagged: String,
+    toolchain: Option<String>,
+    host: Option<String>,
+    assets: Vec<ReleaseAssetSpec>,
+    out: Option<PathBuf>,
+    json_output: bool,
+}
+
+#[derive(Clone, Debug)]
 enum ParsedCli {
     Help,
     Distill(DistillArgs),
     Inspect(InspectArgs),
+    ReleaseRecord(ReleaseRecordArgs),
     SubmitMain(SubmitMainArgs),
     VerifyHarvest(VerifyHarvestArgs),
     QuarantineFetch(QuarantineFetchArgs),
@@ -147,12 +176,23 @@ struct DistilledInBase {
     source_commits: BTreeSet<String>,
 }
 
+impl DistilledInBase {
+    fn covers_commit(&self, commit: &CommitInfo) -> bool {
+        self.source_commits.contains(&commit.oid)
+            || commit
+                .cherry_picked_from
+                .iter()
+                .any(|oid| self.source_commits.contains(oid))
+    }
+}
+
 #[derive(Clone, Debug)]
 struct CommitInfo {
     oid: String,
     parent: String,
     subject: String,
     task_trailers: Vec<String>,
+    cherry_picked_from: Vec<String>,
     changed_paths: Vec<String>,
 }
 
@@ -198,6 +238,7 @@ struct DecisionEntry {
 enum TaskOutcome {
     Included,
     SatisfiedInBase,
+    SkippedNonFunctional,
     Deferred,
     Rejected,
 }
@@ -429,6 +470,162 @@ impl Git<'_> {
         Ok(Some(Endpoint { address, digest }))
     }
 
+    fn local_ref_oid(&self, reference: &str) -> Result<Option<String>> {
+        let output = self.output(&["show-ref", "--verify", "--hash", reference], None)?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let oid = String::from_utf8(output.stdout)
+            .map_err(|_| "Git returned non-UTF-8 ref output".to_owned())?
+            .trim()
+            .to_owned();
+        if oid.is_empty() {
+            return Ok(None);
+        }
+        valid_oid(&oid)?;
+        Ok(Some(oid))
+    }
+
+    /// Fetches an explicitly named immutable remote ref when it is absent locally.
+    ///
+    /// Distillation accepts snapshot/release tags and agent handoff refs as remote
+    /// inputs. It never fetches arbitrary revisions or remote branches here, and it
+    /// never overwrites an existing local ref: a changed remote ref is an error.
+    fn fetch_explicit_remote_ref(&self, endpoint: &Endpoint, reference: &str) -> Result<()> {
+        let fetchable =
+            reference.starts_with("refs/tags/") || reference.starts_with("refs/agents/");
+        if !fetchable {
+            return Ok(());
+        }
+        if reference
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace())
+        {
+            return Err(format!("invalid explicit remote ref: {reference}"));
+        }
+        let format_check = self.output(&["check-ref-format", reference], None)?;
+        if !format_check.status.success() {
+            return Err(format!("invalid explicit remote ref: {reference}"));
+        }
+
+        let local = self.local_ref_oid(reference)?;
+        let remote = match self.remote_ref(endpoint, reference) {
+            Ok(remote) => remote,
+            Err(_) if local.is_some() => return Ok(()),
+            Err(error) => {
+                return Err(format!("cannot inspect remote ref {reference}: {error}"));
+            }
+        };
+        let Some(remote_oid) = remote else {
+            return Ok(());
+        };
+
+        if let Some(local_oid) = local {
+            if local_oid == remote_oid {
+                return Ok(());
+            }
+            return Err(format!(
+                "remote ref {reference} differs from the existing local ref; refusing to overwrite an immutable ref"
+            ));
+        }
+
+        let refspec = format!("{reference}:{reference}");
+        let fetched = self.output(
+            &[
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                "--recurse-submodules=no",
+                "--",
+                &endpoint.address,
+                &refspec,
+            ],
+            None,
+        )?;
+        if !fetched.status.success() {
+            return Err(format!(
+                "Git fetch of remote ref {reference} failed ({})",
+                fetched.status
+            ));
+        }
+        match self.local_ref_oid(reference)? {
+            Some(local_oid) if local_oid == remote_oid => Ok(()),
+            Some(_) => Err(format!(
+                "Git fetch produced a different object for remote ref {reference}"
+            )),
+            None => Err(format!(
+                "Git fetch did not create expected remote ref {reference}"
+            )),
+        }
+    }
+
+    fn pull_explicit_remote_ref(&self, reference: &str) -> Result<()> {
+        if !reference.starts_with("refs/tags/") && !reference.starts_with("refs/agents/") {
+            return Ok(());
+        }
+        let Ok(Some(endpoint)) = self.endpoint_optional() else {
+            return Ok(());
+        };
+        self.fetch_explicit_remote_ref(&endpoint, reference)
+    }
+
+    /// Offline-safe remote pull + 3-way object-store reconciliation against `origin/main`.
+    /// When `origin` is unconfigured or temporarily unreachable, falls back cleanly to
+    /// local `effective_from`. When `origin/main` has advanced past `effective_from`,
+    /// fast-forwards cleanly; when diverged, composes a deterministic conflict-free
+    /// 3-way merge commit in the Git object store (`origin/main` + `local_from`).
+    fn pull_and_reconcile_source(&self, effective_from: &str) -> Result<String> {
+        let Ok(Some(endpoint)) = self.endpoint_optional() else {
+            return self.resolve_commit(effective_from);
+        };
+        self.fetch_explicit_remote_ref(&endpoint, effective_from)?;
+        let fetch_out = self.output(
+            &[
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                "--recurse-submodules=no",
+                "--",
+                &endpoint.address,
+                "+refs/heads/main:refs/remotes/origin/main",
+            ],
+            None,
+        )?;
+        if !fetch_out.status.success() {
+            return self.resolve_commit(effective_from);
+        }
+        let remote_main = match self.resolve_commit("refs/remotes/origin/main") {
+            Ok(oid) => oid,
+            Err(_) => return self.resolve_commit(effective_from),
+        };
+        let local_from = match self.resolve_commit(effective_from) {
+            Ok(oid) => oid,
+            Err(_) if effective_from == "origin/main" => return Ok(remote_main),
+            Err(err) => return Err(err),
+        };
+        if local_from == remote_main || self.ancestor(&remote_main, &local_from)? {
+            return Ok(local_from);
+        }
+        if self.ancestor(&local_from, &remote_main)? {
+            return Ok(remote_main);
+        }
+        let merge_base = self.text(&["merge-base", &remote_main, &local_from])?;
+        valid_oid(&merge_base)?;
+        let merged_tree = match self.merge_three_way(&merge_base, &remote_main, &local_from)? {
+            ThreeWayMerge::Clean(tree) => tree,
+            ThreeWayMerge::Conflict(conflict) => {
+                return Err(format!(
+                    "remote pull reconciliation conflict between origin/main ({remote_main}) and {effective_from} ({local_from}): {conflict}"
+                ));
+            }
+        };
+        self.commit_tree_parents(
+            &merged_tree,
+            &[remote_main.as_str(), local_from.as_str()],
+            "Reconcile origin/main with local distillation stream\n",
+        )
+    }
+
     fn remote_ref(&self, endpoint: &Endpoint, reference: &str) -> Result<Option<String>> {
         let output = self.text(&["ls-remote", "--refs", "--", &endpoint.address, reference])?;
         if output.is_empty() {
@@ -546,8 +743,10 @@ impl Git<'_> {
         let subject = fields.next().unwrap_or("").trim().to_owned();
         let body = fields.next().unwrap_or("");
         let mut task_trailers = Vec::new();
+        let mut cherry_picked_from = Vec::new();
         for line in body.lines() {
             push_task_trailer_ids(line, &mut task_trailers);
+            push_cherry_picked_oids(line, &mut cherry_picked_from);
         }
         let (parent, changed_paths) = match parents_str.split_whitespace().next() {
             Some(p) => {
@@ -572,6 +771,7 @@ impl Git<'_> {
             parent,
             subject,
             task_trailers,
+            cherry_picked_from,
             changed_paths,
         })
     }
@@ -964,8 +1164,10 @@ fn parse_batched_commit_stream(raw: &[u8]) -> Result<Vec<CommitInfo>> {
         valid_oid(&parent)?;
 
         let mut task_trailers = Vec::new();
+        let mut cherry_picked_from = Vec::new();
         for line in body.lines() {
             push_task_trailer_ids(line, &mut task_trailers);
+            push_cherry_picked_oids(line, &mut cherry_picked_from);
         }
         cursor += 4;
 
@@ -994,6 +1196,7 @@ fn parse_batched_commit_stream(raw: &[u8]) -> Result<Vec<CommitInfo>> {
             parent,
             subject,
             task_trailers,
+            cherry_picked_from,
             changed_paths: path_set.into_iter().collect(),
         });
     }
@@ -1040,6 +1243,22 @@ fn push_task_trailer_ids(line: &str, out: &mut Vec<String>) {
         if !out.contains(&id) {
             out.push(id);
         }
+    }
+}
+
+/// Extracts full lowercase Git object IDs from `(cherry picked from commit <oid>)`
+/// provenance lines added by `git cherry-pick -x`.
+fn push_cherry_picked_oids(line: &str, out: &mut Vec<String>) {
+    let trimmed = line.trim();
+    let Some(rest) = trimmed
+        .strip_prefix("(cherry picked from commit ")
+        .and_then(|s| s.strip_suffix(')'))
+    else {
+        return;
+    };
+    let candidate = rest.trim().to_ascii_lowercase();
+    if valid_oid(&candidate).is_ok() && !out.contains(&candidate) {
+        out.push(candidate);
     }
 }
 
@@ -1158,6 +1377,9 @@ fn parse_cli(args: &[String]) -> Result<ParsedCli> {
     }
     if args[0] == "quarantine-fetch" {
         return parse_quarantine_fetch_flags(&args[1..]);
+    }
+    if args[0] == "release-record" {
+        return parse_release_record_flags(&args[1..]);
     }
     if args[0] == "publish-branch" {
         return Err(RELEASE_BRANCH_STORAGE_ONLY.to_owned());
@@ -1297,6 +1519,156 @@ fn parse_quarantine_fetch_flags(rest: &[String]) -> Result<ParsedCli> {
     }))
 }
 
+fn valid_semver_triplet(text: &str) -> bool {
+    let mut parts = text.split('.');
+    let ok_num = |part: Option<&str>| {
+        part.filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|p| p.parse::<u64>().ok())
+            .is_some()
+    };
+    ok_num(parts.next()) && ok_num(parts.next()) && ok_num(parts.next()) && parts.next().is_none()
+}
+
+fn parse_release_asset_spec(raw: &str) -> Result<ReleaseAssetSpec> {
+    let parts: Vec<&str> = raw.split(':').collect();
+    if parts.len() != 5 {
+        return Err(
+            "invalid --asset; expected <file>:<target>:<package>:<bin>:<sha256>".to_owned(),
+        );
+    }
+    let file = parts[0].trim().to_owned();
+    let target = parts[1].trim().to_owned();
+    let package = parts[2].trim().to_owned();
+    let bin = parts[3].trim().to_owned();
+    let sha256 = parts[4].trim().to_ascii_lowercase();
+    if !matches!(
+        target.as_str(),
+        "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu"
+    ) {
+        return Err(format!("unsupported release target '{target}'"));
+    }
+    if package.is_empty() || bin.is_empty() {
+        return Err("asset package and bin must be non-empty".to_owned());
+    }
+    let expected_file = if target == "x86_64-pc-windows-msvc" {
+        format!("{bin}-windows-x86_64.exe")
+    } else {
+        format!("{bin}-linux-x86_64")
+    };
+    if file != expected_file {
+        return Err(format!(
+            "asset file '{file}' must equal canonical '{expected_file}' for target {target}"
+        ));
+    }
+    if sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err("asset sha256 must be 64 lowercase hex characters".to_owned());
+    }
+    Ok(ReleaseAssetSpec {
+        file,
+        target,
+        package,
+        bin,
+        sha256,
+    })
+}
+
+fn parse_release_record_flags(rest: &[String]) -> Result<ParsedCli> {
+    let mut name: Option<String> = None;
+    let mut tag: Option<String> = None;
+    let mut commit: Option<String> = None;
+    let mut tagged = "2026-11-11T00:00:00Z".to_owned();
+    let mut toolchain: Option<String> = None;
+    let mut host: Option<String> = None;
+    let mut assets = Vec::new();
+    let mut out: Option<PathBuf> = None;
+    let mut json_output = false;
+
+    let mut idx = 0usize;
+    while idx < rest.len() {
+        match rest[idx].as_str() {
+            "--name" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if name.replace(val.clone()).is_some() {
+                    return Err("duplicate --name".to_owned());
+                }
+            }
+            "--tag" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if tag.replace(val.clone()).is_some() {
+                    return Err("duplicate --tag".to_owned());
+                }
+            }
+            "--commit" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if commit.replace(val.clone()).is_some() {
+                    return Err("duplicate --commit".to_owned());
+                }
+            }
+            "--tagged" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                tagged = val.clone();
+            }
+            "--toolchain" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if toolchain.replace(val.clone()).is_some() {
+                    return Err("duplicate --toolchain".to_owned());
+                }
+            }
+            "--host" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if host.replace(val.clone()).is_some() {
+                    return Err("duplicate --host".to_owned());
+                }
+            }
+            "--asset" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                assets.push(parse_release_asset_spec(val)?);
+            }
+            "--out" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if out.replace(PathBuf::from(val)).is_some() {
+                    return Err("duplicate --out".to_owned());
+                }
+            }
+            "--json" => json_output = true,
+            _ => return Err(USAGE.to_owned()),
+        }
+        idx += 1;
+    }
+    let name = name.ok_or_else(|| "missing --name <name>".to_owned())?;
+    valid_name(&name)?;
+    let tag = tag.ok_or_else(|| "missing --tag <vX.Y.Z>".to_owned())?;
+    let Some(ver) = tag.strip_prefix('v') else {
+        return Err("--tag must start with 'v' (vX.Y.Z)".to_owned());
+    };
+    if !valid_semver_triplet(ver) {
+        return Err(format!("--tag '{tag}' does not carry a valid X.Y.Z semver"));
+    }
+    Ok(ParsedCli::ReleaseRecord(ReleaseRecordArgs {
+        name,
+        tag,
+        commit,
+        tagged,
+        toolchain,
+        host,
+        assets,
+        out,
+        json_output,
+    }))
+}
+
 fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> {
     let mut name: Option<String> = None;
     let mut base_rev: Option<String> = None;
@@ -1305,13 +1677,17 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
     let mut tasks_from_range: Option<String> = None;
     let mut feature_spec: Option<String> = None;
     let mut plan_manifest: Option<PathBuf> = None;
+    let mut functional_only = false;
     let mut verify_accept = false;
     let mut publish_snapshot = false;
     let mut publish_release_branch = false;
     let mut release_candidate = false;
+    let mut pull = false;
     let mut strict = false;
     let mut adopt_host_commits: BTreeSet<String> = BTreeSet::new();
     let mut receipt_out: Option<PathBuf> = None;
+    let mut release_tag: Option<String> = None;
+    let mut release_record_out: Option<PathBuf> = None;
     let mut json_output = false;
 
     let mut idx = 0usize;
@@ -1373,10 +1749,34 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
                     return Err("duplicate --receipt-out".to_owned());
                 }
             }
+            "--release-tag" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                let Some(ver) = val.strip_prefix('v') else {
+                    return Err("--release-tag must start with 'v' (vX.Y.Z)".to_owned());
+                };
+                if !valid_semver_triplet(ver) {
+                    return Err(format!(
+                        "--release-tag '{val}' does not carry a valid X.Y.Z semver"
+                    ));
+                }
+                if release_tag.replace(val.clone()).is_some() {
+                    return Err("duplicate --release-tag".to_owned());
+                }
+            }
+            "--release-record-out" => {
+                idx += 1;
+                let val = rest.get(idx).ok_or_else(|| USAGE.to_owned())?;
+                if release_record_out.replace(PathBuf::from(val)).is_some() {
+                    return Err("duplicate --release-record-out".to_owned());
+                }
+            }
+            "--functional-only" => functional_only = true,
             "--verify-accept" => verify_accept = true,
             "--publish-snapshot" => publish_snapshot = true,
             "--publish-release-branch" => publish_release_branch = true,
             "--release-candidate" => release_candidate = true,
+            "--pull" => pull = true,
             "--strict" => strict = true,
             "--adopt-host-commit" => {
                 idx += 1;
@@ -1412,6 +1812,9 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
                 .to_owned(),
         );
     }
+    if release_record_out.is_some() && release_tag.is_none() {
+        return Err("--release-record-out requires --release-tag <vX.Y.Z>".to_owned());
+    }
     Ok(ParsedCli::Distill(DistillArgs {
         mode,
         name,
@@ -1421,12 +1824,16 @@ fn parse_distill_flags(mode: CommandMode, rest: &[String]) -> Result<ParsedCli> 
         tasks_from_range,
         feature_spec,
         plan_manifest,
+        functional_only,
         verify_accept,
         publish_snapshot,
         release_candidate,
+        pull,
         strict,
         adopt_host_commits,
         receipt_out,
+        release_tag,
+        release_record_out,
         json_output,
     }))
 }
@@ -1578,6 +1985,7 @@ struct PlanManifestSpec {
     sha256: String,
     base_commit: Option<String>,
     task_ids: Vec<String>,
+    functional_only: bool,
 }
 
 fn load_plan_manifest(root: &Path, path: &Path) -> Result<PlanManifestSpec> {
@@ -1601,6 +2009,14 @@ fn load_plan_manifest(root: &Path, path: &Path) -> Result<PlanManifestSpec> {
     if let Some(oid) = &base_commit {
         valid_oid(oid)?;
     }
+    let functional_only = val
+        .get("functional_only")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let has_skipped_non_functional = val
+        .get("skipped_non_functional_tasks")
+        .and_then(Value::as_array)
+        .is_some_and(|arr| !arr.is_empty());
     let mut task_ids = Vec::new();
     if let Some(inc) = val.get("included").and_then(Value::as_array) {
         for entry in inc {
@@ -1611,16 +2027,17 @@ fn load_plan_manifest(root: &Path, path: &Path) -> Result<PlanManifestSpec> {
             }
         }
     }
-    if task_ids.is_empty() {
+    if task_ids.is_empty() && !(functional_only && has_skipped_non_functional) {
         task_ids = json_string_vec(&val, "requested", false)?;
     }
-    if task_ids.is_empty() {
+    if task_ids.is_empty() && !(functional_only && has_skipped_non_functional) {
         return Err("--plan-manifest contains no included or requested task IDs".to_owned());
     }
     Ok(PlanManifestSpec {
         sha256: sha256_hex(&bytes),
         base_commit,
         task_ids,
+        functional_only,
     })
 }
 
@@ -1799,6 +2216,7 @@ fn compute_closure(
     roots: &[String],
     tasks: &LoadedTasks,
     commit_rank: &BTreeMap<String, usize>,
+    closure_leaves: &BTreeSet<String>,
 ) -> ClosurePlan {
     let mut walk = ClosureWalk {
         state: BTreeMap::new(),
@@ -1810,20 +2228,31 @@ fn compute_closure(
     for root in roots {
         let key = root.trim().to_ascii_uppercase();
         if !key.is_empty() {
-            dfs_closure(&key, tasks, &mut walk);
+            dfs_closure(&key, tasks, closure_leaves, &mut walk);
         }
     }
 
     // Preserve dependency-before-dependent ordering while sorting independent
     // ready tasks deterministically by earliest commit rank in base..from, then key.
-    let ordered = deterministic_toposort(&walk.order, tasks, commit_rank, &walk.cycle_errors);
+    let ordered = deterministic_toposort(
+        &walk.order,
+        tasks,
+        commit_rank,
+        &walk.cycle_errors,
+        closure_leaves,
+    );
     ClosurePlan {
         order: ordered,
         cycle_errors: walk.cycle_errors,
     }
 }
 
-fn dfs_closure(key: &str, tasks: &LoadedTasks, walk: &mut ClosureWalk) {
+fn dfs_closure(
+    key: &str,
+    tasks: &LoadedTasks,
+    closure_leaves: &BTreeSet<String>,
+    walk: &mut ClosureWalk,
+) {
     if walk.stack.len() >= MAX_CLOSURE_DEPTH {
         walk.cycle_errors.insert(
             key.to_owned(),
@@ -1849,16 +2278,18 @@ fn dfs_closure(key: &str, tasks: &LoadedTasks, walk: &mut ClosureWalk) {
     walk.state.insert(key.to_owned(), VisitState::Visiting);
     walk.stack.push(key.to_owned());
 
-    if let Some(raw_deps) = tasks.deps_of(key) {
-        let mut sorted_deps: Vec<String> = raw_deps
-            .iter()
-            .map(|d| d.trim().to_ascii_uppercase())
-            .filter(|d| !d.is_empty())
-            .collect();
-        sorted_deps.sort();
-        sorted_deps.dedup();
-        for dep_key in sorted_deps {
-            dfs_closure(&dep_key, tasks, walk);
+    if !closure_leaves.contains(key) {
+        if let Some(raw_deps) = tasks.deps_of(key) {
+            let mut sorted_deps: Vec<String> = raw_deps
+                .iter()
+                .map(|d| d.trim().to_ascii_uppercase())
+                .filter(|d| !d.is_empty())
+                .collect();
+            sorted_deps.sort();
+            sorted_deps.dedup();
+            for dep_key in sorted_deps {
+                dfs_closure(&dep_key, tasks, closure_leaves, walk);
+            }
         }
     }
 
@@ -1872,6 +2303,7 @@ fn deterministic_toposort(
     tasks: &LoadedTasks,
     commit_rank: &BTreeMap<String, usize>,
     cycle_errors: &BTreeMap<String, String>,
+    closure_leaves: &BTreeSet<String>,
 ) -> Vec<String> {
     let nodes: BTreeSet<String> = visited_order.iter().cloned().collect();
     let mut indegree: BTreeMap<String, usize> = BTreeMap::new();
@@ -1881,7 +2313,7 @@ fn deterministic_toposort(
         indegree.insert(key.clone(), 0);
     }
     for key in &nodes {
-        if cycle_errors.contains_key(key) {
+        if cycle_errors.contains_key(key) || closure_leaves.contains(key) {
             continue;
         }
         if let Some(raw_deps) = tasks.deps_of(key) {
@@ -1935,6 +2367,7 @@ fn deterministic_toposort(
 
 fn attribute_task_commits(
     git: &Git<'_>,
+    base_commit: &str,
     from_commit: &str,
     task: &TaskManifest,
     stream_commits: &[CommitInfo],
@@ -1947,6 +2380,9 @@ fn attribute_task_commits(
                     "pinned source_commit {oid} for {} is not an ancestor of stream {from_commit}",
                     task.id
                 ));
+            }
+            if git.ancestor(oid, base_commit)? {
+                continue;
             }
             pinned.push(git.inspect_commit(oid)?);
         }
@@ -2044,7 +2480,7 @@ fn compose_task_onto(
     let changed_files = git.diff_paths(cursor.current_tree, &step_tree)?;
     let source_list: Vec<&str> = commits.iter().map(|c| c.oid.as_str()).collect();
     let message = format!(
-        "Distill task {}: {}\n\nUnqualified distilled candidate. Full exact-tree release gates remain required.\nDistilled-Task: {}\nSource-Commits: {}\nDistill-Base: {}\n",
+        "Distill task {}: {}\n\nUnqualified distilled candidate. Full exact-tree release gates remain required.\n\nDistilled-Task: {}\nSource-Commits: {}\nDistill-Base: {}\n",
         task.id,
         task.title,
         task.id,
@@ -2236,9 +2672,21 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         .or_else(|| plan_spec.as_ref().and_then(|p| p.base_commit.as_deref()))
         .unwrap_or("HEAD");
 
-    let base_commit = git.resolve_commit(&args.base_rev)?;
+    if args.pull {
+        git.pull_explicit_remote_ref(&args.base_rev)?;
+    }
+    let base_commit = if args.pull && args.base_rev == "origin/main" {
+        let _ = git.pull_and_reconcile_source("HEAD");
+        git.resolve_commit(&args.base_rev)?
+    } else {
+        git.resolve_commit(&args.base_rev)?
+    };
     let base_tree = git.tree(&base_commit)?;
-    let from_commit = git.resolve_commit(effective_from)?;
+    let from_commit = if args.pull {
+        git.pull_and_reconcile_source(effective_from)?
+    } else {
+        git.resolve_commit(effective_from)?
+    };
     let from_tree = git.tree(&from_commit)?;
 
     let feature = match &args.feature_spec {
@@ -2246,9 +2694,11 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         None => None,
     };
 
+    let functional_only =
+        args.functional_only || plan_spec.as_ref().is_some_and(|p| p.functional_only);
     let mut requested: Vec<String> = args.selected.clone();
     if let Some(range_spec) = &args.tasks_from_range {
-        requested.extend(discover_tasks_in_range(git, range_spec)?);
+        requested.extend(discover_tasks_in_range(git, range_spec, functional_only)?);
     }
     if let Some(plan) = &plan_spec {
         requested.extend(plan.task_ids.clone());
@@ -2264,7 +2714,7 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
     let stream_commits: Vec<CommitInfo> = git
         .non_merge_commits(&base_commit, &from_commit)?
         .into_iter()
-        .filter(|commit| !distilled_in_base.source_commits.contains(&commit.oid))
+        .filter(|commit| !distilled_in_base.covers_commit(commit))
         .collect();
     let base_reason = |key: &str| -> (&'static str, &'static str) {
         if distilled_in_base.tasks.contains(key) {
@@ -2281,8 +2731,20 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         let mut seen = BTreeSet::new();
         for commit in &stream_commits {
             for trailer in &commit.task_trailers {
+                if functional_only && trailer.starts_with("LOCAL-") {
+                    continue;
+                }
                 if seen.insert(trailer.clone()) {
                     requested.push(trailer.clone());
+                }
+            }
+            if functional_only {
+                for path in &commit.changed_paths {
+                    if let Some(id) = functional::task_id_from_manifest_path(path) {
+                        if seen.insert(id.clone()) {
+                            requested.push(id);
+                        }
+                    }
                 }
             }
         }
@@ -2300,29 +2762,69 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         }
     }
 
-    let closure = compute_closure(&requested, &from_tasks, &commit_rank);
-
-    let mut outcomes: BTreeMap<String, TaskOutcome> = BTreeMap::new();
-    let mut included: Vec<IncludedEntry> = Vec::new();
-    let mut satisfied_in_base: Vec<BaseSatisfiedEntry> = Vec::new();
-    let mut deferred: Vec<DecisionEntry> = Vec::new();
-    let mut rejected: Vec<DecisionEntry> = Vec::new();
-
-    let mut current_commit = base_commit.clone();
-    let mut current_tree = base_tree.clone();
-
     // Merges happen in Susi; the Git host is storage only. Work whose commits
     // the host created itself (web merge, web edit, API commit) is refused
     // unless the distilling agent adopts each commit by full id, on record.
     let host_identities = hostmerge::identities(root)?;
     let relands = hostmerge::relands(root, &from_commit, &host_identities)?;
-    let (relanded_in_stream, host_in_stream): (Vec<_>, Vec<_>) = hostmerge::scan_range(
+    let (relanded_in_stream, mut host_in_stream): (Vec<_>, Vec<_>) = hostmerge::scan_range(
         root,
         &format!("{base_commit}..{from_commit}"),
         &host_identities,
     )?
     .into_iter()
     .partition(|c| relands.valid.contains_key(&c.oid));
+    if functional_only {
+        let non_func_stream_oids: BTreeSet<&str> = stream_commits
+            .iter()
+            .filter(|c| !functional::is_functional_commit(&c.subject, &c.changed_paths))
+            .map(|c| c.oid.as_str())
+            .collect();
+        host_in_stream.retain(|c| !non_func_stream_oids.contains(c.oid.as_str()));
+    }
+
+    let base_satisfied_leaves = classify_base_satisfied_leaves(&BaseSatisfiedScan {
+        git,
+        base_commit: &base_commit,
+        from_commit: &from_commit,
+        from_tasks: &from_tasks,
+        base_tasks: &base_tasks,
+        distilled_in_base: &distilled_in_base,
+        stream_commits: &stream_commits,
+        relanded_valid: &relands.valid,
+        functional_only,
+    });
+
+    let non_functional_leaves = if functional_only {
+        classify_non_functional_leaves(&NonFunctionalScan {
+            is_commercial_repo: is_commercial_checkout(root),
+            requested: &requested,
+            from_tasks: &from_tasks,
+            base_tasks: &base_tasks,
+            distilled_in_base: &distilled_in_base,
+            stream_commits: &stream_commits,
+            relanded_valid: &relands.valid,
+        })
+    } else {
+        BTreeSet::new()
+    };
+
+    let closure_leaves: BTreeSet<String> = base_satisfied_leaves
+        .union(&non_functional_leaves)
+        .cloned()
+        .collect();
+
+    let closure = compute_closure(&requested, &from_tasks, &commit_rank, &closure_leaves);
+
+    let mut outcomes: BTreeMap<String, TaskOutcome> = BTreeMap::new();
+    let mut included: Vec<IncludedEntry> = Vec::new();
+    let mut satisfied_in_base: Vec<BaseSatisfiedEntry> = Vec::new();
+    let mut skipped_non_functional_set: BTreeSet<String> = BTreeSet::new();
+    let mut deferred: Vec<DecisionEntry> = Vec::new();
+    let mut rejected: Vec<DecisionEntry> = Vec::new();
+
+    let mut current_commit = base_commit.clone();
+    let mut current_tree = base_tree.clone();
     let mut adopted_host_commits: BTreeMap<String, String> = BTreeMap::new();
 
     for key in &closure.order {
@@ -2346,44 +2848,29 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             continue;
         }
 
-        if let Some(base_done_deps) = base_tasks.done_deps.get(key) {
-            let has_stream_commits = stream_commits.iter().any(|c| {
-                c.task_trailers.iter().any(|t| t == key)
-                    || c.changed_paths
-                        .iter()
-                        .any(|p| p.eq_ignore_ascii_case(&format!(".agents/tasks/done/{key}.json")))
+        if base_tasks.done_deps.contains_key(key)
+            && !has_done_task_stream_commits(key, &stream_commits, &relands.valid, functional_only)
+        {
+            let (reason_code, how) = base_reason(key);
+            satisfied_in_base.push(BaseSatisfiedEntry {
+                task_id: key.clone(),
+                reason_code,
+                detail: format!(
+                    "closed task record for {key} {how} {base_commit} with zero newer commits"
+                ),
             });
-            if !has_stream_commits {
-                if let Some((dep_reason, dep_detail, is_reject)) =
-                    check_dep_list_outcomes(key, base_done_deps, &outcomes)
-                {
-                    let entry = DecisionEntry {
-                        task_id: key.clone(),
-                        source_commits: Vec::new(),
-                        deps: base_done_deps.clone(),
-                        reason_code: dep_reason,
-                        detail: dep_detail,
-                    };
-                    if is_reject {
-                        rejected.push(entry);
-                        outcomes.insert(key.clone(), TaskOutcome::Rejected);
-                    } else {
-                        deferred.push(entry);
-                        outcomes.insert(key.clone(), TaskOutcome::Deferred);
-                    }
-                } else {
-                    let (reason_code, how) = base_reason(key);
-                    satisfied_in_base.push(BaseSatisfiedEntry {
-                        task_id: key.clone(),
-                        reason_code,
-                        detail: format!(
-                            "closed task record for {key} {how} {base_commit} with zero newer commits"
-                        ),
-                    });
-                    outcomes.insert(key.clone(), TaskOutcome::SatisfiedInBase);
-                }
-                continue;
-            }
+            outcomes.insert(key.clone(), TaskOutcome::SatisfiedInBase);
+            continue;
+        }
+
+        if non_functional_leaves.contains(key) {
+            let label = from_tasks
+                .valid
+                .get(key)
+                .map_or_else(|| key.clone(), |t| t.id.clone());
+            skipped_non_functional_set.insert(label);
+            outcomes.insert(key.clone(), TaskOutcome::SkippedNonFunctional);
+            continue;
         }
 
         if let Some(inv_detail) = from_tasks.invalid.get(key) {
@@ -2404,11 +2891,12 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         }
 
         let Some(task) = from_tasks.valid.get(key) else {
-            if base_tasks.valid.contains_key(key) {
+            if base_tasks.valid.contains_key(key) || distilled_in_base.tasks.contains(key) {
+                let (reason_code, how) = base_reason(key);
                 satisfied_in_base.push(BaseSatisfiedEntry {
                     task_id: key.clone(),
-                    reason_code: "already_in_base",
-                    detail: "task manifest is already present in base commit".to_owned(),
+                    reason_code,
+                    detail: format!("task {key} {how} {base_commit} with zero newer commits"),
                 });
                 outcomes.insert(key.clone(), TaskOutcome::SatisfiedInBase);
             } else {
@@ -2423,6 +2911,52 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             }
             continue;
         };
+
+        let attributed_res =
+            attribute_task_commits(git, &base_commit, &from_commit, task, &stream_commits);
+        if let Ok(raw_list) = &attributed_res {
+            let mut filtered: Vec<&CommitInfo> = raw_list
+                .iter()
+                .filter(|commit| !distilled_in_base.covers_commit(commit))
+                .filter(|commit| !relands.valid.contains_key(&commit.oid))
+                .collect();
+            let had_raw_attributed = !filtered.is_empty();
+            if functional_only {
+                filtered.retain(|commit| {
+                    functional::is_functional_commit(&commit.subject, &commit.changed_paths)
+                });
+            }
+            if filtered.is_empty() {
+                if base_tasks.valid.contains_key(key)
+                    || base_tasks.done_deps.contains_key(key)
+                    || distilled_in_base.tasks.contains(key)
+                {
+                    let (reason_code, how) = base_reason(key);
+                    satisfied_in_base.push(BaseSatisfiedEntry {
+                        task_id: task.id.clone(),
+                        reason_code,
+                        detail: format!(
+                            "task {} {how} {base_commit} with zero newer commits",
+                            task.id
+                        ),
+                    });
+                    outcomes.insert(key.clone(), TaskOutcome::SatisfiedInBase);
+                    continue;
+                }
+                if functional_only
+                    && (had_raw_attributed
+                        || (!task.scopes.is_empty()
+                            && task
+                                .scopes
+                                .iter()
+                                .all(|s| !functional::is_functional_path(s))))
+                {
+                    skipped_non_functional_set.insert(task.id.clone());
+                    outcomes.insert(key.clone(), TaskOutcome::SkippedNonFunctional);
+                    continue;
+                }
+            }
+        }
 
         if let Some((dep_reason, dep_detail, is_reject)) = check_dep_outcomes(task, &outcomes) {
             let entry = DecisionEntry {
@@ -2442,9 +2976,9 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             continue;
         }
 
-        let attributed = match attribute_task_commits(git, &from_commit, task, &stream_commits) {
+        let mut attributed = match attributed_res {
             Ok(mut list) => {
-                list.retain(|commit| !distilled_in_base.source_commits.contains(&commit.oid));
+                list.retain(|commit| !distilled_in_base.covers_commit(commit));
                 // A host commit re-landed through Susi is replaced by its replay.
                 list.retain(|commit| !relands.valid.contains_key(&commit.oid));
                 list
@@ -2461,32 +2995,24 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
                 continue;
             }
         };
+        if functional_only {
+            attributed.retain(|commit| {
+                functional::is_functional_commit(&commit.subject, &commit.changed_paths)
+            });
+        }
 
         if attributed.is_empty() {
-            if base_tasks.valid.contains_key(key) || distilled_in_base.tasks.contains(key) {
-                let (reason_code, how) = base_reason(key);
-                satisfied_in_base.push(BaseSatisfiedEntry {
-                    task_id: task.id.clone(),
-                    reason_code,
-                    detail: format!(
-                        "task {} {how} {base_commit} with zero newer commits",
-                        task.id
-                    ),
-                });
-                outcomes.insert(key.clone(), TaskOutcome::SatisfiedInBase);
-            } else {
-                deferred.push(DecisionEntry {
-                    task_id: task.id.clone(),
-                    source_commits: Vec::new(),
-                    deps: task.deps.clone(),
-                    reason_code: "unresolved_commit",
-                    detail: format!(
-                        "no non-merge commits in {base_commit}..{from_commit} matched Task: {}",
-                        task.id
-                    ),
-                });
-                outcomes.insert(key.clone(), TaskOutcome::Deferred);
-            }
+            deferred.push(DecisionEntry {
+                task_id: task.id.clone(),
+                source_commits: Vec::new(),
+                deps: task.deps.clone(),
+                reason_code: "unresolved_commit",
+                detail: format!(
+                    "no non-merge commits in {base_commit}..{from_commit} matched Task: {}",
+                    task.id
+                ),
+            });
+            outcomes.insert(key.clone(), TaskOutcome::Deferred);
             continue;
         }
 
@@ -2577,7 +3103,11 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
     }
 
     let branch_ref = resolve_branch_ref(args, feature.as_ref())?;
-    let endpoint_digest = git.endpoint_optional()?.map(|e| e.digest);
+    let endpoint_digest = if args.pull {
+        git.endpoint_optional().ok().flatten().map(|e| e.digest)
+    } else {
+        git.endpoint_optional()?.map(|e| e.digest)
+    };
     let lane_inputs: Vec<mandate74::LaneTaskInput> = included
         .iter()
         .map(|i| mandate74::LaneTaskInput {
@@ -2617,6 +3147,9 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
         "unqualified_candidate"
     };
 
+    let skipped_non_functional_tasks: Vec<String> =
+        skipped_non_functional_set.into_iter().collect();
+
     let mut body = json!({
         "schema": RECEIPT_SCHEMA,
         "name": args.name,
@@ -2627,6 +3160,8 @@ fn execute_distill(git: &Git<'_>, root: &Path, args: &DistillArgs) -> Result<Dis
             CommandMode::Publish => "publish",
             CommandMode::Status => "status",
         },
+        "functional_only": functional_only,
+        "skipped_non_functional_tasks": skipped_non_functional_tasks,
         "qualification_status": qualification_status,
         "base_commit": base_commit,
         "base_tree": base_tree,
@@ -2737,6 +3272,198 @@ fn resolve_branch_ref(args: &DistillArgs, feature: Option<&FeatureManifest>) -> 
     Ok(format!("refs/heads/distill/{}", args.name))
 }
 
+fn is_commercial_checkout(root: &Path) -> bool {
+    let manifest = root.join("Cargo.toml");
+    let Ok(text) = fs::read_to_string(manifest) else {
+        return false;
+    };
+    text.lines()
+        .any(|line| line.trim() == "name = \"susi-commercial\"")
+}
+
+fn has_done_task_stream_commits(
+    key: &str,
+    stream_commits: &[CommitInfo],
+    relanded_valid: &BTreeMap<String, String>,
+    functional_only: bool,
+) -> bool {
+    let done_path = format!(".agents/tasks/done/{key}.json");
+    stream_commits
+        .iter()
+        .filter(|c| !relanded_valid.contains_key(&c.oid))
+        .any(|c| {
+            (!functional_only || functional::is_functional_commit(&c.subject, &c.changed_paths))
+                && (c.task_trailers.iter().any(|t| t == key)
+                    || c.changed_paths
+                        .iter()
+                        .any(|p| p.eq_ignore_ascii_case(&done_path)))
+        })
+}
+
+struct BaseSatisfiedScan<'a> {
+    git: &'a Git<'a>,
+    base_commit: &'a str,
+    from_commit: &'a str,
+    from_tasks: &'a LoadedTasks,
+    base_tasks: &'a LoadedTasks,
+    distilled_in_base: &'a DistilledInBase,
+    stream_commits: &'a [CommitInfo],
+    relanded_valid: &'a BTreeMap<String, String>,
+    functional_only: bool,
+}
+
+fn classify_base_satisfied_leaves(scan: &BaseSatisfiedScan<'_>) -> BTreeSet<String> {
+    let BaseSatisfiedScan {
+        git,
+        base_commit,
+        from_commit,
+        from_tasks,
+        base_tasks,
+        distilled_in_base,
+        stream_commits,
+        relanded_valid,
+        functional_only,
+    } = *scan;
+    let mut candidates: BTreeSet<String> = BTreeSet::new();
+    candidates.extend(base_tasks.valid.keys().cloned());
+    candidates.extend(base_tasks.done_deps.keys().cloned());
+    candidates.extend(distilled_in_base.tasks.iter().cloned());
+
+    let mut leaves = BTreeSet::new();
+    for key in candidates {
+        if base_tasks.done_deps.contains_key(&key)
+            && !has_done_task_stream_commits(&key, stream_commits, relanded_valid, functional_only)
+        {
+            leaves.insert(key);
+            continue;
+        }
+        if from_tasks.invalid.contains_key(&key) {
+            continue;
+        }
+        if let Some(task) = from_tasks.valid.get(&key) {
+            if let Ok(mut list) =
+                attribute_task_commits(git, base_commit, from_commit, task, stream_commits)
+            {
+                list.retain(|commit| !distilled_in_base.covers_commit(commit));
+                list.retain(|commit| !relanded_valid.contains_key(&commit.oid));
+                if functional_only {
+                    list.retain(|commit| {
+                        functional::is_functional_commit(&commit.subject, &commit.changed_paths)
+                    });
+                }
+                if list.is_empty() {
+                    leaves.insert(key);
+                }
+            }
+        } else if base_tasks.valid.contains_key(&key) || distilled_in_base.tasks.contains(&key) {
+            leaves.insert(key);
+        }
+    }
+    leaves
+}
+
+struct NonFunctionalScan<'a> {
+    is_commercial_repo: bool,
+    requested: &'a [String],
+    from_tasks: &'a LoadedTasks,
+    base_tasks: &'a LoadedTasks,
+    distilled_in_base: &'a DistilledInBase,
+    stream_commits: &'a [CommitInfo],
+    relanded_valid: &'a BTreeMap<String, String>,
+}
+
+fn classify_non_functional_leaves(scan: &NonFunctionalScan<'_>) -> BTreeSet<String> {
+    let NonFunctionalScan {
+        is_commercial_repo,
+        requested,
+        from_tasks,
+        base_tasks,
+        distilled_in_base,
+        stream_commits,
+        relanded_valid,
+    } = *scan;
+    let mut requested_upper: BTreeSet<String> = BTreeSet::new();
+    let mut candidates: BTreeSet<String> = BTreeSet::new();
+    for r in requested {
+        let k = r.trim().to_ascii_uppercase();
+        if !k.is_empty() {
+            requested_upper.insert(k.clone());
+            candidates.insert(k);
+        }
+    }
+    candidates.extend(from_tasks.valid.keys().cloned());
+    candidates.extend(from_tasks.invalid.keys().cloned());
+    for task in from_tasks.valid.values() {
+        for dep in &task.deps {
+            let dep_key = dep.trim().to_ascii_uppercase();
+            if !dep_key.is_empty() {
+                candidates.insert(dep_key);
+            }
+        }
+    }
+    for commit in stream_commits {
+        for t in &commit.task_trailers {
+            candidates.insert(t.clone());
+        }
+        for p in &commit.changed_paths {
+            if let Some(id) = functional::task_id_from_manifest_path(p) {
+                candidates.insert(id);
+            }
+        }
+    }
+
+    let mut leaves = BTreeSet::new();
+    for key in candidates {
+        if base_tasks.valid.contains_key(&key)
+            || base_tasks.done_deps.contains_key(&key)
+            || distilled_in_base.tasks.contains(&key)
+        {
+            continue;
+        }
+        if let Some(task) = from_tasks.valid.get(&key) {
+            if !task.source_commits.is_empty() {
+                continue;
+            }
+        }
+        let task_path = from_tasks.valid.get(&key).map(|t| t.path.as_str());
+        let matched: Vec<&CommitInfo> = stream_commits
+            .iter()
+            .filter(|c| !relanded_valid.contains_key(&c.oid))
+            .filter(|c| {
+                c.task_trailers.iter().any(|t| t == &key)
+                    || task_path.is_some_and(|tp| c.changed_paths.iter().any(|p| p == tp))
+                    || c.changed_paths.iter().any(|p| {
+                        functional::task_id_from_manifest_path(p).as_deref() == Some(key.as_str())
+                    })
+            })
+            .collect();
+        if !matched.is_empty() {
+            if matched
+                .iter()
+                .all(|c| !functional::is_functional_commit(&c.subject, &c.changed_paths))
+            {
+                leaves.insert(key);
+            }
+        } else if let Some(task) = from_tasks.valid.get(&key) {
+            if !task.scopes.is_empty()
+                && task
+                    .scopes
+                    .iter()
+                    .all(|s| !functional::is_functional_path(s))
+            {
+                leaves.insert(key);
+            }
+        } else if !is_commercial_repo
+            && !requested_upper.contains(&key)
+            && !from_tasks.invalid.contains_key(&key)
+            && functional::is_cross_repo_commercial_task_id(&key)
+        {
+            leaves.insert(key);
+        }
+    }
+    leaves
+}
+
 fn check_dep_outcomes(
     task: &TaskManifest,
     outcomes: &BTreeMap<String, TaskOutcome>,
@@ -2755,7 +3482,11 @@ fn check_dep_list_outcomes(
             continue;
         }
         match outcomes.get(&dep_key).copied() {
-            Some(TaskOutcome::Included | TaskOutcome::SatisfiedInBase) => {}
+            Some(
+                TaskOutcome::Included
+                | TaskOutcome::SatisfiedInBase
+                | TaskOutcome::SkippedNonFunctional,
+            ) => {}
             Some(TaskOutcome::Rejected) => {
                 return Some((
                     "dependency_rejected",
@@ -2861,8 +3592,16 @@ fn format_summary(outcome: &DistillOutcome, json_output: bool) -> String {
         .map_or(0, Vec::len);
     let def = outcome.receipt["deferred"].as_array().map_or(0, Vec::len);
     let rej = outcome.receipt["rejected"].as_array().map_or(0, Vec::len);
+    let skipped_suffix = if outcome.receipt["functional_only"].as_bool() == Some(true) {
+        let skipped = outcome.receipt["skipped_non_functional_tasks"]
+            .as_array()
+            .map_or(0, Vec::len);
+        format!(" skipped_non_functional={skipped}")
+    } else {
+        String::new()
+    };
     format!(
-        "Distillation {}: included={inc} satisfied_in_base={base_sat} deferred={def} rejected={rej} commit={} tree={} branch={} receipt_sha256={}\nUnqualified candidate only; full exact-tree release qualification remains required.",
+        "Distillation {}: included={inc} satisfied_in_base={base_sat}{skipped_suffix} deferred={def} rejected={rej} commit={} tree={} branch={} receipt_sha256={}\nUnqualified candidate only; full exact-tree release qualification remains required.",
         outcome.receipt["name"].as_str().unwrap_or(""),
         outcome.final_commit,
         outcome.final_tree,
@@ -2871,7 +3610,11 @@ fn format_summary(outcome: &DistillOutcome, json_output: bool) -> String {
     )
 }
 
-fn discover_tasks_in_range(git: &Git<'_>, range_spec: &str) -> Result<Vec<String>> {
+fn discover_tasks_in_range(
+    git: &Git<'_>,
+    range_spec: &str,
+    functional_only: bool,
+) -> Result<Vec<String>> {
     let (left_raw, right_raw) = range_spec
         .split_once("..")
         .ok_or_else(|| "invalid --tasks-from-range; expected <base-rev>..<from-rev>".to_owned())?;
@@ -2887,8 +3630,20 @@ fn discover_tasks_in_range(git: &Git<'_>, range_spec: &str) -> Result<Vec<String
     let mut ordered = Vec::new();
     for commit in commits {
         for trailer in commit.task_trailers {
+            if functional_only && trailer.starts_with("LOCAL-") {
+                continue;
+            }
             if seen.insert(trailer.clone()) {
                 ordered.push(trailer);
+            }
+        }
+        if functional_only {
+            for path in &commit.changed_paths {
+                if let Some(id) = functional::task_id_from_manifest_path(path) {
+                    if seen.insert(id.clone()) {
+                        ordered.push(id);
+                    }
+                }
             }
         }
     }
@@ -2942,6 +3697,32 @@ fn run_distill_command(root: &Path, args: &DistillArgs) -> Result<String> {
             outcome.final_commit.clone()
         };
         git.ensure_cas_ref(&outcome.branch_ref, &branch_tip)?;
+        if let Some(rel_name) = outcome.branch_ref.strip_prefix("refs/heads/release/") {
+            git.ensure_cas_ref(&format!("refs/candidates/release/{rel_name}"), &branch_tip)?;
+        }
+        if let (Some(tag), Some(record_out)) = (&args.release_tag, &args.release_record_out) {
+            let rendered = render_distilled_release_record(
+                &git,
+                &outcome.receipt,
+                &ReleaseRecordArgs {
+                    name: args.name.clone(),
+                    tag: tag.clone(),
+                    commit: Some(branch_tip.clone()),
+                    tagged: "2026-11-11T00:00:00Z".to_owned(),
+                    toolchain: None,
+                    host: None,
+                    assets: Vec::new(),
+                    out: Some(record_out.clone()),
+                    json_output: false,
+                },
+            )?;
+            if let Some(parent) = record_out.parent().filter(|p| !p.as_os_str().is_empty()) {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("cannot create release record dir: {e}"))?;
+            }
+            fs::write(record_out, rendered.as_bytes())
+                .map_err(|e| format!("cannot write --release-record-out: {e}"))?;
+        }
 
         let mut extra_summaries = Vec::new();
         if args.mode == CommandMode::Orchestrate && args.publish_snapshot {
@@ -3403,11 +4184,262 @@ fn run_verify_harvest_command(root: &Path, args: &VerifyHarvestArgs) -> Result<S
     }
 }
 
+fn detect_toolchain_semver_at_commit(git: &Git<'_>, commit: &str) -> String {
+    if let Ok(raw) = git.bytes(
+        &["cat-file", "blob", &format!("{commit}:rust-toolchain.toml")],
+        None,
+    ) {
+        let text = String::from_utf8_lossy(&raw);
+        for line in text.lines() {
+            if let Some(rest) = line.trim().strip_prefix("channel") {
+                if let Some((_, val)) = rest.split_once('=') {
+                    let clean = val.trim().trim_matches('"');
+                    if valid_semver_triplet(clean) {
+                        return clean.to_owned();
+                    }
+                }
+            }
+        }
+    }
+    "1.99.0".to_owned()
+}
+
+fn json_escape_plain(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c.is_control() => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Emits a deterministic `susi-release-record/v1` document (`releases/<tag>.json`)
+/// strictly preserving the line-oriented layout required by `tests/release_records.rs`
+/// (`LINE_FIELDS` each alone on its line, single-line `"env": [...]`, and single-line
+/// asset objects with `built != owed` coverage across core's supported targets).
+fn render_distilled_release_record(
+    git: &Git<'_>,
+    receipt: &Value,
+    args: &ReleaseRecordArgs,
+) -> Result<String> {
+    let version = args
+        .tag
+        .strip_prefix('v')
+        .filter(|v| valid_semver_triplet(v))
+        .ok_or_else(|| format!("invalid release tag '{}'", args.tag))?;
+    let branch_ref = receipt["branch_ref"]
+        .as_str()
+        .unwrap_or("refs/heads/release/unknown");
+    let final_commit = receipt["final_commit"]
+        .as_str()
+        .ok_or_else(|| "distillation receipt missing final_commit".to_owned())?;
+    let final_tree = receipt["final_tree"]
+        .as_str()
+        .ok_or_else(|| "distillation receipt missing final_tree".to_owned())?;
+    let receipt_sha256 = receipt["receipt_sha256"]
+        .as_str()
+        .ok_or_else(|| "distillation receipt missing receipt_sha256".to_owned())?;
+
+    let commit_raw = match &args.commit {
+        Some(explicit) => git.resolve_commit(explicit)?,
+        None => git
+            .text(&["show-ref", "--verify", "--hash", branch_ref])
+            .unwrap_or_else(|_| final_commit.to_owned()),
+    };
+    let commit = commit_raw.to_ascii_lowercase();
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err(format!(
+            "release record requires a 40-char lowercase SHA-1 commit id, got '{commit}'"
+        ));
+    }
+
+    let toolchain = match &args.toolchain {
+        Some(tc) => {
+            if !valid_semver_triplet(tc) {
+                return Err(format!("--toolchain '{tc}' must be X.Y.Z semver"));
+            }
+            tc.clone()
+        }
+        None => detect_toolchain_semver_at_commit(git, &commit),
+    };
+    let default_host = if cfg!(windows) {
+        "x86_64-pc-windows-msvc"
+    } else {
+        "x86_64-unknown-linux-gnu"
+    };
+    let host = args.host.as_deref().unwrap_or(default_host);
+    if !matches!(host, "x86_64-pc-windows-msvc" | "x86_64-unknown-linux-gnu") {
+        return Err(format!("unsupported release build.host '{host}'"));
+    }
+
+    let mut seen_files = BTreeSet::new();
+    for asset in &args.assets {
+        if !seen_files.insert(asset.file.clone()) {
+            return Err(format!("duplicate release asset '{}'", asset.file));
+        }
+    }
+
+    const CORE_TARGETS: [&str; 2] = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"];
+    let mut missing_lines = Vec::new();
+    for target in CORE_TARGETS {
+        let has_susi_asset = args
+            .assets
+            .iter()
+            .any(|a| a.target == target && a.bin == "susi");
+        if !has_susi_asset {
+            let reason = if args.assets.is_empty() {
+                format!(
+                    "distilled candidate {} prepared on {}; reference binary build and smoke qualification for {target} are owed via release-qualify",
+                    args.name, host
+                )
+            } else {
+                format!(
+                    "qualified on {host}; reference binary build and qualification for {target} are owed"
+                )
+            };
+            missing_lines.push(format!(
+                "    {{ \"target\": \"{target}\", \"reason\": \"{}\" }}",
+                json_escape_plain(&reason)
+            ));
+        }
+    }
+
+    let included_tasks: Vec<&str> = receipt["included"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item["task_id"].as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    let qual_status = receipt["qualification_status"]
+        .as_str()
+        .unwrap_or("unqualified_candidate");
+    let locally_qualified = qual_status == "accept_verified_candidate" && !args.assets.is_empty();
+
+    let assets_block = if args.assets.is_empty() {
+        "  \"assets\": [],".to_owned()
+    } else {
+        let rows: Vec<String> = args
+            .assets
+            .iter()
+            .map(|a| {
+                format!(
+                    "    {{ \"file\": \"{}\", \"target\": \"{}\", \"package\": \"{}\", \"bin\": \"{}\", \"sha256\": \"{}\" }}",
+                    a.file, a.target, a.package, a.bin, a.sha256
+                )
+            })
+            .collect();
+        format!("  \"assets\": [\n{}\n  ],", rows.join(",\n"))
+    };
+
+    let missing_block = if missing_lines.is_empty() {
+        "  \"missing_targets\": [],".to_owned()
+    } else {
+        format!(
+            "  \"missing_targets\": [\n{}\n  ],",
+            missing_lines.join(",\n")
+        )
+    };
+
+    let selected_list = if included_tasks.is_empty() {
+        "base-satisfied".to_owned()
+    } else {
+        included_tasks.join(", ")
+    };
+
+    let build_source = format!(
+        "distilled candidate {} (tree {}, receipt {})",
+        args.name, final_tree, receipt_sha256
+    );
+    let prov_distill = format!(
+        "source: distilled candidate {} = {} (tree {}), receipt {}, selecting {}",
+        branch_ref,
+        final_commit,
+        final_tree,
+        receipt_sha256,
+        json_escape_plain(&selected_list)
+    );
+
+    Ok(format!(
+        "{{\n\
+  \"schema\": \"susi-release-record/v1\",\n\
+  \"product\": \"susi\",\n\
+  \"version\": \"{version}\",\n\
+  \"tag\": \"{}\",\n\
+  \"commit\": \"{commit}\",\n\
+  \"tagged\": \"{}\",\n\
+  \"build\": {{\n\
+    \"toolchain\": \"{toolchain}\",\n\
+    \"host\": \"{host}\",\n\
+    \"source\": \"{}\",\n\
+    \"profile\": \"dist\",\n\
+    \"features\": \"susi/local-engine\",\n\
+    \"env\": [\"CARGO_PROFILE_DIST_LTO=false\", \"CARGO_PROFILE_DIST_CODEGEN_UNITS=16\"],\n\
+    \"command\": \"cargo build --offline --locked --profile dist -p susi-harness -p susi --features susi/local-engine\"\n\
+  }},\n\
+  \"reproducible\": false,\n\
+{assets_block}\n\
+{missing_block}\n\
+  \"checks\": {{\n\
+    \"distill_receipt\": \"releases/distill/{}.json\",\n\
+    \"distill_status\": \"{}\",\n\
+    \"locally_qualified\": {locally_qualified},\n\
+    \"qualification_note\": \"distilled deterministically via local-distill from Task-labelled main commits ({})\"\n\
+  }},\n\
+  \"provenance\": [\n\
+    \"{}\"\n\
+  ]\n\
+}}\n",
+        args.tag,
+        json_escape_plain(&args.tagged),
+        json_escape_plain(&build_source),
+        args.name,
+        json_escape_plain(qual_status),
+        json_escape_plain(&selected_list),
+        prov_distill,
+    ))
+}
+
+fn run_release_record_command(root: &Path, args: &ReleaseRecordArgs) -> Result<String> {
+    let git = Git { root };
+    git.require_original_history()?;
+    let receipt_path = git.state_path("receipts", &args.name)?;
+    let receipt = read_receipt_readonly(&receipt_path)?;
+    let rendered = render_distilled_release_record(&git, &receipt, args)?;
+    if let Some(out_path) = &args.out {
+        if let Some(parent) = out_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create release record output dir: {e}"))?;
+        }
+        fs::write(out_path, rendered.as_bytes())
+            .map_err(|e| format!("cannot write release record {}: {e}", out_path.display()))?;
+    }
+    if args.json_output {
+        return Ok(rendered.trim_end().to_owned());
+    }
+    Ok(format!(
+        "Release record {} generated for distilled candidate {} (receipt_sha256={})",
+        args.tag,
+        args.name,
+        receipt["receipt_sha256"].as_str().unwrap_or("")
+    ))
+}
+
 pub fn run(root: &Path, args: &[String]) -> Result<String> {
     match parse_cli(args)? {
         ParsedCli::Help => Ok(USAGE.to_owned()),
         ParsedCli::Distill(distill_args) => run_distill_command(root, &distill_args),
         ParsedCli::Inspect(inspect_args) => run_inspect_command(root, &inspect_args),
+        ParsedCli::ReleaseRecord(rr_args) => run_release_record_command(root, &rr_args),
         ParsedCli::SubmitMain(submit_args) => run_submit_main_command(root, &submit_args),
         ParsedCli::VerifyHarvest(vh_args) => run_verify_harvest_command(root, &vh_args),
         ParsedCli::QuarantineFetch(qf_args) => mandate74::quarantine_fetch(
@@ -4776,5 +5808,287 @@ mod tests {
         let expected_ref = format!("refs/susi/upstream/upstream-demo/{up_sha}");
         assert_eq!(q_json["quarantine_ref"], json!(expected_ref));
         assert_eq!(fx.git().resolve_commit(&expected_ref).unwrap(), up_sha);
+    }
+
+    #[test]
+    fn pull_fetches_remote_only_explicit_snapshot_refs_for_base_and_source() {
+        let fx = Fixture::new();
+        fx.write("README.md", "base\n");
+        let base = fx.commit_all("initial base");
+        fx.git()
+            .text(&["push", "origin", &format!("{base}:refs/heads/main")])
+            .unwrap();
+
+        fx.write(
+            "crates/remote_tag/lib.rs",
+            "pub fn remote_tag() -> u32 { 7 }\n",
+        );
+        fx.write_task("T-REMOTE-TAG-1", &[], &["crates/remote_tag"]);
+        let feature = fx.commit_all("feat: remote tag input\n\nTask: T-REMOTE-TAG-1");
+
+        let base_tag = "susi-distill/v0-21-64-remote-base";
+        let source_tag = "susi-distill/v0-21-64-remote-source";
+        let base_ref = format!("refs/tags/{base_tag}");
+        let source_ref = format!("refs/tags/{source_tag}");
+        fx.git()
+            .text(&["tag", "-a", base_tag, "-m", "remote base", &base])
+            .unwrap();
+        fx.git()
+            .text(&["tag", "-a", source_tag, "-m", "remote source", &feature])
+            .unwrap();
+        let base_spec = format!("{base_ref}:{base_ref}");
+        let source_spec = format!("{source_ref}:{source_ref}");
+        fx.git()
+            .text(&["push", "origin", &base_spec, &source_spec])
+            .unwrap();
+        fx.git().text(&["tag", "-d", base_tag]).unwrap();
+        fx.git().text(&["tag", "-d", source_tag]).unwrap();
+        assert!(fx.git().local_ref_oid(&base_ref).unwrap().is_none());
+        assert!(fx.git().local_ref_oid(&source_ref).unwrap().is_none());
+
+        let output = fx
+            .run_args(&[
+                "compose",
+                "--name",
+                "remote-only-tags-1",
+                "--base",
+                &base_ref,
+                "--from",
+                &source_ref,
+                "--select",
+                "T-REMOTE-TAG-1",
+                "--pull",
+                "--strict",
+                "--json",
+            ])
+            .unwrap();
+        let receipt: Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(receipt["included"][0]["task_id"], "T-REMOTE-TAG-1");
+        assert_eq!(fx.git().resolve_commit(&base_ref).unwrap(), base);
+        assert_eq!(fx.git().resolve_commit(&source_ref).unwrap(), feature);
+    }
+
+    #[test]
+    fn pull_refuses_to_overwrite_a_different_local_explicit_remote_ref() {
+        let fx = Fixture::new();
+        fx.write("README.md", "base\n");
+        let base = fx.commit_all("initial base");
+        fx.git()
+            .text(&["push", "origin", &format!("{base}:refs/heads/main")])
+            .unwrap();
+
+        let tag = "susi-distill/v0-21-64-immutable-check";
+        let reference = format!("refs/tags/{tag}");
+        fx.git()
+            .text(&["tag", "-a", tag, "-m", "remote tag", &base])
+            .unwrap();
+        let spec = format!("{reference}:{reference}");
+        fx.git().text(&["push", "origin", &spec]).unwrap();
+        fx.git().text(&["tag", "-d", tag]).unwrap();
+
+        fx.write("local-only.txt", "local\n");
+        let local = fx.commit_all("local ref target");
+        fx.git()
+            .text(&["tag", "-a", tag, "-m", "different local tag", &local])
+            .unwrap();
+        let error = fx.git().pull_explicit_remote_ref(&reference).unwrap_err();
+        assert!(
+            error.contains("refusing to overwrite an immutable ref"),
+            "{error}"
+        );
+        assert_eq!(fx.git().resolve_commit(&reference).unwrap(), local);
+    }
+
+    #[test]
+    fn pull_reconciles_diverged_origin_main_and_emits_layout_valid_release_record() {
+        let fx = Fixture::new();
+        fx.write("rust-toolchain.toml", "[toolchain]\nchannel = \"1.99.0\"\n");
+        let base = fx.commit_all("initial base");
+        fx.git()
+            .text(&["push", "origin", &format!("{base}:refs/heads/main")])
+            .unwrap();
+
+        // Peer clone pushes a Task-labelled feature onto origin/main while our local
+        // clone stays un-fetched and independently commits another Task-labelled feature.
+        let peer_dir = fx.dir.join("peer");
+        fx.git()
+            .text(&[
+                "clone",
+                fx.remote.to_str().unwrap(),
+                peer_dir.to_str().unwrap(),
+            ])
+            .unwrap();
+        let peer_git = Git { root: &peer_dir };
+        fs::create_dir_all(peer_dir.join(".agents/tasks")).unwrap();
+        fs::create_dir_all(peer_dir.join("crates/peer_mod")).unwrap();
+        let peer_task = json!({
+            "id": "T-PEER-1",
+            "title": "Peer remote feature",
+            "goal": "Ship peer feature on origin/main",
+            "created_by": "peer-worker",
+            "created_unix": 1_794_300_100u64,
+            "status": "done",
+            "deps": [],
+            "scopes": ["crates/peer_mod", ".agents/tasks/T-PEER-1.json"],
+            "accept": { "cmd": ["cargo", "test", "--offline", "--locked"] }
+        });
+        fs::write(
+            peer_dir.join(".agents/tasks/T-PEER-1.json"),
+            format!("{}\n", serde_json::to_string_pretty(&peer_task).unwrap()),
+        )
+        .unwrap();
+        fs::write(
+            peer_dir.join("crates/peer_mod/lib.rs"),
+            "pub fn peer_ok() -> u32 { 11 }\n",
+        )
+        .unwrap();
+        peer_git.text(&["add", "-A"]).unwrap();
+        peer_git
+            .text(&[
+                "-c",
+                "user.name=Peer",
+                "-c",
+                "user.email=peer@localhost",
+                "commit",
+                "-m",
+                "feat: peer feature\n\nTask: T-PEER-1",
+            ])
+            .unwrap();
+        peer_git
+            .text(&["push", "origin", "HEAD:refs/heads/main"])
+            .unwrap();
+
+        // Local clone commits T-LOCAL-1 without having fetched T-PEER-1 yet.
+        fx.write(
+            "crates/local_mod/lib.rs",
+            "pub fn local_ok() -> u32 { 22 }\n",
+        );
+        fx.write_task("T-LOCAL-1", &[], &["crates/local_mod"]);
+        fx.commit_all("feat: local feature\n\nTask: T-LOCAL-1");
+
+        let record_out = fx.dir.join("v0.21.61.json");
+        let compose_json = fx
+            .run_args(&[
+                "compose",
+                "--name",
+                "rc-pull-1",
+                "--base",
+                &base,
+                "--from",
+                "HEAD",
+                "--select",
+                "T-PEER-1,T-LOCAL-1",
+                "--release-candidate",
+                "--pull",
+                "--strict",
+                "--release-tag",
+                "v0.21.61",
+                "--release-record-out",
+                record_out.to_str().unwrap(),
+                "--json",
+            ])
+            .unwrap();
+        let receipt: Value = serde_json::from_str(&compose_json).unwrap();
+        assert_eq!(receipt["included"].as_array().unwrap().len(), 2);
+
+        // Both refs/heads/release/rc-pull-1 and refs/candidates/release/rc-pull-1 must exist.
+        let rel_head = fx
+            .git()
+            .text(&[
+                "show-ref",
+                "--verify",
+                "--hash",
+                "refs/heads/release/rc-pull-1",
+            ])
+            .unwrap();
+        let cand_head = fx
+            .git()
+            .text(&[
+                "show-ref",
+                "--verify",
+                "--hash",
+                "refs/candidates/release/rc-pull-1",
+            ])
+            .unwrap();
+        assert_eq!(rel_head, cand_head);
+
+        // Also test explicit `release-record` subcommand with reference binary sha256.
+        let asset_sha = "a".repeat(64);
+        let explicit_out = fx.dir.join("v0.21.61-qualified.json");
+        fx.run_args(&[
+            "release-record",
+            "--name",
+            "rc-pull-1",
+            "--tag",
+            "v0.21.61",
+            "--asset",
+            &format!("susi-linux-x86_64:x86_64-unknown-linux-gnu:susi:susi:{asset_sha}"),
+            "--out",
+            explicit_out.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        for check_path in [&record_out, &explicit_out] {
+            let text = fs::read_to_string(check_path).unwrap();
+            let val: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(val["schema"], "susi-release-record/v1");
+            assert_eq!(val["product"], "susi");
+            assert_eq!(val["version"], "0.21.61");
+            assert_eq!(val["tag"], "v0.21.61");
+            assert_eq!(val["commit"], rel_head);
+            assert_eq!(val["build"]["toolchain"], "1.99.0");
+
+            let lines: Vec<&str> = text.lines().collect();
+            for field in [
+                "version",
+                "tag",
+                "commit",
+                "toolchain",
+                "profile",
+                "features",
+            ] {
+                let prefix = format!("\"{field}\": \"");
+                let hits: Vec<&&str> = lines
+                    .iter()
+                    .filter(|l| l.trim_start().starts_with(&prefix))
+                    .collect();
+                assert_eq!(hits.len(), 1, "field {field} must appear on one line");
+            }
+            let env_lines: Vec<&&str> = lines
+                .iter()
+                .filter(|l| l.trim_start().starts_with("\"env\": ["))
+                .collect();
+            assert_eq!(env_lines.len(), 1);
+            assert!(env_lines[0].trim().trim_end_matches(',').ends_with(']'));
+        }
+
+        // Offline fallback: point origin at a missing path and verify --pull still works cleanly.
+        let missing_remote = fx.dir.join("offline-missing.git");
+        fx.git()
+            .text(&[
+                "remote",
+                "set-url",
+                "origin",
+                missing_remote.to_str().unwrap(),
+            ])
+            .unwrap();
+        let offline_plan = fx
+            .run_args(&[
+                "plan",
+                "--name",
+                "offline-plan",
+                "--base",
+                &base,
+                "--from",
+                "HEAD",
+                "--select",
+                "T-LOCAL-1",
+                "--pull",
+                "--strict",
+                "--json",
+            ])
+            .unwrap();
+        let offline_val: Value = serde_json::from_str(&offline_plan).unwrap();
+        assert_eq!(offline_val["included"].as_array().unwrap().len(), 1);
     }
 }

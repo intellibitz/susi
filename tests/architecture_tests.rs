@@ -2152,7 +2152,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=74).collect::<Vec<_>>(),
+        (1..=77).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2169,6 +2169,9 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (72, "vanilla Windows x86_64 and vanilla Linux x86_64"),
         (73, "Three isolated laptops"),
         (74, "Dump to main, distill releases, harvest"),
+        (75, "Raw Source (main) -> Distill (release)"),
+        (76, "through the Susi Board"),
+        (77, "exactly one root directory per machine"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -2285,6 +2288,161 @@ fn ceo_mandate_74_is_discoverable_and_keeps_release_and_license_safeguards() {
             "Mandate 74 lost requirement: {phrase}"
         );
     }
+}
+
+/// Mandate 75 (CEO 2026-11-12): Raw Source (`main`) -> Distill (`release`),
+/// cloud raw-source feature pickup across Core and Commercial Apps, and Pure
+/// `Apache-2.0`-only harvest compliance.
+#[test]
+fn ceo_mandate_75_is_discoverable_and_enforces_pure_apache2_harvest() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+        "VISION.md",
+        "docs/ceo-mandate-74.md",
+        "docs/harvest.md",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-mandate-75.md") || text.contains("(ceo-mandate-75.md)"),
+            "{path}: Mandate 75 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-75.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "Raw Source (`main`) -> Distill (`release`)",
+        "local-harvest raw-features",
+        "local-harvest route",
+        "local-harvest pickup",
+        "ONLY `Apache-2.0` is\npermitted for pure compliance",
+        "Apache-2.0 WITH LLVM-exception",
+        "LICENSES/Apache-2.0.txt",
+        "Modified by",
+        "THIRD_PARTY_NOTICES",
+        "Origin-License: Apache-2.0",
+        "Implementation Truth",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 75 lost requirement: {phrase}"
+        );
+    }
+}
+
+/// Mandate 76 (CEO 2026-11-12): agents collaborate through the Susi Board.
+#[test]
+fn ceo_mandate_76_makes_susi_board_collaboration_discoverable() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-mandate-76.md"),
+            "{path}: Mandate 76 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-76.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "## 2. Read the board",
+        "## 3. Post on the board",
+        "## 4. Append only",
+        "Never edit a path inside another agent's open claim",
+        "answers on the board",
+        "Coordination, not evidence",
+        "No gate",
+        "zero dependency on GitHub",
+        "Never put credentials",
+        "Implementation truth",
+        "Not built",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 76 lost requirement: {phrase}"
+        );
+    }
+}
+
+/// Mandate 77 (CEO 2026-11-12): one isolated working directory per agent.
+#[test]
+fn ceo_mandate_77_makes_agent_roots_discoverable() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-mandate-77.md"),
+            "{path}: Mandate 77 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-77.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "## 1. One root per agent per machine",
+        "`.susi-agent-root`",
+        "Roots never nest and never overlap",
+        "## 2. Everything an agent creates lives under its root",
+        "## 4. Never write in another agent's root",
+        "nothing is\n   moved to satisfy this mandate",
+        "susi-commercial workflow root show",
+        "SUSI_ALLOW_FOREIGN_ROOT",
+        "Implementation truth",
+        "Not enforced",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 77 lost requirement: {phrase}"
+        );
+    }
+}
+
+/// Mandate 63: every script that is not Rust is migration debt, and the
+/// count only goes down. Lower the ceiling in the change that removes one.
+#[test]
+fn non_rust_scripts_only_decrease() {
+    const SCRIPT_CEILING: usize = 67;
+    fn walk(dir: &std::path::Path, found: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                if !matches!(name.as_ref(), "target" | ".git" | "node_modules") {
+                    walk(&path, found);
+                }
+            } else if matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("sh" | "ps1" | "py")
+            ) {
+                found.push(path);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(&workspace_root(), &mut found);
+    assert!(
+        found.len() <= SCRIPT_CEILING,
+        "{} shell/PowerShell/Python files, ceiling {SCRIPT_CEILING}: a new script is not admitted (Mandate 63)",
+        found.len()
+    );
 }
 
 #[test]

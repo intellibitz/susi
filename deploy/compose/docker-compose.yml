@@ -6,7 +6,8 @@ name: susi-stack
 
 services:
   susi:
-    image: ghcr.io/intellibitz/susi:latest
+    # Built here from source; set SUSI_IMAGE to use your own registry.
+    image: ${SUSI_IMAGE:-susi:local}
     build:
       context: ../..
       dockerfile: deploy/compose/Dockerfile.susi

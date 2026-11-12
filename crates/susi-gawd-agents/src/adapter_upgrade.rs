@@ -90,11 +90,12 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
-
     fn manager_without(id_present: &str) -> (std::path::PathBuf, AgentManager) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "susi-upgrade-unknown-{}-{}",
+            "susi-upgrade-unknown-{}-{}-{}",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
@@ -116,7 +117,6 @@ mod tests {
         .with_catalog(vec![def]);
         (dir, manager)
     }
-
     #[test]
     fn unknown_adapter_with_a_failing_contract_is_rejected_without_writing_config() {
         let (dir, manager) = manager_without("present");

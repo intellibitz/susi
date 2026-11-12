@@ -1,0 +1,32 @@
+{
+  "id": "T-CLAUDEHOOKDOCS-1",
+  "title": "commit-msg names the checks that back it, not a CI job",
+  "goal": "Hook verification (board item 300): .githooks/commit-msg said a server-side 'Workflow Compliance' CI job backs the local check; there is no CI (GitHub is storage only). Name what does: distill lint --strict and the gated landing refuse a commit without a task trailer. Comment only.",
+  "status": "implemented",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794456940,
+  "size": "xs",
+  "deps": [],
+  "base": "aafabb6e0b0af140af178b3c70f2bcf39d5d3ec5",
+  "scopes": [
+    ".githooks/commit-msg",
+    ".agents/tasks/T-CLAUDEHOOKDOCS-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "no_github_coupling"
+    ]
+  },
+  "results": {
+    "verified": "commit-msg exercised: a commit without a Task trailer and one naming an unknown task are refused; pre-push exercised against a local bare remote (main fast-forward and refs/agents allowed; main rewrite, deletion, new branch and tag move refused)"
+  },
+  "limitations": [
+    "Comment only; verified on Linux x86_64."
+  ]
+}

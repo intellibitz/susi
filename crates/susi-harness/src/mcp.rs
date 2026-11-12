@@ -12,10 +12,13 @@ use crate::tools::{Policy, ToolSpec};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 use susi_error::{EaiError, EaiResult};
 
 /// The protocol revision this client offers in `initialize`.
-pub const PROTOCOL_VERSION: &str = "2024-11-05";
+pub const PROTOCOL_VERSION: &str = "2025-11-25";
 
 /// Protocol revisions this client recognises in a server's `initialize`
 /// answer, newest first.
@@ -32,6 +35,9 @@ pub const GMCP_HTTP_PATH: &str = "/mcp";
 
 /// Largest response body [`HttpSocketTransport`] reads.
 pub const MAX_HTTP_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Default deadline for one MCP stdio response.
+pub const DEFAULT_STDIO_TIMEOUT_SECS: u64 = 60;
 
 /// One tool an MCP server advertises.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +80,15 @@ pub trait Transport: Send {
     /// Learn the protocol revision the server chose, so a transport that
     /// carries it on the wire (HTTP's `MCP-Protocol-Version`) can send it.
     fn set_protocol_version(&mut self, _version: &str) {}
+
+    /// Release any session owned by this transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transport error when an owned session cannot be released.
+    fn close(&mut self) -> EaiResult<()> {
+        Ok(())
+    }
 }
 
 /// Upper bound on `tools/list` pages one listing follows.
@@ -86,6 +101,7 @@ pub struct McpClient<T: Transport> {
     next_id: u64,
     initialized: bool,
     negotiated_version: Option<String>,
+    closed: bool,
 }
 
 impl<T: Transport> McpClient<T> {
@@ -96,7 +112,24 @@ impl<T: Transport> McpClient<T> {
             next_id: 0,
             initialized: false,
             negotiated_version: None,
+            closed: false,
         }
+    }
+
+    /// Release the underlying MCP session. The operation is idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transport cannot release its session.
+    pub fn close(&mut self) -> EaiResult<()> {
+        if self.closed {
+            return Ok(());
+        }
+        self.transport.close()?;
+        self.closed = true;
+        self.initialized = false;
+        self.negotiated_version = None;
+        Ok(())
     }
 
     /// The protocol revision the server answered `initialize` with, once the
@@ -129,6 +162,9 @@ impl<T: Transport> McpClient<T> {
     ///
     /// Returns the server's error or a transport error.
     pub fn initialize(&mut self) -> EaiResult<Value> {
+        if self.closed {
+            return Err(EaiError::internal("mcp client is closed"));
+        }
         if self.initialized {
             return Ok(json!({}));
         }
@@ -140,10 +176,15 @@ impl<T: Transport> McpClient<T> {
                 "clientInfo": {"name": "susi-harness", "version": env!("CARGO_PKG_VERSION")}
             }),
         )?;
-        if let Some(version) = result.get("protocolVersion").and_then(Value::as_str) {
-            self.transport.set_protocol_version(version);
-            self.negotiated_version = Some(version.to_string());
-        }
+        let version = result
+            .get("protocolVersion")
+            .and_then(Value::as_str)
+            .filter(|version| !version.is_empty())
+            .ok_or_else(|| {
+                EaiError::internal("mcp initialize: response has no non-empty protocolVersion")
+            })?;
+        self.transport.set_protocol_version(version);
+        self.negotiated_version = Some(version.to_string());
         self.transport
             .notify(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
         self.initialized = true;
@@ -221,6 +262,10 @@ impl<T: Transport> McpClient<T> {
     pub fn call(&mut self, name: &str, arguments: &Value) -> EaiResult<String> {
         self.initialize()?;
         let result = self.request("tools/call", json!({"name": name, "arguments": arguments}))?;
+        let is_error = result
+            .get("isError")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let mut text = String::new();
         if let Some(blocks) = result.get("content").and_then(Value::as_array) {
             for block in blocks {
@@ -244,13 +289,21 @@ impl<T: Transport> McpClient<T> {
             }
         }
         if text.is_empty() {
-            Ok(result.to_string())
+            text = result.to_string();
+        }
+        if is_error {
+            Err(EaiError::internal(format!(
+                "mcp tools/call '{name}' failed: {text}"
+            )))
         } else {
             Ok(text)
         }
     }
 
     fn request(&mut self, method: &str, params: Value) -> EaiResult<Value> {
+        if self.closed {
+            return Err(EaiError::internal("mcp client is closed"));
+        }
         self.next_id = self.next_id.saturating_add(1);
         let id = self.next_id;
         let request = json!({
@@ -260,6 +313,16 @@ impl<T: Transport> McpClient<T> {
             "params": params,
         });
         let response = self.transport.exchange(&request)?;
+        if response.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+            return Err(EaiError::internal(format!(
+                "mcp {method}: response has invalid jsonrpc version"
+            )));
+        }
+        if response.get("id") != Some(&Value::from(id)) {
+            return Err(EaiError::internal(format!(
+                "mcp {method}: response id does not match request id {id}"
+            )));
+        }
         if let Some(error) = response.get("error") {
             let message = error
                 .get("message")
@@ -274,12 +337,76 @@ impl<T: Transport> McpClient<T> {
     }
 }
 
+impl<T: Transport> Drop for McpClient<T> {
+    fn drop(&mut self) {
+        if !self.closed {
+            let _ = self.transport.close();
+        }
+    }
+}
+
+/// Read the next response from an MCP stdio stream.
+///
+/// Servers may send JSON-RPC notifications (for example progress or log
+/// events) between a request and its response. Notifications have a method
+/// but no id and never carry a result or error, so they are not candidates for
+/// the request's response. A message with an id, malformed JSON, or a
+/// response-shaped message without an id is returned to the client layer,
+/// which preserves its normal correlation checks.
+fn read_stdio_response<R: BufRead>(reader: &mut R) -> EaiResult<Value> {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|error| EaiError::io(format!("mcp read: {error}")))?;
+        if read == 0 {
+            return Err(EaiError::io("mcp server closed the stream"));
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        let message: Value = serde_json::from_str(&line)
+            .map_err(|error| EaiError::internal(format!("mcp response: {error}")))?;
+        let notification = message.get("id").is_none()
+            && message.get("method").and_then(Value::as_str).is_some()
+            && message.get("result").is_none()
+            && message.get("error").is_none();
+        if notification {
+            continue;
+        }
+        return Ok(message);
+    }
+}
+
+type StdioResponses = Receiver<EaiResult<Value>>;
+type StdioReader = JoinHandle<()>;
+
+fn start_stdio_reader(
+    mut stdout: BufReader<ChildStdout>,
+) -> EaiResult<(StdioResponses, StdioReader)> {
+    let (sender, receiver) = mpsc::channel();
+    let reader = thread::Builder::new()
+        .name("susi-mcp-stdio-reader".to_string())
+        .spawn(move || loop {
+            let result = read_stdio_response(&mut stdout);
+            let finished = result.is_err();
+            if sender.send(result).is_err() || finished {
+                break;
+            }
+        })
+        .map_err(|error| EaiError::io(format!("mcp reader thread: {error}")))?;
+    Ok((receiver, reader))
+}
+
 /// A JSON-RPC transport over a child process's stdio.
 #[derive(Debug)]
 pub struct StdioTransport {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    responses: Receiver<EaiResult<Value>>,
+    reader: Option<JoinHandle<()>>,
+    timeout: Duration,
 }
 
 impl StdioTransport {
@@ -305,11 +432,42 @@ impl StdioTransport {
             .stdout
             .take()
             .ok_or_else(|| EaiError::internal("mcp: child has no stdout"))?;
+        let (responses, reader) = match start_stdio_reader(BufReader::new(stdout)) {
+            Ok(reader) => reader,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
         Ok(Self {
             child,
             stdin,
-            stdout: BufReader::new(stdout),
+            responses,
+            reader: Some(reader),
+            timeout: Duration::from_secs(DEFAULT_STDIO_TIMEOUT_SECS),
         })
+    }
+
+    /// Set the per-response deadline.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout.max(Duration::from_millis(1));
+        self
+    }
+
+    /// Set the per-response deadline in seconds, with a one-second minimum.
+    #[must_use]
+    pub fn with_timeout_secs(self, timeout_secs: u64) -> Self {
+        self.with_timeout(Duration::from_secs(timeout_secs.max(1)))
+    }
+
+    fn stop_child(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        // Do not join the reader: a child can pass stdout to a grandchild,
+        // which keeps the pipe open after the child itself is reaped.
+        let _ = self.reader.take();
     }
 }
 
@@ -322,15 +480,17 @@ impl Transport for StdioTransport {
         self.stdin
             .flush()
             .map_err(|error| EaiError::io(format!("mcp flush: {error}")))?;
-        let mut response = String::new();
-        self.stdout
-            .read_line(&mut response)
-            .map_err(|error| EaiError::io(format!("mcp read: {error}")))?;
-        if response.trim().is_empty() {
-            return Err(EaiError::io("mcp server closed the stream"));
+        match self.responses.recv_timeout(self.timeout) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => {
+                let timeout_ms = self.timeout.as_millis();
+                self.stop_child();
+                Err(EaiError::io(format!(
+                    "mcp response timed out after {timeout_ms} ms"
+                )))
+            }
+            Err(RecvTimeoutError::Disconnected) => Err(EaiError::io("mcp stdio reader stopped")),
         }
-        serde_json::from_str(&response)
-            .map_err(|error| EaiError::internal(format!("mcp response: {error}")))
     }
 
     fn notify(&mut self, notification: &Value) -> EaiResult<()> {
@@ -342,12 +502,16 @@ impl Transport for StdioTransport {
             .flush()
             .map_err(|error| EaiError::io(format!("mcp flush: {error}")))
     }
+
+    fn close(&mut self) -> EaiResult<()> {
+        self.stop_child();
+        Ok(())
+    }
 }
 
 impl Drop for StdioTransport {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.stop_child();
     }
 }
 
@@ -489,6 +653,46 @@ impl Transport for HttpSocketTransport {
     fn set_protocol_version(&mut self, version: &str) {
         self.protocol_version = Some(version.to_string());
     }
+
+    fn close(&mut self) -> EaiResult<()> {
+        let Some(session) = self.session_id.take() else {
+            return Ok(());
+        };
+        let authorization = self.bearer.as_ref().map(|token| format!("Bearer {token}"));
+        let mut headers: Vec<(&str, &str)> = vec![("mcp-session-id", session.as_str())];
+        if let Some(version) = self.protocol_version.as_deref() {
+            headers.push(("mcp-protocol-version", version));
+        }
+        if let Some(authorization) = authorization.as_deref() {
+            headers.push(("authorization", authorization));
+        }
+        let call = susi_http_transport::http_call_with_body(
+            "DELETE",
+            &self.url,
+            &headers,
+            None,
+            self.timeout_secs,
+            0,
+        )
+        .map_err(|error| EaiError::network(format!("mcp http {}: {error}", self.url)));
+        match call {
+            Ok(call) if (200..300).contains(&call.status) || call.status == 405 => {
+                self.protocol_version = None;
+                Ok(())
+            }
+            Ok(call) => {
+                self.session_id = Some(session);
+                Err(EaiError::network(format!(
+                    "mcp http {} refused session close with HTTP {}",
+                    self.url, call.status
+                )))
+            }
+            Err(error) => {
+                self.session_id = Some(session);
+                Err(error)
+            }
+        }
+    }
 }
 
 /// `url` with the GMCP path appended when it names only a host and port.
@@ -543,377 +747,5 @@ fn response_from_event_stream(text: &str, id: Option<&Value>) -> EaiResult<Value
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::VecDeque;
-
-    struct Scripted {
-        responses: VecDeque<Value>,
-        requests: Vec<Value>,
-    }
-
-    impl Scripted {
-        fn new(responses: Vec<Value>) -> Self {
-            Self {
-                responses: responses.into(),
-                requests: Vec::new(),
-            }
-        }
-    }
-
-    impl Transport for Scripted {
-        fn exchange(&mut self, request: &Value) -> EaiResult<Value> {
-            self.requests.push(request.clone());
-            self.responses
-                .pop_front()
-                .ok_or_else(|| EaiError::internal("scripted transport exhausted"))
-        }
-    }
-
-    fn initialized() -> Value {
-        json!({"result": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}}})
-    }
-
-    #[test]
-    fn mcp_lists_tools_after_initialize() {
-        let transport = Scripted::new(vec![
-            initialized(),
-            json!({"result": {"tools": [
-                {"name": "search", "description": "Search", "inputSchema": {"type": "object"}},
-                {"name": "fetch", "description": "Fetch", "inputSchema": {"type": "object"}}
-            ]}}),
-        ]);
-        let mut client = McpClient::new(transport);
-        let tools = client.list_tools().unwrap();
-        assert_eq!(tools.len(), 2);
-        assert_eq!(tools[0].name, "search");
-        assert_eq!(client.transport.requests[0]["method"], "initialize");
-        assert_eq!(client.transport.requests[1]["method"], "tools/list");
-    }
-
-    #[test]
-    fn mcp_list_tools_follows_next_cursor_until_absent() {
-        let transport = Scripted::new(vec![
-            initialized(),
-            json!({"result": {"tools": [{"name": "a"}], "nextCursor": "rev:1"}}),
-            json!({"result": {"tools": [{"name": "b"}], "nextCursor": "rev:2"}}),
-            json!({"result": {"tools": [{"name": "c"}]}}),
-        ]);
-        let mut client = McpClient::new(transport);
-        let names: Vec<String> = client
-            .list_tools()
-            .unwrap()
-            .into_iter()
-            .map(|tool| tool.name)
-            .collect();
-        assert_eq!(names, ["a", "b", "c"]);
-        let requests = &client.transport.requests;
-        assert_eq!(requests.len(), 4);
-        assert!(requests[1]["params"].get("cursor").is_none());
-        assert_eq!(requests[2]["params"]["cursor"], "rev:1");
-        assert_eq!(requests[3]["params"]["cursor"], "rev:2");
-    }
-
-    #[test]
-    fn mcp_list_tools_surfaces_a_cursor_error_and_bounds_paging() {
-        let transport = Scripted::new(vec![
-            initialized(),
-            json!({"result": {"tools": [{"name": "a"}], "nextCursor": "rev:1"}}),
-            json!({"error": {"code": -32602, "message": "Invalid cursor"}}),
-        ]);
-        let mut client = McpClient::new(transport);
-        let error = client.list_tools().unwrap_err().to_string();
-        assert!(error.contains("Invalid cursor"), "{error}");
-
-        let mut endless = vec![initialized()];
-        endless.extend(
-            (0..=MAX_LIST_PAGES)
-                .map(|n| json!({"result": {"tools": [], "nextCursor": format!("rev:{n}")}})),
-        );
-        let mut client = McpClient::new(Scripted::new(endless));
-        let error = client.list_tools().unwrap_err().to_string();
-        assert!(error.contains("still paging"), "{error}");
-    }
-
-    #[test]
-    fn mcp_calls_a_tool_and_joins_text_blocks() {
-        let transport = Scripted::new(vec![
-            initialized(),
-            json!({"result": {"content": [
-                {"type": "text", "text": "first"},
-                {"type": "text", "text": "second"}
-            ]}}),
-        ]);
-        let mut client = McpClient::new(transport);
-        let text = client.call("search", &json!({"q": "rust"})).unwrap();
-        assert_eq!(text, "first\nsecond");
-        let call = &client.transport.requests[1];
-        assert_eq!(call["method"], "tools/call");
-        assert_eq!(call["params"]["name"], "search");
-        assert_eq!(call["params"]["arguments"]["q"], "rust");
-    }
-
-    #[test]
-    fn mcp_surfaces_a_json_rpc_error() {
-        let transport = Scripted::new(vec![
-            initialized(),
-            json!({"error": {"code": -32601, "message": "method not found"}}),
-        ]);
-        let mut client = McpClient::new(transport);
-        let error = client.list_tools().unwrap_err().to_string();
-        assert!(error.contains("method not found"), "{error}");
-    }
-
-    #[test]
-    fn mcp_tools_turn_into_registry_specs() {
-        let tool = McpTool {
-            name: "search".into(),
-            description: "Search".into(),
-            schema: json!({"type": "object"}),
-        };
-        let spec = tool.to_spec(Policy::Ask);
-        assert_eq!(spec.name, "search");
-        assert_eq!(spec.policy, Policy::Ask);
-    }
-
-    #[test]
-    fn supported_versions_list_the_modern_revisions_and_keep_the_offered_one() {
-        assert_eq!(
-            SUPPORTED_PROTOCOL_VERSIONS,
-            &["2026-07-28", "2025-11-25", "2024-11-05"]
-        );
-        assert!(is_supported_protocol_version(PROTOCOL_VERSION));
-        assert!(is_supported_protocol_version("2026-07-28"));
-        assert!(!is_supported_protocol_version("1999-01-01"));
-    }
-
-    #[test]
-    fn mcp_records_the_negotiated_protocol_version() {
-        let transport = Scripted::new(vec![
-            json!({"result": {"protocolVersion": "2025-11-25", "capabilities": {}}}),
-            json!({"result": {"tools": []}}),
-        ]);
-        let mut client = McpClient::new(transport);
-        assert_eq!(client.negotiated_protocol_version(), None);
-        assert!(!client.negotiated_supported());
-        client.list_tools().unwrap();
-        assert_eq!(client.negotiated_protocol_version(), Some("2025-11-25"));
-        assert!(client.negotiated_supported());
-        assert_eq!(
-            client.transport().requests[0]["params"]["protocolVersion"],
-            PROTOCOL_VERSION
-        );
-
-        let mut legacy = McpClient::new(Scripted::new(vec![
-            json!({"result": {"protocolVersion": "2025-06-18"}}),
-            json!({"result": {"tools": []}}),
-        ]));
-        legacy.list_tools().unwrap();
-        assert_eq!(legacy.negotiated_protocol_version(), Some("2025-06-18"));
-        assert!(!legacy.negotiated_supported());
-    }
-
-    #[test]
-    fn http_endpoints_gain_the_gmcp_path_only_when_they_have_none() {
-        assert_eq!(
-            HttpSocketTransport::new("http://127.0.0.1:9090").url(),
-            "http://127.0.0.1:9090/mcp"
-        );
-        assert_eq!(
-            HttpSocketTransport::new("http://127.0.0.1:9093/").url(),
-            "http://127.0.0.1:9093/mcp"
-        );
-        assert_eq!(
-            HttpSocketTransport::new("http://127.0.0.1:9090/messages").url(),
-            "http://127.0.0.1:9090/messages"
-        );
-        let socket = crate::adaptive::SusiSocketEndpoints::default();
-        assert_eq!(
-            HttpSocketTransport::for_socket(&socket).url(),
-            "http://127.0.0.1:9090/mcp"
-        );
-    }
-
-    #[test]
-    fn event_streams_yield_the_response_matching_the_request_id() {
-        let stream = "event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\r\n\r\n\
-                      data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"ok\":true}}\n\n\
-                      data: {\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"ok\":false}}\n";
-        let answer = response_from_event_stream(stream, Some(&json!(7))).unwrap();
-        assert_eq!(answer["result"]["ok"], true);
-        let last = response_from_event_stream(stream, Some(&json!(99))).unwrap();
-        assert_eq!(last["id"], 8);
-        assert!(response_from_event_stream(": keep-alive\n\n", None).is_err());
-    }
-
-    /// One recorded HTTP request: lowercase header map and body.
-    struct Recorded {
-        request_line: String,
-        headers: Vec<(String, String)>,
-        body: Value,
-    }
-
-    impl Recorded {
-        fn header(&self, name: &str) -> Option<&str> {
-            self.headers
-                .iter()
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.as_str())
-        }
-    }
-
-    /// Serve one canned response per connection, in order, and hand back
-    /// every request it read. Each request is read in full (head and
-    /// `Content-Length` body) before the reply, so Windows never resets the
-    /// socket with unread bytes.
-    fn serve(replies: Vec<String>) -> (String, std::thread::JoinHandle<Vec<Recorded>>) {
-        use std::io::Read;
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        let handle = std::thread::spawn(move || {
-            let mut recorded = Vec::new();
-            for reply in replies {
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut raw = Vec::new();
-                let mut buffer = [0_u8; 4096];
-                let head_end = loop {
-                    let read = stream.read(&mut buffer).unwrap();
-                    assert!(read > 0, "client closed before sending a request");
-                    raw.extend_from_slice(&buffer[..read]);
-                    if let Some(at) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
-                        break at + 4;
-                    }
-                };
-                let head = String::from_utf8_lossy(&raw[..head_end]).into_owned();
-                let mut lines = head.split("\r\n");
-                let request_line = lines.next().unwrap().to_string();
-                let headers: Vec<(String, String)> = lines
-                    .filter_map(|line| line.split_once(':'))
-                    .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
-                    .collect();
-                let length: usize = headers
-                    .iter()
-                    .find(|(k, _)| k == "content-length")
-                    .map_or(0, |(_, v)| v.parse().unwrap());
-                while raw.len() < head_end + length {
-                    let read = stream.read(&mut buffer).unwrap();
-                    assert!(read > 0, "client closed mid-body");
-                    raw.extend_from_slice(&buffer[..read]);
-                }
-                let body = serde_json::from_slice(&raw[head_end..head_end + length]).unwrap();
-                stream.write_all(reply.as_bytes()).unwrap();
-                stream.flush().unwrap();
-                recorded.push(Recorded {
-                    request_line,
-                    headers,
-                    body,
-                });
-            }
-            recorded
-        });
-        (url, handle)
-    }
-
-    fn reply(status: &str, extra_headers: &str, content_type: &str, body: &str) -> String {
-        format!(
-            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
-             Connection: close\r\n{extra_headers}\r\n{body}",
-            body.len()
-        )
-    }
-
-    #[test]
-    fn http_socket_transport_runs_the_session_handshake_over_json_rpc() {
-        let init = json!({
-            "jsonrpc": "2.0", "id": 1,
-            "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}}
-        })
-        .to_string();
-        let list = format!(
-            "event: message\ndata: {}\n\n",
-            json!({"jsonrpc": "2.0", "id": 2, "result": {"tools": [
-                {"name": "susi.status", "description": "Status", "inputSchema": {"type": "object"}}
-            ]}})
-        );
-        let call = json!({
-            "jsonrpc": "2.0", "id": 3,
-            "result": {"content": [{"type": "text", "text": "healthy"}]}
-        })
-        .to_string();
-        let (url, server) = serve(vec![
-            reply(
-                "200 OK",
-                "Mcp-Session-Id: sess-42\r\n",
-                "application/json",
-                &init,
-            ),
-            reply("202 Accepted", "", "application/json", ""),
-            reply("200 OK", "", "text/event-stream", &list),
-            reply("200 OK", "", "application/json", &call),
-        ]);
-
-        let transport = HttpSocketTransport::new(&url)
-            .with_timeout_secs(10)
-            .with_bearer("token-1");
-        let mut client = McpClient::new(transport);
-        let tools = client.list_tools().unwrap();
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "susi.status");
-        assert_eq!(client.negotiated_protocol_version(), Some("2025-11-25"));
-        assert_eq!(client.transport().session_id(), Some("sess-42"));
-        let answer = client.call("susi.status", &json!({})).unwrap();
-        assert_eq!(answer, "healthy");
-
-        let requests = server.join().unwrap();
-        assert_eq!(requests.len(), 4);
-        for request in &requests {
-            assert_eq!(request.request_line, "POST /mcp HTTP/1.1");
-            assert_eq!(request.body["jsonrpc"], "2.0");
-            assert_eq!(request.header("content-type"), Some("application/json"));
-            assert_eq!(
-                request.header("accept"),
-                Some("application/json, text/event-stream")
-            );
-            assert_eq!(request.header("authorization"), Some("Bearer token-1"));
-        }
-        let init = &requests[0];
-        assert_eq!(init.body["method"], "initialize");
-        assert_eq!(init.body["id"], 1);
-        assert_eq!(init.body["params"]["protocolVersion"], PROTOCOL_VERSION);
-        assert_eq!(init.header("mcp-session-id"), None);
-        assert_eq!(init.header("mcp-protocol-version"), None);
-
-        let initialized = &requests[1];
-        assert_eq!(initialized.body["method"], "notifications/initialized");
-        assert!(initialized.body.get("id").is_none());
-        for later in &requests[1..] {
-            assert_eq!(later.header("mcp-session-id"), Some("sess-42"));
-            assert_eq!(later.header("mcp-protocol-version"), Some("2025-11-25"));
-        }
-        assert_eq!(requests[2].body["method"], "tools/list");
-        assert_eq!(requests[2].body["id"], 2);
-        assert_eq!(requests[3].body["method"], "tools/call");
-        assert_eq!(requests[3].body["params"]["name"], "susi.status");
-    }
-
-    #[test]
-    fn http_socket_transport_surfaces_http_errors_and_unreachable_sockets() {
-        let (url, server) = serve(vec![reply(
-            "500 Internal Server Error",
-            "",
-            "text/plain",
-            "boom",
-        )]);
-        let mut client = McpClient::new(HttpSocketTransport::new(&url).with_timeout_secs(10));
-        let error = client.initialize().unwrap_err().to_string();
-        assert!(
-            error.contains("HTTP 500") && error.contains("boom"),
-            "{error}"
-        );
-        server.join().unwrap();
-
-        let mut closed =
-            McpClient::new(HttpSocketTransport::new("http://127.0.0.1:1").with_timeout_secs(2));
-        assert!(closed.initialize().is_err());
-    }
-}
+#[path = "tests/mcp.rs"]
+mod tests;

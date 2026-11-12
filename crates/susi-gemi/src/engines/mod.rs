@@ -21,7 +21,7 @@ pub mod native_lifecycle;
 pub mod reflex;
 pub mod reflex_llm;
 pub mod routing;
-/// Core local/cloud inference runtime (`GemiEngine`, `NeuralBackend`, …).
+/// Core local/cloud inference runtime (`GemiEngine`, `InferenceHost`, …).
 pub mod runtime;
 
 /// Serializes every test in this crate that mutates the process-global

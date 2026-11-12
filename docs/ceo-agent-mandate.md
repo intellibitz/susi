@@ -1,13 +1,19 @@
 # CEO mandate: independent agents, Susi integration and pristine releases
 
-Effective 2026-11-10. This is the operating mandate for every Susi agent, local
-or cloud, and the implementation contract for the Susi master brain. It
+Effective 2026-11-10 (harmonized 2026-11-11 with [CEO Mandate 74](ceo-mandate-74.md)
+and 2026-11-12 with [CEO Mandate 75](ceo-mandate-75.md), which win where older
+text differs). This is the operating mandate for every Susi agent, local or
+cloud, and the implementation contract for the Susi master brain. It
 consolidates the CEO's prior vision with the three-laptop plan. Mandate 73 in
 `.agents/identity.json` records it; `AGENTS.md` remains the engineering entry
-point. Existing mandates remain binding except the fixed remote push cadence
+point. Existing mandates remain binding except the fixed remote push cadence,
 single-laptop publication restriction and mandatory main-push gates explicitly
-superseded below. The CEO's latest direction is: no mandatory gates for main;
-full qualification belongs on release branches and release snapshots.
+superseded below. The CEO's latest direction is: **Raw Source (`main`) ->
+Distill (`release`)** (no mandatory gates for `main`, remote pull and merge
+reconciliation at every workflow step, `<10s` warm core build+test+release
+budget, **Pure `Apache-2.0` ONLY** cloud raw-source feature pickup routed cleanly
+between the 5 lean Core pillars and Commercial Apps, and full qualification on
+distilled release lines and immutable release snapshots).
 Requirements are not evidence of completed implementation.
 
 ## 1. The CEO sets direction; agents deliver
@@ -38,6 +44,8 @@ identities containing host/session, agent and execution mode, plus private
 source worktrees, branch names, build outputs, scratch homes and runtime ports.
 No worker impersonates another worker or the CEO.
 
+The agents actually present on a machine are those with a registered agent
+root (Mandate 77, `ceo-mandate-77.md`).
 These names express roles and desired deployment, not proof that a product,
 model, account or connector is installed, reachable or licensed. Record actual
 availability and limitations. A blocked provider does not stop unrelated work.
@@ -81,10 +89,15 @@ Focused development checks remain useful and their results must be reported
 honestly, but they do not become a hidden main-push prerequisite.
 
 Susi's master brain coordinates distillation, branch composition and serialized
-integration/publication. Preserve every accepted contribution, reconcile the
-current target head, and use an atomic normal fast-forward update. If the target
-moves, reconcile against it and retry without overwriting history. No force-push,
-blind ref reset, destructive overwrite or touching another worker's claim.
+integration/publication. Every native workflow step (`start`, `sync` / `step`,
+`commit`, `distill`, `ship`, `release`, and parallel Susi Harness steps)
+supports remote `fetch` + pull and merge reconciliation with `origin` when
+reachable (with safe offline fallback when disconnected) so distributed agents
+and isolated laptops stay continuously reconciled. Preserve every accepted
+contribution, reconcile the current target head, and use an atomic normal
+fast-forward update. If the target moves, reconcile against it and retry
+without overwriting history. No force-push, blind ref reset, destructive
+overwrite or touching another worker's claim.
 A clean merge does not qualify a release, and main may contain unfinished work;
 keep its status and known failures visible to other agents.
 
@@ -112,10 +125,11 @@ remote `refs/heads/*` branch on GitHub is `refs/heads/main` (CEO directives
 `release-staging/*`, `distill/*`, `wip/*`) is offered by GitHub as a pull
 request that could bypass Susi's integration rules, and is strictly forbidden.
 Agents publish their work to the non-branch ref `refs/agents/<agent>`
-(`docs/agent-refs.md`), which offers no pull request. Release candidates stay
-local to Susi and publish solely as immutable tags
-(`refs/tags/susi-distill/<name>`, `refs/tags/susi-snapshot/<name>`, and
-qualified `refs/tags/v<version>`). No agent opens, merges, or closes a pull
+(`docs/agent-refs.md`), which offers no pull request. A release line lives on
+storage as the non-branch ref `refs/candidates/release/<name>` (fast-forward
+only, never deleted); a `refs/heads/release/*` branch stays local. Snapshots
+and releases publish as immutable tags (`refs/tags/susi-distill/<name>`,
+`refs/tags/susi-snapshot/<name>`, and qualified `refs/tags/v<version>`). No agent opens, merges, or closes a pull
 request, or deletes remote branches without explicit CEO direction. Native
 Windows x86_64 and Linux x86_64 development, integration and qualification must
 work locally. Keep portable source; do not add unapproved platform release legs.
@@ -174,11 +188,21 @@ access or move content between access domains without explicit authorization.
 ## 7. Lean core and free Apache-2.0 foundation
 
 Core remains the lean standard-protocol socket built around **GAWD, GEMI, GMCP
-and the harness**, Apache-2.0 and free forever. Other product capabilities are
-independently admitted plugs; proprietary commercial implementations stay in
-`susi-commercial-apps`. Do not embed vendor products into core or shift commercial
-code into the public repository. Ratchet measured source, dependency, executable,
-memory, latency and build costs down without losing required capability.
+and the harness**, formalized under CEO Mandate 74 (2026-11-11) into **5 primary
+core pillars** — **GAWD** (swarm/A2A), **GEMI** (inference router), **GMCP**
+(MCP protocol & tool plane), **ACP** (Agent Client Protocol / Agent
+Communication Protocol standard open socket), and **Susi Harness** (with
+built-in parallel multi-agent workflow) — Apache-2.0 and free forever. Susi core
+targets a blazing-fast `<10s` (`total_ms < 10_000`) warm `build + test + release`
+pipeline budget (with cold and warm measurements recorded separately and
+honestly). All add-on features, enterprise packs, SSO/RBAC, FinOps, corporate
+fleet governance, and visual interfaces (all UIs and visual views live in Susi
+Commercial Apps) are closed-source, licensed (`SUSI-ENT-v1` / `SUSI-CUST-v1`),
+and paid software for commercial entities and corporates in
+`intellibitz/susi-commercial-apps`. Do not embed vendor products into core or
+shift commercial code into the public repository. Ratchet measured source,
+dependency, executable, memory, latency and build costs down without losing
+required capability.
 
 Rust-only implementation and native Windows requirements remain. Distributed
 components retain the existing Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause

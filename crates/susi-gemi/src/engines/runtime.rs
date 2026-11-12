@@ -5,17 +5,13 @@
 
 #[path = "runtime_native.rs"]
 mod runtime_native;
-#[allow(dead_code)]
 #[path = "runtime_substrate.rs"]
 mod runtime_substrate;
 
 pub use runtime_native::{
     engine_registry, LlamaCppEngine, NativeInferenceEngine, SusiFederatedEngine, SusiGgufEngine,
 };
-pub use runtime_substrate::{
-    apply_repeat_penalty, ContextSummarizer, InferenceHost, ModelBackend, ModelSubstrate,
-    NeuralBackend,
-};
+pub use runtime_substrate::{apply_repeat_penalty, ContextSummarizer, InferenceHost};
 
 use crate::models::ModelManager;
 use crate::susi_error::{EaiError, EaiResult};
@@ -46,9 +42,6 @@ fn reflex_serve_label(action: &str) -> String {
     };
     raw.chars().take(48).collect()
 }
-
-#[cfg(test)]
-use runtime_substrate::PromptFormat;
 
 /// Prefer admitted native Candle weights for ordinary automatic text work. Output
 /// formatting is not a second reasoning step; the substantive request still
@@ -101,6 +94,9 @@ fn fast_local_eligible(
     IntentClassifier::classify_complexity(substantive, None) <= TaskComplexity::Simple
 }
 
+/// Wall-clock budget for one embeddings request across all providers.
+pub(crate) const EMBED_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub struct GemiEngine;
 
 impl GemiEngine {
@@ -111,7 +107,17 @@ impl GemiEngine {
     pub fn shutdown_owned_runner() {}
 
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
-        Self::reason_internal(prompt, workspace, true, &|_| {}, None, None, None, &|_| {})
+        Self::reason_internal(
+            prompt,
+            workspace,
+            true,
+            &|_| {},
+            None,
+            None,
+            None,
+            &|_| {},
+            None,
+        )
     }
 
     pub fn generate_reasoning_deep(prompt: &str, workspace: &Path) -> String {
@@ -132,6 +138,7 @@ impl GemiEngine {
             None,
             None,
             &|_| {},
+            None,
         )
     }
 
@@ -149,6 +156,7 @@ impl GemiEngine {
             Some(model),
             None,
             &|_| {},
+            None,
         )
     }
 
@@ -163,6 +171,28 @@ impl GemiEngine {
         min_complexity: Option<crate::models::intent::TaskComplexity>,
         requires: Option<&str>,
     ) -> String {
+        Self::generate_reasoning_deep_opts_chat(
+            prompt,
+            workspace,
+            model,
+            min_complexity,
+            requires,
+            None,
+        )
+    }
+
+    /// Non-streaming deep reasoning with a complete caller conversation.
+    /// The plain prompt remains the fallback for engines that do not support
+    /// the additive chat field.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_reasoning_deep_opts_chat(
+        prompt: &str,
+        workspace: &Path,
+        model: Option<&str>,
+        min_complexity: Option<crate::models::intent::TaskComplexity>,
+        requires: Option<&str>,
+        chat: Option<serde_json::Value>,
+    ) -> String {
         Self::reason_internal(
             prompt,
             workspace,
@@ -172,6 +202,7 @@ impl GemiEngine {
             model,
             requires,
             &|_| {},
+            chat,
         )
     }
 
@@ -180,7 +211,17 @@ impl GemiEngine {
         workspace: &Path,
         callback: &dyn Fn(String),
     ) -> String {
-        Self::reason_internal(prompt, workspace, true, callback, None, None, None, &|_| {})
+        Self::reason_internal(
+            prompt,
+            workspace,
+            true,
+            callback,
+            None,
+            None,
+            None,
+            &|_| {},
+            None,
+        )
     }
 
     /// Streaming reasoning honoring a caller-requested model name — the
@@ -200,6 +241,7 @@ impl GemiEngine {
             Some(model),
             None,
             &|_| {},
+            None,
         )
     }
 
@@ -218,6 +260,22 @@ impl GemiEngine {
         meta: &dyn Fn(&str),
         requires: Option<&str>,
     ) -> String {
+        Self::generate_reasoning_stream_meta_chat(
+            prompt, workspace, callback, model, meta, requires, None,
+        )
+    }
+
+    /// Streaming reasoning with the caller's complete conversation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_reasoning_stream_meta_chat(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+        model: Option<&str>,
+        meta: &dyn Fn(&str),
+        requires: Option<&str>,
+        chat: Option<serde_json::Value>,
+    ) -> String {
         Self::reason_internal(
             prompt,
             workspace,
@@ -227,6 +285,7 @@ impl GemiEngine {
             model,
             requires,
             meta,
+            chat,
         )
     }
 
@@ -238,7 +297,24 @@ impl GemiEngine {
         model: Option<&str>,
         meta: &dyn Fn(&str),
     ) -> String {
-        Self::reason_internal(prompt, workspace, false, callback, None, model, None, meta)
+        Self::generate_reasoning_stream_deep_meta_chat(
+            prompt, workspace, callback, model, meta, None,
+        )
+    }
+
+    /// Deep streaming reasoning with the caller's complete conversation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_reasoning_stream_deep_meta_chat(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+        model: Option<&str>,
+        meta: &dyn Fn(&str),
+        chat: Option<serde_json::Value>,
+    ) -> String {
+        Self::reason_internal(
+            prompt, workspace, false, callback, None, model, None, meta, chat,
+        )
     }
 
     /// Ultra-Latency Competitive Inference Racing
@@ -252,9 +328,11 @@ impl GemiEngine {
         requested_model: Option<&str>,
         requires: Option<&str>,
         meta: &dyn Fn(&str),
+        chat_request: Option<serde_json::Value>,
     ) -> String {
         let _model_reads = crate::models::ModelReadWindow::enter();
-        if allow_reflex {
+        let provider_chat = chat_request.as_ref();
+        if allow_reflex && chat_request.is_none() {
             let (reflex_decision, _) = super::reflex::ReflexEngine::try_solve(prompt, workspace);
             if let super::reflex::ReflexDecision::Solved(action) = reflex_decision {
                 // Record the serve on the mission's evidence session so the
@@ -364,6 +442,7 @@ impl GemiEngine {
                     prompt,
                     Some(workspace),
                     Some(&esc.provider),
+                    provider_chat,
                     callback,
                     meta,
                 );
@@ -386,7 +465,14 @@ impl GemiEngine {
         let (provider_answer, mut ladder) = if prefer_fast_local {
             (None, crate::engines::routing::RoutingLadder::new(class))
         } else {
-            Self::try_discovered_providers(prompt, Some(workspace), requested_model, callback, meta)
+            Self::try_discovered_providers(
+                prompt,
+                Some(workspace),
+                requested_model,
+                provider_chat,
+                callback,
+                meta,
+            )
         };
         if let Some(text) = provider_answer {
             if ladder.step_downs() > 0 {
@@ -481,6 +567,21 @@ impl GemiEngine {
             }
         }
         let engine_prompt;
+        // With tools, the request also goes as a conversation with the tool
+        // schemas; an engine that renders the model's own template uses it,
+        // any other uses the prose prompt.
+        let chat = chat_request.or_else(|| {
+            needs_tools
+                .then(|| crate::local_tool_calls::chat_request(prompt))
+                .flatten()
+        });
+        // Tools the caller supplied are the caller's to run: their calls go
+        // back to it instead of through core's tool executor.
+        let caller_tools = chat
+            .as_ref()
+            .and_then(|c| c.get("tools"))
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|t| !t.is_empty());
         let prompt = if needs_tools {
             engine_prompt = crate::local_tool_calls::prompt_with_tool_schemas(prompt);
             engine_prompt.as_str()
@@ -526,7 +627,8 @@ impl GemiEngine {
                     prompt,
                     &filtered_callback,
                     selected_model.as_deref(),
-                ),
+                )
+                .with_chat(chat.clone()),
             )
         };
         let tail = stream_filter.borrow_mut().finish();
@@ -570,6 +672,9 @@ impl GemiEngine {
                 // policy-gated executor every tool request uses and append
                 // their results, so the markup becomes an answer instead of
                 // leaking raw into it.
+                if caller_tools {
+                    return crate::local_tool_calls::caller_tool_reply(res);
+                }
                 let text = Self::fulfill_emitted_tool_calls(res, workspace, callback);
                 return match Self::verify_axiomatic_alignment(&text, workspace) {
                     Ok(v) => v,
@@ -604,6 +709,7 @@ impl GemiEngine {
                 prompt,
                 Some(workspace),
                 requested_model,
+                chat.as_ref(),
                 callback,
                 meta,
             );
@@ -656,13 +762,22 @@ impl GemiEngine {
     }
 
     /// Embed `text` through the first registered provider that can serve
+    /// embeddings within [`EMBED_BUDGET`] in all.
+    ///
     /// embeddings. `model_hint` names a preferred provider — it is tried
     /// first, and every other provider still tries in order after it.
     pub fn embed_text(text: &str, model_hint: Option<&str>) -> Result<Vec<f32>, String> {
-        crate::engines::http_provider::register_configured_cloud_endpoints(
-            crate::susi_core::registry::CapabilityRegistry::global(),
-        );
         let registry = crate::susi_core::registry::CapabilityRegistry::global();
+        crate::engines::http_provider::register_configured_cloud_endpoints(registry);
+        Self::embed_from(registry, text, model_hint, EMBED_BUDGET)
+    }
+
+    pub(crate) fn embed_from(
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+        text: &str,
+        model_hint: Option<&str>,
+        budget: std::time::Duration,
+    ) -> Result<Vec<f32>, String> {
         let names = registry.list_providers();
         let mut ordered: Vec<&str> = Vec::with_capacity(names.len());
         if let Some(w) = model_hint {
@@ -672,14 +787,28 @@ impl GemiEngine {
         let runtime =
             Self::provider_runtime().ok_or_else(|| "embed runtime unavailable".to_string())?;
         let mut last_err = String::from("no embedding-capable provider registered");
+        // One request, one budget: every registered provider is tried in
+        // turn, and a provider that cannot embed (an unreachable endpoint, a
+        // chat-only model) could otherwise hold the request a minute each.
+        let deadline = std::time::Instant::now() + budget;
         for name in ordered {
             let Some(provider) = registry.get_provider(name) else {
                 continue;
             };
-            match runtime.block_on(provider.embed(text)) {
-                Ok(v) if !v.is_empty() => return Ok(v),
-                Ok(_) => last_err = format!("{name}: empty embedding"),
-                Err(e) => last_err = format!("{name}: {e}"),
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(format!(
+                    "no provider embedded within {} ms; last: {last_err}",
+                    budget.as_millis()
+                ));
+            }
+            match runtime
+                .block_on(async { tokio::time::timeout(remaining, provider.embed(text)).await })
+            {
+                Ok(Ok(v)) if !v.is_empty() => return Ok(v),
+                Ok(Ok(_)) => last_err = format!("{name}: empty embedding"),
+                Ok(Err(e)) => last_err = format!("{name}: {e}"),
+                Err(_) => last_err = format!("{name}: no embedding within the budget"),
             }
         }
         Err(last_err)
@@ -715,10 +844,12 @@ impl GemiEngine {
     /// Try CapabilityRegistry providers registered by zero-config discovery.
     /// Returns the answer plus the routing ladder that recorded how the
     /// cascade resolved — the caller owns emitting and persisting it.
+    #[allow(clippy::too_many_arguments)]
     fn try_discovered_providers(
         prompt: &str,
         workspace: Option<&Path>,
         requested_model: Option<&str>,
+        chat: Option<&serde_json::Value>,
         callback: &dyn Fn(String),
         meta: &dyn Fn(&str),
     ) -> (Option<String>, crate::engines::routing::RoutingLadder) {
@@ -734,8 +865,15 @@ impl GemiEngine {
             );
         }
         let registry = crate::susi_core::registry::CapabilityRegistry::global();
-        let (answer, mut ladder) =
-            Self::try_providers(registry, prompt, workspace, requested_model, callback, meta);
+        let (answer, mut ladder) = Self::try_providers(
+            registry,
+            prompt,
+            workspace,
+            requested_model,
+            chat,
+            callback,
+            meta,
+        );
         if answer.is_some() {
             return (answer, ladder);
         }
@@ -750,6 +888,7 @@ impl GemiEngine {
                     prompt,
                     workspace,
                     requested_model,
+                    chat,
                     callback,
                     meta,
                 );
@@ -912,12 +1051,13 @@ impl GemiEngine {
         out
     }
 
-    #[allow(clippy::too_many_arguments)] // flat params mirror every call site; a builder would only wrap them
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn try_providers(
         registry: &crate::susi_core::registry::CapabilityRegistry,
         prompt: &str,
         workspace: Option<&Path>,
         requested_model: Option<&str>,
+        chat: Option<&serde_json::Value>,
         callback: &dyn Fn(String),
         meta: &dyn Fn(&str),
     ) -> (Option<String>, crate::engines::routing::RoutingLadder) {
@@ -1095,7 +1235,7 @@ impl GemiEngine {
             // Adapters flatten failures into `Ok("... Error: ...")`; counting that
             // as an answer would teach the brain to prefer a broken provider
             // and would hand the caller the error text as the reply.
-            let outcome = match runtime.block_on(provider.generate(prompt)) {
+            let outcome = match runtime.block_on(provider.generate_with_chat(prompt, chat)) {
                 Ok(text) if Self::looks_like_error_text(&text) => {
                     Err(crate::susi_core::susi_error::EaiError::process(text))
                 }
@@ -1266,460 +1406,8 @@ impl MissionPlanner {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use std::thread;
-
-    #[test]
-    fn a_missing_local_model_is_a_failure_that_names_the_download_command() {
-        let missing = crate::models::NoLocalModelInstalled::starter();
-        let text = missing.to_string();
-        assert!(GemiEngine::looks_like_error_text(&text));
-        assert!(
-            text.contains("`susi os manage model install starter`"),
-            "{text}"
-        );
-        assert!(text.contains("about 429 MB"), "{text}");
-        assert!(
-            text.contains("Cloud models work without a download"),
-            "{text}"
-        );
-        assert!(EaiError::from(missing)
-            .to_string()
-            .contains("[NO_LOCAL_MODEL]"));
-    }
-
-    #[test]
-    fn error_text_detection_rejects_stringified_failures() {
-        // The observed live leak: an MCP -32603 surfaced through Ok(String)
-        // all the way into a chat completion's content.
-        assert!(GemiEngine::looks_like_error_text(
-            "Protocol Error: Mcp error: -32603: Unknown tool: reason"
-        ));
-        assert!(GemiEngine::looks_like_error_text(
-            "[FAIL] SUSI-Tier2-Inference: exhausted"
-        ));
-        assert!(GemiEngine::looks_like_error_text(
-            "Inference Error: model crashed"
-        ));
-        assert!(GemiEngine::looks_like_error_text(
-            "Governance Violation: blocked"
-        ));
-        assert!(!GemiEngine::looks_like_error_text("the answer is 42"));
-        // A multi-byte char straddling byte 64 must not panic the check.
-        let tricky = format!("{}é tail", "a".repeat(63));
-        assert!(!GemiEngine::looks_like_error_text(&tricky));
-        assert!(!GemiEngine::looks_like_error_text(
-            "Later in the text an error: is discussed"
-        ));
-    }
-
-    #[test]
-    fn test_backend_dispatch_rejects_unsupported_architectures() {
-        // Regression: quantized_llama (the generic GGUF loader) never reads
-        // attn_{q,k,v}.bias, which Qwen2's GGUF export always carries since
-        // Qwen2 (unlike Llama) trains a bias term on its Q/K/V projections.
-        // Verified live against the real qwen2.5-0.5b-instruct-q4_k_m.gguf:
-        // loading it through quantized_llama produced fluent-looking but
-        // completely wrong output from the first token (reproduced
-        // identically on CPU and CUDA, and across Q4_K_M and Q8_0, ruling
-        // out a device or quantization-format cause) because every layer's
-        // attention silently dropped its trained bias.
-        assert!(InferenceHost::needs_qwen2_backend("qwen2"));
-        assert!(!InferenceHost::needs_qwen2_backend("qwen2moe"));
-        for arch in ["qwen3", "gemma", "gptoss", "unknown"] {
-            assert!(InferenceHost::validate_architecture(arch).is_err());
-        }
-        assert!(InferenceHost::validate_architecture("llama").is_ok());
-        assert!(InferenceHost::validate_architecture("qwen2").is_ok());
-        assert!(InferenceHost::validate_architecture("qwen2moe").is_ok());
-        assert!(InferenceHost::validate_architecture("qwen3moe").is_ok());
-        assert!(!InferenceHost::needs_qwen2_backend("llama"));
-        assert!(!InferenceHost::needs_qwen2_backend("qwen3"));
-        assert!(!InferenceHost::needs_qwen2_backend("qwen3moe"));
-        assert!(!InferenceHost::needs_qwen2_backend("gemma"));
-    }
-
-    #[test]
-    fn test_prompt_format_detects_chatml_from_qwen_template() {
-        // Regression: susi fed raw prompts to instruct-tuned GGUFs with no
-        // conversational scaffolding at all, which is fundamentally
-        // incompatible with how models fine-tuned on a specific chat
-        // template behave - verified live, this produced pure gibberish
-        // output on qwen2.5-0.5b-instruct starting from the first token.
-        // Real (truncated) Qwen2.5 tokenizer.chat_template excerpt.
-        let template = "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n{%- endif %}";
-        assert_eq!(PromptFormat::detect(Some(template)), PromptFormat::ChatMl);
-    }
-
-    #[test]
-    fn test_prompt_format_detects_llama3_and_gemma_and_mistral() {
-        assert_eq!(
-            PromptFormat::detect(Some("<|start_header_id|>user<|end_header_id|>")),
-            PromptFormat::Llama3
-        );
-        assert_eq!(
-            PromptFormat::detect(Some("<start_of_turn>user\n{{ content }}")),
-            PromptFormat::Gemma
-        );
-        assert_eq!(
-            PromptFormat::detect(Some("[INST] {{ content }} [/INST]")),
-            PromptFormat::Mistral
-        );
-    }
-
-    #[test]
-    fn test_prompt_format_falls_back_to_raw_when_unrecognized_or_absent() {
-        assert_eq!(PromptFormat::detect(None), PromptFormat::Raw);
-        assert_eq!(
-            PromptFormat::detect(Some("some unrecognized template syntax")),
-            PromptFormat::Raw
-        );
-    }
-
-    #[test]
-    fn test_chatml_wrap_produces_well_formed_turn_structure() {
-        let wrapped = PromptFormat::ChatMl.wrap("hello");
-        assert!(wrapped.starts_with("<|im_start|>system\n"));
-        assert!(wrapped.contains("<|im_start|>user\nhello<|im_end|>\n"));
-        assert!(wrapped.ends_with("<|im_start|>assistant\n"));
-    }
-
-    #[test]
-    fn test_raw_wrap_is_passthrough() {
-        assert_eq!(PromptFormat::Raw.wrap("hello"), "hello");
-    }
-
-    #[test]
-    fn test_has_usable_local_model_false_for_empty_workspace() {
-        // Point the models scan at an empty dir (test builds honor SUSI_MODEL_DIR
-        // ahead of the shared susi_test_models folder).
-        let isolated =
-            std::env::temp_dir().join(format!("susi_engine_test_no_models_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&isolated);
-        let models = isolated.join("models");
-        let workspace = isolated.join("workspace");
-        std::fs::create_dir_all(&models).unwrap();
-        std::fs::create_dir_all(&workspace).unwrap();
-        let prev = std::env::var_os("SUSI_MODEL_DIR");
-        unsafe {
-            std::env::set_var("SUSI_MODEL_DIR", &models);
-        }
-        let usable = GemiEngine::has_usable_local_model(&workspace);
-        unsafe {
-            match prev {
-                Some(v) => std::env::set_var("SUSI_MODEL_DIR", v),
-                None => std::env::remove_var("SUSI_MODEL_DIR"),
-            }
-        }
-        let _ = std::fs::remove_dir_all(&isolated);
-        assert!(!usable);
-    }
-
-    #[test]
-    fn test_competitive_racing_logic() {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let tx1 = tx.clone();
-        thread::spawn(move || {
-            thread::sleep(std::time::Duration::from_millis(50));
-            let _ = tx1.send("FastPath".to_string());
-        });
-        thread::spawn(move || {
-            thread::sleep(std::time::Duration::from_millis(200));
-            let _ = tx.send("SlowPath".to_string());
-        });
-        let winner = rx.recv().unwrap();
-        assert_eq!(winner, "FastPath");
-    }
-
-    struct MockRouteProvider {
-        name: &'static str,
-        reply: &'static str,
-    }
-
-    impl crate::susi_core::provider::Provider for MockRouteProvider {
-        fn name(&self) -> &str {
-            self.name
-        }
-        fn is_healthy(
-            &self,
-        ) -> crate::susi_core::provider::BoxFuture<'_, crate::susi_core::susi_error::EaiResult<bool>>
-        {
-            Box::pin(async { Ok(true) })
-        }
-        fn generate(
-            &self,
-            _prompt: &str,
-        ) -> crate::susi_core::provider::BoxFuture<
-            '_,
-            crate::susi_core::susi_error::EaiResult<String>,
-        > {
-            let reply = self.reply.to_string();
-            Box::pin(async move {
-                if reply.starts_with("ERR:") {
-                    return Err(crate::susi_core::susi_error::EaiError::process(reply));
-                }
-                Ok(reply)
-            })
-        }
-        fn embed(
-            &self,
-            _text: &str,
-        ) -> crate::susi_core::provider::BoxFuture<
-            '_,
-            crate::susi_core::susi_error::EaiResult<Vec<f32>>,
-        > {
-            Box::pin(async { Ok(vec![]) })
-        }
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
-    }
-
-    #[test]
-    fn test_try_providers_fails_over_after_provider_error() {
-        // The store is process-global and its path comes from a
-        // process-global env var that other tests set and clear, so readers
-        // take the same lock the writers do.
-        let _env = crate::engines::env_test_lock();
-        let registry = crate::susi_core::registry::CapabilityRegistry::new();
-        registry.register_provider(MockRouteProvider {
-            name: "openai-primary",
-            reply: "ERR:402 billing",
-        });
-        registry.register_provider(MockRouteProvider {
-            name: "deepseek-backup",
-            reply: "recovered",
-        });
-
-        let (out, _ladder) =
-            GemiEngine::try_providers(&registry, "hello", None, None, &|_| {}, &|_| {});
-        assert_eq!(out.as_deref(), Some("recovered"));
-    }
-
-    #[test]
-    fn test_try_providers_records_outcomes_that_reorder_the_brain() {
-        // The store is process-global and its path comes from a
-        // process-global env var that other tests set and clear, so readers
-        // take the same lock the writers do.
-        let _env = crate::engines::env_test_lock();
-        use crate::engines::brain::{rank, TaskClass};
-        let registry = crate::susi_core::registry::CapabilityRegistry::new();
-        // Same static rank; name order would try `brainlearn-a` first.
-        registry.register_provider(MockRouteProvider {
-            name: "ollama-brainlearn-a",
-            reply: "ERR:boom",
-        });
-        registry.register_provider(MockRouteProvider {
-            name: "ollama-brainlearn-b",
-            reply: "fine",
-        });
-        let prompt = "brainlearn ping";
-        assert_eq!(TaskClass::classify(prompt), TaskClass::Reflex);
-        let (out, _ladder) =
-            GemiEngine::try_providers(&registry, prompt, None, None, &|_| {}, &|_| {});
-        assert_eq!(out.as_deref(), Some("fine"));
-        let both = vec![
-            "ollama-brainlearn-a".to_string(),
-            "ollama-brainlearn-b".to_string(),
-        ];
-        let ranked = rank(&both, TaskClass::Reflex);
-        assert_eq!(ranked[0].provider, "ollama-brainlearn-b");
-        // The error text is an availability failure, not a wrong answer:
-        // nothing lands on the capability axis (VC-202-020/T-117).
-        assert_eq!(ranked[1].success_rate, None);
-    }
-
-    #[test]
-    fn test_try_providers_treats_flattened_error_text_as_failure() {
-        // The store is process-global and its path comes from a
-        // process-global env var that other tests set and clear, so readers
-        // take the same lock the writers do.
-        let _env = crate::engines::env_test_lock();
-        use crate::engines::brain::{rank, TaskClass};
-        let registry = crate::susi_core::registry::CapabilityRegistry::new();
-        registry.register_provider(MockRouteProvider {
-            name: "ollama-flatten-a",
-            reply: "[INFERENCE_FAILED] upstream 500",
-        });
-        registry.register_provider(MockRouteProvider {
-            name: "ollama-flatten-b",
-            reply: "real answer",
-        });
-        let prompt = "flatten check";
-        let (out, _ladder) =
-            GemiEngine::try_providers(&registry, prompt, None, None, &|_| {}, &|_| {});
-        assert_eq!(out.as_deref(), Some("real answer"));
-        let names = vec!["ollama-flatten-a".to_string()];
-        let a = &rank(&names, TaskClass::classify(prompt))[0];
-        assert_eq!(
-            a.success_rate, None,
-            "flattened error text is availability evidence — the capability \
-             axis stays untouched (VC-202-020/T-117)"
-        );
-    }
-
-    #[test]
-    fn test_try_providers_never_lets_a_failing_provider_lead() {
-        // The store is process-global and its path comes from a
-        // process-global env var that other tests set and clear, so readers
-        // take the same lock the writers do.
-        let _env = crate::engines::env_test_lock();
-        use crate::engines::brain::{note_failure, record_outcome, FailureKind, TaskClass};
-        let registry = crate::susi_core::registry::CapabilityRegistry::new();
-        // Name order would try `ollama-dry-a` first.
-        registry.register_provider(MockRouteProvider {
-            name: "ollama-dry-a",
-            reply: "dry answered",
-        });
-        registry.register_provider(MockRouteProvider {
-            name: "ollama-dry-b",
-            reply: "fit answered",
-        });
-        let prompt = "dry ping";
-        let class = TaskClass::classify(prompt);
-        for _ in 0..4 {
-            record_outcome("ollama-dry-a", class, false, 0);
-        }
-        note_failure("ollama-dry-a", FailureKind::Funds);
-        let (out, _ladder) =
-            GemiEngine::try_providers(&registry, prompt, None, None, &|_| {}, &|_| {});
-        assert_eq!(out.as_deref(), Some("fit answered"));
-    }
-
-    #[test]
-    fn test_try_providers_prefers_ollama_over_generic_and_skips_candle() {
-        // The store is process-global and its path comes from a
-        // process-global env var that other tests set and clear, so readers
-        // take the same lock the writers do.
-        let _env = crate::engines::env_test_lock();
-        let registry = crate::susi_core::registry::CapabilityRegistry::new();
-        registry.register_provider(MockRouteProvider {
-            name: "Candle (Local)",
-            reply: "from-candle",
-        });
-        registry.register_provider(MockRouteProvider {
-            name: "generic-remote",
-            reply: "from-generic",
-        });
-        registry.register_provider(MockRouteProvider {
-            name: "ollama-llama3",
-            reply: "from-ollama",
-        });
-
-        let (out, _ladder) =
-            GemiEngine::try_providers(&registry, "hello", None, None, &|_| {}, &|_| {});
-        assert_eq!(out.as_deref(), Some("from-ollama"));
-    }
-
-    #[test]
-    fn test_try_providers_honors_requested_model_name_match() {
-        // The store is process-global and its path comes from a
-        // process-global env var that other tests set and clear, so readers
-        // take the same lock the writers do.
-        let _env = crate::engines::env_test_lock();
-        let registry = crate::susi_core::registry::CapabilityRegistry::new();
-        registry.register_provider(MockRouteProvider {
-            name: "ollama-llama3",
-            reply: "llama3",
-        });
-        registry.register_provider(MockRouteProvider {
-            name: "vllm-mixtral",
-            reply: "mixtral",
-        });
-
-        let (out, _ladder) =
-            GemiEngine::try_providers(&registry, "hello", None, Some("mixtral"), &|_| {}, &|_| {});
-        assert_eq!(out.as_deref(), Some("mixtral"));
-    }
-
-    /// `axiomatic_risk_patterns` is config-driven now, not a hardcoded Rust
-    /// array — prove the configured patterns actually gate the check, and
-    /// that ordinary reasoning output isn't blocked.
-    #[test]
-    fn test_verify_axiomatic_alignment_uses_configured_risk_patterns() {
-        let patterns =
-            crate::susi_sandbox::manager::SusiConfig::default().axiomatic_risk_patterns();
-        assert!(!patterns.is_empty());
-
-        let workspace = Path::new(".");
-        for pattern in &patterns {
-            let reasoning = format!("Here is a plan: {}", pattern);
-            assert!(
-                GemiEngine::verify_axiomatic_alignment(&reasoning, workspace).is_err(),
-                "configured risk pattern '{}' must be blocked",
-                pattern
-            );
-        }
-
-        assert!(GemiEngine::verify_axiomatic_alignment(
-            "Here is a perfectly safe plan to list files.",
-            workspace
-        )
-        .is_ok());
-    }
-
-    #[test]
-    fn test_logits_repetition_penalty_dampens_recent_tokens() {
-        let mut logits_v = vec![10.0f32, 10.0f32, 10.0f32]; // Equal logits for tokens 0, 1, 2
-        apply_repeat_penalty(&mut logits_v, 1.15, &[1u32]); // Token 1 has been generated
-
-        // Token 1 was penalized: 10.0 / 1.15 ~ 8.695
-        assert!(logits_v[1] < logits_v[0]);
-        assert!(logits_v[1] < logits_v[2]);
-        assert_eq!(logits_v[0], 10.0);
-        assert_eq!(logits_v[2], 10.0);
-    }
-
-    #[test]
-    fn test_repeat_penalty_disabled_at_1_0_or_below() {
-        let original = vec![10.0f32, -5.0, 3.0];
-        let mut logits_v = original.clone();
-        apply_repeat_penalty(&mut logits_v, 1.0, &[0, 1, 2]);
-        assert_eq!(logits_v, original);
-
-        let mut logits_v = original.clone();
-        apply_repeat_penalty(&mut logits_v, 0.0, &[0, 1, 2]);
-        assert_eq!(logits_v, original);
-    }
-
-    #[test]
-    fn test_repeat_penalty_dampens_negative_logits_by_multiplying() {
-        // llama.cpp convention: a negative logit is already "unlikely," so
-        // penalizing it means moving it further negative (multiply), not
-        // dividing (which would move a negative value toward zero, i.e.
-        // *more* likely - the opposite of a penalty).
-        let mut logits_v = vec![-4.0f32];
-        apply_repeat_penalty(&mut logits_v, 1.15, &[0]);
-        assert_eq!(logits_v[0], -4.6);
-    }
-
-    #[test]
-    fn test_generation_loop_excludes_prompt_tokens_from_repeat_penalty_window() {
-        // Regression: the window used to be built from prompt_tokens +
-        // all_tokens combined, so a short prompt sat inside the
-        // repeat_last_n window for the entire generation and got penalized
-        // from the very first token. Verified live: "What is the capital of
-        // France?" (where "France" is a prompt token) drifted into an
-        // unrelated fact about France without ever saying "Paris," because
-        // "France" was already penalized before generation started. The
-        // fix scopes the window to `all_tokens` (generated so far) only;
-        // this locks in that a prompt-only token is never penalized.
-        let prompt_tokens: Vec<u32> = vec![42]; // e.g. the token for "France"
-        let all_tokens: Vec<u32> = vec![]; // nothing generated yet
-        let repeat_last_n = 64usize;
-
-        let mut logits_v = vec![10.0f32; 100];
-        let start_idx = all_tokens.len().saturating_sub(repeat_last_n);
-        apply_repeat_penalty(&mut logits_v, 1.15, &all_tokens[start_idx..]);
-
-        assert_eq!(
-            logits_v[prompt_tokens[0] as usize], 10.0,
-            "a prompt-only token must not be penalized just because it appears in the prompt"
-        );
-    }
-}
+#[path = "../tests/runtime.rs"]
+mod tests;
 
 #[cfg(test)]
 mod reflex_allowed_tests {

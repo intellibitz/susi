@@ -1,9 +1,13 @@
-//! Native Apache-2.0 harvest tooling (CEO Mandate 74, section 5).
+//! Native Pure Apache-2.0 harvest, routing & cloud raw-source pickup tooling
+//! (CEO Mandate 74 section 5 & Mandate 75).
 //!
 //! `local-harvest` pins an upstream commit in a local quarantine ref
-//! (`refs/susi/upstream/<slug>/<sha>`), verifies the license of every
-//! requested file at that exact commit, imports approved blobs together with a
-//! `susi-harvest-manifest-v1` manifest, regenerates `THIRD_PARTY_NOTICES`, and
+//! (`refs/susi/upstream/<slug>/<sha>`), verifies Pure `Apache-2.0` compliance of
+//! every requested file at that exact commit, routes capabilities between Susi
+//! Core's 5 lean socket pillars (`gawd`, `gemi`, `gmcp`, `acp`, `harness`) and
+//! Susi Commercial Apps (`susi-commercial-apps`), imports approved blobs
+//! together with a `susi-harvest-manifest-v1` manifest, regenerates
+//! `THIRD_PARTY_NOTICES`, discovers raw-branch features (`raw-features`), and
 //! audits the Apache-2.0 section 4 obligations of every recorded harvest.
 //!
 //! Upstream content is untrusted: it is read only as Git objects (`ls-tree`,
@@ -30,22 +34,27 @@ const MANIFEST_DIR: &str = ".agents/harvest";
 const NOTICES_FILE: &str = "THIRD_PARTY_NOTICES";
 const APACHE_TEXT_PATH: &str = "LICENSES/Apache-2.0.txt";
 const HEADER_LINES: usize = 30;
-const LICENSE_NAMES: [&str; 6] = [
+const LICENSE_NAMES: [&str; 11] = [
     "LICENSE",
     "LICENSE.txt",
     "LICENSE.md",
     "LICENSE-APACHE",
+    "LICENSE-APACHE.txt",
+    "LICENSE-APACHE.md",
+    "LICENSE-APACHE-2.0",
     "LICENSE-MIT",
+    "LICENSE-MIT.txt",
+    "LICENSE-MIT.md",
     "COPYING",
 ];
 const NOTICE_NAMES: [&str; 3] = ["NOTICE", "NOTICE.txt", "NOTICE.md"];
-const ALLOWED_LICENSES: [&str; 5] = [
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "MIT",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-];
+/// Harvested code is taken under Apache-2.0 only (CEO decision 2026-11-12:
+/// "only apache 2.0 license only for pure compliance"). A dual-licensed file
+/// (`Apache-2.0 OR MIT`) is taken under its Apache-2.0 alternative. MIT, BSD
+/// and `Apache-2.0 WITH LLVM-exception` code is not harvested. This is the
+/// rule for source copied into Susi; the dependency allowlist (Mandate 68) is
+/// a different rule and is unchanged.
+const ALLOWED_LICENSES: [&str; 1] = ["Apache-2.0"];
 const REJECT_PHRASES: [&str; 7] = [
     "GNU General Public License",
     "GNU Lesser General Public",
@@ -55,20 +64,27 @@ const REJECT_PHRASES: [&str; 7] = [
     "Business Source License",
     "Commons Clause",
 ];
-const VALUE_FLAGS: [&str; 12] = [
+const VALUE_FLAGS: [&str; 14] = [
     "url", "rev", "slug", "path", "map", "id", "task", "feature", "mode", "agent", "range",
-    "summary",
+    "summary", "target", "limit",
 ];
 const SWITCHES: [&str; 3] = ["json", "overwrite", "check"];
 const USAGE: &str = "usage: local-harvest <command> [--json]
-  intake  --url <git-url> --rev <40-hex sha | ref name> --slug <slug>
-  scan    --slug <slug> --rev <sha> --path <upstream-path>...
-  import  --slug <slug> --rev <sha> --map <upstream-path>=<dest-path>... --id H-<AGENT>-<n>
-          --task T-<AGENT>-<n> [--feature <id>] [--mode transplant|port] [--agent <name>]
-          [--summary <text>] [--url <git-url>] [--overwrite]
-  notices [--check]
-  audit   [--range <A..B>]
-See docs/harvest.md (CEO Mandate 74, section 5).";
+  intake       --url <git-url> --rev <40-hex sha | ref name> --slug <slug>
+  scan         --slug <slug> --rev <sha> --path <upstream-path>...
+  route        --path <candidate-path>... [--map <src=dst>...] [--feature <id>]
+               [--summary <text>] [--target auto|core|commercial] [--slug <slug> --rev <sha>]
+  pickup       --url <git-url> --rev <sha | ref> --slug <slug> --map <src=dst>...
+               --id H-<AGENT>-<n> --task T-<AGENT>-<n> [--feature <id>]
+               [--target auto|core|commercial] [--mode transplant|port] [--agent <name>]
+               [--summary <text>] [--overwrite]
+  raw-features --url <git-url> [--rev main] [--slug <slug>] [--limit <n>]
+  import       --slug <slug> --rev <sha> --map <upstream-path>=<dest-path>... --id H-<AGENT>-<n>
+               --task T-<AGENT>-<n> [--feature <id>] [--mode transplant|port] [--agent <name>]
+               [--summary <text>] [--url <git-url>] [--overwrite]
+  notices      [--check]
+  audit        [--range <A..B>]
+See docs/harvest.md (CEO Mandates 74 & 75: Pure Apache-2.0 Compliance).";
 
 /// Runs one `local-harvest` command in the Git worktree containing `cwd`.
 pub fn run(cwd: &Path, args: &[String]) -> Result<String> {
@@ -80,6 +96,9 @@ pub fn run(cwd: &Path, args: &[String]) -> Result<String> {
     let report = match cli.command.as_str() {
         "intake" => intake(&git, &cli)?,
         "scan" => scan_command(&git, &cli)?,
+        "route" => route_command(&git, &cli)?,
+        "pickup" => pickup(&git, &cli)?,
+        "raw-features" => raw_features(&git, &cli)?,
         "import" => import(&git, &cli)?,
         "notices" => notices_command(&git, &cli)?,
         "audit" => audit(&git, &cli)?,
@@ -555,6 +574,10 @@ fn classify_license_text(text: &str) -> Option<&'static str> {
         Some("Apache-2.0")
     } else if words.contains("permission is hereby granted free of charge") {
         Some("MIT")
+    } else if words
+        .contains("permission to use copy modify and or distribute this software for any purpose")
+    {
+        Some("ISC")
     } else if words.contains("redistribution and use in source and binary forms") {
         if words.contains("neither the name") {
             Some("BSD-3-Clause")
@@ -648,8 +671,8 @@ fn canonical_license(tokens: &[String]) -> Option<&'static str> {
         .find(|allowed| allowed.eq_ignore_ascii_case(&term))
 }
 
-/// Picks the license Susi uses from an SPDX expression: an `OR` alternative
-/// whose every `AND` term is on the allowlist, preferring plain Apache-2.0.
+/// Picks the license Susi uses from an SPDX expression: the `OR` alternative
+/// that is exactly Apache-2.0. Anything else is refused.
 fn choose_license(expr: &str) -> std::result::Result<String, String> {
     let tokens = tokenize(expr);
     let mut allowed = Vec::new();
@@ -665,10 +688,12 @@ fn choose_license(expr: &str) -> std::result::Result<String, String> {
     allowed
         .iter()
         .find(|a| *a == "Apache-2.0")
-        .or_else(|| allowed.iter().find(|a| a.contains("Apache-2.0")))
-        .or_else(|| allowed.first())
         .cloned()
-        .ok_or_else(|| format!("license `{expr}` is not on the allowlist"))
+        .ok_or_else(|| {
+            format!(
+                "license `{expr}` is not Apache-2.0; only Apache-2.0 code is harvested (Mandate 75 Pure Apache-2.0 Compliance)"
+            )
+        })
 }
 
 fn strip_comment(line: &str) -> &str {
@@ -790,14 +815,10 @@ fn resolve_pin(git: &Git, cli: &Cli) -> Result<Pin> {
 
 // ---------------------------------------------------------------- intake
 
-fn intake(git: &Git, cli: &Cli) -> Result<Report> {
-    cli.only(&["url", "rev", "slug"])?;
-    let url = cli.required("url")?;
-    check_url(&url)?;
-    let rev = cli.required("rev")?;
-    check_rev(&rev)?;
-    let slug = cli.required("slug")?;
-    check_slug(&slug)?;
+fn intake_pin(git: &Git, url: &str, rev: &str, slug: &str) -> Result<(Pin, bool)> {
+    check_url(url)?;
+    check_rev(rev)?;
+    check_slug(slug)?;
     git.checked(
         &[
             "-c",
@@ -808,8 +829,8 @@ fn intake(git: &Git, cli: &Cli) -> Result<Report> {
             "--quiet",
             "--no-tags",
             "--no-recurse-submodules",
-            &url,
-            &rev,
+            url,
+            rev,
         ],
         None,
     )?;
@@ -823,7 +844,7 @@ fn intake(git: &Git, cli: &Cli) -> Result<Report> {
     if is_hex_oid(&wanted) && fetched != wanted {
         return Err(format!("fetched {fetched}, but --rev asked for {wanted}"));
     }
-    let reference = quarantine_ref(&slug, &fetched);
+    let reference = quarantine_ref(slug, &fetched);
     let existing = git.try_text(&["rev-parse", "--verify", "-q", &reference])?;
     let created = match existing.filter(|s| !s.is_empty()) {
         Some(current) if current == fetched => false,
@@ -846,11 +867,29 @@ fn intake(git: &Git, cli: &Cli) -> Result<Report> {
             true
         }
     };
-    let record = intake_record_path(git, &slug, &fetched)?;
+    let record = intake_record_path(git, slug, &fetched)?;
     if let Some(parent) = record.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("cannot create {parent:?}: {e}"))?;
     }
     fs::write(&record, format!("{url}\n")).map_err(|e| format!("cannot write {record:?}: {e}"))?;
+    Ok((
+        Pin {
+            slug: slug.to_owned(),
+            commit: fetched,
+            reference,
+        },
+        created,
+    ))
+}
+
+fn intake(git: &Git, cli: &Cli) -> Result<Report> {
+    cli.only(&["url", "rev", "slug"])?;
+    let url = cli.required("url")?;
+    let rev = cli.required("rev")?;
+    let slug = cli.required("slug")?;
+    let (pin, created) = intake_pin(git, &url, &rev, &slug)?;
+    let fetched = &pin.commit;
+    let reference = &pin.reference;
     let state = if created { "pinned" } else { "already pinned" };
     let text = format!(
         "{state} {fetched}\nquarantine ref: {reference}\nsource: {url} ({rev})\nnext: local-harvest scan --slug {slug} --rev {fetched} --path <upstream-path>"
@@ -912,6 +951,8 @@ impl Scan {
     }
 }
 
+const MAX_EVIDENCE_SYMLINK_HOPS: usize = 4;
+
 fn nearest_named(tree: &BTreeMap<String, TreeEntry>, file: &str, names: &[&str]) -> Vec<String> {
     for dir in ancestor_dirs(file) {
         let found = files_in_dir(tree, &dir, names);
@@ -926,8 +967,116 @@ fn files_in_dir(tree: &BTreeMap<String, TreeEntry>, dir: &str, names: &[&str]) -
     names
         .iter()
         .map(|name| join_rel(dir, name))
-        .filter(|p| tree.get(p).is_some_and(|e| e.kind == "blob"))
+        .filter(|p| tree.contains_key(p))
         .collect()
+}
+
+fn resolve_confined_symlink_path(
+    link_path: &str,
+    raw_target: &[u8],
+) -> std::result::Result<String, String> {
+    let Ok(target) = std::str::from_utf8(raw_target) else {
+        return Err(format!("symlink `{link_path}` has non-UTF-8 target"));
+    };
+    if target.is_empty() {
+        return Err(format!("symlink `{link_path}` has empty target"));
+    }
+    if target.chars().any(char::is_control) {
+        return Err(format!(
+            "symlink `{link_path}` target contains control characters"
+        ));
+    }
+    if target.starts_with('/') || target.contains('\\') || target.contains(':') {
+        return Err(format!(
+            "symlink `{link_path}` target `{target}` is absolute or non-portable"
+        ));
+    }
+    let mut stack: Vec<&str> = match link_path.rsplit_once('/') {
+        Some((parent, _)) if !parent.is_empty() => parent.split('/').collect(),
+        _ => Vec::new(),
+    };
+    for seg in target.split('/') {
+        match seg {
+            "" => {
+                return Err(format!(
+                    "symlink `{link_path}` target `{target}` contains an empty path segment"
+                ));
+            }
+            "." => {}
+            ".." => {
+                if stack.pop().is_none() {
+                    return Err(format!(
+                        "symlink `{link_path}` target `{target}` escapes repository root"
+                    ));
+                }
+            }
+            other => {
+                if other.eq_ignore_ascii_case(".git") {
+                    return Err(format!(
+                        "symlink `{link_path}` target `{target}` enters .git"
+                    ));
+                }
+                stack.push(other);
+            }
+        }
+    }
+    if stack.is_empty() {
+        return Err(format!(
+            "symlink `{link_path}` target `{target}` resolves to repository root directory"
+        ));
+    }
+    Ok(stack.join("/"))
+}
+
+fn resolve_tree_regular_blob(
+    git: &Git,
+    tree: &BTreeMap<String, TreeEntry>,
+    start_path: &str,
+    sym_blobs: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<std::result::Result<(String, String), String>> {
+    let mut current = start_path.to_owned();
+    for hop in 0..=MAX_EVIDENCE_SYMLINK_HOPS {
+        let Some(entry) = tree.get(&current) else {
+            return Ok(Err(format!(
+                "symlink `{start_path}` target `{current}` does not exist in quarantined commit tree"
+            )));
+        };
+        if entry.kind == "blob" && matches!(entry.mode.as_str(), "100644" | "100755") {
+            return Ok(Ok((current, entry.oid.clone())));
+        }
+        if entry.kind == "blob" && entry.mode == "120000" {
+            if hop == MAX_EVIDENCE_SYMLINK_HOPS {
+                return Ok(Err(format!(
+                    "symlink `{start_path}` exceeds maximum hop limit ({MAX_EVIDENCE_SYMLINK_HOPS})"
+                )));
+            }
+            if !sym_blobs.contains_key(&entry.oid) {
+                let single = BTreeSet::from([entry.oid.clone()]);
+                let mut fetched = read_blobs(git, &single)?;
+                if let Some(bytes) = fetched.remove(&entry.oid) {
+                    sym_blobs.insert(entry.oid.clone(), bytes);
+                }
+            }
+            let Some(raw_target) = sym_blobs.get(&entry.oid) else {
+                return Ok(Err(format!(
+                    "cannot read symlink blob {} for `{current}`",
+                    entry.oid
+                )));
+            };
+            match resolve_confined_symlink_path(&current, raw_target) {
+                Ok(next_path) => current = next_path,
+                Err(err) => return Ok(Err(err)),
+            }
+            continue;
+        }
+        return Ok(Err(format!(
+            "entry `{current}` (mode {}, kind {}) is not a regular file blob",
+            entry.mode, entry.kind
+        )));
+    }
+    Ok(Err(format!(
+        "symlink `{start_path}` exceeds maximum hop limit ({MAX_EVIDENCE_SYMLINK_HOPS})"
+    )))
 }
 
 fn select_files(tree: &BTreeMap<String, TreeEntry>, path: &str) -> Result<Vec<String>> {
@@ -954,6 +1103,7 @@ fn select_files(tree: &BTreeMap<String, TreeEntry>, path: &str) -> Result<Vec<St
 
 fn license_file_expression(
     files: &[String],
+    aliases: &[(String, String)],
     evidence: &BTreeMap<String, Evidence>,
 ) -> std::result::Result<String, String> {
     if files.is_empty() {
@@ -968,18 +1118,46 @@ fn license_file_expression(
             None => return Err(format!("unrecognized or disallowed license text in {file}")),
         }
     }
-    let names: BTreeSet<&str> = files
-        .iter()
-        .map(|f| f.rsplit('/').next().unwrap_or(f))
-        .collect();
+    let names: BTreeSet<&str> = if aliases.is_empty() {
+        files
+            .iter()
+            .map(|f| f.rsplit('/').next().unwrap_or(f))
+            .collect()
+    } else {
+        aliases
+            .iter()
+            .map(|(orig, _)| orig.rsplit('/').next().unwrap_or(orig))
+            .collect()
+    };
+    let all_apache_or_mit_named = names.len() >= 2
+        && names
+            .iter()
+            .any(|n| n.to_ascii_uppercase().starts_with("LICENSE-APACHE"))
+        && names
+            .iter()
+            .any(|n| n.to_ascii_uppercase().starts_with("LICENSE-MIT"))
+        && names.iter().all(|n| {
+            let u = n.to_ascii_uppercase();
+            u.starts_with("LICENSE-APACHE") || u.starts_with("LICENSE-MIT")
+        });
     let ids: Vec<&str> = ids.into_iter().collect();
     if ids.len() == 1 {
         Ok(ids[0].to_owned())
-    } else if names == BTreeSet::from(["LICENSE-APACHE", "LICENSE-MIT"]) {
+    } else if names == BTreeSet::from(["LICENSE-APACHE", "LICENSE-MIT"])
+        || (all_apache_or_mit_named && ids.as_slice() == ["Apache-2.0", "MIT"])
+    {
         Ok("Apache-2.0 OR MIT".to_owned())
     } else {
         Ok(ids.join(" AND "))
     }
+}
+
+struct FilePlan {
+    path: String,
+    license_files: Vec<String>,
+    license_aliases: Vec<(String, String)>,
+    notice_files: Vec<String>,
+    symlink_errors: Vec<String>,
 }
 
 fn scan(git: &Git, commit: &str, reference: &str, paths: &[String]) -> Result<Scan> {
@@ -991,31 +1169,59 @@ fn scan(git: &Git, commit: &str, reference: &str, paths: &[String]) -> Result<Sc
     let root_notices = files_in_dir(&tree, "", &NOTICE_NAMES);
     let mut plans = Vec::new();
     let mut evidence: BTreeMap<String, Evidence> = BTreeMap::new();
+    let mut sym_blobs: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for path in &selected {
-        let license_files = nearest_named(&tree, path, &LICENSE_NAMES);
-        let mut notice_files: BTreeSet<String> = nearest_named(&tree, path, &NOTICE_NAMES)
+        let raw_licenses = nearest_named(&tree, path, &LICENSE_NAMES);
+        let mut raw_notices: BTreeSet<String> = nearest_named(&tree, path, &NOTICE_NAMES)
             .into_iter()
             .collect();
-        notice_files.extend(root_notices.iter().cloned());
-        for (file, kind) in license_files
-            .iter()
-            .map(|f| (f, "license"))
-            .chain(notice_files.iter().map(|f| (f, "notice")))
-        {
-            if let Some(entry) = tree.get(file) {
-                evidence.entry(file.clone()).or_insert(Evidence {
-                    path: file.clone(),
-                    oid: entry.oid.clone(),
-                    kind,
-                    spdx: None,
-                });
+        raw_notices.extend(root_notices.iter().cloned());
+
+        let mut license_files = Vec::new();
+        let mut seen_licenses = BTreeSet::new();
+        let mut license_aliases = Vec::new();
+        let mut symlink_errors = Vec::new();
+        for orig in raw_licenses {
+            match resolve_tree_regular_blob(git, &tree, &orig, &mut sym_blobs)? {
+                Ok((resolved_path, resolved_oid)) => {
+                    evidence.entry(resolved_path.clone()).or_insert(Evidence {
+                        path: resolved_path.clone(),
+                        oid: resolved_oid,
+                        kind: "license",
+                        spdx: None,
+                    });
+                    license_aliases.push((orig, resolved_path.clone()));
+                    if seen_licenses.insert(resolved_path.clone()) {
+                        license_files.push(resolved_path);
+                    }
+                }
+                Err(err) => symlink_errors.push(format!("invalid license entry {orig}: {err}")),
             }
         }
-        plans.push((
-            path.clone(),
+
+        let mut notice_files = BTreeSet::new();
+        for orig in raw_notices {
+            match resolve_tree_regular_blob(git, &tree, &orig, &mut sym_blobs)? {
+                Ok((resolved_path, resolved_oid)) => {
+                    evidence.entry(resolved_path.clone()).or_insert(Evidence {
+                        path: resolved_path.clone(),
+                        oid: resolved_oid,
+                        kind: "notice",
+                        spdx: None,
+                    });
+                    notice_files.insert(resolved_path);
+                }
+                Err(err) => symlink_errors.push(format!("invalid notice entry {orig}: {err}")),
+            }
+        }
+
+        plans.push(FilePlan {
+            path: path.clone(),
             license_files,
-            notice_files.into_iter().collect(),
-        ));
+            license_aliases,
+            notice_files: notice_files.into_iter().collect(),
+            symlink_errors,
+        });
     }
     let mut oids: BTreeSet<String> = evidence.values().map(|e| e.oid.clone()).collect();
     for path in &selected {
@@ -1033,14 +1239,7 @@ fn scan(git: &Git, commit: &str, reference: &str, paths: &[String]) -> Result<Sc
     }
     let files = plans
         .into_iter()
-        .map(|(path, license_files, notice_files)| {
-            judge_file(
-                &tree,
-                &blobs,
-                &evidence,
-                (path, license_files, notice_files),
-            )
-        })
+        .map(|plan| judge_file(&tree, &blobs, &evidence, plan))
         .collect();
     Ok(Scan {
         commit: commit.to_owned(),
@@ -1055,10 +1254,10 @@ fn judge_file(
     tree: &BTreeMap<String, TreeEntry>,
     blobs: &BTreeMap<String, Vec<u8>>,
     evidence: &BTreeMap<String, Evidence>,
-    (path, license_files, notice_files): (String, Vec<String>, Vec<String>),
+    plan: FilePlan,
 ) -> FileScan {
     let mut reasons = Vec::new();
-    let entry = tree.get(&path).cloned().unwrap_or(TreeEntry {
+    let entry = tree.get(&plan.path).cloned().unwrap_or(TreeEntry {
         mode: String::new(),
         kind: String::new(),
         oid: String::new(),
@@ -1068,12 +1267,28 @@ fn judge_file(
     } else if entry.mode == "120000" {
         reasons.push("symbolic link cannot be harvested".to_owned());
     }
+    reasons.extend(plan.symlink_errors.iter().cloned());
     let text = blobs.get(&entry.oid).map(|b| lossy(b)).unwrap_or_default();
+    let basis_display: String = plan
+        .license_aliases
+        .iter()
+        .map(|(orig, res)| {
+            if orig == res {
+                orig.clone()
+            } else {
+                format!("{orig} -> {res}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     let (expression, basis) = match spdx_header(&text) {
         Some(expr) => (Ok(expr), "SPDX header".to_owned()),
+        None if !plan.symlink_errors.is_empty() && plan.license_files.is_empty() => {
+            (Err(String::new()), basis_display)
+        }
         None => (
-            license_file_expression(&license_files, evidence),
-            license_files.join(", "),
+            license_file_expression(&plan.license_files, &plan.license_aliases, evidence),
+            basis_display,
         ),
     };
     let (expression, license) = match expression {
@@ -1085,7 +1300,9 @@ fn judge_file(
             }
         },
         Err(reason) => {
-            reasons.push(reason);
+            if !reason.is_empty() {
+                reasons.push(reason);
+            }
             ("NONE".to_owned(), None)
         }
     };
@@ -1094,7 +1311,7 @@ fn judge_file(
     }
     FileScan {
         copyright: copyright_lines(&text),
-        path,
+        path: plan.path,
         oid: entry.oid,
         license,
         expression,
@@ -1103,8 +1320,8 @@ fn judge_file(
         } else {
             basis
         },
-        license_files,
-        notice_files,
+        license_files: plan.license_files,
+        notice_files: plan.notice_files,
         reasons,
     }
 }
@@ -1351,21 +1568,20 @@ fn apache_text(scan: &Scan, root: &Path) -> Result<Vec<u8>> {
     ))
 }
 
-fn import(git: &Git, cli: &Cli) -> Result<Report> {
-    cli.only(&[
-        "slug",
-        "rev",
-        "map",
-        "id",
-        "task",
-        "feature",
-        "mode",
-        "agent",
-        "summary",
-        "url",
-        "overwrite",
-    ])?;
-    let pin = resolve_pin(git, cli)?;
+struct ImportParams {
+    id: String,
+    task: String,
+    feature: Option<String>,
+    mode: String,
+    port: bool,
+    overwrite: bool,
+    maps: Vec<(String, String)>,
+    url: String,
+    summary: String,
+    agent: String,
+}
+
+fn parse_import_params(git: &Git, cli: &Cli, pin: &Pin) -> Result<ImportParams> {
     let id = cli.required("id")?;
     check_labelled_id(&id, "H-")?;
     let task = cli.required("task")?;
@@ -1389,22 +1605,180 @@ fn import(git: &Git, cli: &Cli) -> Result<Report> {
             check_url(&url)?;
             url
         }
-        None => read_intake_url(git, &pin)?.ok_or_else(|| {
+        None => read_intake_url(git, pin)?.ok_or_else(|| {
             format!(
                 "no intake record for {}; re-run intake or pass --url",
                 pin.reference
             )
         })?,
     };
+    let summary = cli.optional("summary")?.unwrap_or_default();
+    let agent = harvested_by(git, cli)?;
+    Ok(ImportParams {
+        id,
+        task,
+        feature,
+        mode,
+        port,
+        overwrite,
+        maps,
+        url,
+        summary,
+        agent,
+    })
+}
+
+fn execute_scanned_import(
+    root: &Path,
+    pin: &Pin,
+    scan: &Scan,
+    params: &ImportParams,
+    route_json: Option<Value>,
+) -> Result<Report> {
+    let manifest_rel = format!("{MANIFEST_DIR}/{}.json", params.id);
+    if root.join(&manifest_rel).exists() && !params.overwrite {
+        return Err(format!(
+            "{manifest_rel} already exists; pass --overwrite to replace it"
+        ));
+    }
+    let planned = plan_files(scan, &params.maps, params.port)?;
+    if !params.port {
+        for p in &planned {
+            check_dest(root, &p.dest_path, params.overwrite)?;
+        }
+    }
+    let license = combined_license(&planned);
+    let needs_apache_text = license.contains("Apache-2.0") && !root.join(APACHE_TEXT_PATH).exists();
+    let apache = if needs_apache_text {
+        Some(apache_text(scan, root)?)
+    } else {
+        None
+    };
+
+    let manifest = build_manifest(
+        scan,
+        &planned,
+        &ManifestMeta {
+            id: params.id.clone(),
+            task: params.task.clone(),
+            feature: params.feature.clone(),
+            url: params.url.clone(),
+            mode: params.mode.clone(),
+            license: license.clone(),
+            summary: params.summary.clone(),
+            agent: params.agent.clone(),
+        },
+    );
+    let manifest_text = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
+
+    if !params.port {
+        for p in &planned {
+            let bytes = scan
+                .blobs
+                .get(&p.oid)
+                .ok_or_else(|| format!("blob for {} missing", p.source_path))?;
+            write_file(root, &p.dest_path, bytes)?;
+        }
+    }
+    if let Some(bytes) = &apache {
+        write_file(root, APACHE_TEXT_PATH, bytes)?;
+    }
+    write_file(root, &manifest_rel, format!("{manifest_text}\n").as_bytes())?;
+    let notices = write_notices(root)?;
+
+    let mut trailers = vec![format!("Harvest: {}", params.id)];
+    trailers.extend(
+        params
+            .maps
+            .iter()
+            .map(|(up, _)| format!("Origin: {}@{}:{up}", params.url, pin.commit)),
+    );
+    trailers.push(format!("Origin-License: {license}"));
+    trailers.push(format!("Task: {}", params.task));
+    if let Some(feature) = &params.feature {
+        trailers.push(format!("Feature: {feature}"));
+    }
+    let mut text = format!(
+        "{} {}: {} file(s) from {}@{} (license {license}, mode {})\n",
+        if params.port {
+            "recorded port"
+        } else {
+            "imported"
+        },
+        params.id,
+        planned.len(),
+        params.url,
+        pin.commit,
+        params.mode
+    );
+    for p in &planned {
+        text.push_str(&format!("  {} -> {}\n", p.source_path, p.dest_path));
+    }
+    if params.port {
+        text.push_str("port mode: no upstream files written; write the Rust port at the destination paths, keep the copyright lines and add a `Modified by` notice\n");
+    }
+    if let Some(r) = &route_json {
+        if let Some(eff) = r.get("effective_target").and_then(Value::as_str) {
+            text.push_str(&format!("route: {eff}\n"));
+        }
+    }
+    text.push_str(&format!("wrote {manifest_rel}\n"));
+    if apache.is_some() {
+        text.push_str(&format!("wrote {APACHE_TEXT_PATH}\n"));
+    }
+    text.push_str(&format!("{NOTICES_FILE}: {notices}\n"));
+    text.push_str("not committed; commit with these trailers:\n\n");
+    text.push_str(&trailers.join("\n"));
+
+    let mut out_json = json!({
+        "ok": true,
+        "id": params.id,
+        "source_url": params.url,
+        "source_commit": pin.commit,
+        "quarantine_ref": pin.reference,
+        "manifest": manifest_rel,
+        "license": license,
+        "mode": params.mode,
+        "files": planned.iter().map(|p| json!({"source_path": p.source_path, "dest_path": p.dest_path})).collect::<Vec<_>>(),
+        "wrote_apache_text": apache.is_some(),
+        "notices": notices,
+        "trailers": trailers,
+    });
+    if let (Some(r), Some(obj)) = (route_json, out_json.as_object_mut()) {
+        obj.insert("route".to_owned(), r);
+    }
+    Ok(Report {
+        ok: true,
+        text,
+        json: out_json,
+    })
+}
+
+fn import(git: &Git, cli: &Cli) -> Result<Report> {
+    cli.only(&[
+        "slug",
+        "rev",
+        "map",
+        "id",
+        "task",
+        "feature",
+        "mode",
+        "agent",
+        "summary",
+        "url",
+        "overwrite",
+    ])?;
+    let pin = resolve_pin(git, cli)?;
+    let params = parse_import_params(git, cli, &pin)?;
     let root = git.root.clone();
-    let manifest_rel = format!("{MANIFEST_DIR}/{id}.json");
-    if root.join(&manifest_rel).exists() && !overwrite {
+    let manifest_rel = format!("{MANIFEST_DIR}/{}.json", params.id);
+    if root.join(&manifest_rel).exists() && !params.overwrite {
         return Err(format!(
             "{manifest_rel} already exists; pass --overwrite to replace it"
         ));
     }
 
-    let upstream_paths: Vec<String> = maps.iter().map(|(up, _)| up.clone()).collect();
+    let upstream_paths: Vec<String> = params.maps.iter().map(|(up, _)| up.clone()).collect();
     let scan = scan(git, &pin.commit, &pin.reference, &upstream_paths)?;
     if scan.rejected() > 0 {
         return Ok(Report {
@@ -1417,97 +1791,773 @@ fn import(git: &Git, cli: &Cli) -> Result<Report> {
             json: scan_json(&scan),
         });
     }
-    let planned = plan_files(&scan, &maps, port)?;
-    if !port {
-        for p in &planned {
-            check_dest(&root, &p.dest_path, overwrite)?;
+    execute_scanned_import(&root, &pin, &scan, &params, None)
+}
+
+// ---------------------------------------------------------------- route, pickup & raw-features
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RepoKind {
+    Core,
+    Commercial,
+}
+
+impl RepoKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Core => "core",
+            Self::Commercial => "commercial",
         }
     }
-    let license = combined_license(&planned);
-    let needs_apache_text = license.contains("Apache-2.0") && !root.join(APACHE_TEXT_PATH).exists();
-    let apache = if needs_apache_text {
-        Some(apache_text(&scan, &root)?)
+}
+
+fn detect_repo_kind(root: &Path) -> RepoKind {
+    if root.join("LICENSE-COMMERCIAL.md").is_file()
+        || root
+            .join("crates/susi-commercial-license/Cargo.toml")
+            .is_file()
+    {
+        return RepoKind::Commercial;
+    }
+    if let Ok(cargo_toml) = fs::read_to_string(root.join("Cargo.toml")) {
+        if cargo_toml
+            .lines()
+            .any(|l| l.trim() == "name = \"susi-commercial\"")
+        {
+            return RepoKind::Commercial;
+        }
+    }
+    RepoKind::Core
+}
+
+const UI_EXTENSIONS: [&str; 14] = [
+    "tsx", "jsx", "vue", "svelte", "html", "htm", "css", "scss", "sass", "less", "qml", "slint",
+    "swift", "kt",
+];
+
+const COMMERCIAL_TOKENS: [&str; 34] = [
+    "ui",
+    "gui",
+    "desktop",
+    "tauri",
+    "egui",
+    "iced",
+    "ratatui",
+    "tui",
+    "webview",
+    "frontend",
+    "dashboard",
+    "dashboards",
+    "view",
+    "views",
+    "theme",
+    "themes",
+    "commercial",
+    "enterprise",
+    "sso",
+    "saml",
+    "oidc",
+    "rbac",
+    "finops",
+    "billing",
+    "stripe",
+    "invoice",
+    "connector",
+    "connectors",
+    "turnkey",
+    "autopilot",
+    "plug",
+    "plugs",
+    "rag",
+    "cockpit-ui",
+];
+
+const COMMERCIAL_CRATE_MARKERS: [&str; 12] = [
+    "susi-ui",
+    "susi-desktop",
+    "susi-department-packs",
+    "susi-ecosystem-hub",
+    "susi-commercial-license",
+    "susi-ceo-autopilot",
+    "susi-fleet-command",
+    "susi-sovereign-rag",
+    "susi-frontier-lab",
+    "susi-gpu-fabric",
+    "susi-reflex-modules",
+    "susi-reflex-store",
+];
+
+const GUI_IMPORT_MARKERS: [&str; 7] = [
+    "use tauri",
+    "use egui",
+    "use iced",
+    "use ratatui",
+    "use leptos",
+    "use dioxus",
+    "use yew",
+];
+
+struct RouteInput<'a> {
+    repo_kind: RepoKind,
+    paths: &'a [String],
+    maps: &'a [(String, String)],
+    feature: Option<&'a str>,
+    summary: Option<&'a str>,
+    scanned_texts: &'a [String],
+}
+
+struct RouteVerdict {
+    target: &'static str,
+    pillars: Vec<&'static str>,
+    commercial_signals: Vec<String>,
+    reasons: Vec<String>,
+    repo_kind: RepoKind,
+    allowed_in_core: bool,
+    allowed_in_commercial: bool,
+}
+
+fn split_route_tokens(raw: &str) -> Vec<String> {
+    raw.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+fn classify_candidate_route(input: RouteInput<'_>) -> RouteVerdict {
+    let RouteInput {
+        repo_kind,
+        paths,
+        maps,
+        feature,
+        summary,
+        scanned_texts,
+    } = input;
+    let mut commercial_signals = BTreeSet::new();
+    let mut pillars = BTreeSet::new();
+
+    let mut all_paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+    for (src, dst) in maps {
+        all_paths.push(src.as_str());
+        all_paths.push(dst.as_str());
+    }
+
+    for p in &all_paths {
+        let lower = p.to_ascii_lowercase();
+        if let Some((_, ext)) = lower.rsplit_once('.') {
+            if UI_EXTENSIONS.contains(&ext) {
+                commercial_signals.insert(format!("ui-extension:.{ext}"));
+            }
+        }
+        for marker in COMMERCIAL_CRATE_MARKERS {
+            if lower.contains(marker) {
+                commercial_signals.insert(format!("commercial-crate:{marker}"));
+            }
+        }
+        for tok in split_route_tokens(&lower) {
+            if COMMERCIAL_TOKENS.contains(&tok.as_str()) {
+                commercial_signals.insert(format!("token:{tok}"));
+            }
+        }
+    }
+
+    for text in [feature, summary].into_iter().flatten() {
+        let lower = text.to_ascii_lowercase();
+        for marker in COMMERCIAL_CRATE_MARKERS {
+            if lower.contains(marker) {
+                commercial_signals.insert(format!("commercial-crate:{marker}"));
+            }
+        }
+        for tok in split_route_tokens(&lower) {
+            if COMMERCIAL_TOKENS.contains(&tok.as_str()) {
+                commercial_signals.insert(format!("token:{tok}"));
+            }
+        }
+    }
+
+    for blob_text in scanned_texts {
+        let lower = blob_text.to_ascii_lowercase();
+        for marker in GUI_IMPORT_MARKERS {
+            if lower.contains(marker) {
+                commercial_signals.insert(format!("gui-import:{marker}"));
+            }
+        }
+    }
+
+    let mut token_bag = BTreeSet::new();
+    for p in &all_paths {
+        let lower = p.to_ascii_lowercase();
+        if lower.starts_with("crates/susi-gawd") {
+            pillars.insert("gawd");
+        }
+        if lower.starts_with("crates/susi-gemi") {
+            pillars.insert("gemi");
+        }
+        if lower.starts_with("crates/susi-gmcp") {
+            pillars.insert("gmcp");
+        }
+        if lower.starts_with("crates/susi-acp") || lower.starts_with("crates/susi-core") {
+            pillars.insert("acp");
+        }
+        if lower.starts_with("crates/susi-harness")
+            || lower.starts_with("crates/susi-http-transport")
+            || lower.starts_with("crates/susi-paths")
+            || lower.starts_with("crates/susi-error")
+            || lower.starts_with("crates/susi-wire-client")
+        {
+            pillars.insert("harness");
+        }
+        for tok in split_route_tokens(&lower) {
+            token_bag.insert(tok);
+        }
+    }
+    for text in [feature, summary].into_iter().flatten() {
+        for tok in split_route_tokens(text) {
+            token_bag.insert(tok);
+        }
+    }
+
+    if token_bag.contains("gawd") || token_bag.contains("a2a") || token_bag.contains("swarm") {
+        pillars.insert("gawd");
+    }
+    if token_bag.contains("gemi") || token_bag.contains("inference") {
+        pillars.insert("gemi");
+    }
+    if token_bag.contains("gmcp") || token_bag.contains("mcp") || token_bag.contains("jsonrpc") {
+        pillars.insert("gmcp");
+    }
+    if token_bag.contains("acp") {
+        pillars.insert("acp");
+    }
+    if token_bag.contains("harness") {
+        pillars.insert("harness");
+    }
+
+    let pillars_vec: Vec<&'static str> = pillars.into_iter().collect();
+    let signals_vec: Vec<String> = commercial_signals.into_iter().collect();
+
+    if !signals_vec.is_empty() {
+        let reasons = vec![format!(
+            "matched commercial/UI/enterprise signal(s) [{}]; add-ons, UIs, enterprise packs, SSO/RBAC/FinOps, connectors, and turnkey workflows belong exclusively in susi-commercial-apps (Mandate 75)",
+            signals_vec.join(", ")
+        )];
+        RouteVerdict {
+            target: "commercial",
+            pillars: pillars_vec,
+            commercial_signals: signals_vec,
+            reasons,
+            repo_kind,
+            allowed_in_core: false,
+            allowed_in_commercial: true,
+        }
+    } else if !pillars_vec.is_empty() {
+        let reasons = vec![format!(
+            "lean zero-UI, zero-vendor-product protocol/substrate capability inside Susi Core's 5 pillars ({})",
+            pillars_vec.join(", ")
+        )];
+        RouteVerdict {
+            target: "core",
+            pillars: pillars_vec,
+            commercial_signals: Vec::new(),
+            reasons,
+            repo_kind,
+            allowed_in_core: true,
+            allowed_in_commercial: true,
+        }
     } else {
-        None
+        let reasons = vec![
+            "candidate does not target Susi Core's 5 lean socket pillars (gawd, gemi, gmcp, acp, harness); routed to susi-commercial-apps to keep Susi Core lean & <10s (Mandate 75)".to_owned(),
+        ];
+        RouteVerdict {
+            target: "commercial",
+            pillars: Vec::new(),
+            commercial_signals: Vec::new(),
+            reasons,
+            repo_kind,
+            allowed_in_core: false,
+            allowed_in_commercial: true,
+        }
+    }
+}
+
+fn enforce_route_for_pickup(
+    verdict: &RouteVerdict,
+    requested_target: &str,
+) -> std::result::Result<&'static str, String> {
+    if !matches!(requested_target, "auto" | "core" | "commercial") {
+        return Err(format!(
+            "--target must be auto, core or commercial, not `{requested_target}`"
+        ));
+    }
+    match verdict.repo_kind {
+        RepoKind::Core => {
+            if requested_target == "commercial" {
+                return Err(
+                    "--target commercial requires a `susi-commercial-apps` checkout, not `susi` core (Mandate 75)"
+                        .to_owned(),
+                );
+            }
+            if !verdict.allowed_in_core {
+                return Err(format!(
+                    "candidate routes to `commercial` ({}) and is refused in `susi` core; harvest into `susi-commercial-apps` with `--target commercial` (Mandate 75)",
+                    verdict.reasons.join("; ")
+                ));
+            }
+            Ok("core")
+        }
+        RepoKind::Commercial => {
+            if requested_target == "core" {
+                return Err(
+                    "--target core requires a `susi` core checkout, not `susi-commercial-apps` (Mandate 75)"
+                        .to_owned(),
+                );
+            }
+            Ok("commercial")
+        }
+    }
+}
+
+fn route_verdict_json(
+    verdict: &RouteVerdict,
+    ok: bool,
+    requested_target: Option<&str>,
+    effective_target: Option<&str>,
+    refusal: Option<&str>,
+) -> Value {
+    json!({
+        "ok": ok,
+        "target": verdict.target,
+        "requested_target": requested_target.unwrap_or("classify"),
+        "effective_target": effective_target,
+        "repo_kind": verdict.repo_kind.as_str(),
+        "pillars": verdict.pillars,
+        "commercial_signals": verdict.commercial_signals,
+        "reasons": verdict.reasons,
+        "allowed_in_core": verdict.allowed_in_core,
+        "allowed_in_commercial": verdict.allowed_in_commercial,
+        "refusal": refusal,
+    })
+}
+
+fn route_command(git: &Git, cli: &Cli) -> Result<Report> {
+    cli.only(&["path", "map", "feature", "summary", "target", "slug", "rev"])?;
+    let paths = cli
+        .all("path")
+        .iter()
+        .map(|p| normalize_rel(p, false))
+        .collect::<Result<Vec<_>>>()?;
+    let raw_maps = cli.all("map");
+    let maps = if raw_maps.is_empty() {
+        Vec::new()
+    } else {
+        parse_maps(&raw_maps)?
+    };
+    let feature = cli.optional("feature")?;
+    if let Some(ref f) = feature {
+        check_feature(f)?;
+    }
+    let summary = cli.optional("summary")?;
+    if paths.is_empty() && maps.is_empty() && feature.is_none() {
+        return Err(format!(
+            "`route` needs at least one --path, --map or --feature\n{USAGE}"
+        ));
+    }
+
+    let mut scanned_texts = Vec::new();
+    if cli.optional("slug")?.is_some() || cli.optional("rev")?.is_some() {
+        let pin = resolve_pin(git, cli)?;
+        let mut scan_paths = paths.clone();
+        scan_paths.extend(maps.iter().map(|(up, _)| up.clone()));
+        if !scan_paths.is_empty() {
+            let s = scan(git, &pin.commit, &pin.reference, &scan_paths)?;
+            for b in s.blobs.values() {
+                scanned_texts.push(lossy(b));
+            }
+        }
+    }
+
+    let repo_kind = detect_repo_kind(&git.root);
+    let verdict = classify_candidate_route(RouteInput {
+        repo_kind,
+        paths: &paths,
+        maps: &maps,
+        feature: feature.as_deref(),
+        summary: summary.as_deref(),
+        scanned_texts: &scanned_texts,
+    });
+
+    let requested = cli.optional("target")?;
+    let (ok, effective, refusal) = match requested.as_deref() {
+        None => (true, Some(verdict.target), None),
+        Some("core") => {
+            if verdict.allowed_in_core {
+                (true, Some("core"), None)
+            } else {
+                (
+                    false,
+                    None,
+                    Some(format!(
+                        "route refused for `core`: {}",
+                        verdict.reasons.join("; ")
+                    )),
+                )
+            }
+        }
+        Some("commercial") => {
+            if verdict.allowed_in_commercial {
+                (true, Some("commercial"), None)
+            } else {
+                (
+                    false,
+                    None,
+                    Some("route refused for `commercial`".to_owned()),
+                )
+            }
+        }
+        Some("auto") => match enforce_route_for_pickup(&verdict, "auto") {
+            Ok(eff) => (true, Some(eff), None),
+            Err(err) => (false, None, Some(err)),
+        },
+        Some(other) => {
+            return Err(format!(
+                "--target must be auto, core or commercial, not `{other}`"
+            ));
+        }
     };
 
-    let manifest = build_manifest(
-        &scan,
-        &planned,
-        &ManifestMeta {
-            id: id.clone(),
-            task: task.clone(),
-            feature: feature.clone(),
-            url: url.clone(),
-            mode: mode.clone(),
-            license: license.clone(),
-            summary: cli.optional("summary")?.unwrap_or_default(),
-            agent: harvested_by(git, cli)?,
-        },
+    let pillars_display = if verdict.pillars.is_empty() {
+        "-".to_owned()
+    } else {
+        verdict.pillars.join(", ")
+    };
+    let mut text = format!(
+        "route: {}\npillars: {pillars_display}\nrepo: {}\nallowed in core: {}\nreason: {}",
+        verdict.target,
+        verdict.repo_kind.as_str(),
+        verdict.allowed_in_core,
+        verdict.reasons.join("; ")
     );
-    let manifest_text = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
+    if let Some(ref err) = refusal {
+        text = format!("{err}\n{text}");
+    }
+    let out_json = route_verdict_json(
+        &verdict,
+        ok,
+        requested.as_deref(),
+        effective,
+        refusal.as_deref(),
+    );
+    Ok(Report {
+        ok,
+        text,
+        json: out_json,
+    })
+}
 
-    if !port {
-        for p in &planned {
-            let bytes = scan
-                .blobs
-                .get(&p.oid)
-                .ok_or_else(|| format!("blob for {} missing", p.source_path))?;
-            write_file(&root, &p.dest_path, bytes)?;
+fn pickup(git: &Git, cli: &Cli) -> Result<Report> {
+    cli.only(&[
+        "url",
+        "rev",
+        "slug",
+        "map",
+        "id",
+        "task",
+        "feature",
+        "target",
+        "mode",
+        "agent",
+        "summary",
+        "overwrite",
+    ])?;
+    let url = cli.required("url")?;
+    let rev = cli.required("rev")?;
+    let slug = cli.required("slug")?;
+    let requested_target = cli.optional("target")?.unwrap_or_else(|| "auto".to_owned());
+    if !matches!(requested_target.as_str(), "auto" | "core" | "commercial") {
+        return Err(format!(
+            "--target must be auto, core or commercial, not `{requested_target}`"
+        ));
+    }
+
+    let (pin, _) = intake_pin(git, &url, &rev, &slug)?;
+    let params = parse_import_params(git, cli, &pin)?;
+    let root = git.root.clone();
+    let manifest_rel = format!("{MANIFEST_DIR}/{}.json", params.id);
+    if root.join(&manifest_rel).exists() && !params.overwrite {
+        return Err(format!(
+            "{manifest_rel} already exists; pass --overwrite to replace it"
+        ));
+    }
+
+    let upstream_paths: Vec<String> = params.maps.iter().map(|(up, _)| up.clone()).collect();
+    let scan = scan(git, &pin.commit, &pin.reference, &upstream_paths)?;
+    if scan.rejected() > 0 {
+        return Ok(Report {
+            ok: false,
+            text: format!(
+                "pickup refused (Mandate 75 Pure Apache-2.0 Compliance): license scan rejected {} file(s)\n{}",
+                scan.rejected(),
+                render_scan(&scan)
+            ),
+            json: scan_json(&scan),
+        });
+    }
+
+    let scanned_texts: Vec<String> = scan
+        .files
+        .iter()
+        .filter_map(|f| scan.blobs.get(&f.oid).map(|b| lossy(b)))
+        .collect();
+    let repo_kind = detect_repo_kind(&root);
+    let verdict = classify_candidate_route(RouteInput {
+        repo_kind,
+        paths: &[],
+        maps: &params.maps,
+        feature: params.feature.as_deref(),
+        summary: if params.summary.is_empty() {
+            None
+        } else {
+            Some(params.summary.as_str())
+        },
+        scanned_texts: &scanned_texts,
+    });
+    let effective_target = match enforce_route_for_pickup(&verdict, &requested_target) {
+        Ok(eff) => eff,
+        Err(err) => {
+            let rj = route_verdict_json(&verdict, false, Some(&requested_target), None, Some(&err));
+            return Ok(Report {
+                ok: false,
+                text: format!("pickup refused: {err}"),
+                json: rj,
+            });
+        }
+    };
+
+    let rj = route_verdict_json(
+        &verdict,
+        true,
+        Some(&requested_target),
+        Some(effective_target),
+        None,
+    );
+    execute_scanned_import(&root, &pin, &scan, &params, Some(rj))
+}
+
+fn default_slug_from_url(url: &str) -> String {
+    let trimmed = url
+        .trim()
+        .trim_end_matches(['/', '\\'])
+        .trim_end_matches(".git")
+        .trim_end_matches(['/', '\\']);
+    let tail = trimmed
+        .rsplit(['/', '\\', ':'])
+        .find(|seg| !seg.is_empty())
+        .unwrap_or("raw-source");
+    let cleaned: String = tail
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches(['.', '-']).replace("..", "-");
+    let bounded: String = cleaned.chars().take(64).collect();
+    if bounded.is_empty() || check_slug(&bounded).is_err() {
+        "raw-source".to_owned()
+    } else {
+        bounded
+    }
+}
+
+fn extract_body_trailers(body: &str, key_lower: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in body.lines() {
+        if let Some((k, v)) = line.split_once(':') {
+            if k.trim().eq_ignore_ascii_case(key_lower) {
+                for token in v
+                    .split([',', ' ', '\t'])
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    out.push(token.to_owned());
+                }
+            }
         }
     }
-    if let Some(bytes) = &apache {
-        write_file(&root, APACHE_TEXT_PATH, bytes)?;
-    }
-    write_file(
-        &root,
-        &manifest_rel,
-        format!("{manifest_text}\n").as_bytes(),
-    )?;
-    let notices = write_notices(&root)?;
+    out
+}
 
-    let mut trailers = vec![format!("Harvest: {id}")];
-    trailers.extend(
-        maps.iter()
-            .map(|(up, _)| format!("Origin: {url}@{}:{up}", pin.commit)),
-    );
-    trailers.push(format!("Origin-License: {license}"));
-    trailers.push(format!("Task: {task}"));
-    if let Some(feature) = &feature {
-        trailers.push(format!("Feature: {feature}"));
+fn raw_features(git: &Git, cli: &Cli) -> Result<Report> {
+    cli.only(&["url", "rev", "slug", "limit"])?;
+    let url = cli.required("url")?;
+    let rev = cli.optional("rev")?.unwrap_or_else(|| "main".to_owned());
+    let slug = match cli.optional("slug")? {
+        Some(s) => s,
+        None => default_slug_from_url(&url),
+    };
+    let limit: usize = match cli.optional("limit")? {
+        Some(raw) => raw
+            .parse::<usize>()
+            .map_err(|e| format!("invalid --limit `{raw}`: {e}"))?
+            .clamp(1, 500),
+        None => 50,
+    };
+
+    let (pin, _) = intake_pin(git, &url, &rev, &slug)?;
+    let repo_kind = detect_repo_kind(&git.root);
+
+    let log_raw = git.checked(
+        &[
+            "log",
+            "--no-merges",
+            "--name-only",
+            &format!("-n{limit}"),
+            "--format=%x1e%H%x1f%s%x1f%b%x1f",
+            &pin.commit,
+            "--",
+        ],
+        None,
+    )?;
+    let log_text = lossy(&log_raw);
+
+    let tree = list_tree(git, &pin.commit)?;
+    let mut candidate_rs: BTreeSet<String> = BTreeSet::new();
+    for path in tree.keys() {
+        if path.ends_with(".rs") && candidate_rs.len() < 200 {
+            candidate_rs.insert(path.clone());
+        }
     }
+    let rs_paths: Vec<String> = candidate_rs.into_iter().collect();
+    let rs_scan = if rs_paths.is_empty() {
+        None
+    } else {
+        Some(scan(git, &pin.commit, &pin.reference, &rs_paths)?)
+    };
+    let mut accepted_rs: BTreeMap<String, String> = BTreeMap::new();
+    if let Some(ref s) = rs_scan {
+        for f in &s.files {
+            if f.reasons.is_empty() {
+                if let Some(ref lic) = f.license {
+                    accepted_rs.insert(f.path.clone(), lic.clone());
+                }
+            }
+        }
+    }
+
+    let mut features_out = Vec::new();
+    for rec in log_text.split('\u{1e}') {
+        let rec = rec.trim_matches(['\n', '\r']);
+        if rec.is_empty() {
+            continue;
+        }
+        let mut parts = rec.splitn(4, '\u{1f}');
+        let Some(oid) = parts.next().map(str::trim).filter(|s| is_hex_oid(s)) else {
+            continue;
+        };
+        let subject = parts.next().unwrap_or("").trim().to_owned();
+        let body = parts.next().unwrap_or("");
+        let files_part = parts.next().unwrap_or("");
+
+        let features = extract_body_trailers(body, "feature");
+        let tasks = extract_body_trailers(body, "task");
+        if features.is_empty() && tasks.is_empty() {
+            continue;
+        }
+        let files: Vec<String> = files_part
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with(".agents/tasks/"))
+            .map(str::to_owned)
+            .collect();
+        let existing_rs: Vec<&String> = files
+            .iter()
+            .filter(|p| p.ends_with(".rs") && tree.contains_key(*p))
+            .collect();
+        let pure_apache2 = !existing_rs.is_empty()
+            && existing_rs
+                .iter()
+                .all(|p| accepted_rs.contains_key((*p).as_str()));
+        let feature_label = features.first().cloned().or_else(|| tasks.first().cloned());
+        let verdict = classify_candidate_route(RouteInput {
+            repo_kind,
+            paths: &files,
+            maps: &[],
+            feature: feature_label.as_deref(),
+            summary: Some(&subject),
+            scanned_texts: &[],
+        });
+        features_out.push(json!({
+            "commit": oid,
+            "subject": subject,
+            "features": features,
+            "tasks": tasks,
+            "paths": files,
+            "pure_apache2_ready": pure_apache2,
+            "route": verdict.target,
+            "pillars": verdict.pillars,
+        }));
+    }
+
+    let mut modules_out = Vec::new();
+    if let Some(ref s) = rs_scan {
+        for f in s.files.iter().filter(|f| f.reasons.is_empty()) {
+            let blob_text = s
+                .blobs
+                .get(&f.oid)
+                .map(|b| vec![lossy(b)])
+                .unwrap_or_default();
+            let verdict = classify_candidate_route(RouteInput {
+                repo_kind,
+                paths: std::slice::from_ref(&f.path),
+                maps: &[],
+                feature: None,
+                summary: None,
+                scanned_texts: &blob_text,
+            });
+            modules_out.push(json!({
+                "path": f.path,
+                "license": f.license,
+                "expression": f.expression,
+                "route": verdict.target,
+                "pillars": verdict.pillars,
+            }));
+        }
+    }
+
     let mut text = format!(
-        "{} {id}: {} file(s) from {url}@{} (license {license}, mode {mode})\n",
-        if port { "recorded port" } else { "imported" },
-        planned.len(),
-        pin.commit
+        "raw-features of {url} ({rev} -> {})\nquarantine ref: {}\ndistillable feature commit(s): {}\npure Apache-2.0 Rust module(s): {}",
+        pin.commit,
+        pin.reference,
+        features_out.len(),
+        modules_out.len()
     );
-    for p in &planned {
-        text.push_str(&format!("  {} -> {}\n", p.source_path, p.dest_path));
+    for item in &features_out {
+        let oid = item["commit"].as_str().unwrap_or("");
+        let short_oid = oid.get(..12).unwrap_or(oid);
+        let route = item["route"].as_str().unwrap_or("commercial");
+        let subj = item["subject"].as_str().unwrap_or("");
+        text.push_str(&format!("\n  commit {short_oid} [{route}] {subj}"));
     }
-    if port {
-        text.push_str("port mode: no upstream files written; write the Rust port at the destination paths, keep the copyright lines and add a `Modified by` notice\n");
+    for m in modules_out.iter().take(25) {
+        let path = m["path"].as_str().unwrap_or("");
+        let route = m["route"].as_str().unwrap_or("commercial");
+        text.push_str(&format!("\n  module [{route}] {path} (Apache-2.0)"));
     }
-    text.push_str(&format!("wrote {manifest_rel}\n"));
-    if apache.is_some() {
-        text.push_str(&format!("wrote {APACHE_TEXT_PATH}\n"));
-    }
-    text.push_str(&format!("{NOTICES_FILE}: {notices}\n"));
-    text.push_str("not committed; commit with these trailers:\n\n");
-    text.push_str(&trailers.join("\n"));
+
     Ok(Report {
         ok: true,
         text,
         json: json!({
             "ok": true,
-            "id": id,
-            "manifest": manifest_rel,
-            "license": license,
-            "mode": mode,
-            "files": planned.iter().map(|p| json!({"source_path": p.source_path, "dest_path": p.dest_path})).collect::<Vec<_>>(),
-            "wrote_apache_text": apache.is_some(),
-            "notices": notices,
-            "trailers": trailers,
+            "url": url,
+            "rev": rev,
+            "slug": slug,
+            "source_commit": pin.commit,
+            "quarantine_ref": pin.reference,
+            "features": features_out,
+            "modules": modules_out,
         }),
     })
 }
@@ -1546,6 +2596,11 @@ fn build_manifest(scan: &Scan, planned: &[Planned], meta: &ManifestMeta) -> Valu
         evidence_paths.extend(file.notice_files.iter().cloned());
         copyright.extend(file.copyright.iter().cloned());
     }
+    let has_apache_evidence = evidence_paths.iter().any(|p| {
+        scan.evidence
+            .get(p)
+            .is_some_and(|e| e.kind == "license" && e.spdx == Some("Apache-2.0"))
+    });
     let mut evidence = Vec::new();
     let mut notice_parts = Vec::new();
     let mut license_texts = Vec::new();
@@ -1554,9 +2609,20 @@ fn build_manifest(scan: &Scan, planned: &[Planned], meta: &ManifestMeta) -> Valu
         let text = lossy(&bytes);
         if item.kind == "license" {
             copyright.extend(copyright_lines(&text));
-            if let Some(spdx) = item.spdx.filter(|s| *s != "Apache-2.0") {
-                license_texts
-                    .push(json!({"path": item.path, "spdx": spdx, "text": text.trim_end()}));
+            if meta.license == "Apache-2.0"
+                && has_apache_evidence
+                && item.spdx != Some("Apache-2.0")
+            {
+                // Dual-licensed repo (`LICENSE-APACHE` + `LICENSE-MIT`): preserve
+                // upstream author copyright lines above, bind only the elected
+                // Pure Apache-2.0 license evidence, and emit zero MIT/BSD fallback.
+                continue;
+            }
+            if meta.license != "Apache-2.0" {
+                if let Some(spdx) = item.spdx.filter(|s| *s != "Apache-2.0") {
+                    license_texts
+                        .push(json!({"path": item.path, "spdx": spdx, "text": text.trim_end()}));
+                }
             }
         } else {
             notice_parts.push(format!("--- {} ---\n{}", item.path, text.trim_end()));
@@ -1693,8 +2759,10 @@ fn parse_manifest(name: &str, v: &Value) -> std::result::Result<Manifest, Vec<St
         e.push(format!("{ctx}: mode must be transplant or port"));
     }
     let license = str_field(v, "license", &ctx, e);
-    if choose_license(&license).is_err() {
-        e.push(format!("{ctx}: license `{license}` is not allowed"));
+    if license != "Apache-2.0" {
+        e.push(format!(
+            "{ctx}: license `{license}` is not Apache-2.0; Pure Apache-2.0 Compliance (Mandate 75) requires `\"Apache-2.0\"`"
+        ));
     }
     let notice_text = str_field(v, "notice_text", &ctx, e);
     let copyright = str_list(v, "copyright_lines", &ctx, e);
@@ -1779,9 +2847,9 @@ fn parse_manifest_files(v: &Value, ctx: &str, e: &mut Vec<String>) -> Vec<Manife
                 ));
             }
             let spdx = str_field(f, "spdx", ctx, e);
-            if choose_license(&spdx).is_err() {
+            if spdx != "Apache-2.0" {
                 e.push(format!(
-                    "{ctx}: `{source_path}` license `{spdx}` is not allowed"
+                    "{ctx}: `{source_path}` license `{spdx}` is not Apache-2.0; Pure Apache-2.0 Compliance (Mandate 75) requires `\"Apache-2.0\"`"
                 ));
             }
             ManifestFile {
@@ -2228,7 +3296,11 @@ mod tests {
                 ("src/widget.rs", WIDGET),
                 (
                     "src/mit_util.rs",
-                    "// SPDX-License-Identifier: MIT\n// Copyright (c) 2023 Jane Example\npub fn util() {}\n",
+                    "// SPDX-License-Identifier: MIT OR Apache-2.0\n// Copyright (c) 2023 Jane Example\npub fn util() {}\n",
+                ),
+                (
+                    "other/mit_only.rs",
+                    "// SPDX-License-Identifier: MIT\n// Copyright (c) 2022 Sam Example\npub fn only() {}\n",
                 ),
                 (
                     "third_party/gpl/COPYING",
@@ -2387,7 +3459,8 @@ mod tests {
         };
         assert_eq!(verdict("src/widget.rs")["license"], "Apache-2.0");
         assert_eq!(verdict("src/widget.rs")["basis"], "LICENSE");
-        assert_eq!(verdict("src/mit_util.rs")["license"], "MIT");
+        // A dual-licensed file is taken under its Apache-2.0 alternative.
+        assert_eq!(verdict("src/mit_util.rs")["license"], "Apache-2.0");
         assert_eq!(verdict("src/mit_util.rs")["basis"], "SPDX header");
         let thing = verdict("third_party/gpl/thing.c");
         assert_eq!(thing["verdict"], "reject");
@@ -2397,6 +3470,29 @@ mod tests {
         assert!(fx
             .run(&["scan", "--slug", "widgets", "--rev", &sha, "--path", "nope"])
             .is_err());
+        // Only Apache-2.0 code is harvested: an MIT-only file is refused, by
+        // scan and by import, and nothing is written.
+        let mit = fx
+            .run(&[
+                "scan", "--slug", "widgets", "--rev", &sha, "--path", "other",
+            ])
+            .unwrap_err();
+        assert!(mit.contains("not Apache-2.0"), "{mit}");
+        let import = fx.run(&[
+            "import",
+            "--slug",
+            "widgets",
+            "--rev",
+            &sha,
+            "--map",
+            "other=vendor/other",
+            "--id",
+            "H-TEST-9",
+            "--task",
+            "T-TEST-1",
+        ]);
+        assert!(import.unwrap_err().contains("import refused"));
+        assert!(!fx.work.join("vendor/other").exists());
     }
 
     #[test]
@@ -2409,7 +3505,7 @@ mod tests {
             out.contains(&format!("Origin: {}@{sha}:src", fx.url())),
             "{out}"
         );
-        assert!(out.contains("Origin-License: Apache-2.0 AND MIT"), "{out}");
+        assert!(out.contains("Origin-License: Apache-2.0\n"), "{out}");
         assert_eq!(fx.read("vendor/widgets/widget.rs"), WIDGET);
         assert!(fx
             .read("vendor/widgets/mit_util.rs")
@@ -2600,16 +3696,38 @@ mod tests {
         assert_eq!(choose_license("Apache-2.0").unwrap(), "Apache-2.0");
         assert_eq!(choose_license("MIT OR Apache-2.0").unwrap(), "Apache-2.0");
         assert_eq!(choose_license("(MIT OR Apache-2.0)").unwrap(), "Apache-2.0");
+        assert_eq!(choose_license("apache-2.0").unwrap(), "Apache-2.0");
+        // The Apache-2.0 alternative is taken whatever else is offered, including
+        // when pure Apache-2.0 is offered alongside an exception variant.
         assert_eq!(
-            choose_license("Apache-2.0 WITH LLVM-exception").unwrap(),
-            "Apache-2.0 WITH LLVM-exception"
+            choose_license("GPL-2.0-only OR Apache-2.0").unwrap(),
+            "Apache-2.0"
         );
-        assert_eq!(choose_license("GPL-2.0-only OR MIT").unwrap(), "MIT");
         assert_eq!(
-            choose_license("Apache-2.0 AND MIT").unwrap(),
-            "Apache-2.0 AND MIT"
+            choose_license("(Apache-2.0 WITH LLVM-exception) OR Apache-2.0").unwrap(),
+            "Apache-2.0"
         );
-        assert_eq!(choose_license("bsd-3-clause").unwrap(), "BSD-3-Clause");
+        // CEO decision 2026-11-12 (Mandate 75): nothing but Pure Apache-2.0 is harvested.
+        for not_apache in [
+            "MIT",
+            "bsd-3-clause",
+            "BSD-2-Clause",
+            "ISC",
+            "MPL-2.0",
+            "LGPL-3.0-only",
+            "AGPL-3.0-only",
+            "SSPL-1.0",
+            "BUSL-1.1",
+            "GPL-2.0-only OR MIT",
+            "Apache-2.0 AND MIT",
+            "Apache-2.0 WITH LLVM-exception",
+        ] {
+            let refused = choose_license(not_apache).unwrap_err();
+            assert!(
+                refused.contains("not Apache-2.0") && refused.contains("Mandate 75"),
+                "{not_apache}: {refused}"
+            );
+        }
         for bad in [
             "GPL-3.0-or-later",
             "MPL-2.0",
@@ -2651,9 +3769,135 @@ mod tests {
         );
         assert_eq!(classify_license_text("All rights reserved."), None);
         assert_eq!(
+            classify_license_text(
+                "Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted"
+            ),
+            Some("ISC")
+        );
+        assert_eq!(
             copyright_lines(" * Copyright (C) 2020 Foo Corp. */\n// copyright notice\n# Copyright [yyyy] x\nCopyrighted 2020 X\n© 2021 Bar\n"),
             vec!["Copyright (C) 2020 Foo Corp.".to_owned(), "© 2021 Bar".to_owned()]
         );
+    }
+
+    #[test]
+    fn route_pickup_and_raw_features_enforce_pillars_and_pure_apache2() {
+        let fx = Fixture::new();
+        // Add a distillable feature commit and a commercial UI file upstream.
+        write(
+            &fx.upstream,
+            "src/acp_frame.rs",
+            "// SPDX-License-Identifier: Apache-2.0\n// Copyright 2026 Upstream ACP\npub fn frame() -> usize { 42 }\n",
+        );
+        write(
+            &fx.upstream,
+            "ui/dashboard.tsx",
+            "// SPDX-License-Identifier: Apache-2.0\nexport const Dashboard = () => null;\n",
+        );
+        fx.git_at(&fx.upstream, &["add", "-A"]);
+        fx.git_at(
+            &fx.upstream,
+            &[
+                "commit",
+                "-q",
+                "-m",
+                "feat(acp): add lean frame helper\n\nTask: T-UPSTREAM-1\nFeature: F-ACP-FRAME-1",
+            ],
+        );
+
+        let url = fx.url();
+        // 1. raw-features discovers commit trailers & pure Apache-2.0 modules.
+        let rf = fx
+            .run(&["raw-features", "--url", &url, "--rev", "main", "--json"])
+            .unwrap();
+        let rf_val: Value = serde_json::from_str(&rf).unwrap();
+        assert_eq!(rf_val["ok"], true);
+        assert!(!rf_val["features"].as_array().unwrap().is_empty());
+        assert!(rf_val["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["path"] == "src/acp_frame.rs" && m["route"] == "core"));
+
+        // 2. route classifies 5-pillar ACP substrate to `core` and UI `.tsx` to `commercial`.
+        let r_core: Value = serde_json::from_str(
+            &fx.run(&[
+                "route",
+                "--path",
+                "crates/susi-core/src/acp_frame.rs",
+                "--json",
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r_core["target"], "core");
+        assert_eq!(r_core["allowed_in_core"], true);
+
+        let r_comm: Value = serde_json::from_str(
+            &fx.run(&["route", "--path", "ui/dashboard.tsx", "--json"])
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r_comm["target"], "commercial");
+        assert_eq!(r_comm["allowed_in_core"], false);
+        assert!(fx
+            .run(&["route", "--path", "ui/dashboard.tsx", "--target", "core"])
+            .is_err());
+
+        // 3. pickup refuses UI/commercial targets inside Core checkout, and imports 5-pillar Apache-2.0 cleanly.
+        let refused_ui = fx
+            .run(&[
+                "pickup",
+                "--url",
+                &url,
+                "--rev",
+                "main",
+                "--slug",
+                "widgets-ui",
+                "--map",
+                "ui/dashboard.tsx=crates/susi-core/src/dashboard.tsx",
+                "--id",
+                "H-TEST-20",
+                "--task",
+                "T-TEST-20",
+            ])
+            .unwrap_err();
+        assert!(refused_ui.contains("commercial"), "{refused_ui}");
+        assert!(!fx.work.join("crates/susi-core/src/dashboard.tsx").exists());
+
+        let picked = fx
+            .run(&[
+                "pickup",
+                "--url",
+                &url,
+                "--rev",
+                "main",
+                "--slug",
+                "widgets-acp",
+                "--map",
+                "src/acp_frame.rs=crates/susi-core/src/acp_frame.rs",
+                "--id",
+                "H-TEST-21",
+                "--task",
+                "T-TEST-21",
+                "--feature",
+                "F-ACP-FRAME-1",
+                "--json",
+            ])
+            .unwrap();
+        let pv: Value = serde_json::from_str(&picked).unwrap();
+        assert_eq!(pv["license"], "Apache-2.0");
+        assert_eq!(pv["route"]["effective_target"], "core");
+        assert!(fx.run(&["audit"]).is_ok());
+
+        // 4. audit refuses any manifest whose recorded license was tampered away from "Apache-2.0".
+        let tampered = fx.read(".agents/harvest/H-TEST-21.json").replace(
+            "\"license\": \"Apache-2.0\"",
+            "\"license\": \"MIT OR Apache-2.0\"",
+        );
+        write(&fx.work, ".agents/harvest/H-TEST-21.json", &tampered);
+        let audit_err = fx.run(&["audit"]).unwrap_err();
+        assert!(audit_err.contains("Mandate 75"), "{audit_err}");
     }
 
     #[test]
@@ -2675,5 +3919,13 @@ mod tests {
         assert!(check_url("--upload-pack=x").is_err());
         assert!(check_rev("+main").is_err());
         assert!(parse_cli(&["scan".to_owned(), "--bogus".to_owned()]).is_err());
+        assert_eq!(
+            default_slug_from_url(r"C:\tmp\susi-pure-cloud-harvest\cloud-acp-substrate.git\"),
+            "cloud-acp-substrate"
+        );
+        assert_eq!(
+            default_slug_from_url("https://example.invalid/org/cloud-acp-substrate.git/"),
+            "cloud-acp-substrate"
+        );
     }
 }

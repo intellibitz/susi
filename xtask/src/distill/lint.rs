@@ -28,7 +28,7 @@ const RS: char = '\u{1e}';
 const US: char = '\u{1f}';
 const GS: char = '\u{1d}';
 
-const LINT_USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- lint --range <from>..<to> | --range <to> [--base <rev>] [--out <file>] [--json] [--strict] [--no-claims]\n";
+const LINT_USAGE: &str = "usage: cargo run --offline --locked -p xtask --bin distill -- lint --range <from>..<to> | --range <to> [--base <rev>] [--out <file>] [--json] [--strict] [--no-claims] [--pull]\n";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Commit {
@@ -428,6 +428,7 @@ pub struct LintArgs {
     pub json: bool,
     pub strict: bool,
     pub no_claims: bool,
+    pub pull: bool,
 }
 
 pub fn parse_lint_args(args: &[String]) -> Result<LintArgs> {
@@ -448,6 +449,7 @@ pub fn parse_lint_args(args: &[String]) -> Result<LintArgs> {
             "--json" => a.json = true,
             "--strict" => a.strict = true,
             "--no-claims" => a.no_claims = true,
+            "--pull" => a.pull = true,
             "help" | "--help" | "-h" => return Err(LINT_USAGE.trim_end().into()),
             other => return Err(format!("unknown option {other}\n{LINT_USAGE}")),
         }
@@ -477,7 +479,7 @@ fn lint_log(git: &Git<'_>, from: Option<&str>, to: &str) -> Result<Vec<Commit>> 
         "--topo-order",
         "--no-renames",
         "--name-only",
-        "--format=%x1e%H%x1f%s%x1f%(trailers:key=Task,valueonly,separator=%x1d)%x1f",
+        "--format=%x1e%H%x1f%s%x1f%(trailers:key=Task,key=Distilled-Task,valueonly,separator=%x1d)%x1f",
         &range,
         "--",
     ])?;
@@ -547,6 +549,9 @@ fn claim_scopes(git: &Git<'_>) -> Result<BTreeMap<String, Vec<String>>> {
 pub fn run_lint(root: &Path, args: &[String]) -> Result<String> {
     let a = parse_lint_args(args)?;
     let git = Git { root };
+    if a.pull {
+        let _ = git.pull_origin_optional()?;
+    }
     let (from, to) = match a.range.split_once("..") {
         Some((f, t)) if !f.is_empty() && !t.is_empty() && !t.starts_with('.') => {
             (Some(f.to_owned()), t.to_owned())

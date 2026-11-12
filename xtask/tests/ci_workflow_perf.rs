@@ -272,18 +272,26 @@ fn no_gate_or_hook_depends_on_the_retired_target_guard() {
     assert!(gate.contains("timed_step clippy cargo clippy \"$@\""));
     let hook = read(".githooks/pre-push");
     assert!(!hook.contains("cargo clippy"));
-    // Worktrees are seeded, by the scripts and by `workflow start` alike;
-    // scripts/susi-worktree.sh is the stub for `workflow start` (Susi
-    // Commercial Apps' dev workflow since the lean-core move), which seeds in
-    // process and is tested there.
+    // Shell-launched sessions still use the small seeder script. The harness
+    // adapter uses native `workflow start`, which creates the private target
+    // itself and refuses the old shared-target link; it must not depend on the
+    // shell implementation.
     assert!(
         read("scripts/workflow-session-start.sh").contains("seed-target.sh"),
-        "scripts/workflow-session-start.sh must seed the worktree's own target"
+        "workflow-session-start.sh must seed the worktree's own target"
     );
-    // The harness adapter gives a new worktree its own native target, never
-    // a shell seeder; its unit tests pin that. They moved from the end of
-    // `adapter.rs` to `src/tests/adapter.rs` (192b53d27, line ceiling), so
-    // the guard reads the test, by name, where it lives.
+    let adapter = read("crates/susi-harness/src/adapter.rs");
+    assert!(
+        adapter.contains("target_is_link"),
+        "the native harness adapter must reject shared target links"
+    );
+    assert!(
+        adapter.contains("CARGO_TARGET_DIR") && adapter.contains("cwd.join(\"target\")"),
+        "the native harness adapter must use the worktree's private target"
+    );
+    // Keep the adapter's native worktree test as a second source-level
+    // witness, so moving the implementation cannot silently remove the
+    // behavior this guard protects.
     let adapter_tests = read("crates/susi-harness/src/tests/adapter.rs");
     assert!(
         adapter_tests

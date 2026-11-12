@@ -127,8 +127,15 @@ fn availability_not_capability_dispatch_storm_stays_off_capability() {
         name: "avstorm-flaky2",
         error: "connection refused",
     });
-    let (out, _ladder) =
-        GemiEngine::try_providers(&registry, "ping availability", None, None, &|_| {}, &|_| {});
+    let (out, _ladder) = GemiEngine::try_providers(
+        &registry,
+        "ping availability",
+        None,
+        None,
+        None,
+        &|_| {},
+        &|_| {},
+    );
     assert_eq!(out, None, "every candidate failed at transport");
 
     let store = crate::engines::brain::load();
@@ -189,7 +196,15 @@ fn availability_not_capability_bad_answer_still_records() {
     }
     let registry = CapabilityRegistry::new();
     registry.register_provider(EmptyProvider);
-    let _ = GemiEngine::try_providers(&registry, "ping availability", None, None, &|_| {}, &|_| {});
+    let _ = GemiEngine::try_providers(
+        &registry,
+        "ping availability",
+        None,
+        None,
+        None,
+        &|_| {},
+        &|_| {},
+    );
     let store = crate::engines::brain::load();
     let ranked = store.rank(&["avlone-empty".to_string()], TaskClass::Reflex);
     assert_eq!(

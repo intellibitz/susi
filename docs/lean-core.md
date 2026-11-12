@@ -1,24 +1,39 @@
-# Lean core: the program and its ladder
+# Lean core: the program, the 5 pillars, and the <10s pipeline budget
 
-CEO directive, 2026-11-07: Susi core is minimal. GAWD, GEMI, GMCP and the harness
-(with its parallel multi-agent workflow) are the only components. It compiles,
-builds, tests, runs and debugs anywhere, local or cloud, with nothing but Rust.
-Everything that is not one of those four is a plug that lives in
-`susi-commercial-apps` and is admitted over the socket. Core is fast, and open
-to the world to contribute.
+CEO directive, 2026-11-07 (expanded 2026-11-11 under [CEO Mandate 74](ceo-mandate-74.md)
+and 2026-11-12 under [CEO Mandate 75](ceo-mandate-75.md)):
+Susi core (`intellibitz/susi`) is minimal, Apache-2.0 and free forever. **GAWD**
+(swarm & A2A coordination), **GEMI** (model inference router), **GMCP** (MCP
+protocol & tool plane), **ACP** (Agent Client Protocol / Agent Communication
+Protocol open standard socket), and **Susi Harness** (recursive driver & engine
+with built-in parallel multi-agent workflow) are the **five primary core
+pillars**. Core compiles, builds, tests, runs and releases with nothing but Rust
+on the **Raw Source (`main`) -> Distill (`release`)** model, targeting an
+**under-10-second (`< 10.0s` / `total_ms < 10_000`) warm
+build + test + release pipeline budget** alongside the cold `<60s` compile
+budget. Cloud raw-source feature pickup (`local-harvest raw-features`, `route`,
+`pickup`, [`docs/harvest.md`](harvest.md)) accepts **Pure `Apache-2.0` ONLY** and
+admits into Core only lean, zero-UI, zero-vendor-product 5-pillar substrate
+capabilities (preferring pure-`Apache-2.0` raw-source pickup over adding new
+external crate dependencies). Every add-on feature, enterprise pack, SSO/RBAC,
+FinOps, fleet governance plane, and visual interface (all UIs and curated plugin
+packs live in Susi Commercial Apps) is routed exclusively to
+`intellibitz/susi-commercial-apps` (closed-source, licensed, and paid corporate
+software) and admitted over the standard protocol socket.
 
 This page is the shared plan for every agent on the program. Numbers come from
 `tests/lean_core_ceilings.rs`, which only lets them go down.
 
 ## The ladder (measured)
 
-| Rung | Measure (four pillars, normal+build edges) | 2026-11-07 start | now |
-|------|--------------------------------------------|------------------|-----|
-| 0 | third-party crates compiled | 331 | 259 |
-| 0 | workspace crates compiled | 59 | 50 |
-| 0 | vendor facades named directly by the pillar crates | 26 | 23 |
-| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness) | 180,441 | 175,068 |
-| clean clone | shallow clone, `cargo check -p susi-gmcp` / `-p susi` | 60 s / 78 s online; offline impossible (crates.io) | same |
+| Rung | Measure (pillar closure, normal+build edges) | 2026-11-07 start | pinned ceiling (2026-11-12) |
+|------|----------------------------------------------|------------------|-----------------------------|
+| 0 | third-party crates compiled | 331 | 96 |
+| 0 | workspace crates compiled | 59 | 33 |
+| 0 | vendor facades named directly by the pillar crates | 26 | 9 |
+| 0 | Rust lines, pillar families (gawd 4, gemi 2, gmcp, harness; shipped src) | 180,441 | 147,184 (ratcheted -175 from 147,359) |
+| clean clone | cold `cargo build --offline --locked -p susi` (Linux x86_64) | 196 s under load / 165 s idle | 27.68 s idle (`T-CARBONLEAN-14`) |
+| warm release loop | core `build + test + release` pipeline (`fast-release`, Mandate 74) | ununified multi-profile | `< 10.0 s` (`total_ms < 10_000`) budget |
 
 Rungs, in order. Each is done when its number is on this table and the ceiling
 test pins it.
@@ -77,6 +92,24 @@ gated `cargo local-workflow` path needs a host that holds the gate; an outside
 contributor opens a pull request and an agent integrates it through the gate.
 Whether to accept outside pull requests at all is a CEO decision; until it is
 made, `CONTRIBUTING.md` stands as written.
+
+## Sub-10-second warm Build + Test + Release budget (CEO Mandate 74, 2026-11-11)
+
+Alongside the cold compile budget below, CEO Mandate 74 sets a binding
+**under-10-second (`< 10.0s` / `total_ms < 10_000`) warm core delivery budget**
+covering:
+
+1. **Core build** (`build_ms`): incremental/warm compilation of the core host and
+   pillars without redundant profile recompilation;
+2. **Core verification test suite** (`test_ms`): fast, deterministic core
+   verification tests sharing compiled dependency artifacts with the build step;
+3. **Distilled release artifact + SHA-256 provenance manifest** (`release_ms`):
+   single-pass emission of the verified candidate artifact and its cryptographic
+   digest/provenance record (`total_ms = build_ms + test_ms + release_ms < 10_000`).
+
+Per Mandates 1, 62 and 69, cold clean-target timings and warm incremental timings
+are always measured and reported **separately** with durable JSON evidence, while
+preserving distinct debug vs. candidate/production artifact isolation (Mandate 67).
 
 ## Compile budget: 60 seconds (CEO mandate 2026-11-07 22:50)
 
@@ -1044,3 +1077,123 @@ config, core and the tail.
   proc-macro from `Cargo.lock` (`185 -> 182` packages; 173 cumulative
   `Cargo.lock` packages removed across T-CARBONLEAN-1..16) and lowering
   `THIRD_PARTY_CEILING` `99 -> 96`.
+- 2026-11-11 (T-CLAUDESTORAGEGUARD-3, Linux x86_64, CEO laptop), **CEO decision
+  "raise it"**: the `susi-harness` line ceiling rises `37,434 -> 37,536`. This
+  is new capability, not a move from a crate leaving core: the storage guard
+  (`crates/susi-harness/src/storage_guard.rs`, 347 lines, standard library and
+  Git only, no new dependency) and 14 lines in `operator.rs` and `lib.rs`. With
+  it the harness's `submit-main`, `integrate` and `release-promote` witness the
+  storage remote after every live publication, so the guarantee that nothing
+  published is lost unnoticed has zero hosting-provider dependency. The crate
+  measured 37,175 lines before the change (259 under its ceiling), so the
+  source grows 361 lines and the ceiling 102. No other ceiling moves.
+- 2026-11-12 (T-CLAUDELEANPROMPT-1, Linux x86_64, CEO laptop): delete prompt
+  code in core that only its own tests reached. `susi-gemi` loses
+  `PromptFormat` (control-token detection and four hand-written chat wrappers)
+  and the `prompt_format` field of `ModelSubstrate`; `susi-gemi-models` loses
+  `ModelManager::chat_template_supports_tools`, which was already marked
+  `allow(dead_code)`. Nothing in the default build or under `local-engine`
+  called them: the engine that wraps a local model's prompt is Susi Commercial
+  Apps' `susi-gpu-fabric`. Line ceilings lowered to the measured values:
+  `susi-gemi` `21,145 -> 21,047`, `susi-gemi-models` `15,945 -> 15,921`
+  (122 shipped lines; 83 more lines of their tests went with them). Not
+  removed: `ChatTemplateConfig` in `susi-config` is also test-only, but its
+  field is part of the persisted `prompts.json` shape, so removing it needs a
+  migration decision first.
+- 2026-11-12 (T-CLAUDELOCALTOOLS-1, Linux x86_64, CEO laptop), **CEO direction
+  "let the local engine take full conversations and tool lists"**: the
+  `susi-gemi` line ceiling rises `21,047 -> 21,180` (133 lines). New
+  capability, not a move. For a request that needs tools, core now sends the
+  local engine the same request as a conversation with the registered tools'
+  schemas (`messages` and `tools` on `gpu_fabric.local_engine.infer_stream`),
+  next to the prose prompt it has always sent. An engine that renders the
+  model's own chat template uses the conversation; any other answers from the
+  prose prompt exactly as before. `LocalEnginePlug::run_chat_stream`,
+  `NativeInferenceEngine::run_chat_stream` and `ContractCall::with_chat` carry
+  it, each defaulting to the plain-prompt call. No dependency is added. Net
+  for the day, with T-CLAUDELEANPROMPT-1's removal of dead prompt code
+  (`-98`): `susi-gemi` is 35 lines above where it started (`21,145`).
+- 2026-11-12 (T-CLAUDETOOLCAP-1, Linux x86_64, CEO laptop), **CEO direction
+  "fix it and finish the end-to-end run"**: the `susi-gemi-models` line ceiling
+  rises `15,921 -> 15,939` (18 lines). A defect, found by running a tools
+  request through the daemon: `ModelManager::supports_tool_calling` returned
+  `false` for every whole GGUF since the GGUF reader left core, so every local
+  `requires: "tools"` request ended in `[CAPABILITY_GAP]` and the engine was
+  never asked. Core now asks the local engine plug
+  (`gpu_fabric.local_engine.model_capabilities`, `{"path"}` ->
+  `{"tools": bool}`), caches a real answer per file, and treats "no engine
+  attached" as unknown and uncached. Verified end to end on the CEO laptop:
+  daemon -> plug host -> real model -> tool call -> core's tool dispatch.
+- 2026-11-12 (T-CLAUDETOOLPICK-1, Linux x86_64, CEO laptop): `susi-gemi`
+  `21,180 -> 21,172`. Local tool requests offered the first 32 of the 195
+  registered tools in name order (`a2a_delegate` ... `brain_matrix`) whatever
+  was asked; they now offer at most 8 that share words with the request, and
+  none when nothing fits. Paid for by deleting what nothing called: the
+  `ModelSubstrate`/`NeuralBackend`/`ModelBackend` leftovers of the engine
+  move and the module-wide `allow(dead_code)` that hid them,
+  `InferenceHost::needs_qwen2_backend`, `cost::expected_call_cost_usd` and
+  `worker::is_seat`. Measured through the daemon with the plug host and the
+  starter model: a weather question with `requires: "tools"` went from 152 s
+  and an unrelated tool call to 12 s and a plain answer.
+- 2026-11-12 (T-CLAUDEACPGAWD-1, Linux x86_64, CEO laptop), **CEO direction
+  "Integrate ACP into gawd layer"**: ACP turns on 9094 run as GAWD missions.
+  The A2A server mounted ACP with `AcpEngine::default()`, whose
+  `SubstrateAcpExecutor` answered every `session/prompt` with
+  `acp-ack[<session>]: <prompt>`; no agent ever saw an ACP prompt.
+  `susi-gawd-a2a`'s `GawdAcpExecutor` runs each turn as the mission an A2A
+  task runs, with the same untrusted-content gate, in-flight capacity permit
+  and reply redaction, and the server runs turns on a blocking thread. No
+  dependency added; the `susi-gawd-a2a` ceiling ratchets `3,619 -> 3,588`.
+- 2026-11-12 (T-CODEXHISTORY-1, Linux x86_64, CEO laptop), **board item 215
+  and CEO direction to preserve full local conversations**: core now carries
+  the normalized OpenAI `messages` and top-level tool schemas from the 9091
+  request through the GAWD and GEMI planes to the local engine. The model
+  adapter can therefore render the model file's own template for multi-turn
+  requests; the existing prose prompt remains the fallback for older plugs.
+  `developer` is normalized to `system`, `function` to `tool`, and tool-call
+  metadata remains in the normalized text because the four-role plug contract
+  does not yet expose structured assistant tool calls. Cloud and external
+  recovery continue to receive the assembled prose request. No dependency,
+  workspace-reach or facade-edge ceiling changes. Measured source re-pins:
+  `susi-gawd` `12,523 -> 12,525`, `susi-gawd-swarm` `20,116 -> 20,206`, and
+  `susi-gemi` `21,172 -> 21,262`.
+- 2026-11-12 (T-CLAUDEGEMIFIX-1, Linux x86_64, CEO laptop), CEO direction "Fix
+  gemi completely": `susi-gemi` `21,172 -> 21,063`. A live sweep of 9091 found
+  `/v1/embeddings` unanswered after 300 s (every provider tried, 60 s each,
+  no overall bound) and streamed chat leaking `[SUSI ROUTING] ...` notes into
+  the assistant's content. Embeddings now have one 30 s budget; the GEMI
+  server withholds routing notes from streams. The budget is paid for by
+  deleting `mcp_provider::looks_like_inference_tool` (only its tests called
+  it) and `worker::seat_window_state` (nothing called it). Merged with
+  T-CODEXHISTORY-1 (`21,262`), the measured and pinned size is `21,153`.
+- 2026-11-12 (T-CLAUDEGEMIFIX-2, Linux x86_64, CEO laptop), CEO direction "Fix
+  gemi completely": `susi-gemi` `21,153 -> 21,096`. An OpenAI request that
+  supplies its own `tools` got the model's raw `<tool_call>` markup back as
+  text (non-streamed), or, streamed, core tried to run the call against its
+  own registry and printed "`get_weather` is not a registered tool". Calls to
+  caller-supplied tools now return as `tool_calls` with
+  `finish_reason: "tool_calls"` (`local_tool_calls::caller_tool_reply`,
+  `plane_bus::gemi::CALLER_TOOL_CALLS`). `max_tokens` travels with the
+  conversation so the engine stops there (a 5-token request: 52 s -> 2.1 s).
+  Paid for by deleting `SusiPulse::compute_spectral_prediction` and
+  `SpectralPrediction`, which only their own test used.
+- 2026-11-12 (T-CTOCORELEAN-1, Linux x86_64, CEO laptop): ratchet
+  `susi-gawd-a2a` `LINE_CEILINGS` strictly down `3,588 -> 3,413` (`-175` lines:
+  remove dead `TaskStore::delete` `-4` production lines and move the unchanged
+  `executor.rs` inline unit suite `-171` lines to `src/tests/executor.rs`, test
+  organization rather than removed runtime capability; 8-pillar ceiling sum
+  `147,193 -> 147,018`) and remove `73` production lines of unreferenced dead
+  helpers in `crates/susi-vendor-tempfile` (`Builder::{suffix,rand_bytes,
+  tempdir_in}`, `TempDir::{new_in,with_prefix_in,into_path}`, `tempdir_in`) and
+  `crates/susi-vendor-wasmtime` (`VALIDATION_ENGINE` and `validate_module`),
+  alongside upgrading `susi_core::acp` with bounded multi-turn session history
+  and cursor replay with zero new dependencies (`THIRD_PARTY_CEILING` 96,
+  `WORKSPACE_CEILING` 33, `DIRECT_FACADE_EDGES_CEILING` 9).
+- 2026-11-12 (T-CLAUDEACPHISTORY-1, Linux x86_64, CEO laptop), **board item
+  247 note to Claude**: the GAWD ACP executor now runs each turn with the
+  session's earlier turns (newest 16 KiB) ahead of the gated prompt, so a
+  multi-turn ACP client keeps its context. Earlier questions go only if they
+  pass the untrusted-content gate themselves; earlier answers are the
+  mission's own redacted replies. Paid by moving `capabilities.rs`'s inline
+  unit tests to `src/tests/capabilities.rs`; `susi-gawd-a2a` ratchets
+  `3,413 -> 3,347`. No dependency added.
