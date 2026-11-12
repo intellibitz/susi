@@ -1,17 +1,6 @@
 {
   "id": "T-CLOUDQUOTE1106-1",
-  "native_worker": "cloudquote1106",
   "title": "Cloud keys: an opening quote must close, and the decoded key is what gets stored",
-  "created_by": "CLOUDQUOTE1106",
-  "created_unix": 1794030000,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/tasks/t-cloudquote1106-1.json",
-    "crates/susi-config/src/cloud_env.rs",
-    "crates/susi-vendor-models/src/cloud.rs",
-    "tests/installed_windows_entry.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -29,5 +18,21 @@
       "ported from the abandoned post42-core-bench worktree (T-POST42CORE-1) without its version-42 release receipts",
       "installed_windows_entry waits for the detached child's pid file instead of racing it on a loaded host"
     ]
-  }
+  },
+  "created_by": "CLOUDQUOTE1106",
+  "created_unix": 1794030000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "cloudquote1106",
+  "scopes": [
+    ".agents/tasks/t-cloudquote1106-1.json",
+    "crates/susi-config/src/cloud_env.rs",
+    "crates/susi-vendor-models/src/cloud.rs",
+    "tests/installed_windows_entry.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
