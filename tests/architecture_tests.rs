@@ -2411,6 +2411,40 @@ fn ceo_mandate_77_makes_agent_roots_discoverable() {
     }
 }
 
+/// Mandate 63: every script that is not Rust is migration debt, and the
+/// count only goes down. Lower the ceiling in the change that removes one.
+#[test]
+fn non_rust_scripts_only_decrease() {
+    const SCRIPT_CEILING: usize = 67;
+    fn walk(dir: &std::path::Path, found: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                if !matches!(name.as_ref(), "target" | ".git" | "node_modules") {
+                    walk(&path, found);
+                }
+            } else if matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("sh" | "ps1" | "py")
+            ) {
+                found.push(path);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(&workspace_root(), &mut found);
+    assert!(
+        found.len() <= SCRIPT_CEILING,
+        "{} shell/PowerShell/Python files, ceiling {SCRIPT_CEILING}: a new script is not admitted (Mandate 63)",
+        found.len()
+    );
+}
+
 #[test]
 fn ceo_git_authority_preserves_evidence_and_scope() {
     let root = workspace_root();

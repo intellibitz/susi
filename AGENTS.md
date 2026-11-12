@@ -98,6 +98,9 @@ pure Apache-2.0 code with full attribution, keep all add-ons closed/licensed/pai
   **under 10 seconds (`< 10.0s` / `total_ms < 10_000` warm pipeline budget)**,
   recording `build_ms`, `test_ms`, `release_ms`, `total_ms` and durable evidence
   while reporting cold vs. warm timings separately and honestly (Mandates 1, 62, 69).
+  The `<10s` budget is the warm fast check (`cargo fast-release`); it is not
+  the full workspace suite, which takes minutes and is what qualifies a
+  release. Report both, never one as the other.
 - **Continuous `main` & deterministic release distillation:** `main` is an
   append-only, ungated feature dump (no gates, no workflows, no pull requests).
   Label every dump (one feature per commit series, `Task: T-<AGENT>-<n>` trailers,
@@ -135,7 +138,7 @@ pure Apache-2.0 code with full attribution, keep all add-ons closed/licensed/pai
 ## CEO operating mandate (2026-11-10, Mandate 73)
 
 Read [the consolidated CEO agent mandate](docs/ceo-agent-mandate.md) before work.
-Three isolated laptops each have **dot, opus, carbon and grok**. An **available authorized driver** coordinates local agents on each laptop:
+Three isolated laptops each run the CEO's agent roles, **dot, opus, carbon and grok**: role names, not vendors and not a head count. The agents actually present on a machine are those with a registered agent root (Mandate 77). An **available authorized driver** coordinates local agents on each laptop:
 dot, duet, another agent, or Susi harness when its capabilities are verified.
 Cloud sessions are independent and fully autonomous
 within the user's authorization. Susi's master brain owns distillation, task and
@@ -156,8 +159,11 @@ The only remote branch on GitHub is `refs/heads/main` (CEO directives
 see `docs/agent-refs.md`); never push `refs/heads/local-agent/*`,
 `refs/heads/release/*`, `refs/heads/release-staging/*`, `refs/heads/distill/*`,
 `refs/heads/wip/*`, or any other branch head, and never open, merge, or close a
-pull request. Release candidates stay local to Susi and publish exclusively as
-immutable tags (`refs/tags/susi-distill/<name>`, `refs/tags/v<version>`).
+pull request. A release line lives on storage as the non-branch ref
+`refs/candidates/release/<name>` (fast-forward only, never deleted,
+`docs/release-lanes.md`); a `refs/heads/release/*` branch stays local. Snapshots
+and releases publish as immutable tags (`refs/tags/susi-distill/<name>`,
+`refs/tags/v<version>`).
 Development branches may advance without a mandatory gate; release candidates
 require qualification and published release tags are
 immutable snapshots with source, license, toolchain, tests and artifact provenance.
@@ -190,6 +196,16 @@ scripts, remote workflows and installed binaries can still implement the old
 behavior: treat that as migration work, not as authority to disregard the CEO.
 These are requirements, **not claims of completed implementation**. Consult
 `docs/native-rust-direction.md` and live verification for current status.
+
+**Retired and merged mandates (CEO decision 2026-11-12).** Mandate IDs are never
+renumbered or reused; a retired ID stays in `.agents/identity.json` with a
+pointer. Merged: 2, 7 and 8 into 1 (truth); 3 into 69 (bloat); 36 into 25
+(destructive-command guard); 38 into 10 (secrets); 44 into 70 (zero
+configuration); 43 into 63 (Rust-only). Retired: 28, 29 and 30, which mandated
+`tokio`, `rayon` and `parking_lot`; the goal is kept in Mandate 5 and the choice
+of library follows the dependency ceilings. Reworded: 5 and 35 (goal, not
+library), 54 (a release gate, never a main gate, no pull-request adapters), 68
+(dependency allowlist vs. Apache-2.0-only for copied source), 72, 73 and 74.
 
 | Mandate | Required outcome |
 | --- | --- |
@@ -555,8 +571,9 @@ push gates. It preserves:
 - No force-push of shared history, and no modification of access controls.
 - Actual origin evidence before claiming landing; honest test commands and counts.
 
-`local-agent/<agent>` remains the supported contribution/handoff branch when a
-worker cannot run the authorized main gate. Existing
+A worker that cannot publish to `main` hands its work off on the non-branch ref
+`refs/agents/<agent>` (`docs/agent-refs.md`), never on a `refs/heads/*` branch;
+`local-agent/<agent>` is its local branch name only. Existing
 `susi_harness::workflow::IntegrationPolicy` branch-only and cadence restrictions
 are migration work, not proof that the new workflow is complete and not permission
 to bypass a live control. Follow `docs/ceo-agent-mandate.md` and the current-state

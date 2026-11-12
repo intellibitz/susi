@@ -203,8 +203,10 @@ Multiple autonomous frontier agents (`Claude`, `Codex`, `Antigravity` / `Carbon`
 1. **Portable Git storage + shared Susi Board:** Agents coordinate through pure
    Git refs and `.agents/tasks/` handoff records on `origin` (zero GitHub
    Actions, zero hosted PRs/checks, zero `gh` CLI or GitHub API lock-in) plus the
-   shared Susi coordination board (`AGENTS.md` in the local workspace root when
-   mounted on a host; `.agents/tasks/` records on `origin/main` across hosts).
+   Susi Board (the native board of CEO Mandate 76, [`ceo-mandate-76.md`](ceo-mandate-76.md);
+   the older file board in the workspace rules file was retired on 2026-11-12),
+   with `.agents/tasks/` records on `origin/main` for an agent that cannot
+   reach it.
 2. **Pre-import harvest deconfliction:** Before importing an external
    `Apache-2.0` capability, agents verify the pinned commit with
    `local-harvest scan` / `route` and post the target repository URL, commit SHA,
