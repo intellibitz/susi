@@ -2,12 +2,6 @@
   "id": "T-CLAUDEGAWDTOKIO-1",
   "title": "susi-gawd drops its unused tokio dependency",
   "goal": "Remove the susi-vendor-tokio edge susi-gawd declares but never uses (no tokio:: in src, tests or build.rs), so the pillars' remaining tokio reach is only through crates that use it",
-  "status": "done",
-  "scopes": [
-    "crates/susi-gawd/Cargo.toml",
-    "Cargo.lock",
-    ".agents/tasks/T-CLAUDEGAWDTOKIO-1.json"
-  ],
   "size": "s",
   "deps": [],
   "accept": {
@@ -22,11 +16,22 @@
   },
   "created_by": "CLAUDEGAWDTOKIO",
   "created_unix": 1794376813,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [
+    "no measured build-time effect"
+  ],
   "results": [
     "git grep tokio in crates/susi-gawd finds only the manifest line",
     "lean_core_ceilings unchanged at 41 workspace / 154 third-party / 17 facade edges: tokio still reaches susi-gawd through susi-gawd-swarm/agents and susi-http-transport, so no ceiling moves"
   ],
-  "limitations": [
-    "no measured build-time effect"
-  ]
+  "scopes": [
+    "crates/susi-gawd/Cargo.toml",
+    "Cargo.lock",
+    ".agents/tasks/T-CLAUDEGAWDTOKIO-1.json"
+  ],
+  "status": "done"
 }
