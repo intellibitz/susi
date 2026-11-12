@@ -2,23 +2,8 @@
   "id": "T-CODEXACPCANCEL-1",
   "title": "Propagate ACP cancellation into GAWD missions",
   "goal": "Carry the live ACP turn cancellation token through the GAWD-backed mission runner and watched PlaneBus request so a running session/cancel reaches cooperative GAWD mission checkpoints.",
-  "status": "in_progress",
-  "owner": "codex",
-  "native_worker": "acp-cancel",
-  "created_by": "codex",
-  "created_unix": 1794451086,
   "size": "m",
-  "base_commit": "39625dd0ac212626a82cc9302d817afceeaf661d",
   "deps": [],
-  "scopes": [
-    "crates/susi-core/src/acp.rs",
-    "crates/susi-core/src/plane_bus.rs",
-    "crates/susi-gawd/src/plane_handler.rs",
-    "crates/susi-gawd-a2a/src/executor.rs",
-    "crates/susi-core/src/tests/acp_conformance.rs",
-    "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
-    ".agents/tasks/t-codexacpcancel-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -30,6 +15,16 @@
       "--lib"
     ]
   },
+  "created_by": "codex",
+  "created_unix": 1794451086,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "39625dd0ac212626a82cc9302d817afceeaf661d",
+  "native_worker": "acp-cancel",
+  "owner": "codex",
   "results": {
     "status": "implemented",
     "boundary": "Core ACP cancellation propagation only; no dependency, Commercial, Minijinja, harvest, release, or credential change",
@@ -46,5 +41,15 @@
     "limitations": [
       "The full shared six-lane check had one environment-sensitive peer-channel failure; no focused or isolated rerun reproduced it."
     ]
-  }
+  },
+  "scopes": [
+    "crates/susi-core/src/acp.rs",
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-gawd/src/plane_handler.rs",
+    "crates/susi-gawd-a2a/src/executor.rs",
+    "crates/susi-core/src/tests/acp_conformance.rs",
+    "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+    ".agents/tasks/t-codexacpcancel-1.json"
+  ],
+  "status": "in_progress"
 }
