@@ -2,30 +2,30 @@
   "id": "T-ADOPTAG2-1",
   "title": "Adopt Antigravity's core branch: MCP SDK facade replaced by a plane-bus plus std JSON-RPC client; jsonschema facade crate dropped",
   "goal": "Integrate origin/local-agent/antigravity (9a3810194, verified 07:26-07:33 on this host: workspace check and clippy clean, all five guard tests, mcp_call_cli_tests 6/6, susi-gmcp 203, susi-tools 60, susi-daemon 333 green) through the gate. The one failing check, gmcp_vc_203_001_mastery, is the requirements ledger naming the deleted crates/susi-vendor-mcp as CLAIM-04's production path: the row now points at the std client in crates/susi-tools/src/mcp_budget.rs and the evidence is re-recorded.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "adoptag2",
-  "native_worker": "adoptag2",
-  "created_by": "adoptag2",
-  "created_unix": 1794103559,
-  "updated_unix": 1794103559,
   "size": "S",
   "deps": [],
-  "scopes": [
-    ".agents/gmcp/evidence",
-    ".agents/gmcp/requirements-ledger.json",
-    ".agents/tasks/t-adoptag2-1.json",
-    ".agents/tasks/t-antigravity-1.json",
-    "architecture.md",
-    "cargo.lock",
-    "cargo.toml",
-    "crates/susi-tools",
-    "crates/susi-vendor-jsonschema",
-    "crates/susi-vendor-mcp",
-    "docs/lean-core.md",
-    "tests/architecture_tests.rs",
-    "tests/lean_core_ceilings.rs"
-  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "mcp_call_cli_tests",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "adoptag2",
+  "created_unix": 1794103559,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi --test mcp_call_cli_tests --offline --locked",
+  "claimed_by": "adoptag2",
+  "native_worker": "adoptag2",
   "scope": [
     ".agents/gmcp/evidence",
     ".agents/gmcp/requirements-ledger.json",
@@ -41,17 +41,22 @@
     "tests/architecture_tests.rs",
     "tests/lean_core_ceilings.rs"
   ],
-  "acceptance": "cargo test -p susi --test mcp_call_cli_tests --offline --locked",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "susi",
-      "--test",
-      "mcp_call_cli_tests",
-      "--offline",
-      "--locked"
-    ]
-  }
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/gmcp/requirements-ledger.json",
+    ".agents/tasks/t-adoptag2-1.json",
+    ".agents/tasks/t-antigravity-1.json",
+    "architecture.md",
+    "cargo.lock",
+    "cargo.toml",
+    "crates/susi-tools",
+    "crates/susi-vendor-jsonschema",
+    "crates/susi-vendor-mcp",
+    "docs/lean-core.md",
+    "tests/architecture_tests.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794103559
 }
