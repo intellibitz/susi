@@ -654,6 +654,29 @@ fn binary_filename(stem: &str) -> String {
     }
 }
 
+fn make_staged_executable(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let metadata = fs::metadata(path)
+            .map_err(|e| format!("failed to inspect staged binary {}: {e}", path.display()))?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(permissions.mode() | 0o111);
+        fs::set_permissions(path, permissions).map_err(|e| {
+            format!(
+                "failed to make staged binary executable {}: {e}",
+                path.display()
+            )
+        })?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
+}
+
 fn run_build_stage(ws: &WorkspaceEnv, opts: &Options) -> Result<(usize, usize), String> {
     let mut cmd = base_cargo_command(ws, "build")?;
     cmd.args([
@@ -1110,6 +1133,11 @@ fn stage_one_binary(
             )
         })?;
     }
+    // `fs::write` creates the temporary file with the process umask (0644 on
+    // Unix). Restore the executable bit both for a new stage and for an
+    // already-identical file left by an older run, before the smoke command
+    // tries to execute it.
+    make_staged_executable(&staged_path)?;
 
     // Hermetic `--version` smoke check with isolated HOME/SUSI_HOME.
     let smoke_home = ws
@@ -1636,5 +1664,28 @@ test result: ok. 497 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; fi
         assert!(sums.contains(&format!("{}  bin/susi\n", art.sha256)));
         assert!(sums.contains("  release-manifest.json\n"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staged_binary_restores_the_unix_executable_bit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = env::temp_dir().join(format!(
+            "susi-fast-release-mode-{}-{}",
+            std::process::id(),
+            "binary"
+        ));
+        let _ = fs::remove_file(&path);
+        fs::write(&path, b"candidate").unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o644);
+        fs::set_permissions(&path, permissions).unwrap();
+
+        make_staged_executable(&path).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_ne!(mode & 0o111, 0, "staged binary mode was {mode:o}");
+        let _ = fs::remove_file(path);
     }
 }
