@@ -39,15 +39,31 @@ fn provider_topic(name: &str) -> String {
     format!("capability.provider.{name}")
 }
 
-/// Write capability metadata atomically into the rendezvous `caps/` tree.
-fn write_cap(dir: &Path, name: &str, meta: &Value) {
-    let Ok(json) = serde_json::to_vec(meta) else {
-        return;
+fn is_caps_manifest_name(name: &str) -> bool {
+    name == "caps.json" || (name.starts_with("caps.") && name.ends_with(".json"))
+}
+
+fn read_dir_cap_manifests(dir: &Path) -> Vec<Value> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
     };
-    // Per-process endpoint metadata: a crash makes it stale whatever its
-    // durability, so it is not flushed (one synced write per tool held a
-    // first goal ~0.9 s on Windows).
-    let _ = crate::susi_config::atomic_replace_unsynced(&dir.join(enc(name)), &json);
+    let mut paths: Vec<PathBuf> = rd
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            is_caps_manifest_name(&name).then(|| e.path())
+        })
+        .collect();
+    paths.sort();
+    paths
+        .into_iter()
+        .filter_map(|p| {
+            std::fs::read_to_string(p)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+        })
+        .collect()
 }
 
 fn read_cap(dir: &Path, name: &str) -> Option<Value> {
@@ -268,9 +284,20 @@ impl Provider for RemoteProvider {
     }
 }
 
+struct CapBatchGuard<'a> {
+    reg: &'a IpcCapabilityRegistry,
+}
+
+impl Drop for CapBatchGuard<'_> {
+    fn drop(&mut self) {
+        self.reg.end_batch();
+    }
+}
+
 /// Capability registry facade that interoperates across independent
 /// processes sharing one `<cache>/bus/<pid>` rendezvous. Registration is local
-/// plus a bus topic + metadata file; lookup falls back to a remote proxy.
+/// plus a bus topic + single per-copy manifest file (`caps.json`); lookup falls
+/// back to a remote proxy.
 #[derive(Clone)]
 pub struct IpcCapabilityRegistry {
     bus: Arc<IpcPlaneBus>,
@@ -279,6 +306,8 @@ pub struct IpcCapabilityRegistry {
     #[allow(clippy::type_complexity)]
     providers: Arc<RwLock<HashMap<String, Arc<dyn Provider>>>>,
     agents: Arc<RwLock<HashMap<String, AgentCapability>>>,
+    batch_depth: Arc<std::sync::atomic::AtomicUsize>,
+    dirty_caps: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl IpcCapabilityRegistry {
@@ -291,6 +320,123 @@ impl IpcCapabilityRegistry {
             tools: Arc::new(RwLock::new(HashMap::new())),
             providers: Arc::new(RwLock::new(HashMap::new())),
             agents: Arc::new(RwLock::new(HashMap::new())),
+            batch_depth: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            dirty_caps: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    /// Coalesce bus route and capability manifest writes across `f` into one
+    /// atomic replace per copy when the outermost batch exits.
+    pub fn with_batch<R>(&self, f: impl FnOnce() -> R) -> R {
+        self.begin_batch();
+        let _guard = CapBatchGuard { reg: self };
+        f()
+    }
+
+    fn begin_batch(&self) {
+        self.bus.begin_batch();
+        self.batch_depth
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
+
+    fn end_batch(&self) {
+        self.bus.end_batch();
+        let prev = self
+            .batch_depth
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        if prev == 1
+            && self
+                .dirty_caps
+                .swap(false, std::sync::atomic::Ordering::AcqRel)
+        {
+            self.flush_caps();
+        }
+    }
+
+    fn flush_caps(&self) {
+        let mut tools: Vec<(String, String)> = self
+            .tools
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(name, t)| (name.clone(), t.description().to_string()))
+            .collect();
+        let mut providers: Vec<String> = self
+            .providers
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        let mut agents: Vec<AgentCapability> = self
+            .agents
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect();
+        let path = self.bus.caps_file();
+        if tools.is_empty() && providers.is_empty() && agents.is_empty() {
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        let ep = if !tools.is_empty() || !providers.is_empty() {
+            self.endpoint_tag()
+        } else {
+            self.bus.bound_endpoint_tag()
+        };
+        tools.sort_by(|a, b| a.0.cmp(&b.0));
+        providers.sort();
+        agents.sort_by(|a, b| a.name.cmp(&b.name));
+        let tool_vals: Vec<Value> = tools
+            .into_iter()
+            .map(|(name, description)| {
+                json!({
+                    "name": name,
+                    "description": description,
+                    "endpoint": ep,
+                })
+            })
+            .collect();
+        let provider_vals: Vec<Value> = providers
+            .into_iter()
+            .map(|name| {
+                json!({
+                    "name": name,
+                    "endpoint": ep,
+                })
+            })
+            .collect();
+        let agent_vals: Vec<Value> = agents
+            .into_iter()
+            .map(|cap| {
+                json!({
+                    "name": cap.name,
+                    "description": cap.description,
+                    "is_core": cap.is_core,
+                })
+            })
+            .collect();
+        let manifest = json!({
+            "endpoint": ep,
+            "tool": tool_vals,
+            "provider": provider_vals,
+            "agent": agent_vals,
+        });
+        // Per-process endpoint metadata: a crash makes it stale whatever its
+        // durability, so it is replaced atomically without fsync (one synced
+        // write per tool held a first goal ~0.9 s on Windows).
+        if let Ok(bytes) = serde_json::to_vec(&manifest) {
+            let _ = crate::susi_config::atomic_replace_unsynced(&path, &bytes);
+        }
+    }
+
+    fn mark_or_flush_caps(&self) {
+        if self.batch_depth.load(std::sync::atomic::Ordering::Acquire) > 0 {
+            self.dirty_caps
+                .store(true, std::sync::atomic::Ordering::Release);
+        } else {
+            self.flush_caps();
         }
     }
 
@@ -298,26 +444,49 @@ impl IpcCapabilityRegistry {
         self.bus.rendezvous().join("caps").join(kind)
     }
 
-    /// Own `caps/<kind>` dir first, then sibling pid dirs — capabilities
-    /// registered by *separate processes* are discoverable through the
-    /// shared `<cache>/bus/` rendezvous.
-    fn cap_dirs(&self, kind: &str) -> Vec<PathBuf> {
-        self.bus
-            .rendezvous_dirs()
-            .into_iter()
-            .map(|d| d.join("caps").join(kind))
-            .collect()
-    }
-
-    /// First matching cap metadata across all rendezvous dirs.
+    /// First matching cap metadata across all rendezvous dirs (single-file
+    /// `caps*.json` manifests first, then legacy `caps/<kind>/` files).
     fn find_cap(&self, kind: &str, name: &str) -> Option<Value> {
-        self.cap_dirs(kind).iter().find_map(|d| read_cap(d, name))
+        for dir in self.bus.rendezvous_dirs() {
+            for manifest in read_dir_cap_manifests(&dir) {
+                if let Some(found) = manifest
+                    .get(kind)
+                    .and_then(Value::as_array)
+                    .and_then(|arr| {
+                        arr.iter()
+                            .find(|m| m.get("name").and_then(Value::as_str) == Some(name))
+                    })
+                {
+                    return Some(found.clone());
+                }
+            }
+            if let Some(legacy) = read_cap(&dir.join("caps").join(kind), name) {
+                return Some(legacy);
+            }
+        }
+        None
     }
 
-    /// Remove this copy's capability file only when it records this copy's
+    fn scan_kind_caps(&self, kind: &str) -> Vec<Value> {
+        let mut out = Vec::new();
+        for dir in self.bus.rendezvous_dirs() {
+            for manifest in read_dir_cap_manifests(&dir) {
+                if let Some(arr) = manifest.get(kind).and_then(Value::as_array) {
+                    out.extend(arr.iter().cloned());
+                }
+            }
+            out.extend(scan_caps(&dir.join("caps").join(kind)));
+        }
+        out
+    }
+
+    /// Remove any legacy per-capability file only when it records this copy's
     /// endpoint — a same-named registration from another copy is left alone.
     fn remove_own_cap(&self, kind: &str, name: &str) {
         let file = self.caps_dir(kind).join(enc(name));
+        if !file.exists() {
+            return;
+        }
         let ours = self.bus.endpoint().map(|e| e.to_string());
         if let Some(meta) = read_cap(&self.caps_dir(kind), name) {
             let owner = meta.get("endpoint").and_then(|v| v.as_str());
@@ -342,7 +511,6 @@ impl IpcCapabilityRegistry {
     /// `capability.tool.<name>` on the bus.
     pub fn register_tool<T: Tool>(&self, tool: T) {
         let name = tool.name().to_string();
-        let description = tool.description().to_string();
         let tool: Arc<dyn Tool> = Arc::new(EnforcedTool {
             inner: Arc::new(tool),
         });
@@ -352,15 +520,7 @@ impl IpcCapabilityRegistry {
             .insert(name.clone(), Arc::clone(&tool));
         self.bus
             .register(&tool_topic(&name), Arc::new(ToolDispatch { tool }));
-        write_cap(
-            &self.caps_dir("tool"),
-            &name,
-            &json!({
-                "name": name,
-                "description": description,
-                "endpoint": self.endpoint_tag(),
-            }),
-        );
+        self.mark_or_flush_caps();
     }
 
     /// Local copy first; otherwise a remote proxy when another copy serves
@@ -399,6 +559,9 @@ impl IpcCapabilityRegistry {
             .remove(name)
             .is_some();
         self.bus.unregister(&tool_topic(name));
+        if removed {
+            self.mark_or_flush_caps();
+        }
         self.remove_own_cap("tool", name);
         removed
     }
@@ -412,12 +575,10 @@ impl IpcCapabilityRegistry {
             .keys()
             .cloned()
             .collect();
-        for dir in self.cap_dirs("tool") {
-            for meta in scan_caps(&dir) {
-                if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
-                    if !names.iter().any(|x| x == n) {
-                        names.push(n.to_string());
-                    }
+        for meta in self.scan_kind_caps("tool") {
+            if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
+                if !names.iter().any(|x| x == n) {
+                    names.push(n.to_string());
                 }
             }
         }
@@ -436,11 +597,7 @@ impl IpcCapabilityRegistry {
             &provider_topic(&name),
             Arc::new(ProviderDispatch { provider }),
         );
-        write_cap(
-            &self.caps_dir("provider"),
-            &name,
-            &json!({ "name": name, "endpoint": self.endpoint_tag() }),
-        );
+        self.mark_or_flush_caps();
     }
 
     pub fn get_provider(&self, name: &str) -> Option<Arc<dyn Provider>> {
@@ -469,6 +626,9 @@ impl IpcCapabilityRegistry {
             .remove(name)
             .is_some();
         self.bus.unregister(&provider_topic(name));
+        if removed {
+            self.mark_or_flush_caps();
+        }
         self.remove_own_cap("provider", name);
         removed
     }
@@ -481,12 +641,10 @@ impl IpcCapabilityRegistry {
             .keys()
             .cloned()
             .collect();
-        for dir in self.cap_dirs("provider") {
-            for meta in scan_caps(&dir) {
-                if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
-                    if !names.iter().any(|x| x == n) {
-                        names.push(n.to_string());
-                    }
+        for meta in self.scan_kind_caps("provider") {
+            if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
+                if !names.iter().any(|x| x == n) {
+                    names.push(n.to_string());
                 }
             }
         }
@@ -500,16 +658,8 @@ impl IpcCapabilityRegistry {
         self.agents
             .write()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(name.clone(), cap.clone());
-        write_cap(
-            &self.caps_dir("agent"),
-            &name,
-            &json!({
-                "name": cap.name,
-                "description": cap.description,
-                "is_core": cap.is_core,
-            }),
-        );
+            .insert(name, cap);
+        self.mark_or_flush_caps();
     }
 
     pub fn get_agent_capability(&self, name: &str) -> Option<AgentCapability> {
@@ -544,23 +694,21 @@ impl IpcCapabilityRegistry {
             .values()
             .cloned()
             .collect();
-        for dir in self.cap_dirs("agent") {
-            for meta in scan_caps(&dir) {
-                let name = meta.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                if !out.iter().any(|c| c.name == name) {
-                    out.push(AgentCapability {
-                        name: name.to_string(),
-                        description: meta
-                            .get("description")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string(),
-                        is_core: meta
-                            .get("is_core")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false),
-                    });
-                }
+        for meta in self.scan_kind_caps("agent") {
+            let name = meta.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            if !out.iter().any(|c| c.name == name) {
+                out.push(AgentCapability {
+                    name: name.to_string(),
+                    description: meta
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    is_core: meta
+                        .get("is_core")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                });
             }
         }
         out
@@ -707,5 +855,68 @@ mod tests {
         assert!(cap.is_core);
         assert!(b.list_agents().iter().any(|c| c.name == "scout"));
         assert!(b.list_all_capabilities().iter().any(|n| n == "scout"));
+    }
+
+    #[test]
+    fn with_batch_publishes_single_caps_and_routes_manifests() {
+        struct NamedTool(String);
+        impl Tool for NamedTool {
+            fn name(&self) -> &str {
+                &self.0
+            }
+            fn description(&self) -> &str {
+                "batched tool"
+            }
+            fn execute(&self, args: &Value, _ws: &Path) -> EaiResult<String> {
+                Ok(format!("{}:{args}", self.0))
+            }
+        }
+
+        let bus_root = std::env::temp_dir()
+            .join(format!(
+                "susi-caps-batch-{}-{}",
+                std::process::id(),
+                unique()
+            ))
+            .join("bus");
+        std::fs::create_dir_all(&bus_root).unwrap();
+        let own = bus_root.join(std::process::id().to_string());
+        let a_bus = Arc::new(IpcPlaneBus::with_rendezvous(own.clone()));
+        let a = IpcCapabilityRegistry::new(Arc::clone(&a_bus));
+        a.with_batch(|| {
+            for idx in 0..32 {
+                a.register_tool(NamedTool(format!("tool_{idx}")));
+            }
+            a.register_provider(Arc::new(EchoProvider));
+            a.register_agent_capability(AgentCapability {
+                name: "planner".into(),
+                description: "plans".into(),
+                is_core: true,
+            });
+            assert!(!a_bus.caps_file().exists());
+            assert!(!a_bus.routes_file().exists());
+        });
+        assert_eq!(a_bus.caps_file(), own.join("caps.json"));
+        assert_eq!(a_bus.routes_file(), own.join("routes.json"));
+        assert!(own.join("caps.json").exists());
+        assert!(own.join("routes.json").exists());
+        assert!(!own.join("caps").exists());
+        assert!(!own.join("topics").exists());
+
+        let b = IpcCapabilityRegistry::new(Arc::new(IpcPlaneBus::with_rendezvous(
+            bus_root.join("999998"),
+        )));
+        assert_eq!(b.list_tools().len(), 32);
+        let remote = b.get_tool("tool_17").expect("batched remote tool");
+        assert_eq!(
+            remote.execute(&json!(5), Path::new(".")).unwrap(),
+            "tool_17:5"
+        );
+        assert!(b.get_provider("echo_prov").is_some());
+        assert!(b.get_agent_capability("planner").is_some());
+        drop(b);
+        drop(a);
+        drop(a_bus);
+        let _ = std::fs::remove_dir_all(bus_root.parent().unwrap());
     }
 }

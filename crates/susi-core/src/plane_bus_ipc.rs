@@ -74,6 +74,12 @@ fn no_handler(topic: &str) -> String {
 type HandlerMap = Arc<RwLock<HashMap<String, Arc<dyn PlaneHandler>>>>;
 type StreamMap = Arc<RwLock<HashMap<String, std::sync::mpsc::Sender<Value>>>>;
 
+/// Monotonic process-local copy identifier so multiple in-process test buses
+/// sharing a single directory publish distinct `routes.<id>.json` /
+/// `caps.<id>.json` manifests while a real `<cache>/bus/<pid>` owner publishes
+/// `routes.json` and `caps.json`.
+static NEXT_COPY_ID: AtomicU64 = AtomicU64::new(1);
+
 /// Process-scoped IPC plane bus — same method surface as
 /// [`crate::susi_core::plane_bus::PlaneBus`]. Every cell process backs its
 /// `PlaneBus` with this, so a handler registered by one module resolves from
@@ -92,6 +98,9 @@ pub struct IpcPlaneBus {
     /// exits, so a sweep can tell a dead copy's dir from a live one without
     /// trusting a pid that may have been reused.
     _owner: Option<std::fs::File>,
+    copy_id: u64,
+    batch_depth: std::sync::atomic::AtomicUsize,
+    dirty_routes: std::sync::atomic::AtomicBool,
 }
 
 impl Default for IpcPlaneBus {
@@ -127,6 +136,7 @@ impl IpcPlaneBus {
             spawn_sweep(&rendezvous);
         }
         let secret = bus_secret(rendezvous.parent()).into();
+        let copy_id = NEXT_COPY_ID.fetch_add(1, Ordering::Relaxed);
         Self {
             handlers: Arc::new(RwLock::new(HashMap::new())),
             prefixes: Arc::new(RwLock::new(HashMap::new())),
@@ -136,6 +146,9 @@ impl IpcPlaneBus {
             endpoint: OnceLock::new(),
             secret,
             _owner: owner,
+            copy_id,
+            batch_depth: std::sync::atomic::AtomicUsize::new(0),
+            dirty_routes: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -143,6 +156,49 @@ impl IpcPlaneBus {
     /// process-scoped IPC state share the same `<cache>/bus/<pid>` tree.
     pub fn rendezvous(&self) -> &Path {
         &self.rendezvous
+    }
+
+    /// Single route manifest path for this copy: `<rendezvous>/routes.json`
+    /// when holding the `<cache>/bus/<pid>` owner lock, or
+    /// `<rendezvous>/routes.<copy_id>.json` for shared in-process test dirs.
+    pub fn routes_file(&self) -> PathBuf {
+        if self._owner.is_some() {
+            self.rendezvous.join("routes.json")
+        } else {
+            self.rendezvous
+                .join(format!("routes.{}.json", self.copy_id))
+        }
+    }
+
+    /// Single capability manifest path paired with [`Self::routes_file`].
+    pub fn caps_file(&self) -> PathBuf {
+        if self._owner.is_some() {
+            self.rendezvous.join("caps.json")
+        } else {
+            self.rendezvous.join(format!("caps.{}.json", self.copy_id))
+        }
+    }
+
+    /// Already-bound listener tag without triggering lazy listener bind.
+    pub(crate) fn bound_endpoint_tag(&self) -> String {
+        self.endpoint
+            .get()
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    }
+
+    /// Defer route-manifest disk writes until the matching [`Self::end_batch`].
+    pub fn begin_batch(&self) {
+        self.batch_depth.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Complete a batch started by [`Self::begin_batch`], flushing at most one
+    /// atomic route manifest when the outermost batch exits dirty.
+    pub fn end_batch(&self) {
+        let prev = self.batch_depth.fetch_sub(1, Ordering::AcqRel);
+        if prev == 1 && self.dirty_routes.swap(false, Ordering::AcqRel) {
+            self.flush_routes();
+        }
     }
 
     /// Own rendezvous dir first, then every other live numeric-named pid
@@ -206,31 +262,79 @@ impl IpcPlaneBus {
         });
     }
 
-    /// Publish `key`'s endpoint file under `rendezvous/<kind>/`.
-    fn publish_endpoint(&self, kind: &str, key: &str) {
+    /// Atomically publish or remove this copy's single route manifest.
+    fn flush_routes(&self) {
+        let mut topics: Vec<String> = self
+            .handlers
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        let mut prefixes: Vec<String> = self
+            .prefixes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        let path = self.routes_file();
+        if topics.is_empty() && prefixes.is_empty() {
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
         let Some(ep) = self.endpoint() else { return };
-        let dir = self.rendezvous.join(kind);
-        let body = json!({ "endpoint": ep.to_string(), "key": key }).to_string();
-        // Rendezvous files die with this copy; see `write_cap` in
-        // `registry_ipc` for why they are not flushed.
-        let _ = crate::susi_config::atomic_replace_unsynced(&dir.join(enc(key)), body.as_bytes());
+        topics.sort();
+        prefixes.sort();
+        let body = json!({
+            "endpoint": ep.to_string(),
+            "topics": topics,
+            "prefixes": prefixes,
+        })
+        .to_string();
+        // Rendezvous files die with this copy; see `registry_ipc` for why
+        // per-process endpoint metadata is replaced atomically without fsync.
+        let _ = crate::susi_config::atomic_replace_unsynced(&path, body.as_bytes());
     }
 
-    /// Ordered remote candidates: every exact topic file across live
-    /// rendezvous dirs first, then every prefix file whose key prefixes
-    /// `topic` — exact registrations outrank prefix handlers process-wide.
+    fn mark_or_flush_routes(&self) {
+        if self.batch_depth.load(Ordering::Acquire) > 0 {
+            self.dirty_routes.store(true, Ordering::Release);
+        } else {
+            self.flush_routes();
+        }
+    }
+
+    /// Ordered remote candidates: every exact topic match across live
+    /// rendezvous dirs first (single-file `routes*.json` manifests plus legacy
+    /// `topics/` files), then every prefix match whose key prefixes `topic` —
+    /// exact registrations outrank prefix handlers process-wide.
     /// Returns `(file, endpoint)` pairs so stale files can be pruned on
-    /// connect failure.
+    /// connect failure or squatted port reuse.
     fn candidates(&self, topic: &str) -> Vec<(PathBuf, SocketAddr)> {
-        let mut out = Vec::new();
         let dirs = self.rendezvous_dirs();
-        for dir in &dirs {
+        let manifests_by_dir: Vec<(&PathBuf, Vec<(PathBuf, RouteManifest)>)> = dirs
+            .iter()
+            .map(|dir| (dir, read_dir_route_manifests(dir)))
+            .collect();
+        let mut out = Vec::new();
+        for (dir, manifests) in &manifests_by_dir {
+            for (path, m) in manifests {
+                if m.topics.iter().any(|t| t == topic) {
+                    out.push((path.clone(), m.endpoint));
+                }
+            }
             let exact = dir.join("topics").join(enc(topic));
             if let Some((ep, _)) = read_endpoint_key(&exact) {
                 out.push((exact, ep));
             }
         }
-        for dir in &dirs {
+        for (dir, manifests) in &manifests_by_dir {
+            for (path, m) in manifests {
+                if m.prefixes.iter().any(|p| topic.starts_with(p.as_str())) {
+                    out.push((path.clone(), m.endpoint));
+                }
+            }
             let pdir = dir.join("prefixes");
             if let Ok(rd) = std::fs::read_dir(&pdir) {
                 for entry in rd.flatten() {
@@ -256,8 +360,9 @@ impl IpcPlaneBus {
             .map(|(_, v)| Arc::clone(v))
     }
 
-    /// `POST /handle` to a remote copy. `Remote::Dead` = transport failure
-    /// (caller prunes the endpoint file and tries the next candidate).
+    /// `POST /handle` to a remote copy. `Remote::Unreachable` = transport
+    /// failure; `Remote::Miss` = live squatter on a reused port with no
+    /// handler for `topic`.
     fn remote(ep: SocketAddr, topic: &str, payload: &Value, secret: &str) -> Remote {
         let Ok(body) = serde_json::to_string(&json!({
             "topic": topic,
@@ -266,7 +371,7 @@ impl IpcPlaneBus {
             return Remote::Answered(Err("bus request failed to serialize".to_string()));
         };
         let Some(resp) = post(ep, "/handle", &body, secret) else {
-            return Remote::Dead;
+            return Remote::Unreachable;
         };
         let v: Value = match serde_json::from_str(&resp) {
             Ok(v) => v,
@@ -276,12 +381,12 @@ impl IpcPlaneBus {
         };
         // The endpoint is alive but its dispatch found no handler at all for
         // the topic: the file that pointed here is stale — its owner died
-        // and another copy now holds the port. That is a dead candidate,
-        // not the answer. Only the structural marker counts: a handler's
-        // own error is an answer whatever its text, even one that relays a
-        // nested request's "no handler" message.
+        // and another copy now holds the port (or the owner just unregistered
+        // `topic`). Only the structural marker counts: a handler's own error
+        // is an answer whatever its text, even one that relays a nested
+        // request's "no handler" message.
         if v.get(MISS_FIELD).is_some() {
-            return Remote::Dead;
+            return Remote::Miss;
         }
         if let Some(e) = v.get("err").and_then(|e| e.as_str()) {
             Remote::Answered(Err(e.to_string()))
@@ -297,7 +402,7 @@ impl IpcPlaneBus {
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .insert(topic.to_string(), handler);
-        self.publish_endpoint("topics", topic);
+        self.mark_or_flush_routes();
     }
 
     pub fn register_prefix(&self, prefix: &str, handler: Arc<dyn PlaneHandler>) {
@@ -305,12 +410,12 @@ impl IpcPlaneBus {
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .insert(prefix.to_string(), handler);
-        self.publish_endpoint("prefixes", prefix);
+        self.mark_or_flush_routes();
     }
 
-    /// Remove an exact-topic registration made by this copy. The endpoint
-    /// file is only deleted when it points at this copy's listener — another
-    /// copy's registration is left alone.
+    /// Remove an exact-topic registration made by this copy. Updates this
+    /// copy's route manifest and removes any legacy per-topic file owned by
+    /// this copy's listener — another copy's registration is left alone.
     pub fn unregister(&self, topic: &str) -> bool {
         let removed = self
             .handlers
@@ -318,6 +423,9 @@ impl IpcPlaneBus {
             .unwrap_or_else(|e| e.into_inner())
             .remove(topic)
             .is_some();
+        if removed {
+            self.mark_or_flush_routes();
+        }
         let file = self.rendezvous.join("topics").join(enc(topic));
         let owns_file = read_endpoint_key(&file)
             .is_some_and(|(ep, _)| self.endpoint.get().is_some_and(|e| *e == ep));
@@ -341,9 +449,8 @@ impl IpcPlaneBus {
         for (file, ep) in self.candidates(topic) {
             match Self::remote(ep, topic, &payload, &self.secret) {
                 Remote::Answered(res) => return res,
-                Remote::Dead => {
-                    let _ = std::fs::remove_file(&file);
-                }
+                Remote::Unreachable => prune_stale_route_file(&file, ep, None),
+                Remote::Miss => prune_stale_route_file(&file, ep, Some(topic)),
             }
         }
         if let Some(h) = self.local_prefix(topic) {
@@ -430,7 +537,8 @@ impl IpcPlaneBus {
 
 enum Remote {
     Answered(Result<Value, String>),
-    Dead,
+    Unreachable,
+    Miss,
 }
 
 fn invoke(h: Arc<dyn PlaneHandler>, topic: &str, payload: Value) -> Result<Value, String> {
@@ -532,12 +640,109 @@ fn key_matches(presented: &str, secret: &str) -> bool {
         && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+struct RouteManifest {
+    endpoint: SocketAddr,
+    topics: Vec<String>,
+    prefixes: Vec<String>,
+}
+
+fn is_routes_manifest_name(name: &str) -> bool {
+    name == "routes.json" || (name.starts_with("routes.") && name.ends_with(".json"))
+}
+
+fn is_rendezvous_manifest_name(name: &str) -> bool {
+    is_routes_manifest_name(name)
+        || name == "caps.json"
+        || (name.starts_with("caps.") && name.ends_with(".json"))
+}
+
+fn read_routes_manifest(path: &Path) -> Option<RouteManifest> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    let endpoint = v.get("endpoint")?.as_str()?.parse().ok()?;
+    let topics = v
+        .get("topics")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let prefixes = v
+        .get("prefixes")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(RouteManifest {
+        endpoint,
+        topics,
+        prefixes,
+    })
+}
+
+fn read_dir_route_manifests(dir: &Path) -> Vec<(PathBuf, RouteManifest)> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<PathBuf> = rd
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            is_routes_manifest_name(&name).then(|| e.path())
+        })
+        .collect();
+    paths.sort();
+    paths
+        .into_iter()
+        .filter_map(|p| {
+            let m = read_routes_manifest(&p)?;
+            Some((p, m))
+        })
+        .collect()
+}
+
 fn read_endpoint_key(path: &Path) -> Option<(SocketAddr, String)> {
     let text = std::fs::read_to_string(path).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
     let ep = v.get("endpoint")?.as_str()?.parse().ok()?;
     let key = v.get("key")?.as_str()?.to_string();
     Some((ep, key))
+}
+
+/// Remove a stale route file (`routes*.json` or legacy `topics/` / `prefixes/`)
+/// only when it still points to `ep` and, on a live-endpoint `Miss`, still
+/// advertises `missed_topic` (preventing concurrent `unregister` updates on a
+/// live multi-topic `routes.json` from unlinking the updated manifest).
+fn prune_stale_route_file(path: &Path, ep: SocketAddr, missed_topic: Option<&str>) {
+    let is_manifest = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(is_routes_manifest_name);
+    let should_remove = if is_manifest {
+        read_routes_manifest(path).is_some_and(|m| {
+            m.endpoint == ep
+                && missed_topic.is_none_or(|topic| {
+                    m.topics.iter().any(|t| t == topic)
+                        || m.prefixes.iter().any(|p| topic.starts_with(p.as_str()))
+                })
+        })
+    } else {
+        read_endpoint_key(path).is_some_and(|(file_ep, key)| {
+            file_ep == ep
+                && missed_topic.is_none_or(|topic| key == topic || topic.starts_with(&key))
+        })
+    };
+    if should_remove {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// POST one JSON body over HTTP/1.0; returns the response body.
@@ -854,7 +1059,8 @@ fn looks_like_rendezvous(dir: &Path) -> bool {
                 matches!(
                     name.as_ref(),
                     OWNER_LOCK | "topics" | "prefixes" | "caps" | "evidence" | "intents" | "broker"
-                ) || name.ends_with(".tmp")
+                ) || is_rendezvous_manifest_name(&name)
+                    || name.ends_with(".tmp")
             })
         }),
         Err(_) => false,
@@ -1195,7 +1401,7 @@ mod tests {
         let root = tempdir("relayed-miss");
         let owner = IpcPlaneBus::with_rendezvous(root.join("1"));
         owner.register("test.relay", Arc::new(Relays));
-        let file = root.join("1").join("topics").join(enc("test.relay"));
+        let file = owner.routes_file();
         assert!(file.exists());
         let caller = IpcPlaneBus::with_rendezvous(root.join("2"));
         let err = caller.request("test.relay", json!({})).unwrap_err();
@@ -1212,6 +1418,40 @@ mod tests {
         assert!(caller.request("test.relay", json!({})).is_err());
         assert!(file.exists());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn batched_registration_publishes_single_routes_manifest() {
+        let root = bus_root("batched-routes");
+        let own = root.join(std::process::id().to_string());
+        let owner = IpcPlaneBus::with_rendezvous(own.clone());
+        owner.begin_batch();
+        for idx in 0..50 {
+            owner.register(&format!("capability.tool.t{idx}"), Arc::new(Echo));
+        }
+        owner.register_prefix("gemi.", Arc::new(Echo));
+        // Nothing touches disk until the batch closes.
+        assert!(!owner.routes_file().exists());
+        owner.end_batch();
+        assert_eq!(owner.routes_file(), own.join("routes.json"));
+        assert!(owner.routes_file().exists());
+        assert!(!own.join("topics").exists());
+        assert!(!own.join("prefixes").exists());
+
+        let caller = IpcPlaneBus::with_rendezvous(root.join("999999"));
+        assert_eq!(
+            caller
+                .request("capability.tool.t42", json!({ "v": 42 }))
+                .unwrap(),
+            json!({ "echo": { "v": 42 } })
+        );
+        assert_eq!(
+            caller.request("gemi.chat", json!({ "v": 7 })).unwrap(),
+            json!({ "echo": { "v": 7 } })
+        );
+        drop(caller);
+        drop(owner);
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
     }
 
     /// The serving side marks a dispatch miss structurally, beside the
