@@ -67,6 +67,33 @@ fn an_acp_turn_runs_as_a_gawd_mission_with_the_a2a_safeguards() {
 }
 
 #[test]
+fn an_acp_turn_passes_its_session_workspace_to_the_mission_runner() {
+    let seen = Arc::new(Mutex::new(None::<(String, Option<String>)>));
+    let runner_seen = Arc::clone(&seen);
+    let executor = GawdAcpExecutor::with_workspace_runner(Arc::new(
+        move |prompt: &str, workspace: Option<String>| {
+            *runner_seen.lock().unwrap() = Some((prompt.to_owned(), workspace));
+            Ok("workspace-aware answer".to_string())
+        },
+    ));
+    let mut turn = acp_turn("work in this session");
+    turn.workspace = Some("/tmp/acp-session-workspace".to_string());
+    let mut ignore = |_: &str| {};
+
+    executor
+        .execute_turn(&turn, &AtomicBool::new(false), &mut ignore)
+        .unwrap();
+
+    assert_eq!(
+        *seen.lock().unwrap(),
+        Some((
+            "work in this session".to_string(),
+            Some("/tmp/acp-session-workspace".to_string())
+        ))
+    );
+}
+
+#[test]
 fn a_later_acp_turn_carries_the_sessions_earlier_turns() {
     use susi_core::acp::{AcpSessionMessage, AcpStopReason};
     let said = |turn: &str, role, content: &str, stop| AcpSessionMessage {
