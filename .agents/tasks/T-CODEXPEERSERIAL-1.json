@@ -10,7 +10,7 @@
   "created_by": "COMPLIANCERECORDCLOSE",
   "created_unix": 1794506368,
   "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "peer_channel_hub", "--", "--test-threads=4"]
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "peer_channel_hub"]
   },
   "results": {
     "fmt": "cargo fmt --all passed",
