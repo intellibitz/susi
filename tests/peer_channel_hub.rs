@@ -929,8 +929,9 @@ fn binds(node: &Node, other: &Node) -> bool {
         .is_some_and(|r| r["pubkey"] == other.pubkey.as_str())
 }
 
-/// `susi peers add <endpoint>` as `node`, repeated until the hub reports
-/// that it admitted this node (its leader election runs on a cadence).
+/// `susi peers add <endpoint>` as `node`, repeated until the local node has
+/// accepted the hub (the hub's own admission is asserted by the caller after
+/// this returns; its leader election and response may run on a cadence).
 fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
     let deadline = Instant::now() + limit;
     loop {
@@ -963,7 +964,7 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
             }
             panic!("peers add as {} failed: {stdout}{stderr}", node.name);
         }
-        if stdout.contains("admitted this node") {
+        if stdout.contains("verified + admitted over the sealed peer channel") {
             return format!("{stdout}{stderr}");
         }
         assert!(
