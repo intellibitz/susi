@@ -1,0 +1,57 @@
+{
+  "id": "T-DOTCEOMANDATE-1",
+  "title": "Consolidate independent agent mandate",
+  "goal": "Record the CEO three-laptop pluggable-local-driver, recursive-adapter and independent-cloud plan with Susi distillation, ungated unqualified main integration and qualified release branches, portable Git storage and immutable releases, preserving prior safety and licensing mandates.",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "ceo_"
+    ]
+  },
+  "created_by": "dot-ceo-mandate",
+  "created_unix": 1794328676,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "checkpoint": "CEO latest policy incorporated: no mandatory main-push gates, unqualified development main, full release qualification. Corrected exact-case task filename after prior native ship stopped before compilation; origin stayed unchanged. Three Rust governance tests extracted unchanged from source passed 3/3; JSON, 23 phrase checks, LF and diff checks passed. Full Cargo suite and release qualification not run; no runtime/security/production changes.",
+  "claimed_by": "dot-ceo-mandate",
+  "inherited_origin_receipt": {
+    "blob": "a42daf1c3e17db72c4bc96af439edb8aeecb7ecd",
+    "origin_commit": "c7b666029f5a614a2240000bdf20efd1d621d424",
+    "path": ".agents/receipts/a28e3b6205161bfef5c72f1226a5b08db99906ce.json",
+    "purpose": "Preserve byte-identical existing origin receipt while normal native scope guard reconciles main; no new acceptance claim."
+  },
+  "native_worker": "dot-ceo-mandate",
+  "scopes": [
+    "AGENTS.md",
+    ".agents/identity.json",
+    "CLAUDE.md",
+    "GEMINI.md",
+    ".github/copilot-instructions.md",
+    "crates/susi-core/src/self_build.rs",
+    "tests/architecture_tests.rs",
+    "docs/ceo-agent-mandate.md",
+    "docs/harness-coordination.md",
+    ".agents/tasks/T-DOTCEOMANDATE-1.json",
+    ".agents/receipts/a28e3b6205161bfef5c72f1226a5b08db99906ce.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "validation": {
+    "focused_governance": {
+      "failed": 0,
+      "passed": 3,
+      "kind": "Standalone pinned-rustc harness using unchanged three source test bodies and BRIEF; not full Cargo acceptance or release qualification",
+      "ignored": 0
+    },
+    "review": "Independent static review; latest policy conflict corrected"
+  }
+}
