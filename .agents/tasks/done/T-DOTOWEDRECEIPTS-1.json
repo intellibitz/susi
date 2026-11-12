@@ -1,20 +1,9 @@
 {
   "id": "T-DOTOWEDRECEIPTS-1",
-  "native_worker": "dot-owed-receipts",
   "title": "Replace shell receipt scan with native Rust",
-  "created_by": "Codex",
-  "created_unix": 1794311891,
-  "status": "implemented_pending_integration",
   "goal": "Run the actual owed-receipt scanner on native Windows and Linux without shell or jq prerequisites, preserving published-tree and agent semantics.",
   "size": "S",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/T-DOTOWEDRECEIPTS-1.json",
-    "crates/susi-unsafe-ratchet/src/bin/owed-task-receipts.rs",
-    "crates/susi-unsafe-ratchet/tests/ci_changed_crates.rs",
-    "crates/susi-unsafe-ratchet/tests/owed_receipts.rs",
-    "scripts/owed-task-receipts.sh"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -25,6 +14,22 @@
       "--locked"
     ]
   },
+  "created_by": "Codex",
+  "created_unix": 1794311891,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "dot-owed-receipts",
+  "scopes": [
+    ".agents/tasks/T-DOTOWEDRECEIPTS-1.json",
+    "crates/susi-unsafe-ratchet/src/bin/owed-task-receipts.rs",
+    "crates/susi-unsafe-ratchet/tests/ci_changed_crates.rs",
+    "crates/susi-unsafe-ratchet/tests/owed_receipts.rs",
+    "scripts/owed-task-receipts.sh"
+  ],
+  "status": "implemented_pending_integration",
   "verification": [
     "2026-11-10 native Windows x86_64, pinned Rust 1.99.0, private source/build/runtime state and sanitized native PATH. Original owed_receipts red: 0 passed, 5 failed, 0 ignored because sh was absent.",
     "Additional actual Cargo red regressions: a broken closed receipt ref returned empty success (0 passed, 1 failed); a malformed remote/main ref was confused with absence (0 passed, 1 failed). Both now fail closed with diagnostics.",
