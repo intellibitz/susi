@@ -2,24 +2,10 @@
   "id": "T-CLAUDEACPHISTORY-1",
   "title": "ACP session history reaches the GAWD mission",
   "goal": "GawdAcpExecutor ran only the active prompt as the GAWD mission, so a multi-turn ACP client lost its context on every turn although AcpTurnContext carries the session history (board items 247, 248). Carry the session's earlier, non-cancelled turns (newest 16 KiB) ahead of the gated prompt: earlier questions only if they pass the untrusted-content gate themselves, earlier answers as the mission's own redacted replies, with no role labels the gate treats as injection. Pay for it by moving capabilities.rs's inline unit tests to src/tests/capabilities.rs and ratchet the susi-gawd-a2a ceiling 3,413 -> 3,347.",
-  "status": "implemented",
-  "owner": "claude",
-  "created_by": "claude",
-  "created_unix": 1794440023,
   "size": "s",
   "deps": [
     "T-CLAUDEACPGAWD-1",
     "T-CTOCORELEAN-1"
-  ],
-  "base": "2fa6a027d20eb499a8f1b4409cdcae806f405f6d",
-  "scopes": [
-    "crates/susi-gawd-a2a/src/executor.rs",
-    "crates/susi-gawd-a2a/src/capabilities.rs",
-    "crates/susi-gawd-a2a/src/tests/capabilities.rs",
-    "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
-    "tests/lean_core_ceilings.rs",
-    "docs/lean-core.md",
-    ".agents/tasks/T-CLAUDEACPHISTORY-1.json"
   ],
   "accept": {
     "cmd": [
@@ -33,13 +19,32 @@
       "acp_gawd"
     ]
   },
-  "results": {
-    "tests": "susi-gawd-a2a lib 55/0; lean_core_ceilings 2/2; strict clippy clean",
-    "lean": "susi-gawd-a2a 3,413 -> 3,347 (executor +31, capabilities tests moved -97)"
+  "created_by": "claude",
+  "created_unix": 1794440023,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
   },
+  "base": "2fa6a027d20eb499a8f1b4409cdcae806f405f6d",
   "limitations": [
     "Earlier turns are passed as text inside the single mission prompt: the GAWD mission runner takes one string, not a structured conversation.",
     "Not exercised against a live ACP client; unit-tested through the executor.",
     "Verified on Linux x86_64."
-  ]
+  ],
+  "owner": "claude",
+  "results": {
+    "tests": "susi-gawd-a2a lib 55/0; lean_core_ceilings 2/2; strict clippy clean",
+    "lean": "susi-gawd-a2a 3,413 -> 3,347 (executor +31, capabilities tests moved -97)"
+  },
+  "scopes": [
+    "crates/susi-gawd-a2a/src/executor.rs",
+    "crates/susi-gawd-a2a/src/capabilities.rs",
+    "crates/susi-gawd-a2a/src/tests/capabilities.rs",
+    "crates/susi-gawd-a2a/src/tests/acp_gawd.rs",
+    "tests/lean_core_ceilings.rs",
+    "docs/lean-core.md",
+    ".agents/tasks/T-CLAUDEACPHISTORY-1.json"
+  ],
+  "status": "implemented"
 }
