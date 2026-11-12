@@ -1,0 +1,35 @@
+{
+  "id": "T-CLAUDEFRONTDOOR-1",
+  "title": "Front-door agent files carry the 2026-11-12 CEO rules",
+  "goal": "A verification of both repositories against the CEO's vision found AGENTS.md complete and the hooks wired, but CLAUDE.md and GEMINI.md, which agents load first, did not mention the 2026-11-12 tightenings: always on the latest remote (Mandate 74), always collaborative on the Susi Board (Mandate 76), keep the installed release updated (Mandate 48) and look before new code among Apache-2.0 work of every kind (Mandate 78). Add one 'every session' paragraph, identical in CLAUDE.md and GEMINI.md. Text only; pairs with T-CLAUDECOMMFRONTDOOR-1.",
+  "status": "implemented",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794484700,
+  "size": "xs",
+  "deps": [],
+  "base": "2c0b44d28c07850987268931fdd64dd4b3a8ac13",
+  "scopes": [
+    "CLAUDE.md",
+    "GEMINI.md",
+    ".agents/tasks/T-CLAUDEFRONTDOOR-1.json"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Both repositories: the rules already exist in AGENTS.md and the mandate documents; this repeats them in the two front-door files."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "agent_bootstrap"
+    ]
+  },
+  "limitations": [
+    "Text only.",
+    "Verified on Linux x86_64 only."
+  ]
+}

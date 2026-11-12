@@ -36,6 +36,17 @@ parallel picks, harvest pure Apache-2.0 code with full attribution, keep all add
 features, UIs, SSO/RBAC, FinOps and enterprise packs closed, licensed and paid
 for corporates in `susi-commercial-apps`, and treat GitHub as a storage bucket only.
 
+Every session, before anything else (CEO directives 2026-11-12): run
+`susi-commercial workflow check` in your own worktree. It pulls the latest
+remote into a clean worktree (Mandate 74: always work on the latest remote,
+before starting, when resuming and before every commit), shows the Susi Board
+(Mandate 76: always work in collaborative mode, one agent or many, and never
+assume you are alone), and keeps the installed release updated (Mandate 48:
+keep the local release binary at the latest release qualified for this host).
+Before writing new code, look for what already exists, inside Susi and among
+Apache-2.0 code, libraries, frameworks, tools, products and services, and
+record where you looked in the task record (Mandate 78).
+
 Read docs/ceo-mandate-78.md (Mandate 78, 2026-11-12): never reinvent the wheel.
 Before building a capability, look for it inside Susi, then in Apache-2.0
 projects, then in the locked dependency graph; reuse by harvesting only the
