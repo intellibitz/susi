@@ -2,23 +2,8 @@
   "id": "T-SOCKFIX2-1",
   "title": "Leaf teardown is in-process and wakes on shutdown",
   "goal": "Supervisor teardown of a leaf service stops blocking on things that ignore shutdown. The readiness probe read the reply with a blind 500 ms timeout, so a raised shutdown was noticed only after about 0.6 s; it now reads in 20 ms slices that each check the shutdown flag (same request, same 500 ms budget). On Windows every stop launched taskkill.exe /T /F (about 1.15 s alone, past 3 s under gate load); every supervised leaf now gets a kill-on-close Job Object of its own, kept by pid until the leaf is reaped, and stopping a leaf terminates its job in-process, which ends its whole tree. Descendants are also read from the process table (creation-time checked against pid reuse), which covers pids with no job (orphans of an earlier daemon) and processes started before the assignment. When the daemon dies, the OS closes the job handles and the leaf trees die with it. One behaviour change: a reaped leaf's job is closed, so a process the leaf left behind now ends when the leaf is reaped (before, it lived in the shared job until the daemon exited). The Unix path is unchanged.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "sockfix2",
-  "native_worker": "sockfix2",
-  "created_by": "sockfix2",
-  "created_unix": 1794168529,
   "size": "S",
   "deps": [],
-  "scope": [
-    ".agents/tasks/t-sockfix2-1.json",
-    "crates/susi-daemon/src/supervisor.rs"
-  ],
-  "scopes": [
-    ".agents/tasks/t-sockfix2-1.json",
-    "crates/susi-daemon/src/supervisor.rs"
-  ],
-  "acceptance": "cargo test -p susi-daemon --lib supervisor --offline --locked passes: a stalled leaf that accepted the readiness request is stopped and the wait returns within 1 s of shutdown (the old 3 s bound kept); on Windows a leaf and the process it started end through the leaf's job within 1 s, closing the job ends the whole tree, and a pid with no job is still stopped as a tree.",
   "accept": {
     "cmd": [
       "cargo",
@@ -31,5 +16,25 @@
       "--locked"
     ]
   },
+  "created_by": "sockfix2",
+  "created_unix": 1794168529,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi-daemon --lib supervisor --offline --locked passes: a stalled leaf that accepted the readiness request is stopped and the wait returns within 1 s of shutdown (the old 3 s bound kept); on Windows a leaf and the process it started end through the leaf's job within 1 s, closing the job ends the whole tree, and a pid with no job is still stopped as a tree.",
+  "claimed_by": "sockfix2",
+  "native_worker": "sockfix2",
+  "scope": [
+    ".agents/tasks/t-sockfix2-1.json",
+    "crates/susi-daemon/src/supervisor.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-sockfix2-1.json",
+    "crates/susi-daemon/src/supervisor.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
   "updated_unix": 1794168529
 }
