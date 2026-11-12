@@ -16,6 +16,15 @@
   },
   "created_by": "CLAUDECLEVERFEYNMANMTR9N2",
   "created_unix": 1794498508,
+  "closed": {
+    "at_unix": 1794498802,
+    "commit": "eba400460785a5b89d26d16de192d1bed689dbe3",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [
+    "Evidence recorded on Linux x86_64 only.",
+    "Goes stale again when any file the GMCP checks read changes."
+  ],
   "reuse": {
     "decision": "existing",
     "searched": "scripts/gmcp-record-evidence.sh is the repository's own recorder; nothing new written."
@@ -23,9 +32,5 @@
   "scopes": [
     ".agents/gmcp/evidence"
   ],
-  "status": "in_progress",
-  "limitations": [
-    "Evidence recorded on Linux x86_64 only.",
-    "Goes stale again when any file the GMCP checks read changes."
-  ]
+  "status": "done"
 }
