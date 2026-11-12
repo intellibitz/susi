@@ -1,20 +1,6 @@
 {
   "id": "T-FLAKY1106-1",
-  "native_worker": "flaky1106",
   "title": "Fix three unreliable tests: gmcp unwired audit bus isolation on Windows, gawd home-dir env race, core bus sweep wait budget",
-  "created_by": "FLAKY1106",
-  "created_unix": 1794010000,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/gmcp/evidence",
-    ".agents/tasks/t-flaky1106-1.json",
-    "crates/susi-core/src/plane_bus_ipc.rs",
-    "crates/susi-gawd/src/admin/mod.rs",
-    "crates/susi-gawd/src/admin/seed.rs",
-    "crates/susi-gemi-models/src/lifecycle/download_controller.rs",
-    "crates/susi-gmcp/src/tools/core.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -33,5 +19,24 @@
       "the detached Git worker test allows 120 s for completion on a loaded host",
       "the download progress-file test holds ENV_LOCK across its write and read"
     ]
-  }
+  },
+  "created_by": "FLAKY1106",
+  "created_unix": 1794010000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "flaky1106",
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-flaky1106-1.json",
+    "crates/susi-core/src/plane_bus_ipc.rs",
+    "crates/susi-gawd/src/admin/mod.rs",
+    "crates/susi-gawd/src/admin/seed.rs",
+    "crates/susi-gemi-models/src/lifecycle/download_controller.rs",
+    "crates/susi-gmcp/src/tools/core.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
