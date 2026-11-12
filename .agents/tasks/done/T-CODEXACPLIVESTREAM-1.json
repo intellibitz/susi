@@ -2,19 +2,10 @@
   "id": "T-CODEXACPLIVESTREAM-1",
   "title": "Emit ACP SSE mission events live",
   "goal": "Replace the buffered ACP SSE response path with a bounded callback-backed stream so clients receive turn lifecycle and delta events while the mission is still running, without weakening validation, authorization or cancellation.",
-  "status": "implemented",
-  "owner": "codex",
-  "native_worker": "acp-live-stream",
-  "created_by": "codex",
-  "created_unix": 1794460000,
   "size": "m",
-  "base_commit": "7c2312db6baf400800e4ba6ed9dd00c7047e252d",
-  "deps": ["T-CODEXACPCANCEL-1", "T-CODEXACPWORKSPACE-1"],
-  "scopes": [
-    "crates/susi-core/src/acp.rs",
-    "crates/susi-gawd-a2a/src/server.rs",
-    "crates/susi-gawd-a2a/src/tests/server_routes.rs",
-    ".agents/tasks/T-CODEXACPLIVESTREAM-1.json"
+  "deps": [
+    "T-CODEXACPCANCEL-1",
+    "T-CODEXACPWORKSPACE-1"
   ],
   "accept": {
     "cmd": [
@@ -27,6 +18,16 @@
       "--lib"
     ]
   },
+  "created_by": "codex",
+  "created_unix": 1794460000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "7c2312db6baf400800e4ba6ed9dd00c7047e252d",
+  "native_worker": "acp-live-stream",
+  "owner": "codex",
   "results": {
     "status": "implemented",
     "boundary": "Core ACP SSE transport only; no dependency, Commercial, Minijinja, release, harvest, Windows or credential change",
@@ -53,5 +54,12 @@
     "limitations": [
       "A client disconnect stops frame delivery but does not add a new transport-level cancellation signal beyond the existing ACP session/cancel contract."
     ]
-  }
+  },
+  "scopes": [
+    "crates/susi-core/src/acp.rs",
+    "crates/susi-gawd-a2a/src/server.rs",
+    "crates/susi-gawd-a2a/src/tests/server_routes.rs",
+    ".agents/tasks/T-CODEXACPLIVESTREAM-1.json"
+  ],
+  "status": "implemented"
 }
