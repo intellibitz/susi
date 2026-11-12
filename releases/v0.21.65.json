@@ -1,0 +1,38 @@
+{
+  "schema": "susi-release-record/v1",
+  "product": "susi",
+  "version": "0.21.65",
+  "tag": "v0.21.65",
+  "commit": "74ddc863893ae310516b9e84f1dcb895681f99f6",
+  "tagged": "2026-11-12T12:15:37+05:30",
+  "build": {
+    "toolchain": "1.99.0",
+    "host": "x86_64-pc-windows-msvc",
+    "source": "the release-qualify build gate on the qualified tree fcfa3736f0 (commit ae261bd765; the tagged commit adds only releases/qualification/v0.21.65.json), Cargo.lock sha256 95f921bab7c6c0b7c8a7587ee7e868978325d2f1d78b171792cc3d3da5896f5a",
+    "profile": "dist",
+    "features": "susi/local-engine",
+    "env": ["CARGO_PROFILE_DIST_LTO=false", "CARGO_PROFILE_DIST_CODEGEN_UNITS=16"],
+    "command": "cargo build --offline --locked --profile dist -p susi-harness -p susi --features susi/local-engine"
+  },
+  "reproducible": false,
+  "assets": [
+    { "file": "susi-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi", "bin": "susi", "sha256": "7de92b18626e00b66cd5260f0fb511a9c177f97791c4656d7b621d2a0b483573" },
+    { "file": "susi-harness-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi-harness", "bin": "susi-harness", "sha256": "5f78e4dbee61e0698a37bc92a4aece48b58fa190760c9176ae9a1c2d9977a271" }
+  ],
+  "missing_targets": [
+    { "target": "x86_64-unknown-linux-gnu", "reason": "qualified on a Windows x86_64 host; the Linux x86_64 reference build and qualification are owed (owed_platforms in the qualification record)" }
+  ],
+  "checks": {
+    "qualification_record": "releases/qualification/v0.21.65.json",
+    "release_qualify": { "gates": ["format", "check", "clippy", "licenses", "tests", "build", "smoke"], "all_exit_0": true },
+    "workspace_tests": { "binaries": 6, "passed": 2006, "failed": 0, "ignored": 3 },
+    "e2e_checks": "the release test gate ran the 5-pillar + lean-core ceiling suites on the exact distilled release tree; warm cargo fast-release completed in 9047 ms (< 10000 ms budget, build_ms=1273, test_ms=6879, release_ms=749); the dist binaries were checked with --version",
+    "locally_qualified": true,
+    "qualification_note": "qualified on x86_64-pc-windows-msvc from accept-verified functional-only distilled candidate v0-21-65-distilled-rc1; every gate exited 0, 2006 cold / 1692 warm inner-loop tests passed and 0 failed, warm fast-release total_ms=9047 (<10000 ms budget); Linux x86_64 is not qualified yet"
+  },
+  "provenance": [
+    "commit and tagged time: the immutable annotated tag v0.21.65 (git cat-file -p v0.21.65; git for-each-ref --format=%(taggerdate:iso-strict))",
+    "sha256: the dist build and smoke gates on Windows x86_64 (x86_64-pc-windows-msvc), recorded in releases/qualification/v0.21.65.json with each gate log digest",
+    "source: accept-verified functional-only distilled candidate refs/tags/susi-distill/v0-21-65-distilled-rc1 = 7b4a74cd54 (tree 5c4be6b811), envelope 90daead456, receipt 207944f97e9802f44b2e11718d2e70881a942a027cc5612092673327b5618ee5, selecting 18 functional tasks atop post-v0.21.64 functional base 799ec71612; the release branch then contains only the v0.21.65 version bump and T-CTOREL65-1"
+  ]
+}
