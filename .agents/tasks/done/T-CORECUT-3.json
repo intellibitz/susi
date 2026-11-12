@@ -6,22 +6,6 @@
   "deps": [
     "T-CORECUT-2"
   ],
-  "created_by": "corecut",
-  "created_unix": 1794350018,
-  "status": "in_progress",
-  "base": "4e49f290b0701ad9fdb9d9af229756f602f679fd",
-  "mandate_revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311",
-  "scopes": [
-    ".agents/tasks/T-CORECUT-3.json",
-    ".agents/build-time.jsonl",
-    "Cargo.toml",
-    "Cargo.lock",
-    "crates/susi-vendor-rayon",
-    "src/main.rs",
-    "src/cli/defs.rs",
-    "tests/fixtures/cli_help_snapshot.txt",
-    "docs/lean-core.md"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -42,6 +26,26 @@
       "--test",
       "task_records"
     ]
+  },
+  "created_by": "corecut",
+  "created_unix": 1794350018,
+  "closed": {
+    "at_unix": 1794494581,
+    "commit": "c1ecd6febf1ec96d1555215c583404d97f18f3b6",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "4e49f290b0701ad9fdb9d9af229756f602f679fd",
+  "limitations": [
+    "The saving is about 4 CPU-seconds and 12 units of a cold build; whole-build wall time is inside this host's load noise and is not claimed (the second pair's change run met rising load: unit CPU 338 s).",
+    "`tests/architecture_tests.rs` still lists `susi-vendor-rayon` in VENDOR_FACADES (a set lookup that does not require the crate to exist, like the unused `susi-vendor-flume` entry); that file is in another agent's scope, so the stale name is owed to its owner.",
+    "The GMCP `bloat_audit` tool description in `crates/susi-gmcp/src/tools/core.rs` still says 'rayon-parallel'; correcting it changes a pinned tool definition and needs a GMCP evidence re-record, so it is owed to the next GMCP landing."
+  ],
+  "mandate_revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311",
+  "provenance": {
+    "agent": "corecut (Cursor subagent, CachyOS Linux x86_64, CEO laptop)",
+    "worktree": "susi-agent-corecut",
+    "branch": "local-agent/corecut",
+    "host": "x86_64-unknown-linux-gnu, rustc 1.99.0, 28 threads"
   },
   "results": {
     "change": "Root Cargo.toml: `rayon` dependency and the `crates/susi-vendor-rayon` member removed; the facade crate deleted. src/main.rs: the `ThreadPoolBuilder::build_global()` call and its log line removed (nothing ran on the pool). The `bloat-audit` help text said 'rayon-parallel'; it runs on std scoped threads (`susi_core::parallel::map_ref`), so it now says 'in parallel', with the CLI help snapshot updated. Cargo.lock drops only the facade entry: rayon stays locked as criterion's benchmark dev-dependency, but it is no longer in the `cargo build -p susi` graph (`cargo tree -p susi -e normal,build` lists no rayon, rayon-core, crossbeam-deque or crossbeam-epoch; crossbeam-utils and crossbeam-channel stay through tracing-appender).",
@@ -90,15 +94,16 @@
       "cargo test -p susi --test architecture_tests --test orphan_sources --test lean_core_ceilings --test core_docs_promise_no_ui_or_plugins --test task_records": "56 passed, 0 failed"
     }
   },
-  "limitations": [
-    "The saving is about 4 CPU-seconds and 12 units of a cold build; whole-build wall time is inside this host's load noise and is not claimed (the second pair's change run met rising load: unit CPU 338 s).",
-    "`tests/architecture_tests.rs` still lists `susi-vendor-rayon` in VENDOR_FACADES (a set lookup that does not require the crate to exist, like the unused `susi-vendor-flume` entry); that file is in another agent's scope, so the stale name is owed to its owner.",
-    "The GMCP `bloat_audit` tool description in `crates/susi-gmcp/src/tools/core.rs` still says 'rayon-parallel'; correcting it changes a pinned tool definition and needs a GMCP evidence re-record, so it is owed to the next GMCP landing."
+  "scopes": [
+    ".agents/tasks/T-CORECUT-3.json",
+    ".agents/build-time.jsonl",
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/susi-vendor-rayon",
+    "src/main.rs",
+    "src/cli/defs.rs",
+    "tests/fixtures/cli_help_snapshot.txt",
+    "docs/lean-core.md"
   ],
-  "provenance": {
-    "agent": "corecut (Cursor subagent, CachyOS Linux x86_64, CEO laptop)",
-    "worktree": "susi-agent-corecut",
-    "branch": "local-agent/corecut",
-    "host": "x86_64-unknown-linux-gnu, rustc 1.99.0, 28 threads"
-  }
+  "status": "in_progress"
 }
