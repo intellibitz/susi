@@ -2,16 +2,30 @@
   "id": "T-PROBES-1",
   "title": "Probe local service and contract ports concurrently",
   "goal": "On Windows a loopback connect to a port nobody holds is refused only after SYN retries (measured 2,045 ms), so each down port costs the full probe timeout. Probe the five leaf-service ports (service_table::status) and the four contract endpoints (susi os) concurrently. Measured with a stopped host: susi services 1,469 -> 465 ms, susi os 2,328 -> 620 ms.",
+  "size": "s",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib",
+      "service_table"
+    ]
+  },
+  "created_by": "PROBES",
+  "created_unix": 1793665910,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "scopes": [
     ".agents/tasks/t-probes-1.json",
     "crates/susi-core/src/service_table.rs",
     "src/cli/os_cli.rs"
-  ],
-  "size": "s",
-  "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-core", "--lib", "service_table"]
-  },
-  "created_by": "PROBES",
-  "created_unix": 1793665910
+  ]
 }
