@@ -1,19 +1,11 @@
 {
   "id": "T-CODEXHARVESTADOPT-1",
-  "feature_id": "F-CTO-MANDATE-75-ADOPTION-1",
   "title": "Rebase and gate the verified Mandate 75 harvest contribution",
   "goal": "Adopt the already implemented and independently verified pure Apache-2.0 harvest contribution onto current core main without changing its source semantics, then publish it through the local gate with the host-only and lean-ceiling fixes.",
-  "status": "implemented",
-  "scopes": [
-    ".agents/tasks/T-CTOHARVEST-1.json",
-    ".agents/tasks/T-CODEXHARVESTADOPT-1.json",
-    "tests/pure_apache2_cloud_harvest.rs",
-    "xtask/src/bin/local-harvest.rs",
-    "xtask/src/bin/release-qualify.rs",
-    "xtask/src/harvest.rs"
-  ],
   "size": "xs",
-  "deps": ["T-CTOHARVEST-1"],
+  "deps": [
+    "T-CTOHARVEST-1"
+  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -27,16 +19,31 @@
     ]
   },
   "created_by": "CODEXHARVESTADOPT",
-  "native_worker": "codex-harvest-adopt",
   "created_unix": 1794424728,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "base": "7bb9100b56b3e2b4cacf001ebea1f0eb480d23f3",
+  "feature_id": "F-CTO-MANDATE-75-ADOPTION-1",
+  "limitations": [
+    "The original contribution remains attributed to T-CTOHARVEST-1; this record covers only its rebase and gated publication."
+  ],
+  "native_worker": "codex-harvest-adopt",
   "results": {
     "source": "Carbon's 4492b12b6 was independently verified before adoption; the exact commit was cherry-picked with -x as 8d2532e51.",
     "focused": "cargo test --offline --locked -p susi --test pure_apache2_cloud_harvest -- --nocapture: 5 passed, 0 failed",
     "promotion": "cargo test --offline --locked -p xtask --test distilled_release_promotion -- --nocapture: 10 passed, 0 failed",
     "scope": "Coordinator-only adoption metadata; no semantic source edits were made after the verified harvest commit."
   },
-  "limitations": [
-    "The original contribution remains attributed to T-CTOHARVEST-1; this record covers only its rebase and gated publication."
-  ]
+  "scopes": [
+    ".agents/tasks/T-CTOHARVEST-1.json",
+    ".agents/tasks/T-CODEXHARVESTADOPT-1.json",
+    "tests/pure_apache2_cloud_harvest.rs",
+    "xtask/src/bin/local-harvest.rs",
+    "xtask/src/bin/release-qualify.rs",
+    "xtask/src/harvest.rs"
+  ],
+  "status": "implemented"
 }
