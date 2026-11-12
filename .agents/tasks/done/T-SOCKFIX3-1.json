@@ -2,23 +2,8 @@
   "id": "T-SOCKFIX3-1",
   "title": "A dead daemon's ports are free",
   "goal": "On Windows a dead daemon's host-contract ports stayed bound under its pid (CEO laptop: pid 28172 died on 2026-11-07, and 127.0.0.1:9090-9094 were still held a day later, so every later daemon fell back to the next block). Root cause, measured: std's TcpListener/UdpSocket::try_clone on Windows returns an inheritable socket handle although the original is not (standalone repro: original inherit=false, clone inherit=true). The daemon serves clones of all five contract sockets (gemi, gmcp, gmcp alias, A2A HTTP, A2A UDP), and every Command::spawn inherits handles, so every leaf service, probe and tool, and their children, held the five ports; the holders on the laptop are two hung 'ollama.exe --version' processes (pids 48168, 55760) that outlived the daemon and were never in its kill-on-close job. Each clone now has HANDLE_FLAG_INHERIT cleared (UninheritableClone); elsewhere try_clone already duplicates close-on-exec. Live check on an isolated daemon (offset 800): no daemon handle is inheritable, and its leaf services hold none of the contract sockets (before: all five each).",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "sockfix3",
-  "native_worker": "sockfix3",
-  "created_by": "sockfix3",
-  "created_unix": 1794184086,
   "size": "S",
   "deps": [],
-  "scope": [
-    ".agents/tasks/t-sockfix3-1.json",
-    "crates/susi-daemon/src/server.rs"
-  ],
-  "scopes": [
-    ".agents/tasks/t-sockfix3-1.json",
-    "crates/susi-daemon/src/server.rs"
-  ],
-  "acceptance": "cargo test -p susi-daemon --lib a_dead_daemons_ports_are_free_while_its_child_lives --offline --locked passes: a stand-in daemon process binds a TCP listener and a UDP socket, serves clones of them as the daemon does, starts a long-lived child and exits; while that child still runs, both ports bind again. With a bare try_clone the same test fails with os error 10048 (address in use).",
   "accept": {
     "cmd": [
       "cargo",
@@ -31,5 +16,25 @@
       "--locked"
     ]
   },
+  "created_by": "sockfix3",
+  "created_unix": 1794184086,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi-daemon --lib a_dead_daemons_ports_are_free_while_its_child_lives --offline --locked passes: a stand-in daemon process binds a TCP listener and a UDP socket, serves clones of them as the daemon does, starts a long-lived child and exits; while that child still runs, both ports bind again. With a bare try_clone the same test fails with os error 10048 (address in use).",
+  "claimed_by": "sockfix3",
+  "native_worker": "sockfix3",
+  "scope": [
+    ".agents/tasks/t-sockfix3-1.json",
+    "crates/susi-daemon/src/server.rs"
+  ],
+  "scopes": [
+    ".agents/tasks/t-sockfix3-1.json",
+    "crates/susi-daemon/src/server.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
   "updated_unix": 1794184086
 }
