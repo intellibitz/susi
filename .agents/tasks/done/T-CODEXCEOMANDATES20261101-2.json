@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "CODEXCEOMANDATES20261101",
-  "created_unix": 1793550270
+  "created_unix": 1793550270,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
 }
