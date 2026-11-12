@@ -2,16 +2,28 @@
   "id": "T-GUIDE-1",
   "title": "Integration guide for products built on the host contract",
   "goal": "One entry document for companies building on Susi: contract ports, bearer auth and public routes, MCP 2026-07-28 and 2025-06-18 usage, A2A, OpenAI-compatible inference, extension packs, conformance verification, isolated test hosts and the open-core boundary, each stated only as verified behaviour.",
+  "size": "s",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "GUIDE",
+  "created_unix": 1793662580,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "scopes": [
     ".agents/tasks/t-guide-1.json",
     "docs/integrating-with-susi.md",
     "readme.md"
-  ],
-  "size": "s",
-  "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "--test", "architecture_tests"]
-  },
-  "created_by": "GUIDE",
-  "created_unix": 1793662580
+  ]
 }
