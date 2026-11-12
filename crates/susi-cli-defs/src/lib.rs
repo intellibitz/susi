@@ -10,6 +10,8 @@
 //! time via `Cli::command().version(env!("CARGO_PKG_VERSION"))`, so `--version`
 //! always reports the running executable's package version.
 
+/// `susi acp`: Agent Client Protocol stdio endpoint and discovery commands.
+pub mod acp;
 /// `susi agents`: external task executor commands.
 pub mod agent;
 /// `susi ambient`: ambient context synchronization commands.

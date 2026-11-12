@@ -18,6 +18,15 @@
   },
   "created_by": "CLAUDECLEVERFEYNMANMTR9N2",
   "created_unix": 1794494431,
+  "closed": {
+    "at_unix": 1794494458,
+    "commit": "f9090823539e7d904237a66980e699423f936595",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [
+    "Verified on Linux x86_64 only.",
+    "No refs/claims or refs/closed record: the remote refuses those pushes from this cloud session."
+  ],
   "reuse": {
     "decision": "existing",
     "searched": "susi-core plane_bus_ipc: IpcPlaneBus::candidates already resolved manifests plus legacy files; moved its body into a public free function instead of writing a second reader in the CLI."
@@ -26,9 +35,5 @@
     "src/cli/os_cli.rs",
     "crates/susi-core/src/plane_bus_ipc.rs"
   ],
-  "status": "implemented",
-  "limitations": [
-    "Verified on Linux x86_64 only.",
-    "No refs/claims or refs/closed record: the remote refuses those pushes from this cloud session."
-  ]
+  "status": "done"
 }

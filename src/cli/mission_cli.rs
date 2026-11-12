@@ -81,7 +81,8 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
     } = host;
     match command {
         // Handled by control_plane_cli before substrate boot.
-        Commands::Agents { .. }
+        Commands::Acp { .. }
+        | Commands::Agents { .. }
         | Commands::Frameworks { .. }
         | Commands::Extensions { .. }
         | Commands::Auto { .. }
