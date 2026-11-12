@@ -1,14 +1,7 @@
 {
   "id": "T-DOTOPENSSL-1",
-  "native_worker": "dot-openssl",
   "title": "Discover trusted native system OpenSSL libraries",
-  "created_by": "DOTOPENSSL",
-  "created_unix": 1794266066,
-  "status": "in_progress",
-  "scopes": [
-    "xtask/src/compiler_env.rs",
-    ".agents/tasks/T-DOTOPENSSL-1.json"
-  ],
+  "deps": [],
   "accept": {
     "criteria": [
       "Prefer complete trusted Debian multiarch libraries and admit the canonical native /usr/lib layout without environment-supplied paths, static linkage or bundled OpenSSL.",
@@ -29,7 +22,13 @@
       "compiler_env::tests"
     ]
   },
-  "deps": [],
+  "created_by": "DOTOPENSSL",
+  "created_unix": 1794266066,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "evidence": {
     "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
     "source_sha256": "9a09ca60eb073fb2d2f1d380a2b1cb639a728b97b7a9be58b871f97802f0ff82",
@@ -50,5 +49,11 @@
       "Pinned Rust 1.99.0 x86_64-pc-windows-msvc, private target and scrubbed homes/TEMP, SUSI_NO_REGISTRY_ENV=1.",
       "cargo test -p xtask --features release-tooling --bin local-release --offline --locked compiler_env::tests -- --nocapture: 8 passed, 0 failed, 87 filtered; compilation 46.72s."
     ]
-  }
+  },
+  "native_worker": "dot-openssl",
+  "scopes": [
+    "xtask/src/compiler_env.rs",
+    ".agents/tasks/T-DOTOPENSSL-1.json"
+  ],
+  "status": "in_progress"
 }
