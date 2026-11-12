@@ -2,19 +2,10 @@
   "id": "T-CLAUDEDISTILLUNBLOCK-1",
   "title": "Unblock core v0.21.64 functional distillation of T-CODEXHISTORY-1",
   "goal": "T-CODEXHISTORY-1 (0559e08b8) and T-CLAUDEGEMIFIX-1 (986b7f424) are sibling commits on a5ad2480e that both append to docs/lean-core.md and re-pin tests/lean_core_ceilings.rs. Their resolution exists only in merge 669d74012, which the distill composer skips, so functional distillation deferred T-CODEXHISTORY-1 and five dependents (board item 238). Make a linear replay of 0559e08b8 on 986b7f424 whose ten files carry exactly main's resolved content, join it to main with a content-neutral merge, and pin it as T-CODEXHISTORY-1's source_commits.",
-  "status": "implemented",
-  "owner": "claude",
-  "created_by": "claude",
-  "created_unix": 1794436813,
   "size": "s",
   "deps": [
     "T-CODEXHISTORY-1",
     "T-CLAUDEGEMIFIX-1"
-  ],
-  "base": "42ff5968b73c4ef720e8d0e8199fb433b81b49ba",
-  "scopes": [
-    ".agents/tasks/T-CODEXHISTORY-1.json",
-    ".agents/tasks/T-CLAUDEDISTILLUNBLOCK-1.json"
   ],
   "accept": {
     "cmd": [
@@ -26,13 +17,27 @@
       "lean_core_ceilings"
     ]
   },
-  "results": {
-    "replay": "1cbde3c4176a7a529d45f05ba0102730eab7f1ac",
-    "probe": "local-distill plan --functional-only --base v0.21.63 with this pin and T-CODEXCLOUDTOOLS-1 pinned to dda557835,e710f794c,a40b8ed16: 17 included / 0 deferred / 0 rejected; candidate crates, xtask, tests and Cargo files identical to origin/main"
+  "created_by": "claude",
+  "created_unix": 1794436813,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
   },
+  "base": "42ff5968b73c4ef720e8d0e8199fb433b81b49ba",
   "limitations": [
     "Needs Codex's T-CODEXDISTILLPROVENANCE-1 pin of T-CODEXCLOUDTOOLS-1 for a complete candidate; without it the composer silently drops a40b8ed16.",
     "No release, candidate or tag is cut here; Carbon keeps the distill lane.",
     "Verified on Linux x86_64."
-  ]
+  ],
+  "owner": "claude",
+  "results": {
+    "replay": "1cbde3c4176a7a529d45f05ba0102730eab7f1ac",
+    "probe": "local-distill plan --functional-only --base v0.21.63 with this pin and T-CODEXCLOUDTOOLS-1 pinned to dda557835,e710f794c,a40b8ed16: 17 included / 0 deferred / 0 rejected; candidate crates, xtask, tests and Cargo files identical to origin/main"
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXHISTORY-1.json",
+    ".agents/tasks/T-CLAUDEDISTILLUNBLOCK-1.json"
+  ],
+  "status": "implemented"
 }
