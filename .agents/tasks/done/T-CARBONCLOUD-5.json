@@ -1,0 +1,79 @@
+{
+  "id": "T-CARBONCLOUD-5",
+  "title": "Add first-class susi acp CLI stdio/discovery subcommand and 5th-pillar ACP black-box conformance checks",
+  "goal": "Close two production gaps on Susi Core's 5th Open-Core Pillar (ACP, Mandates 62, 74, 75): (1) expose first-class `susi acp`, `susi acp serve`, and `susi acp discover [--json]` CLI subcommands with zero-banner newline-delimited JSON-RPC 2.0 stdio transport (<20ms startup) and port-offset-aware `susi-acp-discovery/v1` output, and (2) add black-box ACP discovery, bearer-auth enforcement (`/acp`, `/acp/stream`), JSON-RPC session lifecycle (`acp.rpc`), and opt-in `susi acp serve` stdio (`acp.stdio`) conformance checks to `susi-conformance`.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-cli-defs",
+      "-p",
+      "susi-conformance",
+      "-p",
+      "susi",
+      "--lib"
+    ]
+  },
+  "created_by": "antigravity",
+  "created_unix": 1794491603,
+  "closed": {
+    "at_unix": 1794506877,
+    "commit": "9af75c7a0e89fc1be34c8437ea3052167bdb1a7a",
+    "by": "CLAUDEQUEUE1"
+  },
+  "acceptance": "cargo test --offline --locked -p susi-cli-defs -p susi-conformance -p susi --lib",
+  "agent": "antigravity",
+  "base": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+  "base_commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+  "claimed_by": "antigravity",
+  "feature": "F-CORE-ACP-CLI-AND-CONFORMANCE-1",
+  "feature_id": "F-CORE-ACP-CLI-AND-CONFORMANCE-1",
+  "native_worker": "core-wave5",
+  "owner": "antigravity",
+  "results": {
+    "acp_serve_4rpc_lifecycle_median_ms": 8.76,
+    "acp_serve_first_frame_median_ms": 5.93,
+    "conformance_acp_stdio_ms": 58,
+    "startup_gate": {
+      "floor_median_ms": 2.14,
+      "goal_completion_daemon_down_median_ms": 72.26,
+      "goal_completion_daemon_up_median_ms": 75.96,
+      "goal_first_output_daemon_down_median_ms": 70.73,
+      "goal_first_output_daemon_up_median_ms": 73.04,
+      "help_median_ms": 6.81,
+      "pass": true,
+      "status_daemon_down_median_ms": 7.75,
+      "status_daemon_up_median_ms": 7.77,
+      "version_median_ms": 6.55
+    },
+    "tests": "susi-cli-defs lib 2 passed, susi-conformance lib 24 passed + bin 5 passed, susi lib 9 passed + bin 142 passed, architecture_tests 49 passed, lean_core_ceilings 2 passed, orphan_sources 3 passed, thin_client_invariant 5 passed, task_records 3 passed, clippy --all-targets 0 warnings"
+  },
+  "reuse": {
+    "decision": "existing",
+    "reason": "Reused existing susi_core::acp::{AcpServer, AcpStdioTransport, AcpDiscoveryDocument, AcpTurnExecutor}, mirrored susi mcp pre-boot zero-banner CLI dispatch, and extended susi_conformance's existing HTTP and stdio child-process harness with zero new dependencies.",
+    "searched": "Searched intellibitz/susi crates/susi-core/src/acp.rs, crates/susi-gawd-a2a/src/{executor.rs,lib.rs}, crates/susi-cli-defs/src/{lib.rs,mcp.rs}, src/cli/{mcp_cli.rs,control_plane_cli.rs,defs.rs}, crates/susi-conformance/src/lib.rs, intellibitz/susi-commercial-apps ACP bridge/inspector/studio packs, Apache-2.0 ACP crates, and the locked Cargo dependency graph; Susi Core already implements AcpServer, AcpStdioTransport, AcpDiscoveryDocument, and susi-conformance's HTTP + stdio harness.",
+    "source": "intellibitz/susi crates/susi-core/src/acp.rs, crates/susi-gawd-a2a/src/executor.rs, crates/susi-cli-defs/src/mcp.rs, src/cli/mcp_cli.rs, crates/susi-conformance/src/lib.rs"
+  },
+  "scopes": [
+    ".agents/tasks/T-CARBONCLOUD-5.json",
+    "crates/susi-cli-defs/src/acp.rs",
+    "crates/susi-cli-defs/src/lib.rs",
+    "crates/susi-conformance/src/lib.rs",
+    "src/cli/acp_cli.rs",
+    "src/cli/catalogs.rs",
+    "src/cli/control_plane_cli.rs",
+    "src/cli/defs.rs",
+    "src/cli/mission_cli.rs",
+    "src/cli/mod.rs",
+    "src/cli/os_cli.rs",
+    "tests/fixtures/cli_help_snapshot.txt"
+  ],
+  "state": "completed",
+  "status": "completed",
+  "updated_unix": 1794493225
+}
