@@ -682,7 +682,7 @@ mod tests {
         /// mission's egress record.
         #[test]
         fn vc_202_014_mastery_gate_consulted_per_mission_refusals_recorded() {
-            let dir = tempfile::tempdir().unwrap();
+            let dir = susi_paths::tempfile::tempdir().unwrap();
             declare(dir.path(), r#"{"allow_hosts": ["api.openai.com"]}"#);
             crate::susi_core::registry::CapabilityRegistry::global().register_tool(MockEgressTool);
             let (session, _scope) = test_session(dir.path());
@@ -726,7 +726,7 @@ mod tests {
         /// refuses nothing.
         #[test]
         fn vc_202_014_mastery_permissive_mission_refuses_nothing() {
-            let dir = tempfile::tempdir().unwrap();
+            let dir = susi_paths::tempfile::tempdir().unwrap();
             crate::susi_core::registry::CapabilityRegistry::global().register_tool(MockEgressTool);
             let (session, _scope) = test_session(dir.path());
             let mission = session.id().to_string();
@@ -748,7 +748,7 @@ mod tests {
         /// against the mission.
         #[test]
         fn vc_202_014_mastery_agent_tokens_checked_at_dispatch() {
-            let dir = tempfile::tempdir().unwrap();
+            let dir = susi_paths::tempfile::tempdir().unwrap();
             crate::susi_core::registry::CapabilityRegistry::global().register_tool(MockLocalTool);
             let (session, _scope) = test_session(dir.path());
             let mission = session.id().to_string();
@@ -784,7 +784,7 @@ mod tests {
         /// closed rather than silently open.
         #[test]
         fn vc_202_014_mastery_workspace_declaration_binds_policy() {
-            let dir = tempfile::tempdir().unwrap();
+            let dir = susi_paths::tempfile::tempdir().unwrap();
             assert!(ToolRegistry::mission_egress_policy(dir.path()).is_permissive());
 
             declare(

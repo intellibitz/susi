@@ -625,7 +625,7 @@ async fn mission_run_cancellation_stops_at_phase_boundary_and_records_cancelled_
         }
     }
 
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let exec_stub = Arc::new(ToolExecStub {
         mission_done: tokio::sync::Notify::new(),
         sync_cancel_gate: Arc::new(std::sync::atomic::AtomicBool::new(false)),

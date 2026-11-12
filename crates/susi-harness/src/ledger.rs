@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn ledger_round_trips_as_json_lines() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
         let accepted = entry("T-1", Outcome::Accepted);
         let failed = entry(
@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn cost_for_picks_only_this_missions_role() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
         append_entry(&path, &charged("live-1", "planner", 120)).unwrap();
         append_entry(&path, &charged("live-1", "planner", 80)).unwrap();
@@ -573,7 +573,7 @@ mod tests {
 
     #[test]
     fn a_malformed_line_is_an_error_not_a_dropped_charge() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
         std::fs::write(&path, "{\"mission\":\"m\"}\nnot json\n").unwrap();
         let err = read_entries(&path).unwrap_err();
@@ -582,7 +582,7 @@ mod tests {
 
     #[test]
     fn a_torn_line_costs_only_itself_in_the_lenient_reader() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
         let good = serde_json::to_string(&entry("T-1", Outcome::Completed)).unwrap();
         std::fs::write(
@@ -611,7 +611,7 @@ mod tests {
     /// all, and the next row went onto the torn line and was lost with it.
     #[test]
     fn a_tear_inside_a_character_costs_only_the_torn_row() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
         append_entry(&path, &entry("T-1", Outcome::Completed)).unwrap();
         let rejected = serde_json::to_string(&entry(
@@ -643,7 +643,7 @@ mod tests {
     /// torn line, inside a character or not, made every later readback $0.
     #[test]
     fn a_tear_costs_only_the_torn_row_in_the_spend_readbacks() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
         append_entry(&path, &charged("live-1", "planner", 120)).unwrap();
         let rejected = serde_json::to_string(&entry(
@@ -680,7 +680,7 @@ mod tests {
     /// lenient reader, whatever row type it reads into.
     #[test]
     fn a_row_appended_onto_a_torn_line_still_counts() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
         let torn = r#"{"mission":"m","task":"torn","usage":{"input":1,"cache_hit":0"#;
         std::fs::write(&path, torn).unwrap();
@@ -702,14 +702,14 @@ mod tests {
 
     #[test]
     fn missing_file_is_an_error() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("absent.jsonl");
         assert!(read_entries(&path).is_err());
     }
 
     #[test]
     fn append_entry_self_heals_torn_trailing_line_with_leading_newline() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
         std::fs::write(&path, r#"{"mission":"m","task":"torn-without-newline"#).unwrap();
 
@@ -736,7 +736,7 @@ mod tests {
 
     #[test]
     fn verify_integrity_audits_clean_and_non_monotonic_ledgers() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.jsonl");
 
         assert_eq!(verify_integrity(&path), LedgerIntegrityReport::default());

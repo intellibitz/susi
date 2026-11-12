@@ -568,8 +568,8 @@ pub fn verify_all(contracts: &[Contract], workspace: &Path) -> Vec<ContractVerdi
 mod tests {
     use super::*;
 
-    fn ws() -> tempfile::TempDir {
-        tempfile::tempdir().unwrap()
+    fn ws() -> susi_paths::tempfile::TempDir {
+        susi_paths::tempfile::tempdir().unwrap()
     }
 
     #[test]

@@ -121,7 +121,19 @@ const THIRD_PARTY_CEILING: usize = 96;
 /// 2026-11-11: 35 -> 34 (susi-vendor-hyper-util deleted, T-CARBONLEAN-7).
 /// 2026-11-11: 34 -> 33 (susi-vendor-tracing leaves the pillar closure across
 /// susi-core, susi-gemi and susi-sandbox-client, T-AGYWIN-1).
+/// 2026-11-12: 33 unchanged on T-CARBONCLOUD-3 (`susi-vendor-tempfile` was a
+/// `[dev-dependencies]`-only leaf across 8 crates; `WORKSPACE_MEMBERS_CEILING`
+/// ratchets 50 -> 49 and `CARGO_LOCK_PACKAGES_CEILING` ratchets 182 -> 181).
 const WORKSPACE_CEILING: usize = 33;
+/// Total workspace members in `Cargo.toml` (`cargo metadata` `workspace_members`).
+/// 2026-11-12: 50 -> 49 (T-CARBONCLOUD-3: fold `susi-vendor-tempfile` into
+/// `susi_paths::tempfile` and delete `crates/susi-vendor-tempfile`;
+/// `VENDOR_FACADES` 17 -> 16).
+const WORKSPACE_MEMBERS_CEILING: usize = 49;
+/// Total resolved packages in `Cargo.lock` (`cargo metadata` `packages`).
+/// 2026-11-12: 182 -> 181 (T-CARBONCLOUD-3: `susi-vendor-tempfile` leaves
+/// `Cargo.lock` alongside 8 workspace `[dev-dependencies]` facade edges).
+const CARGO_LOCK_PACKAGES_CEILING: usize = 181;
 /// Distinct `susi-vendor-*` facades the pillar crates name directly in
 /// their manifests (normal edges): the edges the program removes one by one.
 /// 2026-11-09: 22 -> 21 (susi-gmcp -> susi-vendor-mcp-server).
@@ -143,6 +155,10 @@ const WORKSPACE_CEILING: usize = 33;
 /// 2026-11-11: 11 -> 10 (susi-gmcp -> susi-vendor-hyper-util replaced by
 /// `susi_http_transport::http_conn`, T-CARBONLEAN-7).
 /// 2026-11-11: 10 -> 9 (susi-gemi -> susi-vendor-tracing removed, T-AGYWIN-1).
+/// 2026-11-12: 9 normal edges unchanged on T-CARBONCLOUD-3 (`susi-vendor-tempfile`
+/// removed 8 `[dev-dependencies]` facade edges across `susi-core`, `susi-gawd`,
+/// `susi-gemi-models`, `susi-gemi`, `susi-gmcp`, `susi-harness`,
+/// `susi-leaf-services` and `susi-tools`).
 const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// Rust lines under `crates/<crate>/src` per pillar family, counting what
 /// ships: the `tests/` and `mastery_tests/` directories directly under `src`
@@ -435,12 +451,28 @@ fn rust_lines_in(dir: &Path, top: bool) -> usize {
 
 #[test]
 fn pillar_dependency_reach_does_not_grow() {
-    let reach = pillar_reach(&metadata());
+    let meta = metadata();
+    let workspace_members = meta["workspace_members"]
+        .as_array()
+        .expect("workspace_members")
+        .len();
+    let lock_packages = meta["packages"].as_array().expect("packages").len();
+    let reach = pillar_reach(&meta);
     eprintln!(
-        "lean-core: pillars compile {} workspace crates, {} third-party crates, {} direct facade edges",
+        "lean-core: pillars compile {} workspace crates, {} third-party crates, {} direct facade edges (workspace members: {}, Cargo.lock packages: {})",
         reach.workspace.len(),
         reach.third_party.len(),
-        reach.direct_facades.len()
+        reach.direct_facades.len(),
+        workspace_members,
+        lock_packages
+    );
+    assert!(
+        workspace_members <= WORKSPACE_MEMBERS_CEILING,
+        "workspace now declares {workspace_members} members (ceiling {WORKSPACE_MEMBERS_CEILING})"
+    );
+    assert!(
+        lock_packages <= CARGO_LOCK_PACKAGES_CEILING,
+        "Cargo.lock now resolves {lock_packages} packages (ceiling {CARGO_LOCK_PACKAGES_CEILING})"
     );
     assert!(
         reach.third_party.len() <= THIRD_PARTY_CEILING,

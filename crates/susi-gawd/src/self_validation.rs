@@ -58,7 +58,7 @@ mod inline_tests {
 
     #[test]
     fn execute_autonomous_self_validation_includes_header_and_hardware_section() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let report = execute_autonomous_self_validation(dir.path()).unwrap();
         assert!(report.starts_with("# SUSI Substrate Self-Validation Report"));
         assert!(report.contains("- **Hardware Profile**:"));
@@ -66,14 +66,14 @@ mod inline_tests {
 
     #[test]
     fn execute_autonomous_self_validation_includes_neural_device_label() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let report = execute_autonomous_self_validation(dir.path()).unwrap();
         assert!(report.contains("- **Neural Device**:"));
     }
 
     #[test]
     fn execute_autonomous_self_validation_verifies_non_empty_compiled_genome() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let report = execute_autonomous_self_validation(dir.path()).unwrap();
         let expected = format!(
             "- **Compiled Genome**: {} rules, each with a title and an imperative",

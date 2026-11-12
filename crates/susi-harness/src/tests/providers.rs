@@ -732,7 +732,7 @@ fn a_model_without_a_price_stays_on_the_ladder_last() {
 
 #[test]
 fn an_overlay_file_adds_a_provider_and_a_bad_one_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let good = dir.path().join("good.json");
     std::fs::write(
         &good,
@@ -756,7 +756,7 @@ fn an_overlay_named_in_the_data_homes_dotenv_is_loaded_and_a_bad_one_stops_the_h
         eprintln!("{OVERLAY_ENV} is set where this machine reads settings; skipping");
         return;
     }
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let good = dir.path().join("good.json");
     std::fs::write(
         &good,
@@ -795,7 +795,7 @@ fn an_overlay_named_in_a_directorys_dotenv_never_routes_the_users_keys() {
         eprintln!("{OVERLAY_ENV} is set where this machine reads settings; skipping");
         return;
     }
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let overlay = dir.path().join("providers.json");
     std::fs::write(&overlay, MIRROR).unwrap();
     let dotenv = format!("{OVERLAY_ENV}='{}'\n", overlay.display());
@@ -845,7 +845,7 @@ fn an_overlay_may_not_send_a_providers_key_to_another_host_unless_the_user_named
 
     // An overlay the user names by a full path may send it elsewhere: a
     // regional endpoint, or the provider's own proxy.
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let path = dir.path().join("regional.json");
     std::fs::write(
         &path,

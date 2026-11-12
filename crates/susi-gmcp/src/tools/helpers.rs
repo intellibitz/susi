@@ -379,7 +379,7 @@ mod confine_tests {
 
     #[test]
     fn secure_path_rejects_escapes_and_symlinks() {
-        let ws = tempfile::tempdir().unwrap();
+        let ws = susi_paths::tempfile::tempdir().unwrap();
         for bad in ["/etc/passwd", "../out", "a/../../x", ""] {
             assert!(super::secure_path(ws.path(), bad).is_err(), "{bad:?}");
         }
@@ -393,7 +393,7 @@ mod confine_tests {
             std::os::unix::fs::symlink("/etc/passwd", ws.path().join("link")).unwrap();
             assert!(super::secure_path(ws.path(), "link").is_err());
             // A symlinked *parent* cannot smuggle an escape either.
-            let outside = tempfile::tempdir().unwrap();
+            let outside = susi_paths::tempfile::tempdir().unwrap();
             std::os::unix::fs::symlink(outside.path(), ws.path().join("dirlink")).unwrap();
             assert!(super::secure_path(ws.path(), "dirlink/ok.txt").is_err());
         }
@@ -401,7 +401,7 @@ mod confine_tests {
 
     #[test]
     fn read_file_nofollow_reads_and_refuses_symlinks() {
-        let ws = tempfile::tempdir().unwrap();
+        let ws = susi_paths::tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join("f.txt"), "contents").unwrap();
         assert_eq!(
             super::read_file_nofollow(&ws.path().join("f.txt")).unwrap(),

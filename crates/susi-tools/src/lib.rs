@@ -58,7 +58,7 @@ fn private_config_fixture() -> Option<std::path::PathBuf> {
         return Some(state);
     }
 
-    let parent = tempfile::tempdir().unwrap();
+    let parent = susi_paths::tempfile::tempdir().unwrap();
     let root = parent.path();
     let state = root.join("state");
     std::fs::create_dir(&state).unwrap();

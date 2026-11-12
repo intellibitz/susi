@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn frontier_definition_lookup_rejects_unknown_and_validate_rejects_invalid_env() {
         assert!(FrontierManager::definition("unknown-frontier-xyz").is_err());
-        let root = tempfile::tempdir().unwrap();
+        let root = susi_paths::tempfile::tempdir().unwrap();
         let manager = FrontierManager::with_config(root.path().to_path_buf());
         let res = manager.configure(
             "gpt",
@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn clear_preferred_is_idempotent_and_status_reports_catalog_count() {
-        let root = tempfile::tempdir().unwrap();
+        let root = susi_paths::tempfile::tempdir().unwrap();
         let manager = FrontierManager::with_config(root.path().to_path_buf());
         assert_eq!(
             manager.clear_preferred().unwrap(),
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn setup_returns_structured_instructions_and_model_metadata() {
-        let root = tempfile::tempdir().unwrap();
+        let root = susi_paths::tempfile::tempdir().unwrap();
         let manager = FrontierManager::with_config(root.path().to_path_buf());
         let info = manager.setup("claude-sonnet").unwrap();
         assert_eq!(info["model"]["id"], "claude-sonnet");

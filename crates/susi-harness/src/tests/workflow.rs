@@ -182,7 +182,7 @@ fn write_claim(claims: &Path, name: &str, worktree: &Path, scopes: &[&str]) {
 
 #[test]
 fn inspect_repo_workflow_reads_claims_slots_and_head_without_locking() {
-    let repo = tempfile::tempdir().unwrap();
+    let repo = susi_paths::tempfile::tempdir().unwrap();
     let state = repo.path().join(".git/susi-local-workflow");
     let claims = state.join("claims");
     let slots = state.join("slots");
@@ -262,7 +262,7 @@ fn inspect_repo_workflow_reads_claims_slots_and_head_without_locking() {
 
 #[test]
 fn inspect_repo_workflow_handles_empty_state_and_packed_refs() {
-    let repo = tempfile::tempdir().unwrap();
+    let repo = susi_paths::tempfile::tempdir().unwrap();
     std::fs::create_dir_all(repo.path().join(".git")).unwrap();
     assert_eq!(
         inspect_repo_workflow(repo.path()).unwrap(),
@@ -285,7 +285,7 @@ fn inspect_repo_workflow_handles_empty_state_and_packed_refs() {
 
 #[test]
 fn inspect_repo_workflow_rejects_a_malformed_claim() {
-    let repo = tempfile::tempdir().unwrap();
+    let repo = susi_paths::tempfile::tempdir().unwrap();
     let claims = repo.path().join(".git/susi-local-workflow/claims");
     std::fs::create_dir_all(&claims).unwrap();
     std::fs::write(claims.join("bad.claim"), "susi-local-claim-v1\nbad\n").unwrap();

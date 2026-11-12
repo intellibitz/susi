@@ -188,7 +188,7 @@ mod tests {
     async fn every_sandbox_route_requires_the_host_token() {
         let _env = crate::ENV_LOCK.lock().await;
         let before = std::env::var("SUSI_HOME").ok();
-        let home = tempfile::tempdir().unwrap();
+        let home = susi_paths::tempfile::tempdir().unwrap();
         std::env::set_var("SUSI_HOME", home.path());
         for (method, uri, body) in [
             ("POST", "/sandbox/ensure_global", r#"{"global_dir":"/g"}"#),

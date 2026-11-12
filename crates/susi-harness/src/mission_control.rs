@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn mission_control_reads_handoffs_and_counts_verdicts() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = write_bus(dir.path());
         let view = GraphView::load(&path);
         assert_eq!(view.messages.len(), 3);
@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn mission_control_missing_bus_is_empty() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let view = GraphView::load(&dir.path().join("absent.jsonl"));
         assert!(view.is_empty());
         assert!(view.roles.is_empty());
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn mission_control_approval_sets_the_verdict() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("graph.jsonl");
         std::fs::write(
             &path,

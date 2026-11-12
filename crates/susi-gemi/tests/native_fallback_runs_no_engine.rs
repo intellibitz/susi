@@ -12,7 +12,7 @@ use susi_paths::test_env::EnvGuard;
 
 #[test]
 fn local_fallback_runs_no_installed_engine_binary() {
-    let root = tempfile::tempdir().expect("tempdir");
+    let root = susi_paths::tempfile::tempdir().expect("tempdir");
     let bin = root.path().join("bin");
     std::fs::create_dir(&bin).expect("bin dir");
     let marker = root.path().join("launched");

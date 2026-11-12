@@ -560,7 +560,7 @@ const BODY: &str = r#"{"model":"deepseek-flash","messages":[{"role":"user","cont
 #[tokio::test]
 async fn a_caller_cannot_move_its_spend_off_its_account_with_its_own_mission() {
     let (upstream, _) = counting_upstream().await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger = dir.path().join("ledger.jsonl");
     let ingress = Arc::new(Ingress::new(vec![
         Account::new("sk-alice", "alice").with_budget(MicroUsd::from_micros(1_000_000)),
@@ -588,7 +588,7 @@ async fn a_caller_cannot_move_its_spend_off_its_account_with_its_own_mission() {
 #[tokio::test]
 async fn a_capped_account_cannot_call_a_model_the_catalogue_does_not_price() {
     let (upstream, calls) = counting_upstream().await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger = dir.path().join("ledger.jsonl");
     let ingress = Arc::new(Ingress::new(vec![
         Account::new("sk-capped", "capped").with_budget(MicroUsd::from_micros(2_000_000)),
@@ -628,7 +628,7 @@ async fn calls_in_flight_hold_their_estimate_so_together_they_cannot_overrun_the
         )
     };
     let upstream = spawn(app).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger = dir.path().join("ledger.jsonl");
     let state = gateway_state(upstream, ledger.clone());
     // Room for one call's worst case, not two.
@@ -765,7 +765,7 @@ async fn eventually(check: impl Fn() -> bool) -> bool {
 async fn a_caller_that_hangs_up_keeps_its_reservation_until_the_call_is_settled() {
     for (body, wait_for) in [(BODY, ""), (STREAMED, "PARTIAL")] {
         let (upstream, arrived, gate) = gated_upstream().await;
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let ledger = dir.path().join("ledger.jsonl");
         let state = gateway_state(upstream, ledger.clone());
         // Room for one call's worst case, not two.
@@ -826,7 +826,7 @@ async fn recording_upstream() -> (SocketAddr, Arc<Mutex<Vec<Value>>>) {
 #[tokio::test]
 async fn a_capped_call_that_names_no_limit_reaches_the_provider_with_the_one_reserved() {
     let (upstream, seen) = recording_upstream().await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ingress = Arc::new(Ingress::new(vec![
         Account::new("sk-capped", "capped").with_budget(MicroUsd::from_micros(2_000_000)),
         Account::new("sk-open", "uncapped"),
@@ -853,7 +853,7 @@ async fn a_capped_call_that_names_no_limit_reaches_the_provider_with_the_one_res
 #[tokio::test]
 async fn a_capped_call_reaches_the_provider_asking_for_no_more_than_was_priced() {
     let (upstream, seen) = recording_upstream().await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger = dir.path().join("ledger.jsonl");
     let state = gateway_state(upstream, ledger.clone());
     let message = r#""messages":[{"role":"user","content":"ping"}]"#;
@@ -898,7 +898,7 @@ async fn a_capped_call_reaches_the_provider_asking_for_no_more_than_was_priced()
 #[tokio::test]
 async fn a_capped_calls_limit_reaches_the_provider_as_the_max_tokens_every_server_reads() {
     let (upstream, seen) = recording_upstream().await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ingress = Arc::new(Ingress::new(vec![
         Account::new("sk-capped", "capped").with_budget(MicroUsd::from_micros(2_000_000))
     ]));
@@ -958,7 +958,7 @@ async fn a_capped_call_to_a_provider_that_refuses_max_tokens_is_answered_and_set
         )
     };
     let upstream = spawn(app).await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger = dir.path().join("ledger.jsonl");
     let ingress = Arc::new(Ingress::new(vec![
         Account::new("sk-capped", "capped").with_budget(MicroUsd::from_micros(2_000_000))
@@ -1011,7 +1011,7 @@ fn row(mission: &str, micros: u64) -> crate::ledger::LedgerEntry {
 #[tokio::test]
 async fn an_unnamed_accounts_spend_booked_under_its_token_still_counts_against_its_cap() {
     let (upstream, calls) = counting_upstream().await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger = dir.path().join("ledger.jsonl");
     let token = "sk-unnamed-before-the-upgrade";
     // $0.99999 of the $1.00 cap was spent under the token before the

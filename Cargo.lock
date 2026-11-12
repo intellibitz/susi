@@ -937,7 +937,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-tempfile",
  "susi-vendor-winapi",
 ]
 
@@ -1023,7 +1022,6 @@ dependencies = [
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
  "susi-vendor-syn",
- "susi-vendor-tempfile",
 ]
 
 [[package]]
@@ -1090,7 +1088,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-tempfile",
  "susi-vendor-tokio",
 ]
 
@@ -1108,7 +1105,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-tempfile",
 ]
 
 [[package]]
@@ -1128,7 +1124,6 @@ dependencies = [
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
  "susi-vendor-syn",
- "susi-vendor-tempfile",
  "susi-vendor-tokio",
  "susi-vendor-tokio-rustls",
  "susi-wire-client",
@@ -1146,7 +1141,6 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
- "susi-vendor-tempfile",
  "susi-vendor-tokio",
  "susi-vendor-windows-registry",
  "susi-windows-runtime",
@@ -1176,7 +1170,6 @@ dependencies = [
  "susi-sandbox-client",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
- "susi-vendor-tempfile",
  "susi-vendor-tokio",
  "susi-vendor-wasmtime",
 ]
@@ -1239,7 +1232,6 @@ dependencies = [
  "susi-sandbox-client",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
- "susi-vendor-tempfile",
 ]
 
 [[package]]
@@ -1333,10 +1325,6 @@ dependencies = [
  "syn 3.0.10",
  "unicode-ident",
 ]
-
-[[package]]
-name = "susi-vendor-tempfile"
-version = "0.1.0"
 
 [[package]]
 name = "susi-vendor-tokio"

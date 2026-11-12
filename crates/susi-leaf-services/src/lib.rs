@@ -238,8 +238,8 @@ mod router_tests {
 
     /// `SUSI_HOME` gives the test a fully isolated substrate root; seeding
     /// `<root>/api_token` arms the host-token policy.
-    fn isolated_home() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
+    fn isolated_home() -> susi_paths::tempfile::TempDir {
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         std::env::set_var("SUSI_HOME", dir.path());
         dir
     }

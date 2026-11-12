@@ -565,8 +565,8 @@ mod tests {
         std::fs::write(dir.join(name), body).unwrap();
     }
 
-    fn repo() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
+    fn repo() -> susi_paths::tempfile::TempDir {
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".agents/tasks/done")).unwrap();
         std::fs::write(
             dir.path().join(".agents/roadmap.json"),
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn a_legacy_task_gets_scopes_inferred_from_its_goal() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".agents/tasks/done")).unwrap();
         std::fs::create_dir_all(dir.path().join("crates/susi-gmcp")).unwrap();
         std::fs::create_dir_all(dir.path().join("tests")).unwrap();
@@ -708,7 +708,7 @@ mod tests {
 
     #[test]
     fn no_ready_task_is_an_error() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         assert!(plan_batch(dir.path(), "m", 2, &[], None, &[]).is_err());
     }
     #[test]

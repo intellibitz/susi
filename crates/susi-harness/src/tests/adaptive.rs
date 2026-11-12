@@ -229,8 +229,8 @@ fn invocations_pipe_the_prompt_on_stdin_for_every_tool() {
 
 #[test]
 fn discovery_finds_mock_binaries_and_the_first_directory_wins() {
-    let first = tempfile::tempdir().unwrap();
-    let second = tempfile::tempdir().unwrap();
+    let first = susi_paths::tempfile::tempdir().unwrap();
+    let second = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(first.path().join("claude.exe"), b"").unwrap();
     std::fs::write(first.path().join("gemini.cmd"), b"").unwrap();
     std::fs::write(second.path().join("claude"), b"").unwrap();
@@ -260,7 +260,7 @@ fn discovery_finds_mock_binaries_and_the_first_directory_wins() {
 
 #[test]
 fn antigravity_resolves_the_requested_model_without_permission_bypass() {
-    let installed = tempfile::tempdir().unwrap();
+    let installed = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(installed.path().join("agy.exe"), b"").unwrap();
     let runner = CliSubRunner::default().with_search_dirs(vec![installed.path().to_path_buf()]);
     let resolved = runner
@@ -316,7 +316,7 @@ fn argon_builder_enforces_cli_policy_before_an_override_can_launch() {
 
 #[test]
 fn argon_policy_pins_missing_model_and_refuses_conflicts_before_launch() {
-    let installed = tempfile::tempdir().unwrap();
+    let installed = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(installed.path().join("agy.exe"), b"").unwrap();
     let runner = CliSubRunner {
         antigravity_argon_only: true,
@@ -672,7 +672,7 @@ fn a_double_failure_reports_both_planes() {
 
 #[test]
 fn a_missing_cli_tool_is_a_failed_turn_that_fails_over_to_payg() {
-    let empty = tempfile::tempdir().unwrap();
+    let empty = susi_paths::tempfile::tempdir().unwrap();
     let cli = CliSubRunner::default().with_search_dirs(vec![empty.path().to_path_buf()]);
     let outcome = cli.run(&config("cli:claude")).unwrap();
     let RunOutcome::Failed { message } = &outcome else {
@@ -695,7 +695,7 @@ fn a_missing_cli_tool_is_a_failed_turn_that_fails_over_to_payg() {
 
 #[test]
 fn cli_resolution_prefers_the_spec_then_the_default_then_discovery() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("codex"), b"").unwrap();
     std::fs::write(dir.path().join("claude"), b"").unwrap();
     let dirs = vec![dir.path().to_path_buf()];

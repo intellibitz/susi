@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn a_resolvable_plan_passes() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let facts = facts(dir.path());
         assert!(validate_plan(
             &plan("cargo test -p susi-harness", "docs/harness.md"),
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn an_unknown_package_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let facts = facts(dir.path());
         let error = validate_plan(&plan("cargo test -p gmcp", "docs"), &facts).unwrap_err();
         assert!(error.to_string().contains("not in this workspace"));
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn a_non_test_acceptance_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let facts = facts(dir.path());
         assert!(validate_plan(&plan("cargo check -p susi-harness", "docs"), &facts).is_err());
         assert!(validate_plan(&plan("scripts/missing.sh", "docs"), &facts).is_err());
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn a_scope_outside_the_repository_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let facts = facts(dir.path());
         assert!(
             validate_plan(&plan("cargo test -p susi-harness", "nope/file.md"), &facts).is_err()
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_acceptance_empty_scope_and_absolute_scope_paths() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let facts = facts(dir.path());
         assert!(validate_plan(&plan("   ", "docs"), &facts).is_err());
         assert!(validate_plan(&plan("cargo test -p susi-harness", "   "), &facts).is_err());

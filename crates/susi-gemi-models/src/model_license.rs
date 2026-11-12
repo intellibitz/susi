@@ -639,7 +639,7 @@ mod tests {
         ] {
             assert!(artifact(url).is_err());
         }
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("model.gguf");
         std::fs::write(&path, b"weight fixture").unwrap();
         assert!(verify_local(&path).is_err());
@@ -683,7 +683,7 @@ mod tests {
     #[test]
     fn scoped_reads_authenticate_each_receipt_and_reject_replacements() {
         use std::fs;
-        let d = tempfile::tempdir().unwrap();
+        let d = susi_paths::tempfile::tempdir().unwrap();
         let path = d.path().join("admission.gguf");
         let alternate = std::path::PathBuf::from(format!("{}:other", path.display()));
         fs::write(&path, b"original").unwrap();
@@ -796,7 +796,7 @@ mod tests {
     #[test]
     fn resident_lease_follows_live_bytes_and_authenticated_receipt_across_threads() {
         use std::fs;
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("resident.gguf");
         fs::write(&path, b"original").unwrap();
         let alternate = std::path::PathBuf::from(format!("{}:other", path.display()));
@@ -914,7 +914,7 @@ mod tests {
     }
     #[test]
     fn unprotected_decoder_hashes_the_private_snapshot_and_consumed_tokenizer_bytes() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let plain = dir.path().join("weight");
         std::fs::write(&plain, b"plain").unwrap();
         #[cfg(windows)]

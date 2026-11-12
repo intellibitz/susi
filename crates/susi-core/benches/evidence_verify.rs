@@ -9,7 +9,7 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 use susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
 use susi_core::truth::TruthTransformer;
-use tempfile::TempDir;
+use susi_paths::tempfile::TempDir;
 
 fn run_bench<F: FnMut()>(name: &str, iterations: u64, mut f: F) {
     let warmup = (iterations / 10).max(16);

@@ -812,7 +812,7 @@ fn scripted(servers: &Servers) -> Vec<(String, String)> {
 
 #[test]
 fn the_http_surfaces_answer_byte_for_byte_as_recorded() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
         .enable_all()

@@ -311,7 +311,7 @@ mod tests {
     fn temp_ws() -> PathBuf {
         // A clock value is not a reservation: concurrent Windows tests can
         // observe the same tick and remove one another's snapshot workspace.
-        tempfile::Builder::new()
+        susi_paths::tempfile::Builder::new()
             .prefix("susi-tx-")
             .tempdir()
             .unwrap()

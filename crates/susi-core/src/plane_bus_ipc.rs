@@ -313,7 +313,7 @@ impl IpcPlaneBus {
     /// connect failure or squatted port reuse.
     fn candidates(&self, topic: &str) -> Vec<(PathBuf, SocketAddr)> {
         let dirs = self.rendezvous_dirs();
-        let manifests_by_dir: Vec<(&PathBuf, Vec<(PathBuf, RouteManifest)>)> = dirs
+        let manifests_by_dir: Vec<_> = dirs
             .iter()
             .map(|dir| (dir, read_dir_route_manifests(dir)))
             .collect();

@@ -33,7 +33,7 @@ fn publish(
 
 #[test]
 fn publication_without_a_declared_digest_is_not_reported_verified() {
-    let root = tempfile::tempdir().unwrap();
+    let root = susi_paths::tempfile::tempdir().unwrap();
     let store = Store::new(root.path());
     let mut unverified = plan();
     unverified.sha256 = None;
@@ -52,7 +52,7 @@ fn publication_without_a_declared_digest_is_not_reported_verified() {
 
 #[test]
 fn range_producer_replaces_old_payload_and_invalidates_old_provenance() {
-    let root = tempfile::tempdir().unwrap();
+    let root = susi_paths::tempfile::tempdir().unwrap();
     let store = Store::new(root.path());
     let models = root.path().join("models");
     fs::create_dir_all(&models).unwrap();
@@ -80,7 +80,7 @@ fn range_producer_replaces_old_payload_and_invalidates_old_provenance() {
 
 #[test]
 fn failed_artifact_rename_cannot_leave_stale_readiness() {
-    let root = tempfile::tempdir().unwrap();
+    let root = susi_paths::tempfile::tempdir().unwrap();
     let store = Store::new(root.path());
     let models = root.path().join("models");
     // A directory cannot be overwritten by the staged file on supported hosts.
@@ -95,7 +95,7 @@ fn failed_artifact_rename_cannot_leave_stale_readiness() {
 
 #[test]
 fn readiness_invalidation_failure_does_not_replace_existing_bytes() {
-    let root = tempfile::tempdir().unwrap();
+    let root = susi_paths::tempfile::tempdir().unwrap();
     let store = Store::new(root.path());
     let models = root.path().join("models");
     fs::create_dir_all(models.join("model.gguf.manifest.json")).unwrap();
@@ -108,7 +108,7 @@ fn readiness_invalidation_failure_does_not_replace_existing_bytes() {
 
 #[test]
 fn interrupted_range_transfer_preserves_previous_ready_version() {
-    let root = tempfile::tempdir().unwrap();
+    let root = susi_paths::tempfile::tempdir().unwrap();
     let store = Store::new(root.path());
     publish(&store).unwrap();
     let result = store.publish(NAME, &plan(), &|_| {
@@ -126,7 +126,7 @@ fn interrupted_range_transfer_preserves_previous_ready_version() {
 #[test]
 fn provenance_rename_failure_rolls_payload_back_to_staging() {
     use std::os::windows::fs::OpenOptionsExt;
-    let root = tempfile::tempdir().unwrap();
+    let root = susi_paths::tempfile::tempdir().unwrap();
     let store = Store::new(root.path());
     let staged = store.staging_target(NAME);
     fs::create_dir_all(staged.parent().unwrap()).unwrap();

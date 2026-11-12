@@ -64,7 +64,7 @@ fn setup_storage_and_work(root: &Path) -> (PathBuf, PathBuf, String) {
 #[test]
 fn sweep_pending_branches_merges_clean_siblings_isolates_conflicts_and_skips_protected_and_retired()
 {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = susi_paths::tempfile::tempdir().unwrap();
     let (remote_bare, work, base_oid) = setup_storage_and_work(tmp.path());
 
     // 1. Clean branch A
@@ -254,7 +254,7 @@ fn sweep_pending_branches_merges_clean_siblings_isolates_conflicts_and_skips_pro
 
 #[test]
 fn dirty_local_worktree_is_preserved_during_include_local_sweep() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = susi_paths::tempfile::tempdir().unwrap();
     let (_remote_bare, work, base_oid) = setup_storage_and_work(tmp.path());
 
     let peer_wt = tmp.path().join("peer-wt");
@@ -365,7 +365,7 @@ fn push_verified_rc(work: &Path, base_oid: &str, name: &str, task_id: &str) -> S
 #[test]
 fn promote_release_candidate_ranks_natural_rc_numbers_promotes_verified_envelope_and_refuses_unqualified_main(
 ) {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = susi_paths::tempfile::tempdir().unwrap();
     let (remote_bare, work, base_oid) = setup_storage_and_work(tmp.path());
 
     let _rc9_final = push_verified_rc(&work, &base_oid, "v0.21.56-distilled-rc9", "T-RC-9");
@@ -473,7 +473,7 @@ fn promote_release_candidate_ranks_natural_rc_numbers_promotes_verified_envelope
 
 #[test]
 fn sweep_handles_large_task_ledger_without_pipe_deadlock_and_discovers_susi_distill_tags() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = susi_paths::tempfile::tempdir().unwrap();
     let (remote_bare, work, _base_oid) = setup_storage_and_work(tmp.path());
 
     git(&work, &["checkout", "main"]);
@@ -585,7 +585,7 @@ fn sweep_handles_large_task_ledger_without_pipe_deadlock_and_discovers_susi_dist
 
 #[test]
 fn sweep_reads_agent_refs_mirrors_them_pruned_and_still_reads_legacy_agent_branches() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = susi_paths::tempfile::tempdir().unwrap();
     let (remote_bare, work, base_oid) = setup_storage_and_work(tmp.path());
 
     // Work published the 2026-11-11 way: a non-branch agent ref.
@@ -701,7 +701,7 @@ fn agent_ref_names_normalize_to_the_worktree_branch_name() {
 
 #[test]
 fn retire_remote_clutter_preserves_snapshots_and_protects_main_claims_and_unmerged_inboxes() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = susi_paths::tempfile::tempdir().unwrap();
     let (remote_bare, work, base_oid) = setup_storage_and_work(tmp.path());
 
     // 1. Add a RETIRE ledger entry on `main` for `local-agent/retired-wave`.

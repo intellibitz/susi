@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn cloud_quota_inventory_preserves_multiple_keys_with_opaque_ids() {
-        let root = tempfile::tempdir().unwrap();
+        let root = susi_paths::tempfile::tempdir().unwrap();
         let a = save(root.path(), "ANTHROPIC_API_KEY", "canary-one").unwrap();
         let b = save(root.path(), "ANTHROPIC_API_KEY", "canary-two").unwrap();
         assert_ne!(a, b);
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn credential_budget_and_spend_caps_work() {
-        let root = tempfile::tempdir().unwrap();
+        let root = susi_paths::tempfile::tempdir().unwrap();
         let id = save_with_options(
             root.path(),
             "OPENAI_API_KEY",
@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn save_with_options_rejects_empty_control_chars_and_invalid_vendor_env() {
-        let root = tempfile::tempdir().unwrap();
+        let root = susi_paths::tempfile::tempdir().unwrap();
         assert!(save_with_options(root.path(), "OPENAI_API_KEY", "", None, None).is_err());
         assert!(save_with_options(root.path(), "OPENAI_API_KEY", "sk-\n-bad", None, None).is_err());
         assert!(save_with_options(root.path(), "", "sk-valid-key", None, None).is_err());
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn mask_key_handles_short_keys_and_cli_keys_set_remove_by_id_work() {
-        let root = tempfile::tempdir().unwrap();
+        let root = susi_paths::tempfile::tempdir().unwrap();
         let short_id =
             save_with_options(root.path(), "OPENAI_API_KEY", "short123", None, None).unwrap();
         let short_cred = get_by_id(root.path(), &short_id).unwrap().unwrap();
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn cli_keys_list_empty_store_and_resave_preserves_existing_spend() {
-        let root = tempfile::tempdir().unwrap();
+        let root = susi_paths::tempfile::tempdir().unwrap();
         let empty_msg = cli_keys_list(root.path()).unwrap();
         assert!(empty_msg.contains("No BYOK credentials registered"));
 

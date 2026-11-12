@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn the_feed_round_trips_through_a_file() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("events.jsonl");
         let first = Event::new(1, 10, EventKind::MissionStarted, "started").with_mission("m");
         let second = Event::new(2, 20, EventKind::TaskDispatched, "task")
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn read_events_skips_blank_lines_and_reports_line_number_on_malformed_json() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("events.jsonl");
         let first = Event::new(1, 10, EventKind::MissionStarted, "started");
         let valid = serde_json::to_string(&first).unwrap();

@@ -1197,3 +1197,11 @@ config, core and the tail.
   mission's own redacted replies. Paid by moving `capabilities.rs`'s inline
   unit tests to `src/tests/capabilities.rs`; `susi-gawd-a2a` ratchets
   `3,413 -> 3,347`. No dependency added.
+- 2026-11-12 (T-CARBONCLOUD-3, Linux x86_64): fold pure-std
+  `crates/susi-vendor-tempfile` into `crates/susi-paths/src/tempfile.rs`
+  (`susi_paths::tempfile`) and delete `crates/susi-vendor-tempfile`
+  (`VENDOR_FACADES` `17 -> 16`, `WORKSPACE_MEMBERS_CEILING` `50 -> 49`,
+  `CARGO_LOCK_PACKAGES_CEILING` `182 -> 181`), removing 8 workspace
+  `[dev-dependencies]` facade edges across `susi-core`, `susi-gawd`,
+  `susi-gemi-models`, `susi-gemi`, `susi-gmcp`, `susi-harness`,
+  `susi-leaf-services` and `susi-tools` with zero new dependencies.

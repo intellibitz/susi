@@ -318,7 +318,7 @@ mod tests {
     use super::*;
     #[test]
     fn native_shortcut_and_expandable_user_path_are_idempotent() {
-        let scratch = tempfile::tempdir().unwrap();
+        let scratch = susi_paths::tempfile::tempdir().unwrap();
         let root = scratch.path().join("生产 Ω");
         fs::create_dir(&root).unwrap();
         fs::create_dir(root.join("entry")).unwrap();
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn retired_shell_shortcut_is_replaced_as_susis_own_link() {
-        let scratch = tempfile::tempdir().unwrap();
+        let scratch = susi_paths::tempfile::tempdir().unwrap();
         let root = scratch.path().join("production");
         fs::create_dir_all(root.join("entry")).unwrap();
         fs::copy(
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn notification_complete_requires_pending_marker_and_register_refuses_foreign_shortcut() {
-        let scratch = tempfile::tempdir().unwrap();
+        let scratch = susi_paths::tempfile::tempdir().unwrap();
         let root = scratch.path().join("production");
         fs::create_dir_all(root.join("entry")).unwrap();
         fs::copy(

@@ -249,7 +249,7 @@ fn start_worktree_reads_the_native_worktree_field() {
 /// Native creation supplies a private target without invoking a shell seeder.
 #[test]
 fn start_worktree_uses_native_private_target_without_shell_seeding() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("scripts")).unwrap();
     std::fs::write(
         dir.path().join("scripts/seed-target.sh"),
@@ -267,7 +267,7 @@ fn start_worktree_uses_native_private_target_without_shell_seeding() {
 
 #[test]
 fn add_task_returns_the_id_and_claim_reserves_scopes() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     target
         .start_scoped_worktree("demo", &["docs".into()], None)
@@ -290,7 +290,7 @@ fn add_task_returns_the_id_and_claim_reserves_scopes() {
 
 #[test]
 fn acceptance_is_read_from_the_task_file_and_run_in_the_worktree() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let tasks = dir.path().join(".agents").join("tasks");
     std::fs::create_dir_all(&tasks).unwrap();
     std::fs::write(
@@ -318,7 +318,7 @@ fn acceptance_is_read_from_the_task_file_and_run_in_the_worktree() {
 
 #[test]
 fn acceptance_argv_is_read_from_the_queue_shape() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let tasks = dir.path().join(".agents").join("tasks");
     std::fs::create_dir_all(&tasks).unwrap();
     std::fs::write(
@@ -343,7 +343,7 @@ fn a_failed_command_is_an_error_with_its_tail() {
 
 #[test]
 fn failed_native_integration_retains_candidate_and_claim() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     target.start_worktree("demo").unwrap();
     let id = target.add_task(dir.path(), "proof", "cargo test").unwrap();
@@ -370,8 +370,8 @@ fn failed_native_integration_retains_candidate_and_claim() {
 }
 
 /// A second worktree with its own native claim, beside the target's own.
-fn second_worktree(name: &str) -> (tempfile::TempDir, String) {
-    let dir = tempfile::tempdir().unwrap();
+fn second_worktree(name: &str) -> (susi_paths::tempfile::TempDir, String) {
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let id = local_task_id(name);
     // `require_scope` lowercases the path, not the claim: store lowercase.
     let scopes: Vec<String> = task_scopes(&id)
@@ -385,7 +385,7 @@ fn second_worktree(name: &str) -> (tempfile::TempDir, String) {
 
 #[test]
 fn finish_batch_integrates_every_claim_in_one_call_then_releases_each() {
-    let one = tempfile::tempdir().unwrap();
+    let one = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(one.path());
     target.start_worktree("one").unwrap();
     let first = target.add_task(one.path(), "first", "cargo test").unwrap();
@@ -435,7 +435,7 @@ fn finish_batch_integrates_every_claim_in_one_call_then_releases_each() {
 
 #[test]
 fn a_failed_batch_integration_releases_nothing() {
-    let one = tempfile::tempdir().unwrap();
+    let one = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(one.path());
     target.start_worktree("one").unwrap();
     let first = target.add_task(one.path(), "first", "cargo test").unwrap();
@@ -460,8 +460,8 @@ fn a_failed_batch_integration_releases_nothing() {
 
 #[test]
 fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
-    let candidate = tempfile::tempdir().unwrap();
-    let primary = tempfile::tempdir().unwrap();
+    let candidate = susi_paths::tempfile::tempdir().unwrap();
+    let primary = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(candidate.path());
     target
         .start_scoped_worktree("demo", &["docs/first.md".into()], None)
@@ -524,7 +524,7 @@ fn private_candidate_done_record_preserves_real_queue_dependency_contract() {
 
 #[test]
 fn task_admission_preserves_existing_records_and_requires_native_ownership() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     assert!(target
         .add_task(dir.path(), "no owner", "cargo test")
@@ -567,8 +567,8 @@ fn acceptance_preserves_quoted_arguments_and_rejects_shell_expressions() {
 
 #[test]
 fn linked_task_directory_is_not_written() {
-    let dir = tempfile::tempdir().unwrap();
-    let elsewhere = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
+    let elsewhere = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     target.start_worktree("demo").unwrap();
     std::fs::create_dir_all(dir.path().join(".agents")).unwrap();
@@ -591,7 +591,7 @@ impl Runner for FakeExec {
 
 #[test]
 fn a_prepared_run_claims_commits_accepts_and_reports() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     let exec = NativeExec {
         state: target.runner.state.clone(),
@@ -627,7 +627,7 @@ fn a_prepared_run_claims_commits_accepts_and_reports() {
 
 #[test]
 fn an_existing_queue_task_is_claimed_not_minted() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join(".agents/tasks")).unwrap();
     std::fs::write(
         dir.path().join(".agents/tasks/T-EXIST-1.json"),
@@ -668,7 +668,7 @@ fn an_existing_queue_task_is_claimed_not_minted() {
 
 #[test]
 fn an_agent_failure_is_not_accepted() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     let exec = NativeExec {
         state: target.runner.state.clone(),
@@ -697,7 +697,7 @@ fn an_agent_failure_is_not_accepted() {
 
 #[test]
 fn a_record_only_commit_is_not_work() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     let exec = NativeExec {
         state: target.runner.state.clone(),
@@ -720,12 +720,12 @@ fn a_record_only_commit_is_not_work() {
 
 #[test]
 fn a_missing_acceptance_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     assert!(target(vec![]).acceptance_argv(dir.path(), "T-404").is_err());
 }
 #[test]
 fn commit_formats_before_it_stages() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     target.start_worktree("demo").unwrap();
     target.add_task(dir.path(), "record", "cargo test").unwrap();
@@ -799,8 +799,8 @@ fn link_dir(to: &Path, link: &Path) {
 /// A shared target is refused without deleting another agent's build output.
 #[test]
 fn gate_refuses_shared_target_without_touching_other_agent_output() {
-    let dir = tempfile::tempdir().unwrap();
-    let shared = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
+    let shared = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(shared.path().join("keep"), "other agent output").unwrap();
     link_dir(shared.path(), &dir.path().join("target"));
     let target = target(Vec::new());
@@ -817,7 +817,7 @@ fn gate_refuses_shared_target_without_touching_other_agent_output() {
 /// Native ownership refusal preserves existing directories and files.
 #[test]
 fn native_start_refusal_preserves_existing_work() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("keep.txt"), "preserve prior work").unwrap();
     let target = target(vec![RunOutput {
         status: 1,
@@ -919,7 +919,7 @@ fn one_model_task(dir: &Path) -> SusiTaskSpec {
 /// seconds with "the attempt cap was reached" and no call made.
 #[test]
 fn a_single_model_whose_last_call_was_rate_limited_still_gets_an_attempt() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger = dir.path().join("ledger.jsonl");
     let now = now_unix_ms();
     append_entry(
@@ -959,7 +959,7 @@ fn a_single_model_whose_last_call_was_rate_limited_still_gets_an_attempt() {
 
 #[test]
 fn a_ladder_whose_every_key_was_refused_stops_the_mission_without_a_call() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger = dir.path().join("ledger.jsonl");
     // Refused just now: too recent to probe, so no call leaves the test.
     append_entry(
@@ -1049,7 +1049,7 @@ fn a_transient_failure_moves_a_model_back_only_for_the_cooldown() {
 /// An ancestry check performs no fetch, cleanup, or retry reset.
 #[test]
 fn sync_checks_local_ancestry_without_discarding_edits() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     native_claim_fixture(dir.path(), "demo", &["docs".into()]);
     let target = target(vec![ok("")]);
     target.sync(dir.path()).unwrap();
@@ -1062,7 +1062,7 @@ fn sync_checks_local_ancestry_without_discarding_edits() {
 /// Any other refusal is the caller's to see: retrying would hide it.
 #[test]
 fn sync_reports_a_refusal_that_is_not_leftovers() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     native_claim_fixture(dir.path(), "demo", &["docs".into()]);
     let target = target(vec![RunOutput {
         status: 1,
@@ -1129,7 +1129,7 @@ fn test_attributes_are_counted_the_way_the_gate_counts_them() {
 /// `the native claim base` before the sync, the claim and anything that judges it.
 #[test]
 fn reused_worktree_ahead_with_code_is_preserved_and_refused() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     target.runner.state.lock().unwrap().prior_changes = true;
     target
@@ -1150,7 +1150,7 @@ fn reused_worktree_ahead_with_code_is_preserved_and_refused() {
 /// first as before.
 #[test]
 fn worktree_matching_native_base_is_not_reset() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     target.start_worktree("demo").unwrap();
     assert!(target.reset_reused_worktree(dir.path()).unwrap().is_empty());
@@ -1166,7 +1166,7 @@ fn worktree_matching_native_base_is_not_reset() {
 /// never closed as "already passes on the untouched base".
 #[test]
 fn precheck_refuses_code_ahead_of_native_base() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     target.runner.state.lock().unwrap().prior_changes = true;
     let exec = NativeExec {
@@ -1198,7 +1198,7 @@ fn precheck_refuses_code_ahead_of_native_base() {
 /// equals the native claim base plus the record.
 #[test]
 fn the_precheck_closes_a_task_that_passes_on_the_untouched_base() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     let exec = NativeExec {
         state: target.runner.state.clone(),
@@ -1233,7 +1233,7 @@ fn the_precheck_closes_a_task_that_passes_on_the_untouched_base() {
 /// and resets the tree so the next model is not handed the deletion.
 #[test]
 fn an_attempt_that_deletes_tests_is_rejected_before_it_is_committed() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("tests")).unwrap();
     std::fs::write(
         dir.path().join("tests/gmcp_requirements.rs"),
@@ -1274,7 +1274,7 @@ fn an_attempt_that_deletes_tests_is_rejected_before_it_is_committed() {
 /// attempt is judged on its acceptance like any other.
 #[test]
 fn a_test_moved_between_changed_files_is_not_a_deletion() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a.rs"), "#[test]\nfn a() {}\n").unwrap();
     std::fs::write(
         dir.path().join("b.rs"),
@@ -1298,7 +1298,7 @@ fn a_test_moved_between_changed_files_is_not_a_deletion() {
 /// none.
 #[test]
 fn a_deleted_test_file_is_a_deletion_and_a_new_one_is_not() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("new.rs"), "#[test]\nfn n() {}\n").unwrap();
     let target = target(vec![
         ok("gone.rs\nnew.rs\n"),
@@ -1324,7 +1324,7 @@ fn a_deleted_test_file_is_a_deletion_and_a_new_one_is_not() {
 /// lets the deletion through without a diff.
 #[test]
 fn the_test_removal_override_skips_the_check() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = target(vec![]);
     assert_eq!(
         target
@@ -1341,7 +1341,7 @@ fn the_test_removal_override_skips_the_check() {
 /// record, and the ladder reads a failure.
 #[test]
 fn an_attempt_that_rewrites_a_file_is_rejected_before_it_is_committed() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let target = native_target(dir.path());
     target.runner.state.lock().unwrap().rewritten = true;
     let exec = NativeExec {

@@ -232,13 +232,13 @@ mod tests {
 
     #[test]
     fn a_missing_log_is_empty() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         assert!(read_records(&dir.path().join("absent.jsonl")).is_empty());
     }
 
     #[test]
     fn submit_refuses_an_invalid_command_but_records_it() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("control.jsonl");
         let ack = submit(
             &path,

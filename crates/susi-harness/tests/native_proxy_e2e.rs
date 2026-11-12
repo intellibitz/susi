@@ -86,7 +86,7 @@ async fn call(
 
 #[tokio::test]
 async fn native_proxy_ingress_is_priced_cached_and_capped() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("ledger.jsonl");
 
     let calls = Arc::new(AtomicUsize::new(0));
@@ -244,7 +244,7 @@ fn account_with_budget_and_ingress_construct_deterministically() {
 
 #[test]
 fn response_cache_and_micro_usd_zero_invariants_hold() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = susi_paths::tempfile::tempdir().unwrap();
     let _cache = ResponseCache::new(Some(dir.path().to_path_buf()));
     assert_eq!(MicroUsd::ZERO, MicroUsd::from_micros(0));
     assert!(MicroUsd::from_micros(5) > MicroUsd::ZERO);

@@ -286,7 +286,7 @@ pub fn call_tool_direct(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use susi_paths::tempfile::tempdir;
 
     #[test]
     fn test_format_tool_response_success_and_error() {

@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn a_catalogue_loads_from_a_file() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("prices.json");
         std::fs::write(&path, DOC).unwrap();
         let catalogue = PriceCatalogue::load(&path).unwrap();
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_an_error() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         assert!(PriceCatalogue::load(&dir.path().join("absent.json")).is_err());
     }
 }

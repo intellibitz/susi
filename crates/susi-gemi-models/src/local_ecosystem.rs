@@ -981,7 +981,7 @@ mod tests {
 
     #[test]
     fn windows_executable_suffix_is_discovered_without_shell() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let executable = dir.path().join("ollama.exe");
         std::fs::write(&executable, "fixture").unwrap();
         #[cfg(unix)]

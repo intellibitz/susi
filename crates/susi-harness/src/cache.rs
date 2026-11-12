@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn cache_persists_to_disk() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = susi_paths::tempfile::tempdir().unwrap();
         let cache1 = ResponseCache::new(Some(temp.path().to_path_buf()));
         let resp = json!({"choices": [{"message": {"content": "persisted"}}]});
         cache1.set("persisted_key", &resp);
@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn an_answer_over_the_entry_bound_is_not_cached() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = susi_paths::tempfile::tempdir().unwrap();
         let bounds = CacheBounds {
             entry_bytes: 64,
             ..CacheBounds::default()
@@ -419,7 +419,7 @@ mod tests {
     /// a gateway starts, so it no longer grows for as long as one runs.
     #[test]
     fn the_disk_drops_its_least_recently_written_answers_past_its_bounds() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = susi_paths::tempfile::tempdir().unwrap();
         let unbounded = ResponseCache::new(Some(temp.path().to_path_buf()));
         let now = SystemTime::now();
         for (age, key) in [(5, "k5"), (4, "k4"), (3, "k3"), (2, "k2"), (1, "k1")] {

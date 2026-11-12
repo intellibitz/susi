@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn events_round_trip_and_cost_is_dollars() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join(".agents").join("rsi-loop.jsonl");
         append(
             &path,
@@ -233,13 +233,13 @@ mod tests {
 
     #[test]
     fn a_missing_log_is_empty() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         assert!(read(&dir.path().join("absent.jsonl")).unwrap().is_empty());
     }
 
     #[test]
     fn a_blank_task_or_phase_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("rsi-loop.jsonl");
         assert!(append(&path, &LifecycleEvent::new("", "merged", 1)).is_err());
         assert!(append(&path, &LifecycleEvent::new("T-1", "", 1)).is_err());
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn task_cost_sums_only_that_missions_task() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let ledger = dir.path().join("ledger.jsonl");
         let entry = |mission: &str, task: &str, micros: u64| {
             LedgerEntry::settle(Dispatch {
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn now_unix_is_positive_and_read_skips_blank_lines_or_errors_on_corrupt_json() {
         assert!(now_unix() > 0);
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let path = dir.path().join("lifecycle.jsonl");
         let evt = LifecycleEvent::new("T-2", "claimed", 123)
             .with_outcome("ok")

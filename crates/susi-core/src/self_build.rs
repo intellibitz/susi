@@ -151,8 +151,8 @@ pub fn brief_task(workspace: &Path, task: &str) -> String {
 mod tests {
     use super::*;
 
-    fn tree(cargo: &str, constitution: bool) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
+    fn tree(cargo: &str, constitution: bool) -> susi_paths::tempfile::TempDir {
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Cargo.toml"), cargo).unwrap();
         if constitution {
             std::fs::create_dir_all(dir.path().join(".agents")).unwrap();

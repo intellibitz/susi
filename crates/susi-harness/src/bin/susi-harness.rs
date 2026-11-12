@@ -744,7 +744,7 @@ mod tests {
     /// the ingress then admitted every caller, without a token, uncapped.
     #[test]
     fn an_accounts_file_with_no_account_does_not_open_a_public_gateway() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = susi_paths::tempfile::tempdir().unwrap();
         let empty = dir.path().join("empty.json");
         std::fs::write(&empty, r#"{"accounts": []}"#).unwrap();
         let error = load_ingress(&options_with("0.0.0.0", Some(&empty))).unwrap_err();

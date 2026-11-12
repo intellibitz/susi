@@ -153,7 +153,6 @@ const VENDOR_FACADES: &[&str] = &[
     "susi-vendor-serde-json",
     "susi-vendor-sha2",
     "susi-vendor-windows-registry",
-    "susi-vendor-tempfile",
     "susi-vendor-tokio",
     "susi-vendor-tokio-rustls",
     "susi-vendor-tracing",
