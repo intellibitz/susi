@@ -2,13 +2,9 @@
   "id": "T-RELEASE42PROOF-1",
   "title": "Preserve measured qualified Windows production and rollback evidence",
   "goal": "Record the admitted .42 image, trace attribution, observed host and guest ordinary launch, rollback and restoration, measured cold and cached performance, and exact limits on the Step 1 claim.",
+  "size": "s",
   "deps": [
     "T-VERSION42-1"
-  ],
-  "size": "s",
-  "scopes": [
-    ".agents/evidence/release42-windows.json",
-    ".agents/tasks/T-RELEASE42PROOF-1.json"
   ],
   "accept": {
     "cmd": [
@@ -26,5 +22,14 @@
     ]
   },
   "created_by": "RELEASE42PROOF",
-  "created_unix": 1793635496
+  "created_unix": 1793635496,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/evidence/release42-windows.json",
+    ".agents/tasks/T-RELEASE42PROOF-1.json"
+  ]
 }
