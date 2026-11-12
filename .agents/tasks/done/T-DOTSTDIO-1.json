@@ -1,12 +1,9 @@
 {
   "id": "T-DOTSTDIO-1",
-  "agent": "Codex",
-  "status": "done",
-  "scopes": [
-    ".agents/tasks/t-dotstdio-1.json",
-    "crates/susi-paths/src/bin/stdio_guard_probe.rs",
-    "crates/susi-paths/tests/cli_output_contract.rs"
-  ],
+  "title": "Replace stdio probe scheduling sleeps with an explicit pipe handshake",
+  "goal": "Remove stdio fixture scheduling delay while preserving real subprocess broken-pipe handling, full output volume, explicit setup failure, bounded cleanup, and test counts.",
+  "size": "S",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -17,18 +14,29 @@
       "--locked"
     ]
   },
-  "notes": "Codex: locally verified fixture change only; not integrated, pushed, or production-qualified. No Windows execution; cross-platform pipe protocol source reviewed.",
-  "title": "Replace stdio probe scheduling sleeps with an explicit pipe handshake",
-  "state": "done",
+  "created_by": "Codex",
+  "created_unix": 1794281327,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "agent": "Codex",
   "claimed_by": "dotstdio20261110",
   "native_worker": "dotstdio20261110",
-  "created_by": "Codex",
-  "deps": [],
+  "notes": "Codex: locally verified fixture change only; not integrated, pushed, or production-qualified. No Windows execution; cross-platform pipe protocol source reviewed.",
   "scope": [
     ".agents/tasks/t-dotstdio-1.json",
     "crates/susi-paths/src/bin/stdio_guard_probe.rs",
     "crates/susi-paths/tests/cli_output_contract.rs"
   ],
+  "scopes": [
+    ".agents/tasks/t-dotstdio-1.json",
+    "crates/susi-paths/src/bin/stdio_guard_probe.rs",
+    "crates/susi-paths/tests/cli_output_contract.rs"
+  ],
+  "state": "done",
+  "status": "done",
   "verification": {
     "package_tests_passed": 79,
     "integration_test_count": 5,
@@ -61,8 +69,5 @@
       "cargo clippy -p susi-paths --all-targets --offline --locked -- -D warnings",
       "cargo fmt --all --check"
     ]
-  },
-  "created_unix": 1794281327,
-  "goal": "Remove stdio fixture scheduling delay while preserving real subprocess broken-pipe handling, full output volume, explicit setup failure, bounded cleanup, and test counts.",
-  "size": "S"
+  }
 }
