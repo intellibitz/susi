@@ -2,14 +2,34 @@
   "id": "T-PORTFALLBACK-1",
   "title": "Automatic host-contract port fallback to the first free block of 100",
   "goal": "CEO decision 2026-11-08: when no offset is pinned (SUSI_PORT_OFFSET unset, config port_offset 0) and a foreign process holds one of the six host ports (9090-9094 contract, 9095 gossip), the daemon falls back to the smallest offset k*100 (k = 1..=20) at which all six are free, pins SUSI_PORT_OFFSET in its own process so children agree, publishes offset/pid/fallback_from in ports.json, and logs the holder. An explicit offset never falls back. Clients resolve the offset as env, explicit config, live ports.json (pid matches the live substrate lock), then 0; susi start, susi os status and the endpoint report name the fallback. Replaces the per-service zc_port_autoselect advisory.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "portfallback",
-  "native_worker": "portfallback",
-  "created_by": "portfallback",
-  "created_unix": 1794140744,
   "size": "M",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-paths",
+      "-p",
+      "susi-config",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "--offline",
+      "--locked",
+      "port"
+    ]
+  },
+  "created_by": "portfallback",
+  "created_unix": 1794140744,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi-paths -p susi-config -p susi-daemon --lib --offline --locked port runs the block picker, resolver order, ports.json round trip and explicit-offset tests",
+  "claimed_by": "portfallback",
+  "native_worker": "portfallback",
   "scope": [
     ".agents/identity.json",
     ".agents/tasks/t-portfallback-1.json",
@@ -50,21 +70,6 @@
     "src/cli/control_plane_cli.rs",
     "tests/port_fallback.rs"
   ],
-  "acceptance": "cargo test -p susi-paths -p susi-config -p susi-daemon --lib --offline --locked port runs the block picker, resolver order, ports.json round trip and explicit-offset tests",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "susi-paths",
-      "-p",
-      "susi-config",
-      "-p",
-      "susi-daemon",
-      "--lib",
-      "--offline",
-      "--locked",
-      "port"
-    ]
-  }
+  "state": "in_progress",
+  "status": "in_progress"
 }
