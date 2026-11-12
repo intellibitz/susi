@@ -2,21 +2,9 @@
   "id": "T-CLAUDEFRESH-1",
   "title": "Mandate 74 tightened: every agent works on the latest remote",
   "goal": "CEO directive 2026-11-12: every agent must pull remote changes before starting work and while continuing work, so agents always work with the latest remote. Mandate 74 clause 3 only said every workflow step 'supports' pull and merge. State the duty (fetch and merge origin/main before starting, when resuming and before every commit) in .agents/identity.json, AGENTS.md, docs/ceo-mandate-74.md and docs/ceo-agent-mandate.md. The enforcing check is Commercial T-CLAUDECOMMFRESH-1.",
-  "status": "implemented",
-  "owner": "claude",
-  "created_by": "claude",
-  "created_unix": 1794479200,
   "size": "xs",
   "deps": [
     "T-CLAUDEMANDATECLEANUP-1"
-  ],
-  "base": "beeea9279167308064a6e3f304fcbdbefe20ce9a",
-  "scopes": [
-    ".agents/identity.json",
-    "AGENTS.md",
-    "docs/ceo-mandate-74.md",
-    "docs/ceo-agent-mandate.md",
-    ".agents/tasks/T-CLAUDEFRESH-1.json"
   ],
   "accept": {
     "cmd": [
@@ -28,9 +16,26 @@
       "architecture_tests"
     ]
   },
+  "created_by": "claude",
+  "created_unix": 1794479200,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "beeea9279167308064a6e3f304fcbdbefe20ce9a",
   "limitations": [
     "Text only in this repository; the check lives in susi-commercial workflow and runs from this repository's commit hooks only when that tool is installed.",
     "A commit is refused only beyond a limit (20 commits by default), not at any lag; starting and resuming are not checked automatically.",
     "Verified on Linux x86_64 only."
-  ]
+  ],
+  "owner": "claude",
+  "scopes": [
+    ".agents/identity.json",
+    "AGENTS.md",
+    "docs/ceo-mandate-74.md",
+    "docs/ceo-agent-mandate.md",
+    ".agents/tasks/T-CLAUDEFRESH-1.json"
+  ],
+  "status": "implemented"
 }
