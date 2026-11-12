@@ -1,23 +1,9 @@
 {
   "id": "T-CODEXINSTALLER-1",
-  "feature_id": "F-CORE-INSTALLER-PORTABILITY-1",
   "title": "Keep the installer contract fixture utilities available after PATH narrowing",
   "goal": "Make the installer contract's isolated missing-tool fixture link chmod before it narrows PATH, so the fixture tests the installer rather than failing during fixture setup.",
-  "state": "in_progress",
-  "status": "implemented_pending_integration",
-  "owner": "codex-coordinator",
-  "created_by": "codex-coordinator",
-  "native_worker": "codex-installer-fix",
-  "claimed_by": "codex-installer-fix",
-  "created_unix": 1794404487,
-  "updated_unix": 1794404487,
   "size": "s",
-  "base": "67cea34c6349d611e0f59600dc063d712311be05",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/T-CODEXINSTALLER-1.json",
-    "tests/installer_contract.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -30,7 +16,26 @@
       "installer_contract"
     ]
   },
+  "created_by": "codex-coordinator",
+  "created_unix": 1794404487,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "67cea34c6349d611e0f59600dc063d712311be05",
+  "claimed_by": "codex-installer-fix",
+  "feature_id": "F-CORE-INSTALLER-PORTABILITY-1",
   "limitations": [
     "This is a Linux-host verification; the fixture change preserves the Windows-host utility contract but no Windows host is available here."
-  ]
+  ],
+  "native_worker": "codex-installer-fix",
+  "owner": "codex-coordinator",
+  "scopes": [
+    ".agents/tasks/T-CODEXINSTALLER-1.json",
+    "tests/installer_contract.rs"
+  ],
+  "state": "in_progress",
+  "status": "implemented_pending_integration",
+  "updated_unix": 1794404487
 }
