@@ -1,10 +1,29 @@
 {
   "id": "T-RELEASE53-1",
-  "native_worker": "release53",
   "title": "Cut Susi core 0.21.53: bump the engine version for the three-laptop cluster cutover",
   "goal": "Release main as 0.21.53, carrying the sealed peer channel (c991e4b86), the socket fixes (463d67b97, 1e02dfe7b, 526ba9649), the cluster fixes (923501f8b, fb68f9aa5), the A2A and rmcp cuts (21118e318, c3478311e) and the module moves (e548b35df, 51ca610b9). Bump the seven engine-version manifests, Cargo.lock, the README badge and the three governance ledgers from 0.21.52 to 0.21.53 (matching 383d44e15) and land the bump through cargo local-workflow ship. Then tag the landed receipt commit v0.21.53 (annotated), push only the tag (git storage, CEO mandate 2026-11-09: GitHub is storage only; no GitHub Release), build the Windows x86_64 reference binaries from a fresh clone of the tag with the settings of releases/v0.21.52.json, run the offline artifact checks in isolated homes, and land releases/v0.21.53.json as a separate change (T-RELEASE53REC-1). Linux reference build owed. Installed production promotion is a separate step and is not claimed by this cut.",
   "size": "s",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "RELEASE53",
+  "created_unix": 1794194286,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "release53",
   "scopes": [
     ".agents/tasks/t-release53-1.json",
     ".agents/evidence.json",
@@ -19,19 +38,5 @@
     "crates/susi-gmcp/cargo.toml",
     "crates/susi-harness/cargo.toml",
     "crates/susi-server/cargo.toml"
-  ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi",
-      "--test",
-      "release_records"
-    ]
-  },
-  "created_by": "RELEASE53",
-  "created_unix": 1794194286
+  ]
 }
