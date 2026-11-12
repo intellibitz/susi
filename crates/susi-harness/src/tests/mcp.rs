@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::VecDeque;
 use std::io::{BufReader, Cursor};
+use std::time::Duration;
 
 struct Scripted {
     responses: VecDeque<Value>,
@@ -159,6 +160,40 @@ fn stdio_skips_notifications_before_the_json_rpc_response() {
     let response = read_stdio_response(&mut reader).unwrap();
     assert_eq!(response["id"], 1);
     assert_eq!(response["result"]["ok"], true);
+}
+
+#[cfg(unix)]
+#[test]
+fn stdio_transport_reads_a_response_from_the_reader_worker() {
+    let script = concat!(
+        "printf '%s\\n%s\\n' '",
+        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/log\"}",
+        "' '",
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}",
+        "'"
+    );
+    let mut transport = StdioTransport::spawn("sh", &["-c".into(), script.into()])
+        .unwrap()
+        .with_timeout(Duration::from_secs(1));
+    let response = transport
+        .exchange(&json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}))
+        .unwrap();
+    assert_eq!(response["id"], 1);
+    assert_eq!(response["result"]["ok"], true);
+}
+
+#[cfg(unix)]
+#[test]
+fn stdio_transport_times_out_and_reaps_an_unresponsive_child() {
+    let script = "while IFS= read -r line; do :; done";
+    let mut transport = StdioTransport::spawn("sh", &["-c".into(), script.into()])
+        .unwrap()
+        .with_timeout(Duration::from_millis(50));
+    let error = transport
+        .exchange(&json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("mcp response timed out after"), "{error}");
 }
 
 #[test]
