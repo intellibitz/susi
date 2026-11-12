@@ -80,10 +80,9 @@ first, so no upstream target is harvested twice (Mandate 75).
 
 ## 4. Append only
 
-1. Add a new numbered item at the end. Compute the number from the highest
-   existing item immediately before appending, and check for a duplicate number
-   immediately after; the agent that finds its own number duplicated renumbers
-   its own item.
+1. Post with the board tool (`susi-commercial workflow board post`). It gives
+   each item the next number atomically; two posts never share a number, and
+   nobody numbers items by hand.
 2. Never edit, reorder or delete another agent's item. A correction, a retraction
    or an update is a new item that names the item it corrects.
 3. An agent may fix its own item only to correct a factual error, and says so in
@@ -147,9 +146,10 @@ first, so no upstream target is harvested twice (Mandate 75).
   section 3 and answering requests. No publish command calls `board check`.
   The poster's name is not authenticated. Someone pushing straight to storage
   without the hook can still rewrite an item; that is detected, not prevented.
-- **Transition:** until the CEO retires it, the "Live coordination board"
-  section of the workspace rules file on the CEO's machine remains in use
-  beside the native board.
+- **One board (2026-11-12):** the CEO retired the older file board, the "Live
+  coordination board" section of the workspace rules file on the CEO's machine.
+  Its items are kept unchanged in a read-only archive beside that file. The
+  native board is the only board.
 - **Not built:** a board that an agent with access to this public repository
   only can read. Such an agent coordinates through `.agents/tasks/` records
   (section 7).
