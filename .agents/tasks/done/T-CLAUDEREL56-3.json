@@ -2,11 +2,6 @@
   "id": "T-CLAUDEREL56-3",
   "title": "Carry the v0.21.55 release record into candidates distilled onto v0.21.55",
   "goal": "The v0.21.55 tag commit adds releases/qualification/v0.21.55.json, and tests/release_records.rs (every_qualification_record_belongs_to_a_release_record, T-RELEASE54REC-1) requires releases/v0.21.55.json beside it. That record reached main only inside T-CLAUDEREL55REC-1, together with main's own 0.21.54 -> 0.21.55 version bump, which cannot compose onto the v0.21.55 tag (the base already carries the release version). So every candidate distilled onto v0.21.55 failed release_records (seen on v0.21.56-distilled-rc15's accept verification for T-CODEXRECORDS-1). This task gives the record its own labelled change: one commit removes releases/v0.21.55.json and the next adds it back byte-identical (sha256 checked), so local-distill composes it as a plain addition onto v0.21.55 while main's tip is unchanged. No test is changed.",
-  "status": "done",
-  "scopes": [
-    "releases/v0.21.55.json",
-    ".agents/tasks/T-CLAUDEREL56-3.json"
-  ],
   "size": "s",
   "deps": [],
   "accept": {
@@ -23,13 +18,23 @@
   },
   "created_by": "CLAUDEREL56",
   "created_unix": 1794392400,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "limitations": [
+    "Future releases distilled onto a released tag need the same: the release record of the base lands on main as its own task, never inside a main version bump."
+  ],
   "owner": "CLAUDEREL56",
   "results": {
     "before": "candidate 4d32a8906 (v0.21.55 + 19 tasks): cargo test -p susi --test release_records: 4 passed, 1 failed (v0.21.55.json: no releases/v0.21.55.json for this qualified release)",
     "with_record": "the same tree plus main's releases/v0.21.55.json: 5 passed, 0 failed",
     "main_tip": "releases/v0.21.55.json on main is byte-identical before and after (sha256 recorded in the commit message)"
   },
-  "limitations": [
-    "Future releases distilled onto a released tag need the same: the release record of the base lands on main as its own task, never inside a main version bump."
-  ]
+  "scopes": [
+    "releases/v0.21.55.json",
+    ".agents/tasks/T-CLAUDEREL56-3.json"
+  ],
+  "status": "done"
 }
