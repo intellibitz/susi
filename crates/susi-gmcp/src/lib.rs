@@ -68,7 +68,11 @@ mod eco_mcp_features;
 #[path = "tests/mcp_bus.rs"]
 mod mcp_bus_tests;
 #[cfg(test)]
+#[path = "tests/protocol.rs"]
 mod protocol_tests;
+#[cfg(test)]
+#[path = "tests/resource_surface.rs"]
+mod resource_surface_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_086_mastery.rs"]
 mod vc_201_086_mastery_tests;

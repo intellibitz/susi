@@ -300,6 +300,10 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// 2026-11-12: susi-gawd-a2a 3,413 -> 3,347 (T-CLAUDEACPHISTORY-1, measured):
 /// ACP session history reaches the GAWD mission (+31), paid by moving the
 /// inline `capabilities` unit tests to `src/tests/capabilities.rs` (-97).
+/// 2026-11-12: susi-gmcp 25,860 -> 25,153 (T-CLAUDEGMCPRESOURCES-1, measured): the
+/// wire-level protocol suite moved from src/protocol_tests.rs to the suite dir
+/// src/tests/protocol.rs (-721) and the VC-203-010 resource admission, guard,
+/// sealed-read and cancellation path added 46 shipped lines.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_525),
     ("susi-gawd-swarm", 20_206),
@@ -307,7 +311,7 @@ const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd-a2a", 3_347),
     ("susi-gemi", 21_096),
     ("susi-gemi-models", 15_939),
-    ("susi-gmcp", 25_860),
+    ("susi-gmcp", 25_153),
     ("susi-harness", 37_536),
 ];
 

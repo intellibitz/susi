@@ -12,11 +12,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 /// "Unknown tool" whenever the extension-pack router registered mid-test.
 pub(crate) static TOOLS_PLANE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-type Wire = BufReader<DuplexStream>;
-fn service() -> GmcpService {
+pub(crate) type Wire = BufReader<DuplexStream>;
+pub(crate) fn service() -> GmcpService {
     GmcpService::new(std::path::PathBuf::from("."))
 }
-async fn wire(service: GmcpService) -> Wire {
+pub(crate) async fn wire(service: GmcpService) -> Wire {
     let (client, server) = tokio::io::duplex(65536);
     tokio::spawn(async move {
         let running = service.serve(server).await.unwrap();
@@ -24,13 +24,13 @@ async fn wire(service: GmcpService) -> Wire {
     });
     BufReader::new(client)
 }
-async fn send(wire: &mut Wire, message: Value) {
+pub(crate) async fn send(wire: &mut Wire, message: Value) {
     wire.get_mut()
         .write_all(format!("{message}\n").as_bytes())
         .await
         .unwrap();
 }
-async fn recv(wire: &mut Wire) -> Value {
+pub(crate) async fn recv(wire: &mut Wire) -> Value {
     let mut line = String::new();
     tokio::time::timeout(Duration::from_secs(5), wire.read_line(&mut line))
         .await
@@ -38,11 +38,11 @@ async fn recv(wire: &mut Wire) -> Value {
         .unwrap();
     serde_json::from_str(&line).unwrap()
 }
-fn modern(id: i64, method: &str, mut params: Value) -> Value {
+pub(crate) fn modern(id: i64, method: &str, mut params: Value) -> Value {
     params["_meta"] = json!({"io.modelcontextprotocol/protocolVersion":"2026-07-28", "io.modelcontextprotocol/clientCapabilities":{}});
     json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params})
 }
-async fn discover(wire: &mut Wire) {
+pub(crate) async fn discover(wire: &mut Wire) {
     send(wire, modern(1, "server/discover", json!({}))).await;
     let response = recv(wire).await;
     assert!(response.get("error").is_none(), "{response}");

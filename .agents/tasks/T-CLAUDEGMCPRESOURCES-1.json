@@ -1,0 +1,38 @@
+{
+  "id": "T-CLAUDEGMCPRESOURCES-1",
+  "title": "VC-203-010 production gaps: resource URI admission, access guard, sealed and bounded reads, cancellation",
+  "goal": "An audit of VC-203-010's mastery target against crates/susi-gmcp/src/protocol.rs found the resource surface had discovery, templates, completion, pagination, cache hints and subscriptions, but no central URI validation or traversal refusal, no access-control point, no check that binary content is strict base64 or that MIME types are well formed, no size bound, an empty contents array could be served, and a cancelled read left its provider running. Add those on the production path and prove each on the wire against GmcpService, including pagination over a large catalog, a stale cursor, a resource replaced during reads, and subscription delivery.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--lib",
+      "resource_surface"
+    ]
+  },
+  "created_by": "CLAUDECLEVERFEYNMANMTR9N2",
+  "created_unix": 1794499627,
+  "reuse": {
+    "decision": "existing",
+    "searched": "susi-gmcp content.rs already had is_valid_uri, is_valid_mime_type and is_valid_base64 (VC-203-008) and protocol.rs already had cursor paging and change broadcast; the new admission and seal steps call those instead of adding validators. The wire harness in the protocol suite is shared with the new suite. No new dependency."
+  },
+  "roadmap": "VC-203-010",
+  "scopes": [
+    "crates/susi-gmcp/src/protocol.rs",
+    "crates/susi-gmcp/src/tests",
+    "crates/susi-gmcp/src/lib.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "status": "implemented",
+  "limitations": [
+    "Verified on Linux x86_64 only.",
+    "The access guard is a hook: core ships no policy of its own, an embedder sets one.",
+    "A read is one bounded response of at most 8 MiB; larger resources are refused, not streamed."
+  ]
+}

@@ -29,6 +29,10 @@ pub type ToolHandler = Arc<
         + Send
         + Sync,
 >;
+/// Largest payload one `resources/read` serves; a bigger read is refused, never truncated.
+pub const MAX_RESOURCE_BYTES: usize = 8 * 1024 * 1024;
+/// Access control run before a read or subscribe reaches its provider.
+pub type ResourceGuard = Arc<dyn Fn(&str) -> Result<(), ErrorData> + Send + Sync>;
 pub type ResourceHandler = Arc<
     dyn Fn(
             ReadResourceRequestParams,
@@ -110,6 +114,7 @@ struct Catalog {
     templates: BTreeMap<String, (ResourceTemplate, ResourceHandler)>,
     prompts: BTreeMap<String, (Prompt, PromptHandler)>,
     completions: BTreeMap<String, CompletionHandler>,
+    resource_guard: Option<ResourceGuard>,
 }
 
 #[derive(Clone)]
@@ -267,6 +272,21 @@ impl GmcpService {
     pub fn resource_updated(&self, uri: String) {
         let _ = self.changes.send(Change::Resource(uri));
     }
+    pub fn set_resource_guard(&self, guard: ResourceGuard) {
+        self.catalog.write().resource_guard = Some(guard);
+    }
+    /// First step of every resource operation: a bounded absolute URI, no `..` segment, the guard.
+    fn admit_resource(&self, uri: &str) -> Result<(), ErrorData> {
+        let plain = uri.to_ascii_lowercase().replace("%2e", ".");
+        let plain = plain.replace("%2f", "/").replace("%5c", "/");
+        let traversal = plain.split(['/', '\\', '?', '#']).any(|part| part == "..");
+        let shaped = uri.len() <= 2048 && !uri.contains(char::is_whitespace);
+        if traversal || !shaped || !crate::content::is_valid_uri(uri) {
+            return Err(invalid("Invalid resource URI"));
+        }
+        let guard = self.catalog.read().resource_guard.clone();
+        guard.map_or(Ok(()), |guard| guard(uri))
+    }
     fn tools(&self) -> Result<Vec<Tool>, ErrorData> {
         let mut tools = BTreeMap::new();
         for tool in ToolRegistry::list_tools() {
@@ -407,6 +427,7 @@ impl ServerHandler for GmcpService {
         request: SubscribeRequestParams,
         _: RequestContext<RoleServer>,
     ) -> Result<(), ErrorData> {
+        self.admit_resource(&request.uri)?;
         if !self.catalog.read().resources.contains_key(&request.uri) {
             return Err(ErrorData::resource_not_found("Unknown resource", None));
         }
@@ -693,33 +714,29 @@ impl ServerHandler for GmcpService {
         request: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
-        let handler = self
-            .catalog
-            .read()
-            .resources
-            .get(&request.uri)
-            .map(|(_, h)| h.clone());
-        if let Some(handler) = handler {
-            return handler(request, context).await.map(normalize_resource);
-        }
-        // Template providers own URI matching and return RESOURCE_NOT_FOUND for a miss.
-        let handlers: Vec<_> = self
-            .catalog
-            .read()
-            .templates
-            .values()
-            .map(|(_, h)| h.clone())
-            .collect();
-        for handler in handlers {
-            match handler(request.clone(), context.clone()).await {
-                Err(e) if e.code == ErrorCode::RESOURCE_NOT_FOUND => continue,
-                result => return result.map(normalize_resource),
+        self.admit_resource(&request.uri)?;
+        let read = async {
+            // Template providers own URI matching and return RESOURCE_NOT_FOUND for a miss.
+            let handlers: Vec<_> = {
+                let catalog = self.catalog.read();
+                match catalog.resources.get(&request.uri) {
+                    Some((_, handler)) => vec![handler.clone()],
+                    None => catalog.templates.values().map(|(_, h)| h.clone()).collect(),
+                }
+            };
+            for handler in handlers {
+                match handler(request.clone(), context.clone()).await {
+                    Err(e) if e.code == ErrorCode::RESOURCE_NOT_FOUND => continue,
+                    result => return result.and_then(seal_resource),
+                }
             }
+            let uri = Some(json!({"uri":request.uri}));
+            Err(ErrorData::resource_not_found("Unknown resource", uri))
+        };
+        tokio::select! {
+            result = read => result,
+            () = context.ct.cancelled() => Err(internal("Resource read cancelled")),
         }
-        Err(ErrorData::resource_not_found(
-            "Unknown resource",
-            Some(json!({"uri":request.uri})),
-        ))
     }
     async fn list_prompts(
         &self,
@@ -850,13 +867,38 @@ impl ServerHandler for GmcpService {
     }
 }
 
-fn normalize_resource(mut response: ReadResourceResponse) -> ReadResourceResponse {
+/// Seal a provider's read: `contents` never empty (ambiguous with a missing resource),
+/// strict base64 blobs, well-formed MIME types, at most [`MAX_RESOURCE_BYTES`]; then cache hints.
+fn seal_resource(mut response: ReadResourceResponse) -> Result<ReadResourceResponse, ErrorData> {
     if let ReadResourceResponse::Complete(result) = &mut response {
+        let (mut bytes, mut sound) = (0, !result.contents.is_empty());
+        for content in &result.contents {
+            let (mime, body, binary) = match content {
+                ResourceContents::TextResourceContents {
+                    mime_type: m,
+                    text: b,
+                    ..
+                } => (m, b, false),
+                ResourceContents::BlobResourceContents {
+                    mime_type: m,
+                    blob: b,
+                    ..
+                } => (m, b, true),
+            };
+            bytes += body.len();
+            let mime_ok = mime
+                .as_deref()
+                .is_none_or(crate::content::is_valid_mime_type);
+            sound &= mime_ok && (!binary || crate::content::is_valid_base64(body));
+        }
+        if !sound || bytes > MAX_RESOURCE_BYTES {
+            return Err(internal("Resource read is empty, malformed or oversized"));
+        }
         result.result_type = Some(ResultType::COMPLETE);
         result.ttl_ms.get_or_insert(0);
         result.cache_scope.get_or_insert(CacheScope::Private);
     }
-    response
+    Ok(response)
 }
 
 /// Least gap between relayed progress notifications: at most about ten a
