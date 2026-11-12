@@ -2,15 +2,30 @@
   "id": "T-LEAN-1",
   "title": "Lean-core program: ceilings, plan, and the first dependency cuts in the pillars",
   "goal": "Start the CEO's lean-core program (docs/lean-core.md): a ratchet test (tests/lean_core_ceilings.rs) that pins the four pillars' third-party and workspace dependency reach, their direct vendor-facade edges and their source size so they can only shrink; a one-page plan with the crate classification (keep as pillar, keep as socket host, move to susi-commercial-apps, delete) and the split of work between Antigravity and Claude; and the first cuts: rayon replaced by a std-only parallel map (susi_core::parallel) in susi-gawd, susi-gawd-swarm and susi-gawd-agents, and the unused jsonschema and test-only flume edges removed from susi-gemi. Repairs main after the iteration 201-299 test migrations: restores the test-only native_verifier helper beside cloud_rsi's tests, inlines the Rendezvous barrier into roadmap_agents' tests, and formats the files that reached main unformatted.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "lean",
-  "native_worker": "lean",
-  "created_by": "lean",
-  "created_unix": 1794064800,
-  "updated_unix": 1794064800,
   "size": "M",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "lean",
+  "created_unix": 1794064800,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi --test lean_core_ceilings --offline --locked",
+  "claimed_by": "lean",
+  "native_worker": "lean",
   "scope": [
     ".agents/gmcp/evidence",
     ".agents/gmcp/requirements-ledger.json",
@@ -97,17 +112,7 @@
     "tests/lean_core_ceilings.rs",
     "tests/zc_matrix.rs"
   ],
-  "acceptance": "cargo test -p susi --test lean_core_ceilings --offline --locked",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "susi",
-      "--test",
-      "lean_core_ceilings",
-      "--offline",
-      "--locked"
-    ]
-  }
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794064800
 }
