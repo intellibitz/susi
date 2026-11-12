@@ -1851,6 +1851,27 @@ impl AcpSocketClient {
         session_id: &str,
         prompt_text: &str,
     ) -> Result<(u16, Vec<AcpSseFrame>), String> {
+        let mut events = Vec::new();
+        let status = self.prompt_stream_sse_with(id, session_id, prompt_text, |frame| {
+            events.push(frame);
+            Ok(())
+        })?;
+        Ok((status, events))
+    }
+
+    /// Execute `session/prompt` over `POST /acp/stream` and invoke `on_frame`
+    /// as each bounded SSE frame arrives. The callback runs on the caller's
+    /// thread, so backpressure is explicit: returning an error stops reading.
+    pub fn prompt_stream_sse_with<F>(
+        &self,
+        id: u64,
+        session_id: &str,
+        prompt_text: &str,
+        mut on_frame: F,
+    ) -> Result<u16, String>
+    where
+        F: FnMut(AcpSseFrame) -> Result<(), String>,
+    {
         let url = format!("{}{ACP_STREAM_PATH}", self.base_url);
         let req = json!({
             "jsonrpc": "2.0",
@@ -1876,33 +1897,69 @@ impl AcpSocketClient {
         }
         let resp = plain_http::call("POST", &url, &headers, Some(&payload), self.timeout_secs)?;
         let status = resp.status;
-        let bytes = resp
-            .into_bytes(MAX_HTTP_BODY_BYTES as u64)
-            .map_err(|e| e.to_string())?;
-        let raw = String::from_utf8(bytes).map_err(|e| e.to_string())?;
         if status != 200 {
-            return Ok((status, Vec::new()));
+            return Ok(status);
         }
-        let mut events = Vec::new();
-        for block in raw.split("\n\n").filter(|chunk| !chunk.trim().is_empty()) {
-            let mut ev_name = "message".to_owned();
-            let mut data_lines = Vec::new();
-            for line in block.lines() {
-                if let Some(rest) = line.strip_prefix("event:") {
-                    ev_name = rest.trim().to_owned();
-                } else if let Some(rest) = line.strip_prefix("data:") {
-                    data_lines.push(rest.trim());
-                }
-            }
-            if !data_lines.is_empty() {
-                let joined = data_lines.join("\n");
-                let val: Value = serde_json::from_str(&joined)
-                    .map_err(|e| format!("malformed SSE JSON frame: {e}"))?;
-                events.push((ev_name, val));
-            }
-        }
-        Ok((status, events))
+        let reader = BufReader::new(resp.take((MAX_HTTP_BODY_BYTES + 1) as u64));
+        read_sse_stream(reader, &mut on_frame)?;
+        Ok(status)
     }
+}
+
+fn read_sse_stream<R, F>(mut reader: R, on_frame: &mut F) -> Result<(), String>
+where
+    R: BufRead,
+    F: FnMut(AcpSseFrame) -> Result<(), String>,
+{
+    let mut block = String::new();
+    let mut line = String::new();
+    let mut total = 0usize;
+    loop {
+        line.clear();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|error| format!("reading ACP SSE stream: {error}"))?;
+        if read == 0 {
+            if !block.trim().is_empty() {
+                emit_sse_block(&block, on_frame)?;
+            }
+            return Ok(());
+        }
+        total = total.saturating_add(read);
+        if total > MAX_HTTP_BODY_BYTES {
+            return Err("ACP SSE response exceeds configured limit".to_owned());
+        }
+        if line.trim().is_empty() {
+            if !block.is_empty() {
+                emit_sse_block(&block, on_frame)?;
+                block.clear();
+            }
+        } else {
+            block.push_str(&line);
+        }
+    }
+}
+
+fn emit_sse_block<F>(block: &str, on_frame: &mut F) -> Result<(), String>
+where
+    F: FnMut(AcpSseFrame) -> Result<(), String>,
+{
+    let mut event_name = "message".to_owned();
+    let mut data_lines = Vec::new();
+    for line in block.lines() {
+        if let Some(rest) = line.strip_prefix("event:") {
+            event_name = rest.trim().to_owned();
+        } else if let Some(rest) = line.strip_prefix("data:") {
+            data_lines.push(rest.trim());
+        }
+    }
+    if data_lines.is_empty() {
+        return Ok(());
+    }
+    let data = data_lines.join("\n");
+    let value: Value = serde_json::from_str(&data)
+        .map_err(|error| format!("malformed SSE JSON frame: {error}"))?;
+    on_frame((event_name, value))
 }
 
 // ---------------------------------------------------------------------------
