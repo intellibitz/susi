@@ -1,25 +1,10 @@
 {
   "id": "T-CTOHARVEST-1",
-  "feature_id": "F-CTO-MANDATE-75",
   "title": "Mandate 75 pure Apache-2.0 cloud raw-source discovery, smart routing, one-step pickup, and offline release-qualify verify-only fix",
   "goal": "Implement Mandate 75 pure Apache-2.0 compliance and autonomous cloud raw-source pickup in xtask/src/harvest.rs (`local-harvest route`, `local-harvest pickup`, `local-harvest raw-features`, strict pure Apache-2.0 / dual-elected Apache-2.0 license gate with zero MIT/BSD fallback, Core 5-pillar vs Commercial Apps boundary routing, and §4(a)-(d) provenance artifacts), add end-to-end bare-Git cloud harvest integration tests in tests/pure_apache2_cloud_harvest.rs, and fix `release-qualify --verify-only` in local offline repositories without configured Git remotes so distilled_release_promotion passes 10/10.",
-  "state": "done",
-  "status": "done",
-  "owner": "core-harvest",
-  "created_by": "core-harvest",
-  "created_unix": 1794423433,
-  "updated_unix": 1794423433,
   "size": "m",
-  "base": "b77701ca440fc0bc83f9f51abdad5b8c74716087",
   "deps": [
     "T-CLAUDEHARVESTAPACHE-1"
-  ],
-  "scopes": [
-    ".agents/tasks/T-CTOHARVEST-1.json",
-    "tests/pure_apache2_cloud_harvest.rs",
-    "xtask/src/bin/local-harvest.rs",
-    "xtask/src/bin/release-qualify.rs",
-    "xtask/src/harvest.rs"
   ],
   "accept": {
     "cmd": [
@@ -31,8 +16,28 @@
       "pure_apache2_cloud_harvest"
     ]
   },
+  "created_by": "core-harvest",
+  "created_unix": 1794423433,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "b77701ca440fc0bc83f9f51abdad5b8c74716087",
+  "feature_id": "F-CTO-MANDATE-75",
   "limitations": [
     "SPDX and license-body checks enforce deterministic automated screening and are not legal counsel.",
     "Verified on Linux x86_64."
-  ]
+  ],
+  "owner": "core-harvest",
+  "scopes": [
+    ".agents/tasks/T-CTOHARVEST-1.json",
+    "tests/pure_apache2_cloud_harvest.rs",
+    "xtask/src/bin/local-harvest.rs",
+    "xtask/src/bin/release-qualify.rs",
+    "xtask/src/harvest.rs"
+  ],
+  "state": "done",
+  "status": "done",
+  "updated_unix": 1794423433
 }
