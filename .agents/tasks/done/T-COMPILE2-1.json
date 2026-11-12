@@ -2,14 +2,30 @@
   "id": "T-COMPILE2-1",
   "title": "Compile budget: the swarm-cell server without tokio",
   "goal": "Take tokio out of susi-abi so the host build's susi-core never waits for the async runtime: the shared swarm-cell TCP server becomes standard library only (std::net listener, one thread per connection, synchronous handlers, a handler panic answered as an Error status where panics unwind), the cell-server feature and the optional tokio edge leave susi-abi, and the gawd, gemi and gmcp cell binaries run their blocking work on the connection thread without an async main. susi-gawd-agents' susi-http-transport and susi-adapters-llm edges were measured off the critical path (gawd-agents waits on susi-core's metadata, and susi-gawd waits on the A2A chain) and stay as they are; the idle alternated measurement is recorded after landing. The GMCP interop test's 3000 ms wire-latency budget is timed on the JSON-RPC `ping` round trip instead of the CPU-bound `ledger_verify` tool (whose verified result stays asserted): under gate load that tool's compute, not the wire, reached 3.17 s on main and branch alike.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "compile2",
-  "native_worker": "compile2",
-  "created_by": "compile2",
-  "created_unix": 1794156571,
   "size": "M",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-abi",
+      "--lib",
+      "cell_server",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "compile2",
+  "created_unix": 1794156571,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi-abi --lib cell_server --offline --locked passes: a bad token is denied without trust decay, an empty expected token denies every syscall, NotFound/Timeout/Error statuses decay trust, malformed and non-request frames are ignored while a corrupt stream drops the connection, a panicking handler is answered with an Error on a connection that stays up, and a heartbeat on one connection is answered while another connection's syscall is still running; every read and wait is bounded.",
+  "claimed_by": "compile2",
+  "native_worker": "compile2",
   "scope": [
     ".agents/gmcp/evidence",
     ".agents/tasks/t-compile2-1.json",
@@ -40,18 +56,7 @@
     "tests/gmcp_requirements.rs",
     "tests/lean_core_ceilings.rs"
   ],
-  "acceptance": "cargo test -p susi-abi --lib cell_server --offline --locked passes: a bad token is denied without trust decay, an empty expected token denies every syscall, NotFound/Timeout/Error statuses decay trust, malformed and non-request frames are ignored while a corrupt stream drops the connection, a panicking handler is answered with an Error on a connection that stays up, and a heartbeat on one connection is answered while another connection's syscall is still running; every read and wait is bounded.",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "susi-abi",
-      "--lib",
-      "cell_server",
-      "--offline",
-      "--locked"
-    ]
-  },
+  "state": "in_progress",
+  "status": "in_progress",
   "updated_unix": 1794165351
 }
