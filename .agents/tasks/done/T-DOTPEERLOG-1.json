@@ -1,9 +1,9 @@
 {
-  "created_unix": 1794209297,
-  "goal": "Preserve replay denial assertions while waiting for the asynchronous diagnostic after socket EOF; no runtime behavior changes.",
-  "native_worker": "dot-peer-log",
-  "claimed_by": "dot-peer-log",
+  "id": "T-DOTPEERLOG-1",
   "title": "Bound replay refusal diagnostic synchronization",
+  "goal": "Preserve replay denial assertions while waiting for the asynchronous diagnostic after socket EOF; no runtime behavior changes.",
+  "size": "S",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -14,17 +14,22 @@
       "peer_channel_hub"
     ]
   },
+  "created_by": "dot-peer-log",
+  "created_unix": 1794209297,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "acceptance": "Both peer_channel_hub tests pass in isolated native Windows state; no full gate or publication in this task.",
+  "claimed_by": "dot-peer-log",
+  "native_worker": "dot-peer-log",
   "scopes": [
     "tests/peer_channel_hub.rs",
     ".agents/tasks/t-dot-peer-log-1.json",
     ".agents/tasks/t-dotpeerlog-1.json"
   ],
-  "id": "T-DOTPEERLOG-1",
-  "created_by": "dot-peer-log",
-  "deps": [],
-  "size": "S",
-  "status": "in_progress",
   "state": "in_progress",
+  "status": "in_progress",
   "verification": "2026-11-09 native Windows: final shared bounded-log helper covers replay and identity-binding refusal. rustfmt --check and git diff --check pass; targeted peer_channel_hub 2/2 pass, 0 ignored, 40.43s execution +1.73s build. Earlier initial private-target build 1m45s, first run2/2 in40.44s. Argon independently confirmed race (conversation29e6f8f3-af21-4bbe-bc95-af4ac29c679c). No full gate/push/merge/production qualification."
 }
