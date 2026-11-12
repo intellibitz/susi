@@ -1,0 +1,70 @@
+{
+  "id": "T-CARBONCLOUD-2",
+  "title": "Consolidate per-process IPC plane-bus and capability rendezvous files into single atomic manifests with batched tool bootstrap",
+  "goal": "Eliminate the 400+ per-topic and per-capability file writes under <cache>/bus/<pid>/ during ToolRegistry::global() bootstrap (documented in docs/step1-acceptance.md) by publishing single per-copy atomic JSON manifests (routes.json / caps.json) and wrapping hooks().bootstrap_tools(&registry) in a batch publication guard, while preserving fallback discovery and dead-endpoint pruning for legacy topics/, prefixes/, and caps/ files.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-core",
+      "--lib"
+    ]
+  },
+  "created_by": "antigravity",
+  "created_unix": 1794487700,
+  "closed": {
+    "at_unix": 1794506691,
+    "commit": "17a7af9bdbc7f877f1fa9333b8888b97cc544483",
+    "by": "CLAUDEQUEUE1"
+  },
+  "base": "ded60a93e25f92c5679ed69021ceb2ba86db4878",
+  "base_commit": "ded60a93e25f92c5679ed69021ceb2ba86db4878",
+  "claimed_by": "antigravity",
+  "feature_id": "F-CORE-IPC-SINGLE-FILE-RENDEZVOUS-1",
+  "native_worker": "core-wave2",
+  "owner": "antigravity",
+  "results": {
+    "bus_pid_files_after": 3,
+    "bus_pid_files_before": 440,
+    "goal_completion_daemon_down_ms": {
+      "after": 67.56,
+      "before": 73.03
+    },
+    "goal_completion_daemon_up_ms": {
+      "after": 73.92,
+      "before": 82.63
+    },
+    "goal_first_output_daemon_down_ms": {
+      "after": 66.09,
+      "before": 71.67
+    },
+    "goal_first_output_daemon_up_ms": {
+      "after": 72.57,
+      "before": 80.79
+    },
+    "startup_gate_runs": 9,
+    "tests": "susi-core lib 508 passed, susi-tools lib 61 passed, susi-daemon runtime_admin 14 passed, architecture_tests 49 passed, lean_core_ceilings 2 passed, clippy 0 warnings"
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Searched intellibitz/susi crates/susi-core/src/{plane_bus_ipc,registry_ipc,registry}.rs, crates/susi-config (atomic_replace_unsynced), crates/susi-tools/src/registry.rs, crates/susi-daemon/src/runtime_admin.rs, susi-commercial-apps, Apache-2.0 IPC patterns, and the locked Cargo dependency graph (susi-vendor-serde-json); existing atomic_replace_unsynced and serde_json primitives cover single-file rendezvous manifests with zero new dependencies.",
+    "source": "intellibitz/susi crates/susi-core/src/{plane_bus_ipc,registry_ipc}.rs + susi_config::atomic_replace_unsynced"
+  },
+  "scopes": [
+    ".agents/tasks/T-CARBONCLOUD-2.json",
+    "crates/susi-core/src/plane_bus_ipc.rs",
+    "crates/susi-core/src/registry_ipc.rs",
+    "crates/susi-core/src/registry.rs",
+    "crates/susi-tools/src/registry.rs",
+    "crates/susi-daemon/src/runtime_admin.rs",
+    "docs/step1-acceptance.md"
+  ],
+  "state": "done",
+  "status": "done",
+  "updated_unix": 1794488975
+}
