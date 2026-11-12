@@ -1,16 +1,39 @@
 {
   "id": "T-CTOPILLARS-1",
-  "feature_id": "F-CTO-MANDATE-74",
   "title": "5 Apache-2.0 Susi Core pillars (ACP open socket + parallel Susi Harness), remote pull & merge on every workflow step, and deterministic release distillation",
   "goal": "Deliver CEO Directives #2, #4, #5, and #8 in Apache-2.0 Susi Core: (1) complete and expose all 5 core pillars (`GAWD`, `GEMI`, `GMCP`, `ACP` via `susi_core::acp` + canonical port `9094` mounting in `susi-gawd-a2a`, and `Susi Harness` via `susi_harness::workflow_runner`) with zero third-party vendor bloat; (2) enforce pure-Git remote pull & merge reconciliation (`git fetch --prune` + fast-forward or conflict-checked 3-way merge with offline fallback) across every workflow step (`start`, `sync`/`step`, `commit`, `distill`, `ship`, `release`) in both `susi-harness` and `xtask` `local-workflow`; and (3) upgrade `xtask` `distill` and `local-distill` with `--pull` reconciliation, `refs/candidates/release/<name>` CAS candidate refs, and layout-valid `releases/<tag>.json` (`susi-release-record/v1`) snapshot emission.",
-  "status": "done",
-  "state": "done",
-  "owner": "core-pillars",
-  "created_by": "core-pillars",
-  "created_unix": 1794414000,
   "size": "l",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "five_pillars_workflow"
+    ]
+  },
+  "created_by": "core-pillars",
+  "created_unix": 1794414000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": [
+    "cargo fmt --all --check",
+    "cargo deny --offline --locked check licenses",
+    "cargo clippy --workspace --all-targets --offline --locked -- -D warnings",
+    "cargo test --offline --locked -p susi-core --lib acp",
+    "cargo test --offline --locked -p susi-gawd-a2a",
+    "cargo test --offline --locked -p susi-harness --lib",
+    "cargo test --offline --locked -p xtask --bin distill --bin local-distill --bin local-workflow",
+    "cargo test --offline --locked --test five_pillars_workflow --test lean_core_ceilings --test architecture_tests --test no_console_window --test no_github_coupling --test orphan_sources --test task_records --test release_records --test release_workflow --test socket_boundary --test socket_parity --test duplication_tests --test core_docs_promise_no_ui_or_plugins"
+  ],
   "base": "fd33b84af6e4af5ef56fa1fcd93743a7eaefc7ea",
+  "feature_id": "F-CTO-MANDATE-74",
+  "owner": "core-pillars",
   "scopes": [
     ".agents/tasks/T-CTO-PILLARS-1.json",
     ".agents/tasks/T-CTOPILLARS-1.json",
@@ -33,24 +56,6 @@
     "xtask/src/distill/lint.rs",
     "xtask/src/distill_compose.rs"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "--test",
-      "five_pillars_workflow"
-    ]
-  },
-  "acceptance": [
-    "cargo fmt --all --check",
-    "cargo deny --offline --locked check licenses",
-    "cargo clippy --workspace --all-targets --offline --locked -- -D warnings",
-    "cargo test --offline --locked -p susi-core --lib acp",
-    "cargo test --offline --locked -p susi-gawd-a2a",
-    "cargo test --offline --locked -p susi-harness --lib",
-    "cargo test --offline --locked -p xtask --bin distill --bin local-distill --bin local-workflow",
-    "cargo test --offline --locked --test five_pillars_workflow --test lean_core_ceilings --test architecture_tests --test no_console_window --test no_github_coupling --test orphan_sources --test task_records --test release_records --test release_workflow --test socket_boundary --test socket_parity --test duplication_tests --test core_docs_promise_no_ui_or_plugins"
-  ]
+  "state": "done",
+  "status": "done"
 }
