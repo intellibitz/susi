@@ -4,7 +4,7 @@
   "goal": "Reject stale, cross-request, or malformed JSON-RPC responses in the Core harness MCP client instead of accepting any result or error as the current request's answer.",
   "status": "implemented",
   "owner": "codex",
-  "native_worker": "codex-harness-rpc",
+  "native_worker": "codex-harness-rpc-record",
   "created_by": "codex",
   "created_unix": 1794442133,
   "size": "s",
