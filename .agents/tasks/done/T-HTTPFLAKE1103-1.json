@@ -4,10 +4,6 @@
   "goal": "CEO decision 2026-11-03: continue the paused 0.21.47 promotion. Its native integration (attempt release47-1103-1793727830659563200-62444) failed only on client::tests::http_deadline_includes_headers_and_trickled_body and http_deadline_preserves_longer_caller_stream_budget with os error 10053. The code is byte-identical on origin/main, so this flake predates the release lane. Root cause: on Windows, a socket accepted from a non-blocking listener is itself non-blocking, so the fixture's single read could fail with WouldBlock and drop the connection. It also replied without reading the whole request head (the same class of bug as 2bd5969f3). Fix the fixture so it accepts in blocking mode and reads the full head, with no retries and no longer timeouts. Prove it by repeated Windows runs before and after the fix.",
   "size": "s",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/t-httpflake1103-1.json",
-    "crates/susi-http-transport/src/client.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -20,5 +16,14 @@
   },
   "created_by": "HTTPFLAKE1103",
   "created_unix": 1793729000,
-  "native_worker": "httpflake-1103"
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "httpflake-1103",
+  "scopes": [
+    ".agents/tasks/t-httpflake1103-1.json",
+    "crates/susi-http-transport/src/client.rs"
+  ]
 }
