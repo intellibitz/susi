@@ -1,6 +1,6 @@
 # susi
 
-![SUSI Version](https://img.shields.io/badge/version-v0.21.65-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
+![SUSI Version](https://img.shields.io/badge/version-v0.21.66-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
 **[Two-minute start](#two-minute-start)** · **[Host contract](#host-contract)** · **[Where it stands](#where-it-stands)** · **[Architecture](docs/architecture.md)** · **[Evidence](docs/evidence.md)** · **[Integrate your app](docs/integrating-with-susi.md)** · **[Contributing](CONTRIBUTING.md)**
 
