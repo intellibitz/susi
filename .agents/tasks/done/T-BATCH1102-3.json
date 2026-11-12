@@ -4,8 +4,23 @@
   "goal": "Integration fixtures must complete teardown or report a failure. A failed tree termination must never lead to waiting indefinitely on a running server.",
   "size": "s",
   "deps": [],
-  "scopes": ["tests/gmcp_requirements.rs", ".agents/tasks/T-BATCH1102-3.json"],
-  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--test", "gmcp_requirements"]},
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "BATCH1102",
+  "created_unix": 1793619373,
+  "closed": {
+    "at_unix": 1794498802,
+    "commit": "eba400460785a5b89d26d16de192d1bed689dbe3",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "receipt": {
     "old_attempt": "launchfix41-1793614404495630200-9920",
     "observed_process_waits": 3,
@@ -16,6 +31,8 @@
     "mastery_elapsed_s": 23.31,
     "remaining_owned_susi_processes": 0
   },
-  "created_by": "BATCH1102",
-  "created_unix": 1793619373
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-BATCH1102-3.json"
+  ]
 }

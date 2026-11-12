@@ -2,16 +2,8 @@
   "id": "T-MERGERESTORE-1",
   "title": "Restore work discarded by one-sided merges on main",
   "goal": "Put back changes that merges 3cf1d2b3e and 267dcd6a4 discarded and that later work on main never replaced: the resumed verbatim ledger clause search, licence-verified automatic model downloads, and the installed opening listing already shared models. Leave superseded changes alone and list the rest for re-porting.",
-  "deps": [],
-  "scopes": [
-    ".agents/gmcp/evidence",
-    ".agents/tasks/t-mergerestore-1.json",
-    "crates/susi-gemi-models/src/lib.rs",
-    "crates/susi-gmcp/src/requirements_ledger.rs",
-    "crates/susi-vendor-models/src/hf_discovery.rs",
-    "src/cli/setup_cli.rs"
-  ],
   "size": "m",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -23,5 +15,18 @@
     ]
   },
   "created_by": "MERGERESTORE",
-  "created_unix": 1793659289
+  "created_unix": 1793659289,
+  "closed": {
+    "at_unix": 1794498802,
+    "commit": "eba400460785a5b89d26d16de192d1bed689dbe3",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-mergerestore-1.json",
+    "crates/susi-gemi-models/src/lib.rs",
+    "crates/susi-gmcp/src/requirements_ledger.rs",
+    "crates/susi-vendor-models/src/hf_discovery.rs",
+    "src/cli/setup_cli.rs"
+  ]
 }

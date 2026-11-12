@@ -1,0 +1,40 @@
+{
+  "id": "T-DOTGMCPCLEANUP-1",
+  "title": "Bound five native Windows GMCP cleanup helpers",
+  "goal": "Use existing susi_core bounded_cmd helper for five taskkill fixture teardown calls, preserving exact PID tree force semantics and applying CREATE_NO_WINDOW with a ten-second bound. No script suite enablement or new shell prerequisite.",
+  "size": "S",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "dot-gmcp-cleanup",
+  "created_unix": 1794224460,
+  "closed": {
+    "at_unix": 1794498802,
+    "commit": "eba400460785a5b89d26d16de192d1bed689dbe3",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "54 requirement checks and 9 mastery checks freshly recorded in two phases. Full combined guard/release gate remains separate.",
+  "checkpoint": "checkpoint/wintests-20261109 at d527dac487c457e3e89367aa1c8fccd020967001 retains rejected broader Windows suite work. No completion claimed for wintests.",
+  "claimed_by": "dot-gmcp-cleanup",
+  "native_worker": "dot-gmcp-cleanup",
+  "scope": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-dotgmcpcleanup-1.json",
+    "tests/gmcp_requirements.rs"
+  ],
+  "scopes": [
+    ".agents/gmcp/evidence",
+    ".agents/tasks/t-dotgmcpcleanup-1.json",
+    "tests/gmcp_requirements.rs"
+  ],
+  "state": "in_progress",
+  "status": "in_progress"
+}
