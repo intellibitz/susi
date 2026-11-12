@@ -1,0 +1,37 @@
+{
+  "id": "T-CODEXRELEASESYNCQUAL-2",
+  "title": "Make release sync refuse hosts listed in missing_targets",
+  "goal": "Prevent the Core release updater from building or installing a release whose committed missing_targets record names the current native host.",
+  "status": "implemented",
+  "owner": "codex",
+  "native_worker": "codex-release-sync-qual-2",
+  "created_by": "codex",
+  "created_unix": 1794511133,
+  "size": "s",
+  "base_commit": "a535ec6705952d480db069a9876c1bddfcd4e42c",
+  "deps": [],
+  "scopes": [
+    "scripts/susi-release-sync.sh",
+    "tests/installer_contract.rs",
+    ".agents/tasks/T-CODEXRELEASESYNCQUAL-2.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "installer_contract"
+    ]
+  },
+  "results": {
+    "status": "implemented",
+    "root_cause": "The existing updater used reference asset presence and a knowingly-allowed override, while the release record's missing_targets field is the authoritative host exclusion.",
+    "change": "The updater derives the native rustc target, parses only missing_targets, skips an unqualified automatic tag, and refuses an explicit unqualified tag. The escape hatch is removed. The installer contract proves neither path builds or installs.",
+    "verification": "bash -n scripts/susi-release-sync.sh; cargo fmt --all --check; git diff --check; cargo test --offline --locked -p susi --test installer_contract: 9 passed, 0 failed, 0 ignored.",
+    "boundary": "Core release updater and installer contract only; no Commercial source, dependency, production secret, Windows run, or release tag."
+  }
+}

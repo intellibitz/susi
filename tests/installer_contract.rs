@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 mod common;
 
 const INSTALLER: &str = include_str!("../install.sh");
+const RELEASE_SYNC: &str = include_str!("../scripts/susi-release-sync.sh");
 
 fn run_bash(script: &str) -> std::process::Output {
     let mut command = Command::new(common::posix_shell());
@@ -140,6 +141,10 @@ fn fake_tools() -> String {
         "__RECORD__",
         include_str!("../releases/v0.21.52.json").trim_end(),
     )
+}
+
+fn fake_tools_with_record(record: &str) -> String {
+    FAKE_TOOLS.replace("__RECORD__", record.trim_end())
 }
 
 #[test]
@@ -431,67 +436,56 @@ detect_features
     assert!(String::from_utf8_lossy(&output.stderr).contains("retired"));
 }
 
-/// CEO Mandate 48: the installed susi tracks the latest release qualified for
-/// the host it runs on. The updater skips a release whose record has no
-/// reference build for this host, however new its tag.
 #[test]
-fn release_sync_picks_the_newest_release_qualified_for_this_host() {
-    let source = include_str!("../scripts/susi-release-sync.sh");
-    let selection = source
-        .split_once("release_tags() {")
-        .unwrap()
-        .1
-        .split_once("\ninstalled_version()")
-        .unwrap()
-        .0;
-    let host_asset = source
-        .split_once("host_asset() {")
-        .unwrap()
-        .1
-        .split_once("\n}\n")
-        .unwrap()
-        .0;
-    // v0.3.0 is the newest tag but was qualified on Windows only; v0.2.0 was
-    // qualified on Linux; v0.1.0 has no record at all.
-    let script = |system: &str, tags: &str| {
-        format!(
-            r#"set -euo pipefail
-REMOTE=fake SRC=/nonexistent
-log() {{ echo "$*" >&2; }}
-uname() {{ case "$1" in -s) echo {system} ;; *) echo x86_64 ;; esac; }}
-git() {{
-    case "$*" in
-        *ls-remote*) for t in {tags}; do echo "0000 refs/tags/$t"; done ;;
-        *releases/v0.3.0.json) echo '    {{ "file": "susi-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc" }}' ;;
-        *releases/v0.2.0.json) echo '    {{ "file": "susi-linux-x86_64", "target": "x86_64-unknown-linux-gnu" }}' ;;
-        *) return 1 ;;
-    esac
-}}
-host_asset() {{{host_asset}
-}}
-release_tags() {{{selection}
-latest_tag
-latest_qualified_tag
-"#
-        )
-    };
-    let all = "v0.1.0 v0.2.0 v0.3.0 not-a-release";
-    let linux = run_bash(&script("Linux", all));
-    assert!(linux.status.success(), "{linux:?}");
-    assert_eq!(String::from_utf8_lossy(&linux.stdout), "v0.3.0\nv0.2.0\n");
-    let skipped = String::from_utf8_lossy(&linux.stderr);
-    assert!(
-        skipped.contains("skipping v0.3.0: not qualified for this host"),
-        "{skipped}"
+fn release_sync_skips_or_refuses_a_host_missing_from_the_release_record() {
+    let record = include_str!("../releases/v0.21.52.json").replace(
+        "\"missing_targets\": [",
+        "\"missing_targets\": [\n    { \"target\": \"x86_64-unknown-linux-gnu\", \"reason\": \"fixture\" },",
     );
-    // On Windows the same remote yields the newest tag.
-    let windows = run_bash(&script("MINGW64_NT", all));
-    assert_eq!(String::from_utf8_lossy(&windows.stdout), "v0.3.0\nv0.3.0\n");
-    // Nothing qualified here: no tag is chosen, and that is not an error.
-    let none = run_bash(&script("Linux", "v0.1.0 v0.3.0"));
-    assert!(none.status.success(), "{none:?}");
-    assert_eq!(String::from_utf8_lossy(&none.stdout), "v0.3.0\n");
-    // The explicit path refuses too, unless knowingly overridden.
-    assert!(source.contains("SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST"));
-    assert!(source.contains("was not qualified for this host"));
+    for (args, expected, success) in [
+        ("", "skipping v0.21.52", true),
+        ("--tag v0.21.52", "not qualified for native host", false),
+    ] {
+        let script = format!(
+            r#"set -e
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+export HOME="$scratch/home" SUSI_HOME="$scratch/install" SUSI_RELEASE_REMOTE="$scratch/origin.git" SUSI_RELEASE_SRC="$scratch/src" SUSI_RELEASE_TARGET="$scratch/target" SUSI_RELEASE_IDLE_WAIT=0
+mkdir -p "$HOME"
+{tools}
+cat >"$scratch/release-sync.sh" <<'SYNC_EOF'
+{RELEASE_SYNC}
+SYNC_EOF
+chmod +x "$scratch/release-sync.sh"
+uname() {{ if [ "$1" = '-s' ]; then echo Linux; else echo x86_64; fi; }}
+rustc() {{ if [ "$1" = '-vV' ]; then printf 'host: x86_64-unknown-linux-gnu\n'; else return 1; fi; }}
+export -f rustc
+set +e
+"$scratch/release-sync.sh" {args}
+status=$?
+set -e
+if {success}; then test "$status" -eq 0; else test "$status" -ne 0; fi
+test ! -e "$SUSI_HOME/bin/susi"
+! grep -q '^cargo build ' "$CALLS"
+printf '%s\n' "$status" >"$scratch/status"
+"#,
+            tools = fake_tools_with_record(&record),
+            RELEASE_SYNC = RELEASE_SYNC,
+            args = args,
+            success = success,
+        );
+        let output = run_bash(&script);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "args={args}: stdout={} stderr={stderr}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let status = if success { "0" } else { "1" };
+        assert!(stderr.contains(expected), "args={args}: {stderr}");
+        assert!(
+            output.status.success(),
+            "expected fixture status {status}: {stderr}"
+        );
+    }
 }
