@@ -2,18 +2,6 @@
   "id": "T-CLAUDESTORAGEGUARD-5",
   "title": "Qualify the storage guard and first-build hooks on native Windows x86_64",
   "goal": "CEO direction 2026-11-11 (\"run it all on windows too\"). T-CLAUDESTORAGEGUARD-1..4 were built and tested on Linux x86_64 only; the authoring session had no Windows host (no SSH connection, no Windows toolchain), and a Linux build is not evidence that Windows works. An agent on a native Windows x86_64 MSVC host runs the acceptance below on current main, records the counts under `results`, fixes what fails in its own scoped change, and closes this record. Also run, in a fresh clone whose core.hooksPath is unset: `cargo build --offline --locked -p susi` and confirm `git config --local --get core.hooksPath` prints `.githooks`; then `cargo run --offline --locked -p xtask --bin local-snapshot -- guard` twice against origin and confirm 0 findings, with the second run reporting every ref unchanged. Points to watch on Windows: paths with backslashes or 8.3 short names as file remotes in the fixtures, `git ls-remote`/`for-each-ref` line endings, and the console-window rule for the `git` child processes.",
-  "status": "done",
-  "scopes": [
-    ".agents/tasks/T-CLAUDESTORAGEGUARD-5.json",
-    "build.rs",
-    "crates/susi-harness/src/operator.rs",
-    "crates/susi-harness/src/storage_guard.rs",
-    "crates/susi-harness/src/tests/operator.rs",
-    "crates/susi-harness/src/tests/storage_guard.rs",
-    "xtask/src/bin/local-snapshot.rs",
-    "xtask/src/bin/local-workflow.rs",
-    "xtask/tests/git_publisher_native_hook.rs"
-  ],
   "size": "s",
   "deps": [
     "T-CLAUDESTORAGEGUARD-4"
@@ -38,13 +26,20 @@
   },
   "created_by": "CLAUDESTORAGEGUARD",
   "created_unix": 1794421658,
-  "owner": "claude",
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "base": "18bb972c3a4b64e2f58c532fef77cbbae861b31e",
-  "host": "needs a native Windows x86_64 MSVC host",
-  "state": "done",
   "claimed_by": "CLAUDEWINSTOP",
+  "host": "needs a native Windows x86_64 MSVC host",
+  "limitations": [
+    "The fresh clone was made from the local checkout with its origin set to the storage remote, then fetched; it shared a cargo target directory with another worktree to avoid a cold build.",
+    "The no-console-window rule was checked by its test suite, not by watching the desktop."
+  ],
   "native_worker": "CLAUDEWINSTOP",
-  "updated_unix": 1794422279,
+  "owner": "claude",
   "results": {
     "host": "x86_64-pc-windows-msvc",
     "toolchain": "1.99.0",
@@ -80,8 +75,18 @@
     },
     "fixes_needed": "none: every acceptance passed on Windows unchanged, with the same counts as Linux"
   },
-  "limitations": [
-    "The fresh clone was made from the local checkout with its origin set to the storage remote, then fetched; it shared a cargo target directory with another worktree to avoid a cold build.",
-    "The no-console-window rule was checked by its test suite, not by watching the desktop."
-  ]
+  "scopes": [
+    ".agents/tasks/T-CLAUDESTORAGEGUARD-5.json",
+    "build.rs",
+    "crates/susi-harness/src/operator.rs",
+    "crates/susi-harness/src/storage_guard.rs",
+    "crates/susi-harness/src/tests/operator.rs",
+    "crates/susi-harness/src/tests/storage_guard.rs",
+    "xtask/src/bin/local-snapshot.rs",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/tests/git_publisher_native_hook.rs"
+  ],
+  "state": "done",
+  "status": "done",
+  "updated_unix": 1794422279
 }
