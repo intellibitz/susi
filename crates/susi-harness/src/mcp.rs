@@ -140,10 +140,15 @@ impl<T: Transport> McpClient<T> {
                 "clientInfo": {"name": "susi-harness", "version": env!("CARGO_PKG_VERSION")}
             }),
         )?;
-        if let Some(version) = result.get("protocolVersion").and_then(Value::as_str) {
-            self.transport.set_protocol_version(version);
-            self.negotiated_version = Some(version.to_string());
-        }
+        let version = result
+            .get("protocolVersion")
+            .and_then(Value::as_str)
+            .filter(|version| !version.is_empty())
+            .ok_or_else(|| {
+                EaiError::internal("mcp initialize: response has no non-empty protocolVersion")
+            })?;
+        self.transport.set_protocol_version(version);
+        self.negotiated_version = Some(version.to_string());
         self.transport
             .notify(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
         self.initialized = true;
