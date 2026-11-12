@@ -2,17 +2,7 @@
   "id": "T-DOTAFFECTEDREUSE-1",
   "title": "Reuse affected source parse results",
   "goal": "Measure affected-selection cost and reuse per-file lexer results within one invocation only when justified, preserving exact workspace facts and selected packages.",
-  "created_by": "dot-affected-reuse",
-  "created_unix": 1794264131,
-  "state": "in_progress",
-  "status": "in_progress",
-  "native_worker": "dot-affected-reuse",
-  "claimed_by": "dot-affected-reuse",
   "deps": [],
-  "scopes": [
-    "xtask/src/affected.rs",
-    ".agents/tasks/T-DOTAFFECTEDREUSE-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -26,7 +16,22 @@
       "affected::tests::"
     ]
   },
+  "created_by": "dot-affected-reuse",
+  "created_unix": 1794264131,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "checkpoint": "Native focused acceptance passes on final source: 19 passed, 0 failed/ignored, 144 unrelated filtered. Strict Clippy for xtask local-workflow and tests plus workspace fmt check pass. Two strict-lint defects were corrected without suppression: group source text/lexical facts to obey five-argument limit, and explicitly check fixture ownership instead of unwrap. Both failures are retained. Prior differential/timing evidence belongs to predecessor d7588e614; no retroactive claim for final source. Refreshed independent review and combined gate remain pending; parent owns integration/publication.",
+  "claimed_by": "dot-affected-reuse",
+  "native_worker": "dot-affected-reuse",
+  "scopes": [
+    "xtask/src/affected.rs",
+    ".agents/tasks/T-DOTAFFECTEDREUSE-1.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
   "validation": {
     "base_commit": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
     "original_source_sha256": "C2BAE59C0ED26FE622DDC82CAB272658D9FA67BEE63B39CEA0F9D8F6E2CC90D2",
