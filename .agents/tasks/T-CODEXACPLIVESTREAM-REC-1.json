@@ -1,0 +1,36 @@
+{
+  "id": "T-CODEXACPLIVESTREAM-REC-1",
+  "title": "Close the landed ACP live-stream evidence record",
+  "goal": "Reconcile T-CODEXACPLIVESTREAM-1 with the verified merge, native gate receipt and remote origin/main after publication.",
+  "status": "implemented",
+  "owner": "codex",
+  "native_worker": "acp-live-stream-record",
+  "created_by": "codex",
+  "created_unix": 1794460300,
+  "size": "s",
+  "base_commit": "938441b62ead2d6fba4010d27ec7fbe28cd1b27a",
+  "deps": ["T-CODEXACPLIVESTREAM-1"],
+  "scopes": [
+    ".agents/tasks/T-CODEXACPLIVESTREAM-1.json",
+    ".agents/tasks/T-CODEXACPLIVESTREAM-REC-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "task_records"
+    ]
+  },
+  "results": {
+    "status": "implemented",
+    "boundary": "Evidence-only task-record closure; no source or release change",
+    "remote_main": "938441b62ead2d6fba4010d27ec7fbe28cd1b27a",
+    "verified_merge": "6619a37ff8800024a612a3f59c1d77ec5135d4b3",
+    "receipt": ".agents/receipts/6619a37ff8800024a612a3f59c1d77ec5135d4b3.json"
+  }
+}
