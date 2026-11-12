@@ -1,0 +1,37 @@
+{
+  "id": "T-CODEXHARNESSRPC-1",
+  "title": "Correlate harness MCP responses with JSON-RPC request ids",
+  "goal": "Reject stale, cross-request, or malformed JSON-RPC responses in the Core harness MCP client instead of accepting any result or error as the current request's answer.",
+  "status": "implemented",
+  "owner": "codex",
+  "native_worker": "codex-harness-rpc",
+  "created_by": "codex",
+  "created_unix": 1794442133,
+  "size": "s",
+  "base_commit": "841d89c609ace1e2382925ac2d000ac4932990b2",
+  "deps": [],
+  "scopes": [
+    "crates/susi-harness/src/mcp.rs",
+    ".agents/tasks/T-CODEXHARNESSRPC-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "mcp"
+    ]
+  },
+  "results": {
+    "status": "implemented and locally verified",
+    "base": "841d89c609ace1e2382925ac2d000ac4932990b2",
+    "acceptance": "susi-harness mcp tests: 15 passed, 0 failed",
+    "clippy": "cargo clippy --offline --locked -p susi-harness --all-targets -- -D warnings: passed",
+    "gate": "pending exact local gate",
+    "published": "pending verified fast-forward to origin/main"
+  }
+}

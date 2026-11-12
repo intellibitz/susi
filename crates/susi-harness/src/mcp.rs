@@ -260,6 +260,16 @@ impl<T: Transport> McpClient<T> {
             "params": params,
         });
         let response = self.transport.exchange(&request)?;
+        if response.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+            return Err(EaiError::internal(format!(
+                "mcp {method}: response has invalid jsonrpc version"
+            )));
+        }
+        if response.get("id") != Some(&Value::from(id)) {
+            return Err(EaiError::internal(format!(
+                "mcp {method}: response id does not match request id {id}"
+            )));
+        }
         if let Some(error) = response.get("error") {
             let message = error
                 .get("message")
@@ -571,17 +581,31 @@ mod tests {
     }
 
     fn initialized() -> Value {
-        json!({"result": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}}})
+        response(
+            1,
+            json!({"protocolVersion": PROTOCOL_VERSION, "capabilities": {}}),
+        )
+    }
+
+    fn response(id: u64, result: Value) -> Value {
+        json!({"jsonrpc": "2.0", "id": id, "result": result})
+    }
+
+    fn error_response(id: u64, code: i64, message: &str) -> Value {
+        json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
     }
 
     #[test]
     fn mcp_lists_tools_after_initialize() {
         let transport = Scripted::new(vec![
             initialized(),
-            json!({"result": {"tools": [
-                {"name": "search", "description": "Search", "inputSchema": {"type": "object"}},
-                {"name": "fetch", "description": "Fetch", "inputSchema": {"type": "object"}}
-            ]}}),
+            response(
+                2,
+                json!({"tools": [
+                    {"name": "search", "description": "Search", "inputSchema": {"type": "object"}},
+                    {"name": "fetch", "description": "Fetch", "inputSchema": {"type": "object"}}
+                ]}),
+            ),
         ]);
         let mut client = McpClient::new(transport);
         let tools = client.list_tools().unwrap();
@@ -595,9 +619,9 @@ mod tests {
     fn mcp_list_tools_follows_next_cursor_until_absent() {
         let transport = Scripted::new(vec![
             initialized(),
-            json!({"result": {"tools": [{"name": "a"}], "nextCursor": "rev:1"}}),
-            json!({"result": {"tools": [{"name": "b"}], "nextCursor": "rev:2"}}),
-            json!({"result": {"tools": [{"name": "c"}]}}),
+            response(2, json!({"tools": [{"name": "a"}], "nextCursor": "rev:1"})),
+            response(3, json!({"tools": [{"name": "b"}], "nextCursor": "rev:2"})),
+            response(4, json!({"tools": [{"name": "c"}]})),
         ]);
         let mut client = McpClient::new(transport);
         let names: Vec<String> = client
@@ -618,18 +642,20 @@ mod tests {
     fn mcp_list_tools_surfaces_a_cursor_error_and_bounds_paging() {
         let transport = Scripted::new(vec![
             initialized(),
-            json!({"result": {"tools": [{"name": "a"}], "nextCursor": "rev:1"}}),
-            json!({"error": {"code": -32602, "message": "Invalid cursor"}}),
+            response(2, json!({"tools": [{"name": "a"}], "nextCursor": "rev:1"})),
+            error_response(3, -32602, "Invalid cursor"),
         ]);
         let mut client = McpClient::new(transport);
         let error = client.list_tools().unwrap_err().to_string();
         assert!(error.contains("Invalid cursor"), "{error}");
 
         let mut endless = vec![initialized()];
-        endless.extend(
-            (0..=MAX_LIST_PAGES)
-                .map(|n| json!({"result": {"tools": [], "nextCursor": format!("rev:{n}")}})),
-        );
+        endless.extend((0..=MAX_LIST_PAGES).enumerate().map(|(index, n)| {
+            response(
+                index as u64 + 2,
+                json!({"tools": [], "nextCursor": format!("rev:{n}")}),
+            )
+        }));
         let mut client = McpClient::new(Scripted::new(endless));
         let error = client.list_tools().unwrap_err().to_string();
         assert!(error.contains("still paging"), "{error}");
@@ -639,10 +665,13 @@ mod tests {
     fn mcp_calls_a_tool_and_joins_text_blocks() {
         let transport = Scripted::new(vec![
             initialized(),
-            json!({"result": {"content": [
-                {"type": "text", "text": "first"},
-                {"type": "text", "text": "second"}
-            ]}}),
+            response(
+                2,
+                json!({"content": [
+                    {"type": "text", "text": "first"},
+                    {"type": "text", "text": "second"}
+                ]}),
+            ),
         ]);
         let mut client = McpClient::new(transport);
         let text = client.call("search", &json!({"q": "rust"})).unwrap();
@@ -657,7 +686,7 @@ mod tests {
     fn mcp_surfaces_a_json_rpc_error() {
         let transport = Scripted::new(vec![
             initialized(),
-            json!({"error": {"code": -32601, "message": "method not found"}}),
+            error_response(2, -32601, "method not found"),
         ]);
         let mut client = McpClient::new(transport);
         let error = client.list_tools().unwrap_err().to_string();
@@ -690,8 +719,11 @@ mod tests {
     #[test]
     fn mcp_records_the_negotiated_protocol_version() {
         let transport = Scripted::new(vec![
-            json!({"result": {"protocolVersion": "2025-11-25", "capabilities": {}}}),
-            json!({"result": {"tools": []}}),
+            response(
+                1,
+                json!({"protocolVersion": "2025-11-25", "capabilities": {}}),
+            ),
+            response(2, json!({"tools": []})),
         ]);
         let mut client = McpClient::new(transport);
         assert_eq!(client.negotiated_protocol_version(), None);
@@ -705,12 +737,38 @@ mod tests {
         );
 
         let mut legacy = McpClient::new(Scripted::new(vec![
-            json!({"result": {"protocolVersion": "2025-06-18"}}),
-            json!({"result": {"tools": []}}),
+            response(1, json!({"protocolVersion": "2025-06-18"})),
+            response(2, json!({"tools": []})),
         ]));
         legacy.list_tools().unwrap();
         assert_eq!(legacy.negotiated_protocol_version(), Some("2025-06-18"));
         assert!(!legacy.negotiated_supported());
+    }
+
+    #[test]
+    fn mcp_rejects_a_response_for_another_request_id() {
+        let transport = Scripted::new(vec![json!({
+            "jsonrpc": "2.0",
+            "id": 99,
+            "result": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}}
+        })]);
+        let mut client = McpClient::new(transport);
+        let error = client.initialize().unwrap_err().to_string();
+        assert!(
+            error.contains("response id does not match request id 1"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn mcp_rejects_a_response_without_the_json_rpc_version() {
+        let transport = Scripted::new(vec![json!({
+            "id": 1,
+            "result": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}}
+        })]);
+        let mut client = McpClient::new(transport);
+        let error = client.initialize().unwrap_err().to_string();
+        assert!(error.contains("invalid jsonrpc version"), "{error}");
     }
 
     #[test]
