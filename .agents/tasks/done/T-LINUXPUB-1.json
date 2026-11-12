@@ -3,15 +3,10 @@
   "title": "Validate the Git storage publisher on Linux and test it through the real pre-push hook",
   "goal": "Run T-DOTGITPUBLISHER-1's pending combined validation (the 26-test local-snapshot suite with the graft-history guard and adjacent push-policy discovery, strict clippy, build, fmt) on the exact combined tree on native Linux x86_64. Add a permanent test that drives the built local-snapshot and push-policy together through the repository's own .githooks/pre-push. Then use the publisher for real to publish to origin/main.",
   "size": "S",
-  "deps": ["T-DOTGITPUBLISHER-1", "T-DOTNATIVEPUSH-1", "T-LINUXPUB-2"],
-  "created_by": "LINUXPUB",
-  "created_unix": 1794342745,
-  "owner": "linuxpub (Cursor agent on CachyOS Linux x86_64, CEO laptop)",
-  "base_commit": "fd6739c63c52b0b1d98788fdccbbd7e49a8732db",
-  "scopes": [
-    "xtask/tests/git_publisher_native_hook.rs",
-    "docs/git-storage-publisher.md",
-    ".agents/tasks/T-LINUXPUB-1.json"
+  "deps": [
+    "T-DOTGITPUBLISHER-1",
+    "T-DOTNATIVEPUSH-1",
+    "T-LINUXPUB-2"
   ],
   "accept": {
     "cmd": [
@@ -27,6 +22,22 @@
       "git_publisher_native_hook"
     ]
   },
+  "created_by": "LINUXPUB",
+  "created_unix": 1794342745,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "fd6739c63c52b0b1d98788fdccbbd7e49a8732db",
+  "limitations": [
+    "A pre-push hook that declines locally prints no porcelain ref status, so the publisher reports an unknown outcome (pointing to status-main) instead of a confirmed rejection. This is the conservative, fail-closed reading and is left unchanged.",
+    "The native gate tool still refuses on Linux (local-workflow list: 'claim worktree must be absolute') because four claim files hold Windows F:/ paths; the publisher does not read claims, so it is unaffected. Not changed here.",
+    "xtask/tests/native_push_policy.rs fails strict clippy (option_env_unwrap); owned by mainfix.",
+    "No Windows run of the new hook test; no full workspace test run; no release qualification."
+  ],
+  "owner": "linuxpub (Cursor agent on CachyOS Linux x86_64, CEO laptop)",
+  "provenance": "Publisher source by dot (T-DOTGITPUBLISHER-1, last change f92a9c6b5); not modified. Work done in worktree susi-agent-linuxpub on branch local-agent/linuxpub.",
   "results": {
     "host": "x86_64-unknown-linux-gnu, CachyOS, Rust 1.99.0, Git 2.56.0; isolated HOME/XDG/SUSI_HOME/TMPDIR, real CARGO_HOME/RUSTUP_HOME, private target dir",
     "combined_validation_at_fd6739c63": "cargo test --offline --locked -p xtask --features release-tooling --bin local-snapshot: 26 passed, 0 failed (test phase 4.02 s, 32.7 s wall with build); cargo clippy -p xtask --features release-tooling --bin local-snapshot --bin push-policy -- -D warnings: exit 0 (12.3 s); cargo fmt --all --check: exit 0 (10.4 s); cold build of local-snapshot, push-policy, local-workflow in a fresh target: 13.9 s",
@@ -37,11 +48,9 @@
     "guards": "core_docs_promise_no_ui_or_plugins 5/5, lean_core_ceilings 2/2, orphan_sources 3/3 passed; architecture_tests 38 passed, 5 failed (all in files owned by mainfix: root AGENTS.md, .githooks/pre-push, README.md, .agents/identity.json, crates/susi-harness/tests/native_link.rs); 85.8 s wall including the susi test build",
     "build_timings_not_budget_numbers": "Under load average ~30 from other agents' cargo jobs, -j8, nice 19: cargo build -p susi after the guard build 121.8 s (236 units compiled); no-op rebuild 0.69 s; after touching src/main.rs 6.1 s. These are not the 60-second budget figure: neither an idle cold build nor an idle warm build."
   },
-  "limitations": [
-    "A pre-push hook that declines locally prints no porcelain ref status, so the publisher reports an unknown outcome (pointing to status-main) instead of a confirmed rejection. This is the conservative, fail-closed reading and is left unchanged.",
-    "The native gate tool still refuses on Linux (local-workflow list: 'claim worktree must be absolute') because four claim files hold Windows F:/ paths; the publisher does not read claims, so it is unaffected. Not changed here.",
-    "xtask/tests/native_push_policy.rs fails strict clippy (option_env_unwrap); owned by mainfix.",
-    "No Windows run of the new hook test; no full workspace test run; no release qualification."
-  ],
-  "provenance": "Publisher source by dot (T-DOTGITPUBLISHER-1, last change f92a9c6b5); not modified. Work done in worktree susi-agent-linuxpub on branch local-agent/linuxpub."
+  "scopes": [
+    "xtask/tests/git_publisher_native_hook.rs",
+    "docs/git-storage-publisher.md",
+    ".agents/tasks/T-LINUXPUB-1.json"
+  ]
 }
