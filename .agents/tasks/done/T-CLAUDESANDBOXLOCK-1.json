@@ -2,11 +2,6 @@
   "id": "T-CLAUDESANDBOXLOCK-1",
   "title": "Sandbox client: daemon status reads the daemon's substrate record, not a per-workspace lock nothing writes",
   "goal": "SusiDaemonState::check_status (the local fallback behind the mission status report and the leaf /daemon/status) reports a running daemon as running, on any workspace path length",
-  "status": "done",
-  "scopes": [
-    "crates/susi-sandbox-client/src/daemon_state/local.rs",
-    ".agents/tasks/T-CLAUDESANDBOXLOCK-1.json"
-  ],
   "size": "s",
   "deps": [],
   "accept": {
@@ -21,16 +16,26 @@
   },
   "created_by": "CLAUDESANDBOXLOCK",
   "created_unix": 1794393827,
-  "owner": "CLAUDESANDBOXLOCK",
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "base": "9b3cadcfc1aeaabba6efd90065f058e2d38692dc",
   "host": "x86_64-unknown-linux-gnu",
+  "limitations": [
+    "Windows liveness needs the daemon's byte-range lock on substrate.lock, so the live-case test runs on Linux only; Windows behaviour is daemon_lock_live's, unchanged",
+    "other unixes (not release targets) accept the recorded pid, as daemon_lock_live does"
+  ],
+  "owner": "CLAUDESANDBOXLOCK",
   "results": {
     "root_cause": "the fallback read <global_dir>/daemon_<hex of workspace path>.lock, which nothing writes since the daemon took one global substrate.lock; the answer was always false (the mission status report always said STOPPED), and for workspace paths over ~120 bytes the file name exceeded the 255-byte limit (seen by T-CLAUDEREL56 as a test failure under a deep TMPDIR)",
     "fix": "read the pid the daemon records in substrate.pid / substrate.lock and judge it with susi_paths::ports::daemon_lock_live, the same check ports.json readers use; read-only, the workspace path names no file",
     "tests": "cargo test -p susi-sandbox-client -p susi-leaf-services: all binaries pass (sandbox-client lib 61); new tests check_status_is_false_without_a_live_substrate_record and check_status_sees_the_daemons_substrate_record (the second fails on the old code); fmt; workspace clippy -D warnings; guards architecture 44, core_docs 5, gmcp_requirements 88, lean 2, no_github 5, orphan 3, task_records 3"
   },
-  "limitations": [
-    "Windows liveness needs the daemon's byte-range lock on substrate.lock, so the live-case test runs on Linux only; Windows behaviour is daemon_lock_live's, unchanged",
-    "other unixes (not release targets) accept the recorded pid, as daemon_lock_live does"
-  ]
+  "scopes": [
+    "crates/susi-sandbox-client/src/daemon_state/local.rs",
+    ".agents/tasks/T-CLAUDESANDBOXLOCK-1.json"
+  ],
+  "status": "done"
 }
