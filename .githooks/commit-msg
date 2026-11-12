@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Mandate 50: every commit names its task. `commit-msg <message-file>`.
-# Local (bypassable with --no-verify) — the CI job "Workflow Compliance" runs
-# scripts/check-workflow-compliance.sh server-side, where it cannot be skipped.
+# Local (bypassable with --no-verify). There is no server-side job (GitHub is
+# storage only): `distill lint --strict` and the gated landing refuse a commit
+# without a task trailer, so a skipped hook cannot reach a release.
 msg_file=$1
 subject=$(sed -n '1p' "$msg_file")
 
