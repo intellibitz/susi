@@ -4,12 +4,6 @@
   "goal": "Gates (fmt, clippy, tests, cargo-deny, task acceptance) of concurrent ships run at the same time, each in its own candidate worktree, target and test home; only publication (re-fetch, receipt ref transaction, push, statuses) is serialized. When origin/main moves during a gate the ship re-merges onto it and re-gates only the packages the new commits affect. Gate parallelism scales down with the number of live gates instead of queueing. Receipts stay verifiable when the local integration ref is behind origin/main (commercial ships blocked at load on 2026-11-06).",
   "size": "m",
   "deps": [],
-  "native_worker": "asyncship",
-  "status": "completed",
-  "scopes": [
-    ".agents/tasks/t-asyncship-1.json",
-    "xtask/src/bin/local-workflow.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -23,5 +17,16 @@
     ]
   },
   "created_by": "ASYNCSHIP",
-  "created_unix": 1793986500
+  "created_unix": 1793986500,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "asyncship",
+  "scopes": [
+    ".agents/tasks/t-asyncship-1.json",
+    "xtask/src/bin/local-workflow.rs"
+  ],
+  "status": "completed"
 }
