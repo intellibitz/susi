@@ -1,5 +1,24 @@
 **START HERE: read the CEO mandates below, inspect local state, and reserve an isolated worktree before editing.**
 
+## CEO Mandate 76 (2026-11-12): Multi-Agent Collaboration through the Susi Board
+
+Read [CEO Mandate 76](docs/ceo-mandate-76.md). Every agent collaborates with
+every other agent through the Susi Board; the CEO is not a message relay.
+
+- **Read the board** at session start, before claiming a scope, before every
+  publish to `main`, and before cutting a release. A stop note halts publishing.
+- **Post on the board:** a Claim before the first edit (task ID, paths, worktree,
+  acceptance), Landed after the commit is on `origin`, and Cut, Heads-up,
+  Request, Handoff, Decision or Blocked when they apply.
+- **Append only:** add the next numbered item, re-check the number after
+  appending, never edit or delete another agent's item.
+- **Respect claims and answer each other:** never edit inside another agent's
+  open claim, ask the owner on the board, and answer what is addressed to you
+  before starting new work.
+- **Truthful, confidential, portable:** only verified facts; no credentials or
+  commercial source on the board; plain text with zero GitHub or hosted-service
+  dependency. The board coordinates; Git stays the record; it adds no gate.
+
 ## CEO Mandate 75 (2026-11-12): Raw Source (main) & Distill (release), Cloud Raw-Source Pickup, and Pure Apache-2.0 Compliance
 
 Read [CEO Mandate 75](docs/ceo-mandate-75.md) first; it builds on Mandate 74 and
@@ -169,6 +188,7 @@ These are requirements, **not claims of completed implementation**. Consult
 | 73 | **Independent agents and Susi integration:** three isolated laptops with an available authorized local driver, recursive driver/engine adapters across container components, independent autonomous cloud sessions, capacity-based unlimited development contributions, master-brain distillation, portable Git storage and immutable release snapshots. |
 | 74 | **Autonomous CTO ecosystem mandate (2026-11-11):** `<10s` warm core build+test+release budget (`total_ms < 10_000`); 5 Apache-2.0 free-forever core pillars (**GAWD**, **GEMI**, **GMCP**, **ACP**, **Susi Harness** with parallel multi-agent workflow); remote pull and merge at every workflow step over portable Git storage (zero GitHub Actions/PRs/API); ungated labelled `main` deterministically distilled into immutable releases; attributed Apache-2.0 harvesting; all add-ons/UIs/SSO/RBAC/FinOps closed, licensed, and paid for corporates in `susi-commercial-apps`. |
 | 75 | **Raw Source (`main`) & Distill (`release`), Cloud Feature Pickup, and Pure `Apache-2.0` Compliance (2026-11-12):** symmetric Raw Source (`main`) -> Distill (`release`) pipeline across `susi` and `susi-commercial-apps` with one-version-one-cut guards; `local-harvest raw-features` / `route` / `pickup` routing 5-pillar `<10s` capabilities to Core and all UIs/packs/connectors/workflows to `susi-commercial-apps`; **Pure `Apache-2.0` ONLY** cloud harvest compliance (full §4(a)–(d) notices, refusing standalone MIT/BSD, LLVM-exception, `AND`, copyleft and unlicensed raw source); additive multi-agent (`Claude`, `Codex`, `Carbon`) Git and Susi Board collaboration. |
+| 76 | **Multi-agent collaboration through the Susi Board (2026-11-12):** every agent reads the Susi Board at session start and before claiming, publishing or cutting a release; posts Claim, Landed, Cut, Heads-up, Request, Handoff, Decision and Blocked items; appends only and never rewrites another agent's item; respects open claims and answers requests addressed to it; keeps the board truthful, free of secrets and commercial source, and free of any GitHub or hosted-service dependency. The board coordinates, Git stays the record, and no gate is added ([`docs/ceo-mandate-76.md`](docs/ceo-mandate-76.md)). |
 
 OS ABI calls and installed compiler/linker tools are explicit platform boundaries,
 not permission to bundle foreign runtimes. Record external protocol peers and

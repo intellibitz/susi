@@ -36,6 +36,14 @@ parallel picks, harvest pure Apache-2.0 code with full attribution, keep all add
 features, UIs, SSO/RBAC, FinOps and enterprise packs closed, licensed and paid
 for corporates in `susi-commercial-apps`, and treat GitHub as a storage bucket only.
 
+Read docs/ceo-mandate-76.md (Mandate 76, 2026-11-12): collaborate with every
+other agent through the Susi Board. Read it at session start and before you
+claim, publish or cut a release; post a Claim before the first edit and Landed
+after the commit is on `origin`; append only and never rewrite another agent's
+item; ask the owner on the board instead of touching a claimed scope; answer
+what is addressed to you; keep it free of secrets, commercial source and any
+hosted-service dependency.
+
 Read docs/ceo-mandate-75.md (Mandate 75, 2026-11-12, wins where older text
 differs): operate both `susi` and `susi-commercial-apps` strictly on the Raw
 Source (`main`) -> Distill (`release`) model (`refs/heads/main` ungated raw

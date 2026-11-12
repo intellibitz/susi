@@ -2152,7 +2152,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
     let ids: Vec<_> = mandates.iter().map(|m| m["id"].as_u64().unwrap()).collect();
     assert_eq!(
         ids,
-        (1..=75).collect::<Vec<_>>(),
+        (1..=76).collect::<Vec<_>>(),
         "mandate IDs must not be lost, duplicated or renumbered"
     );
     for (id, phrase) in [
@@ -2170,6 +2170,7 @@ fn ceo_mandates_are_complete_and_keep_evidence_honest() {
         (73, "Three isolated laptops"),
         (74, "Dump to main, distill releases, harvest"),
         (75, "Raw Source (main) -> Distill (release)"),
+        (76, "through the Susi Board"),
     ] {
         assert!(
             mandates[(id - 1) as usize]["imperative"]
@@ -2328,6 +2329,45 @@ fn ceo_mandate_75_is_discoverable_and_enforces_pure_apache2_harvest() {
         assert!(
             doc.contains(phrase),
             "Mandate 75 lost requirement: {phrase}"
+        );
+    }
+}
+
+/// Mandate 76 (CEO 2026-11-12): agents collaborate through the Susi Board.
+#[test]
+fn ceo_mandate_76_makes_susi_board_collaboration_discoverable() {
+    let root = workspace_root();
+    for path in [
+        "AGENTS.md",
+        ".agents/identity.json",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "README.md",
+    ] {
+        let text = std::fs::read_to_string(root.join(path)).unwrap();
+        assert!(
+            text.contains("docs/ceo-mandate-76.md"),
+            "{path}: Mandate 76 must be discoverable"
+        );
+    }
+    let doc = std::fs::read_to_string(root.join("docs/ceo-mandate-76.md")).unwrap();
+    for phrase in [
+        "**Agent reminder (one line):**",
+        "## 2. Read the board",
+        "## 3. Post on the board",
+        "## 4. Append only",
+        "Never edit a path inside another agent's open claim",
+        "answers on the board",
+        "Coordination, not evidence",
+        "No gate",
+        "zero dependency on GitHub",
+        "Never put credentials",
+        "Implementation truth",
+        "Not built",
+    ] {
+        assert!(
+            doc.contains(phrase),
+            "Mandate 76 lost requirement: {phrase}"
         );
     }
 }
