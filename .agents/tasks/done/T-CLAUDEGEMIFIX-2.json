@@ -2,19 +2,6 @@
   "id": "T-CLAUDEGEMIFIX-2",
   "title": "GEMI: caller tools return as OpenAI tool_calls; max_tokens reaches the engine",
   "goal": "CEO direction 2026-11-12 (\"Fix gemi completely\"), defects 4 and 5 of board item 229 (T-CODEXHISTORY-1 had meanwhile carried the conversation and tool schemas to the engine). (a) A request with its own `tools`: the model's call came back as raw `<tool_call>` text, or, streamed, core ran it against its own tool registry (`[SUSI TOOLS] get_weather is not a registered tool — skipped`) and the call was lost. GEMI now returns calls to caller-supplied tools behind `plane_bus::gemi::CALLER_TOOL_CALLS` instead of executing them, and the 9091 server turns them into OpenAI `tool_calls` (`content: null` when there is no text, `finish_reason: \"tool_calls\"`; streamed as a `tool_calls` delta). (b) `max_tokens` is added to the conversation sent to the local engine, so the engine stops there instead of generating its configured 512 tokens for the server to trim.",
-  "status": "done",
-  "scopes": [
-    ".agents/tasks/T-CLAUDEGEMIFIX-2.json",
-    "crates/susi-core/src/plane_bus.rs",
-    "crates/susi-gemi/src/engines/local_plug.rs",
-    "crates/susi-gemi/src/engines/runtime.rs",
-    "crates/susi-gemi/src/local_tool_calls.rs",
-    "crates/susi-gemi/src/pulse.rs",
-    "crates/susi-gemi/src/tests/vc_201_042_native.rs",
-    "crates/susi-server/src/lib.rs",
-    "docs/lean-core.md",
-    "tests/lean_core_ceilings.rs"
-  ],
   "size": "s",
   "deps": [
     "T-CLAUDEGEMIFIX-1",
@@ -34,17 +21,35 @@
   },
   "created_by": "CLAUDEGEMIFIX",
   "created_unix": 1794431891,
-  "owner": "claude",
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "base": "669d7401271f69eff996008b6046a1eedcbaf90a",
   "host": "CEO laptop, CachyOS Linux x86_64",
-  "results": {
-    "live": "Isolated daemon in a private network namespace, commercial plug host with T-CLAUDECOMMMAXTOK-1, starter model. Request with tools=[get_weather] 'What is the weather in Paris right now?': finish_reason tool_calls, content null, tool_calls [{type function, name get_weather, arguments {\"city\":\"Paris\"}}] (before: raw <tool_call> text). Same request streamed: a tool_calls delta then finish_reason tool_calls (before: '[SUSI TOOLS] `get_weather` is not a registered tool — skipped'). The tool result fed back: 'The current weather in Paris is described as a light rain with a temperature of 9 degrees Celsius.' max_tokens 5: 2.1 s (before: 52.2 s)."
-  },
   "limitations": [
     "The engine reports no token count, so a reply the engine cut at max_tokens still says finish_reason stop unless the server's own estimate also cut it.",
     "Cloud and external providers still receive the assembled prose and no tool schemas (T-CODEXHISTORY-1's limitation), so caller tools work on the local engine path only.",
     "Anthropic /v1/messages does not translate tool_use blocks.",
     "A 0.5B model ignored a system instruction to answer in French; the instruction reaches the engine (T-CODEXHISTORY-1), so this is the model's limit.",
     "Linux x86_64 only."
-  ]
+  ],
+  "owner": "claude",
+  "results": {
+    "live": "Isolated daemon in a private network namespace, commercial plug host with T-CLAUDECOMMMAXTOK-1, starter model. Request with tools=[get_weather] 'What is the weather in Paris right now?': finish_reason tool_calls, content null, tool_calls [{type function, name get_weather, arguments {\"city\":\"Paris\"}}] (before: raw <tool_call> text). Same request streamed: a tool_calls delta then finish_reason tool_calls (before: '[SUSI TOOLS] `get_weather` is not a registered tool — skipped'). The tool result fed back: 'The current weather in Paris is described as a light rain with a temperature of 9 degrees Celsius.' max_tokens 5: 2.1 s (before: 52.2 s)."
+  },
+  "scopes": [
+    ".agents/tasks/T-CLAUDEGEMIFIX-2.json",
+    "crates/susi-core/src/plane_bus.rs",
+    "crates/susi-gemi/src/engines/local_plug.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/local_tool_calls.rs",
+    "crates/susi-gemi/src/pulse.rs",
+    "crates/susi-gemi/src/tests/vc_201_042_native.rs",
+    "crates/susi-server/src/lib.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "status": "done"
 }
