@@ -397,8 +397,16 @@ workers need one shared coordinator, not independent local locks.
 The installed Susi is the stable copy (Mandate 48, CEO decision 2026-11-12): it
 changes only by promotion of a fully qualified release and is not the tool that
 builds its successor. Development is driven by private debug builds from
-current `main`, one per agent. The installed copy tracks the latest qualified
-release; report it on the Susi Board when it falls behind. Production qualification requires an identified source tree and
+current `main`, one per agent. **Agents must keep the local release binary
+updated with the remote release, whenever feasible and required** (CEO
+directive 2026-11-12): required when the installed copy is behind the latest
+release qualified for this host; feasible when that release is qualified here,
+the remote answers and no susi client is mid-mission. The installed updater
+(`susi-release-sync`, hourly where its timer is enabled) builds the release
+from its tag and promotes it; `susi-commercial workflow check` measures the
+installed copy against the latest qualified release and starts the updater when
+it is behind. If the updater fails, fix the cause or report it on the Susi
+Board; never leave the installed copy behind silently. Production qualification requires an identified source tree and
 locked graph, strict license and Rust-only audits, format/lint checks, nonempty
 required tests, executable smoke checks, artifact digest and reproducible
 source/toolchain/target/feature evidence. Then atomically promote, retain the

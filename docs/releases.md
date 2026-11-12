@@ -47,6 +47,17 @@ has a reference build for this host and skips newer ones that do not; `--check`
 prints both. An explicit `--tag` of a release not qualified for the host is
 refused unless `SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST=1` is set knowingly.
 
+**Keeping it updated is a duty, not only a report** (CEO directive 2026-11-12:
+"agents must keep the local release binary updated with the remote binary,
+whenever feasible and required"). Required: the installed copy is behind the
+latest release qualified for the host. Feasible: that release is qualified
+here, the remote answers and no susi client is mid-mission (the updater waits
+for an idle susi). The hourly timer (`susi-release-sync.sh --install-timer`)
+does it unattended; `susi-commercial workflow check` shows where the installed
+copy stands and starts the updater when it is behind. "Remote binary" means
+the remote release: no binary is downloaded, the release is built from its tag
+on the host and compared with the record's reference checksum.
+
 ### What the sha256 means
 
 The `sha256` of an asset is the digest of the **reference build**: the binary
