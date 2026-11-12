@@ -1,15 +1,9 @@
 {
   "id": "T-ICU1667-1",
-  "native_worker": "icu1667",
   "title": "Linux product stdlib loads a qualified OS ICU at runtime instead of linking ICU 76",
   "goal": "Fix intellibitz/susi#1667. The Linux product standard library linked libicuuc.so.76 and its _76 symbols, so the ship gate could not build on stock Ubuntu 24.04 LTS (ICU 74) or Debian 12 Bookworm (ICU 72) and gate-built executables did not start without ICU 76. Load the newest qualified OS ICU (76 with Unicode 16.0, 74 with Unicode 15.1, then 72 with Unicode 15.0) from the standard absolute system library directories at first use, hold the selected library to its exact recorded Unicode version, fail with a message naming all qualified libraries when none is present, and keep the Windows ICU 15.1 contract unchanged. Drop the ICU 76 DT_NEEDED entries from the reviewed ELF import list, since shipped executables no longer link ICU.",
   "size": "m",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/T-ICU1667-1.json",
-    "toolchain/windows-stdlib",
-    "xtask/src/elf_imports.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -33,5 +27,16 @@
     ]
   },
   "created_by": "ICU1667",
-  "created_unix": 1793948197
+  "created_unix": 1793948197,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "icu1667",
+  "scopes": [
+    ".agents/tasks/T-ICU1667-1.json",
+    "toolchain/windows-stdlib",
+    "xtask/src/elf_imports.rs"
+  ]
 }
