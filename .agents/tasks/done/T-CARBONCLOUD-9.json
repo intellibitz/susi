@@ -1,0 +1,107 @@
+{
+  "id": "T-CARBONCLOUD-9",
+  "title": "Delete 501 shipped lines of zero-caller dead helpers across susi-gemi, susi-gemi-models, and susi-gawd-agents and ratchet LINE_CEILINGS by -825 lines",
+  "goal": "Under Mandate 62 and Mandate 69, audit crates/susi-gemi/src, crates/susi-gemi-models/src, and crates/susi-gawd-agents/src across both intellibitz/susi and intellibitz/susi-commercial-apps for genuinely dead zero-caller production helpers, delete 501 shipped lines while preserving 100% of CLI, socket, integration, mastery, and commercial capabilities, and ratchet LINE_CEILINGS strictly down by -825 lines (146,952 -> 146,127).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "antigravity",
+  "created_unix": 1794497880,
+  "closed": {
+    "at_unix": 1794507065,
+    "commit": "452176830a4dc62f1e7668ce52fb21bcbd286865",
+    "by": "CLAUDEQUEUE1"
+  },
+  "acceptance": "cargo test --offline --locked --test lean_core_ceilings --test architecture_tests && cargo test --offline --locked -p susi-gemi -p susi-gemi-models -p susi-gawd-agents --lib",
+  "agent": "antigravity",
+  "base": "141b4a85e33288a804c84fa175f26f4ceba21240",
+  "base_commit": "141b4a85e33288a804c84fa175f26f4ceba21240",
+  "claimed_by": "antigravity",
+  "feature": "F-CORE-LEAN-PILLAR-RATCHET-1",
+  "feature_id": "F-CORE-LEAN-PILLAR-RATCHET-1",
+  "native_worker": "core-wave9",
+  "owner": "antigravity",
+  "results": {
+    "fast_release_8_crate_rebuild_s": 18.63,
+    "fast_release_susi_bytes": {
+      "after": 89605056,
+      "before": 89610120,
+      "delta": -5064
+    },
+    "fast_release_warm_noop_s": 0.1,
+    "fast_release_warm_touch_main_s": 3.88,
+    "line_ceilings_after": {
+      "sum": 146127,
+      "susi-gawd": 12525,
+      "susi-gawd-a2a": 3347,
+      "susi-gawd-agents": 10413,
+      "susi-gawd-swarm": 20206,
+      "susi-gemi": 20709,
+      "susi-gemi-models": 15563,
+      "susi-gmcp": 25828,
+      "susi-harness": 37536
+    },
+    "line_ceilings_before": {
+      "sum": 146952,
+      "susi-gawd": 12525,
+      "susi-gawd-a2a": 3347,
+      "susi-gawd-agents": 10443,
+      "susi-gawd-swarm": 20206,
+      "susi-gemi": 21096,
+      "susi-gemi-models": 15939,
+      "susi-gmcp": 25860,
+      "susi-harness": 37536
+    },
+    "pillar_ceiling_sum_delta": -825,
+    "shipped_lines_deleted": {
+      "susi-gawd-agents": 30,
+      "susi-gemi": 95,
+      "susi-gemi-models": 376,
+      "total": 501
+    },
+    "tests": "susi-gemi lib 438 passed, susi-gemi-models lib 243 passed (2 ignored), susi-gawd-agents lib 198 passed, lean_core_ceilings 2 passed, architecture_tests 49 passed, orphan_sources 3 passed, task_records 3 passed, workspace clippy --all-targets 0 warnings"
+  },
+  "reuse": {
+    "decision": "existing",
+    "reason": "Pure dead-code subtraction consolidating onto existing first-party canonical methods across GEMI and GAWD-Agents with zero new code and zero new dependencies.",
+    "searched": "Searched intellibitz/susi (src/, crates/, tests/, xtask/) and intellibitz/susi-commercial-apps (src/, crates/, tests/) plus the locked Cargo dependency graph to verify existing canonical replacements already in-tree (scout_configured_once, generate_reasoning_deep_opts_chat, allocation_fits_available_bytes, weight_allocation_fits_memory_bytes, get_or_load_with_digest, expected_cost_usd, EligibilityStore::record_inference, SpendPolicy::PaidAuthorized) before removing superseded zero-caller wrappers.",
+    "source": "intellibitz/susi crates/{susi-gemi,susi-gemi-models,susi-gawd-agents}/src"
+  },
+  "scopes": [
+    ".agents/tasks/T-CARBONCLOUD-9.json",
+    "crates/susi-gawd-agents/src/cloud_budget.rs",
+    "crates/susi-gawd-agents/src/cloud_intent.rs",
+    "crates/susi-gawd-agents/src/external/mod.rs",
+    "crates/susi-gawd-agents/src/tests/external.rs",
+    "crates/susi-gemi-models/src/cloud_credentials.rs",
+    "crates/susi-gemi-models/src/hardware.rs",
+    "crates/susi-gemi-models/src/lifecycle/download_controller.rs",
+    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
+    "crates/susi-gemi-models/src/lifecycle/selection.rs",
+    "crates/susi-gemi-models/src/model_cache.rs",
+    "crates/susi-gemi-models/src/price_catalog.rs",
+    "crates/susi-gemi-models/src/tests/model_manager.rs",
+    "crates/susi-gemi/src/credential_scout.rs",
+    "crates/susi-gemi/src/engines/routing.rs",
+    "crates/susi-gemi/src/engines/runtime.rs",
+    "crates/susi-gemi/src/scout_probe.rs",
+    "crates/susi-gemi/src/tests/usage_accounting.rs",
+    "crates/susi-gemi/src/usage_accounting.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "state": "completed",
+  "status": "completed",
+  "updated_unix": 1794499113
+}
