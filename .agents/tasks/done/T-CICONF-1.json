@@ -2,17 +2,29 @@
   "id": "T-CICONF-1",
   "title": "Run the host contract conformance suite in CI",
   "goal": "Every main push and release tag starts an isolated host from the Windows debug build and requires susi-conformance to pass, so the public host contract cannot silently regress. An explicit --token-file without a token is a usage error, so a broken setup cannot pass by skipping authenticated checks.",
+  "size": "s",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-conformance"
+    ]
+  },
+  "created_by": "CICONF",
+  "created_unix": 1793665431,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "scopes": [
     ".agents/tasks/t-ciconf-1.json",
     ".github/workflows/test.yml",
     "crates/susi-conformance/src/bin/susi-conformance.rs",
     "docs/host-contract-conformance.md"
-  ],
-  "size": "s",
-  "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-conformance"]
-  },
-  "created_by": "CICONF",
-  "created_unix": 1793665431
+  ]
 }
