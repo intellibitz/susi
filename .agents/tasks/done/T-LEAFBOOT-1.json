@@ -2,15 +2,29 @@
   "id": "T-LEAFBOOT-1",
   "title": "Start the five leaf services together",
   "goal": "The daemon boot pass spawned susi-paths, susi-error, susi-config, susi-sandbox and susi-native one at a time, waiting ~0.6 s for each port before the next (~3 s measured from supervisor.log on three hosts). Spawn every missing service first, then wait for and record each, keeping orphan adoption, foreign-holder observation, ownership verification and shutdown reaping unchanged.",
+  "size": "s",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "--lib",
+      "supervisor"
+    ]
+  },
+  "created_by": "LEAFBOOT",
+  "created_unix": 1793662113,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "scopes": [
     ".agents/tasks/t-leafboot-1.json",
     "crates/susi-daemon/src/supervisor.rs"
-  ],
-  "size": "s",
-  "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-daemon", "--lib", "supervisor"]
-  },
-  "created_by": "LEAFBOOT",
-  "created_unix": 1793662113
+  ]
 }
