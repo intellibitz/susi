@@ -21,7 +21,16 @@
   },
   "created_by": "DOTACCEPT1104",
   "created_unix": 1793807781,
-  "status": "in_progress",
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "provenance_sources": {
+    "T-XTCIRONLY1104-1": "0e53f3984c0e21c2edd705f9b0630a5ef8c9ea56:.agents/tasks/T-XTCIRONLY1104-1.json",
+    "T-LEAFUCELL1104-1": "660365e51afd38996aae659a85cda19f5c64feb1:.agents/tasks/T-LEAFUCELL1104-1.json",
+    "T-SBXERRIPC1104-1": "1cee19b180f9495e466bb5dd2b8335e77a6b9e7f:.agents/tasks/T-SBXERRIPC1104-1.json"
+  },
   "scopes": [
     ".agents/tasks/done/T-XTCIRONLY1104-1.json",
     ".agents/tasks/done/T-LEAFUCELL1104-1.json",
@@ -32,15 +41,11 @@
     "tests/task_record_schema_debt.json",
     ".github/workflows/test.yml"
   ],
+  "status": "in_progress",
   "validation": {
     "structural": "Passed: original task owner/time evidence and acceptance argv preservation; native strict schema/argv guard pins 102 pre-existing invalid records at fa616c19632049b657ad924285fb5eebbcde93d9 by path and SHA-256 with only CRLF-to-LF normalization. New or modified invalid records fail; repaired/deleted exemptions must be removed. This snapshot does not mark legacy tasks accepted.",
     "native": "Passed locally with pinned Rust 1.99.0: 56 task unit tests, 4 schema guard tests, 72 existing root guard tests, the CI root-command pin assertion, cargo fmt and warnings-denied Clippy. Original repaired-task acceptance commands passed: xtask ci-release-only (4), susi-leaf-services all-features lib (34), susi-abi lib (35), susi-sandbox-client lib (56). Full task acceptance then passed: 8 root library tests, 4 guard tests and 695 susi-gawd tests (3 ignored). Eight subsequently added task records on main 283f17e0b8ed8f05acbfc546173394992eb3f04f also passed the unchanged native schema/argv validation.",
     "workflow": "Native local-workflow reservation is active in a private scoped worktree with isolated target/runtime state. Remote task claim failed because git HTTPS authentication is unavailable; no relay or alternate claim publication was attempted. Draft CI fa616c1 passed format, ratchets, dependencies and compile/tests but failed Workflow Compliance for the missing remote claim.",
     "integration": "Not integrated. Draft only; no merge or deployment. Remaining malformed audit-selected records still block full backlog recovery. Main-branch post-merge verification has not been claimed successful."
-  },
-  "provenance_sources": {
-    "T-XTCIRONLY1104-1": "0e53f3984c0e21c2edd705f9b0630a5ef8c9ea56:.agents/tasks/T-XTCIRONLY1104-1.json",
-    "T-LEAFUCELL1104-1": "660365e51afd38996aae659a85cda19f5c64feb1:.agents/tasks/T-LEAFUCELL1104-1.json",
-    "T-SBXERRIPC1104-1": "1cee19b180f9495e466bb5dd2b8335e77a6b9e7f:.agents/tasks/T-SBXERRIPC1104-1.json"
   }
 }
