@@ -1,0 +1,52 @@
+{
+  "id": "T-CODEXDISTILLPROVENANCE-1",
+  "title": "Pin the cloud-tool replay for follow-up Core distillation",
+  "goal": "Expose the exact already-landed cloud-tool replay commits to Susi's functional-only distiller without changing production code or prior task evidence.",
+  "size": "XS",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "task_records"
+    ]
+  },
+  "created_by": "CODEXDISTILLPROVENANCE",
+  "created_unix": 1794436778,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test --offline --locked -p susi --test task_records",
+  "base_commit": "42ff5968b73c4ef720e8d0e8199fb433b81b49ba",
+  "claimed_by": "codex-distill-provenance",
+  "feature": "F-CORE-DISTILL-PROVENANCE-1",
+  "native_worker": "codex-distill-provenance",
+  "results": {
+    "source_commits_pinned": [
+      "dda557835ffca4ade52fbb29cddfb36c9588b757",
+      "e710f794cc52ce6dcc1ef0b7c0a919a0a6893848",
+      "a40b8ed16d3ae18b834a32cbd905dc3589c6956d"
+    ],
+    "production_code_changed": false,
+    "dependencies_changed": false,
+    "credentials_used": false
+  },
+  "scope": [
+    ".agents/tasks/T-CODEXCLOUDTOOLS-1.json",
+    ".agents/tasks/T-CODEXDISTILLPROVENANCE-1.json"
+  ],
+  "scopes": [
+    ".agents/tasks/T-CODEXCLOUDTOOLS-1.json",
+    ".agents/tasks/T-CODEXDISTILLPROVENANCE-1.json"
+  ],
+  "state": "implemented",
+  "status": "implemented",
+  "updated_unix": 1794436778
+}
