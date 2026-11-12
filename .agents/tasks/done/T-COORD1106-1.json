@@ -1,17 +1,6 @@
 {
   "id": "T-COORD1106-1",
-  "native_worker": "coord1106b",
   "title": "Laptop-held release coordinator: independent gate tools, pinned provenance verifier, forward-adoption permit and trust registry",
-  "created_by": "COORD1106",
-  "created_unix": 1794048000,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/tasks/t-coord1106-1.json",
-    "tests/worktree_target_dir.rs",
-    "xtask/src/bin/local-release.rs",
-    "xtask/src/release_coordinator.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -35,5 +24,21 @@
       "it prints SUSI_RELEASE_TRUST_REGISTRY, SUSI_RELEASE_GATE_TRUST and SUSI_RELEASE_GATE_TRUST_SHA256 for local-release qualify",
       "the whole-workspace gate's foreground-seeding test releases the background copy only after the foreground run has announced it is waiting, instead of racing a fixed 3 s sleep on a loaded host"
     ]
-  }
+  },
+  "created_by": "COORD1106",
+  "created_unix": 1794048000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "coord1106b",
+  "scopes": [
+    ".agents/tasks/t-coord1106-1.json",
+    "tests/worktree_target_dir.rs",
+    "xtask/src/bin/local-release.rs",
+    "xtask/src/release_coordinator.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
