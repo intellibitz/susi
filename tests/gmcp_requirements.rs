@@ -13977,6 +13977,517 @@ fn gmcp_vc_203_009_mastery() {
 }
 
 #[test]
+fn gmcp_vc_203_010_mastery() {
+    use sha2::{Digest, Sha256};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-010-mastery-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── 1. Shipped production path: CLI and tool surfaces verify and
+    //    return the identical canonical report ──────────────────────
+    let cli = ledger_report(root);
+    assert_eq!(cli["verified"], true, "production path must verify");
+    assert!(
+        cli["rows"].as_u64().unwrap_or(0) >= 33,
+        "the shipped ledger must still hold the vector's rows"
+    );
+    let tool = ledger_tool_report(root);
+    assert_eq!(
+        tool, cli,
+        "the shipped tool must emit the identical canonical report"
+    );
+
+    // ── 2. Vector rows bound to crates/susi-gmcp/src/protocol.rs ─
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("canonical ledger must parse"),
+    )
+    .expect("canonical ledger must parse");
+    let rows = ledger["requirements"]
+        .as_array()
+        .expect("ledger requirements must be an array");
+    let vc_rows: Vec<_> = rows
+        .iter()
+        .filter(|row| row["trace"]["vector"] == "VC-203-010")
+        .collect();
+    assert_eq!(
+        vc_rows.len(),
+        33,
+        "VC-203-010 must cover exactly 33 normative requirements"
+    );
+    for row in vc_rows {
+        let id = row["id"].as_str().unwrap_or("?");
+        for field in [
+            "vector",
+            "owner",
+            "production_path",
+            "positive_test",
+            "negative_test",
+            "evidence",
+        ] {
+            let value = row["trace"][field].as_str().unwrap_or_default();
+            assert!(!value.is_empty(), "{id}: trace.{field} must be non-empty");
+        }
+        let production = row["trace"]["production_path"].as_str().unwrap();
+        assert_eq!(
+            production, "crates/susi-gmcp/src/protocol.rs",
+            "{id}: production path must be the shipped protocol module"
+        );
+        assert!(
+            root.join(production).exists(),
+            "{id}: production path {production} must exist"
+        );
+        assert_eq!(
+            row["trace"]["evidence"].as_str().unwrap(),
+            ".agents/gmcp/evidence/VC-203-010.jsonl"
+        );
+        assert!(
+            !row["disposition"]["status"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+            "{id}: disposition.status must be non-empty"
+        );
+    }
+
+    // ── 3. Live resource surface on the served stdio transport: static
+    //    and templated discovery, text reads, and typed refusal ───────
+    let mut wire = StdioSession::spawn(root, &home);
+    let listed = wire.request("resources/list", serde_json::json!({}));
+    let resources = listed["resources"]
+        .as_array()
+        .expect("resources/list must return a resources array");
+    let catalog_entry = resources
+        .iter()
+        .find(|resource| resource["uri"] == "susi://tools")
+        .expect("the tool catalog resource must be discoverable");
+    assert_eq!(
+        catalog_entry["mimeType"], "application/json",
+        "resources must declare their MIME type: {catalog_entry}"
+    );
+    let templates = wire.request("resources/templates/list", serde_json::json!({}));
+    assert!(
+        templates["resourceTemplates"]
+            .as_array()
+            .is_some_and(|list| list
+                .iter()
+                .any(|template| template["uriTemplate"] == "susi://tools/{name}")),
+        "the tool template must be discoverable: {templates}"
+    );
+    let instance = wire.request(
+        "resources/read",
+        serde_json::json!({"uri": "susi://tools/ledger_verify"}),
+    );
+    let text = instance["contents"][0]["text"]
+        .as_str()
+        .expect("a templated resource read must carry text content");
+    let tool: serde_json::Value =
+        serde_json::from_str(text).expect("the templated resource must be JSON");
+    assert_eq!(
+        tool["name"], "ledger_verify",
+        "the template must resolve the requested tool: {tool}"
+    );
+    for (id, uri) in [
+        ("unknown-resource", "susi://tools/susi_no_such_resource_010"),
+        ("traversal", "susi://tools/../../etc/passwd"),
+        ("encoded-traversal", "susi://tools/%2e%2e%2fsecrets"),
+        ("not-a-uri", "not a uri"),
+    ] {
+        wire.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "resources/read",
+            "params": {"uri": uri}
+        }));
+        let refused = wire
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(300))
+            .expect("a refused read must still be answered on the served surface");
+        assert!(
+            refused.get("error").is_some_and(|e| !e.is_null()),
+            "{uri} must earn a typed error: {refused}"
+        );
+        assert!(
+            refused.get("result").is_none_or(|r| r.is_null()),
+            "{uri} must never be served: {refused}"
+        );
+    }
+    drop(wire);
+
+    // ── 4. The production resource path itself (GmcpService, the service
+    //    both entry points serve): admission, the access guard and the
+    //    sealed, bounded read hold for any registered provider ────────
+    {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use susi_gmcp::mcp::model::{ErrorData, ReadResourceResult, Resource};
+        use susi_gmcp::mcp::ServiceExt;
+        use susi_gmcp::protocol::{GmcpService, MAX_RESOURCE_BYTES};
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let service = GmcpService::new(root.to_path_buf());
+        let register = |uri: &str, contents: serde_json::Value| {
+            let calls = calls.clone();
+            service.register_resource(
+                Resource::new(uri, "mastery"),
+                Arc::new(move |_, _| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    let contents = contents.clone();
+                    Box::pin(async move {
+                        let result: ReadResourceResult =
+                            serde_json::from_value(serde_json::json!({ "contents": contents }))
+                                .expect("fixture contents");
+                        Ok(result.into())
+                    })
+                }),
+            );
+        };
+        register(
+            "m010://blob",
+            serde_json::json!([{"uri":"m010://blob","mimeType":"image/png","blob":"iVBORw0KGgo="}]),
+        );
+        register(
+            "m010://bad-blob",
+            serde_json::json!([{"uri":"m010://bad-blob","blob":"*not-base64*"}]),
+        );
+        register("m010://empty", serde_json::json!([]));
+        register(
+            "m010://huge",
+            serde_json::json!([{"uri":"m010://huge","text":"z".repeat(MAX_RESOURCE_BYTES + 1)}]),
+        );
+        register(
+            "sealed010://doc",
+            serde_json::json!([{"uri":"sealed010://doc","text":"classified"}]),
+        );
+        service.set_resource_guard(Arc::new(|uri| {
+            if uri.starts_with("sealed010://") {
+                return Err(ErrorData::invalid_request("Resource access denied", None));
+            }
+            Ok(())
+        }));
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+        runtime.block_on(async {
+            let (client, server) = tokio::io::duplex(1 << 20);
+            let serving = service.clone();
+            tokio::spawn(async move {
+                if let Ok(running) = serving.serve(server).await {
+                    let _ = running.waiting().await;
+                }
+            });
+            let mut wire = tokio::io::BufReader::new(client);
+            let mut ask = async |id: i64, method: &str, mut params: serde_json::Value| {
+                params["_meta"] = serde_json::json!({
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                });
+                let request = serde_json::json!({
+                    "jsonrpc": "2.0", "id": id, "method": method, "params": params
+                });
+                wire.get_mut()
+                    .write_all(format!("{request}\n").as_bytes())
+                    .await
+                    .expect("request written");
+                let mut line = String::new();
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(60),
+                    wire.read_line(&mut line),
+                )
+                .await
+                .expect("the service must answer within the bound")
+                .expect("response read");
+                serde_json::from_str::<serde_json::Value>(&line).expect("response is JSON")
+            };
+            let discovered = ask(1, "server/discover", serde_json::json!({})).await;
+            assert!(discovered.get("error").is_none(), "{discovered}");
+
+            // Binary content is served as strict base64 with its MIME type
+            // and cache hints.
+            let blob = ask(
+                2,
+                "resources/read",
+                serde_json::json!({"uri":"m010://blob"}),
+            )
+            .await;
+            assert_eq!(
+                blob["result"]["contents"][0]["blob"], "iVBORw0KGgo=",
+                "{blob}"
+            );
+            assert_eq!(blob["result"]["contents"][0]["mimeType"], "image/png");
+            assert_eq!(blob["result"]["cacheScope"], "private");
+            assert_eq!(blob["result"]["ttlMs"], 0);
+            let served = calls.load(Ordering::SeqCst);
+
+            // Malformed binary, an empty contents array and an oversized
+            // read are internal errors, never results.
+            for (id, uri) in [
+                (3, "m010://bad-blob"),
+                (4, "m010://empty"),
+                (5, "m010://huge"),
+            ] {
+                let refused = ask(id, "resources/read", serde_json::json!({ "uri": uri })).await;
+                assert_eq!(refused["error"]["code"], -32603, "{uri}: {refused}");
+                assert!(refused.get("result").is_none(), "{uri} served: {refused}");
+            }
+
+            // A missing resource is an error naming the URI, never empty.
+            let missing = ask(
+                6,
+                "resources/read",
+                serde_json::json!({"uri":"m010://absent"}),
+            )
+            .await;
+            assert!(missing.get("result").is_none(), "{missing}");
+            assert_eq!(
+                missing["error"]["data"]["uri"], "m010://absent",
+                "{missing}"
+            );
+
+            // Hostile URIs and a guarded resource are refused before any
+            // provider runs.
+            let before = calls.load(Ordering::SeqCst);
+            assert!(before > served, "the refused providers above did run");
+            for (id, uri) in [
+                (7, "m010://a/../blob"),
+                (8, "m010://a/%2E%2e/blob"),
+                (9, "m010://a\\..\\blob"),
+                (10, "m010://white space"),
+                (11, "no-scheme"),
+            ] {
+                let refused = ask(id, "resources/read", serde_json::json!({ "uri": uri })).await;
+                assert_eq!(refused["error"]["code"], -32602, "{uri}: {refused}");
+            }
+            let denied = ask(
+                12,
+                "resources/read",
+                serde_json::json!({"uri":"sealed010://doc"}),
+            )
+            .await;
+            assert_eq!(
+                denied["error"]["message"], "Resource access denied",
+                "{denied}"
+            );
+            let denied = ask(
+                13,
+                "resources/subscribe",
+                serde_json::json!({"uri":"sealed010://doc"}),
+            )
+            .await;
+            assert!(
+                denied.get("error").is_some_and(|e| !e.is_null()),
+                "{denied}"
+            );
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                before,
+                "refusal and denial must precede every provider"
+            );
+
+            // The session survives every refusal.
+            let again = ask(
+                14,
+                "resources/read",
+                serde_json::json!({"uri":"m010://blob"}),
+            )
+            .await;
+            assert_eq!(
+                again["result"]["contents"][0]["blob"], "iVBORw0KGgo=",
+                "{again}"
+            );
+        });
+    }
+
+    // ── 5. The contract states the behavior proven above ─────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-010.md"))
+        .expect("contract document must exist");
+    for stated in [
+        "## Resource surface behavior",
+        "MAX_RESOURCE_BYTES",
+        "set_resource_guard",
+        "percent-encoded",
+        "strict base64",
+        "crates/susi-gmcp/src/tests/resource_surface.rs",
+    ] {
+        assert!(contract.contains(stated), "contract must state: {stated}");
+    }
+    let suite =
+        std::fs::read_to_string(root.join("crates/susi-gmcp/src/tests/resource_surface.rs"))
+            .expect("the resource surface suite must exist");
+    for proof in [
+        "malformed_and_traversal_uris_never_reach_a_provider",
+        "the_guard_decides_before_read_and_subscribe",
+        "binary_text_and_multi_part_reads_are_sealed",
+        "reads_are_bounded_and_a_missing_resource_is_never_empty",
+        "listing_pages_cover_every_resource_once_and_detect_a_changed_catalog",
+        "a_resource_replaced_during_reads_is_always_served_whole",
+        "a_cancelled_read_stops_its_provider_and_the_session_continues",
+        "updates_and_list_changes_reach_only_what_was_subscribed",
+    ] {
+        assert!(
+            is_test_fn(&suite, proof) || suite.contains(&format!("async fn {proof}()")),
+            "the suite must retain {proof}"
+        );
+    }
+
+    // ── 7. Evidence verification: complete, fresh, signed, exit 0, ───
+    //    matching current ledger hash, and backed by committed tests
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
+    let ledger_hash = susi_paths::hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-010.jsonl"))
+        .expect("VC-203-010 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    let artifacts = evidence_artifacts(root, "VC-203-010");
+    let head_digest =
+        artifacts_digest(root, "HEAD", &artifacts).expect("HEAD must list the evidence artifacts");
+    for record in newest_records(&evidence) {
+        // The vector's own -M record is this test's output, not its input.
+        if record["requirement"]
+            .as_str()
+            .is_some_and(|requirement| requirement.ends_with("-M"))
+        {
+            continue;
+        }
+        assert_bound_to_tested_commit(root, &record, &artifacts, &head_digest);
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "unsigned or incomplete evidence: record lacks {field}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock-only evidence does not count: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record a green check");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty(),
+            "evidence must be signed by an identity"
+        );
+        assert!(
+            !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must describe what the check proved"
+        );
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "stale evidence: recorded hash must be the current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} must be a plausible recent timestamp"
+        );
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && is_test_fn(&test_src, test_name),
+                "evidence names a test that does not exist: {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must reference a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-010-01",
+        "GMCP-203-010-02",
+        "GMCP-203-010-03",
+        "GMCP-203-010-04",
+        "GMCP-203-010-05",
+        "GMCP-203-010-06",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── 8. Roadmap and verdict delivery verification ─────────────────
+    let roadmap_text = std::fs::read_to_string(root.join(".agents/roadmap.json"))
+        .expect("roadmap.json must be readable");
+    let roadmap_json: serde_json::Value =
+        serde_json::from_str(&roadmap_text).expect("roadmap.json must parse");
+    let vc_entry = roadmap_json["vectors"]
+        .as_array()
+        .expect("roadmap.json vectors must be an array")
+        .iter()
+        .find(|entry| entry["id"] == "VC-203-010")
+        .expect("VC-203-010 must exist in roadmap.json");
+    assert!(
+        vc_entry["progress"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("DELIVERED"),
+        "VC-203-010 must be marked DELIVERED in roadmap.json"
+    );
+
+    let verdict_text =
+        std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-010.json"))
+            .expect("VC-203-010.json verdict must exist");
+    let verdict: serde_json::Value =
+        serde_json::from_str(&verdict_text).expect("verdict must parse");
+    assert_eq!(verdict["vector"], "VC-203-010");
+    assert_eq!(verdict["verdict"], "delivered");
+    assert_eq!(
+        verdict["tracked_by"]
+            .as_array()
+            .expect("tracked_by array")
+            .len(),
+        7
+    );
+
+    // ── 9. Committed proof ───────────────────────────────────────────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+            ".agents/roadmap.json",
+            ".agents/roadmap-verdicts",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+#[test]
 fn gmcp_vc_203_013_mastery() {
     use sha2::{Digest, Sha256};
 
