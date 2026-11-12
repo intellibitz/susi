@@ -2,15 +2,6 @@
   "id": "T-RETIREBR-1",
   "title": "push-policy: admit a normal deletion of remote branches outside the storage-only allowlist",
   "goal": "CEO (2026-11-11): GitHub is storage only and release branches must not appear there; 'Extend the policy' so retired branches can be removed. T-AGYWIN-2 restricted remote refs/heads/* to main and local-agent/<agent> but also refused deleting the others, so the remaining distill/* and wip/* branches (already preserved as refs/tags/susi-distill/legacy-* tags) could never be removed through the hook. A non-force deletion that names the old tip of a branch outside the allowlist is now admitted; creating or updating such a branch stays refused, and deleting main or local-agent/<agent> stays refused. Also refreshes toolchain/windows-stdlib/Cargo.lock, left stale by 669834855 (sha2 facade 0.11 -> 0.10), which made the gate's trusted-sysroot step fail on main with --locked, and shortens the trusted-sysroot staging directory name (64-hex key + nonce, 92 characters) to 33 characters, because link.exe could not open a 263-character import-library path inside it on Windows.",
-  "status": "in_progress",
-  "native_worker": "retirebr",
-  "scopes": [
-    ".agents/tasks/T-RETIREBR-1.json",
-    "toolchain/windows-stdlib/Cargo.lock",
-    "xtask/src/push_policy.rs",
-    "xtask/src/trusted_sysroot.rs",
-    "xtask/tests/native_push_policy.rs"
-  ],
   "size": "s",
   "deps": [
     "T-AGYWIN-2"
@@ -33,6 +24,20 @@
   },
   "created_by": "claude",
   "created_unix": 1794391974,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "082bcdbbaae9af055b7609b45e1a147562701851",
+  "native_worker": "retirebr",
   "owner": "RETIREBR",
-  "base": "082bcdbbaae9af055b7609b45e1a147562701851"
+  "scopes": [
+    ".agents/tasks/T-RETIREBR-1.json",
+    "toolchain/windows-stdlib/Cargo.lock",
+    "xtask/src/push_policy.rs",
+    "xtask/src/trusted_sysroot.rs",
+    "xtask/tests/native_push_policy.rs"
+  ],
+  "status": "in_progress"
 }
