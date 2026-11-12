@@ -1,20 +1,37 @@
 {
   "id": "T-CTOREL64-1",
-  "feature_id": "F-CORE-RELEASE-0.21.64-1",
   "title": "Prepare core v0.21.64 from functional-only distilled candidate v0-21-64-distilled-rc2",
   "goal": "Apply only the version bump permitted after the accept-verified functional-only distilled candidate envelope v0-21-64-distilled-rc2 (shipping T-CTODISTILLFUNC-1 and T-CTOCORELEAN-1 on top of post-v0.21.63 functional base 983f0100c), then qualify the exact Linux x86_64 release tree. Windows x86_64 remains a separate owed platform.",
-  "state": "done",
-  "status": "completed",
-  "owner": "gate-ship",
-  "created_by": "gate-ship",
-  "created_unix": 1794436465,
-  "updated_unix": 1794436465,
   "size": "s",
-  "base": "0a575a517c5c77c5e35cc7b6c132fc2f366bd99d",
   "deps": [
     "T-CTODISTILLFUNC-1",
     "T-CTOCORELEAN-1"
   ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "gate-ship",
+  "created_unix": 1794436465,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "0a575a517c5c77c5e35cc7b6c132fc2f366bd99d",
+  "feature_id": "F-CORE-RELEASE-0.21.64-1",
+  "limitations": [
+    "Windows x86_64 reference qualification is not available on this Linux host."
+  ],
+  "owner": "gate-ship",
   "scopes": [
     ".agents/evidence.json",
     ".agents/identity.json",
@@ -30,19 +47,7 @@
     "crates/susi-harness/Cargo.toml",
     "crates/susi-server/Cargo.toml"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi",
-      "--test",
-      "release_records"
-    ]
-  },
-  "limitations": [
-    "Windows x86_64 reference qualification is not available on this Linux host."
-  ]
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794436465
 }
