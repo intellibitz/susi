@@ -1,0 +1,109 @@
+{
+  "id": "T-CLAUDEWIN62-2",
+  "title": "Record the Windows x86_64 gate run of the published core v0.21.62 (evidence, not a qualification)",
+  "goal": "v0.21.62 (tag commit 7b2a5e7c3, qualified commit bbe19d72d) was qualified on Linux x86_64 and owes Windows x86_64. Every release gate was run on Windows on the tag commit with the recorded commands, under a throwaway HOME/USERPROFILE/APPDATA/SUSI_HOME. The tests gate did not exit 0, so this is evidence toward the owed platform and Windows stays owed for v0.21.62.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDEWINFLAKE-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "CLAUDEWIN62",
+  "created_unix": 1794430000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "b77701ca440fc0bc83f9f51abdad5b8c74716087",
+  "claimed_by": "CLAUDEWIN62",
+  "feature_id": "F-CORE-WINDOWS-QUALIFICATION-1",
+  "limitations": [
+    "Windows x86_64 remains owed for v0.21.62: the tests gate must exit 0 on the qualified commit. The next release cut from main carries the fix and can be qualified on Windows.",
+    "A separate Windows-first cut of v0.21.62 from its release line (refs/candidates/release/v0.21.62 at 5436c616c) passed every gate (5702 tests, 0 failed) but could not be published: the Linux cut was published first under the same version. T-CLAUDEONECUT-1 prevents that collision from now on."
+  ],
+  "native_worker": "CLAUDEWIN62",
+  "owner": "claude",
+  "results": {
+    "tag": "v0.21.62",
+    "tested_commit": "7b2a5e7c36a75f65634fd4010a16996eb0882f3e",
+    "host": "x86_64-pc-windows-msvc",
+    "toolchain": "1.99.0",
+    "gates": [
+      {
+        "name": "format",
+        "exit_code": 0,
+        "duration_s": 26
+      },
+      {
+        "name": "check",
+        "exit_code": 0,
+        "duration_s": 54
+      },
+      {
+        "name": "clippy",
+        "exit_code": 0,
+        "duration_s": 65
+      },
+      {
+        "name": "licenses",
+        "exit_code": 0,
+        "duration_s": 2
+      },
+      {
+        "name": "tests",
+        "exit_code": 101,
+        "duration_s": 2054,
+        "binaries": 253,
+        "passed": 5745,
+        "failed": 2,
+        "ignored": 21
+      },
+      {
+        "name": "build",
+        "exit_code": 0,
+        "duration_s": 270
+      }
+    ],
+    "failed_tests": [
+      {
+        "test": "release_records::every_qualification_record_belongs_to_a_release_record",
+        "cause": "method: the gates ran on the tag commit, which adds releases/qualification/v0.21.62.json; the release record lands on main afterwards. release-qualify runs this gate on the qualified commit, where it does not apply. Not a product or platform defect."
+      },
+      {
+        "test": "susi-gawd-agents adapter_upgrade::tests::higher_version_upgrade_persists_adapter_override_in_config_dir",
+        "cause": "intermittent scratch-folder collision on Windows (1 run in 6 alone); fixed on main by T-CLAUDEWINFLAKE-1, not in v0.21.62."
+      }
+    ],
+    "assets": [
+      {
+        "file": "susi.exe",
+        "bytes": 26743296,
+        "sha256": "fdf4ae61eb1ed53ce14d1558d012e5f13c27aa3ef12e11a2a437ba14703cb304",
+        "version_output": "susi 0.21.62"
+      },
+      {
+        "file": "susi-harness.exe",
+        "bytes": 2078720,
+        "sha256": "b11eb8ce4000570c610c7b22f66507d9bc5e05b8bf04a69acb775d9f269d3335",
+        "version_output": "susi-harness 0.21.62"
+      }
+    ],
+    "environment_note": "Two tests (paths_probe env_port_offset_defaults_to_zero_under_isolated_env, integration_tests test_substrate_bootstrap_and_config) read the operator's live daemon when one runs at a non-zero port offset on the host; they pass under a throwaway home, which this run used."
+  },
+  "scopes": [
+    ".agents/tasks/T-CLAUDEWIN62-2.json"
+  ],
+  "state": "done",
+  "status": "done"
+}
