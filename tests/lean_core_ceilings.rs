@@ -300,17 +300,32 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// 2026-11-12: susi-gawd-a2a 3,413 -> 3,347 (T-CLAUDEACPHISTORY-1, measured):
 /// ACP session history reaches the GAWD mission (+31), paid by moving the
 /// inline `capabilities` unit tests to `src/tests/capabilities.rs` (-97).
-/// 2026-11-12: susi-gmcp 25,860 -> 25,153 (T-CLAUDEGMCPRESOURCES-1, measured): the
+/// 2026-11-12: susi-gawd-agents 10,443 -> 10,413, susi-gemi 21,096 -> 20,709,
+/// susi-gemi-models 15,939 -> 15,563, susi-gmcp 25,860 -> 25,828
+/// (T-CARBONCLOUD-9, measured): delete 501 shipped lines of zero-caller dead
+/// helpers (`UsageLedger::measured_cost_per_success`,
+/// `ScoutReport::verified_fraction`, `credential_scout::scout_configured`,
+/// `InferenceRouter::list_cloud_providers`,
+/// `GemiEngine::generate_reasoning_deep_opts`,
+/// `HardwareProfiler::get_bootstrap_model_ladder`,
+/// `ModelDownloadProgress::computed_percentage`,
+/// `ModelManager::{register_residency_probe,resident,fits_memory,weight_allocation_fits_memory,cold_load_fits_memory}`,
+/// `ModelCache::{is_loaded,is_reusable,is_reusable_admitted,reusable_with_digest}`,
+/// `cloud_credentials::{cli_keys_list,cli_keys_set,cli_keys_remove}`,
+/// `PriceCatalog::{cost_usd,accept_version}`, `BudgetLedger::consent_granted`,
+/// `cloud_intent::record_dispatch_outcome`, `AgentManager::with_poll_interval`)
+/// and pin prior slack (-825 ceiling lines, 146,952 -> 146,127).
+/// 2026-11-12: susi-gmcp 25,828 -> 25,153 (T-CLAUDEGMCPRESOURCES-1, measured): the
 /// wire-level protocol suite moved from src/protocol_tests.rs to the suite dir
 /// src/tests/protocol.rs (-721) and the VC-203-010 resource admission, guard,
 /// sealed-read and cancellation path added 46 shipped lines.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_525),
     ("susi-gawd-swarm", 20_206),
-    ("susi-gawd-agents", 10_443),
+    ("susi-gawd-agents", 10_413),
     ("susi-gawd-a2a", 3_347),
-    ("susi-gemi", 21_096),
-    ("susi-gemi-models", 15_939),
+    ("susi-gemi", 20_709),
+    ("susi-gemi-models", 15_563),
     ("susi-gmcp", 25_153),
     ("susi-harness", 37_536),
 ];

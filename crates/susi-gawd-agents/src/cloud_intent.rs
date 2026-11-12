@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use susi_config::cloud_eligibility::{
-    credential_fingerprint, EligibilityKind, EligibilityStore, InferenceResult, Subject,
+    credential_fingerprint, EligibilityKind, EligibilityStore, Subject,
 };
 use susi_config::cloud_quota::{self};
 
@@ -359,22 +359,10 @@ fn score(intent: &IntentConstraints, c: &Candidate) -> f64 {
     quality * 100.0 + latency * 10.0 + cost
 }
 
-/// Record the result of a dispatch attempt so availability is updated
-/// immediately — a failed attempt blocks the target before the next
-/// fallback, and a success lifts an `Unknown` candidate to `Usable`.
-pub fn record_dispatch_outcome(
-    c: &Candidate,
-    store: &mut EligibilityStore,
-    result: &InferenceResult,
-    now: u64,
-) {
-    store.record_inference(c.subject(), result, now);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_config::cloud_eligibility::{EligibilityStore, Subject};
+    use susi_config::cloud_eligibility::{EligibilityStore, InferenceResult, Subject};
     use susi_config::cloud_quota::{
         QuotaAmount, QuotaInventory, QuotaKind, QuotaObservation, QuotaSource,
     };
@@ -634,7 +622,7 @@ mod tests {
         let (cs, mut elig, quota) = ten_key_fixture();
         let down = &cs[6];
         // The unavailable model succeeds now — fresh evidence restores it.
-        record_dispatch_outcome(down, &mut elig, &InferenceResult::Success, T0 + 10);
+        elig.record_inference(down.subject(), &InferenceResult::Success, T0 + 10);
         let sel = select(&intent(), &cs, &elig, &quota, T0 + 11);
         assert!(sel.ranked.iter().any(|r| r.index == 6 && !r.discovery));
     }
@@ -644,7 +632,7 @@ mod tests {
         let (cs, mut elig, quota) = ten_key_fixture();
         // The quality leader fails mid-dispatch with a hard block; the next
         // selection must exclude it immediately.
-        record_dispatch_outcome(&cs[0], &mut elig, &fail(401, "key revoked"), T0 + 5);
+        elig.record_inference(cs[0].subject(), &fail(401, "key revoked"), T0 + 5);
         let sel = select(&intent(), &cs, &elig, &quota, T0 + 6);
         assert!(sel.ranked.iter().all(|r| r.index != 0));
         assert_eq!(sel.ranked[0].index, 1);
