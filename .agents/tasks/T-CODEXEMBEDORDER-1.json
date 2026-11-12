@@ -9,7 +9,6 @@
   "base_commit": "bd580274e21575ca6132b66440ccdd558168d8b4",
   "size": "s",
   "deps": [],
-  "created_by": "CODEXGPUFASTCLOSE",
   "created_unix": 1794513245,
   "scopes": [
     "crates/susi-gemi/src/engines/runtime.rs",
