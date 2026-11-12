@@ -2,13 +2,6 @@
   "id": "T-CLAUDETOOLCAP-1",
   "title": "Core asks the engine whether a local model can use tools",
   "goal": "CEO direction 2026-11-12 (\"fix it and finish the end-to-end run\"). Found while preparing the end-to-end run of T-CLAUDELOCALTOOLS-1: `ModelManager::supports_tool_calling` returned false for every whole GGUF, because the lexical template check lost its GGUF reader when the engine left core. Every local request with `requires: \"tools\"` was therefore refused with `[CAPABILITY_GAP]` before reaching the engine, and no local model could ever be selected for tools. Core now asks the local engine plug on `gpu_fabric.local_engine.model_capabilities` (`{\"path\"}` -> `{\"tools\": bool}`). A real answer is cached per (path, length, mtime) under a new probe name, so old `false` verdicts are not reused; no engine attached, or no answer, is unknown: `false` and not cached.",
-  "status": "done",
-  "scopes": [
-    ".agents/tasks/T-CLAUDETOOLCAP-1.json",
-    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
-    "docs/lean-core.md",
-    "tests/lean_core_ceilings.rs"
-  ],
   "size": "s",
   "deps": [
     "T-CLAUDELOCALTOOLS-1"
@@ -25,16 +18,28 @@
   },
   "created_by": "CLAUDETOOLCAP",
   "created_unix": 1794426886,
-  "owner": "claude",
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "base": "8725bc438b0d5ff184c69ce6f0fdeaacaa2cbc37",
   "host": "CEO laptop, CachyOS Linux x86_64",
-  "results": {
-    "end_to_end": "2026-11-12, isolated instance (scratch SUSI_HOME, SUSI_PORT_OFFSET=7300), core daemon built from this change, commercial `susi-plug-host` (release) built from T-CLAUDECOMMTOOLCAP-1, audited starter qwen2.5-0.5b-instruct-q4_0.gguf. (1) No plug host: a tools request fails with `inference_exhausted`. (2) Plug host attached, plain chat over POST /v1/chat/completions: \"The capital of France is Paris.\" (plug log: infer_stream ok in 4,063 ms). (3) Same endpoint with `susi.requires = \"tools\"`: plug log shows `model_capabilities -> ok in 12 ms` then `infer_stream -> ok in 152,246 ms`; the model emitted a tool call, core dispatched it (`[TOOL benchmark_run]`) and returned the tool's output with finish_reason stop. Before this change step (3) would end in `[CAPABILITY_GAP]`."
-  },
   "limitations": [
     "The tools request took 152 s: core sends up to 32 tool schemas and the 0.5B model runs on the pure-Rust CPU engine. The prose list core used to send is shorter; whether to send fewer or smaller schemas is open.",
     "The 0.5B model chose an unrelated tool (`benchmark_run`) for a weather question, and core ran it. Tool choice quality is the model's; the dispatch is core's existing policy-gated path.",
     "Asking the engine is one bus round trip per uncached model file on the routing path.",
     "Linux x86_64 only."
-  ]
+  ],
+  "owner": "claude",
+  "results": {
+    "end_to_end": "2026-11-12, isolated instance (scratch SUSI_HOME, SUSI_PORT_OFFSET=7300), core daemon built from this change, commercial `susi-plug-host` (release) built from T-CLAUDECOMMTOOLCAP-1, audited starter qwen2.5-0.5b-instruct-q4_0.gguf. (1) No plug host: a tools request fails with `inference_exhausted`. (2) Plug host attached, plain chat over POST /v1/chat/completions: \"The capital of France is Paris.\" (plug log: infer_stream ok in 4,063 ms). (3) Same endpoint with `susi.requires = \"tools\"`: plug log shows `model_capabilities -> ok in 12 ms` then `infer_stream -> ok in 152,246 ms`; the model emitted a tool call, core dispatched it (`[TOOL benchmark_run]`) and returned the tool's output with finish_reason stop. Before this change step (3) would end in `[CAPABILITY_GAP]`."
+  },
+  "scopes": [
+    ".agents/tasks/T-CLAUDETOOLCAP-1.json",
+    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "status": "done"
 }
