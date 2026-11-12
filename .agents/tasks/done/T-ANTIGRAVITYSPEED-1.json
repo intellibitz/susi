@@ -1,22 +1,37 @@
 {
   "id": "T-ANTIGRAVITYSPEED-1",
-  "feature_id": "F-CORE-TESTS-UNDER-60S-1",
   "title": "Accelerate Susi Core workspace test suite under 60s (Wave 1: parallel xtask/release-qualify runner, deduplicated xtask mounts, cached templates/certs, and tightened test budgets)",
   "goal": "Eliminate serial test execution and multi-second idle/subprocess bottlenecks across Susi Core (Wave 1, strictly disjoint from active claims #45 and #109 and GMCP-digested sources): wire Susi's existing concurrent isolated-home binary runner (`xtask/src/test_runner.rs`) + companion `--doc` pass into `xtask test` and `release-qualify`; eliminate duplicate `#[cfg(test)]` execution across `#[path]`-mounted `xtask` binaries and add Git < 2.40 `merge-tree` fallback in `release_lanes.rs`; cache `cargo metadata`, workspace AST/source scans, Git fixture templates, and self-signed RSA test certificates in `OnceLock`; and tighten multi-second sleep/timeout soak waits while preserving every test assertion and security check.",
-  "state": "completed",
-  "status": "completed",
-  "owner": "antigravity",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-sandbox-client",
+      "-p",
+      "susi-http-transport",
+      "--lib"
+    ]
+  },
   "created_by": "antigravity",
   "created_unix": 1794491040,
-  "updated_unix": 1794494600,
-  "size": "m",
+  "closed": {
+    "at_unix": 1794506557,
+    "commit": "298ba54dfb583ced31407e42f834d443bd36351a",
+    "by": "CLAUDEQUEUE1"
+  },
   "base": "5f1f43a079533e52a2fc14dfcab311e1839139a0",
   "base_commit": "5f1f43a079533e52a2fc14dfcab311e1839139a0",
-  "deps": [],
+  "feature_id": "F-CORE-TESTS-UNDER-60S-1",
+  "owner": "antigravity",
   "reuse": {
     "decision": "existing",
-    "searched": "intellibitz/susi (xtask/src/test_runner.rs concurrent isolated-home binary runner, xtask/src/distill_compose.rs Git < 2.40 synthetic-base merge-tree fallback, xtask/src/fast_release.rs), intellibitz/susi-commercial-apps (crates/susi-dev-workflow), and Cargo.lock / Rust std (std::sync::OnceLock in-process fixture/cert/metadata caching; zero new dependencies).",
-    "reason": "Reuses Susi Core's existing concurrent isolated-home xtask/src/test_runner.rs and distill_compose.rs Git < 2.40 merge-tree fallback plus std::sync::OnceLock without adding external dependencies."
+    "reason": "Reuses Susi Core's existing concurrent isolated-home xtask/src/test_runner.rs and distill_compose.rs Git < 2.40 merge-tree fallback plus std::sync::OnceLock without adding external dependencies.",
+    "searched": "intellibitz/susi (xtask/src/test_runner.rs concurrent isolated-home binary runner, xtask/src/distill_compose.rs Git < 2.40 synthetic-base merge-tree fallback, xtask/src/fast_release.rs), intellibitz/susi-commercial-apps (crates/susi-dev-workflow), and Cargo.lock / Rust std (std::sync::OnceLock in-process fixture/cert/metadata caching; zero new dependencies)."
   },
   "scopes": [
     ".agents/tasks/T-ANTIGRAVITYSPEED-1.json",
@@ -63,17 +78,7 @@
     "crates/susi-core/src/parallel.rs",
     "crates/susi-harness/src/worker.rs"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi-sandbox-client",
-      "-p",
-      "susi-http-transport",
-      "--lib"
-    ]
-  }
+  "state": "completed",
+  "status": "completed",
+  "updated_unix": 1794494600
 }

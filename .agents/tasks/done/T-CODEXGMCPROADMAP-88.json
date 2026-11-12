@@ -19,5 +19,20 @@
   },
   "roadmap": "VC-203-007",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256245
+  "created_unix": 1792256245,
+  "closed": {
+    "at_unix": 1794507745,
+    "commit": "fd36db97fcee1715448632efe5f2adbca30a41e1",
+    "by": "CLAUDEQUEUE1"
+  },
+  "reuse": {
+    "decision": "existing",
+    "reason": "The transport SPI, the envelope gate and the mcp-serve composition already exist; the test serves them on an in-process duplex and a Unix-domain socket pair beside the shipped stdio entry point. No production code, adapter or dependency was added.",
+    "searched": "Susi Core: crates/susi-gmcp/src/mcp/transport.rs (Transport and IntoTransport SPI), crates/susi-gmcp/src/jsonrpc_gate.rs (StdioGate), crates/susi-gmcp/src/stdio.rs (BoundedLines), crates/susi-gmcp/src/server.rs (run_stdio, start_http_server, serve_channel_connection), crates/susi-daemon/src/composition.rs (wire_mcp_serve_substrate) and the existing StdioSession fixtures in tests/gmcp_requirements.rs.",
+    "source": "intellibitz/susi crates/susi-gmcp and crates/susi-daemon"
+  },
+  "scopes": [
+    "tests/gmcp_requirements.rs",
+    ".agents/tasks/T-CODEXGMCPROADMAP-88.json"
+  ]
 }
