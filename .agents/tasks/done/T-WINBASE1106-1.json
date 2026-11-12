@@ -1,17 +1,6 @@
 {
   "id": "T-WINBASE1106-1",
-  "native_worker": "winbase1106b",
   "title": "Windows x86_64 production unsafe baseline and host-selected ratchet baseline",
-  "created_by": "WINBASE1106",
-  "created_unix": 1794050000,
-  "status": "implemented_pending_integration",
-  "dependencies": ["T-COORD1106-1"],
-  "scopes": [
-    ".agents/baseline/unsafe-default-x86_64-pc-windows-msvc.json",
-    ".agents/tasks/t-winbase1106-1.json",
-    "crates/susi-http-transport/src/client.rs",
-    "xtask/src/complete_release_gates.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -33,5 +22,23 @@
       "unsafe_ratchet gate mode on the e1e283463 Windows measurement is clean: 378 packages, 397 files, no unreviewed exposures",
       "the http-transport serve_once fixture reads the whole request (head and Content-Length body) before replying, so a POST body sent in a later segment is never left unread when the socket closes (Windows resets such a socket and the client loses the reply with os error 10054)"
     ]
-  }
+  },
+  "created_by": "WINBASE1106",
+  "created_unix": 1794050000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [
+    "T-COORD1106-1"
+  ],
+  "native_worker": "winbase1106b",
+  "scopes": [
+    ".agents/baseline/unsafe-default-x86_64-pc-windows-msvc.json",
+    ".agents/tasks/t-winbase1106-1.json",
+    "crates/susi-http-transport/src/client.rs",
+    "xtask/src/complete_release_gates.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
