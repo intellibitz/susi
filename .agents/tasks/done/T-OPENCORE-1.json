@@ -2,12 +2,8 @@
   "id": "T-OPENCORE-1",
   "title": "State the open-core boundary in the governing contract",
   "goal": "AGENTS.md tells every agent which capabilities belong in the Apache-2.0 substrate (single-host developer primitives and public surfaces) and which are built outside it (organisation-scale administration, fleet, spend governance, turnkey vertical workflows), without weakening any existing mandate or governance test.",
-  "deps": [],
-  "scopes": [
-    ".agents/tasks/t-opencore-1.json",
-    "agents.md"
-  ],
   "size": "s",
+  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -19,7 +15,16 @@
       "self_build"
     ]
   },
-  "native_worker": "opencore-1103",
   "created_by": "OPENCORE",
-  "created_unix": 1793653388
+  "created_unix": 1793653388,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "native_worker": "opencore-1103",
+  "scopes": [
+    ".agents/tasks/t-opencore-1.json",
+    "agents.md"
+  ]
 }
