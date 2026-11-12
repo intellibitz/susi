@@ -4,7 +4,7 @@
   "goal": "Carry the live ACP turn cancellation token through the GAWD-backed mission runner and watched PlaneBus request so a running session/cancel reaches cooperative GAWD mission checkpoints.",
   "status": "in_progress",
   "owner": "codex",
-  "native_worker": "codex-acp-cancel",
+  "native_worker": "acp-cancel",
   "created_by": "codex",
   "created_unix": 1794451086,
   "size": "m",
