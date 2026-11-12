@@ -3,10 +3,8 @@
   "title": "Accept disjoint workers together on one verified Windows tree",
   "goal": "Run one complete gate on the combined tree and atomically publish each participant's receipt. Failure preserves all claims and the prior accepted head.",
   "size": "m",
-  "deps": ["T-COUNT1102-1"],
-  "scopes": [
-    "xtask/src/bin/local-workflow.rs",
-    ".agents/tasks/T-BATCH1102-1.json"
+  "deps": [
+    "T-COUNT1102-1"
   ],
   "accept": {
     "cmd": [
@@ -20,6 +18,13 @@
       "local-workflow"
     ]
   },
+  "created_by": "BATCH1102",
+  "created_unix": 1793618335,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "receipt": {
     "coordinator_tests": 25,
     "combined_attempt": "step1-batch-1102-1793619590036847400-49328",
@@ -30,6 +35,8 @@
     },
     "workspace_gate": "Superseded to regenerate immutable GMCP records before publication."
   },
-  "created_by": "BATCH1102",
-  "created_unix": 1793618335
+  "scopes": [
+    "xtask/src/bin/local-workflow.rs",
+    ".agents/tasks/T-BATCH1102-1.json"
+  ]
 }
