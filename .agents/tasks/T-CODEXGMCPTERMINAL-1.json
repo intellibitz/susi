@@ -29,6 +29,35 @@
       "task_manager_terminal"
     ]
   },
+  "results": {
+    "host": "x86_64-unknown-linux-gnu",
+    "functional_tests": {
+      "task_manager_terminal": {
+        "passed": 1,
+        "failed": 0
+      },
+      "task_manager_unit_filter": {
+        "passed": 4,
+        "failed": 0
+      },
+      "lean_core_ceilings": {
+        "passed": 2,
+        "failed": 0
+      }
+    },
+    "static_checks": [
+      "cargo fmt --all -- --check",
+      "git diff --check",
+      "cargo clippy --offline --locked -p susi-gmcp --all-targets -- -D warnings"
+    ],
+    "gmcp_evidence": {
+      "requirement_checks": 60,
+      "mastery_checks": 10,
+      "failed": 0,
+      "requirement_commit": "3a3fff05a901cf1dc78f41a009eebaad7d03e582",
+      "mastery_tested_commit": "f48347087f0fa388f4f9966c5a93935204f3ae4f"
+    }
+  },
   "reuse": {
     "decision": "existing",
     "searched": "Inspected the existing crates/susi-gmcp TaskManager and TaskStatus implementation, the pinned local task contract docs/gmcp/contract-203-004.md clause MCP-2025-1125-basic-utilities-tasks-mdx-0494, the checked-in GMCP task specification, and current Board claims. The existing manager and locked dependency graph are sufficient; no new dependency or harvested source is needed.",
