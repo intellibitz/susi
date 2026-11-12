@@ -1,19 +1,6 @@
 {
   "id": "T-SPEED3X1106-1",
-  "native_worker": "speed3-1106",
   "title": "Parallel test gate (nextest plus doctests) and batched task-record reads",
-  "created_by": "SPEED3X1106",
-  "created_unix": 1793990000,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/tasks/t-speed3x1106-1.json",
-    "xtask/src/affected.rs",
-    "xtask/src/bin/local-workflow.rs",
-    "xtask/src/native_provenance.rs",
-    "xtask/src/native_test_counts.rs",
-    "xtask/src/workspace_test_count.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -31,5 +18,23 @@
       "the provenance verifier accepts a nextest workspace gate only with its doctest gate",
       "task records are read with one ls-tree and one batched cat-file"
     ]
-  }
+  },
+  "created_by": "SPEED3X1106",
+  "created_unix": 1793990000,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "speed3-1106",
+  "scopes": [
+    ".agents/tasks/t-speed3x1106-1.json",
+    "xtask/src/affected.rs",
+    "xtask/src/bin/local-workflow.rs",
+    "xtask/src/native_provenance.rs",
+    "xtask/src/native_test_counts.rs",
+    "xtask/src/workspace_test_count.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
