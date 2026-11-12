@@ -1,20 +1,37 @@
 {
   "id": "T-SWARMCORE-4",
-  "feature_id": "F-CORE-RELEASE-0.21.66-1",
   "title": "Prepare Susi Core v0.21.66 release bump on snapshot v0-21-66-rc1",
   "goal": "Bump Susi Core version metadata from 0.21.65 to 0.21.66 across the 12 allowed release bump files atop snapshot v0-21-66-rc1 (including live MCP plug facade restoration and Windows qualification gate fixes T-SWARMCORE-1 and T-SWARMCORE-3) for exact-tree Windows x86_64 release qualification.",
-  "state": "done",
-  "status": "completed",
-  "owner": "SWARMCORE",
-  "created_by": "SWARMCORE",
-  "created_unix": 1794489293,
-  "updated_unix": 1794489293,
   "size": "s",
-  "base": "732ffe425910162b7589e3950724544b824d3331",
   "deps": [
     "T-SWARMCORE-1",
     "T-SWARMCORE-3"
   ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "SWARMCORE",
+  "created_unix": 1794489293,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "732ffe425910162b7589e3950724544b824d3331",
+  "feature_id": "F-CORE-RELEASE-0.21.66-1",
+  "limitations": [
+    "Linux x86_64 reference build and qualification are owed on a Linux x86_64 host."
+  ],
+  "owner": "SWARMCORE",
   "scopes": [
     ".agents/evidence.json",
     ".agents/identity.json",
@@ -30,19 +47,7 @@
     "crates/susi-harness/Cargo.toml",
     "crates/susi-server/Cargo.toml"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi",
-      "--test",
-      "release_records"
-    ]
-  },
-  "limitations": [
-    "Linux x86_64 reference build and qualification are owed on a Linux x86_64 host."
-  ]
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794489293
 }
