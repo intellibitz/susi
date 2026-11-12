@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXPEERSERIAL-1",
+  "feature": "F-CORE-PEER-CHANNEL-TEST-SERIALIZATION-1",
+  "feature_id": "F-CORE-PEER-CHANNEL-TEST-SERIALIZATION-1",
+  "title": "Serialize peer-channel integration tests within one process",
+  "goal": "Prevent the peer-channel integration tests from racing their four reserved port blocks when libtest runs them concurrently in one binary.",
+  "size": "s",
+  "deps": ["T-CODEXPEERISOLATION-1"],
+  "native_worker": "codex-peer-serial",
+  "created_by": "COMPLIANCERECORDCLOSE",
+  "created_unix": 1794506368,
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "peer_channel_hub", "--", "--test-threads=4"]
+  },
+  "results": {
+    "fmt": "cargo fmt --all passed",
+    "peer_channel_hub": "2 passed, 0 failed with --test-threads=4",
+    "isolation": "process-local mutex serializes both tests before port-block allocation"
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXPEERSERIAL-1.json",
+    "tests/peer_channel_hub.rs"
+  ]
+}

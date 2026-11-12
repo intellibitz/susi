@@ -45,6 +45,12 @@ mod common;
 
 const CLUSTER_KEY: [u8; 32] = [0x5Au8; 32];
 
+// `SocketTestGuard` is shared across test processes, but the two tests in
+// this binary can still enter it concurrently because the OS lock is
+// re-entrant within one process. Their four-block allocations must be
+// serialized locally as well.
+static PEER_CHANNEL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Ports of one contract block at offset 0 (TCP true, UDP false).
 const BLOCK: [(u16, bool); 6] = [
     (9090, true),
@@ -595,6 +601,9 @@ fn assert_opaque(what: &str, bytes: &[u8], ids: &[&str]) {
 
 #[test]
 fn a_hub_and_two_outbound_only_members_talk_only_through_the_sealed_channel() {
+    let _process = PEER_CHANNEL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
@@ -979,6 +988,9 @@ fn join(node: &Node, endpoint: &str, limit: Duration) -> String {
 /// other through the hub.
 #[test]
 fn fresh_members_behind_nat_join_a_hub_with_peers_add_alone() {
+    let _process = PEER_CHANNEL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
