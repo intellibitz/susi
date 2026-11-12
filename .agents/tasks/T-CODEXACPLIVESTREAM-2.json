@@ -1,5 +1,5 @@
 {
-  "id": "T-CODEXACPLIVESTREAM-REC-1",
+  "id": "T-CODEXACPLIVESTREAM-2",
   "title": "Close the landed ACP live-stream evidence record",
   "goal": "Reconcile T-CODEXACPLIVESTREAM-1 with the verified merge, native gate receipt and remote origin/main after publication.",
   "status": "implemented",
@@ -12,7 +12,7 @@
   "deps": ["T-CODEXACPLIVESTREAM-1"],
   "scopes": [
     ".agents/tasks/T-CODEXACPLIVESTREAM-1.json",
-    ".agents/tasks/T-CODEXACPLIVESTREAM-REC-1.json"
+    ".agents/tasks/T-CODEXACPLIVESTREAM-2.json"
   ],
   "accept": {
     "cmd": [
