@@ -1,0 +1,38 @@
+{
+  "id": "T-DOTSTDIODESK20261110-1",
+  "title": "Adopt and verify stdio handshake on native Windows",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-paths",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "dotstdiodesk20261110",
+  "created_unix": 1794339886,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "agent": "Codex",
+  "native_worker": "dotstdiodesk20261110",
+  "notes": "Windows isolated scoped adoption. Original task retained unchanged. Local package verification is not integration, publication, throughput evidence, or production qualification.",
+  "provenance": {
+    "bundle_sha256": "9c6df73298bafc4855f11937fc2df415e8adf4cb2d51fcb398b1923aed9aa5b1",
+    "original_task": "T-DOTSTDIO-1",
+    "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "source_head": "ba04de33b4156f58933f33c9ce44a8f7d75b93d3"
+  },
+  "scopes": [
+    ".agents/tasks/t-dotstdio-1.json",
+    ".agents/tasks/t-dotstdiodesk20261110-1.json",
+    "crates/susi-paths/src/bin/stdio_guard_probe.rs",
+    "crates/susi-paths/tests/cli_output_contract.rs"
+  ],
+  "status": "in_progress"
+}
