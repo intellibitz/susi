@@ -9,10 +9,7 @@
   "created_unix": 1794459083,
   "size": "m",
   "base_commit": "207acd55f7d7442c7815c31434b85df9a8733088",
-  "deps": [
-    "commercial-origin:3e994a93c435f0eef21c5255289c4247c5209342 (existing ecosystem_hub.mcp plug)",
-    "T-PLUGPORTS-1 (do not edit its claimed paths; only the Core façade is in scope)"
-  ],
+  "deps": [],
   "scopes": [
     "crates/susi-gmcp/src/tool_registry.rs",
     "crates/susi-gmcp/src/mcp_wrapper.rs",
@@ -35,7 +32,7 @@
   "results": {
     "status": "implemented",
     "source_commits": ["94db45ed8d0d7caeaf3b3fa91bf369fcfc4880e8"],
-    "boundary": "Core GMCP registry façade only; calls cross tools.mcp.remote_execute and the composition root routes to the Commercial ecosystem_hub.mcp.call plug when wired, while the existing guarded local transport remains the standalone fallback. Server admission uses the daemon adapter plane; no new dependency, Minijinja, Windows, Jan artifact or credential change.",
+    "boundary": "Core GMCP registry façade only; calls cross tools.mcp.remote_execute and the composition root routes to the Commercial ecosystem_hub.mcp.call plug when wired, while the existing guarded local transport remains the standalone fallback. Server admission uses the daemon adapter plane; no new dependency, Minijinja, Windows, Jan artifact or credential change. The existing Commercial plug is an external cross-repository runtime dependency, recorded by commit 3e994a93c435f0eef21c5255289c4247c5209342 rather than as a Core task dependency.",
     "coverage": "Configured MCP servers are read from both native mcp_config.json key spellings, live tools are discovered in bounded parallel plane-bus probes, calls and auto-configuration use the existing composition-root boundaries, and wildcard proxies remain the bounded fallback when probing is unavailable. Core does not own the commercial transport.",
     "acceptance": {
       "cargo fmt --all --check": "passed",
