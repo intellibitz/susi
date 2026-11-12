@@ -2,14 +2,30 @@
   "id": "T-PEERSEC-1",
   "title": "Peer credential hardening: attested targets only, bound discovery pings, no plaintext credentials off-host, honest local_only wording",
   "goal": "Close three threat-model findings at the root. (A) The cluster peer bearer and any member credential reach only loopback or a peer whose node key is bound in the roster (committed member_add or attested handshake); an unbound Explicit row created from a discovery ping gets no credential and dispatch to it fails naming the missing attestation. (B) Discovery pings are bound to their sender: SUSI_PING_SIG3 MACs the sender's UDP source address and a timestamp; the receiver checks the datagram source, a +-60 s window and a bounded TTL nonce cache, and the unbound legacy tags no longer admit or answer. (C) No credential crosses the network in plaintext: the peer client never sends a bearer to a non-loopback address over http://, and remote plaintext is refused by default on the server for fresh and existing installs. (D) Every user-facing description of local_only says it keeps traffic on this machine and its local network.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "peersec",
-  "native_worker": "peersec",
-  "created_by": "peersec",
-  "created_unix": 1794142117,
   "size": "L",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "peer_credential_attestation",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "peersec",
+  "created_unix": 1794142117,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi --test peer_credential_attestation --offline --locked passes: an unattested peer never receives the bearer, no bearer goes to a non-loopback address over http://, a fresh bound ping admits while a replay from another source, a replayed nonce and a stale timestamp are rejected.",
+  "claimed_by": "peersec",
+  "native_worker": "peersec",
   "scope": [
     ".agents/gmcp/evidence",
     ".agents/tasks/t-peersec-1.json",
@@ -80,18 +96,7 @@
     "tests/lean_core_ceilings.rs",
     "tests/peer_credential_attestation.rs"
   ],
-  "acceptance": "cargo test -p susi --test peer_credential_attestation --offline --locked passes: an unattested peer never receives the bearer, no bearer goes to a non-loopback address over http://, a fresh bound ping admits while a replay from another source, a replayed nonce and a stale timestamp are rejected.",
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "-p",
-      "susi",
-      "--test",
-      "peer_credential_attestation",
-      "--offline",
-      "--locked"
-    ]
-  },
+  "state": "in_progress",
+  "status": "in_progress",
   "updated_unix": 1794144351
 }
