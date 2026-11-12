@@ -1,19 +1,36 @@
 {
   "id": "T-CODEXREL59-1",
-  "feature_id": "F-CORE-RELEASE-0.21.59-1",
   "title": "Prepare core v0.21.59 from distilled candidate v0-21-59-distilled-rc1",
   "goal": "Apply only the version bump permitted after the accept-verified distilled candidate envelope, then qualify the exact Linux x86_64 release tree. Windows x86_64 remains a separate owed platform.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "owner": "codex-coordinator",
-  "created_by": "codex-coordinator",
-  "created_unix": 1794399840,
-  "updated_unix": 1794399840,
   "size": "s",
-  "base": "22f9b586f655cb48de7328c1adc2980441ee978d",
   "deps": [
     "T-CARBONLEAN-14"
   ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "codex-coordinator",
+  "created_unix": 1794399840,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "22f9b586f655cb48de7328c1adc2980441ee978d",
+  "feature_id": "F-CORE-RELEASE-0.21.59-1",
+  "limitations": [
+    "Windows x86_64 reference qualification is not available on this Linux host."
+  ],
+  "owner": "codex-coordinator",
   "scopes": [
     ".agents/evidence.json",
     ".agents/identity.json",
@@ -29,19 +46,7 @@
     "crates/susi-harness/Cargo.toml",
     "crates/susi-server/Cargo.toml"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi",
-      "--test",
-      "release_records"
-    ]
-  },
-  "limitations": [
-    "Windows x86_64 reference qualification is not available on this Linux host."
-  ]
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794399840
 }
