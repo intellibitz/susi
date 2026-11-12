@@ -2,19 +2,8 @@
   "id": "T-CODEXHARNESSCLOSE-1",
   "title": "Close Core harness streamable-HTTP MCP sessions",
   "goal": "Give the Core harness MCP client an idempotent explicit close and best-effort drop cleanup so streamable-HTTP sessions are released with DELETE /mcp.",
-  "status": "implemented",
-  "owner": "codex",
-  "native_worker": "codex-harness-close",
-  "created_by": "codex",
-  "created_unix": 1794445695,
   "size": "s",
-  "base_commit": "96e8c87e02769edaf796f3e68195412ea30f1bed",
   "deps": [],
-  "scopes": [
-    "crates/susi-harness/src/mcp.rs",
-    "crates/susi-harness/src/tests/mcp.rs",
-    ".agents/tasks/T-CODEXHARNESSCLOSE-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -27,6 +16,16 @@
       "mcp"
     ]
   },
+  "created_by": "codex",
+  "created_unix": 1794445695,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "96e8c87e02769edaf796f3e68195412ea30f1bed",
+  "native_worker": "codex-harness-close",
+  "owner": "codex",
   "results": {
     "status": "implemented and locally verified",
     "change": "Transport has a default close hook; McpClient exposes idempotent close and best-effort drop cleanup; HttpSocketTransport releases its session with DELETE /mcp, carrying session, protocol and bearer headers, accepting 2xx and 405; closed clients reject later initialization and requests",
@@ -34,5 +33,11 @@
     "fmt": "cargo fmt --all --check: passed",
     "clippy": "cargo clippy --offline --locked -p susi-harness --all-targets -- -D warnings: passed",
     "boundary": "Core harness MCP session lifecycle only; no dependency, Commercial, Minijinja, release, or credential changes"
-  }
+  },
+  "scopes": [
+    "crates/susi-harness/src/mcp.rs",
+    "crates/susi-harness/src/tests/mcp.rs",
+    ".agents/tasks/T-CODEXHARNESSCLOSE-1.json"
+  ],
+  "status": "implemented"
 }
