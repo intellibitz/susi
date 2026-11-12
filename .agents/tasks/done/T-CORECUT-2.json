@@ -6,18 +6,6 @@
   "deps": [
     "T-CORECUT-1"
   ],
-  "created_by": "corecut",
-  "created_unix": 1794349455,
-  "status": "in_progress",
-  "base": "871425ffaab25f9d9354306704199b30dfac8000",
-  "mandate_revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311",
-  "scopes": [
-    ".agents/tasks/T-CORECUT-2.json",
-    ".agents/build-time.jsonl",
-    "Cargo.lock",
-    "crates/susi-vendor-wasmtime/Cargo.toml",
-    "docs/lean-core.md"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -30,6 +18,25 @@
       "susi-leaf-services",
       "--all-features"
     ]
+  },
+  "created_by": "corecut",
+  "created_unix": 1794349455,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "871425ffaab25f9d9354306704199b30dfac8000",
+  "limitations": [
+    "Whole-build wall time is inside this host's load noise and is not claimed; the measured effect is wasmparser's own compile time (about 45% lower) and 10 fewer units.",
+    "susi-vendor-wasmtime's own test binary still compiles the full features through its `wat` dev-dependency (Cargo unifies dev-dependency features in test builds), so its tests do not run the trimmed feature set; the daemon's crown tests do."
+  ],
+  "mandate_revision": "6a5bde015c5e46414b29a21e365c26ad3ab74311",
+  "provenance": {
+    "agent": "corecut (Cursor subagent, CachyOS Linux x86_64, CEO laptop)",
+    "worktree": "susi-agent-corecut",
+    "branch": "local-agent/corecut",
+    "host": "x86_64-unknown-linux-gnu, rustc 1.99.0, 28 threads"
   },
   "results": {
     "change": "crates/susi-vendor-wasmtime/Cargo.toml: wasmparser 0.259 and wasm-encoder 0.259 with default-features = false, features = [\"std\"]. cell.rs uses Parser, Payload, Encoding and MemorySectionReader from wasmparser and Module, RawSection, MemorySection, MemoryType from wasm-encoder; the version header (and so the refusal of WASM components as cells) is parsed without the component-model feature (wasmparser 0.259 src/parser.rs, State::Header). Cargo.lock drops ahash, getrandom 0.3.4, r-efi, wasip2 and wit-bindgen.",
@@ -82,14 +89,12 @@
       "cargo test -p susi-daemon --lib crown": "7 passed (the crown sandbox probes run through the memory-capping parser with the production feature set; the daemon has no wat dev-dependency)"
     }
   },
-  "limitations": [
-    "Whole-build wall time is inside this host's load noise and is not claimed; the measured effect is wasmparser's own compile time (about 45% lower) and 10 fewer units.",
-    "susi-vendor-wasmtime's own test binary still compiles the full features through its `wat` dev-dependency (Cargo unifies dev-dependency features in test builds), so its tests do not run the trimmed feature set; the daemon's crown tests do."
+  "scopes": [
+    ".agents/tasks/T-CORECUT-2.json",
+    ".agents/build-time.jsonl",
+    "Cargo.lock",
+    "crates/susi-vendor-wasmtime/Cargo.toml",
+    "docs/lean-core.md"
   ],
-  "provenance": {
-    "agent": "corecut (Cursor subagent, CachyOS Linux x86_64, CEO laptop)",
-    "worktree": "susi-agent-corecut",
-    "branch": "local-agent/corecut",
-    "host": "x86_64-unknown-linux-gnu, rustc 1.99.0, 28 threads"
-  }
+  "status": "in_progress"
 }
