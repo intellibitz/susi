@@ -2109,7 +2109,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         // (larger bloom fields, future capability metadata) must not
         // silently truncate and fail signature verification.
         let mut buf = [0u8; 4096];
-        while let Ok((amt, src)) = socket.recv_from(&mut buf) {
+        while let Some((amt, src)) = recv_discovery_datagram(&socket, &mut buf) {
             // host_only: discovery is off toward every other host, whatever
             // the bind, read per datagram so a mode switch applies at once.
             // A loopback ping is this machine's own readiness probe
@@ -2593,6 +2593,48 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
     }
 }
 
+/// The next datagram on the discovery socket, or `None` once the socket
+/// itself has failed.
+///
+/// A receive error is not always about the socket. Windows reports the ICMP
+/// port-unreachable drawn by an earlier `send_to` as `WSAECONNRESET` on the
+/// next `recv_from` of the same unconnected socket: the listener answers each
+/// verified ping with two pongs, a pinger that closes after reading the first
+/// (the daemon's own readiness probe does) leaves the second undeliverable,
+/// and ending the loop on that error took discovery down within a second of
+/// every start until the supervisor's restart budget ran out. Windows also
+/// fails the receive of a datagram larger than the buffer (`WSAEMSGSIZE`),
+/// which any LAN host could send, and of one whose TTL expired in transit
+/// (`WSAENETRESET`). Each of those says something about one datagram, so the
+/// listener moves on to the next; any other error ends it, with the reason
+/// logged for the supervisor's restart.
+fn recv_discovery_datagram(
+    socket: &UdpSocket,
+    buf: &mut [u8],
+) -> Option<(usize, std::net::SocketAddr)> {
+    loop {
+        match socket.recv_from(buf) {
+            Ok(received) => return Some(received),
+            Err(error) if discovery_recv_error_is_per_datagram(&error) => continue,
+            Err(error) => {
+                eprintln!("[A2A Cluster UDP] discovery listener stopping: {error}");
+                return None;
+            }
+        }
+    }
+}
+
+/// Whether a `recv_from` error describes one datagram rather than the socket.
+fn discovery_recv_error_is_per_datagram(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
+    const WSAEMSGSIZE: i32 = 10040;
+    const WSAENETRESET: i32 = 10052;
+    matches!(
+        error.kind(),
+        ErrorKind::ConnectionReset | ErrorKind::ConnectionRefused | ErrorKind::Interrupted
+    ) || (cfg!(windows) && matches!(error.raw_os_error(), Some(WSAEMSGSIZE | WSAENETRESET)))
+}
+
 /// Key-independent UDP readiness: `target` is bound when a datagram from a
 /// connected loopback socket draws no ICMP port-unreachable within `wait`.
 /// A connected socket surfaces port-unreachable as `ConnectionReset`
@@ -3062,6 +3104,79 @@ mod tests {
                 reply.map(|(n, _)| String::from_utf8_lossy(&buf[..n]).into_owned())
             );
         }
+    }
+
+    /// A pong sent to a pinger that has already closed its socket must not
+    /// stop discovery. On Windows the undeliverable datagram comes back as
+    /// `WSAECONNRESET` on the listener's next receive; the datagram queued
+    /// behind it still has to be delivered. The read timeout only bounds the
+    /// test: a listener that stopped would report `None` either way.
+    #[test]
+    fn udp_discovery_survives_a_send_to_a_closed_port() {
+        let listener = UdpSocket::bind("127.0.0.1:0").unwrap();
+        listener
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let gone = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let gone_addr = gone.local_addr().unwrap();
+        drop(gone);
+        listener.send_to(b"pong", gone_addr).unwrap();
+        // Let the port-unreachable reach the listener before the next ping.
+        std::thread::sleep(Duration::from_millis(200));
+
+        let pinger = UdpSocket::bind("127.0.0.1:0").unwrap();
+        pinger
+            .send_to(b"next ping", listener.local_addr().unwrap())
+            .unwrap();
+        let mut buf = [0u8; 64];
+        let (amt, src) = super::recv_discovery_datagram(&listener, &mut buf)
+            .expect("the listener must outlive an undeliverable pong");
+        assert_eq!(&buf[..amt], b"next ping");
+        assert_eq!(src, pinger.local_addr().unwrap());
+    }
+
+    /// The premise of the test above, pinned where it holds: on Windows a
+    /// plain `recv_from` after a send to a closed port fails with
+    /// `ConnectionReset` although the socket is fine.
+    #[cfg(windows)]
+    #[test]
+    fn windows_udp_recv_reports_an_undeliverable_send_as_connection_reset() {
+        let listener = UdpSocket::bind("127.0.0.1:0").unwrap();
+        listener
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let gone = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let gone_addr = gone.local_addr().unwrap();
+        drop(gone);
+        listener.send_to(b"pong", gone_addr).unwrap();
+        let mut buf = [0u8; 64];
+        let error = listener.recv_from(&mut buf).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset);
+        assert!(super::discovery_recv_error_is_per_datagram(&error));
+    }
+
+    /// An oversized datagram is dropped, not fatal: Windows fails its receive
+    /// with `WSAEMSGSIZE`, elsewhere it arrives truncated and fails the
+    /// signed-ping checks. Either way the next datagram is still served.
+    #[test]
+    fn udp_discovery_survives_an_oversized_datagram() {
+        let listener = UdpSocket::bind("127.0.0.1:0").unwrap();
+        listener
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let pinger = UdpSocket::bind("127.0.0.1:0").unwrap();
+        pinger.send_to(&[b'x'; 256], addr).unwrap();
+        pinger.send_to(b"next ping", addr).unwrap();
+        let mut buf = [0u8; 64];
+        let mut seen = Vec::new();
+        while let Some((amt, _)) = super::recv_discovery_datagram(&listener, &mut buf) {
+            seen.push(buf[..amt].to_vec());
+            if buf[..amt] == *b"next ping" {
+                break;
+            }
+        }
+        assert_eq!(seen.last().map(Vec::as_slice), Some(&b"next ping"[..]));
     }
 
     /// Unsigned-mode readiness: a bound, silent port is ready; a port with
