@@ -2,30 +2,8 @@
   "id": "T-README-1",
   "title": "Front door restructure: landing-page README, docs/architecture.md, docs/evidence.md",
   "goal": "README.md becomes a landing page of about 150 lines (what Susi is, who it is for, a two-minute start, the host contract and its port-collision note, the honest delivery state with links). The architecture material moves to docs/architecture.md with content preserved and the Wasm runtime stated correctly everywhere (Wasmi inside the compatibility-named susi-vendor-wasmtime crate serves both Tier-0 reflexes and the crown sandbox probes; no Wasmtime is linked). The verified-claims and platform/qualification material moves verbatim to docs/evidence.md with every admitted gap kept. ARCHITECTURE.md keeps the enforceable contract, fixes its Wasm statements and points at the new document. Every sentence passes tests/core_docs_promise_no_ui_or_plugins.rs and the README needles in tests/architecture_tests.rs.",
-  "state": "in_progress",
-  "status": "in_progress",
-  "claimed_by": "readme",
-  "native_worker": "readme",
-  "created_by": "README",
-  "created_unix": 1794125155,
-  "updated_unix": 1794125155,
   "size": "S",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/t-readme-1.json",
-    "architecture.md",
-    "docs/architecture.md",
-    "docs/evidence.md",
-    "readme.md"
-  ],
-  "scope": [
-    ".agents/tasks/t-readme-1.json",
-    "architecture.md",
-    "docs/architecture.md",
-    "docs/evidence.md",
-    "readme.md"
-  ],
-  "acceptance": "cargo test -p susi --test core_docs_promise_no_ui_or_plugins --offline --locked",
   "accept": {
     "cmd": [
       "cargo",
@@ -37,5 +15,32 @@
       "--offline",
       "--locked"
     ]
-  }
+  },
+  "created_by": "README",
+  "created_unix": 1794125155,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "acceptance": "cargo test -p susi --test core_docs_promise_no_ui_or_plugins --offline --locked",
+  "claimed_by": "readme",
+  "native_worker": "readme",
+  "scope": [
+    ".agents/tasks/t-readme-1.json",
+    "architecture.md",
+    "docs/architecture.md",
+    "docs/evidence.md",
+    "readme.md"
+  ],
+  "scopes": [
+    ".agents/tasks/t-readme-1.json",
+    "architecture.md",
+    "docs/architecture.md",
+    "docs/evidence.md",
+    "readme.md"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
+  "updated_unix": 1794125155
 }
