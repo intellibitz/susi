@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXHOSTONLYSERIAL-1",
+  "feature": "F-CORE-HOST-ONLY-TEST-SERIALIZATION-1",
+  "feature_id": "F-CORE-HOST-ONLY-TEST-SERIALIZATION-1",
+  "title": "Serialize host-only daemon integration tests within one process",
+  "goal": "Prevent host-only daemon integration tests from racing their process-global environment and child-daemon lifecycle when libtest runs them concurrently.",
+  "size": "s",
+  "deps": [],
+  "native_worker": "codex-host-only-serial",
+  "created_by": "COMPLIANCERECORDCLOSE",
+  "created_unix": 1794506762,
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "host_only_privacy"]
+  },
+  "results": {
+    "fmt": "cargo fmt --all: passed",
+    "host_only_privacy": "2 passed, 0 failed, 0 ignored",
+    "runner_shape": "cargo test --offline --locked -p susi --test host_only_privacy -- --test-threads=4: 2 passed, 0 failed",
+    "fix": "A process-local mutex serializes the two tests that share environment and daemon lifecycle state."
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXHOSTONLYSERIAL-1.json",
+    "tests/host_only_privacy.rs"
+  ]
+}
