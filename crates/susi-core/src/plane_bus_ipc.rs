@@ -312,42 +312,7 @@ impl IpcPlaneBus {
     /// Returns `(file, endpoint)` pairs so stale files can be pruned on
     /// connect failure or squatted port reuse.
     fn candidates(&self, topic: &str) -> Vec<(PathBuf, SocketAddr)> {
-        let dirs = self.rendezvous_dirs();
-        let manifests_by_dir: Vec<_> = dirs
-            .iter()
-            .map(|dir| (dir, read_dir_route_manifests(dir)))
-            .collect();
-        let mut out = Vec::new();
-        for (dir, manifests) in &manifests_by_dir {
-            for (path, m) in manifests {
-                if m.topics.iter().any(|t| t == topic) {
-                    out.push((path.clone(), m.endpoint));
-                }
-            }
-            let exact = dir.join("topics").join(enc(topic));
-            if let Some((ep, _)) = read_endpoint_key(&exact) {
-                out.push((exact, ep));
-            }
-        }
-        for (dir, manifests) in &manifests_by_dir {
-            for (path, m) in manifests {
-                if m.prefixes.iter().any(|p| topic.starts_with(p.as_str())) {
-                    out.push((path.clone(), m.endpoint));
-                }
-            }
-            let pdir = dir.join("prefixes");
-            if let Ok(rd) = std::fs::read_dir(&pdir) {
-                for entry in rd.flatten() {
-                    let path = entry.path();
-                    if let Some((ep, _)) = read_endpoint_key(&path)
-                        .filter(|(_, prefix)| topic.starts_with(prefix.as_str()))
-                    {
-                        out.push((path, ep));
-                    }
-                }
-            }
-        }
-        out
+        route_candidates(&self.rendezvous_dirs(), topic)
     }
 
     /// Local prefix match (rendezvous file may be missing).
@@ -638,6 +603,48 @@ fn key_matches(presented: &str, secret: &str) -> bool {
     !b.is_empty()
         && a.len() == b.len()
         && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Ordered route candidates for `topic` across the given rendezvous dirs:
+/// exact matches first, then prefix matches, reading `routes*.json` manifests
+/// and the legacy `topics/` / `prefixes/` files. Shared by [`IpcPlaneBus`] and
+/// by callers that address one sibling's dir directly (CLI sibling revoke).
+pub fn route_candidates(dirs: &[PathBuf], topic: &str) -> Vec<(PathBuf, SocketAddr)> {
+    let manifests_by_dir: Vec<_> = dirs
+        .iter()
+        .map(|dir| (dir, read_dir_route_manifests(dir)))
+        .collect();
+    let mut out = Vec::new();
+    for (dir, manifests) in &manifests_by_dir {
+        for (path, m) in manifests {
+            if m.topics.iter().any(|t| t == topic) {
+                out.push((path.clone(), m.endpoint));
+            }
+        }
+        let exact = dir.join("topics").join(enc(topic));
+        if let Some((ep, _)) = read_endpoint_key(&exact) {
+            out.push((exact, ep));
+        }
+    }
+    for (dir, manifests) in &manifests_by_dir {
+        for (path, m) in manifests {
+            if m.prefixes.iter().any(|p| topic.starts_with(p.as_str())) {
+                out.push((path.clone(), m.endpoint));
+            }
+        }
+        let pdir = dir.join("prefixes");
+        if let Ok(rd) = std::fs::read_dir(&pdir) {
+            for entry in rd.flatten() {
+                let path = entry.path();
+                if let Some((ep, _)) = read_endpoint_key(&path)
+                    .filter(|(_, prefix)| topic.starts_with(prefix.as_str()))
+                {
+                    out.push((path, ep));
+                }
+            }
+        }
+    }
+    out
 }
 
 struct RouteManifest {

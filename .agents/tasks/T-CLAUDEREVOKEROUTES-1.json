@@ -1,0 +1,34 @@
+{
+  "id": "T-CLAUDEREVOKEROUTES-1",
+  "title": "CLI sibling revoke finds daemons through the single-file route manifest",
+  "goal": "After T-CARBONCLOUD-2 moved per-process rendezvous into routes.json, `revoke_on_sibling_bus` still read only the legacy topics/ and prefixes/ files, so `capabilities revoke` contacted no sibling daemon and the test revoke_on_sibling_bus_cancels_daemon_envelope_and_stays_noop_offline failed on main. Expose the bus's own candidate lookup as `plane_bus_ipc::route_candidates` and use it from the CLI, so manifests and legacy files are both honoured by one implementation.",
+  "size": "xs",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--bins",
+      "revoke_on_sibling_bus"
+    ]
+  },
+  "created_by": "CLAUDECLEVERFEYNMANMTR9N2",
+  "created_unix": 1794494431,
+  "reuse": {
+    "decision": "existing",
+    "searched": "susi-core plane_bus_ipc: IpcPlaneBus::candidates already resolved manifests plus legacy files; moved its body into a public free function instead of writing a second reader in the CLI."
+  },
+  "scopes": [
+    "src/cli/os_cli.rs",
+    "crates/susi-core/src/plane_bus_ipc.rs"
+  ],
+  "status": "implemented",
+  "limitations": [
+    "Verified on Linux x86_64 only.",
+    "No refs/claims or refs/closed record: the remote refuses those pushes from this cloud session."
+  ]
+}

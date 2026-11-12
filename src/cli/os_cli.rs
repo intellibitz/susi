@@ -179,7 +179,7 @@ struct SiblingRevokeReport {
 /// zero network I/O.
 fn revoke_on_sibling_bus(bus_root: &Path, self_pid: &str, id: &str) -> SiblingRevokeReport {
     use std::io::{Read, Write};
-    use std::net::{SocketAddr, TcpStream};
+    use std::net::TcpStream;
     use std::time::Duration;
 
     let mut report = SiblingRevokeReport::default();
@@ -221,17 +221,15 @@ fn revoke_on_sibling_bus(bus_root: &Path, self_pid: &str, id: &str) -> SiblingRe
     pid_dirs.sort();
 
     for pid_dir in pid_dirs {
-        let candidate = [
-            pid_dir.join("topics").join("daemon.harness"),
-            pid_dir.join("prefixes").join("daemon."),
-        ]
+        // The sibling's routes live in its `routes*.json` manifest (or the
+        // legacy `topics/` / `prefixes/` files of an older copy).
+        let candidate = susi_core::plane_bus_ipc::route_candidates(
+            std::slice::from_ref(&pid_dir),
+            susi_core::plane_bus::topics::DAEMON_HARNESS,
+        )
         .into_iter()
-        .find_map(|file| {
-            let raw = std::fs::read_to_string(&file).ok()?;
-            let doc: serde_json::Value = serde_json::from_str(&raw).ok()?;
-            let addr: SocketAddr = doc.get("endpoint")?.as_str()?.parse().ok()?;
-            addr.ip().is_loopback().then_some(addr)
-        });
+        .map(|(_, addr)| addr)
+        .find(|addr| addr.ip().is_loopback());
         let Some(addr) = candidate else { continue };
 
         let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(200)) else {
