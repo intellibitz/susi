@@ -1,21 +1,6 @@
 {
   "id": "T-RTBUDGET-1",
-  "native_worker": "rtbudget",
   "title": "Step 1 response-time budgets: declare absolute ms budgets, time a piped first goal, remove the first-goal startup cost",
-  "created_by": "RTBUDGET",
-  "created_unix": 1793980000,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/tasks/t-rtbudget-1.json",
-    "crates/susi-config/src/json_util.rs",
-    "crates/susi-config/src/lib.rs",
-    "crates/susi-core/src/plane_bus_ipc.rs",
-    "crates/susi-core/src/registry_ipc.rs",
-    "crates/susi-daemon/src/runtime_admin.rs",
-    "docs/step1-acceptance.md",
-    "xtask/src/bin/startup-gate.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -33,5 +18,25 @@
       "the daemon readiness scan no longer examines plane-bus endpoint metadata (and no longer launches icacls per such file on Windows), while the bus key and real key files stay scanned",
       "the budgets were set from optimized-build measurements on this host (version and help 17-18 ms, status 19-22 ms, first goal 0.25-0.47 s after the flush fix, 1.05-1.55 s before); quiet-host evidence against them follows in docs/step1-acceptance.md under a later task"
     ]
-  }
+  },
+  "created_by": "RTBUDGET",
+  "created_unix": 1793980000,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "rtbudget",
+  "scopes": [
+    ".agents/tasks/t-rtbudget-1.json",
+    "crates/susi-config/src/json_util.rs",
+    "crates/susi-config/src/lib.rs",
+    "crates/susi-core/src/plane_bus_ipc.rs",
+    "crates/susi-core/src/registry_ipc.rs",
+    "crates/susi-daemon/src/runtime_admin.rs",
+    "docs/step1-acceptance.md",
+    "xtask/src/bin/startup-gate.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
