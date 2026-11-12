@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "GROKSOCKET1104",
-  "created_unix": 1793815282
+  "created_unix": 1793815282,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  }
 }
