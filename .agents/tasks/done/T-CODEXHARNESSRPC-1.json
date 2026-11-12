@@ -2,19 +2,8 @@
   "id": "T-CODEXHARNESSRPC-1",
   "title": "Correlate harness MCP responses with JSON-RPC request ids",
   "goal": "Reject stale, cross-request, or malformed JSON-RPC responses in the Core harness MCP client instead of accepting any result or error as the current request's answer.",
-  "status": "implemented",
-  "owner": "codex",
-  "native_worker": "codex-harness-rpc-record",
-  "created_by": "codex",
-  "created_unix": 1794442133,
   "size": "s",
-  "base_commit": "841d89c609ace1e2382925ac2d000ac4932990b2",
   "deps": [],
-  "scopes": [
-    "crates/susi-harness/src/mcp.rs",
-    "crates/susi-harness/src/tests/mcp.rs",
-    ".agents/tasks/T-CODEXHARNESSRPC-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -27,6 +16,16 @@
       "mcp"
     ]
   },
+  "created_by": "codex",
+  "created_unix": 1794442133,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "841d89c609ace1e2382925ac2d000ac4932990b2",
+  "native_worker": "codex-harness-rpc-record",
+  "owner": "codex",
   "results": {
     "status": "implemented and locally verified",
     "base": "841d89c609ace1e2382925ac2d000ac4932990b2",
@@ -40,5 +39,11 @@
     "lean_core": "mcp unit suite moved unchanged to src/tests/mcp.rs; shipped mcp.rs is 557 lines",
     "gate": "format 0; licenses 0; clippy 0; affected workspace 3448 passed, 0 failed, 10 ignored; task acceptance 15 passed, 0 failed; host x86_64-unknown-linux-gnu",
     "published": "origin/main 88289a6e8d18b70a267c90f8d1c071be68a77d67 via verified merge dbb5cf855a7addc3b13d5350534b274a186b82d4; receipt .agents/receipts/dbb5cf855a7addc3b13d5350534b274a186b82d4.json"
-  }
+  },
+  "scopes": [
+    "crates/susi-harness/src/mcp.rs",
+    "crates/susi-harness/src/tests/mcp.rs",
+    ".agents/tasks/T-CODEXHARNESSRPC-1.json"
+  ],
+  "status": "implemented"
 }
