@@ -56,6 +56,13 @@ storage bucket only.
    with `origin/main` or the tracked remote ref when reachable, with safe offline
    operation when disconnected) so distributed agents and isolated laptops stay
    continuously reconciled.
+   **Every agent must work on the latest remote** (tightened 2026-11-12): fetch
+   and merge `origin/main` before starting work, when resuming work, and before
+   every commit, so no agent builds on a stale copy and finds out only when
+   publishing. `susi-commercial workflow fresh` reports how far a worktree is
+   behind; the commit guard prints a note when it is behind at all and refuses
+   the commit beyond a limit (20 commits; an unreachable remote never
+   refuses). A merge is never refused: it is the remedy.
 5. **GitHub is portable Git storage only:** `origin` for both `intellibitz/susi`
    and `intellibitz/susi-commercial-apps` is pure Git transport storage — zero
    GitHub Actions, zero hosted PRs or status checks, zero `gh` CLI or GitHub

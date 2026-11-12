@@ -93,7 +93,9 @@ integration/publication. Every native workflow step (`start`, `sync` / `step`,
 `commit`, `distill`, `ship`, `release`, and parallel Susi Harness steps)
 supports remote `fetch` + pull and merge reconciliation with `origin` when
 reachable (with safe offline fallback when disconnected) so distributed agents
-and isolated laptops stay continuously reconciled. Preserve every accepted
+and isolated laptops stay continuously reconciled. Every agent must work on the
+latest remote: fetch and merge `origin/main` before starting work, when
+resuming, and before every commit (Mandate 74, tightened 2026-11-12). Preserve every accepted
 contribution, reconcile the current target head, and use an atomic normal
 fast-forward update. If the target moves, reconcile against it and retry
 without overwriting history. No force-push, blind ref reset, destructive

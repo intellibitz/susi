@@ -114,6 +114,12 @@ pure Apache-2.0 code with full attribution, keep all add-ons closed/licensed/pai
   supports remote `fetch` + pull and merge reconciliation with `origin` when
   reachable (offline-safe when disconnected) so distributed agents and laptops
   stay continuously reconciled.
+  **Every agent must work on the latest remote** (tightened 2026-11-12): fetch
+  and merge `origin/main` before starting work, when resuming work, and before
+  every commit. `susi-commercial workflow fresh` reports the lag; the commit
+  guard notes any lag and refuses a commit more than 20 commits behind
+  (`git config susi.maxBehind <n>` changes the limit; an unreachable remote
+  never refuses; a merge is never refused).
 - **GitHub is portable Git storage only:** Pure Git transport (`origin` for
   `susi` and `susi-commercial-apps`); zero GitHub Actions, zero hosted PR/status
   gates, zero `gh` CLI or GitHub API lock-in; moving clouds is a remote URL change.
@@ -299,8 +305,10 @@ merge reconciliation** against `origin` over pure Git transport whenever
 reachable (falling back cleanly to offline local Git operation when
 disconnected, Mandate 66).
 
-1. Inspect the actual repository, fetch/reconcile `origin/main` when reachable,
-   and preserve others' work. Do not work in the primary checkout or on `main`.
+1. Inspect the actual repository; fetch and merge `origin/main` before you
+   start, when you resume and before every commit (Mandate 74: every agent
+   works on the latest remote; `susi-commercial workflow fresh` reports the
+   lag), and preserve others' work. Do not work in the primary checkout or on `main`.
 2. Reserve a unique identity and disjoint scopes in a private branch/worktree.
    `cargo local-workflow start <name> --scope <path>` is the available native
    reservation path. `cargo local-workflow list` inspects local reservations.
