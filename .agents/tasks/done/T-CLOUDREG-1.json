@@ -2,17 +2,33 @@
   "id": "T-CLOUDREG-1",
   "title": "Cloud endpoint registration waits on the network once, not serially",
   "goal": "Every CLI command that builds the composition root (crown, audit, goals) paid ~4.3 s in register_configured_cloud_endpoints: custom-endpoint model listings (1 s each) and the credential scout's probes ran one after another, and the listing cache held its lock across the fetch. Listings now prefetch concurrently, the scout probes its targets concurrently and runs beside registration (registration never reads its verdicts). Measured: phase 4.3 s -> 1.5 s; crown 8.2 s (release) -> 3.7 s (debug).",
+  "size": "s",
   "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "--",
+      "credential_scout",
+      "vc_202_001"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1793705000,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "scopes": [
     ".agents/tasks/t-cloudreg-1.json",
     "crates/susi-gemi/src/engines/http_provider.rs",
     "crates/susi-gemi/src/credential_scout.rs",
     "crates/susi-gemi/src/tests/vc_202_001_mastery.rs"
-  ],
-  "size": "s",
-  "accept": {
-    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi-gemi", "--lib", "--", "credential_scout", "vc_202_001"]
-  },
-  "created_by": "CLAUDE",
-  "created_unix": 1793705000
+  ]
 }
