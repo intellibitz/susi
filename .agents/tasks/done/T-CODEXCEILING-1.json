@@ -1,13 +1,7 @@
 {
   "id": "T-CODEXCEILING-1",
-  "feature_id": "F-CORE-LEAN-CEILING-TRIM-1",
   "title": "Keep the Windows adapter race fix within the lean-core ceiling",
   "goal": "Retain the unique temporary-directory counter added for Windows adapter tests while removing five non-semantic source lines so susi-gawd-agents remains at or below its existing ceiling.",
-  "status": "implemented",
-  "scopes": [
-    "crates/susi-gawd-agents/src/adapter_upgrade.rs",
-    ".agents/tasks/T-CODEXCEILING-1.json"
-  ],
   "size": "xs",
   "deps": [],
   "accept": {
@@ -21,9 +15,19 @@
     ]
   },
   "created_by": "CODEXCEILING",
-  "native_worker": "codex-ceiling-trim",
   "created_unix": 1794423655,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "base": "1f9c825c9fe70f4020b8795bf35fc0ed86f9d11b",
+  "feature_id": "F-CORE-LEAN-CEILING-TRIM-1",
+  "limitations": [
+    "This is a line-neutral test-helper cleanup; it does not change production adapter behavior or the lean-core ceiling.",
+    "The full workspace gate remains required before publication."
+  ],
+  "native_worker": "codex-ceiling-trim",
   "results": {
     "status": "verified",
     "fmt": "cargo fmt --all --check: passed",
@@ -32,8 +36,9 @@
     "diff_check": "git diff --check: passed",
     "scope": "Removed only explanatory comments and two blank lines around the Windows test helper. The process-local AtomicU64 counter and unique temp-directory name remain unchanged."
   },
-  "limitations": [
-    "This is a line-neutral test-helper cleanup; it does not change production adapter behavior or the lean-core ceiling.",
-    "The full workspace gate remains required before publication."
-  ]
+  "scopes": [
+    "crates/susi-gawd-agents/src/adapter_upgrade.rs",
+    ".agents/tasks/T-CODEXCEILING-1.json"
+  ],
+  "status": "implemented"
 }
