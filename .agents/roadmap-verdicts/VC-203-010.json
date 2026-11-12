@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-010",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs - gmcp_req_203_010_01_contract through _06_operations plus gmcp_vc_203_010_mastery (7 tests), and crates/susi-gmcp/src/tests/resource_surface.rs (8 wire-level tests against GmcpService): contract-203-010.md binds 33 normative ledger rows for the resource server surface to crates/susi-gmcp/src/protocol.rs and states the surface's behavior; the served stdio transport declares the resources capability, lists the static susi://tools resource with its MIME type and the susi://tools/{name} template, reads static and templated resources, completes the template argument, accepts subscribe and unsubscribe, and refuses unknown, malformed and traversal URIs with typed errors; on the production path every read and subscribe passes URI admission (bounded absolute URI, no whitespace, no plain or percent-encoded .. segment) and the embedder's access guard before any provider runs; a provider's read is sealed (never empty, strict base64 blobs, well-formed MIME types, at most 8 MiB) and carries cache hints; listings page a 257-resource catalog exactly once in deterministic order and refuse a cursor after the catalog changes; a resource replaced during reads is served whole; list-changed and per-URI update notifications reach only subscribed sessions; a cancelled read stops its provider. Not claimed: listing filters beyond paging (the pinned revisions define none), a built-in authorization policy (the guard is the embedder's decision point), and streaming of resources larger than the bound (they are refused).",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-58",
+    "T-CODEXGMCPROADMAP-59",
+    "T-CODEXGMCPROADMAP-60",
+    "T-CODEXGMCPROADMAP-61",
+    "T-CODEXGMCPROADMAP-62",
+    "T-CODEXGMCPROADMAP-63",
+    "T-CODEXGMCPROADMAP-64"
+  ],
+  "recorded_by": "CLAUDECLEVERFEYNMANMTR9N2",
+  "recorded_unix": 1794499790
+}

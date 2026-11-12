@@ -1667,7 +1667,7 @@
       "id": "VC-203-010",
       "mastery_target": "Static and templated resources support deterministic discovery, URI completion, text and binary reads, metadata, pagination/filtering, cache semantics, list and update notifications, modern filtered subscriptions, authorization, cancellation, and bounded streaming. URI-template matching, traversal, races, stale cache, not-found semantics, MIME handling, and large-resource behavior pass positive and adversarial fixtures.",
       "priority": "P0",
-      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-010-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_010_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "progress": "DELIVERED (2026-11-12): every GMCP-203-010-* requirement shipped on the production protocol path (crates/susi-gmcp/src/protocol.rs) with contract, integration, adversarial, interop, and operations evidence retained, proven by gmcp_vc_203_010_mastery and the wire-level suite crates/susi-gmcp/src/tests/resource_surface.rs; see .agents/roadmap-verdicts/VC-203-010.json and .agents/gmcp/evidence/VC-203-010.jsonl. Bounds stated in the verdict: reads are single responses of at most 8 MiB, the access guard is an embedder hook, listings page but do not filter.",
       "type": "CORE",
       "vector": "Complete resource server surface"
     },

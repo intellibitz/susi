@@ -55,13 +55,29 @@ Each row names a canonical behavior; its ledger id is the canonical name and its
 | MCP-2026-0728-server-resources-mdx-0433 | should | 4. Resource permissions **SHOULD** be checked before operations | crates/susi-gmcp/src/protocol.rs |
 | MCP-2026-0728-server-resources-mdx-0434 | must | 5. Servers **MUST** sanitize file paths to prevent directory traversal attacks | crates/susi-gmcp/src/protocol.rs |
 
+## Resource surface behavior
+
+What the production path (`GmcpService` in crates/susi-gmcp/src/protocol.rs) does for any registered resource or template, proven on the wire by crates/susi-gmcp/src/tests/resource_surface.rs and by `gmcp_vc_203_010_mastery`:
+
+- **Admission.** Every `resources/read` and `resources/subscribe` first checks the URI: an absolute RFC 3986 URI of at most 2048 bytes, with no whitespace or control character and no `..` path segment, plain or percent-encoded (`%2e`, `%2f`, `%5c`). A refused URI earns `-32602` and never reaches a provider.
+- **Access control.** An embedder sets one guard with `set_resource_guard`; it runs after admission and before the provider, for reads and subscriptions alike, and its error is the answer. Core ships no policy of its own.
+- **Sealed reads.** A provider's result is checked before it is served: `contents` is never empty, every `blob` is strict base64, every `mimeType` is well formed, and the payload is at most `MAX_RESOURCE_BYTES` (8 MiB). A read that fails any of these earns `-32603`; it is never truncated or repaired. A read is one bounded response; larger resources are refused, not streamed.
+- **Not found.** An unknown resource earns a typed error that names the URI, never an empty `contents` array.
+- **Cache hints.** Reads and listings carry `ttlMs` and `cacheScope`; a provider's own values are kept.
+- **Listing.** `resources/list` and `resources/templates/list` page deterministically; a cursor is bound to the catalog it was issued for and is refused with `-32602` once the catalog changes.
+- **Change signals.** Registering or replacing a resource announces `notifications/resources/list_changed`; a replaced or updated resource announces `notifications/resources/updated` to sessions subscribed to that URI and to no others.
+- **Concurrency.** A resource replaced while it is being read is always served whole, from one version.
+- **Cancellation.** A cancelled read stops its provider; the session keeps serving.
+
+Not covered: filtering of listings beyond paging (the pinned revisions define none), and per-principal authorization inside core (the guard is the embedder's decision point).
+
 ## Compatibility and deprecation decisions
 
 Every clause carries an explicit disposition: adapter=10, modern=17, optional=6. A clause disposed as adapter is honored only through the explicit version adapter with downgrade telemetry and a removal policy.
 
 ## Threat model
 
-A malicious peer can replay a handle, answer another principal's request, or stall past a deadline. Handles are principal-scoped and single-use; responses are validated against the request that created them; deadlines and cancellation are enforced before any side effect.
+A malicious peer can send traversal or malformed URIs to reach data outside a provider's scope, request a resource it may not read, or stall a read; a faulty provider can return malformed binary, an ambiguous empty result or an unbounded payload. Admission, the guard and the sealed read above answer each. A malicious peer can also replay a handle, answer another principal's request, or stall past a deadline. Handles are principal-scoped and single-use; responses are validated against the request that created them; deadlines and cancellation are enforced before any side effect.
 
 ## SLOs and resource budgets
 
