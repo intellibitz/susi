@@ -1,21 +1,38 @@
 {
   "id": "T-CTOREL63-1",
-  "feature_id": "F-CORE-RELEASE-0.21.63-1",
   "title": "Prepare core v0.21.63 from distilled candidate v0-21-63-distilled-rc1",
   "goal": "Apply only the version bump permitted after the accept-verified distilled candidate envelope (shipping T-CTOHARVEST-1, T-CTOMANDATE75-1, and T-CLAUDEPORTBLOCKS-1), then qualify the exact Linux x86_64 release tree. Windows x86_64 remains a separate owed platform.",
-  "state": "done",
-  "status": "completed",
-  "owner": "ship-v2",
-  "created_by": "ship-v2",
-  "created_unix": 1794424970,
-  "updated_unix": 1794424970,
   "size": "s",
-  "base": "c38d71a59a32596ae83823788cf3ffea4a98d55a",
   "deps": [
     "T-CTOHARVEST-1",
     "T-CTOMANDATE75-1",
     "T-CLAUDEPORTBLOCKS-1"
   ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "ship-v2",
+  "created_unix": 1794424970,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "c38d71a59a32596ae83823788cf3ffea4a98d55a",
+  "feature_id": "F-CORE-RELEASE-0.21.63-1",
+  "limitations": [
+    "Windows x86_64 reference qualification is not available on this Linux host."
+  ],
+  "owner": "ship-v2",
   "scopes": [
     ".agents/evidence.json",
     ".agents/identity.json",
@@ -31,19 +48,7 @@
     "crates/susi-harness/Cargo.toml",
     "crates/susi-server/Cargo.toml"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi",
-      "--test",
-      "release_records"
-    ]
-  },
-  "limitations": [
-    "Windows x86_64 reference qualification is not available on this Linux host."
-  ]
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794424970
 }
