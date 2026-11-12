@@ -796,6 +796,26 @@ fn validate_executions(gates: &[GateRecord]) -> Result<()> {
 
 /// What `rustc -vV` reports, run from `dir` so a pinned toolchain applies.
 pub fn rustc_version(dir: &Path) -> Result<(String, String)> {
+    #[cfg(test)]
+    if dir.is_dir()
+        && std::env::var_os("RUSTUP_TOOLCHAIN").is_none()
+        && !dir.ancestors().any(|ancestor| {
+            ancestor.join(concat!("rust-", "toolchain.toml")).exists()
+                || ancestor.join(concat!("rust-", "toolchain")).exists()
+        })
+    {
+        static DEFAULT_RUSTC: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+        if let Some(cached) = DEFAULT_RUSTC.get() {
+            return Ok(cached.clone());
+        }
+        let queried = query_rustc_version(dir)?;
+        let _ = DEFAULT_RUSTC.set(queried.clone());
+        return Ok(queried);
+    }
+    query_rustc_version(dir)
+}
+
+fn query_rustc_version(dir: &Path) -> Result<(String, String)> {
     let output = Command::new("rustc")
         .current_dir(dir)
         .arg("-vV")
@@ -2228,6 +2248,23 @@ mod tests {
         guard.unwrap().recheck().unwrap();
     }
 
+    fn copy_dir_all(src: &Path, dst: &Path) {
+        fs::create_dir_all(dst).unwrap();
+        for entry in fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let ty = entry.file_type().unwrap();
+            let dst_path = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dst_path);
+            } else {
+                fs::copy(entry.path(), &dst_path).unwrap();
+                if let Ok(meta) = entry.metadata() {
+                    let _ = fs::set_permissions(&dst_path, meta.permissions());
+                }
+            }
+        }
+    }
+
     struct Scratch(PathBuf);
     impl Scratch {
         fn new() -> Self {
@@ -2240,12 +2277,20 @@ mod tests {
             Self(path)
         }
         fn repo(&self) -> PathBuf {
+            static REPO_TPL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+            let tpl = REPO_TPL.get_or_init(|| {
+                let tpl = std::env::temp_dir()
+                    .join(format!("susi-gate-receipt-repo-tpl-{}", std::process::id()));
+                let _ = fs::remove_dir_all(&tpl);
+                fs::create_dir_all(&tpl).unwrap();
+                git(&tpl, &["init", "-q"]).unwrap();
+                git(&tpl, &["config", "user.name", "Test"]).unwrap();
+                git(&tpl, &["config", "user.email", "test@example.invalid"]).unwrap();
+                git(&tpl, &["config", "commit.gpgsign", "false"]).unwrap();
+                tpl
+            });
             let repo = self.0.join("repo");
-            fs::create_dir(&repo).unwrap();
-            git(&repo, &["init", "-q"]).unwrap();
-            git(&repo, &["config", "user.name", "Test"]).unwrap();
-            git(&repo, &["config", "user.email", "test@example.invalid"]).unwrap();
-            git(&repo, &["config", "commit.gpgsign", "false"]).unwrap();
+            copy_dir_all(tpl, &repo);
             repo
         }
     }
@@ -2283,28 +2328,44 @@ mod tests {
     /// A repository whose HEAD is a merge of a worker branch onto `main`,
     /// with a `Cargo.toml` and `Cargo.lock`, like a real landing.
     fn landing_repo() -> (Scratch, PathBuf, String, String) {
+        static LANDING_TPL: std::sync::OnceLock<(PathBuf, String, String)> =
+            std::sync::OnceLock::new();
+        let (tpl, base, head) = LANDING_TPL.get_or_init(|| {
+            let tpl = std::env::temp_dir().join(format!(
+                "susi-gate-receipt-landing-tpl-{}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&tpl);
+            fs::create_dir_all(&tpl).unwrap();
+            git(&tpl, &["init", "-q"]).unwrap();
+            git(&tpl, &["config", "user.name", "Test"]).unwrap();
+            git(&tpl, &["config", "user.email", "test@example.invalid"]).unwrap();
+            git(&tpl, &["config", "commit.gpgsign", "false"]).unwrap();
+            commit_file(&tpl, "Cargo.toml", "[package]\nname = \"x\"\n", "manifest");
+            let base = commit_file(&tpl, "Cargo.lock", "# lock\n", "lock");
+            git(&tpl, &["checkout", "-q", "-b", "worker"]).unwrap();
+            commit_file(&tpl, "owned.rs", "fn main() {}\n", "worker");
+            git(&tpl, &["checkout", "-q", "-"]).unwrap();
+            git(
+                &tpl,
+                &[
+                    "-c",
+                    "core.hooksPath=",
+                    "merge",
+                    "--no-ff",
+                    "--no-edit",
+                    "-q",
+                    "worker",
+                ],
+            )
+            .unwrap();
+            let head = git(&tpl, &["rev-parse", "HEAD"]).unwrap();
+            (tpl, base, head)
+        });
         let scratch = Scratch::new();
-        let repo = scratch.repo();
-        commit_file(&repo, "Cargo.toml", "[package]\nname = \"x\"\n", "manifest");
-        let base = commit_file(&repo, "Cargo.lock", "# lock\n", "lock");
-        git(&repo, &["checkout", "-q", "-b", "worker"]).unwrap();
-        commit_file(&repo, "owned.rs", "fn main() {}\n", "worker");
-        git(&repo, &["checkout", "-q", "-"]).unwrap();
-        git(
-            &repo,
-            &[
-                "-c",
-                "core.hooksPath=",
-                "merge",
-                "--no-ff",
-                "--no-edit",
-                "-q",
-                "worker",
-            ],
-        )
-        .unwrap();
-        let head = git(&repo, &["rev-parse", "HEAD"]).unwrap();
-        (scratch, repo, base, head)
+        let repo = scratch.0.join("repo");
+        copy_dir_all(tpl, &repo);
+        (scratch, repo, base.clone(), head.clone())
     }
 
     fn evidence() -> Vec<String> {

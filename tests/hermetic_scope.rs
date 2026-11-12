@@ -5,15 +5,34 @@
 //! suite, which is why it was wired into nothing; it now takes cargo arguments
 //! so it can run for the crates a diff touched. A fake `cargo` lets both the
 //! scope and the leak assertion be checked without compiling anything.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 mod common;
 use common::script_command;
 
 fn script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-hermetic-tests.sh")
+}
+
+fn cached_metadata() -> &'static [u8] {
+    static CACHED_METADATA: OnceLock<Vec<u8>> = OnceLock::new();
+    CACHED_METADATA.get_or_init(|| {
+        let out = std::process::Command::new(env!("CARGO"))
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .args(["metadata", "--no-deps", "--format-version", "1"])
+            .output()
+            .expect("real cargo metadata must succeed");
+        assert!(
+            out.status.success(),
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        out.stdout
+    })
 }
 
 fn path_with_prefix(prefix: &Path) -> std::ffi::OsString {
@@ -55,10 +74,11 @@ impl World {
         } else {
             ""
         };
-        // `metadata` is answered by the real cargo: the nextest runner reads the
-        // workspace to pick the doc-test packages, and a fake has no workspace.
+        // `metadata` is answered from the OnceLock-cached real cargo metadata
+        // output: the nextest runner reads the workspace to pick the doc-test
+        // packages, and a fake has no workspace.
         let body = format!(
-            "#!/usr/bin/env bash\nif [ \"$1\" = metadata ]; then exec \"$TEST_REAL_CARGO\" \"$@\"; fi\necho \"$*\" >>\"$TEST_CARGO_CALLS\"\nprintf '%s\\n' \"${{APPDATA:-}}\" \"${{LOCALAPPDATA:-}}\" \"${{ORT_CACHE_DIR:-}}\" >\"$TEST_CARGO_PATHS\"\n{leak}exit 0\n"
+            "#!/usr/bin/env bash\nif [ \"$1\" = metadata ]; then if [ -f \"${{TEST_CACHED_METADATA:-}}\" ]; then cat \"$TEST_CACHED_METADATA\"; exit 0; fi; exec \"$TEST_REAL_CARGO\" \"$@\"; fi\necho \"$*\" >>\"$TEST_CARGO_CALLS\"\nprintf '%s\\n' \"${{APPDATA:-}}\" \"${{LOCALAPPDATA:-}}\" \"${{ORT_CACHE_DIR:-}}\" >\"$TEST_CARGO_PATHS\"\n{leak}exit 0\n"
         );
         let path = bins.join("cargo");
         std::fs::write(&path, body).unwrap();
@@ -80,6 +100,14 @@ impl World {
     }
 
     fn run_with(&self, envs: &[(&str, &str)], args: &[&str]) -> (i32, String) {
+        let metadata_file = self.root.join("cached-metadata.json");
+        if envs
+            .iter()
+            .any(|(k, v)| *k == "SUSI_HERMETIC_RUNNER" && *v == "nextest")
+            && !metadata_file.is_file()
+        {
+            std::fs::write(&metadata_file, cached_metadata()).unwrap();
+        }
         let path = path_with_prefix(&self.bins);
         let mut command = script_command(&script());
         command
@@ -89,6 +117,8 @@ impl World {
             .env("TEST_CARGO_CALLS", &self.home)
             .env("TEST_CARGO_PATHS", &self.paths)
             .env("TEST_REAL_CARGO", env!("CARGO"))
+            .env("TEST_CACHED_METADATA", &metadata_file)
+            .env("SUSI_GATE_LINT_DELAY", "0")
             .env_remove("SUSI_HERMETIC_RUNNER")
             .env_remove("SUSI_HERMETIC_RETRIES")
             .envs(envs.iter().copied());

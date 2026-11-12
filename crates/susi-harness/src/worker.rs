@@ -323,9 +323,9 @@ fn paced_wait(
     if status != 429 || resent >= PACED_RESENDS || has_error_code(body, "insufficient_quota") {
         return None;
     }
-    let wait_ms = retry_after_ms?;
-    // Never sooner than a second: a zero wait would only hammer the queue.
-    let wait = std::time::Duration::from_millis(wait_ms.max(1_000));
+    // Never spin on zero (`Retry-After: 0` waits 1 s); honor sub-second waits >= 100 ms.
+    let wait_ms = retry_after_ms.map(|ms| if ms == 0 { 1_000 } else { ms.max(100) })?;
+    let wait = std::time::Duration::from_millis(wait_ms);
     Instant::now()
         .checked_add(wait)
         .is_some_and(|resend_at| resend_at < deadline)
@@ -692,7 +692,7 @@ mod tests {
     /// attempt on it; it now sends the turn again once that time has passed.
     #[tokio::test]
     async fn a_turn_the_paced_queue_turned_away_is_sent_again_after_its_retry_after() {
-        let (addr, calls) = paced_gateway(1, "1").await;
+        let (addr, calls) = paced_gateway(1, "0.15").await;
         // A call timeout no other test uses keeps the transport's pooled
         // connections of other tests' servers off this test's calls.
         let config = paced_config(addr, "paced", 31);
@@ -710,7 +710,7 @@ mod tests {
         }
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
         assert!(
-            started.elapsed() >= std::time::Duration::from_millis(900),
+            started.elapsed() >= std::time::Duration::from_millis(120),
             "it waited for the Retry-After"
         );
         let _ = fs::remove_dir_all(&workspace);

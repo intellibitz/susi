@@ -353,11 +353,12 @@ impl TaskHandle {
     }
 
     pub fn check_pause(&self) {
+        let poll = Duration::from_millis(if cfg!(test) { 15 } else { 100 });
         while self.pause_flag.load(Ordering::Acquire) && !self.is_cancelled() {
             // Callers can update the public flags without a thread handle to unpark.
             // Bound the wait so resume/cancellation is observed, and recheck after
             // spurious wakes instead of allowing a paused task to continue.
-            std::thread::park_timeout(Duration::from_millis(100));
+            std::thread::park_timeout(poll);
         }
     }
 
@@ -862,7 +863,7 @@ mod tests {
                 tx.send(()).unwrap();
             });
             assert!(matches!(
-                rx.recv_timeout(Duration::from_millis(200)),
+                rx.recv_timeout(Duration::from_millis(35)),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout)
             ));
             if cancel {
@@ -912,11 +913,11 @@ mod tests {
         };
         let handle = manager.register_task("lifecycle_test", "test");
         handle.report_progress();
-        std::thread::sleep(Duration::from_millis(60));
+        std::thread::sleep(Duration::from_millis(25));
         handle.report_progress();
         handle.report_progress();
         let idle = handle.max_idle_ms.load(Ordering::Acquire);
-        assert!(idle >= 60, "observed {idle}ms");
+        assert!(idle >= 20, "observed {idle}ms");
         assert!(idle < 60_000, "observed {idle}ms");
         handle.mark_failed("done");
     }

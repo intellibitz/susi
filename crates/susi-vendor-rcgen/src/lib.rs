@@ -30,6 +30,7 @@ impl SigningKey for RsaSigningKey {
 pub fn generate_simple_self_signed(
     names: impl Into<Vec<String>>,
 ) -> Result<CertifiedKey<RsaSigningKey>, Error> {
+    let mut parameters = CertificateParams::new(names)?;
     let signer = platform_tls::native_tls::RsaSigningKey::generate()
         .map_err(|_| Error::KeyGenerationUnavailable)?;
     let public_der = signer
@@ -43,7 +44,6 @@ pub fn generate_simple_self_signed(
         public_der,
         private_pem,
     };
-    let mut parameters = CertificateParams::new(names)?;
     let mut serial = [0u8; 20];
     getrandom::fill(&mut serial).map_err(|_| Error::KeyGenerationUnavailable)?;
     serial[0] &= 0x7f;
@@ -57,11 +57,49 @@ pub fn generate_simple_self_signed(
 mod tests {
     use super::*;
 
+    struct CachedCert {
+        key_pem: String,
+        key_der: Vec<u8>,
+        cert_pem: String,
+        cert_der: Vec<u8>,
+    }
+
+    fn cached_localhost_cert() -> Result<&'static CachedCert, Error> {
+        static CACHED: std::sync::OnceLock<Option<CachedCert>> = std::sync::OnceLock::new();
+        CACHED
+            .get_or_init(|| {
+                let CertifiedKey { cert, signing_key } =
+                    generate_simple_self_signed(vec!["localhost".to_string()]).ok()?;
+                Some(CachedCert {
+                    key_pem: signing_key.serialize_pem(),
+                    key_der: signing_key.der_bytes().to_vec(),
+                    cert_pem: cert.pem(),
+                    cert_der: cert.der().to_vec(),
+                })
+            })
+            .as_ref()
+            .ok_or(Error::KeyGenerationUnavailable)
+    }
+
+    fn cached_signing_key() -> Result<RsaSigningKey, Error> {
+        let cached = cached_localhost_cert()?;
+        let signer = platform_tls::native_tls::RsaSigningKey::from_pkcs8(cached.key_pem.as_bytes())
+            .map_err(|_| Error::CouldNotParseKeyPair)?;
+        let private_pem = signer
+            .private_key_pem()
+            .map_err(|_| Error::CouldNotParseKeyPair)?;
+        Ok(RsaSigningKey {
+            signer,
+            public_der: cached.key_der.clone(),
+            private_pem,
+        })
+    }
+
     #[test]
     fn generate_simple_self_signed_produces_valid_rsa_key_signature_and_certificate(
     ) -> Result<(), Error> {
-        let CertifiedKey { cert, signing_key } =
-            generate_simple_self_signed(vec!["localhost".to_string(), "127.0.0.1".to_string()])?;
+        let cached = cached_localhost_cert()?;
+        let signing_key = cached_signing_key()?;
 
         let key_pem = signing_key.serialize_pem();
         let trimmed_key_pem = key_pem.trim();
@@ -75,8 +113,14 @@ mod tests {
         let sig = signing_key.sign(b"susi-rcgen-contract-message")?;
         assert!(!sig.is_empty());
 
-        let cert_pem = cert.pem();
-        assert!(cert_pem.starts_with("-----BEGIN CERTIFICATE-----"));
+        assert!(cached.cert_pem.starts_with("-----BEGIN CERTIFICATE-----"));
+        assert!(!cached.cert_der.is_empty());
+
+        let mut multi_san =
+            CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()])?;
+        multi_san.serial_number = Some(SerialNumber::from_slice(&[1u8; 20]));
+        let cert = multi_san.self_signed(&signing_key)?;
+        assert!(cert.pem().starts_with("-----BEGIN CERTIFICATE-----"));
         assert!(!cert.der().is_empty());
         Ok(())
     }
@@ -84,25 +128,18 @@ mod tests {
     #[test]
     fn consecutive_self_signed_generations_produce_distinct_keys_and_certificates(
     ) -> Result<(), Error> {
-        let first = generate_simple_self_signed(vec!["localhost".to_string()])?;
+        let first = cached_localhost_cert()?;
         let second = generate_simple_self_signed(vec!["localhost".to_string()])?;
-        assert!(!first.signing_key.der_bytes().is_empty());
-        assert_ne!(
-            first.signing_key.der_bytes(),
-            second.signing_key.der_bytes()
-        );
-        assert_ne!(
-            first.signing_key.serialize_pem(),
-            second.signing_key.serialize_pem()
-        );
-        assert_ne!(first.cert.der().as_ref(), second.cert.der().as_ref());
+        assert!(!first.key_der.is_empty());
+        assert_ne!(first.key_der.as_slice(), second.signing_key.der_bytes());
+        assert_ne!(first.key_pem, second.signing_key.serialize_pem());
+        assert_ne!(first.cert_der.as_slice(), second.cert.der().as_ref());
         Ok(())
     }
 
     #[test]
     fn rsa_signing_key_signs_empty_and_large_payloads_with_pkcs_rsa_sha256() -> Result<(), Error> {
-        let CertifiedKey { signing_key, .. } =
-            generate_simple_self_signed(vec!["susi.internal".to_string()])?;
+        let signing_key = cached_signing_key()?;
         assert_eq!(signing_key.algorithm(), &PKCS_RSA_SHA256);
 
         let empty_sig = signing_key.sign(b"")?;

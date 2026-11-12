@@ -122,13 +122,14 @@ fn swarm_gap_real_cancellation_bounds_hung_model_and_drops_late_result() {
     let handle = CancellationHandle::with_deadline_after(Duration::from_secs(5));
     let started = Arc::new(AtomicBool::new(false));
     let late_result = Arc::new(AtomicBool::new(false));
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
     let worker_handle = handle.clone();
     let worker_started = Arc::clone(&started);
     let worker_late = Arc::clone(&late_result);
     let worker = std::thread::spawn(move || {
         run_cancellable(&worker_handle, move || {
             worker_started.store(true, Ordering::Release);
-            std::thread::sleep(Duration::from_millis(250));
+            let _ = release_rx.recv_timeout(Duration::from_secs(5));
             worker_late.store(true, Ordering::Release);
             "late-model-result".to_string()
         })
@@ -156,6 +157,7 @@ fn swarm_gap_real_cancellation_bounds_hung_model_and_drops_late_result() {
         "late model output was published after cancellation"
     );
     assert_eq!(handle.active_operations(), 1);
+    let _ = release_tx.send(());
     assert!(handle.wait_for_idle(Duration::from_secs(1)));
     assert!(late_result.load(Ordering::Acquire));
 }
@@ -185,12 +187,13 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
         DispatchReturned,
     }
     let (events_tx, events_rx) = std::sync::mpsc::channel::<Event>();
+    let (release_server_tx, release_server_rx) = std::sync::mpsc::channel::<()>();
     let accepted_tx = events_tx.clone();
     let server = std::thread::spawn(move || {
         let (_stream, _) = listener.accept().unwrap();
         // The receiver is gone only when the test already failed.
         let _ = accepted_tx.send(Event::PeerAccepted);
-        std::thread::sleep(Duration::from_millis(500));
+        let _ = release_server_rx.recv_timeout(Duration::from_secs(5));
     });
 
     // Backstop only: the test cancels explicitly, long before this expires.
@@ -231,6 +234,7 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
         handle.unresolved_remotes().contains_key(&address),
         "remote cancellation status was not retained"
     );
+    let _ = release_server_tx.send(());
     server.join().unwrap();
     drop(env);
     // Best-effort cleanup: a spawned peer process may still hold a handle to

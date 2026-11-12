@@ -53,6 +53,23 @@ fn isolated<'a>(command: &'a mut Command, dir: &Path) -> &'a mut Command {
         .env("PATH", path_without_helper())
 }
 
+fn copy_dir_all(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let ty = entry.file_type().unwrap();
+        let dst_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path);
+        } else {
+            std::fs::copy(entry.path(), &dst_path).unwrap();
+            if let Ok(meta) = entry.metadata() {
+                let _ = std::fs::set_permissions(&dst_path, meta.permissions());
+            }
+        }
+    }
+}
+
 struct Fixture {
     root: PathBuf,
     remote: PathBuf,
@@ -60,32 +77,48 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        static FX_TPL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        let tpl = FX_TPL.get_or_init(|| {
+            let tpl_root =
+                std::env::temp_dir().join(format!("susi-pubhook-tpl-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tpl_root);
+            std::fs::create_dir_all(&tpl_root).unwrap();
+            let hooks = tpl_root.join("hooks");
+            std::fs::create_dir(&hooks).unwrap();
+            let hook = hooks.join("pre-push");
+            std::fs::write(&hook, include_str!("../../.githooks/pre-push")).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            let remote = tpl_root.join("remote.git");
+            let f = Self {
+                root: tpl_root.clone(),
+                remote,
+            };
+            f.git(
+                &f.root,
+                &["init", "-q", "--bare", "-b", "main", "remote.git"],
+            );
+            let seed = f.clone_worker("seed");
+            f.commit(&seed, "seed.txt", "seed");
+            f.push_main_with_policy(&seed);
+            let _ = std::fs::remove_dir_all(&seed);
+            std::mem::forget(f);
+            tpl_root
+        });
+
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
             "susi-publisher-hook-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        std::fs::create_dir(&root).unwrap();
-        let hooks = root.join("hooks");
-        std::fs::create_dir(&hooks).unwrap();
-        let hook = hooks.join("pre-push");
-        std::fs::write(&hook, include_str!("../../.githooks/pre-push")).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        let _ = std::fs::remove_dir_all(&root);
+        copy_dir_all(tpl, &root);
         let remote = root.join("remote.git");
-        let f = Self { root, remote };
-        f.git(
-            &f.root,
-            &["init", "-q", "--bare", "-b", "main", "remote.git"],
-        );
-        let seed = f.clone_worker("seed");
-        f.commit(&seed, "seed.txt", "seed");
-        f.push_main_with_policy(&seed);
-        f
+        Self { root, remote }
     }
 
     /// An ordinary push through the real hook, with the helper directory
@@ -121,12 +154,26 @@ impl Fixture {
     /// A clone whose pushes run the repository's real pre-push hook.
     fn clone_worker(&self, name: &str) -> PathBuf {
         let remote = self.remote.to_str().unwrap();
-        self.git(&self.root, &["clone", "-q", remote, name]);
-        let dir = self.root.join(name);
         let hooks = self.root.join("hooks");
-        self.git(&dir, &["config", "core.hooksPath", hooks.to_str().unwrap()]);
-        self.git(&dir, &["config", "commit.gpgsign", "false"]);
-        if self.git(&dir, &["branch", "--show-current"]).is_empty() {
+        let hooks_cfg = format!("core.hooksPath={}", hooks.to_str().unwrap());
+        self.git(
+            &self.root,
+            &[
+                "clone",
+                "-q",
+                "--no-hardlinks",
+                "-c",
+                &hooks_cfg,
+                "-c",
+                "commit.gpgsign=false",
+                remote,
+                name,
+            ],
+        );
+        let dir = self.root.join(name);
+        if !dir.join(".git/refs/heads/main").exists()
+            && self.git(&dir, &["branch", "--show-current"]).is_empty()
+        {
             self.git(&dir, &["checkout", "-q", "-b", "main"]);
         }
         dir

@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Exercise the release classifier against actual Git trees.
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -19,6 +19,24 @@ const META: [&str; 3] = [
     ".agents/roadmap.json",
 ];
 static NEXT: AtomicU64 = AtomicU64::new(0);
+
+fn copy_dir_all(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let ty = entry.file_type().unwrap();
+        let dst_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path);
+        } else {
+            std::fs::copy(entry.path(), &dst_path).unwrap();
+            if let Ok(meta) = entry.metadata() {
+                let _ = std::fs::set_permissions(&dst_path, meta.permissions());
+            }
+        }
+    }
+}
+
 struct Fixture {
     root: PathBuf,
     base: String,
@@ -60,45 +78,61 @@ impl Fixture {
         self.git(&["commit", "-qm", "change"]);
     }
     fn new() -> Self {
+        static FX_TPL: std::sync::OnceLock<(PathBuf, String)> = std::sync::OnceLock::new();
+        let (tpl, base) = FX_TPL.get_or_init(|| {
+            let tpl = std::env::temp_dir().join(format!(
+                "susi-release-classifier-tpl-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&tpl);
+            std::fs::create_dir_all(&tpl).unwrap();
+            let f = Self {
+                root: tpl.clone(),
+                base: String::new(),
+            };
+            f.git(&["init", "-q", "-b", "main"]);
+            f.git(&["config", "user.name", "fixture"]);
+            f.git(&["config", "user.email", "fixture@example.test"]);
+            for (path, name) in Self::paths().iter().zip(NAMES) {
+                f.put(
+                    path,
+                    &format!("[package]\nname = \"{name}\"\nversion = \"1.2.3\"\n"),
+                );
+            }
+            for path in META {
+                f.put(path, "{\"version\":\"1.2.3\",\"meaning\":\"preserve\"}\n");
+            }
+            f.put("README.md", "release 1.2.3\n");
+            let mut lock = "version = 4\n".to_string();
+            for name in NAMES {
+                lock.push_str(&format!(
+                    "\n[[package]]\nname = \"{name}\"\nversion = \"1.2.3\"\n"
+                ));
+            }
+            f.put("Cargo.lock", &lock);
+            f.commit();
+            let base = f.git(&["rev-parse", "HEAD"]);
+            for path in Self::paths() {
+                let p = f.root.join(path);
+                let s = std::fs::read_to_string(&p).unwrap();
+                std::fs::write(p, s.replace("1.2.3", "1.2.4")).unwrap();
+            }
+            f.commit();
+            std::mem::forget(f);
+            (tpl, base)
+        });
+
         let root = std::env::temp_dir().join(format!(
             "susi-release-classifier-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        std::fs::create_dir_all(&root).unwrap();
-        let mut f = Self {
+        let _ = std::fs::remove_dir_all(&root);
+        copy_dir_all(tpl, &root);
+        Self {
             root,
-            base: String::new(),
-        };
-        f.git(&["init", "-q", "-b", "main"]);
-        f.git(&["config", "user.name", "fixture"]);
-        f.git(&["config", "user.email", "fixture@example.test"]);
-        for (path, name) in Self::paths().iter().zip(NAMES) {
-            f.put(
-                path,
-                &format!("[package]\nname = \"{name}\"\nversion = \"1.2.3\"\n"),
-            );
+            base: base.clone(),
         }
-        for path in META {
-            f.put(path, "{\"version\":\"1.2.3\",\"meaning\":\"preserve\"}\n");
-        }
-        f.put("README.md", "release 1.2.3\n");
-        let mut lock = "version = 4\n".to_string();
-        for name in NAMES {
-            lock.push_str(&format!(
-                "\n[[package]]\nname = \"{name}\"\nversion = \"1.2.3\"\n"
-            ));
-        }
-        f.put("Cargo.lock", &lock);
-        f.commit();
-        f.base = f.git(&["rev-parse", "HEAD"]);
-        for path in Self::paths() {
-            let p = f.root.join(path);
-            let s = std::fs::read_to_string(&p).unwrap();
-            std::fs::write(p, s.replace("1.2.3", "1.2.4")).unwrap();
-        }
-        f.commit();
-        f
     }
     fn accepted(&self) -> bool {
         Command::new(env!("CARGO_BIN_EXE_ci-release-only"))

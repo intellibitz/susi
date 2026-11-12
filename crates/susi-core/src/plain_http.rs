@@ -218,8 +218,24 @@ pub fn call(
     body: Option<&[u8]>,
     timeout_secs: u64,
 ) -> Result<Response, String> {
+    call_within(
+        method,
+        url,
+        headers,
+        body,
+        Duration::from_secs(timeout_secs.max(1)),
+    )
+}
+
+pub(crate) fn call_within(
+    method: &str,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: Option<&[u8]>,
+    budget: Duration,
+) -> Result<Response, String> {
     let target = check_request(method, url, headers)?;
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs.max(1));
+    let deadline = Instant::now() + budget.max(Duration::from_millis(1));
     let stream = connect(&target, deadline)?;
     exchange(Box::new(stream), &target, method, headers, body, deadline)
 }
@@ -236,8 +252,27 @@ pub fn call_over(
     body: Option<&[u8]>,
     timeout_secs: u64,
 ) -> Result<Response, String> {
+    call_over_within(
+        stream,
+        method,
+        url,
+        headers,
+        body,
+        Duration::from_secs(timeout_secs.max(1)),
+    )
+}
+
+#[allow(clippy::too_many_arguments)] // `call`'s flat request parts plus the stream
+pub(crate) fn call_over_within(
+    stream: Box<dyn Stream>,
+    method: &str,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: Option<&[u8]>,
+    budget: Duration,
+) -> Result<Response, String> {
     let target = check_request(method, url, headers)?;
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs.max(1));
+    let deadline = Instant::now() + budget.max(Duration::from_millis(1));
     exchange(stream, &target, method, headers, body, deadline)
 }
 
@@ -823,13 +858,19 @@ mod tests {
     fn a_silent_server_costs_the_budget_not_more() {
         let (addr, server) = serve(vec![None]);
         let started = Instant::now();
-        let err = call("POST", &format!("http://{addr}/mcp"), &[], Some(b"{}"), 1)
-            .err()
-            .unwrap();
+        let err = call_within(
+            "POST",
+            &format!("http://{addr}/mcp"),
+            &[],
+            Some(b"{}"),
+            Duration::from_millis(120),
+        )
+        .err()
+        .unwrap();
         let took = started.elapsed();
         assert!(err.contains("time budget"), "{err}");
-        assert!(took >= Duration::from_millis(900), "{took:?}");
-        assert!(took < Duration::from_secs(5), "{took:?}");
+        assert!(took >= Duration::from_millis(80), "{took:?}");
+        assert!(took < Duration::from_secs(2), "{took:?}");
         server.join().unwrap();
     }
 
@@ -852,10 +893,17 @@ mod tests {
             let _ = rx.recv_timeout(Duration::from_secs(10));
         });
         let started = Instant::now();
-        let resp = call("GET", &format!("http://{addr}/"), &[], None, 1).unwrap();
+        let resp = call_within(
+            "GET",
+            &format!("http://{addr}/"),
+            &[],
+            None,
+            Duration::from_millis(150),
+        )
+        .unwrap();
         let err = resp.into_bytes(1024).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::TimedOut);
-        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(2));
         tx.send(()).unwrap();
         server.join().unwrap();
     }

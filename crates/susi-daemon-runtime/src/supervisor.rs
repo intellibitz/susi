@@ -600,12 +600,16 @@ fn wait_for_port(port: u16, deadline: Duration, shutdown: Option<&AtomicBool>) -
         if cancelled() {
             return false;
         }
-        if http_ready(port, shutdown) {
+        let remaining = deadline.saturating_sub(start.elapsed());
+        if http_ready(port, remaining, shutdown) {
             return !cancelled();
         }
+        let pause_budget = deadline
+            .saturating_sub(start.elapsed())
+            .min(Duration::from_millis(40));
         let pause = Instant::now();
-        while pause.elapsed() < Duration::from_millis(100) && !cancelled() {
-            thread::sleep(CANCEL_SLICE);
+        while pause.elapsed() < pause_budget && !cancelled() {
+            thread::sleep(CANCEL_SLICE.min(pause_budget.saturating_sub(pause.elapsed())));
         }
     }
     false
@@ -615,32 +619,41 @@ fn wait_for_port(port: u16, deadline: Duration, shutdown: Option<&AtomicBool>) -
 const CANCEL_SLICE: Duration = Duration::from_millis(20);
 
 /// `service_table::http_probe` for a cancellable wait: the same request and
-/// the same 500 ms reply budget, but the reply is read in [`CANCEL_SLICE`]
-/// steps that each check `shutdown`. A leaf that accepts the request and
-/// never answers held a teardown for up to 500 ms before (about 0.6 s
-/// measured). The connect is bounded at 100 ms: loopback to a listening
-/// port connects at once, and a refused one is retried by the caller.
-fn http_ready(port: u16, shutdown: Option<&AtomicBool>) -> bool {
+/// up to a 500 ms reply budget (capped by the caller's remaining `budget`),
+/// read in [`CANCEL_SLICE`] steps that each check `shutdown`. A leaf that
+/// accepts the request and never answers held a teardown for up to 500 ms
+/// before (about 0.6 s measured). The connect is bounded at 100 ms: loopback
+/// to a listening port connects at once, and a refused one is retried by the
+/// caller.
+fn http_ready(port: u16, budget: Duration, shutdown: Option<&AtomicBool>) -> bool {
     use std::io::{Read, Write};
     let cancelled = || shutdown.is_some_and(|flag| flag.load(Ordering::Acquire));
+    let connect_budget = budget.min(Duration::from_millis(100));
+    if connect_budget.is_zero() {
+        return false;
+    }
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let Ok(mut stream) = std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100))
-    else {
+    let Ok(mut stream) = std::net::TcpStream::connect_timeout(&addr, connect_budget) else {
         return false;
     };
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(300)));
+    let reply_budget = budget.min(Duration::from_millis(500));
+    let _ = stream.set_write_timeout(Some(budget.min(Duration::from_millis(300))));
     if cancelled()
         || stream
             .write_all(b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
             .is_err()
-        || stream.set_read_timeout(Some(CANCEL_SLICE)).is_err()
+        || stream
+            .set_read_timeout(Some(
+                CANCEL_SLICE.min(reply_budget.max(Duration::from_millis(1))),
+            ))
+            .is_err()
     {
         return false;
     }
     let mut buf = [0u8; 16];
     let mut got = 0;
     let started = Instant::now();
-    while got < 5 && started.elapsed() < Duration::from_millis(500) {
+    while got < 5 && started.elapsed() < reply_budget {
         if cancelled() {
             return false;
         }
@@ -1346,7 +1359,7 @@ fn shutdown_records(table: &[service_table::ServiceRecord]) {
         if table.iter().all(|r| r.external || !child_alive(r.pid)) {
             break;
         }
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(20));
     }
     for rec in table.iter().filter(|r| !r.external) {
         if child_alive(rec.pid) {
@@ -1592,10 +1605,10 @@ fn main() -> std::io::Result<()> {
         let start = Instant::now();
         assert!(!wait_for_port(
             timeout_port,
-            Duration::from_millis(200),
+            Duration::from_millis(60),
             None
         ));
-        assert!(start.elapsed() >= Duration::from_millis(200));
+        assert!(start.elapsed() >= Duration::from_millis(60));
         assert!(
             child_alive(timeout.0.id()),
             "readiness alone must not terminate a process"
@@ -1900,7 +1913,7 @@ if ([ServiceConsoleFixture]::GetConsoleWindow() -ne [IntPtr]::Zero) { exit 21 }
             {
                 break;
             }
-            thread::sleep(Duration::from_millis(200));
+            thread::sleep(Duration::from_millis(40));
         }
         let table = service_table::load();
         let all_up = LEAF_SERVICES.iter().all(|s| service_table::probe(s.port()));

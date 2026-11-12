@@ -581,7 +581,9 @@ mod tests {
     fn http_deadline_bounds_stalled_response_headers() {
         let (url, stop, worker) = delayed_response(Duration::from_secs(4), Duration::ZERO, 1);
         let started = std::time::Instant::now();
-        let result = http_call("GET", &url, &[], 1, 0);
+        let mut request = Request::new("GET", &url, &[], None, 1, 0).unwrap();
+        request.deadline = started + Duration::from_millis(150);
+        let result = execute(request, None, Proxy::from_env);
         let elapsed = started.elapsed();
         let _ = stop.send(());
         worker.join().unwrap();
@@ -590,7 +592,7 @@ mod tests {
             "stalled headers must exhaust the caller budget"
         );
         assert!(
-            elapsed < Duration::from_millis(2500),
+            elapsed < Duration::from_millis(1000),
             "elapsed: {elapsed:?}"
         );
     }
@@ -598,10 +600,12 @@ mod tests {
     #[test]
     fn http_deadline_includes_headers_and_trickled_body() {
         let (url, stop, worker) =
-            delayed_response(Duration::from_millis(600), Duration::from_millis(50), 100);
+            delayed_response(Duration::from_millis(80), Duration::from_millis(20), 50);
         let started = std::time::Instant::now();
-        let call = http_call("GET", &url, &[], 1, 0).unwrap();
-        let result = call.into_bytes(100);
+        let mut request = Request::new("GET", &url, &[], None, 1, 0).unwrap();
+        request.deadline = started + Duration::from_millis(200);
+        let call = execute(request, None, Proxy::from_env).unwrap();
+        let result = call.into_bytes(50);
         let elapsed = started.elapsed();
         let _ = stop.send(());
         worker.join().unwrap();
@@ -609,19 +613,19 @@ mod tests {
             result.is_err(),
             "trickling must not extend the total deadline"
         );
-        // A fresh body budget after the headers would take at least 1600ms.
-        // Allow 400ms of scheduling slack, while rejecting that reset.
-        assert!(elapsed >= Duration::from_secs(1), "elapsed: {elapsed:?}");
+        // A fresh body budget after the 80ms headers would take ~1080ms.
+        // Allow scheduling slack while rejecting a per-read deadline reset.
         assert!(
-            elapsed < Duration::from_millis(1400),
+            elapsed >= Duration::from_millis(180),
             "elapsed: {elapsed:?}"
         );
+        assert!(elapsed < Duration::from_millis(800), "elapsed: {elapsed:?}");
     }
 
     #[test]
     fn http_deadline_preserves_longer_caller_stream_budget() {
         let (url, stop, worker) =
-            delayed_response(Duration::from_millis(200), Duration::from_millis(200), 6);
+            delayed_response(Duration::from_millis(150), Duration::from_millis(160), 6);
         let call = http_call("GET", &url, &[], 4, 0).unwrap();
         let mut bytes = Vec::new();
         let result = call.into_reader().read_to_end(&mut bytes);

@@ -394,13 +394,28 @@ mod inline_tests {
         assert!(!is_loopback("192.168.1.10"));
     }
 
+    type PemPair = (String, String);
+
+    fn cached_cert_pairs() -> &'static (PemPair, PemPair) {
+        static PAIRS: std::sync::OnceLock<(PemPair, PemPair)> = std::sync::OnceLock::new();
+        PAIRS.get_or_init(|| {
+            std::thread::scope(|scope| {
+                let first = scope.spawn(|| {
+                    generate_self_signed(&["localhost".to_string(), "127.0.0.1".to_string()])
+                        .unwrap()
+                });
+                let second = generate_self_signed(&["localhost".to_string()]).unwrap();
+                (first.join().unwrap(), second)
+            })
+        })
+    }
+
     #[test]
     fn generate_self_signed_and_cert_fingerprint_produce_64_hex_digest() {
-        let sans = vec!["localhost".to_string(), "127.0.0.1".to_string()];
-        let (cert_pem, key_pem) = generate_self_signed(&sans).unwrap();
+        let ((cert_pem, key_pem), _) = cached_cert_pairs();
         assert!(cert_pem.contains("BEGIN CERTIFICATE"));
         assert!(key_pem.contains("BEGIN PRIVATE KEY"));
-        let fp = cert_fingerprint(&cert_pem).unwrap();
+        let fp = cert_fingerprint(cert_pem).unwrap();
         assert_eq!(fp.len(), 64);
     }
 
@@ -420,16 +435,14 @@ mod inline_tests {
                 .as_nanos()
         ));
         let _ = std::fs::remove_dir_all(&dir);
-        let sans = vec!["localhost".to_string()];
-        let (c1, k1) = generate_self_signed(&sans).unwrap();
-        let fp1 = cert_fingerprint(&c1).unwrap();
-        stage_cert_pair_at(&dir, &c1, &k1, 1_000).unwrap();
+        let ((c1, k1), (c2, k2)) = cached_cert_pairs();
+        let fp1 = cert_fingerprint(c1).unwrap();
+        stage_cert_pair_at(&dir, c1, k1, 1_000).unwrap();
         assert!(!activate_staged_cert_at(&dir, "wrong_fp", 1_010));
         assert!(activate_staged_cert_at(&dir, &fp1, 1_010));
 
-        let (c2, k2) = generate_self_signed(&sans).unwrap();
-        let fp2 = cert_fingerprint(&c2).unwrap();
-        stage_cert_pair_at(&dir, &c2, &k2, 2_000).unwrap();
+        let fp2 = cert_fingerprint(c2).unwrap();
+        stage_cert_pair_at(&dir, c2, k2, 2_000).unwrap();
         assert!(activate_staged_cert_at(&dir, &fp2, 2_010));
         assert!(prev_cert_at(&dir, 2_020).is_some());
         assert!(revoke_prev_cert_at(&dir));
@@ -447,10 +460,9 @@ mod inline_tests {
                 .as_nanos()
         ));
         let _ = std::fs::remove_dir_all(&dir);
-        let sans = vec!["localhost".to_string()];
-        let (cert, key) = generate_self_signed(&sans).unwrap();
-        let fp = cert_fingerprint(&cert).unwrap();
-        stage_cert_pair_at(&dir, &cert, &key, 1_000).unwrap();
+        let (_, (cert, key)) = cached_cert_pairs();
+        let fp = cert_fingerprint(cert).unwrap();
+        stage_cert_pair_at(&dir, cert, key, 1_000).unwrap();
         assert!(!activate_staged_cert_at(
             &dir,
             &fp,

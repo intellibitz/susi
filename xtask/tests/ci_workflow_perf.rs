@@ -891,6 +891,47 @@ printf 'released=%s\n' "$released_with_push" >> log
 }
 
 #[cfg(unix)]
+fn copy_dir_all(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let ty = entry.file_type().unwrap();
+        let dst_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path);
+        } else {
+            std::fs::copy(entry.path(), &dst_path).unwrap();
+            if let Ok(meta) = entry.metadata() {
+                let _ = std::fs::set_permissions(&dst_path, meta.permissions());
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn set_git_origin_url(repo: &Path, new_origin: &Path) {
+    let cfg_path = repo.join(".git/config");
+    let raw = std::fs::read_to_string(&cfg_path).unwrap();
+    let url_val = new_origin.to_string_lossy().replace('\\', "/");
+    let mut in_origin = false;
+    let mut out = String::with_capacity(raw.len() + 64);
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_origin = trimmed == "[remote \"origin\"]";
+            out.push_str(line);
+            out.push('\n');
+        } else if in_origin && trimmed.starts_with("url =") {
+            out.push_str(&format!("\turl = {url_val}\n"));
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    std::fs::write(&cfg_path, out).unwrap();
+}
+
+#[cfg(unix)]
 struct ProofRepo {
     _fakes: Fakes,
     repo: PathBuf,
@@ -902,11 +943,10 @@ struct ProofRepo {
 
 #[cfg(unix)]
 impl ProofRepo {
-    fn new(tag: &str) -> Self {
+    fn empty_shell(tag: &str) -> Self {
         let fakes = Fakes::new(tag);
         let repo = fakes.dir.join("repo");
         let cargo_home = fakes.dir.join("cargo-home");
-        std::fs::create_dir_all(&repo).unwrap();
         std::fs::create_dir_all(&cargo_home).unwrap();
         let global = fakes.dir.join("gitconfig");
         std::fs::write(&global, "").unwrap();
@@ -916,29 +956,77 @@ impl ProofRepo {
             fakes.fake("rustfmt", "cat \"$VERSION_FILE\"");
             fakes.dir.join("rustfmt")
         };
-        let this = Self {
+        Self {
             _fakes: fakes,
             repo,
             cargo_home,
             global,
             version,
             tool,
-        };
-        this.git(&["init", "--quiet", "--template=", "-b", "main"]);
-        std::fs::create_dir_all(this.repo.join(".agents/tasks")).unwrap();
-        for (path, data) in [
-            (".agents/tasks/T-TEST-1.json", "{}\n"),
-            (".agents/identity.json", "{}\n"),
-            ("a.rs", "fn a() {}\n"),
-            ("b.rs", "fn b() {}\n"),
-        ] {
-            std::fs::write(this.repo.join(path), data).unwrap();
         }
-        this.git(&["add", "."]);
-        this.git(&["commit", "--quiet", "-m", "base"]);
-        let main_oid = std::fs::read_to_string(this.repo.join(".git/refs/heads/main")).unwrap();
-        std::fs::create_dir_all(this.repo.join(".git/refs/remotes/origin")).unwrap();
-        std::fs::write(this.repo.join(".git/refs/remotes/origin/main"), main_oid).unwrap();
+    }
+
+    fn new(tag: &str) -> Self {
+        static PROOF_TPL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        let tpl = PROOF_TPL.get_or_init(|| {
+            let tpl_dir =
+                std::env::temp_dir().join(format!("susi-ci-proof-tpl-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tpl_dir);
+            std::fs::create_dir_all(&tpl_dir).unwrap();
+            let global = tpl_dir.join("gitconfig");
+            std::fs::write(&global, "").unwrap();
+            let repo = tpl_dir.join("repo");
+            std::fs::create_dir_all(&repo).unwrap();
+            let run_git = |args: &[&str]| {
+                let output = std::process::Command::new("git")
+                    .current_dir(&repo)
+                    .env_remove("GIT_DIR")
+                    .env_remove("GIT_WORK_TREE")
+                    .env_remove("GIT_INDEX_FILE")
+                    .env_remove("GIT_COMMON_DIR")
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .env("GIT_CONFIG_GLOBAL", &global)
+                    .args([
+                        "-c",
+                        "user.name=fixture",
+                        "-c",
+                        "user.email=fixture@localhost",
+                        "-c",
+                        "commit.gpgsign=false",
+                        "-c",
+                        "maintenance.auto=false",
+                        "-c",
+                        "gc.auto=0",
+                    ])
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "git {args:?}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            };
+            run_git(&["init", "--quiet", "--template=", "-b", "main"]);
+            std::fs::create_dir_all(repo.join(".agents/tasks")).unwrap();
+            for (path, data) in [
+                (".agents/tasks/T-TEST-1.json", "{}\n"),
+                (".agents/identity.json", "{}\n"),
+                ("a.rs", "fn a() {}\n"),
+                ("b.rs", "fn b() {}\n"),
+            ] {
+                std::fs::write(repo.join(path), data).unwrap();
+            }
+            run_git(&["add", "."]);
+            run_git(&["commit", "--quiet", "-m", "base"]);
+            let main_oid = std::fs::read_to_string(repo.join(".git/refs/heads/main")).unwrap();
+            std::fs::create_dir_all(repo.join(".git/refs/remotes/origin")).unwrap();
+            std::fs::write(repo.join(".git/refs/remotes/origin/main"), main_oid).unwrap();
+            repo
+        });
+
+        let this = Self::empty_shell(tag);
+        copy_dir_all(tpl, &this.repo);
         this
     }
 
@@ -1014,92 +1102,146 @@ struct PublicationRepo {
 #[cfg(unix)]
 impl PublicationRepo {
     fn new(tag: &str) -> Self {
-        let world = ProofRepo::new(tag);
+        static PUB_TPL: std::sync::OnceLock<(PathBuf, String, String, String, String)> =
+            std::sync::OnceLock::new();
+        let (tpl_dir, claim, receipt, accepted_head, head) = PUB_TPL.get_or_init(|| {
+            let world = ProofRepo::new("pub-repo-template");
+            let server = world._fakes.dir.join("server.git");
+            world.git(&[
+                "init",
+                "--bare",
+                "--quiet",
+                "--template=",
+                server.to_str().unwrap(),
+            ]);
+            let config = server.join("config");
+            let mut contents = std::fs::read_to_string(&config).unwrap();
+            contents.push_str(
+                "\n[receive]\n\tautogc = false\n[gc]\n\tauto = 0\n[pack]\n\tthreads = 1\n",
+            );
+            std::fs::write(config, contents).unwrap();
+            let repo_config = world.repo.join(".git/config");
+            let mut repo_cfg = std::fs::read_to_string(&repo_config).unwrap();
+            repo_cfg.push_str(&format!(
+                "\n[remote \"origin\"]\n\turl = {}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[susi]\n\tagent = TEST\n[gc]\n\tauto = 0\n",
+                server.to_string_lossy().replace('\\', "/")
+            ));
+            std::fs::write(repo_config, repo_cfg).unwrap();
+            let main_oid =
+                std::fs::read_to_string(world.repo.join(".git/refs/heads/main")).unwrap();
+            std::fs::write(world.repo.join(".git/refs/heads/work"), &main_oid).unwrap();
+            std::fs::write(world.repo.join(".git/HEAD"), "ref: refs/heads/work\n").unwrap();
+            std::fs::write(world.repo.join("a.rs"), "fn accepted_change() {}\n").unwrap();
+            world.git(&["commit", "--quiet", "-am", "accepted source"]);
+            let accepted_head = std::fs::read_to_string(world.repo.join(".git/refs/heads/work"))
+                .unwrap()
+                .trim()
+                .to_string();
+            std::fs::create_dir_all(world.repo.join(".agents/tasks/done")).unwrap();
+            std::fs::write(
+                world.repo.join(".agents/tasks/done/T-TEST-1.json"),
+                format!(
+                    r#"{{"id":"T-TEST-1","closed":{{"by":"TEST","commit":"{accepted_head}"}}}}"#
+                ),
+            )
+            .unwrap();
+            std::fs::remove_file(world.repo.join(".agents/tasks/T-TEST-1.json")).unwrap();
+            world.git(&["add", ".agents/tasks"]);
+            world.git(&["commit", "--quiet", "-m", "completion"]);
+            let head = std::fs::read_to_string(world.repo.join(".git/refs/heads/work"))
+                .unwrap()
+                .trim()
+                .to_string();
+            let claim_file = world._fakes.dir.join("claim.json");
+            let receipt_file = world._fakes.dir.join("receipt.json");
+            std::fs::write(
+                &claim_file,
+                r#"{"task":"T-TEST-1","agent":"TEST","branch":"work","scopes":["a.rs"]}"#,
+            )
+            .unwrap();
+            std::fs::write(
+                &receipt_file,
+                format!(
+                    r#"{{"task":"T-TEST-1","agent":"TEST","head":"{accepted_head}","closed_unix":1,"scopes":["a.rs"]}}"#
+                ),
+            )
+            .unwrap();
+            let oids = world.git(&[
+                "hash-object",
+                "-w",
+                claim_file.to_str().unwrap(),
+                receipt_file.to_str().unwrap(),
+            ]);
+            let mut oid_lines = oids.lines();
+            let claim = oid_lines.next().unwrap().trim().to_string();
+            let receipt = oid_lines.next().unwrap().trim().to_string();
+            let this = Self {
+                world,
+                server,
+                claim: claim.clone(),
+                receipt: receipt.clone(),
+                accepted_head: accepted_head.clone(),
+                head: head.clone(),
+            };
+            this.refs(
+                false,
+                &format!(
+                    "update refs/claims/T-TEST-1 {}\nupdate refs/claim-agents/TEST {}\nupdate refs/closed/T-TEST-1 {}\n",
+                    this.claim, this.claim, this.receipt
+                ),
+            );
+            this.world.git(&[
+                "push",
+                "--quiet",
+                "--atomic",
+                "origin",
+                "refs/heads/main:refs/heads/main",
+                "refs/claims/T-TEST-1",
+                "refs/claim-agents/TEST",
+                "refs/closed/T-TEST-1",
+            ]);
+            let tpl_dir =
+                std::env::temp_dir().join(format!("susi-ci-pub-tpl-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tpl_dir);
+            std::fs::create_dir_all(&tpl_dir).unwrap();
+            copy_dir_all(&this.world.repo, &tpl_dir.join("repo"));
+            copy_dir_all(&this.server, &tpl_dir.join("server.git"));
+            std::fs::copy(
+                this.world._fakes.dir.join("claim.json"),
+                tpl_dir.join("claim.json"),
+            )
+            .unwrap();
+            std::fs::copy(
+                this.world._fakes.dir.join("receipt.json"),
+                tpl_dir.join("receipt.json"),
+            )
+            .unwrap();
+            (tpl_dir, claim, receipt, accepted_head, head)
+        });
+
+        let world = ProofRepo::empty_shell(tag);
         let server = world._fakes.dir.join("server.git");
-        world.git(&[
-            "init",
-            "--bare",
-            "--quiet",
-            "--template=",
-            server.to_str().unwrap(),
-        ]);
-        let config = server.join("config");
-        let mut contents = std::fs::read_to_string(&config).unwrap();
-        contents
-            .push_str("\n[receive]\n\tautogc = false\n[gc]\n\tauto = 0\n[pack]\n\tthreads = 1\n");
-        std::fs::write(config, contents).unwrap();
-        let repo_config = world.repo.join(".git/config");
-        let mut repo_cfg = std::fs::read_to_string(&repo_config).unwrap();
-        repo_cfg.push_str(&format!(
-            "\n[remote \"origin\"]\n\turl = {}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[susi]\n\tagent = TEST\n[gc]\n\tauto = 0\n",
-            server.to_string_lossy().replace('\\', "/")
-        ));
-        std::fs::write(repo_config, repo_cfg).unwrap();
-        let main_oid = std::fs::read_to_string(world.repo.join(".git/refs/heads/main")).unwrap();
-        std::fs::write(world.repo.join(".git/refs/heads/work"), &main_oid).unwrap();
-        std::fs::write(world.repo.join(".git/HEAD"), "ref: refs/heads/work\n").unwrap();
-        std::fs::write(world.repo.join("a.rs"), "fn accepted_change() {}\n").unwrap();
-        world.git(&["commit", "--quiet", "-am", "accepted source"]);
-        let accepted_head = std::fs::read_to_string(world.repo.join(".git/refs/heads/work"))
-            .unwrap()
-            .trim()
-            .to_string();
-        std::fs::create_dir_all(world.repo.join(".agents/tasks/done")).unwrap();
-        std::fs::write(
-            world.repo.join(".agents/tasks/done/T-TEST-1.json"),
-            format!(r#"{{"id":"T-TEST-1","closed":{{"by":"TEST","commit":"{accepted_head}"}}}}"#),
+        copy_dir_all(&tpl_dir.join("repo"), &world.repo);
+        copy_dir_all(&tpl_dir.join("server.git"), &server);
+        std::fs::copy(
+            tpl_dir.join("claim.json"),
+            world._fakes.dir.join("claim.json"),
         )
         .unwrap();
-        std::fs::remove_file(world.repo.join(".agents/tasks/T-TEST-1.json")).unwrap();
-        world.git(&["add", ".agents/tasks"]);
-        world.git(&["commit", "--quiet", "-m", "completion"]);
-        let head = std::fs::read_to_string(world.repo.join(".git/refs/heads/work"))
-            .unwrap()
-            .trim()
-            .to_string();
-        let claim_file = world._fakes.dir.join("claim.json");
-        let receipt_file = world._fakes.dir.join("receipt.json");
-        std::fs::write(
-            &claim_file,
-            r#"{"task":"T-TEST-1","agent":"TEST","branch":"work","scopes":["a.rs"]}"#,
+        std::fs::copy(
+            tpl_dir.join("receipt.json"),
+            world._fakes.dir.join("receipt.json"),
         )
         .unwrap();
-        std::fs::write(
-            &receipt_file,
-            format!(
-                r#"{{"task":"T-TEST-1","agent":"TEST","head":"{accepted_head}","closed_unix":1,"scopes":["a.rs"]}}"#
-            ),
-        )
-        .unwrap();
-        let oids = world.git(&[
-            "hash-object",
-            "-w",
-            claim_file.to_str().unwrap(),
-            receipt_file.to_str().unwrap(),
-        ]);
-        let mut oid_lines = oids.lines();
-        let claim = oid_lines.next().unwrap().trim().to_string();
-        let receipt = oid_lines.next().unwrap().trim().to_string();
-        let this = Self {
+        set_git_origin_url(&world.repo, &server);
+        Self {
             world,
             server,
-            claim,
-            receipt,
-            accepted_head,
-            head,
-        };
-        this.refs(false, &format!("update refs/claims/T-TEST-1 {}\nupdate refs/claim-agents/TEST {}\nupdate refs/closed/T-TEST-1 {}\n", this.claim, this.claim, this.receipt));
-        this.world.git(&[
-            "push",
-            "--quiet",
-            "--atomic",
-            "origin",
-            "refs/heads/main:refs/heads/main",
-            "refs/claims/T-TEST-1",
-            "refs/claim-agents/TEST",
-            "refs/closed/T-TEST-1",
-        ]);
-        this
+            claim: claim.clone(),
+            receipt: receipt.clone(),
+            accepted_head: accepted_head.clone(),
+            head: head.clone(),
+        }
     }
 
     fn remote(&self, args: &[&str]) -> String {

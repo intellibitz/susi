@@ -56,10 +56,12 @@
 //! resolved graph.
 
 // Test code: a missing source file must fail the test loudly.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Programs that must never be launched directly from first-party source.
 const GUARDED: [&str; 5] = ["icacls", "tasklist", "netstat", "taskkill", "nvidia-smi"];
@@ -263,6 +265,9 @@ fn tokenize(source: &str) -> Result<Vec<Token>, String> {
 /// If a string literal starts at `i`: `(None, quote)` for an escaped string
 /// (`"`, `b"`) or `(Some(hashes), quote)` for a raw one (`r"`, `r#"`, `br"`).
 fn string_start(c: &[char], i: usize) -> Option<(Option<usize>, usize)> {
+    if !matches!(c[i], '"' | 'r' | 'b') {
+        return None;
+    }
     let mut j = i;
     if c[j] == 'b' {
         j += 1;
@@ -283,7 +288,7 @@ fn string_start(c: &[char], i: usize) -> Option<(Option<usize>, usize)> {
 }
 
 fn is_id(token: Option<&Token>, name: &str) -> bool {
-    token.is_some_and(|t| t.tok == Tok::Id(name.to_string()))
+    matches!(token, Some(Token { tok: Tok::Id(id), .. }) if id == name)
 }
 
 fn is_p(token: Option<&Token>, punct: char) -> bool {
@@ -416,10 +421,7 @@ fn launch_findings(tokens: &[Token]) -> Vec<(usize, String)> {
                 .iter()
                 .position(|t| t.tok == Tok::P(';'))
                 .map_or(tokens.len(), |n| at + n);
-            if tokens[at..end]
-                .iter()
-                .any(|t| t.tok == Tok::Id("Command".into()))
-            {
+            if tokens[at..end].iter().any(|t| is_id(Some(t), "Command")) {
                 unsupported(line, "`Command` behind a type alias", &mut found);
             }
         }
@@ -849,53 +851,84 @@ fn manifest_findings(file: &str, text: &str) -> Vec<(usize, String)> {
     found
 }
 
+struct CachedSource {
+    file: String,
+    tokens: Result<Vec<Token>, String>,
+}
+
+fn cached_sources() -> &'static [CachedSource] {
+    static SOURCES: OnceLock<Vec<CachedSource>> = OnceLock::new();
+    SOURCES.get_or_init(|| {
+        all_sources()
+            .into_iter()
+            .map(|(file, source)| CachedSource {
+                file,
+                tokens: tokenize(&source),
+            })
+            .collect()
+    })
+}
+
+fn scan_tokens(file: &str, tokens: &[Token], scanned: &[String]) -> Vec<(usize, String)> {
+    let mut found = launch_findings(tokens);
+    found.extend(binding_findings(file, tokens, scanned));
+    found.sort_unstable();
+    found
+}
+
 /// Launches and binding violations in one file, given the scanned set.
 fn scan_file(file: &str, source: &str, scanned: &[String]) -> Result<Vec<(usize, String)>, String> {
     let tokens = tokenize(source)?;
-    let mut found = launch_findings(&tokens);
-    found.extend(binding_findings(file, &tokens, scanned));
-    found.sort_unstable();
-    Ok(found)
+    Ok(scan_tokens(file, &tokens, scanned))
 }
 
 /// Every violation in the repository: `(file, line, what)`.
-fn all_findings() -> Vec<(String, usize, String)> {
-    let sources = all_sources();
-    let scanned: Vec<String> = sources.iter().map(|(file, _)| file.clone()).collect();
-    let mut found = Vec::new();
-    for (file, source) in &sources {
-        let hits = scan_file(file, source, &scanned).unwrap_or_else(|e| panic!("{file}: {e}"));
-        found.extend(
-            hits.into_iter()
-                .map(|(line, what)| (file.clone(), line, what)),
-        );
-    }
-    for (file, text) in all_manifests() {
-        found.extend(
-            manifest_findings(&file, &text)
-                .into_iter()
-                .map(|(line, what)| (file.clone(), line, what)),
-        );
-    }
-    // The recorded computed includes, exactly.
-    for (file, count, _) in GENERATED_INCLUDES {
-        let computed = found
-            .iter()
-            .filter(|(f, _, what)| f == file && what == "unsupported: include! of a computed path")
-            .count();
-        if computed == count {
-            found.retain(|(f, _, what)| {
-                !(f == file && what == "unsupported: include! of a computed path")
-            });
-        } else {
-            found.push((
-                file.to_string(),
-                0,
-                format!("recorded {count} computed include!(s), found {computed}"),
-            ));
+fn all_findings() -> &'static [(String, usize, String)] {
+    static FINDINGS: OnceLock<Vec<(String, usize, String)>> = OnceLock::new();
+    FINDINGS.get_or_init(|| {
+        let sources = cached_sources();
+        let scanned: Vec<String> = sources.iter().map(|entry| entry.file.clone()).collect();
+        let mut found = Vec::new();
+        for entry in sources {
+            let tokens = entry
+                .tokens
+                .as_ref()
+                .unwrap_or_else(|e| panic!("{}: {e}", entry.file));
+            let hits = scan_tokens(&entry.file, tokens, &scanned);
+            found.extend(
+                hits.into_iter()
+                    .map(|(line, what)| (entry.file.clone(), line, what)),
+            );
         }
-    }
-    found
+        for (file, text) in all_manifests() {
+            found.extend(
+                manifest_findings(&file, &text)
+                    .into_iter()
+                    .map(|(line, what)| (file.clone(), line, what)),
+            );
+        }
+        // The recorded computed includes, exactly.
+        for (file, count, _) in GENERATED_INCLUDES {
+            let computed = found
+                .iter()
+                .filter(|(f, _, what)| {
+                    f == file && what == "unsupported: include! of a computed path"
+                })
+                .count();
+            if computed == count {
+                found.retain(|(f, _, what)| {
+                    !(f == file && what == "unsupported: include! of a computed path")
+                });
+            } else {
+                found.push((
+                    file.to_string(),
+                    0,
+                    format!("recorded {count} computed include!(s), found {computed}"),
+                ));
+            }
+        }
+        found
+    })
 }
 
 #[test]
@@ -943,6 +976,9 @@ fn is_create_no_window(token: &Token) -> bool {
     let Tok::Id(text) = &token.tok else {
         return false;
     };
+    if !text.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+        return false;
+    }
     let digits: String = text.chars().filter(|&x| x != '_').collect();
     let digits = digits.trim_end_matches("u32");
     let value = match digits
@@ -964,18 +1000,18 @@ fn the_helper_owns_create_no_window() {
     // No other first-party source (tests included) writes the flag's value,
     // except the recorded ones held by other claims.
     let mut strays = Vec::new();
-    for (file, source) in all_sources() {
-        let count = tokenize(&source)
-            .unwrap_or_else(|e| panic!("{file}: {e}"))
-            .iter()
-            .filter(|t| is_create_no_window(t))
-            .count();
+    for entry in cached_sources() {
+        let tokens = entry
+            .tokens
+            .as_ref()
+            .unwrap_or_else(|e| panic!("{}: {e}", entry.file));
+        let count = tokens.iter().filter(|t| is_create_no_window(t)).count();
         let held = HELD_FLAG_LITERALS
             .iter()
-            .find(|(f, _, _)| *f == file)
+            .find(|(f, _, _)| *f == entry.file)
             .map_or(0, |(_, n, _)| *n);
-        if file != "crates/susi-paths/src/console.rs" && count != held {
-            strays.push((file, count, held));
+        if entry.file != "crates/susi-paths/src/console.rs" && count != held {
+            strays.push((entry.file.clone(), count, held));
         }
     }
     assert!(
@@ -1070,7 +1106,10 @@ fn the_accepted_wrapper_really_applies_no_window_before_it_spawns() {
 
 #[test]
 fn the_scan_reaches_test_build_and_tool_sources() {
-    let files: Vec<String> = all_sources().into_iter().map(|(file, _)| file).collect();
+    let files: Vec<&str> = cached_sources()
+        .iter()
+        .map(|entry| entry.file.as_str())
+        .collect();
     for expected in [
         "build.rs",
         "tests/installed_windows_entry.rs",
@@ -1079,10 +1118,7 @@ fn the_scan_reaches_test_build_and_tool_sources() {
         "crates/susi-paths/src/console.rs",
         "crates/susi-daemon/src/runtime_admin.rs",
     ] {
-        assert!(
-            files.iter().any(|f| f == expected),
-            "{expected} must be scanned"
-        );
+        assert!(files.contains(&expected), "{expected} must be scanned");
     }
     assert!(
         files.iter().any(|f| f.contains("/tests/")),

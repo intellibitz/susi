@@ -101,12 +101,18 @@ mod tests {
         if threads() < 2 {
             return;
         }
-        let started = std::time::Instant::now();
-        let _ = map((0..4).collect(), |_: usize| {
-            std::thread::sleep(std::time::Duration::from_millis(150));
+        let active = AtomicUsize::new(0);
+        let peak = AtomicUsize::new(0);
+        let _ = map((0..2).collect(), |_: usize| {
+            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+            peak.fetch_max(now, Ordering::SeqCst);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while peak.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            active.fetch_sub(1, Ordering::SeqCst);
         });
-        // Four 150 ms items on two or more threads finish well under 600 ms.
-        assert!(started.elapsed() < std::time::Duration::from_millis(550));
+        assert_eq!(peak.load(Ordering::SeqCst), 2);
     }
 
     #[test]

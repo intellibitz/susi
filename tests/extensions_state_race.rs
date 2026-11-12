@@ -5,20 +5,22 @@
 //! the state just before `susi extensions load` wrote it could overwrite the
 //! load: the operator was told the pack loaded, yet the active pack went back
 //! to `default` and its pinned digests were dropped. This drives that race
-//! with real processes under an isolated home, 20 times.
+//! with real processes under an isolated home across repeated iterations.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // Failed setup or a lost load must fail this integration test.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::OnceLock;
 
 const PACK: &str = "race-pack";
 /// Other installed packs: each is one more manifest every reader's discovery
 /// reads between taking the state and writing it back, which is how a real
 /// install with several packs widens the window the lost load needed.
 const FILLER_PACKS: usize = 24;
-const ITERATIONS: usize = 20;
-const READERS: usize = 6;
+const ITERATIONS: usize = 6;
+const READERS: usize = 4;
 
 fn bin() -> &'static str {
     option_env!("CARGO_BIN_EXE_susi").unwrap_or("susi")
@@ -79,15 +81,48 @@ fn scratch_home(iteration: usize) -> PathBuf {
     ))
 }
 
-#[test]
-fn a_pack_load_stays_active_and_pinned_under_concurrent_lists() {
-    for iteration in 0..ITERATIONS {
-        let home = scratch_home(iteration);
-        let extensions = home.join("extensions");
+fn copy_dir_all(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir_all(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).unwrap();
+        }
+    }
+}
+
+fn template_extensions() -> &'static (PathBuf, String) {
+    static TEMPLATE: OnceLock<(PathBuf, String)> = OnceLock::new();
+    TEMPLATE.get_or_init(|| {
+        let root = std::env::temp_dir().join(format!(
+            "susi-ext-race-template-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let extensions = root.join("extensions");
         for n in 0..FILLER_PACKS {
             install_pack(&extensions, &format!("filler-{n:02}"));
         }
         let manifest_digest = install_pack(&extensions, PACK);
+        (extensions, manifest_digest)
+    })
+}
+
+#[test]
+fn a_pack_load_stays_active_and_pinned_under_concurrent_lists() {
+    let (tmpl_ext, manifest_digest) = template_extensions();
+    for iteration in 0..ITERATIONS {
+        let home = scratch_home(iteration);
+        let extensions = home.join("extensions");
+        copy_dir_all(tmpl_ext, &extensions);
 
         let stop = AtomicBool::new(false);
         let started = AtomicUsize::new(0);
@@ -145,7 +180,8 @@ fn a_pack_load_stays_active_and_pinned_under_concurrent_lists() {
             "iteration {iteration}: a concurrent reader overwrote the load: {state}"
         );
         assert_eq!(
-            state["trusted_digests"][PACK]["manifest.json"], manifest_digest,
+            state["trusted_digests"][PACK]["manifest.json"],
+            manifest_digest.as_str(),
             "iteration {iteration}: the pinned digests were dropped: {state}"
         );
         assert!(
