@@ -179,10 +179,30 @@ fn write_tree(r: &Repo, version: &str) {
     );
     static PIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let pin = PIN.get_or_init(|| {
-        std::fs::read_to_string(
+        let workspace_pin = std::fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../rust-toolchain.toml"),
         )
-        .unwrap()
+        .unwrap();
+        let active_release = Command::new("rustc")
+            .arg("-vV")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("release: ").map(str::to_owned))
+            });
+        match (
+            release_qualification::toolchain_channel(&workspace_pin),
+            active_release,
+        ) {
+            (Some(ch), Some(active)) if !active.contains(&ch) => workspace_pin.replacen(
+                &format!("channel = \"{ch}\""),
+                &format!("channel = \"{active}\""),
+                1,
+            ),
+            _ => workspace_pin,
+        }
     });
     r.write("rust-toolchain.toml", pin);
 }
@@ -848,4 +868,306 @@ fn release_qualify_enforces_harvest_audit_before_gates_and_verify_tag_checks_it(
         }),
         Ok(())
     );
+}
+
+/// Evaluate both `release_qualification::verify_tag` and the built `push-policy`
+/// binary on a snapshot qualification record for `version` (`X.Y.Z`).
+fn snapshot_tag_verdict_at(
+    r: &Repo,
+    version: &str,
+    include_perf_gates: bool,
+    edit: impl FnOnce(&mut Value),
+) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let tag_name = format!("v{version}");
+    let commit = r.git(&["rev-parse", "HEAD"]);
+    let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
+    let lock: String = Sha256::digest(std::fs::read(r.0.join("Cargo.lock")).unwrap())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let channel = release_qualification::toolchain_channel(
+        &std::fs::read_to_string(r.0.join("rust-toolchain.toml")).unwrap(),
+    )
+    .unwrap();
+    let gate = |name: &str| json!({"name": name, "argv": ["cargo", name], "exit_code": 0});
+    let mut gates: Vec<Value> = ["format", "check", "clippy", "licenses", "build", "smoke"]
+        .iter()
+        .map(|name| gate(name))
+        .collect();
+    let mut tests = gate("tests");
+    tests["tests"] = json!({"binaries": 3, "passed": 40, "failed": 0, "ignored": 1});
+    gates.push(tests);
+    if include_perf_gates {
+        gates.push(json!({
+            "name": "startup",
+            "argv": ["cargo", "run", "--offline", "--locked", "-p", "xtask", "--bin", "startup-gate"],
+            "exit_code": 0,
+            "startup_gate": {
+                "schema": "susi-startup-gate-v2",
+                "pass": true,
+                "floor_ms": 2.13
+            }
+        }));
+        gates.push(json!({
+            "name": "conformance",
+            "argv": ["cargo", "run", "--offline", "--locked", "-p", "susi-conformance"],
+            "exit_code": 0,
+            "conformance": {
+                "conformant": true,
+                "budget_ms": 2000,
+                "max_check_ms": 513,
+                "checks": 29
+            }
+        }));
+    }
+    let mut record = json!({
+        "schema": "susi-release-qualification/v1",
+        "product": "susi",
+        "tag": tag_name,
+        "version": version,
+        "qualified_commit": commit,
+        "qualified_tree": tree,
+        "cargo_lock_sha256": lock,
+        "toolchain": {"channel": channel, "rustc": format!("rustc {channel}")},
+        "host": "x86_64-unknown-linux-gnu",
+        "gates": gates,
+        "assets": [{"file": "susi", "bytes": 1, "sha256": "a".repeat(64), "version_output": format!("susi {version}")}],
+        "source": "snapshot",
+    });
+    if include_perf_gates {
+        record["performance_gates"] = json!({
+            "ok": true,
+            "startup_gate_schema": "susi-startup-gate-v2",
+            "conformance_budget_ms": 2000,
+            "conformance_max_check_ms": 513,
+            "conformance_checks": 29
+        });
+    }
+    edit(&mut record);
+    r.write(
+        &format!("releases/qualification/{tag_name}.json"),
+        &(serde_json::to_string_pretty(&record).unwrap() + "\n"),
+    );
+    r.commit_all(&format!("chore: release {tag_name} qualification record"));
+    r.git(&["tag", "-a", &tag_name, "-m", "release"]);
+    let tag_oid = r.git(&["rev-parse", &format!("refs/tags/{tag_name}")]);
+    let lib_verdict =
+        release_qualification::verify_tag(&r.0, &tag_name, &format!("refs/tags/{tag_name}"));
+    let bin_verdict = r.check(&format!(
+        "refs/tags/{tag_name} {tag_oid} refs/tags/{tag_name} {ZERO}"
+    ));
+    r.git(&["tag", "-d", &tag_name]);
+    r.git(&["reset", "-q", "--hard", "HEAD^"]);
+    assert_eq!(
+        lib_verdict.is_ok(),
+        bin_verdict.is_ok(),
+        "verify_tag ({lib_verdict:?}) and push-policy ({bin_verdict:?}) disagreed"
+    );
+    bin_verdict
+}
+
+#[test]
+fn historical_qualification_tags_and_v0_21_66_trees_remain_valid() {
+    assert!(!release_qualification::version_after_0_21_66("0.21.54"));
+    assert!(!release_qualification::version_after_0_21_66("0.21.66"));
+    assert!(!release_qualification::version_after_0_21_66("0.20.99"));
+    assert!(release_qualification::version_after_0_21_66("0.21.67"));
+    assert!(release_qualification::version_after_0_21_66("0.22.0"));
+    assert!(release_qualification::version_after_0_21_66("1.0.0"));
+    assert!(!release_qualification::version_after_0_21_66("invalid"));
+    assert!(!release_qualification::version_after_0_21_66("0.21"));
+    assert!(!release_qualification::version_after_0_21_66("0.21.67.1"));
+
+    // Every committed `releases/qualification/v*.json` whose tag exists in the
+    // local checkout continues to pass `verify_tag`.
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let qual_dir = repo_root.join("releases").join("qualification");
+    if let Ok(entries) = std::fs::read_dir(&qual_dir) {
+        let mut files: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok().map(|d| d.path()))
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+            .collect();
+        files.sort();
+        assert!(
+            !files.is_empty(),
+            "expected committed releases/qualification/v*.json records"
+        );
+        for file in files {
+            let Some(tag) = file
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|s| s.starts_with('v'))
+            else {
+                continue;
+            };
+            let has_tag = git_command(&repo_root)
+                .args([
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/tags/{tag}"),
+                ])
+                .output()
+                .is_ok_and(|o| o.status.success());
+            if has_tag {
+                assert_eq!(
+                    release_qualification::verify_tag(&repo_root, tag, &format!("refs/tags/{tag}")),
+                    Ok(()),
+                    "historical tag {tag} failed verify_tag"
+                );
+            }
+        }
+    }
+
+    // Even when `xtask/src/bin/startup-gate.rs` is in the tree, versions `<= 0.21.66`
+    // without `performance_gates` remain accepted for historical compatibility.
+    let legacy = Repo::new();
+    write_tree(&legacy, "0.21.66");
+    legacy.write("xtask/src/bin/startup-gate.rs", "fn main() {}\n");
+    legacy.commit_all("tree at 0.21.66 with startup-gate");
+    assert_eq!(
+        snapshot_tag_verdict_at(&legacy, "0.21.66", false, |_| {}),
+        Ok(())
+    );
+}
+
+#[test]
+fn verify_tag_and_push_policy_enforce_startup_and_2000ms_conformance_after_v0_21_66() {
+    let r = Repo::new();
+    write_tree(&r, "0.21.67");
+    r.write("xtask/src/bin/startup-gate.rs", "fn main() {}\n");
+    r.commit_all("release v0.21.67 tree with startup-gate");
+
+    // Clean passing `startup` + `conformance` (<= 2000 ms, including exact 2000 ms boundary) passes.
+    assert_eq!(snapshot_tag_verdict_at(&r, "0.21.67", true, |_| {}), Ok(()));
+    assert_eq!(
+        snapshot_tag_verdict_at(&r, "0.21.67", true, |rec| {
+            for gate in rec["gates"].as_array_mut().unwrap() {
+                if gate["name"] == "conformance" {
+                    gate["conformance"]["max_check_ms"] = 2000.into();
+                }
+            }
+            rec["performance_gates"]["conformance_max_check_ms"] = 2000.into();
+        }),
+        Ok(())
+    );
+
+    // 7-gate-only record without `startup`/`conformance` is refused on v0.21.67+.
+    let missing_both = snapshot_tag_verdict_at(&r, "0.21.67", false, |_| {}).unwrap_err();
+    assert!(
+        missing_both.contains("gate `startup` did not run"),
+        "got: {missing_both}"
+    );
+
+    type Mutation = (&'static str, Box<dyn FnOnce(&mut Value)>);
+    let refused: Vec<Mutation> = vec![
+        (
+            "gate `startup` did not run",
+            Box::new(|rec| {
+                rec["gates"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|g| g["name"] != "startup");
+            }),
+        ),
+        (
+            "gate `conformance` did not run",
+            Box::new(|rec| {
+                rec["gates"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|g| g["name"] != "conformance");
+            }),
+        ),
+        (
+            "gate `startup` did not exit 0",
+            Box::new(|rec| {
+                for g in rec["gates"].as_array_mut().unwrap() {
+                    if g["name"] == "startup" {
+                        g["exit_code"] = 1.into();
+                    }
+                }
+            }),
+        ),
+        (
+            "startup_gate.pass: true",
+            Box::new(|rec| {
+                for g in rec["gates"].as_array_mut().unwrap() {
+                    if g["name"] == "startup" {
+                        g["startup_gate"]["pass"] = false.into();
+                    }
+                }
+            }),
+        ),
+        (
+            "conformance.conformant: true",
+            Box::new(|rec| {
+                for g in rec["gates"].as_array_mut().unwrap() {
+                    if g["name"] == "conformance" {
+                        g["conformance"]["conformant"] = false.into();
+                    }
+                }
+            }),
+        ),
+        (
+            "gate `conformance` `budget_ms` must be 2000",
+            Box::new(|rec| {
+                for g in rec["gates"].as_array_mut().unwrap() {
+                    if g["name"] == "conformance" {
+                        g["conformance"]["budget_ms"] = 5000.into();
+                    }
+                }
+            }),
+        ),
+        (
+            "exceeds 2000 ms budget",
+            Box::new(|rec| {
+                for g in rec["gates"].as_array_mut().unwrap() {
+                    if g["name"] == "conformance" {
+                        g["conformance"]["max_check_ms"] = 2001.into();
+                    }
+                }
+            }),
+        ),
+        (
+            "ran zero checks",
+            Box::new(|rec| {
+                for g in rec["gates"].as_array_mut().unwrap() {
+                    if g["name"] == "conformance" {
+                        g["conformance"]["checks"] = 0.into();
+                    }
+                }
+            }),
+        ),
+        (
+            "no `performance_gates`",
+            Box::new(|rec| {
+                rec.as_object_mut().unwrap().remove("performance_gates");
+            }),
+        ),
+        (
+            "record `performance_gates` did not pass",
+            Box::new(|rec| {
+                rec["performance_gates"]["ok"] = false.into();
+            }),
+        ),
+        (
+            "performance_gates.conformance_budget_ms` must be 2000",
+            Box::new(|rec| {
+                rec["performance_gates"]["conformance_budget_ms"] = 2500.into();
+            }),
+        ),
+        (
+            "exceeds 2000 ms budget",
+            Box::new(|rec| {
+                rec["performance_gates"]["conformance_max_check_ms"] = 2001.into();
+            }),
+        ),
+    ];
+
+    for (needle, mutate) in refused {
+        let err = snapshot_tag_verdict_at(&r, "0.21.67", true, mutate).expect_err(needle);
+        assert!(err.contains(needle), "expected {needle:?}, got {err:?}");
+    }
 }

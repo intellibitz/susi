@@ -86,12 +86,17 @@ qualified on the exact tree it ships (CEO mandate 73):
    the clean release checkout. It runs `format`, `check`, `clippy`, `licenses`,
    `tests` (the whole workspace), `build` (the reference binaries, profile
    `dist` with `CARGO_PROFILE_DIST_LTO=false` and
-   `CARGO_PROFILE_DIST_CODEGEN_UNITS=16`) and `smoke` (each binary answers
-   `--version` with the release version from a private home). Only when every
+   `CARGO_PROFILE_DIST_CODEGEN_UNITS=16`), `smoke` (each binary answers
+   `--version` with the release version from a private home), `startup`
+   (`startup-gate --runs 5` against `dist/susi` in an isolated private home with
+   `SUSI_NO_REGISTRY_ENV=1`) and `conformance` (isolated `dist/susi daemon-start`
+   on an ephemeral high `SUSI_PORT_OFFSET` checked by
+   `susi-conformance --max-ms 2000 --susi-bin target/dist/susi --json`). Only when every
    gate passes does it write `releases/qualification/<tag>.json` (schema
    `susi-release-qualification/v1`: the qualified commit and tree, the
    `Cargo.lock` digest, the toolchain, the host, every gate's command, exit
-   code, duration and log digest, the test counts, each asset's sha256 and
+   code, duration and log digest, the test counts, the `startup_gate`,
+   `conformance` and top-level `performance_gates` summaries, each asset's sha256 and
    `--version` answer, the platforms still owed, and `source: snapshot`),
    commit that one file, verify the commit and create the annotated tag
    locally. A failing gate writes nothing. `--verify-only` runs every check
@@ -99,7 +104,11 @@ qualified on the exact tree it ships (CEO mandate 73):
 4. Publish: `git push origin vX.Y.Z`. The pre-push `push-policy` admits a
    `vX.Y.Z` tag only when the tagged commit adds exactly its record to the
    qualified tree and the record shows every gate at exit 0 with tests run
-   and none failed (`xtask/src/release_qualification.rs`). Every other tag
+   and none failed — including, for releases after `v0.21.66` on trees carrying
+   `xtask/src/bin/startup-gate.rs` (or any record carrying `performance_gates`),
+   passing `startup` and `conformance` (`max_check_ms <= 2000`) gates
+   (`xtask/src/release_qualification.rs`; historical tags `v0.21.54`..`v0.21.66`
+   remain valid). Every other tag
    name, and any tag replacement or deletion, is refused.
 5. Write `releases/<tag>.json` (the record below) with the reference digests
    and land it on main. A platform with no qualification yet is listed under

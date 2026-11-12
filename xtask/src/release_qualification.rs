@@ -4,7 +4,9 @@
 //! release tree P, writes [`record_path`] and commits only that file as Q, whose
 //! single parent is P. The release tag points at Q. `push-policy` accepts a new
 //! `vX.Y.Z` tag only when [`verify_tag`] holds: Q changes exactly the record;
-//! the record names P and P's tree; every gate in [`REQUIRED_GATES`] ran and
+//! the record names P and P's tree; every gate in [`REQUIRED_GATES`] (and,
+//! after `v0.21.66` on trees carrying `xtask/src/bin/startup-gate.rs`, every
+//! gate in [`PERFORMANCE_GATES`] within [`CONFORMANCE_BUDGET_MS`]) ran and
 //! exited 0; tests ran and none failed; every built asset answered `--version`
 //! with the release version; and the version, lockfile digest and toolchain it
 //! names are P's own. The record is evidence bound to one tree, not a flag: a
@@ -35,6 +37,8 @@ pub const SCHEMA: &str = "susi-release-qualification/v1";
 pub const REQUIRED_GATES: [&str; 7] = [
     "format", "check", "clippy", "licenses", "tests", "build", "smoke",
 ];
+pub const PERFORMANCE_GATES: [&str; 2] = ["startup", "conformance"];
+pub const CONFORMANCE_BUDGET_MS: u64 = 2_000;
 pub const DISTILL_RECEIPT_SCHEMA: &str = "susi-distillation-receipt-v1";
 pub const SOURCE_SNAPSHOT: &str = "snapshot";
 pub const SOURCE_DISTILL: &str = "distill";
@@ -88,6 +92,25 @@ pub fn release_version(tag: &str) -> Option<&str> {
     let parts: Vec<&str> = version.split('.').collect();
     let numeric = |part: &&str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
     (parts.len() == 3 && parts.iter().all(numeric)).then_some(version)
+}
+
+/// True when `version` (`X.Y.Z`) is strictly newer than `0.21.66` (the last
+/// historical release qualified before `startup` and `conformance` gates ran).
+pub fn version_after_0_21_66(version: &str) -> bool {
+    let mut parts = version.split('.');
+    let (Some(major), Some(minor), Some(patch), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    let (Ok(major), Ok(minor), Ok(patch)) = (
+        major.parse::<u64>(),
+        minor.parse::<u64>(),
+        patch.parse::<u64>(),
+    ) else {
+        return false;
+    };
+    (major, minor, patch) > (0, 21, 66)
 }
 
 /// The `version` of the root `[package]` in a Cargo manifest.
@@ -609,6 +632,83 @@ pub fn verify_tag(root: &Path, tag: &str, new: &str) -> Result<(), String> {
             }
             if count(tests, "failed")? != 0 {
                 return Err("the tests gate recorded failures".into());
+            }
+        }
+    }
+    let has_startup_gate = git_ok(
+        root,
+        &[
+            "cat-file",
+            "-e",
+            &format!("{parent}:xtask/src/bin/startup-gate.rs"),
+        ],
+    );
+    if (has_startup_gate && version_after_0_21_66(version))
+        || record.get("performance_gates").is_some()
+    {
+        for name in PERFORMANCE_GATES {
+            let gate = gates
+                .iter()
+                .find(|gate| gate["name"].as_str() == Some(name))
+                .ok_or_else(|| format!("gate `{name}` did not run"))?;
+            let argv = gate["argv"].as_array().filter(|argv| !argv.is_empty());
+            if argv.is_none() {
+                return Err(format!("gate `{name}` records no command"));
+            }
+            if gate["exit_code"].as_i64() != Some(0) {
+                return Err(format!("gate `{name}` did not exit 0"));
+            }
+            if name == "startup" {
+                if gate["startup_gate"]["pass"].as_bool() != Some(true) {
+                    return Err(
+                        "gate `startup` did not pass (`startup_gate.pass: true` required)".into(),
+                    );
+                }
+            } else if name == "conformance" {
+                let conf = &gate["conformance"];
+                if conf["conformant"].as_bool() != Some(true) {
+                    return Err(
+                        "gate `conformance` did not pass (`conformance.conformant: true` required)"
+                            .into(),
+                    );
+                }
+                if conf["budget_ms"].as_u64() != Some(CONFORMANCE_BUDGET_MS) {
+                    return Err(format!(
+                        "gate `conformance` `budget_ms` must be {CONFORMANCE_BUDGET_MS}"
+                    ));
+                }
+                let max_check_ms = conf["max_check_ms"]
+                    .as_u64()
+                    .ok_or("gate `conformance` records no integer `max_check_ms`")?;
+                if max_check_ms > CONFORMANCE_BUDGET_MS {
+                    return Err(format!(
+                        "gate `conformance` max_check_ms ({max_check_ms} ms) exceeds {CONFORMANCE_BUDGET_MS} ms budget"
+                    ));
+                }
+                if conf.get("checks").is_some() && conf["checks"].as_u64().is_none_or(|n| n == 0) {
+                    return Err("gate `conformance` ran zero checks".into());
+                }
+            }
+        }
+        let perf = record
+            .get("performance_gates")
+            .ok_or("record has no `performance_gates`")?;
+        if perf["ok"].as_bool() != Some(true) {
+            return Err("record `performance_gates` did not pass (`ok: true` required)".into());
+        }
+        if perf["conformance_budget_ms"].as_u64() != Some(CONFORMANCE_BUDGET_MS) {
+            return Err(format!(
+                "record `performance_gates.conformance_budget_ms` must be {CONFORMANCE_BUDGET_MS}"
+            ));
+        }
+        if let Some(top_max_ms) = perf.get("conformance_max_check_ms") {
+            let top_max_ms = top_max_ms
+                .as_u64()
+                .ok_or("record `performance_gates.conformance_max_check_ms` must be an integer")?;
+            if top_max_ms > CONFORMANCE_BUDGET_MS {
+                return Err(format!(
+                    "record `performance_gates.conformance_max_check_ms` ({top_max_ms} ms) exceeds {CONFORMANCE_BUDGET_MS} ms budget"
+                ));
             }
         }
     }

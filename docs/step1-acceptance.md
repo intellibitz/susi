@@ -695,8 +695,29 @@ file count dropped `440 -> 3` (`-99.3%`), `goal_first_output` down/up improved
 `71.67 / 80.79 ms -> 66.09 / 72.57 ms`, and `goal_completion` down/up improved
 `73.03 / 82.63 ms -> 67.56 / 73.92 ms`.
 
+2026-11-12 (`T-CARBONCLOUD-7`): Production release qualification
+(`xtask/src/bin/release-qualify.rs`) and tag verification
+(`xtask/src/release_qualification.rs` `verify_tag` / `push-policy` for releases
+after `v0.21.66`) now run and enforce both `startup-gate` (`startup` gate,
+`--runs 5` against `dist/susi` in an isolated private home with
+`SUSI_NO_REGISTRY_ENV=1`) and the `2000 ms` host-contract conformance budget
+(`conformance` gate, spawning an isolated `dist/susi daemon-start` on an
+ephemeral high `SUSI_PORT_OFFSET` and running `susi-conformance --max-ms 2000
+--susi-bin target/dist/susi --json`), recording `performance_gates` in
+`releases/qualification/<tag>.json` and refusing any release that misses or
+exceeds either budget while keeping historical tags `v0.21.54`..`v0.21.66`
+valid. Verified live on Linux `x86_64` (`fast-release/susi`):
+`startup-gate --runs 5` passed (`susi-startup-gate-v2`, floor `2.13 ms`,
+`version` `6.64 ms` `<= 30 ms`, `help` `6.56 ms` `<= 30 ms`,
+`status_daemon_down` `8.06 ms` `<= 50 ms`, `status_daemon_up` `10.85 ms`
+`<= 50 ms`, isolated daemon `start` `232.94 ms` / `stop` `275.28 ms`), and
+isolated `susi-conformance --max-ms 2000 --susi-bin ... --json`
+(`SUSI_PORT_OFFSET=18420`) passed (`conformant: true`, `29` checks: `27` passed,
+`0` failed, `2` opt-in skipped, `max_check_ms = 513 ms` `<= 2000 ms`:
+`udp.discovery` `513 ms`, `mcp.stdio` `129 ms`, `acp.stdio` `61 ms`,
+`mcp.session-2025-06-18` `35–43 ms`, `mcp.tools-list` `33–35 ms`, `gemi.models`
+`4 ms`, `acp.rpc` `3 ms`, `health`/`auth.required`/`mcp.discover`/`a2a.*`/`acp.discover`
+`0–1 ms`).
+
 Open: a quiet-host Windows `x86_64` confirmation of the consolidated
 `routes.json`/`caps.json` build has not yet been recorded on the Windows host.
-Production qualification does not yet run `startup-gate` or the 2000 ms
-host-contract conformance budget, so a release that misses them is not
-refused.
