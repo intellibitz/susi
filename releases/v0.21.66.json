@@ -17,22 +17,41 @@
   "reproducible": false,
   "assets": [
     { "file": "susi-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi", "bin": "susi", "sha256": "1ae09ab48416ad88f31ad215d336cc548fa38cc054bd02883983afc5faa0cabd" },
-    { "file": "susi-harness-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi-harness", "bin": "susi-harness", "sha256": "0f2195abdd7546e4f041fbff4bc092a250ae436e6aef6dffa7b09a012394c7a6" }
+    { "file": "susi-harness-windows-x86_64.exe", "target": "x86_64-pc-windows-msvc", "package": "susi-harness", "bin": "susi-harness", "sha256": "0f2195abdd7546e4f041fbff4bc092a250ae436e6aef6dffa7b09a012394c7a6" },
+    { "file": "susi-linux-x86_64", "target": "x86_64-unknown-linux-gnu", "package": "susi", "bin": "susi", "sha256": "7cbf20c49214f99f257bd93aaab60d9dd2a583139853bb0729050bc39214ff61" },
+    { "file": "susi-harness-linux-x86_64", "target": "x86_64-unknown-linux-gnu", "package": "susi-harness", "bin": "susi-harness", "sha256": "55e7b65befb1704e634c9bc7b171f5408150db763fe6a287d9ee1350506dda0a" }
   ],
-  "missing_targets": [
-    { "target": "x86_64-unknown-linux-gnu", "reason": "qualified on a Windows x86_64 host; the Linux x86_64 reference build and qualification are owed (owed_platforms in the qualification record)" }
-  ],
+  "missing_targets": [],
   "checks": {
     "qualification_record": "releases/qualification/v0.21.66.json",
     "release_qualify": { "gates": ["format", "check", "clippy", "licenses", "tests", "build", "smoke"], "all_exit_0": true },
     "workspace_tests": { "binaries": 256, "passed": 5834, "failed": 0, "ignored": 21 },
-    "e2e_checks": "the release test gate ran cargo test --workspace --offline --locked --no-fail-fast across all 256 test binaries (5834 passed, 0 failed) on the exact release tree, including http_wire, pure_apache2_cloud_harvest, and all 12 native windows_runtime_lifecycle cases; the dist binaries were checked with --version",
+    "linux_qualification": {
+      "host_triple": "x86_64-unknown-linux-gnu",
+      "rustc_release": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "qualified_commit": "b02f85f21869776490081ef94820b58b506d3869",
+      "qualified_tree": "941b21ff7cfe4ef3bef61c84cb01280a9786c485",
+      "cargo_lock_sha256": "edd2bc1a1e8c4be795f67fcbbdd12f6ee841e3bcf7a7d77879883a665fc6d508",
+      "gates_all_exit_0": true,
+      "linux_workspace_tests": { "binaries": 256, "passed": 5813, "failed": 0, "ignored": 14 },
+      "gate_log_sha256": {
+        "format": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "check": "2c26effaa844f7d18f96e0da4d99cabb3c1e6c7307e541f5805691082b6f57ad",
+        "clippy": "d398399a2e4d549d3667dd8cb2b37f7406edf5d0a6547b7903e1bc4eaabc0cd9",
+        "licenses": "58e88caa124483991441b6aeff99c613bce3032ad5cc164b59cea38c746d91e2",
+        "tests": "3b706028651246165d24cd4c20f30b1402da9b4fbe99f856671c2c1ae0953035",
+        "build": "47a3ba4c6bb190ae81323613561e76575230b94d5e824c9d3d426507d8d80512"
+      },
+      "warm_fast_release": { "total_ms": 1953, "budget_ms": 10000, "within_budget": true, "build_ms": 466, "test_ms": 1288, "release_ms": 159 }
+    },
+    "e2e_checks": "the release test gate ran cargo test --workspace --offline --locked --no-fail-fast across all 256 test binaries on both x86_64-pc-windows-msvc (5834 passed, 0 failed) and x86_64-unknown-linux-gnu (5813 passed, 0 failed, provider keys unset, throwaway HOME/SUSI_HOME/XDG tree) on the exact release tree 941b21ff7cfe; the dist binaries on both hosts were checked with --version",
     "locally_qualified": true,
-    "qualification_note": "qualified natively on x86_64-pc-windows-msvc via xtask release-qualify from verified snapshot refs/tags/susi-snapshot/v0-21-66-rc1 (732ffe425910); every gate exited 0 (5834 workspace tests passed, 0 failed); Linux x86_64 is not qualified yet"
+    "qualification_note": "qualified natively on both x86_64-pc-windows-msvc (5834 passed, 0 failed) and x86_64-unknown-linux-gnu (5813 passed, 0 failed, warm fast-release total_ms=1953 < 10000 ms budget) on the exact v0.21.66 release tree 941b21ff7cfe (commit b02f85f21869) from verified snapshot refs/tags/susi-snapshot/v0-21-66-rc1 (732ffe425910); every release gate exited 0 on both released targets"
   },
   "provenance": [
     "commit and tagged time: the immutable annotated tag v0.21.66 (git cat-file -p v0.21.66; git for-each-ref --format=%(taggerdate:iso-strict))",
-    "sha256: the dist build and smoke gates on Windows x86_64 (x86_64-pc-windows-msvc), recorded in releases/qualification/v0.21.66.json with each gate log digest",
+    "sha256 (Windows x86_64): the dist build and smoke gates on x86_64-pc-windows-msvc, recorded in releases/qualification/v0.21.66.json with each gate log digest",
+    "sha256 (Linux x86_64): the 7-gate exact-tree release qualification on CachyOS Linux x86_64 (x86_64-unknown-linux-gnu) on tree 941b21ff7cfe (commit b02f85f21869), susi-linux-x86_64 (31218784 bytes) and susi-harness-linux-x86_64 (2472920 bytes), recorded under checks.linux_qualification in T-CTOLINUXQUAL-1",
     "source: verified snapshot refs/tags/susi-snapshot/v0-21-66-rc1 = 732ffe425910 (tree aa01f6b306f9), carrying live MCP plug facade restoration (94db45ed8) and Windows qualification gate fixes T-SWARMCORE-1 and T-SWARMCORE-3; the release branch adds only the v0.21.66 version bump and T-SWARMCORE-4"
   ]
 }
