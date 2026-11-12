@@ -25,6 +25,7 @@
 
 use serde_json::Value;
 use std::future::Future;
+use std::io::ErrorKind;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
@@ -506,24 +507,18 @@ where
             match self.read.read_until(b'\n', &mut self.line_buf).await {
                 Ok(0) => return None,
                 Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
-                    // BoundedLines refused an oversized line and is
-                    // dropping its tail; the error repeats per consumed
-                    // chunk until the dead line's terminator arrives.
-                    // Answer the bound violation once, keep reading — a
-                    // giant line must never corrupt the request that
-                    // follows it.
+                Err(e) if matches!(e.kind(), ErrorKind::InvalidData | ErrorKind::FileTooLarge) => {
+                    // BoundedLines refused an oversized line; the error
+                    // repeats per consumed chunk (`FileTooLarge`) until the
+                    // dead line's terminator arrives. Answer once per dead
+                    // line, keep reading: a giant line must never corrupt or
+                    // silence the request that follows it.
                     self.line_buf.clear();
-                    if self.oversized {
-                        continue;
+                    if !self.oversized {
+                        let message = "Invalid request: message exceeds the configured byte limit";
+                        self.emit_rejection(-32600, message, None, None);
                     }
-                    self.oversized = true;
-                    self.emit_rejection(
-                        -32600,
-                        "Invalid request: message exceeds the configured byte limit",
-                        None,
-                        None,
-                    );
+                    self.oversized = e.kind() == ErrorKind::FileTooLarge;
                     continue;
                 }
                 Err(_) => return None,
