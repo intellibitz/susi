@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXPEERCHANNEL-1",
+  "feature": "F-CORE-PEER-CHANNEL-HERMETIC-GATE-1",
+  "feature_id": "F-CORE-PEER-CHANNEL-HERMETIC-GATE-1",
+  "title": "Keep peer-channel integration retries bounded and resilient under parallel gates",
+  "goal": "Preserve the sealed peer-channel behavior while allowing transient daemon startup and channel scheduling delays to retry without spending the whole retry window in one client process.",
+  "size": "s",
+  "deps": [],
+  "native_worker": "codex-peer-channel",
+  "created_by": "COMPLIANCERECORDCLOSE",
+  "created_unix": 1794504907,
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "peer_channel_hub"]
+  },
+  "results": {
+    "fmt": "cargo fmt --all --check passed",
+    "peer_channel_hub": "2 passed, 0 failed",
+    "runner_shaped_peer_channel_hub": "2 passed, 0 failed with --target x86_64-unknown-linux-gnu --features xtask/release-tooling -- --test-threads=4"
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXPEERCHANNEL-1.json",
+    "tests/peer_channel_hub.rs"
+  ]
+}
