@@ -1,19 +1,36 @@
 {
   "id": "T-CTOREL65-1",
-  "feature_id": "F-CORE-RELEASE-0.21.65-1",
   "title": "Prepare core v0.21.65 from functional-only distilled candidate v0-21-65-distilled-rc1",
   "goal": "Apply only the version bump permitted after the accept-verified functional-only distilled candidate envelope v0-21-65-distilled-rc1 (shipping 18 functional tasks on top of post-v0.21.64 functional base 799ec71612), then qualify the exact Windows x86_64 release tree.",
-  "state": "done",
-  "status": "completed",
-  "owner": "core-release",
-  "created_by": "core-release",
-  "created_unix": 1794465100,
-  "updated_unix": 1794465100,
   "size": "s",
-  "base": "7b4a74cd54f25de198d72d2717b12034bb57d8c8",
   "deps": [
     "T-CTOWINSPEED-1"
   ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "created_by": "core-release",
+  "created_unix": 1794465100,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "7b4a74cd54f25de198d72d2717b12034bb57d8c8",
+  "feature_id": "F-CORE-RELEASE-0.21.65-1",
+  "limitations": [
+    "Linux x86_64 reference qualification is not available on this Windows host."
+  ],
+  "owner": "core-release",
   "scopes": [
     ".agents/evidence.json",
     ".agents/identity.json",
@@ -29,19 +46,7 @@
     "crates/susi-harness/Cargo.toml",
     "crates/susi-server/Cargo.toml"
   ],
-  "accept": {
-    "cmd": [
-      "cargo",
-      "test",
-      "--offline",
-      "--locked",
-      "-p",
-      "susi",
-      "--test",
-      "release_records"
-    ]
-  },
-  "limitations": [
-    "Linux x86_64 reference qualification is not available on this Windows host."
-  ]
+  "state": "done",
+  "status": "completed",
+  "updated_unix": 1794465100
 }
