@@ -4,11 +4,6 @@
   "goal": "Preserve real filesystem exclusion, closure-result and post-release acquisition assertions while replacing an unnecessary default three-second contention wait with a zero-duration real attempt. Add zero-timeout coverage and strengthen existing positive-duration deadline coverage. Production lock code and deadlines remain unchanged. Native Windows execution and combined integration remain pending. Reuse one tokenization within each console-helper guard scan while preserving fresh filesystem reads, all launch and binding checks, diagnostics, and lexical-error coverage.",
   "size": "s",
   "deps": [],
-  "scopes": [
-    ".agents/tasks/T-DOTWARMFIXTURE-1.json",
-    "crates/susi-config/src/file_lock.rs",
-    "tests/no_console_window.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -25,5 +20,15 @@
     ]
   },
   "created_by": "DOTWARMFIXTURE",
-  "created_unix": 1794276868
+  "created_unix": 1794276868,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "scopes": [
+    ".agents/tasks/T-DOTWARMFIXTURE-1.json",
+    "crates/susi-config/src/file_lock.rs",
+    "tests/no_console_window.rs"
+  ]
 }
