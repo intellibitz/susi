@@ -2,19 +2,8 @@
   "id": "T-CODEXHARNESSERROR-1",
   "title": "Propagate MCP tool-call failures instead of treating them as successful text",
   "goal": "Make the Core harness MCP client honor the MCP tools/call isError result flag so a failed external tool cannot be presented to the model or caller as a successful tool result.",
-  "status": "implemented",
-  "owner": "codex",
-  "native_worker": "codex-harness-tool-errors",
-  "created_by": "codex",
-  "created_unix": 1794450000,
   "size": "s",
-  "base_commit": "cce0acf7a43de0e462f54d43b8b7ee6e5b201739",
   "deps": [],
-  "scopes": [
-    "crates/susi-harness/src/mcp.rs",
-    "crates/susi-harness/src/tests/mcp.rs",
-    ".agents/tasks/T-CODEXHARNESSERROR-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -27,6 +16,16 @@
       "mcp"
     ]
   },
+  "created_by": "codex",
+  "created_unix": 1794450000,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "cce0acf7a43de0e462f54d43b8b7ee6e5b201739",
+  "native_worker": "codex-harness-tool-errors",
+  "owner": "codex",
   "results": {
     "status": "implemented and locally verified",
     "change": "McpClient::call now propagates MCP tools/call results with isError=true as an EaiError containing the tool name and rendered error content; successful and JSON-RPC error paths are unchanged",
@@ -34,5 +33,11 @@
     "fmt": "cargo fmt --all --check: passed",
     "clippy": "cargo clippy --offline --locked -p susi-harness --all-targets -- -D warnings: passed",
     "boundary": "Core harness protocol correctness only; no dependency, Commercial, Minijinja, release, or credential changes"
-  }
+  },
+  "scopes": [
+    "crates/susi-harness/src/mcp.rs",
+    "crates/susi-harness/src/tests/mcp.rs",
+    ".agents/tasks/T-CODEXHARNESSERROR-1.json"
+  ],
+  "status": "implemented"
 }
