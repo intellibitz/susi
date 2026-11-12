@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXPEERSERIAL-1",
+  "feature": "F-CORE-PEER-CHANNEL-TEST-SERIALIZATION-1",
+  "feature_id": "F-CORE-PEER-CHANNEL-TEST-SERIALIZATION-1",
+  "title": "Serialize peer-channel integration tests within one process",
+  "goal": "Prevent the peer-channel integration tests from racing their four reserved port blocks when libtest runs them concurrently in one binary.",
+  "size": "s",
+  "deps": ["T-CODEXPEERISOLATION-1"],
+  "native_worker": "codex-peer-serial",
+  "created_by": "COMPLIANCERECORDCLOSE",
+  "created_unix": 1794506368,
+  "accept": {
+    "cmd": ["cargo", "test", "--offline", "--locked", "-p", "susi", "--test", "peer_channel_hub"]
+  },
+  "results": {
+    "fmt": "cargo fmt --all passed",
+    "peer_channel_hub": "2 passed, 0 failed with --test-threads=4",
+    "isolation": "process-local mutex serializes both tests before port-block allocation",
+    "join_under_load": "fixture returns after local sealed admission; callers retain explicit hub-roster assertions instead of waiting on the optional follow-up acknowledgement",
+    "cli_io": "run_cli drains stdout and stderr concurrently so a busy child cannot deadlock on a full pipe",
+    "status_retry": "the first topology test retries peers status through transient sealed HTTP truncation and still requires every requested row to be error-free within the bounded window"
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXPEERSERIAL-1.json",
+    "tests/peer_channel_hub.rs"
+  ]
+}
