@@ -1,0 +1,37 @@
+{
+  "id": "T-CLAUDERELEASESYNCHOST-1",
+  "title": "The updater installs only releases qualified for the host (Mandate 48)",
+  "goal": "Mandate 48 (reworded 2026-11-12): the installed Susi tracks the latest release QUALIFIED for the host. scripts/susi-release-sync.sh took the newest vX.Y.Z tag and checked its record's tag, commit and build settings, but not whether the release was qualified for this host, so the hourly timer on the CEO's Linux host would have installed v0.21.65, which was qualified on Windows only. Automatic mode now picks the newest tag whose record has a reference build for the host; an explicit --tag of a release not qualified here is refused unless SUSI_RELEASE_ALLOW_UNQUALIFIED_HOST=1; --check prints the newest qualified tag.",
+  "feature_id": "F-CLAUDE-RELEASE-SYNC-HOST",
+  "status": "implemented",
+  "owner": "claude",
+  "created_by": "claude",
+  "created_unix": 1794472800,
+  "size": "s",
+  "deps": [
+    "T-CLAUDEMANDATE48-1"
+  ],
+  "base": "7f4394d0643fce9652f991990efff7d3a6cc43c1",
+  "scopes": [
+    "scripts/susi-release-sync.sh",
+    "tests/installer_contract.rs",
+    "docs/releases.md",
+    ".agents/tasks/T-CLAUDERELEASESYNCHOST-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "installer_contract"
+    ]
+  },
+  "limitations": [
+    "The Windows upgrade path shares this selection code but was not run on Windows.",
+    "install.sh (first installation) was not changed.",
+    "An installed copy keeps its own older updater until a release containing this change is promoted; the timer on the CEO's Linux host stays disabled until then.",
+    "Verified on Linux x86_64 only."
+  ]
+}
