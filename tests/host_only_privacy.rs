@@ -41,6 +41,11 @@ use susi_paths::test_env::{isolate_home, EnvGuard};
 mod common;
 use common::HomeGuard;
 
+// The two real-socket tests share process-global environment and policy
+// state. The cross-process socket lock cannot serialize two libtest threads
+// in this binary, so keep their homes and daemon lifecycles isolated locally.
+static HOST_ONLY_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// This host's non-loopback IPv4 address: the source address the OS would
 /// use toward a TEST-NET destination. UDP `connect` sends nothing.
 fn lan_ip() -> IpAddr {
@@ -114,6 +119,9 @@ fn write_roster(dir: &Path, node_id: &str, addr: &str, pubkey: &str) {
 
 #[test]
 fn host_only_refuses_peer_calls_off_host_before_any_connection() {
+    let _process = HOST_ONLY_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
@@ -427,6 +435,9 @@ fn set_mode(daemon: &Daemon, mode: &str) {
 
 #[test]
 fn a_daemon_bound_beyond_loopback_serves_this_machine_alone_under_host_only() {
+    let _process = HOST_ONLY_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let _socket = common::SocketTestGuard::acquire();
     let _g = commit_log::ENV_LOCK
         .lock()
