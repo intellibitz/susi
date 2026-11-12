@@ -1,24 +1,9 @@
 {
   "id": "T-DOTLATENCYDESK20261110-1",
-  "agent": "Codex",
   "title": "Adopt latency fixtures and worker leases on Windows",
-  "status": "in_progress",
-  "native_worker": "dotlatencydesk20261110",
   "deps": [
     "T-DOTSWARMFIXTURES20261110-1",
     "T-DOTLINUXBYOKSAFE-1"
-  ],
-  "scopes": [
-    ".agents/tasks/t-dotlatency-1.json",
-    ".agents/tasks/t-dotlatencydesk20261110-1.json",
-    ".agents/tasks/t-dotworkerlease-1.json",
-    "crates/susi-gawd-agents/src/external/mod.rs",
-    "crates/susi-gawd-agents/src/tests/external.rs",
-    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
-    "crates/susi-gemi-models/src/tests/model_manager.rs",
-    "docs/lean-core.md",
-    "tests/lean_core_ceilings.rs",
-    "tests/peer_channel_hub.rs"
   ],
   "accept": {
     "cmd": [
@@ -33,52 +18,14 @@
       "--locked"
     ]
   },
-  "provenance": {
-    "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
-    "bundle_sha256": "ca0b3d300f0271ae4263590b6f80912e2e29e9e074b68fdcd4d618db54da6dfa",
-    "original_task": "T-DOTLATENCY-1",
-    "source_head": "e7a39ac7019cfb57e9e2529df92a584207216db7"
-  },
-  "notes": "Original task retained unchanged; its 15952 ceiling prose is stale, actual candidate ceiling is 15938. Sandbox files are byte-identical to base and not adopted. All model-manager tests remain wired by path; production retry sleeper unchanged. Windows scoped verification does not qualify integration, publication, production or the 60-second end-to-end mandate.",
-  "verification": {
-    "platform": "x86_64-pc-windows-msvc",
-    "toolchain": "1.99.0",
-    "model_library": "cargo test -p susi-gemi-models --lib --offline --locked: 251 passed, 5 ignored, 0 failed; 153.871s wall, 12.90s test phase",
-    "focused": "lifecycle::model_manager::tests:: --test-threads=1: 28 passed each of three runs; 5.27, 4.62, 4.70 seconds test phase",
-    "peer": "cargo test -p susi --test peer_channel_hub --offline --locked: 2 passed, 0 failed; 236.091s wall including build, 51.28s test phase",
-    "source_guards": "Exact source compiled directly with rustc --test against private dependency artifacts: architecture 41, orphan 3, docs 5, lean 2 passed. Not Cargo-root acceptance or a full workspace gate.",
-    "format": "cargo fmt --all --check passed",
-    "clippy": "cargo clippy -p susi-gemi-models --all-targets --offline --locked -- -D warnings passed",
-    "limits": "Full gate, integration, ship, push, production promotion and 60-second end-to-end qualification remain unperformed. Original production model-manager file retains base CRLF; all added task records are LF.",
-    "root_clippy": "cargo clippy -p susi --test peer_channel_hub --test lean_core_ceilings --test architecture_tests --test orphan_sources --test core_docs_promise_no_ui_or_plugins --offline --locked -- -D warnings passed"
-  },
-  "worker_lease_provenance": {
-    "original_task": "T-DOTWORKERLEASE-1",
-    "source_head": "71649da21209dc5310da53cdd867ce57b1714cb7",
-    "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
-    "previous_latency_adoption": "b41d3f52cc8dcf74c48aadce44050a6276bd68a0",
-    "bundle_sha256": "a6b7751044ba64a2e755d5c150a76cc365eadaee7ef3e3a82457270504d7db04"
-  },
-  "worker_combined_verification": {
-    "libraries": "cargo test -p susi-gemi-models -p susi-gawd-agents --lib --offline --locked: 196 agents and 251 models passed, 5 model ignores, 0 failures; 25.4055 seconds wall time.",
-    "focused": "external::unit_tests:: --test-threads=1: 6 passed twice (0.20 / 0.40 seconds); model-manager: 28 passed (3.25 seconds). The Linux-only inherited-descriptor regression was not executed on Windows.",
-    "root_tests": "Actual Cargo-root scoped tests: architecture 41, orphan 3, lean 2, docs 5 and peer 2 passed; 95.2382 seconds wall time including rebuild, 47.83 seconds peer phase. This supersedes standalone-only guard evidence for the combined candidate, not the full workspace gate.",
-    "format": "cargo fmt --all --check passed in 11.0835 seconds.",
-    "clippy": "cargo clippy -p susi-gemi-models -p susi-gawd-agents --all-targets --offline --locked -- -D warnings passed",
-    "ceilings": "Independently counted GAWD-agents 11,263 and GEMI-models 15,938; both exact lowered ceilings preserved.",
-    "preservation": "Original task records and both source checkpoints unchanged. Only docs append conflict resolved by union. No unrelated evolution changes. Full native gate/integration/publication/promotion remain pending.",
-    "root_clippy": "cargo clippy -p susi --test architecture_tests --test orphan_sources --test lean_core_ceilings --test core_docs_promise_no_ui_or_plugins --test peer_channel_hub --offline --locked -- -D warnings passed."
-  },
-  "swarm_ratchet_dependency": {
-    "task": "T-DOTSWARMFIXTURES20261110-1",
-    "commit": "278b0d2504977d93d5f5e450284aa2acbf565382",
-    "tree": "0957750ac4f03f97611f61fb3a445607804585b8",
-    "ceiling_before": 20673,
-    "ceiling_after": 20641,
-    "verification": "The committed swarm source was recounted at 20,641 lines. Our standalone worktree retains 20,673 lines and cannot pass the lowered source guard. No swarm-owned paths were imported or claimed. The paired six-claim serialized combined-tree gate remains required."
-  },
   "created_by": "dotlatencydesk20261110",
   "created_unix": 1794290332,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "agent": "Codex",
   "kimi_ceiling_dependency": {
     "task": "T-DOTLINUXBYOKSAFE-1",
     "commit": "60b8cd7af30ebae90e00a1a9bfbd7ea8b2729980",
@@ -91,5 +38,63 @@
     "review": "Exact committed cloud.rs diff adds 12 lines and removes none: four production lines and eight inline test lines. Preserve swarm 20,641 and agents 11,263. No split-owned paths imported. Combined source verification remains the integrator responsibility; no standalone combined-tree pass is claimed.",
     "tested_source_commit": "aeea86295c2814ac86994cd7f419d3735469e702",
     "final_pin_note": "Final safe split adds task evidence only. All six source/config blobs remain identical to the tested source commit recorded above and in docs/lean-core.md."
+  },
+  "native_worker": "dotlatencydesk20261110",
+  "notes": "Original task retained unchanged; its 15952 ceiling prose is stale, actual candidate ceiling is 15938. Sandbox files are byte-identical to base and not adopted. All model-manager tests remain wired by path; production retry sleeper unchanged. Windows scoped verification does not qualify integration, publication, production or the 60-second end-to-end mandate.",
+  "provenance": {
+    "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "bundle_sha256": "ca0b3d300f0271ae4263590b6f80912e2e29e9e074b68fdcd4d618db54da6dfa",
+    "original_task": "T-DOTLATENCY-1",
+    "source_head": "e7a39ac7019cfb57e9e2529df92a584207216db7"
+  },
+  "scopes": [
+    ".agents/tasks/t-dotlatency-1.json",
+    ".agents/tasks/t-dotlatencydesk20261110-1.json",
+    ".agents/tasks/t-dotworkerlease-1.json",
+    "crates/susi-gawd-agents/src/external/mod.rs",
+    "crates/susi-gawd-agents/src/tests/external.rs",
+    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
+    "crates/susi-gemi-models/src/tests/model_manager.rs",
+    "docs/lean-core.md",
+    "tests/lean_core_ceilings.rs",
+    "tests/peer_channel_hub.rs"
+  ],
+  "status": "in_progress",
+  "swarm_ratchet_dependency": {
+    "task": "T-DOTSWARMFIXTURES20261110-1",
+    "commit": "278b0d2504977d93d5f5e450284aa2acbf565382",
+    "tree": "0957750ac4f03f97611f61fb3a445607804585b8",
+    "ceiling_before": 20673,
+    "ceiling_after": 20641,
+    "verification": "The committed swarm source was recounted at 20,641 lines. Our standalone worktree retains 20,673 lines and cannot pass the lowered source guard. No swarm-owned paths were imported or claimed. The paired six-claim serialized combined-tree gate remains required."
+  },
+  "verification": {
+    "platform": "x86_64-pc-windows-msvc",
+    "toolchain": "1.99.0",
+    "model_library": "cargo test -p susi-gemi-models --lib --offline --locked: 251 passed, 5 ignored, 0 failed; 153.871s wall, 12.90s test phase",
+    "focused": "lifecycle::model_manager::tests:: --test-threads=1: 28 passed each of three runs; 5.27, 4.62, 4.70 seconds test phase",
+    "peer": "cargo test -p susi --test peer_channel_hub --offline --locked: 2 passed, 0 failed; 236.091s wall including build, 51.28s test phase",
+    "source_guards": "Exact source compiled directly with rustc --test against private dependency artifacts: architecture 41, orphan 3, docs 5, lean 2 passed. Not Cargo-root acceptance or a full workspace gate.",
+    "format": "cargo fmt --all --check passed",
+    "clippy": "cargo clippy -p susi-gemi-models --all-targets --offline --locked -- -D warnings passed",
+    "limits": "Full gate, integration, ship, push, production promotion and 60-second end-to-end qualification remain unperformed. Original production model-manager file retains base CRLF; all added task records are LF.",
+    "root_clippy": "cargo clippy -p susi --test peer_channel_hub --test lean_core_ceilings --test architecture_tests --test orphan_sources --test core_docs_promise_no_ui_or_plugins --offline --locked -- -D warnings passed"
+  },
+  "worker_combined_verification": {
+    "libraries": "cargo test -p susi-gemi-models -p susi-gawd-agents --lib --offline --locked: 196 agents and 251 models passed, 5 model ignores, 0 failures; 25.4055 seconds wall time.",
+    "focused": "external::unit_tests:: --test-threads=1: 6 passed twice (0.20 / 0.40 seconds); model-manager: 28 passed (3.25 seconds). The Linux-only inherited-descriptor regression was not executed on Windows.",
+    "root_tests": "Actual Cargo-root scoped tests: architecture 41, orphan 3, lean 2, docs 5 and peer 2 passed; 95.2382 seconds wall time including rebuild, 47.83 seconds peer phase. This supersedes standalone-only guard evidence for the combined candidate, not the full workspace gate.",
+    "format": "cargo fmt --all --check passed in 11.0835 seconds.",
+    "clippy": "cargo clippy -p susi-gemi-models -p susi-gawd-agents --all-targets --offline --locked -- -D warnings passed",
+    "ceilings": "Independently counted GAWD-agents 11,263 and GEMI-models 15,938; both exact lowered ceilings preserved.",
+    "preservation": "Original task records and both source checkpoints unchanged. Only docs append conflict resolved by union. No unrelated evolution changes. Full native gate/integration/publication/promotion remain pending.",
+    "root_clippy": "cargo clippy -p susi --test architecture_tests --test orphan_sources --test lean_core_ceilings --test core_docs_promise_no_ui_or_plugins --test peer_channel_hub --offline --locked -- -D warnings passed."
+  },
+  "worker_lease_provenance": {
+    "original_task": "T-DOTWORKERLEASE-1",
+    "source_head": "71649da21209dc5310da53cdd867ce57b1714cb7",
+    "base": "956332c4de6d30acb560ffb615d8b611a7c8a45b",
+    "previous_latency_adoption": "b41d3f52cc8dcf74c48aadce44050a6276bd68a0",
+    "bundle_sha256": "a6b7751044ba64a2e755d5c150a76cc365eadaee7ef3e3a82457270504d7db04"
   }
 }
