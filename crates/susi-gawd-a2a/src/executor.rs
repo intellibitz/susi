@@ -149,16 +149,11 @@ fn plane_bus_mission_at(
     intent: &str,
     workspace: std::path::PathBuf,
 ) -> std::result::Result<String, String> {
-    let answer = susi_core::plane_bus::gawd::solve_mission(
+    susi_core::plane_bus::gawd::solve_mission_for_acp(
         intent,
         &workspace,
         susi_gawd_agents::AlphaSelf::VERSION,
-    );
-    if answer.trim().is_empty() {
-        Err("mission produced no result (GAWD plane unreachable or empty answer)".to_string())
-    } else {
-        Ok(answer)
-    }
+    )
 }
 
 fn plane_bus_acp_mission(

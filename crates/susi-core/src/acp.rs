@@ -403,6 +403,21 @@ pub trait AcpTurnExecutor: Send + Sync {
             tool_calls: Vec::new(),
         })
     }
+
+    /// Execute a turn with an owned cancellation token available to nested
+    /// transports and cooperative workers. Existing executors keep the
+    /// pointer-based default; executors that cross a bus can override this
+    /// method to install the token in their downstream request context.
+    fn execute_turn_with_cancel_token(
+        &self,
+        ctx: &AcpTurnContext,
+        cancelled: Arc<AtomicBool>,
+        emit_delta: &mut dyn FnMut(&str),
+    ) -> Result<AcpExecutorOutput, String> {
+        crate::progress::with_cancel(Some(Arc::clone(&cancelled)), || {
+            self.execute_turn_with_tools(ctx, &cancelled, emit_delta)
+        })
+    }
 }
 
 /// Default zero-bloat deterministic ACP substrate executor.
@@ -1148,13 +1163,15 @@ impl AcpEngine {
             record_event("turn_cancelled", None, Some(AcpStopReason::Cancelled));
             (AcpStopReason::Cancelled, AcpExecutorOutput::default())
         } else {
-            let exec_res =
-                self.executor
-                    .execute_turn_with_tools(&ctx, &cancel_flag, &mut |chunk| {
-                        if !cancel_flag.load(Ordering::SeqCst) {
-                            record_event("message_delta", Some(chunk.to_owned()), None);
-                        }
-                    });
+            let exec_res = self.executor.execute_turn_with_cancel_token(
+                &ctx,
+                Arc::clone(&cancel_flag),
+                &mut |chunk| {
+                    if !cancel_flag.load(Ordering::SeqCst) {
+                        record_event("message_delta", Some(chunk.to_owned()), None);
+                    }
+                },
+            );
             if cancel_flag.load(Ordering::SeqCst) {
                 record_event("turn_cancelled", None, Some(AcpStopReason::Cancelled));
                 (AcpStopReason::Cancelled, AcpExecutorOutput::default())

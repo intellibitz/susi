@@ -1,7 +1,7 @@
 //! ACP turns run as GAWD missions with the A2A safeguards (T-CLAUDEACPGAWD-1).
 
 use crate::executor::GawdAcpExecutor;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use susi_core::acp::{AcpContentBlock, AcpMessageRole, AcpTurnContext, AcpTurnExecutor};
 
@@ -91,6 +91,38 @@ fn an_acp_turn_passes_its_session_workspace_to_the_mission_runner() {
             Some("/tmp/acp-session-workspace".to_string())
         ))
     );
+}
+
+#[test]
+fn a_mid_mission_cancel_reaches_the_runner_and_suppresses_the_answer() {
+    let entered = Arc::new(AtomicBool::new(false));
+    let seen_cancel = Arc::new(AtomicBool::new(false));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let entered_runner = Arc::clone(&entered);
+    let seen = Arc::clone(&seen_cancel);
+    let executor = GawdAcpExecutor::with_runner(Arc::new(move |_| {
+        entered_runner.store(true, Ordering::SeqCst);
+        while !susi_core::progress::is_cancelled() {
+            std::thread::yield_now();
+        }
+        seen.store(true, Ordering::SeqCst);
+        Ok("late".to_string())
+    }));
+    let entered_waiter = Arc::clone(&entered);
+    let cancel_for_thread = Arc::clone(&cancel);
+    let waiter = std::thread::spawn(move || {
+        while !entered_waiter.load(Ordering::SeqCst) {
+            std::thread::yield_now();
+        }
+        cancel_for_thread.store(true, Ordering::SeqCst);
+    });
+
+    let out = executor
+        .execute_turn_with_cancel_token(&acp_turn("long"), cancel, &mut |_| {})
+        .unwrap();
+    waiter.join().unwrap();
+    assert!(seen_cancel.load(Ordering::SeqCst));
+    assert!(out.blocks.is_empty());
 }
 
 #[test]
