@@ -2,17 +2,7 @@
   "id": "T-DOTASTRAFAILFAST-1",
   "title": "Stop weighted runners after gate failure",
   "goal": "Prevent an already-dequeued test binary from starting after it waits for lanes and a prior binary fails, preserving every successful-run test and all gate checks.",
-  "created_by": "dot-astra-failfast",
-  "created_unix": 1794250862,
-  "state": "in_progress",
-  "status": "in_progress",
-  "native_worker": "dot-astra-failfast",
-  "claimed_by": "dot-astra-failfast",
   "deps": [],
-  "scopes": [
-    "xtask/src/test_runner.rs",
-    ".agents/tasks/T-DOTASTRAFAILFAST-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -26,7 +16,22 @@
       "test_runner::tests::"
     ]
   },
+  "created_by": "dot-astra-failfast",
+  "created_unix": 1794250862,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "checkpoint": "Local-only fix and validation complete. Restored final source passed complete local-workflow suite:159 passed,0 failed,0 ignored,0 filtered; test102.32s,outer124132ms including22s rebuild. Scheduler tests12/12 passed; mutation removing cancellation made new regression fail exit101. Scoped Clippy -D warnings, cargo fmt --all --check, git diff --check passed. No successful-gate speedup measured. Existing shipped receipt source93889365b6987b90dc0a22068c0e06be81661668 measured outer485298ms:clippy40435,test build78799,test binaries177791,acceptance32652+112881ms. Full combined gate/publication pending; claim retained for integration. CEO now assigns new fixes to Opus; Astra checkpoint only.",
+  "claimed_by": "dot-astra-failfast",
+  "native_worker": "dot-astra-failfast",
+  "scopes": [
+    "xtask/src/test_runner.rs",
+    ".agents/tasks/T-DOTASTRAFAILFAST-1.json"
+  ],
+  "state": "in_progress",
+  "status": "in_progress",
   "validation": {
     "full_command": "cargo test --offline --locked -p xtask --bin local-workflow --target-dir F:/st/astra-failfast/target",
     "full_passed": 159,
