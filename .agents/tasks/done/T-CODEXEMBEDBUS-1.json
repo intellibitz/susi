@@ -2,20 +2,8 @@
   "id": "T-CODEXEMBEDBUS-1",
   "title": "Keep the default Core embedding port wired to the Commercial bus plug",
   "goal": "Make the existing bus-only local embedding provider available in the lean default susi-gmcp build so an attached Commercial gpu_fabric.embed.texts plug can serve embeddings without enabling tools-rich or moving the embedding engine into Core.",
-  "status": "implemented",
-  "owner": "codex",
-  "native_worker": "codex-embed-bus",
-  "created_by": "codex",
-  "created_unix": 1794449837,
   "size": "s",
-  "base_commit": "4a3549f82756f26c3724df4becda12bee73e5c4b",
   "deps": [],
-  "scopes": [
-    "crates/susi-gmcp/src/lib.rs",
-    "crates/susi-gmcp/src/embed_provider.rs",
-    ".agents/gmcp/evidence",
-    ".agents/tasks/T-CODEXEMBEDBUS-1.json"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -28,6 +16,16 @@
       "embed_provider"
     ]
   },
+  "created_by": "codex",
+  "created_unix": 1794449837,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base_commit": "4a3549f82756f26c3724df4becda12bee73e5c4b",
+  "native_worker": "codex-embed-bus",
+  "owner": "codex",
   "results": {
     "status": "implemented",
     "change": "The existing bus-only embed_provider module is now compiled in the default susi-gmcp build; tools-rich remains optional and the BGE engine remains Commercial-only.",
@@ -38,5 +36,12 @@
     "gmcp_evidence": "scripts/gmcp-record-evidence.sh: 54 requirement checks recorded in commit a96c7b2ec395ba0bea1b331e7937fa6415f583df; --mastery: 9 mastery checks recorded in commit 498a2d5cbe889b5224972a461f9b2aaca043c74b",
     "full_gate": "cargo local-workflow check: fmt/clippy passed, GMCP evidence checks passed, and 129 test binaries built; concurrent suite failed only in peer_channel_hub. Isolated peer_channel_hub rerun: 2 passed, 0 failed in 19.09s.",
     "boundary": "Core bus contract only; the BGE embedding engine remains in susi-commercial-apps. No Minijinja, dependency, release, harvest or credential change."
-  }
+  },
+  "scopes": [
+    "crates/susi-gmcp/src/lib.rs",
+    "crates/susi-gmcp/src/embed_provider.rs",
+    ".agents/gmcp/evidence",
+    ".agents/tasks/T-CODEXEMBEDBUS-1.json"
+  ],
+  "status": "implemented"
 }
