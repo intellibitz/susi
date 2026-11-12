@@ -1,18 +1,6 @@
 {
   "id": "T-SPEED1106-1",
-  "native_worker": "speed1106",
   "title": "Cut local ship time: phase timings, narrower affected selection, host gate, seeded worktrees",
-  "created_by": "SPEED1106",
-  "created_unix": 1793960000,
-  "status": "implemented_pending_integration",
-  "dependencies": [],
-  "scopes": [
-    ".agents/tasks/t-speed1106-1.json",
-    "crates/susi-gawd-agents/build.rs",
-    "docs/workflow-speed.md",
-    "xtask/src/affected.rs",
-    "xtask/src/bin/local-workflow.rs"
-  ],
   "accept": {
     "cmd": [
       "cargo",
@@ -30,5 +18,22 @@
       "workflow tooling in xtask selects xtask and root, not the whole workspace",
       "measured before/after ship minutes are recorded in docs/workflow-speed.md"
     ]
-  }
+  },
+  "created_by": "SPEED1106",
+  "created_unix": 1793960000,
+  "closed": {
+    "at_unix": 1794494262,
+    "commit": "8b14a881b32d411d2eefd2d15f20556a5edbab96",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "dependencies": [],
+  "native_worker": "speed1106",
+  "scopes": [
+    ".agents/tasks/t-speed1106-1.json",
+    "crates/susi-gawd-agents/build.rs",
+    "docs/workflow-speed.md",
+    "xtask/src/affected.rs",
+    "xtask/src/bin/local-workflow.rs"
+  ],
+  "status": "implemented_pending_integration"
 }
