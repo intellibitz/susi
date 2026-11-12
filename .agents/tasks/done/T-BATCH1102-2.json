@@ -3,9 +3,26 @@
   "title": "Exit the native CLI immediately on a redirected quit command",
   "goal": "A redirected exit or quit by itself exits before creating a mission or starting a service, while other redirected text remains a goal.",
   "size": "s",
-  "deps": ["T-CHANNELGUARD-1"],
-  "scopes": ["src/main.rs", "tests/first_goal_opening.rs", ".agents/tasks/T-BATCH1102-2.json"],
-  "accept": {"cmd": ["cargo", "test", "--offline", "--locked", "--test", "first_goal_opening"]},
+  "deps": [
+    "T-CHANNELGUARD-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "first_goal_opening"
+    ]
+  },
+  "created_by": "BATCH1102",
+  "created_unix": 1793619140,
+  "closed": {
+    "at_unix": 1794492196,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
   "receipt": {
     "qualified_baseline_sha256": "50571b2bd92d1ce357bb18219c7731c8366937a5089306ad2132c9d461448683",
     "bare_redirected_exit_observed_ms": 15652,
@@ -16,6 +33,9 @@
     "bom_quit_ms": 293,
     "both_exit_codes": 0
   },
-  "created_by": "BATCH1102",
-  "created_unix": 1793619140
+  "scopes": [
+    "src/main.rs",
+    "tests/first_goal_opening.rs",
+    ".agents/tasks/T-BATCH1102-2.json"
+  ]
 }
