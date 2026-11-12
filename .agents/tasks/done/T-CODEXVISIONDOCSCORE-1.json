@@ -16,14 +16,19 @@
   },
   "created_by": "CODEXVISIONDOCSCORE",
   "created_unix": 1794514777,
+  "closed": {
+    "at_unix": 1794515721,
+    "commit": "c169c7b95e4b2e88c571b611a5a4db2f98dc4c49",
+    "by": "CODEXVISIONDOCSCORE"
+  },
+  "limitations": "Documentation-only alignment. Historical timings are not measurements of the current tree. Native Windows and end-to-end production acceptance were not performed. Installed workflow binary predates workflow vision cycle; standing V-1 read directly.",
   "reuse": {
     "decision": "existing",
+    "reason": "Documentation reconciliation only; no code, dependency or external source added.",
     "searched": [
       "CEO mandates 74-79 in both repositories",
       "Core docs/lean-core.md and T-CARBONLEAN-14 historical receipt",
       "Existing README and workflow documentation"
-    ],
-    "reason": "Documentation reconciliation only; no code, dependency or external source added."
-  },
-  "limitations": "Documentation-only alignment. Historical timings are not measurements of the current tree. Native Windows and end-to-end production acceptance were not performed. Installed workflow binary predates workflow vision cycle; standing V-1 read directly."
+    ]
+  }
 }
