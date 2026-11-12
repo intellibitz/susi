@@ -2,19 +2,9 @@
   "id": "T-CLAUDEMANDATE48-1",
   "title": "Reword Mandate 48: the installed Susi is the stable copy; private debug builds drive development",
   "goal": "CEO decision 2026-11-12: drop the clause that the installed production Susi builds its successor. The installed copy is stable, changes only by promotion of a fully qualified release with rollback, and tracks the latest qualified release (falling behind is reported). Development is driven by per-agent private debug builds that never overwrite it. Update Mandate 48 in .agents/identity.json and the matching sentence in AGENTS.md. Text only.",
-  "status": "implemented",
-  "owner": "claude",
-  "created_by": "claude",
-  "created_unix": 1794472200,
   "size": "xs",
   "deps": [
     "T-CLAUDEMANDATECLEANUP-1"
-  ],
-  "base": "82190e200ccc052c393dcd3cebf67e027d9e7a82",
-  "scopes": [
-    ".agents/identity.json",
-    "AGENTS.md",
-    ".agents/tasks/T-CLAUDEMANDATE48-1.json"
   ],
   "accept": {
     "cmd": [
@@ -26,9 +16,24 @@
       "architecture_tests"
     ]
   },
+  "created_by": "claude",
+  "created_unix": 1794472200,
+  "closed": {
+    "at_unix": 1794492197,
+    "commit": "faea0a971b5469bdca36c40f86c7ecfafad10191",
+    "by": "CLAUDECLEVERFEYNMANMTR9N2"
+  },
+  "base": "82190e200ccc052c393dcd3cebf67e027d9e7a82",
   "limitations": [
     "Text only: nothing yet promotes the installed copy automatically or reports when it falls behind; on 2026-11-12 the installed susi on the CEO's Linux host was 0.21.20 while main was 0.21.65.",
     "A source comment in xtask/src/main.rs still describes the installed release as the toolchain for building the next susi.",
     "Verified on Linux x86_64 only."
-  ]
+  ],
+  "owner": "claude",
+  "scopes": [
+    ".agents/identity.json",
+    "AGENTS.md",
+    ".agents/tasks/T-CLAUDEMANDATE48-1.json"
+  ],
+  "status": "implemented"
 }
