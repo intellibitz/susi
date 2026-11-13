@@ -39,6 +39,7 @@
     "tests",
     "docs",
     "Cargo.lock",
+    ".agents/gmcp",
     ".agents/tasks/T-ANTIGRAVITY-9.json"
   ]
 }
