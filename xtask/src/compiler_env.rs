@@ -198,16 +198,18 @@ fn system_openssl_libdir(
         "aarch64-unknown-linux-gnu" => ("aarch64-linux-gnu", cfg!(target_arch = "aarch64")),
         _ => return Err("system OpenSSL configuration requires reviewed Linux target".into()),
     };
-    // Prefer the existing Debian layout. Arch-family distributions install
-    // their native development libraries directly in /usr/lib. Never consult
-    // caller paths, and do not use native libraries for a different target.
+    // Prefer the existing Debian layout, then the explicitly provisioned
+    // OpenSSL 3 development pair. Arch-family distributions install their
+    // native development libraries directly in /usr/lib. Never consult caller
+    // paths, and do not use native libraries for a different target.
     let directories = [
         Path::new("/usr/lib").join(multiarch),
+        PathBuf::from("/usr/lib/openssl-3"),
         PathBuf::from("/usr/lib"),
     ];
     for libdir in directories
         .into_iter()
-        .take(if native_arch { 2 } else { 1 })
+        .take(if native_arch { 3 } else { 1 })
     {
         let mut missing = false;
         for name in ["libssl.so", "libcrypto.so"] {
@@ -238,6 +240,20 @@ mod tests {
         let selected =
             system_openssl_libdir("x86_64-unknown-linux-gnu", |path| Ok(path.into())).unwrap();
         assert_eq!(selected, Path::new("/usr/lib").join("x86_64-linux-gnu"));
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn openssl_prefers_reviewed_openssl3_directory_over_flat_fallback() {
+        let selected = system_openssl_libdir("x86_64-unknown-linux-gnu", |path| {
+            if path.starts_with("/usr/lib/openssl-3") {
+                Ok(path.into())
+            } else {
+                Err(io::ErrorKind::NotFound.into())
+            }
+        })
+        .unwrap();
+        assert_eq!(selected, Path::new("/usr/lib/openssl-3"));
     }
 
     #[test]

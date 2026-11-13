@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXOPENSSL3-1",
+  "title": "Prefer the reviewed OpenSSL 3 system library directory during native qualification",
+  "status": "implemented_pending_production_qualification",
+  "native_worker": "codex-prod-openssl3",
+  "owner": "codex-prod-openssl3",
+  "created_by": "Codex",
+  "created_unix": 1794550987,
+  "base_commit": "2a90ca35beb790d40d2d2c3a298705648ba86929",
+  "scopes": [
+    ".agents/tasks/T-CODEXOPENSSL3-1.json",
+    "xtask/src/compiler_env.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "acceptance": "System OpenSSL selection must prefer the reviewed OpenSSL 3 directory when the multiarch directory is absent, reject foreign-target flat libraries, and leave the ELF gate with libssl.so.3/libcrypto.so.3 imports."
+}
