@@ -1,0 +1,47 @@
+{
+  "id": "T-CLAUDEREL067-2",
+  "feature_id": "F-CORE-RELEASE-0.21.67-1",
+  "title": "Prepare Susi Core v0.21.67 release bump on snapshot v0-21-67-rc2",
+  "goal": "Bump Susi Core version metadata from 0.21.66 to 0.21.67 across the 12 allowed release bump files atop snapshot v0-21-67-rc2 (main 60ee8257798474e32847deb71ea69b491eb07eb9, which carries the Linux cleanup-sweep fix T-CLAUDEREL067-1 that failed rc1 qualification) for exact-tree Linux x86_64 release qualification.",
+  "state": "done",
+  "status": "completed",
+  "owner": "CLAUDEREL067",
+  "created_by": "CLAUDEREL067",
+  "created_unix": 1794542828,
+  "updated_unix": 1794542828,
+  "size": "s",
+  "base": "60ee8257798474e32847deb71ea69b491eb07eb9",
+  "deps": [
+    "T-CLAUDEREL067-1"
+  ],
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CLAUDEREL067-2.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "limitations": [
+    "Windows x86_64 reference build and qualification are owed on a Windows x86_64 host."
+  ]
+}

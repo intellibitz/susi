@@ -1,0 +1,49 @@
+{
+  "id": "T-CLAUDEREL067-3",
+  "feature_id": "F-CORE-RELEASE-RECORD-0.21.67-1",
+  "title": "Record Susi Core v0.21.67 and advance main to 0.21.67",
+  "goal": "Land releases/v0.21.67.json with the Linux x86_64 reference digests, the qualification record of the published immutable tag v0.21.67 (6e9e591a86cafbd4a12bb1c5413eff37885e9483), and the release branch's version bump on main, listing Windows x86_64 under missing_targets.",
+  "state": "done",
+  "status": "completed",
+  "owner": "CLAUDEREL067",
+  "created_by": "CLAUDEREL067",
+  "created_unix": 1794543099,
+  "updated_unix": 1794543099,
+  "size": "s",
+  "deps": [
+    "T-CLAUDEREL067-2"
+  ],
+  "scopes": [
+    ".agents/evidence.json",
+    ".agents/identity.json",
+    ".agents/roadmap.json",
+    ".agents/tasks/T-CLAUDEREL067-2.json",
+    ".agents/tasks/T-CLAUDEREL067-3.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "crates/susi-daemon/Cargo.toml",
+    "crates/susi-gawd/Cargo.toml",
+    "crates/susi-gemi/Cargo.toml",
+    "crates/susi-gmcp/Cargo.toml",
+    "crates/susi-harness/Cargo.toml",
+    "crates/susi-server/Cargo.toml",
+    "releases/qualification/v0.21.67.json",
+    "releases/v0.21.67.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "release_records"
+    ]
+  },
+  "limitations": [
+    "Windows x86_64 reference build and qualification are owed on a Windows x86_64 host."
+  ]
+}
