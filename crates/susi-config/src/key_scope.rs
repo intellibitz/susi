@@ -59,11 +59,13 @@ impl KeyRef {
             let valid_name = if scope == KeyScope::Vault {
                 !name.starts_with('/')
                     && !name.ends_with('/')
+                    && !name.contains('\\')
+                    && !name.contains(':')
                     && !name.contains("..")
                     && name.split('/').count() <= 2
                     && name.split('/').all(|seg| !seg.trim().is_empty())
             } else {
-                !name.contains('/')
+                !name.contains(['/', '\\', ':']) && name != "." && name != ".."
             };
             if !valid_name {
                 return Err(EaiError::config(

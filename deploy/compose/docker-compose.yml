@@ -18,6 +18,10 @@ services:
       GCM_INTERACTIVE: never
       SSH_ASKPASS_REQUIRE: never
       CREDENTIALS_DIRECTORY: /run/secrets
+      SUSI_CREDENTIALS_DIRECTORY: /run/secrets
+      SUSI_VAULT_KEY: ${SUSI_VAULT_KEY:-}
+      SUSI_VAULT_PASSPHRASE: ${SUSI_VAULT_PASSPHRASE:-}
+      SUSI_VAULT_KDBX_PASSPHRASE: ${SUSI_VAULT_KDBX_PASSPHRASE:-}
       # engines are loopback siblings — same zero-config discovery the
       # bare-metal path uses, just at compose-assigned ports
       OLLAMA_HOST: http://ollama:11434
@@ -25,6 +29,7 @@ services:
     volumes:
       - susi-home:/susi
       - models:/models:ro
+      - susi-secrets:/run/secrets:ro
     ports:
       - "9090:9090"
     restart: unless-stopped
@@ -82,3 +87,4 @@ services:
 volumes:
   susi-home:
   models:
+  susi-secrets:

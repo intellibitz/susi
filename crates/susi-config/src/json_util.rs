@@ -43,6 +43,10 @@ pub fn create_private_dir(path: &Path) -> std::io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     }
+    #[cfg(windows)]
+    {
+        let _ = winapi::acl::restrict_to_current_user(path);
+    }
     Ok(())
 }
 

@@ -10,8 +10,9 @@ ENV SUSI_HOME=/susi \
     GIT_TERMINAL_PROMPT=0 \
     GCM_INTERACTIVE=never \
     SSH_ASKPASS_REQUIRE=never \
-    CREDENTIALS_DIRECTORY=/run/secrets
+    CREDENTIALS_DIRECTORY=/run/secrets \
+    SUSI_CREDENTIALS_DIRECTORY=/run/secrets
 VOLUME ["/susi"]
 EXPOSE 9090
 ENTRYPOINT ["susi"]
-CMD ["daemon", "run"]
+CMD ["daemon-start", "--workspace", "/susi"]

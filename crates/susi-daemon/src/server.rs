@@ -964,18 +964,9 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                 // back on the primary's substrate root and canonical ports.
                 .args(std::env::vars_os().filter_map(|(k, v)| {
                     let k = k.to_string_lossy();
-                    let is_secret = matches!(
-                        k.as_ref(),
-                        "SUSI_VAULT_KEY"
-                            | "SUSI_VAULT_KDBX_PASSPHRASE"
-                            | "SUSI_KDBX_PASSPHRASE"
-                            | "SUSI_COMMERCIAL_SECRET"
-                            | "SUSI_CUSTOMER_LICENSE_SIGNING_KEY"
-                    ) || k.ends_with("_SECRET")
-                        || k.ends_with("_API_KEY")
-                        || k.ends_with("_SIGNING_KEY");
-                    (!is_secret && (k.starts_with("SUSI_") || k.starts_with("XDG_")))
-                        .then(|| format!("--setenv={k}={}", v.to_string_lossy()))
+                    (!is_systemd_secret_var(k.as_ref())
+                        && (k.starts_with("SUSI_") || k.starts_with("XDG_")))
+                    .then(|| format!("--setenv={k}={}", v.to_string_lossy()))
                 }));
             // Provider keys ride in an owner-only file, never on argv
             // (`provider_key_env_body`); it is removed once the daemon is up.
@@ -2697,7 +2688,7 @@ const DAEMON_KEY_ENV_FILE: &str = ".daemon-start.env";
 /// `--setenv` on argv, where any local user could read them from
 /// `/proc/<pid>/cmdline`. A value systemd would parse differently (a quote,
 /// backslash or control character) is skipped by name, never written altered.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(test)]
 fn provider_key_env_body(vars: impl IntoIterator<Item = (String, String)>) -> Option<String> {
     let mut keys: Vec<(String, String)> = vars
         .into_iter()
@@ -2729,30 +2720,100 @@ fn provider_key_env_body(vars: impl IntoIterator<Item = (String, String)>) -> Op
 }
 
 #[cfg(any(target_os = "linux", test))]
+fn is_systemd_secret_var(k: &str) -> bool {
+    matches!(
+        k,
+        "SUSI_VAULT_KEY"
+            | "SUSI_VAULT_PASSPHRASE"
+            | "SUSI_VAULT_KDBX_PASSPHRASE"
+            | "SUSI_KDBX_PASSPHRASE"
+            | "SUSI_COMMERCIAL_SECRET"
+            | "SUSI_CUSTOMER_LICENSE_SIGNING_KEY"
+            | "SUSI_CUSTOMER_LICENSE_TOKEN"
+            | "SUSI_HOST_TOKEN"
+            | "SUSI_CELL_TOKEN"
+            | "SUSI_TURN_PASS"
+            | "SUSI_TURN_USER"
+            | "AI_GATEWAY_TOKEN"
+            | "LITELLM_MASTER_KEY"
+            | "OPENCLAW_GATEWAY_TOKEN"
+    ) || k.ends_with("_SECRET")
+        || k.ends_with("_API_KEY")
+        || k.ends_with("_SIGNING_KEY")
+        || k.ends_with("_ACCESS_KEY")
+        || k.ends_with("_SECRET_KEY")
+        || k.ends_with("_TOKEN")
+        || k.ends_with("_PASSWORD")
+        || k.ends_with("_PASS")
+        || k.ends_with("_CREDENTIAL")
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn should_forward_to_daemon_env_file(name: &str) -> bool {
+    let valid = !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+    if !valid {
+        return false;
+    }
+    if is_systemd_secret_var(name)
+        || name.starts_with("AWS_")
+        || name.starts_with("AZURE_")
+        || name.starts_with("SUSI_TURN_")
+        || name.starts_with("SUSI_VAULT_")
+        || name.starts_with("SUSI_KDBX_")
+    {
+        return true;
+    }
+    matches!(
+        name,
+        "ANTHROPIC_WORKSPACE_ID"
+            | "OPENAI_ORGANIZATION"
+            | "OPENAI_ORG_ID"
+            | "GOOGLE_APPLICATION_CREDENTIALS"
+            | "CLOUDSDK_CORE_PROJECT"
+            | "DOCKER_HOST"
+            | "KUBECONFIG"
+            | "CREDENTIALS_DIRECTORY"
+            | "SUSI_CREDENTIALS_DIRECTORY"
+            | "SSH_AUTH_SOCK"
+            | "GH_TOKEN"
+            | "GITHUB_TOKEN"
+            | "GITHUB_PERSONAL_ACCESS_TOKEN"
+            | "HF_TOKEN"
+            | "HUGGINGFACE_HUB_TOKEN"
+            | "HTTP_PROXY"
+            | "HTTPS_PROXY"
+            | "ALL_PROXY"
+            | "NO_PROXY"
+            | "SSL_CERT_FILE"
+            | "SSL_CERT_DIR"
+            | "NODE_EXTRA_CA_CERTS"
+    )
+}
+
+#[cfg(any(target_os = "linux", test))]
 fn daemon_env_file_body(vars: Vec<(String, String)>) -> String {
-    let mut body = provider_key_env_body(vars.clone()).unwrap_or_default();
-    for key in [
-        "SUSI_VAULT_KEY",
-        "SUSI_VAULT_KEY_FILE",
-        "SUSI_VAULT_KDBX_PASSPHRASE",
-        "SUSI_KDBX_PASSPHRASE",
-        "CREDENTIALS_DIRECTORY",
-        "SSH_AUTH_SOCK",
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
-        "GITHUB_PERSONAL_ACCESS_TOKEN",
-        "HF_TOKEN",
-        "HUGGINGFACE_HUB_TOKEN",
-    ] {
-        if let Some((_, val)) = vars.iter().find(|(k, _)| k == key) {
-            let plain = !val.is_empty()
-                && !val
-                    .chars()
-                    .any(|c| c.is_control() || matches!(c, '\'' | '"' | '\\'));
-            if plain {
-                body.push_str(&format!("{key}='{val}'\n"));
-            }
+    let mut selected = std::collections::BTreeMap::<String, String>::new();
+    for (name, val) in vars {
+        if !should_forward_to_daemon_env_file(&name) || val.is_empty() {
+            continue;
         }
+        let plain = !val
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '\'' | '"' | '\\'));
+        if plain {
+            selected.insert(name, val);
+        } else if name.ends_with("_API_KEY") {
+            warn!(
+                "[SusiDaemon] {name} not passed to the daemon: its value has a quote, backslash or control character"
+            );
+        }
+    }
+    let mut body = String::new();
+    for (name, val) in selected {
+        body.push_str(&format!("{name}='{val}'\n"));
     }
     body.push_str("SUSI_UNATTENDED='1'\n");
     for (k, v) in susi_paths::console::NON_INTERACTIVE_ENV {
@@ -2871,12 +2932,28 @@ mod tests {
             ("DEEPSEEK_API_KEY".to_string(), "sk-deep".to_string()),
             ("GITHUB_TOKEN".to_string(), "ghp-test".to_string()),
             ("SUSI_VAULT_KEY".to_string(), "vk-test".to_string()),
+            ("SUSI_HOST_TOKEN".to_string(), "host-tok".to_string()),
+            ("SUSI_TURN_PASS".to_string(), "turn-pass".to_string()),
+            ("ANTHROPIC_WORKSPACE_ID".to_string(), "ws-ant".to_string()),
+            ("AWS_SECRET_ACCESS_KEY".to_string(), "aws-sec".to_string()),
+            (
+                "SUSI_CREDENTIALS_DIRECTORY".to_string(),
+                "/run/secrets".to_string(),
+            ),
         ]);
         assert!(full.contains("DEEPSEEK_API_KEY='sk-deep'\n"));
         assert!(full.contains("GITHUB_TOKEN='ghp-test'\n"));
         assert!(full.contains("SUSI_VAULT_KEY='vk-test'\n"));
+        assert!(full.contains("SUSI_HOST_TOKEN='host-tok'\n"));
+        assert!(full.contains("SUSI_TURN_PASS='turn-pass'\n"));
+        assert!(full.contains("ANTHROPIC_WORKSPACE_ID='ws-ant'\n"));
+        assert!(full.contains("AWS_SECRET_ACCESS_KEY='aws-sec'\n"));
+        assert!(full.contains("SUSI_CREDENTIALS_DIRECTORY='/run/secrets'\n"));
         assert!(full.contains("SUSI_UNATTENDED='1'\n"));
         assert!(full.contains("GIT_TERMINAL_PROMPT='0'\n"));
+        assert!(is_systemd_secret_var("SUSI_HOST_TOKEN"));
+        assert!(is_systemd_secret_var("SUSI_TURN_PASS"));
+        assert!(!is_systemd_secret_var("SUSI_HOME"));
     }
 
     /// The daemon half of [`a_dead_daemons_ports_are_free_while_its_child_lives`]:

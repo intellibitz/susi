@@ -96,14 +96,16 @@ impl BenchmarkRunner {
     /// `api_key` field and is designed for unauthenticated LAN inference
     /// servers (vLLM/SGLang/etc.), not gated cloud APIs.
     pub fn benchmark_cloud(prompt: &str) -> EaiResult<Option<ModelBenchmarkResult>> {
-        let api_base = match std::env::var("SUSI_BENCH_CLOUD_API_BASE") {
+        let api_base = match crate::susi_config::env_or_cloud_env("SUSI_BENCH_CLOUD_API_BASE") {
             Ok(v) if !v.trim().is_empty() => v,
             _ => return Ok(None),
         };
         let api_key =
             crate::susi_config::env_or_cloud_env("SUSI_BENCH_CLOUD_API_KEY").unwrap_or_default();
-        let model =
-            std::env::var("SUSI_BENCH_CLOUD_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
+        let model = crate::susi_config::env_or_cloud_env("SUSI_BENCH_CLOUD_MODEL")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| "gpt-4o-mini".to_string());
 
         let payload = susi_adapters_llm::inference_wire::openai_chat_body(&model, prompt, 1024);
 

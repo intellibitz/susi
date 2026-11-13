@@ -482,7 +482,56 @@ them — leave the finished changes in the working tree and summarize."
 /// which may be another company's, and `env` or `printenv` once handed it
 /// every key in the harness's environment.
 fn withheld_variables() -> Vec<&'static str> {
-    crate::fleet::key_names(crate::providers::Registry::builtin())
+    let mut vars = crate::fleet::key_names(crate::providers::Registry::builtin());
+    for extra in [
+        "SUSI_VAULT_KEY",
+        "SUSI_VAULT_KEY_FILE",
+        "SUSI_VAULT_PASSPHRASE",
+        "SUSI_VAULT_PASSPHRASE_FILE",
+        "SUSI_VAULT_KDBX_PASSPHRASE",
+        "SUSI_VAULT_KDBX_PASSPHRASE_FILE",
+        "SUSI_KDBX_PASSPHRASE",
+        "SUSI_KDBX_PASSPHRASE_FILE",
+        "SUSI_COMMERCIAL_SECRET",
+        "SUSI_CUSTOMER_LICENSE_SIGNING_KEY",
+        "SUSI_CUSTOMER_LICENSE_TOKEN",
+        "SUSI_HOST_TOKEN",
+        "SUSI_CELL_TOKEN",
+        "SUSI_TURN_USER",
+        "SUSI_TURN_PASS",
+        "ANTHROPIC_WORKSPACE_ID",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "HF_TOKEN",
+        "HUGGINGFACE_HUB_TOKEN",
+        "GROQ_API_KEY",
+        "MISTRAL_API_KEY",
+        "XAI_API_KEY",
+        "ZHIPU_API_KEY",
+        "ZAI_API_KEY",
+        "FIREWORKS_API_KEY",
+        "TOGETHER_API_KEY",
+        "CEREBRAS_API_KEY",
+        "COHERE_API_KEY",
+        "PERPLEXITY_API_KEY",
+        "MINIMAX_API_KEY",
+        "LITELLM_MASTER_KEY",
+        "OPENCLAW_GATEWAY_TOKEN",
+        "BRAVE_API_KEY",
+        "TAVILY_API_KEY",
+        "CONTEXT7_API_KEY",
+        "SENTRY_ACCESS_TOKEN",
+        "SENTRY_AUTH_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AZURE_CLIENT_SECRET",
+    ] {
+        if !vars.contains(&extra) {
+            vars.push(extra);
+        }
+    }
+    vars
 }
 
 /// Run `cmd_str` in the worker's shell, in `workspace`, without the
@@ -930,6 +979,11 @@ mod tests {
             "MOONSHOT_API_KEY",
             "KIMI_API_KEY",
             "OPENROUTER_API_KEY",
+            "SUSI_VAULT_KEY",
+            "SUSI_HOST_TOKEN",
+            "SUSI_TURN_PASS",
+            "GH_TOKEN",
+            "HF_TOKEN",
         ] {
             assert!(withheld.contains(&name), "{name} missing from {withheld:?}");
         }

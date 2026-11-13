@@ -422,6 +422,12 @@ impl StdioTransport {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        for (k, v) in susi_config::cloud_env_overlay() {
+            if std::env::var_os(&k).is_none() {
+                cmd.env(k, v);
+            }
+        }
+        cmd.env("SUSI_UNATTENDED", "1");
         susi_paths::console::apply_non_interactive_env(&mut cmd);
         let mut child = cmd
             .spawn()

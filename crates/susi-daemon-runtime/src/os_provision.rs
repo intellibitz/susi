@@ -108,6 +108,12 @@ pub struct CloudInventory {
 fn run_cli(bin: &str, args: &[&str]) -> Result<String, String> {
     let mut cmd = background_command(bin);
     cmd.args(args);
+    for (k, v) in susi_config::cloud_env_overlay() {
+        if std::env::var_os(&k).is_none() {
+            cmd.env(k, v);
+        }
+    }
+    cmd.env("SUSI_UNATTENDED", "1");
     apply_non_interactive_env(&mut cmd);
     let out = run_output_within(&mut cmd, None, Duration::from_secs(60))
         .map_err(|e| format!("{bin}: {e}"))?;

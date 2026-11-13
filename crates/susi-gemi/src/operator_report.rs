@@ -267,12 +267,16 @@ fn probe_endpoint(host: &str, port: u16, timeout_ms: u64) -> (bool, u64) {
     (false, 0)
 }
 
+fn has_secret_env(name: &str) -> bool {
+    crate::susi_config::env_or_cloud_env(name).is_ok_and(|v| !v.trim().is_empty())
+}
+
 /// Sample providers, GPU, and current task queue.
 fn sample_snapshot(repo_root: &Path) -> TopSnapshot {
     let mut providers = Vec::new();
 
     // Measure live provider health and latency when configured
-    if std::env::var_os("OPENAI_API_KEY").is_some() {
+    if has_secret_env("OPENAI_API_KEY") {
         let (healthy, latency_ms) = probe_endpoint("api.openai.com", 443, 600);
         providers.push(ProviderRow {
             name: "openai".to_string(),
@@ -280,7 +284,7 @@ fn sample_snapshot(repo_root: &Path) -> TopSnapshot {
             latency_ms,
         });
     }
-    if std::env::var_os("GEMINI_API_KEY").is_some() {
+    if has_secret_env("GEMINI_API_KEY") || has_secret_env("GOOGLE_API_KEY") {
         let (healthy, latency_ms) = probe_endpoint("generativelanguage.googleapis.com", 443, 600);
         providers.push(ProviderRow {
             name: "gemini".to_string(),
@@ -288,7 +292,7 @@ fn sample_snapshot(repo_root: &Path) -> TopSnapshot {
             latency_ms,
         });
     }
-    if std::env::var_os("ANTHROPIC_API_KEY").is_some() {
+    if has_secret_env("ANTHROPIC_API_KEY") {
         let (healthy, latency_ms) = probe_endpoint("api.anthropic.com", 443, 600);
         providers.push(ProviderRow {
             name: "anthropic".to_string(),
@@ -296,7 +300,7 @@ fn sample_snapshot(repo_root: &Path) -> TopSnapshot {
             latency_ms,
         });
     }
-    if std::env::var_os("DEEPSEEK_API_KEY").is_some() {
+    if has_secret_env("DEEPSEEK_API_KEY") {
         let (healthy, latency_ms) = probe_endpoint("api.deepseek.com", 443, 600);
         providers.push(ProviderRow {
             name: "deepseek".to_string(),

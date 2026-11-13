@@ -71,7 +71,7 @@ fn auth_headers_for(protocol: &str, key: &str, workspace: Option<&str>) -> Vec<(
 
 /// The workspace a workspace-scoped Anthropic key must name.
 fn anthropic_workspace() -> Option<String> {
-    std::env::var("ANTHROPIC_WORKSPACE_ID")
+    susi_config::env_or_cloud_env("ANTHROPIC_WORKSPACE_ID")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())

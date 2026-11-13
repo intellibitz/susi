@@ -633,9 +633,8 @@ fn models_headers(provider: &ProviderRecord, key: Option<&str>) -> Vec<(String, 
 
 /// `ANTHROPIC_WORKSPACE_ID`, trimmed, when it names a workspace.
 fn anthropic_workspace() -> Option<String> {
-    std::env::var("ANTHROPIC_WORKSPACE_ID")
-        .ok()
-        .map(|value| value.trim().to_string())
+    crate::secrets::lookup("ANTHROPIC_WORKSPACE_ID")
+        .map(|value| value.expose().trim().to_string())
         .filter(|value| !value.is_empty())
 }
 
