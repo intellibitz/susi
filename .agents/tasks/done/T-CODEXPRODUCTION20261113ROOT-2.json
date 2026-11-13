@@ -4,11 +4,6 @@
   "goal": "Make the default slim core build pass the production workflow clippy gate after restoring local-engine-only provisioning.",
   "size": "s",
   "deps": [],
-  "reuse": {
-    "decision": "existing",
-    "searched": "Inspected the existing local-engine feature gate, tokenizer validator, lifecycle tests, and the workflow clippy command that selected the affected core packages.",
-    "reason": "The provisioning helpers already implement the required behavior; the slim build only needed feature/test cfg boundaries and the existing tokenizer validator wired into the already-owned cache path."
-  },
   "accept": {
     "cmd": [
       "cargo",
@@ -34,5 +29,15 @@
     ]
   },
   "created_by": "CODEXPRODUCTION20261113ROOT",
-  "created_unix": 1794546931
+  "created_unix": 1794546931,
+  "closed": {
+    "at_unix": 1794547027,
+    "commit": "b63c78be1d3700af64030b4eb85368c98fe00638",
+    "by": "CODEXPRODUCTION20261113ROOT"
+  },
+  "reuse": {
+    "decision": "existing",
+    "reason": "The provisioning helpers already implement the required behavior; the slim build only needed feature/test cfg boundaries and the existing tokenizer validator wired into the already-owned cache path.",
+    "searched": "Inspected the existing local-engine feature gate, tokenizer validator, lifecycle tests, and the workflow clippy command that selected the affected core packages."
+  }
 }
