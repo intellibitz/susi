@@ -1,0 +1,38 @@
+{
+  "id": "T-CODEXPRODUCTION20261113ROOT-2",
+  "title": "Keep slim core release clippy green",
+  "goal": "Make the default slim core build pass the production workflow clippy gate after restoring local-engine-only provisioning.",
+  "size": "s",
+  "deps": [],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inspected the existing local-engine feature gate, tokenizer validator, lifecycle tests, and the workflow clippy command that selected the affected core packages.",
+    "reason": "The provisioning helpers already implement the required behavior; the slim build only needed feature/test cfg boundaries and the existing tokenizer validator wired into the already-owned cache path."
+  },
+  "accept": {
+    "cmd": [
+      "cargo",
+      "clippy",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "-p",
+      "susi-daemon",
+      "-p",
+      "susi-gawd",
+      "-p",
+      "susi-gawd-a2a",
+      "-p",
+      "susi-gawd-agents",
+      "-p",
+      "susi-gawd-swarm",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ]
+  },
+  "created_by": "CODEXPRODUCTION20261113ROOT",
+  "created_unix": 1794546931
+}

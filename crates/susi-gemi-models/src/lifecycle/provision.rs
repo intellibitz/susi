@@ -8,6 +8,7 @@
 //! `susi scout-model <url>`).
 
 use crate::susi_error::EaiResult;
+#[cfg(any(feature = "local-engine", test))]
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -142,6 +143,7 @@ impl ModelManager {
         })
     }
 
+    #[cfg(any(feature = "local-engine", test))]
     pub(crate) fn ensure_ladder_tokenizer(
         step: &crate::hardware::ModelLadderStep,
         models_dir: &Path,
@@ -153,7 +155,7 @@ impl ModelManager {
         if path.exists() {
             crate::model_license::verify_local(&path)
                 .map_err(crate::susi_error::EaiError::governance)?;
-            let parsed = false;
+            let parsed = Self::valid_tokenizer(&path);
             if parsed {
                 return Ok(());
             }
@@ -236,9 +238,9 @@ impl ModelManager {
         #[cfg(not(feature = "local-engine"))]
         {
             let _ = workspace;
-            return Err(crate::susi_error::EaiError::config(
+            Err(crate::susi_error::EaiError::config(
                 NO_LOCAL_ENGINE_FOR_STARTER,
-            ));
+            ))
         }
         #[cfg(feature = "local-engine")]
         {
@@ -295,6 +297,7 @@ impl ModelManager {
         }
     }
 
+    #[cfg(any(feature = "local-engine", test))]
     pub(crate) fn starter_download_plan(
         host: &crate::zc_first_model::FirstRunHost,
         models_dir: &Path,
