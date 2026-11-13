@@ -11,7 +11,7 @@ use std::env;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{Child, Command, ExitCode, Stdio};
 
 #[path = "../compiler_env.rs"]
 mod compiler_env;
@@ -1118,6 +1118,10 @@ fn smoke(binary: &Path, scratch: &Path) -> Result<String> {
 }
 
 const INFERENCE_PROMPTS: [&str; 2] = ["What is 2+2?", "Write one short sentence about a red kite."];
+/// Optional commercial sidecar used when core's supported local engine is
+/// served by the sibling GPU-fabric plug host rather than an in-process engine.
+const QUALIFICATION_PLUG_HOST_ENV: &str = "SUSI_QUALIFICATION_PLUG_HOST";
+const PLUG_HOST_RUN_SECONDS: &str = "900";
 const STARTER_FILES: [&str; 4] = [
     "qwen2.5-0.5b-instruct-q4_0.gguf",
     "qwen2.5-0.5b-instruct-q4_0.license.json",
@@ -1159,7 +1163,7 @@ fn verify_runtime_stopped(runtime: &Path) -> Result<()> {
     }
 }
 
-fn verify_inference_evidence(traces: &str, last: &str, audit: &str, stdout: &str) -> Result<()> {
+fn verify_inference_answers(traces: &str, last: &str, stdout: &str) -> Result<()> {
     let traces = traces
         .lines()
         .map(serde_json::from_str::<serde_json::Value>)
@@ -1197,6 +1201,10 @@ fn verify_inference_evidence(traces: &str, last: &str, audit: &str, stdout: &str
     {
         return Err("inference answers failed arithmetic/prose semantic acceptance".into());
     }
+    Ok(())
+}
+
+fn verify_in_process_inference_evidence(audit: &str) -> Result<()> {
     let generations = audit
         .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
@@ -1214,6 +1222,160 @@ fn verify_inference_evidence(traces: &str, last: &str, audit: &str, stdout: &str
     Ok(())
 }
 
+fn verify_external_plug_evidence(plug_stdout: &str, plug_stderr: &str) -> Result<()> {
+    let joined = plug_stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .any(|row| {
+            row["binary"] == "susi-plug-host"
+                && row["served"].as_array().is_some_and(|served| {
+                    served
+                        .iter()
+                        .any(|topic| topic == "gpu_fabric.local_engine.*")
+                })
+        });
+    if !joined {
+        return Err("commercial plug host did not publish the local-engine capability".into());
+    }
+    if !plug_stderr.contains("loaded weights:") {
+        return Err("commercial plug host did not load the starter GGUF".into());
+    }
+    let successful_requests = plug_stderr
+        .lines()
+        .filter(|line| line.contains("plug-host: gpu_fabric.local_engine.infer_stream -> ok"))
+        .count();
+    if successful_requests < INFERENCE_PROMPTS.len() {
+        return Err(format!(
+            "commercial plug host recorded only {successful_requests} successful local-engine requests"
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn verify_inference_evidence(traces: &str, last: &str, audit: &str, stdout: &str) -> Result<()> {
+    verify_inference_answers(traces, last, stdout)?;
+    verify_in_process_inference_evidence(audit)
+}
+
+fn qualification_plug_host() -> Result<Option<PathBuf>> {
+    let Some(value) = env::var_os(QUALIFICATION_PLUG_HOST_ENV) else {
+        return Ok(None);
+    };
+    let path = PathBuf::from(value);
+    let path = path
+        .canonicalize()
+        .map_err(|error| format!("{QUALIFICATION_PLUG_HOST_ENV} is not usable: {error}"))?;
+    let metadata = fs::metadata(&path)?;
+    if !metadata.is_file() {
+        return Err(
+            format!("{QUALIFICATION_PLUG_HOST_ENV} must name a regular executable file").into(),
+        );
+    }
+    if metadata.len() == 0 || metadata.len() > ARTIFACT_BUDGET_BYTES {
+        return Err(format!(
+            "{QUALIFICATION_PLUG_HOST_ENV} exceeds the qualification artifact budget"
+        )
+        .into());
+    }
+    Ok(Some(path))
+}
+
+fn copy_command_environment(source: &Command, target: &mut Command) {
+    for (key, value) in source.get_envs() {
+        if let Some(value) = value {
+            target.env(key, value);
+        }
+    }
+}
+
+struct QualificationPlugHost {
+    child: Option<Child>,
+    stdout: PathBuf,
+    stderr: PathBuf,
+}
+
+impl QualificationPlugHost {
+    fn start(
+        binary: &Path,
+        source: &Command,
+        workspace: &Path,
+        bus_root: &Path,
+        scratch: &Path,
+    ) -> Result<Self> {
+        let stdout = scratch.join("plug-host.stdout");
+        let stderr = scratch.join("plug-host.stderr");
+        let mut command = Command::new(binary);
+        command
+            .env_clear()
+            .current_dir(workspace)
+            .args([
+                "--bus-root",
+                text(bus_root)?,
+                "--for-seconds",
+                PLUG_HOST_RUN_SECONDS,
+                "--verbose",
+            ])
+            .stdin(Stdio::null())
+            .stdout(fs::File::create(&stdout)?)
+            .stderr(fs::File::create(&stderr)?);
+        copy_command_environment(source, &mut command);
+        let child = command.spawn()?;
+        let mut host = Self {
+            child: Some(child),
+            stdout,
+            stderr,
+        };
+        host.wait_until_joined(bus_root)?;
+        Ok(host)
+    }
+
+    fn wait_until_joined(&mut self, bus_root: &Path) -> Result<()> {
+        let child = self.child.as_mut().ok_or("plug host child is missing")?;
+        let rendezvous = bus_root.join(child.id().to_string());
+        let started = std::time::Instant::now();
+        loop {
+            if let Some(status) = child.try_wait()? {
+                let stderr = bounded_evidence(&self.stderr).unwrap_or_default();
+                return Err(format!(
+                    "commercial plug host exited before joining the bus ({status}): {stderr}"
+                )
+                .into());
+            }
+            let published = fs::read_dir(rendezvous.join("prefixes"))
+                .ok()
+                .is_some_and(|mut entries| entries.next().is_some());
+            if published {
+                return Ok(());
+            }
+            if started.elapsed() >= HEALTH_BUDGET {
+                return Err("commercial plug host did not join the qualification bus".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    fn stop(&mut self) -> Result<()> {
+        let Some(mut child) = self.child.take() else {
+            return Ok(());
+        };
+        if child.try_wait()?.is_none() {
+            child.kill()?;
+        }
+        let _ = child.wait()?;
+        Ok(())
+    }
+}
+
+impl Drop for QualificationPlugHost {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
     let artifact_before = file_digest(binary)?;
     let native_home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
@@ -1229,6 +1391,8 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
         .map(PathBuf::from)
         .unwrap_or(default_cache);
     let cached = STARTER_FILES.iter().all(|name| cache.join(name).is_file());
+    let plug_binary = qualification_plug_host()?;
+    let plug_artifact_before = plug_binary.as_deref().map(file_digest).transpose()?;
     let scratch = attempt.join("inference");
     let home = scratch.join("home");
     let runtime = home.join(".susi");
@@ -1331,6 +1495,33 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
             }
         }
     }
+    if cached && plug_binary.is_some() {
+        let mut setup = Command::new(binary);
+        setup.env_clear().current_dir(&workspace).arg("start");
+        copy_command_environment(&command, &mut setup);
+        if let Err(error) = measured_health(setup, &scratch, "plug-bus-start", HEALTH_BUDGET, b"") {
+            let _ = measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"");
+            reservation.confirm_stopped(&runtime)?;
+            return Err(error);
+        }
+    }
+    let mut plug_host = match plug_binary.as_deref() {
+        Some(path) => match QualificationPlugHost::start(
+            path,
+            &command,
+            &workspace,
+            &runtime.join("bus"),
+            &scratch,
+        ) {
+            Ok(host) => Some(host),
+            Err(error) => {
+                let _ = measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"");
+                reservation.confirm_stopped(&runtime)?;
+                return Err(error);
+            }
+        },
+        None => None,
+    };
     // Core has no interactive prompt: each prompt is a one-shot goal piped to
     // the exact candidate under the same isolated runtime state, in order.
     // Both prompts share the one session budget; each run gets what is left.
@@ -1358,9 +1549,14 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
         .collect::<Result<Vec<_>>>();
     // Even rejected candidates may have started their own services. Use only
     // their isolated runtime and reserved ports; never the installed profile.
+    let plug_stopped = plug_host
+        .as_mut()
+        .map(QualificationPlugHost::stop)
+        .transpose();
     let stopped = measured_health(cleanup, &scratch, "cleanup", HEALTH_BUDGET, b"");
     let cleanup_resources = stopped?;
     reservation.confirm_stopped(&runtime)?;
+    plug_stopped?;
     let resources = resources?
         .iter()
         .map(|report| serde_json::from_str::<serde_json::Value>(report))
@@ -1385,7 +1581,22 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
             }
         }
     }
-    verify_inference_evidence(&traces, &last, &audit, &stdout)?;
+    let plug_stdout = plug_host
+        .as_ref()
+        .map(|host| bounded_evidence(&host.stdout))
+        .transpose()?
+        .unwrap_or_default();
+    let plug_stderr = plug_host
+        .as_ref()
+        .map(|host| bounded_evidence(&host.stderr))
+        .transpose()?
+        .unwrap_or_default();
+    if plug_binary.is_some() {
+        verify_inference_answers(&traces, &last, &stdout)?;
+        verify_external_plug_evidence(&plug_stdout, &plug_stderr)?;
+    } else {
+        verify_inference_evidence(&traces, &last, &audit, &stdout)?;
+    }
     if !cached {
         for name in STARTER_FILES {
             let path = runtime.join("models").join(name);
@@ -1401,8 +1612,28 @@ fn inference_acceptance(binary: &Path, attempt: &Path) -> Result<String> {
     if file_digest(binary)? != artifact_before {
         return Err("candidate changed during inference acceptance".into());
     }
+    if let Some(path) = plug_binary.as_deref() {
+        if let Some(before) = plug_artifact_before.as_deref() {
+            if file_digest(path)? != before {
+                return Err("qualification plug host changed during inference acceptance".into());
+            }
+        }
+    }
+    let plug_evidence = match plug_binary.as_deref() {
+        Some(path) => serde_json::json!({
+            "binary": path.display().to_string(),
+            "sha256": plug_artifact_before.as_deref(),
+            "stdout_sha256": digest(plug_stdout.as_bytes()),
+            "stderr_sha256": digest(plug_stderr.as_bytes()),
+            "stdout": plug_stdout,
+            "stderr": plug_stderr,
+        }),
+        None => serde_json::Value::Null,
+    };
     let evidence = serde_json::json!({
         "schema":"susi-inference-acceptance-v2", "artifact_sha256":artifact_before,
+        "backend":if plug_binary.is_some() {"commercial-plug-host"} else {"in-process-candle"},
+        "qualification_plug_host":plug_evidence,
         "provisioning":if cached {"copied-cache-validated-by-candidate"} else {"uncached-native-install-and-public-model-download"},
         "provisioning_resources":provisioning,"models":models,
         "cleanup_resources":serde_json::from_str::<serde_json::Value>(&cleanup_resources)?,
@@ -2187,6 +2418,29 @@ mod tests {
         )
         .is_err());
         assert!(verify_inference_evidence(&traces, &last, &audit, "2+2 equals 5.").is_err());
+    }
+
+    #[test]
+    fn external_plug_evidence_requires_real_local_engine_requests() {
+        let stdout = serde_json::json!({
+            "binary": "susi-plug-host",
+            "served": ["gpu_fabric.local_engine.*"]
+        })
+        .to_string();
+        let stderr = concat!(
+            "loaded weights: /scratch/model.gguf in 10 ms\n",
+            "plug-host: gpu_fabric.local_engine.infer_stream -> ok in 20 ms\n",
+            "plug-host: gpu_fabric.local_engine.infer_stream -> ok in 21 ms\n",
+        );
+        assert!(verify_external_plug_evidence(&stdout, stderr).is_ok());
+        assert!(
+            verify_external_plug_evidence(&stdout, &stderr.replace(" -> ok", " -> err")).is_err()
+        );
+        assert!(verify_external_plug_evidence(
+            &stdout.replace("gpu_fabric.local_engine.*", "agents.*"),
+            stderr
+        )
+        .is_err());
     }
 
     #[test]
