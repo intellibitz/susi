@@ -986,13 +986,9 @@ async fn establish<S: ServerHandler, T: Transport>(
                 "initialize request".to_string(),
             ));
         };
+        // Before a lifecycle exists a notification or stray response is
+        // ignored, never fatal: a 2026-07-28 client sends no `initialize`.
         let ClientJsonRpcMessage::Request(request) = message else {
-            // A notification or a stray response before any lifecycle earns
-            // no answer and establishes nothing, and it does not end the
-            // session either. A 2026-07-28 client never sends `initialize`:
-            // whatever it sends between its discovery probe and its first
-            // complete request arrives here, and ending the session on it
-            // (as this did) left that client talking to a closed pipe.
             continue;
         };
         let JsonRpcRequest {

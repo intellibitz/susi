@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDEREL067-4",
+  "title": "Keep the GMCP establish fix inside the lean-core line ceiling",
+  "goal": "T-CODEXGMCPROADMAP-90 grew susi-gmcp src to 25157 lines against the 25153 ceiling (tests/lean_core_ceilings.rs pillar_source_does_not_grow). Shorten the comment so the pillar stays under its ceiling, and re-record GMCP evidence on the final tree.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings",
+      "--test",
+      "gmcp_requirements"
+    ]
+  },
+  "created_by": "CLAUDEREL067",
+  "created_unix": 1794544064
+}
