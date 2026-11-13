@@ -19,5 +19,10 @@
     ]
   },
   "created_by": "CLAUDEREL067",
-  "created_unix": 1794544064
+  "created_unix": 1794544064,
+  "closed": {
+    "at_unix": 1794544247,
+    "commit": "d688a64855bf9b796e1d691d491c0d704b96b1d9",
+    "by": "CLAUDEREL067"
+  }
 }
