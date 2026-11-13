@@ -401,6 +401,78 @@ pub(crate) enum KeyCommands {
         /// Vendor or alias (e.g. fireworks, deepinfra)
         vendor: String,
     },
+    /// Cross-OS unattended encrypted vault & KeePassXC + Google Drive sync
+    Vault {
+        #[command(subcommand)]
+        action: VaultCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum VaultCommands {
+    /// Inspect vault state, OS unlock backend, Google Drive mirror, and plaintext risks (never prints secrets)
+    Status {
+        /// Output structured JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Enroll unattended host unlock (systemd-creds / DPAPI / secret-tool / keyfile) and optional KeePassXC DB/GDrive paths
+    Enroll {
+        /// Unlock backend: auto, systemd-creds, dpapi, secret-tool, or keyfile
+        #[arg(long)]
+        backend: Option<String>,
+        /// KeePassXC .kdbx database path (Personal vaults refused)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+        /// Portable KeePassXC .keyx / .key file path
+        #[arg(long)]
+        key_file: Option<std::path::PathBuf>,
+        /// Local Google Drive mirror .kdbx path for two-way sync
+        #[arg(long)]
+        gdrive_path: Option<std::path::PathBuf>,
+        /// Optional rclone remote path (e.g. gdrive:Vault/Automation.kdbx)
+        #[arg(long)]
+        rclone_remote: Option<String>,
+        /// Also enroll KeePassXC passphrase on this host (reads stdin if piped, or prompts once)
+        #[arg(long)]
+        enroll_kdbx_passphrase: bool,
+    },
+    /// Sync Google Drive <-> local .kdbx and seal entries into ~/.susi/vault.sealed.json
+    Sync {
+        /// Override KeePassXC .kdbx path
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+        /// Google Drive sync direction: auto, pull, or push
+        #[arg(long, default_value = "auto")]
+        direction: String,
+        /// Preview sync actions without modifying files
+        #[arg(long)]
+        dry_run: bool,
+        /// Output structured JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Migrate plaintext ~/.susi/cloud.env entries into ~/.susi/vault.sealed.json
+    MigrateCloudEnv {
+        /// Keep plaintext cloud.env instead of clearing migrated keys
+        #[arg(long)]
+        keep_plaintext: bool,
+    },
+    /// Write a cloud/container bootstrap key (0600) for SUSI_VAULT_KEY_FILE / Kubernetes Secret
+    InitCloudKey {
+        /// Path to write the 32-byte hex key (0600); if omitted writes ~/.susi/cloud-bootstrap.key
+        #[arg(long)]
+        key_out: Option<std::path::PathBuf>,
+    },
+    /// Run a child command with scoped secrets from the sealed vault injected directly into its env
+    Exec {
+        /// Client allowlist profile: claude, codex, gemini, gh, hf, vibe, cloud, commercial, or all
+        #[arg(long)]
+        client: Option<String>,
+        /// Command and arguments to execute (pass after `--`)
+        #[arg(trailing_var_arg = true, required = true)]
+        command: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]

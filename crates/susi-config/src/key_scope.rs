@@ -20,6 +20,8 @@ pub enum KeyScope {
     CloudEnv,
     /// Host file under the config dir (e.g. `api_token`), never copied out.
     HostFile,
+    /// Entry inside the AEAD-sealed `vault.sealed.json` (`key://vault/<name>` or `key://vault/<scope>/<name>`).
+    Vault,
 }
 
 /// A reference that configs and adapters may store — never the secret body.
@@ -40,21 +42,34 @@ impl KeyRef {
                 .split_once('/')
                 .ok_or_else(|| EaiError::config("key ref must be key://<scope>/<name>"))?;
             let name = name.trim();
-            if name.is_empty() || name.contains('/') {
-                return Err(EaiError::config(
-                    "key ref name must be a single path segment",
-                ));
+            if name.is_empty() {
+                return Err(EaiError::config("key ref name must not be empty"));
             }
             let scope = match scope {
                 "env" => KeyScope::Env,
                 "cloud" => KeyScope::CloudEnv,
                 "host" => KeyScope::HostFile,
+                "vault" => KeyScope::Vault,
                 other => {
                     return Err(EaiError::config(format!(
-                        "unknown key scope `{other}` (want env|cloud|host)"
+                        "unknown key scope `{other}` (want env|cloud|host|vault)"
                     )));
                 }
             };
+            let valid_name = if scope == KeyScope::Vault {
+                !name.starts_with('/')
+                    && !name.ends_with('/')
+                    && !name.contains("..")
+                    && name.split('/').count() <= 2
+                    && name.split('/').all(|seg| !seg.trim().is_empty())
+            } else {
+                !name.contains('/')
+            };
+            if !valid_name {
+                return Err(EaiError::config(
+                    "key ref name must be a single path segment (or <scope>/<name> for vault)",
+                ));
+            }
             return Ok(Self {
                 scope,
                 name: name.to_string(),
@@ -85,6 +100,7 @@ impl KeyRef {
             KeyScope::Env => "env",
             KeyScope::CloudEnv => "cloud",
             KeyScope::HostFile => "host",
+            KeyScope::Vault => "vault",
         };
         format!("key://{scope}/{}", self.name)
     }
@@ -148,6 +164,25 @@ pub fn resolve_key_ref(reference: &KeyRef, global_dir: &Path) -> EaiResult<Scope
             }
             trimmed
         }
+        KeyScope::Vault => {
+            let vault = super::vault_store::SealedVault::open(global_dir)
+                .map_err(EaiError::config)?
+                .ok_or_else(|| {
+                    EaiError::config(format!(
+                        "sealed vault missing while resolving {}",
+                        reference.uri()
+                    ))
+                })?;
+            vault
+                .lookup_any(&reference.name)
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    EaiError::config(format!(
+                        "entry {} not found in sealed vault",
+                        reference.uri()
+                    ))
+                })?
+        }
     };
     Ok(ScopedSecret {
         reference: reference.clone(),
@@ -186,7 +221,14 @@ mod tests {
         assert!(KeyRef::parse("key://env").is_err());
         assert!(KeyRef::parse("key://env/").is_err());
         assert!(KeyRef::parse("key://host/sub/token").is_err());
-        assert!(KeyRef::parse("key://vault/token").is_err());
+        assert!(KeyRef::parse("key://unknown/token").is_err());
+        let vault_ref = KeyRef::parse("key://vault/commercial/SUSI_COMMERCIAL_SECRET").unwrap();
+        assert_eq!(vault_ref.scope, KeyScope::Vault);
+        assert_eq!(
+            vault_ref.uri(),
+            "key://vault/commercial/SUSI_COMMERCIAL_SECRET"
+        );
+        assert!(KeyRef::parse("key://vault/a/b/c").is_err());
         assert!(KeyRef::parse("sk-live-secret-body").is_err());
         assert!(KeyRef::parse("123_BAD").is_err());
 
@@ -261,6 +303,7 @@ mod tests {
             (KeyScope::Env, "\"env\""),
             (KeyScope::CloudEnv, "\"cloud_env\""),
             (KeyScope::HostFile, "\"host_file\""),
+            (KeyScope::Vault, "\"vault\""),
         ] {
             let scope_json = serde_json::to_string(&scope).expect("serialize KeyScope");
             assert_eq!(scope_json, expected_wire);
@@ -300,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn key_ref_uri_formats_all_three_scopes_and_roundtrips_parse() {
+    fn key_ref_uri_formats_all_scopes_and_roundtrips_parse() {
         for (uri, scope, name) in [
             ("key://env/OPENAI_API_KEY", KeyScope::Env, "OPENAI_API_KEY"),
             (
@@ -309,11 +352,42 @@ mod tests {
                 "GEMINI_API_KEY",
             ),
             ("key://host/api_token", KeyScope::HostFile, "api_token"),
+            ("key://vault/token", KeyScope::Vault, "token"),
+            (
+                "key://vault/commercial/SUSI_COMMERCIAL_SECRET",
+                KeyScope::Vault,
+                "commercial/SUSI_COMMERCIAL_SECRET",
+            ),
         ] {
             let kr = KeyRef::parse(uri).unwrap();
             assert_eq!(kr.scope, scope);
             assert_eq!(kr.name, name);
             assert_eq!(kr.uri(), uri);
         }
+    }
+
+    #[test]
+    fn resolve_key_ref_reads_sealed_vault_entries() {
+        let _guard = crate::env_test_lock();
+        let dir = std::env::temp_dir().join(format!("susi_key_scope_vault_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let prev = std::env::var_os(super::super::vault_store::VAULT_KEY_ENV);
+        std::env::remove_var(super::super::vault_store::VAULT_KEY_ENV);
+
+        super::super::vault_store::enroll_master_key(&dir, Some("keyfile"), None).unwrap();
+        let mut vault = super::super::vault_store::SealedVault::open_or_init(&dir).unwrap();
+        vault.set("commercial", "SUSI_COMMERCIAL_SECRET", "sealed-comm-val");
+        vault.save(&dir).unwrap();
+
+        let kr = KeyRef::parse("key://vault/commercial/SUSI_COMMERCIAL_SECRET").unwrap();
+        let resolved = resolve_key_ref(&kr, &dir).unwrap();
+        assert_eq!(resolved.value, "sealed-comm-val");
+
+        if let Some(v) = prev {
+            std::env::set_var(super::super::vault_store::VAULT_KEY_ENV, v);
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }

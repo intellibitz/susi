@@ -119,7 +119,15 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf)
             }
         }
     }
-    let path = upsert_cloud_env_key(&env_name, key)?;
+    let cfg_dir = susi_paths::SusiDirs::config_dir();
+    let sealed =
+        crate::susi_config::vault_store::try_store_cloud_key(&cfg_dir, &env_name, decoded_key)
+            .unwrap_or(false);
+    let path = if sealed {
+        crate::susi_config::vault_store::SealedVault::path_in(&cfg_dir)
+    } else {
+        upsert_cloud_env_key(&env_name, key)?
+    };
     crate::cloud_credentials::save(
         &crate::cloud_credentials::directory(),
         &env_name,
@@ -149,7 +157,13 @@ pub fn remove_api_key(vendor: &str) -> Result<String, String> {
         }
         kept.push(raw.to_string());
     }
+    let removed_sealed = crate::susi_config::vault_store::try_remove_cloud_key(
+        &susi_paths::SusiDirs::config_dir(),
+        &env_name,
+    )
+    .unwrap_or(false);
     if !removed
+        && !removed_sealed
         && crate::susi_config::env_or_cloud_env(&env_name)
             .ok()
             .filter(|v| !v.is_empty())
@@ -157,20 +171,23 @@ pub fn remove_api_key(vendor: &str) -> Result<String, String> {
     {
         return Err(format!("{} was not registered", env_name));
     }
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if removed || path.is_file() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let body = if kept.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", kept.join("\n"))
+        };
+        // Atomic + owner-only: the daemon reloads this key file while CLIs edit
+        // it, and an in-place truncate would show it every key missing.
+        crate::susi_config::atomic_write_bytes(&path, body.as_bytes())
+            .map_err(|e| e.to_string())?;
     }
-    let body = if kept.is_empty() {
-        String::new()
-    } else {
-        format!("{}\n", kept.join("\n"))
-    };
-    // Atomic + owner-only: the daemon reloads this key file while CLIs edit
-    // it, and an in-place truncate would show it every key missing.
-    crate::susi_config::atomic_write_bytes(&path, body.as_bytes()).map_err(|e| e.to_string())?;
     crate::cloud_credentials::remove_vendor(&crate::cloud_credentials::directory(), &env_name)
         .map_err(|e| e.to_string())?;
-    Ok(format!("Removed {} from {}", env_name, path.display()))
+    Ok(format!("Removed {}", env_name))
 }
 
 /// Status of registered cloud keys (env var names only — never values).

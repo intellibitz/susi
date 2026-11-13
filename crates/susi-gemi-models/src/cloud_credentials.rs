@@ -38,9 +38,20 @@ impl Credential {
         &self.key
     }
 
+    /// Decrypt `key` via the enclosing config dir's vault key when sealed (`enc:v1:`),
+    /// or return legacy plaintext directly.
+    pub fn unseal_key(&self, dir: &Path) -> EaiResult<String> {
+        let vault_dir = dir.parent().unwrap_or(dir);
+        susi_config::vault_store::unseal_credential_secret(vault_dir, &self.key)
+            .map_err(EaiError::config)
+    }
+
     /// Returns a masked key preview (e.g. `sk-a...1234`) safe for CLI listing.
     pub fn mask_key(&self) -> String {
         let k = self.key.trim();
+        if k.starts_with(susi_config::vault_store::SEALED_VALUE_PREFIX) {
+            return "[sealed]".to_string();
+        }
         if k.len() <= 8 {
             "***".to_string()
         } else {
@@ -117,14 +128,21 @@ pub fn save_with_options(
         None
     };
 
+    let vault_dir = dir.parent().unwrap_or(dir);
+    let (stored_key, is_encrypted) =
+        match susi_config::vault_store::seal_credential_secret(vault_dir, key) {
+            Ok(Some(sealed)) => (sealed, true),
+            Ok(None) | Err(_) => (key.into(), false),
+        };
+
     let entry = Credential {
         id: id.clone(),
         vendor_env: vendor_env.into(),
-        key: key.into(),
+        key: stored_key,
         max_budget_usd,
         current_spend_usd: existing_spend.or(Some(0.0)),
         label,
-        encrypted: Some(false),
+        encrypted: Some(is_encrypted),
     };
 
     let bytes =
@@ -319,5 +337,18 @@ mod tests {
         remove_by_id(root.path(), &short_id).unwrap();
         assert!(get_by_id(root.path(), &short_id).unwrap().is_none());
         assert!(list_all(root.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn enrolled_vault_seals_cloud_credentials_at_rest() {
+        let root = susi_paths::tempfile::tempdir().unwrap();
+        susi_config::vault_store::enroll_master_key(root.path(), Some("keyfile"), None).unwrap();
+        let cred_dir = root.path().join("cloud-credentials");
+        let id = save(&cred_dir, "OPENAI_API_KEY", "sk-sealed-at-rest-42").unwrap();
+        let cred = get_by_id(&cred_dir, &id).unwrap().unwrap();
+        assert_eq!(cred.encrypted, Some(true));
+        assert_ne!(cred.key(), "sk-sealed-at-rest-42");
+        assert_eq!(cred.mask_key(), "[sealed]");
+        assert_eq!(cred.unseal_key(&cred_dir).unwrap(), "sk-sealed-at-rest-42");
     }
 }

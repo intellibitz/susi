@@ -47,13 +47,23 @@ pub fn parse_env_file(content: &str) -> Vec<(String, String)> {
     out
 }
 
-/// Load `cloud.env` entries from `home` (mtime-cached read; empty when absent).
+/// Load registered cloud entries from `home`: plaintext `cloud.env` (mtime-cached)
+/// merged with any unlocked `vault.sealed.json` `"env"`/`"cloud"` entries (sealed wins).
 #[must_use]
 pub fn load_cloud_env_from(home: &Path) -> Vec<(String, String)> {
-    super::cluster_key::cached_file_bytes(&home.join("cloud.env"))
+    let mut entries = super::cluster_key::cached_file_bytes(&home.join("cloud.env"))
         .and_then(|raw| String::from_utf8(raw).ok())
         .map(|text| parse_env_file(&text))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let sealed = super::vault_store::resolve_cloud_env_map(home);
+    if sealed.is_empty() {
+        return entries;
+    }
+    let mut merged: std::collections::BTreeMap<String, String> = entries.drain(..).collect();
+    for (k, v) in sealed {
+        merged.insert(k, v);
+    }
+    merged.into_iter().collect()
 }
 
 /// Current `cloud.env` entries (mtime-cached read; empty when absent).
@@ -211,5 +221,35 @@ mod malformed_quote_tests {
             parse_env_file("VALID_KEY=ok\n"),
             vec![("VALID_KEY".into(), "ok".into())]
         );
+    }
+
+    #[test]
+    fn load_cloud_env_from_merges_unlocked_sealed_vault_over_plaintext() {
+        let _guard = crate::env_test_lock();
+        let dir =
+            std::env::temp_dir().join(format!("susi_cloud_env_sealed_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let prev = std::env::var_os(super::super::vault_store::VAULT_KEY_ENV);
+        std::env::remove_var(super::super::vault_store::VAULT_KEY_ENV);
+
+        super::super::vault_store::enroll_master_key(&dir, Some("keyfile"), None).unwrap();
+        super::super::vault_store::try_store_cloud_key(&dir, "OPENAI_API_KEY", "sk-sealed-wins")
+            .unwrap();
+        std::fs::write(
+            dir.join("cloud.env"),
+            "OPENAI_API_KEY=sk-stale-plain\nDEEPSEEK_API_KEY=ds-legacy\n",
+        )
+        .unwrap();
+
+        let loaded = load_cloud_env_from(&dir);
+        assert!(loaded.contains(&("OPENAI_API_KEY".to_string(), "sk-sealed-wins".to_string())));
+        assert!(loaded.contains(&("DEEPSEEK_API_KEY".to_string(), "ds-legacy".to_string())));
+
+        if let Some(v) = prev {
+            std::env::set_var(super::super::vault_store::VAULT_KEY_ENV, v);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

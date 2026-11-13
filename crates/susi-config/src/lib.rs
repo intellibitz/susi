@@ -41,6 +41,7 @@ pub mod extensions;
 pub mod file_lock;
 pub mod host_metrics;
 mod json_util;
+pub mod keepass_bridge;
 pub mod key_rotation;
 pub mod key_scope;
 pub mod peer_channel;
@@ -52,6 +53,7 @@ pub mod setup_workflow;
 pub mod state_migration;
 mod types;
 pub mod validate;
+pub mod vault_store;
 pub mod versioned_store;
 #[cfg(windows)]
 #[cfg(windows)]
@@ -294,6 +296,7 @@ pub use validate::{
     apply_fixes, validate_dir, validate_settings, ConfigFix, ConfigIssue, ConfigIssueKind,
     ConfigValidationReport,
 };
+pub use vault_store::{SealedVault, VaultConfig};
 pub use versioned_store::VersionedJsonStore;
 
 #[cfg(test)]

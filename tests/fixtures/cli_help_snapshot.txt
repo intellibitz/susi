@@ -3008,6 +3008,7 @@ Commands:
   remove  Remove a vendor API key from ~/.susi/cloud.env
   check   Live-check registered keys against each vendor (one read-only /models call each)
   models  List the models a vendor serves right now (uses the registered key)
+  vault   Cross-OS unattended encrypted vault & KeePassXC + Google Drive sync
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3077,6 +3078,88 @@ Arguments:
 
 Options:
   -h, --help  Print help
+
+=== susi keys vault ===
+Cross-OS unattended encrypted vault & KeePassXC + Google Drive sync
+
+Usage: susi keys vault <COMMAND>
+
+Commands:
+  status             Inspect vault state, OS unlock backend, Google Drive mirror, and plaintext risks (never prints secrets)
+  enroll             Enroll unattended host unlock (systemd-creds / DPAPI / secret-tool / keyfile) and optional KeePassXC DB/GDrive paths
+  sync               Sync Google Drive <-> local .kdbx and seal entries into ~/.susi/vault.sealed.json
+  migrate-cloud-env  Migrate plaintext ~/.susi/cloud.env entries into ~/.susi/vault.sealed.json
+  init-cloud-key     Write a cloud/container bootstrap key (0600) for SUSI_VAULT_KEY_FILE / Kubernetes Secret
+  exec               Run a child command with scoped secrets from the sealed vault injected directly into its env
+  help               Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi keys vault status ===
+Inspect vault state, OS unlock backend, Google Drive mirror, and plaintext risks (never prints secrets)
+
+Usage: susi keys vault status [OPTIONS]
+
+Options:
+      --json  Output structured JSON
+  -h, --help  Print help
+
+=== susi keys vault enroll ===
+Enroll unattended host unlock (systemd-creds / DPAPI / secret-tool / keyfile) and optional KeePassXC DB/GDrive paths
+
+Usage: susi keys vault enroll [OPTIONS]
+
+Options:
+      --backend <BACKEND>              Unlock backend: auto, systemd-creds, dpapi, secret-tool, or keyfile
+      --db <DB>                        KeePassXC .kdbx database path (Personal vaults refused)
+      --key-file <KEY_FILE>            Portable KeePassXC .keyx / .key file path
+      --gdrive-path <GDRIVE_PATH>      Local Google Drive mirror .kdbx path for two-way sync
+      --rclone-remote <RCLONE_REMOTE>  Optional rclone remote path (e.g. gdrive:Vault/Automation.kdbx)
+      --enroll-kdbx-passphrase         Also enroll KeePassXC passphrase on this host (reads stdin if piped, or prompts once)
+  -h, --help                           Print help
+
+=== susi keys vault sync ===
+Sync Google Drive <-> local .kdbx and seal entries into ~/.susi/vault.sealed.json
+
+Usage: susi keys vault sync [OPTIONS]
+
+Options:
+      --db <DB>                Override KeePassXC .kdbx path
+      --direction <DIRECTION>  Google Drive sync direction: auto, pull, or push [default: auto]
+      --dry-run                Preview sync actions without modifying files
+      --json                   Output structured JSON
+  -h, --help                   Print help
+
+=== susi keys vault migrate-cloud-env ===
+Migrate plaintext ~/.susi/cloud.env entries into ~/.susi/vault.sealed.json
+
+Usage: susi keys vault migrate-cloud-env [OPTIONS]
+
+Options:
+      --keep-plaintext  Keep plaintext cloud.env instead of clearing migrated keys
+  -h, --help            Print help
+
+=== susi keys vault init-cloud-key ===
+Write a cloud/container bootstrap key (0600) for SUSI_VAULT_KEY_FILE / Kubernetes Secret
+
+Usage: susi keys vault init-cloud-key [OPTIONS]
+
+Options:
+      --key-out <KEY_OUT>  Path to write the 32-byte hex key (0600); if omitted writes ~/.susi/cloud-bootstrap.key
+  -h, --help               Print help
+
+=== susi keys vault exec ===
+Run a child command with scoped secrets from the sealed vault injected directly into its env
+
+Usage: susi keys vault exec [OPTIONS] <COMMAND>...
+
+Arguments:
+  <COMMAND>...  Command and arguments to execute (pass after `--`)
+
+Options:
+      --client <CLIENT>  Client allowlist profile: claude, codex, gemini, gh, hf, vibe, cloud, commercial, or all
+  -h, --help             Print help
 
 === susi select-model ===
 Select or override active model

@@ -355,6 +355,10 @@ const EXEMPT: &[(&str, &str)] = &[
         "keys remove",
         "plan B4 group 3: setting keys stays local to the CLI and desktop",
     ),
+    (
+        "keys vault",
+        "host OS keystore enrollment, KeePassXC/Google Drive sync, and secret-scoped exec stay local to the CLI so raw keys never cross the socket; read-only vault metadata is reported by keys_status",
+    ),
     ("admin lint", "local tooling: runs cargo clippy in the checkout"),
     ("admin audit-deps", "local tooling: runs cargo audit in the checkout"),
     (

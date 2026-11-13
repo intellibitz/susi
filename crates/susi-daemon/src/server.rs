@@ -964,7 +964,17 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
                 // back on the primary's substrate root and canonical ports.
                 .args(std::env::vars_os().filter_map(|(k, v)| {
                     let k = k.to_string_lossy();
-                    (k.starts_with("SUSI_") || k.starts_with("XDG_"))
+                    let is_secret = matches!(
+                        k.as_ref(),
+                        "SUSI_VAULT_KEY"
+                            | "SUSI_VAULT_KDBX_PASSPHRASE"
+                            | "SUSI_KDBX_PASSPHRASE"
+                            | "SUSI_COMMERCIAL_SECRET"
+                            | "SUSI_CUSTOMER_LICENSE_SIGNING_KEY"
+                    ) || k.ends_with("_SECRET")
+                        || k.ends_with("_API_KEY")
+                        || k.ends_with("_SIGNING_KEY");
+                    (!is_secret && (k.starts_with("SUSI_") || k.starts_with("XDG_")))
                         .then(|| format!("--setenv={k}={}", v.to_string_lossy()))
                 }));
             // Provider keys ride in an owner-only file, never on argv
@@ -1540,8 +1550,22 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
     /// Boot key health + zero-config scorecard — what still needs
     /// attention is reported, not silently skipped.
     fn report_key_health_and_score(global_dir: &Path) {
-        let env_text = std::fs::read_to_string(crate::susi_config::cloud_env::cloud_env_path())
-            .unwrap_or_default();
+        let mut key_names = Vec::new();
+        for (k, _) in crate::susi_config::cloud_env_overlay() {
+            if !key_names.contains(&k) {
+                key_names.push(k);
+            }
+        }
+        let env_text = if key_names.is_empty() {
+            std::fs::read_to_string(crate::susi_config::cloud_env::cloud_env_path())
+                .unwrap_or_default()
+        } else {
+            key_names
+                .into_iter()
+                .map(|k| format!("{k}=configured"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         let ages_path =
             crate::susi_config::key_rotation::KeyAges::path_in(&susi_paths::SusiDirs::config_dir());
         let ages = crate::susi_config::key_rotation::KeyAges::load(&ages_path).unwrap_or_default();
@@ -2709,11 +2733,22 @@ fn provider_key_env_body(vars: impl IntoIterator<Item = (String, String)>) -> Op
 #[cfg(target_os = "linux")]
 fn write_provider_key_env_file(path: &Path) -> bool {
     use std::os::unix::fs::OpenOptionsExt;
-    let vars = std::env::vars_os()
-        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)));
-    let Some(body) = provider_key_env_body(vars) else {
+    let vars: Vec<(String, String)> = std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .collect();
+    let mut body = provider_key_env_body(vars.clone()).unwrap_or_default();
+    if let Some((_, val)) = vars.iter().find(|(k, _)| k == "SUSI_VAULT_KEY") {
+        let plain = !val.is_empty()
+            && !val
+                .chars()
+                .any(|c| c.is_control() || matches!(c, '\'' | '"' | '\\'));
+        if plain {
+            body.push_str(&format!("SUSI_VAULT_KEY='{val}'\n"));
+        }
+    }
+    if body.is_empty() {
         return false;
-    };
+    }
     let _ = fs::remove_file(path);
     let written = fs::OpenOptions::new()
         .write(true)

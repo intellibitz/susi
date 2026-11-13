@@ -101,6 +101,34 @@ pub(crate) fn resolve_api_key_env(
     resolve_key_ref(&KeyRef::parse(api_key_env)?, global_dir).map(Some)
 }
 
+/// Hydrate an in-memory [`SecretVault`] from `dir/vault.sealed.json` when present and unlocked.
+/// Returns the number of entries hydrated (0 when no sealed vault exists yet).
+pub fn hydrate_secret_vault(
+    dir: &Path,
+    vault: &mut crate::secret_ref::SecretVault,
+) -> EaiResult<usize> {
+    let Some(sealed) = crate::vault_store::SealedVault::open(dir).map_err(EaiError::config)? else {
+        return Ok(0);
+    };
+    let mut count = 0usize;
+    for (scope, name) in sealed.list_keys() {
+        if let Some(value) = sealed.get(&scope, &name) {
+            if !value.trim().is_empty() {
+                vault.put(&scope, &name, value);
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// Open a new [`SecretVault`] pre-populated from `dir/vault.sealed.json`.
+pub fn load_secret_vault(dir: &Path) -> EaiResult<crate::secret_ref::SecretVault> {
+    let mut vault = crate::secret_ref::SecretVault::default();
+    let _ = hydrate_secret_vault(dir, &mut vault)?;
+    Ok(vault)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,5 +303,36 @@ mod tests {
         assert!(cfg
             .credential_ref("nonexistent_credential_setting_1104")
             .is_err());
+    }
+
+    #[test]
+    fn load_secret_vault_hydrates_scope_boundaries_from_sealed_vault() {
+        let _guard = crate::env_test_lock();
+        let dir = std::env::temp_dir().join(format!("susi_cred_hydrate_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let prev = std::env::var_os(crate::vault_store::VAULT_KEY_ENV);
+        std::env::remove_var(crate::vault_store::VAULT_KEY_ENV);
+
+        crate::vault_store::enroll_master_key(&dir, Some("keyfile"), None).unwrap();
+        let mut sealed = crate::vault_store::SealedVault::open_or_init(&dir).unwrap();
+        sealed.set("deploy", "api_token", "hydrated-deploy-token");
+        sealed.save(&dir).unwrap();
+
+        let mut secret_vault = load_secret_vault(&dir).unwrap();
+        let boundary = secret_vault.issue_boundary("deploy");
+        let mut cfg = SusiConfig::default();
+        cfg.settings
+            .insert("deploy_tok".into(), json!("secret://deploy/api_token"));
+        let resolved = cfg
+            .resolve_scoped_credential("deploy_tok", &boundary)
+            .unwrap();
+        assert_eq!(resolved.expose(), "hydrated-deploy-token");
+
+        if let Some(v) = prev {
+            std::env::set_var(crate::vault_store::VAULT_KEY_ENV, v);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

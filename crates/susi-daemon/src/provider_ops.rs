@@ -319,10 +319,12 @@ pub fn keys_status() -> Value {
         .into_iter()
         .map(|(vendor, env, present)| json!({ "vendor": vendor, "env": env, "present": present }))
         .collect();
+    let vault = susi_config::vault_store::vault_status(&susi_paths::SusiDirs::config_dir());
     json!({
         "keys": keys,
         "preference": susi_gemi::engines::routing::InferenceRouter::preference_status(),
         "cloud_env_path": susi_gemi::engines::http_provider::cloud_env_path(),
+        "vault": vault,
     })
 }
 

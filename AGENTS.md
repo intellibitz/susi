@@ -552,27 +552,30 @@ this for the panic-path lints.
 
 ## Credentials come from KeePassXC
 
-KeePassXC is the password manager for the CEO and for every agent working on
+KeePassXC is the canonical password manager for the CEO and for every agent working on
 Susi, in this repository and in `intellibitz/susi-commercial-apps` alike. No
-credential lives in a repository file, a `.env` file, a shell profile, CI logs,
-chat, or agent memory.
+credential lives in a repository file, shell profile, CI log, chat, or agent memory.
 
-- Two vaults. The CEO's **Personal vault** is off limits to agents: never open
-  it and never ask for its passphrase. The **automation vault** under
-  `%USERPROFILE%\KeePassXC-AppLauncher` on the CEO's workstation is the agent
-  credential source; its unlock is bound to the CEO's Windows account, and the
-  launcher's `Usage.md` there is the reference. Entries live under
-  `App credentials/` (model API keys and `GH_TOKEN` forwarded into agent shells,
-  GPG and SSH signing identities, and the commercial release authority key).
-- Agents read it only through the launcher's `AgentVault.ps1` helpers
-  (`Read-AgentFields`, `Invoke-AgentKdbx`), and a value moves only through a
-  pipe or a child process's environment to its consumer, for example a command
-  that reads it from stdin. Never print, log, echo, write to a file,
-  paste in chat, or pass a value on a command line; report "set" and at most a
-  byte length, and clear variables afterwards.
-- New credentials are generated in-process, stored in the automation vault,
-  read back and compared, then exported. Rotation updates the vault entry
-  first, then every consumer, then restarts long-running agents.
+- **Two vaults, one rule**: The CEO's **Personal vault** is off limits to agents:
+  never open it and never ask for its passphrase. The **automation vault** (`Automation.kdbx` /
+  `AI-Keys.kdbx`, synced across Windows and CachyOS Linux via Google Drive) holds
+  shared credentials (`App credentials/Forward to apps`, cloud API keys, `GH_TOKEN`,
+  `HF_TOKEN`, GPG/SSH signing, `App credentials/Susi commercial authority`, and
+  `App credentials/Susi customer license signing`). Never bind the synced `.kdbx` file
+  itself solely to Windows DPAPI: unlock the `.kdbx` with a cross-OS master passphrase
+  (and optional portable key file) so Linux, Windows, and Google Drive all open the same database.
+- **Unattended local & cloud runtime (`~/.susi/vault.sealed.json`)**: Agents, daemons,
+  UIs, and cloud containers do NOT require KeePassXC to be open or a TTY prompt at runtime.
+  Run `susi keys vault enroll` once per host so Susi seals a local AEAD vault (`ChaCha20-Poly1305`)
+  using the host's native unattended unlock (`systemd-creds --user` on Linux, Windows
+  DPAPI CurrentUser for local unlock on Windows, Freedesktop `secret-tool`, or a `0600` key file;
+  and `SUSI_VAULT_KEY`, `SUSI_VAULT_KEY_FILE`, or `$CREDENTIALS_DIRECTORY/susi-vault-key` in Cloud/Docker/K8s).
+- **KeePassXC + Google Drive sync & scoped injection**: `susi keys vault sync` synchronizes
+  with a configured Google Drive mirror (`vault.json`) and imports KeePassXC entries into
+  `~/.susi/vault.sealed.json`. `susi keys vault exec --client <name> -- <cmd...>` injects
+  only the scoped secrets required by that child command (replacing OS-specific scripts).
+  Legacy Windows `AgentVault.ps1` helpers remain compatible when present. Never print, log,
+  echo, or paste any secret value into chat or command-line arguments.
 
 ## Platform and CI policy (CEO decisions 2026-11-03, 2026-11-05 and 2026-11-06)
 
