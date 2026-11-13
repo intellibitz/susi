@@ -1,0 +1,33 @@
+{
+  "id": "T-CODEXPRODUCTION20261113ROOT-1",
+  "title": "Qualify inference through the commercial plug host",
+  "goal": "Make local-release inference qualification exercise the supported core-plus-commercial GPU-fabric topology when explicitly configured, with authenticated host and real request evidence, while retaining the native Candle path.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release"
+    ]
+  },
+  "created_by": "CODEXPRODUCTION20261113ROOT",
+  "created_unix": 1794546080,
+  "closed": {
+    "at_unix": 1794546462,
+    "commit": "66bb74fb255dbf01c4c239a34fb6c0f0579620a3",
+    "by": "CODEXPRODUCTION20261113ROOT"
+  },
+  "reuse": {
+    "decision": "existing",
+    "reason": "The supported external engine path existed but the qualification gate only admitted in-process Candle audit rows. The implementation extends that gate with the existing authenticated bus contract and host logs, without adding another inference engine or downloader.",
+    "searched": "Inspected core's existing local-release inference acceptance and both repositories' PlaneBus integration; the commercial repository already ships susi-plug-host and LocalEnginePlaneBusPlug, while core already owns isolated runtime setup, cleanup, semantic answer checks, and native Candle evidence."
+  }
+}
