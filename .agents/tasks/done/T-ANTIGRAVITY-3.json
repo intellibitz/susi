@@ -16,10 +16,15 @@
   },
   "created_by": "ANTIGRAVITY",
   "created_unix": 1794584432,
+  "closed": {
+    "at_unix": 1794585923,
+    "commit": "1f07366672f08911feb878332f4ef1532a8c0585",
+    "by": "ANTIGRAVITYVAULTCORE"
+  },
   "reuse": {
     "decision": "build",
-    "searched": "Checked susi-config::{secret_ref,credential,key_scope,cloud_env,cluster_key}, susi-vendor-chacha20poly1305, susi-vendor-sha2, susi-vendor-getrandom, susi-gemi-models::{cloud,cloud_credentials}, and host OS tools (keepassxc-cli, systemd-creds, secret-tool, Windows DPAPI ProtectedData, rclone).",
-    "reason": "Reuses existing ChaCha20-Poly1305/SHA-256 primitives, SecretVault/KeyScope types, and OS tools; adds only the missing encrypted on-disk SealedVault store, unattended host unseal adapters, non-interactive KeePassXC/Google Drive bridge, and CLI/cloud wiring without new crates."
+    "reason": "Reuses existing ChaCha20-Poly1305/SHA-256 primitives, SecretVault/KeyScope types, and OS tools; adds only the missing encrypted on-disk SealedVault store, unattended host unseal adapters, non-interactive KeePassXC/Google Drive bridge, and CLI/cloud wiring without new crates.",
+    "searched": "Checked susi-config::{secret_ref,credential,key_scope,cloud_env,cluster_key}, susi-vendor-chacha20poly1305, susi-vendor-sha2, susi-vendor-getrandom, susi-gemi-models::{cloud,cloud_credentials}, and host OS tools (keepassxc-cli, systemd-creds, secret-tool, Windows DPAPI ProtectedData, rclone)."
   },
   "scopes": [
     "AGENTS.md",
