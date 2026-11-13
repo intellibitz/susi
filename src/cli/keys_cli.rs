@@ -221,7 +221,9 @@ fn run_vault(action: VaultCommands) {
                 &cfg_dir,
                 db.as_deref(),
                 dir,
-                io::stdin().is_terminal() && io::stderr().is_terminal(),
+                io::stdin().is_terminal()
+                    && io::stderr().is_terminal()
+                    && !susi_paths::console::is_unattended_env(),
                 dry_run,
             ) {
                 Ok(report) => {
@@ -340,6 +342,12 @@ fn read_secret_prompt(prompt: &str) -> io::Result<String> {
         }
         return Ok(val);
     }
+    if susi_paths::console::is_unattended_env() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unattended mode forbids interactive passphrase prompt; use piped stdin, SUSI_VAULT_KEY, systemd-creds, or secret-tool",
+        ));
+    }
     eprint!("{prompt}");
     io::stderr().flush()?;
     let mut line = String::new();
@@ -393,6 +401,12 @@ fn prompt_api_key(vendor: &str) -> io::Result<String> {
             ));
         }
         return Ok(key);
+    }
+    if susi_paths::console::is_unattended_env() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unattended mode forbids interactive API key prompt for {vendor}; pipe on stdin or sync KeePassXC/SealedVault"),
+        ));
     }
     eprint!("Enter API key for {} ({}): ", vendor, env_hint);
     io::stderr().flush()?;

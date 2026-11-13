@@ -199,46 +199,45 @@ fn find_script_path(script: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+const SERVICE_ENV: [(&str, &str); 4] = [
+    ("SUSI_UNATTENDED", "1"),
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("GCM_INTERACTIVE", "never"),
+    ("SSH_ASKPASS_REQUIRE", "never"),
+];
+
 /// Render a Linux systemd user service unit definition.
 #[must_use]
 pub fn render_systemd_unit(binary_path: &Path) -> String {
+    let env: String = SERVICE_ENV
+        .iter()
+        .map(|(k, v)| format!("Environment=\"{k}={v}\"\n"))
+        .collect();
+    let bin = binary_path.display();
     format!(
-        "[Unit]\n\
-         Description=SUSI Autonomous Agent Daemon\n\
-         After=network.target\n\n\
-         [Service]\n\
-         Type=simple\n\
-         ExecStart={}\n\
-         Restart=always\n\
-         RestartSec=5s\n\n\
-         [Install]\n\
-         WantedBy=default.target\n",
-        binary_path.display()
+        "[Unit]\nDescription=SUSI Autonomous Agent Daemon\nAfter=network.target\n\n\
+         [Service]\nType=simple\n{env}EnvironmentFile=-%h/.susi/service.env\n\
+         ExecStart={bin}\nRestart=always\nRestartSec=5s\n\n[Install]\nWantedBy=default.target\n"
     )
 }
 
 /// Render a macOS launchd plist definition.
 #[must_use]
 pub fn render_launchd_plist(binary_path: &Path) -> String {
+    let env: String = SERVICE_ENV
+        .iter()
+        .map(|(k, v)| format!("        <key>{k}</key><string>{v}</string>\n"))
+        .collect();
+    let bin = binary_path.display();
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
-         <plist version=\"1.0\">\n\
-         <dict>\n\
-             <key>Label</key>\n\
-             <string>com.intellibitz.susi.daemon</string>\n\
-             <key>ProgramArguments</key>\n\
-             <array>\n\
-                 <string>{}</string>\n\
-                 <string>daemon</string>\n\
-             </array>\n\
-             <key>KeepAlive</key>\n\
-             <true/>\n\
-             <key>RunAtLoad</key>\n\
-             <true/>\n\
-         </dict>\n\
-         </plist>\n",
-        binary_path.display()
+         <plist version=\"1.0\">\n<dict>\n\
+         \x20   <key>Label</key><string>com.intellibitz.susi.daemon</string>\n\
+         \x20   <key>ProgramArguments</key><array><string>{bin}</string><string>daemon</string></array>\n\
+         \x20   <key>EnvironmentVariables</key><dict>\n{env}    </dict>\n\
+         \x20   <key>KeepAlive</key><true/>\n    <key>RunAtLoad</key><true/>\n\
+         </dict>\n</plist>\n"
     )
 }
 

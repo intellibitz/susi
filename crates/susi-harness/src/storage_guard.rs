@@ -87,10 +87,10 @@ fn git(root: &Path, args: &[&str]) -> Result<Output> {
         .current_dir(root)
         .arg("--no-replace-objects")
         .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    susi_paths::console::apply_non_interactive_env(&mut command);
     for key in [
         "GIT_DIR",
         "GIT_WORK_TREE",

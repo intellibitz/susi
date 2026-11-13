@@ -6,9 +6,8 @@
 //! version, and `list` / `apply` run only on an operator's explicit request.
 
 use serde_json::{Value, json};
-use std::io::Write;
-use std::process::Stdio;
-use susi_paths::console::background_command;
+use std::time::Duration;
+use susi_paths::console::{apply_non_interactive_env, background_command, run_output_within};
 
 /// One cloud/local substrate this plane can inventory or mutate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,9 +106,10 @@ pub struct CloudInventory {
 }
 
 fn run_cli(bin: &str, args: &[&str]) -> Result<String, String> {
-    let out = background_command(bin)
-        .args(args)
-        .output()
+    let mut cmd = background_command(bin);
+    cmd.args(args);
+    apply_non_interactive_env(&mut cmd);
+    let out = run_output_within(&mut cmd, None, Duration::from_secs(60))
         .map_err(|e| format!("{bin}: {e}"))?;
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -162,21 +162,15 @@ pub fn list_nodes(kind: CloudKind) -> Result<String, String> {
 pub fn apply_manifest(kind: CloudKind, manifest: &str) -> Result<String, String> {
     match kind {
         CloudKind::Kubernetes => {
-            let mut child = background_command("kubectl")
-                .args(["apply", "-f", "-"])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("kubectl apply: {e}"))?;
-            if let Some(mut stdin) = child.stdin.take() {
-                stdin
-                    .write_all(manifest.as_bytes())
-                    .map_err(|e| format!("kubectl apply stdin: {e}"))?;
-            }
-            let out = child
-                .wait_with_output()
-                .map_err(|e| format!("kubectl apply wait: {e}"))?;
+            let mut cmd = background_command("kubectl");
+            cmd.args(["apply", "-f", "-"]);
+            apply_non_interactive_env(&mut cmd);
+            let out = run_output_within(
+                &mut cmd,
+                Some(manifest.as_bytes()),
+                Duration::from_secs(120),
+            )
+            .map_err(|e| format!("kubectl apply: {e}"))?;
             let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
             let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
             if out.status.success() {

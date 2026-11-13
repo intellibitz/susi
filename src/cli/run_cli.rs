@@ -160,10 +160,37 @@ pub fn estimate_token_count(text: &str) -> usize {
     ((words as f64) * 1.33).ceil() as usize
 }
 
+fn should_skip_idle_stdin(
+    unattended: bool,
+    cli_model: Option<&str>,
+    prompt_tokens: &[String],
+    explicit_stdin_dash: bool,
+) -> bool {
+    let looks_like_only_model =
+        cli_model.is_none() && prompt_tokens.len() == 1 && looks_like_model(&prompt_tokens[0]);
+    unattended && !explicit_stdin_dash && !prompt_tokens.is_empty() && !looks_like_only_model
+}
+
 /// Execute `susi run`.
 pub fn execute(args: RunArgs, workspace: &Path) -> crate::anyhow::Result<()> {
-    let stdin_input = read_stdin_bounded()?;
-    let (model, prompt) = resolve_model_and_prompt(args.model, &args.prompt, stdin_input)?;
+    let explicit_stdin_dash = args.prompt.len() == 1 && args.prompt[0].trim() == "-";
+    let prompt_tokens: Vec<String> = if explicit_stdin_dash {
+        Vec::new()
+    } else {
+        args.prompt.clone()
+    };
+    let skip_idle_pipe = should_skip_idle_stdin(
+        susi_paths::console::is_unattended_env(),
+        args.model.as_deref(),
+        &prompt_tokens,
+        explicit_stdin_dash,
+    );
+    let stdin_input = if skip_idle_pipe {
+        None
+    } else {
+        read_stdin_bounded()?
+    };
+    let (model, prompt) = resolve_model_and_prompt(args.model, &prompt_tokens, stdin_input)?;
 
     let full_prompt = match &args.system {
         Some(sys) if !sys.trim().is_empty() => {
@@ -337,5 +364,35 @@ mod tests {
     fn test_token_estimation() {
         assert_eq!(estimate_token_count(""), 0);
         assert_eq!(estimate_token_count("hello world"), 3);
+    }
+
+    #[test]
+    fn unattended_explicit_prompt_skips_idle_stdin_pipe() {
+        assert!(should_skip_idle_stdin(
+            true,
+            None,
+            &["explain rust".to_string()],
+            false
+        ));
+        assert!(should_skip_idle_stdin(
+            true,
+            Some("deepseek-chat"),
+            &["explain".to_string()],
+            false
+        ));
+        assert!(!should_skip_idle_stdin(
+            true,
+            None,
+            &["qwen2.5:7b".to_string()],
+            false
+        ));
+        assert!(!should_skip_idle_stdin(true, None, &[], true));
+        assert!(!should_skip_idle_stdin(true, None, &[], false));
+        assert!(!should_skip_idle_stdin(
+            false,
+            None,
+            &["explain rust".to_string()],
+            false
+        ));
     }
 }

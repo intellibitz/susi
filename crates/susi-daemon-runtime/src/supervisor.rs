@@ -485,7 +485,9 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
         .env("SUSI_PORT_OFFSET", offset.to_string())
         // Dependency-free leaves (susi-native, susi-error) cannot locate the
         // token file themselves; they enforce the bearer they are handed.
-        .env("SUSI_HOST_TOKEN", host_token);
+        .env("SUSI_HOST_TOKEN", host_token)
+        .env("SUSI_UNATTENDED", "1");
+    susi_paths::console::apply_non_interactive_env(&mut cmd);
     let log_dir = susi_paths::SusiDirs::substrate_home().join("logs");
     let _ = fs::create_dir_all(&log_dir);
     let log_path = log_dir.join(format!("{}.log", svc.name));

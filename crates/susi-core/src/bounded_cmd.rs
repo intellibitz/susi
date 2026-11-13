@@ -13,9 +13,10 @@ use std::time::{Duration, Instant};
 /// Windows probes run without a console window. This helper owns their creation
 /// flags; callers must not request an interactive console or different flags.
 pub fn output_within(cmd: &mut Command, timeout: Duration) -> std::io::Result<Output> {
-    // Redirected probes are unattended: no console window (one owner of the
-    // flag, `susi_paths::console`).
+    // Redirected probes are unattended: no console window and non-interactive
+    // env (one owner of the flags, `susi_paths::console`).
     susi_paths::console::without_window(cmd);
+    susi_paths::console::apply_non_interactive_env(cmd);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

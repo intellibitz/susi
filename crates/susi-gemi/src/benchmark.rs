@@ -100,7 +100,8 @@ impl BenchmarkRunner {
             Ok(v) if !v.trim().is_empty() => v,
             _ => return Ok(None),
         };
-        let api_key = std::env::var("SUSI_BENCH_CLOUD_API_KEY").unwrap_or_default();
+        let api_key =
+            crate::susi_config::env_or_cloud_env("SUSI_BENCH_CLOUD_API_KEY").unwrap_or_default();
         let model =
             std::env::var("SUSI_BENCH_CLOUD_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
 

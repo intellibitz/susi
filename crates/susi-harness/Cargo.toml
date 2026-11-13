@@ -12,6 +12,7 @@ categories = ["command-line-utilities", "development-tools"]
 [dependencies]
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
+susi-config = { workspace = true }
 susi-http-transport = { workspace = true }
 susi-adapters-llm = { workspace = true }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
