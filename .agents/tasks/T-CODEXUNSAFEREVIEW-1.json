@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXUNSAFEREVIEW-1",
+  "title": "Rebind the complete unsafe baseline to the current Core production graph",
+  "status": "implemented_pending_production_qualification",
+  "native_worker": "codex-prod-unsafe-review",
+  "owner": "codex-prod-unsafe-review",
+  "created_by": "Codex",
+  "created_unix": 1794550282,
+  "base_commit": "31486b202fb644d5a38527c5e5c587df023b722e",
+  "scopes": [
+    ".agents/baseline/unsafe-default.json",
+    ".agents/reviews/unsafe-complete/codex-prod-unsafe-review.json",
+    ".agents/tasks/T-CODEXUNSAFEREVIEW-1.json"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-unsafe-ratchet",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "acceptance": "The exact historical inventory, distinct current base/candidate measurements, pinned scanner, and 33 component reviews are embedded in the v2 baseline; the complete unsafe-ratchet gate must be clean on the integrated Core source before production qualification can proceed."
+}

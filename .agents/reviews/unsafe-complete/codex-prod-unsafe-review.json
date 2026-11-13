@@ -1,0 +1,996 @@
+{
+  "schema": "susi/unsafe-component-review/v1",
+  "reviewer": "Codex production qualification (migration review)",
+  "historical_baseline_sha256": "9d8fd1fa64ec943f6978bff0a9225ae7ba1f0e9098a8672a528dd982cfc3e623",
+  "base_measurement_sha256": "67272acebee50175995a2c5cd8eb3a81cbd5c344a6a75c9cc94fb73690d87876",
+  "candidate_measurement_sha256": "ca346e9aa737584dfcaddb548df3c0be5714b7a4c318ae5a67953854597ce47b",
+  "scanner_sha256": "08034f10b3ab718fb4bdc03a0cff71944520df6076dbea2eaaff1b8c615f8284",
+  "components": [
+    {
+      "identity": {
+        "name": "base64ct",
+        "version": "1.8.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: byte-level decoder and string-validity invariants on key material.",
+      "boundary": "In-place base64 decoding uses overlapping-source/destination raw pointers; encoding converts known ASCII output with unchecked UTF-8. No external FFI.",
+      "justification": "The full-chunk loop derives 4-byte reads and 3-byte writes from buf.len()/4 and reads into a temporary before writing. The remainder derives lengths from the decoded length, rejects invalid encodings, then copies from a separate fixed-size temporary. Encoders bound destination size and emit the fixed base64 alphabet/padding, which supports the unchecked UTF-8 conversion. The crate warns on unsafe_code and locally allows these operations; it does not forbid them. This dependency remains necessary for strict PKCS key/PEM handling after removal of RustCrypto rsa. Residual limitation: Arithmetic and alphabet invariants still depend on this exact upstream implementation. Source review did not fuzz malformed or extreme-length inputs, prove constant-time behavior, or establish that every exported method is called by the executable.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "950ec911574afbf038e970968c9bcd03df0fe56d78eabee157012e54d487cb29"
+        },
+        {
+          "path": "src/encoding.rs",
+          "sha256": "18828be1ed13a89e3cf723675b30addf8703be5c78583eb41bbea7b08de4b03f"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "ebb6d9fe0d1199bb6aefaecb4e44524358c99d0db8d82e39b01a0b27f084b087"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "deranged",
+        "version": "0.5.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: range invariants feed unchecked integer operations and optimizer assumptions.",
+      "boundary": "Private Unsafe wrapper, unsafe new_unchecked/assert_unchecked, nonzero conversions and unchecked arithmetic rely on MIN..=MAX. Selected serde deserialization is an untrusted-value entry boundary.",
+      "justification": "Safe new checks bounds; checked_add/checked_sub use primitive checked arithmetic followed by new. serde Deserialize first decodes the primitive and calls new, returning invalid_value out of range. The inner wrapper exposes immutable references, not safe mutation of the invariant. Selected use is bounded integer/time representation through time and rcgen. Residual limitation: Public unsafe constructors/arithmetic remain caller obligations. This was inspection of construction, checked arithmetic, representation and serde paths, not a proof of every macro-generated arithmetic operation or extreme const-bound combination.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "8604c48d0f13a96386d4ef94448d295c64a1639a9a6352b3a060bc00da5bc011"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "9d6107518384ab83aea30dafaa2d89383345198a40ec6b03548ce8810b700e79"
+        },
+        {
+          "path": "src/unsafe_wrapper.rs",
+          "sha256": "76e67ff03b31f0b97849f0e6c3131f1cb213fc25a11ed259664f48a6901c623e"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "equivalent",
+        "version": "1.0.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low local unsafe exposure; hashing/equality correctness remains relevant.",
+      "boundary": "No unsafe token was found in src and no unconditional forbid marker is declared. Safe Equivalent and Comparable traits bridge borrowed keys with Eq/Ord/Borrow.",
+      "justification": "Inspected blanket implementations compare the borrowed key using Eq/Ord; docs require equivalent keys to hash identically. The crate supplies heterogeneous lookup traits to hashbrown/lru and Tantivy. It neither performs pointer manipulation nor FFI itself. Residual limitation: Incorrect consumer Eq/Hash/Borrow implementations can cause incorrect lookup behavior. The absent forbid marker means future unsafe additions would not be compiler-forbidden; this review covers only pinned bytes.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "e7ef6daa56f849a07bb27bdb5ad7c9634bc9899976dd4e5a6d93ef859e5759d3"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "7d70bce18582aea798c22795b8ca283552daa4fda16d00c4090377767ab1c432"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "foreign-types",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: ownership and lifetime bridge around platform cryptography objects.",
+      "boundary": "foreign_type! generates raw foreign pointers, owning Drop, pointer-to-reference Deref/DerefMut and optional clone hooks.",
+      "justification": "Owned handles delegate destruction to the specified C destructor; borrowed references are tied by generated Deref to the Rust wrapper borrow. Correctness therefore requires non-null live objects, matched allocation/free functions, and valid aliasing supplied by openssl. The macro does not itself validate arbitrary pointers; from_ptr is unsafe. Review of openssl null-result conversion and RAII call sites supports the selected integration rather than treating this macro as intrinsically safe. Residual limitation: A mismatched destructor, invalid pointer, C-side aliasing or refcount error can cause UB. Type definitions and C-library behavior remain part of the trusted boundary; the entire openssl object catalog was not audited.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "1a667c28f60115423b68fea369255c2dcb129b8dce10f30e0e1da73d05f9adab"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "4f0a33bf8ec94a57d1b71e50f1af8ca410985e447f69fdc9c680545b03ea4566"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "foreign-types-shared",
+        "version": "0.1.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: raw pointer to Rust-reference conversion with caller-selected lifetime.",
+      "boundary": "ForeignTypeRef::from_ptr/from_ptr_mut dereference a raw pointer as an opaque reference; ForeignType::from_ptr is an unsafe owning-handle contract.",
+      "justification": "The tiny shared crate exposes the unsafety explicitly: callers must supply live correctly represented C objects and enforce uniqueness for mutable borrows. Opaque uses UnsafeCell, and generated foreign-types wrappers constrain safe Deref lifetimes to the owner borrow. This is supporting infrastructure for openssl, not a standalone safe parser. Residual limitation: The trait signatures permit incorrect unsafe implementations or lifetime selection. Soundness rests on the concrete openssl wrappers and library ABI; no independent proof of all implementations is claimed.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "6b91ae600fe7b521537096b2269ab7bfd606f8a1fcd97749634dd03ba18daf53"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "77aed289fd36258c273f033e766e572ee05330249083c017d045f0a75662f5df"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "h2",
+        "version": "0.4.20",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: HTTP/2 and HPACK process remote-controlled headers; unchecked UTF-8 relies on the BytesStr constructor invariant.",
+      "boundary": "src/hpack/header.rs:276-283 validates Bytes with str::from_utf8 before storing them in a private tuple field, then uses from_utf8_unchecked when exposing a string. The other constructors consume str or static str. No foreign-function boundary was found in the source unsafe-token search.",
+      "justification": "Name::into_entry uses BytesStr::try_from for authority, scheme and path, while ordinary header fields use HeaderValue::from_bytes. BytesStr owns immutable Bytes and exposes no mutable byte reference in the inspected implementation; these facts support the checked-on-construction UTF-8 invariant. Retention supplies HTTP/2 for the selected Hyper client/server graph; deleting it would remove an active protocol capability, not just an optional accelerator. The crate denies missing safety documentation but does not forbid unsafe. Residual limitation: This is not a complete HPACK/state-machine or denial-of-service audit. It does not prove every future constructor preserves UTF-8, nor verify every HTTP/2 limit or concurrency interleaving. Exact-source advisory and end-to-end network tests remain required.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "21f9c0931a0aecb68fd64ba5b3aa2c311055f54c55443fb669833379bb45ed16"
+        },
+        {
+          "path": "src/hpack/header.rs",
+          "sha256": "b41158784403037c347bfecb7de41b63acb46c825a9c15c4011859c418dc540d"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "c8680fc4eb13ccb4ce944716042bd33c6554677cf8261c371442f91fbee352e0"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "hashbrown",
+        "version": "0.17.1",
+        "source": "path:vendor/hashbrown/Cargo.toml"
+      },
+      "risk": "High: generic collection allocation, initialized-bucket tracking, raw pointer lifetimes and drop semantics.",
+      "boundary": "SwissTable raw storage combines element allocations with SIMD control bytes; Bucket manipulates typed pointers, RawTable supplies conditional Send/Sync, and SSE2 loads control groups on x86_64. Selected allocator-api2 supplies allocator behavior; raw-entry/serde are present.",
+      "justification": "The two versions are distinct vendored identities and were bound independently. Layout calculations use checked multiplication/addition and isize::MAX bounds before unchecked Layout construction; control alignment is max(T alignment, group width). Allocation handles null/failure, adds trailing control-group bytes and initializes control bytes before iteration. Bucket indexing documents non-null live table and index bounds; RawTable Send/Sync require corresponding T and allocator traits. Destruction tracks occupied buckets and preserves allocator/layout identity. Required via indexmap in HTTP/serialization and other selected consumers. Residual limitation: Not a complete audit of all raw-entry APIs, custom allocators, panic/reentrancy handling, serde or iterator edge cases. Custom unsafe allocator implementations and correctness of hash/equality consumers remain dependencies. No evidence that every public API executes in Susi is claimed.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "da5c6b8b5fd7dc14f1e670c3f87c25b1ba790124640a7b81a56fe0bd6d2471c2"
+        },
+        {
+          "path": "src/alloc.rs",
+          "sha256": "7ffdd9a84787cb1f93b31184c32733649324faf500bcc3012197ee91353c9ac7"
+        },
+        {
+          "path": "src/control/group/sse2.rs",
+          "sha256": "53d7d09c72332232b4562aa7dfabf18e5f57c5009a672b2cfac7193ef468b349"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "23de74f311e3584574b39041df306b0cbb9ecb700ed33fba1e02ba9d26f70a23"
+        },
+        {
+          "path": "src/map.rs",
+          "sha256": "b79497ce537ffc5ed4f8f3399434b9216c01e7927fdc434fee190e9e9ce2abb0"
+        },
+        {
+          "path": "src/raw.rs",
+          "sha256": "0c8ad353ba95817e72b0a8fea48fa2599099ea3def374f254ab6402a9c468d22"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "hyper",
+        "version": "1.12.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: network-facing HTTP parsing and read-buffer initialization combine unchecked header conversion, MaybeUninit and pin/lifetime operations.",
+      "boundary": "src/rt/io.rs tracks raw capacity, initialized bytes and filled bytes; the initialized-slice view and cursor lifetime narrowing are unsafe. HTTP/1 role.rs reads only parser-reported initialized header slots and constructs HeaderValue without rechecking validated bytes. These selected Rust internals differ from the unselected ffi/capi interface.",
+      "justification": "ReadBuf::new records the full initialized input length; filled() restricts the exposed slice to the filled prefix. The cursor is borrowed from a stable underlying buffer and narrows its lifetime. The server parser returns on partial/error parses, records initialized header indices after successful httparse parsing, then iterates only headers_len. These inspected invariants explain the unsafe optimization boundary without erasing it from inventory. Retention provides the selected HTTP/1 and HTTP/2 client/server engine required by Susi networking and MCP transports. Residual limitation: Custom unsafe cursor users must not deinitialize bytes or advance past initialized data. Header validity depends on httparse and all unchecked-conversion call sites. The HTTP parser, cancellation and protocol-smuggling cases were not exhaustively audited or fuzzed here; large body/header budgets remain a product-level concern.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "dda7caddb7df155f479d2bd4764f201c57311f04969a0e7c893362765857161a"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "d2db6fe1da5f09a8062a8fb4f44fac931a17220f5c18603ff455846706b3d243"
+        },
+        {
+          "path": "src/proto/h1/io.rs",
+          "sha256": "27287bec2aeb9d23fbf3440b5eea5186a1826301f7de2d855e78fcfce465c745"
+        },
+        {
+          "path": "src/proto/h1/role.rs",
+          "sha256": "ee27600c6d7ae2f23e148af5cef02fa029def6ea5999cce84af4aac058ceb03e"
+        },
+        {
+          "path": "src/rt/io.rs",
+          "sha256": "97231117887089e0a9fcd165b14f839c9abb6e3fc75dee5c02cb76604ae9730e"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "idna_adapter",
+        "version": "1.1.0",
+        "source": "path:vendor/idna-adapter/Cargo.toml"
+      },
+      "risk": "High: OS dynamic-loader/ICU function-pointer ABI and Unicode identity interpretation.",
+      "boundary": "The vendored implementation loads only standard absolute Linux OS ICU paths, resolves same-version C symbols, retains the owning library in a process-wide OnceLock API, and calls normalization/property functions with typed buffers.",
+      "justification": "Selected via unicode-ident for source tooling/proc macros, not merely an unused accelerator. Library::get checks NUL termination, pointer size and non-null symbols while requiring the private caller to supply exact ABI. Api retains the library for every stored pointer; normalization checks i32 input length, uses an ICU preflight capacity, validates status/actual output and converts UTF-16 fallibly. Missing library/API/data yields typed status and rejection values for non-ASCII input. These checks support the OS boundary without bundling ICU code or data. Residual limitation: System library permissions, symlinks, ABI implementation and installed Unicode version remain trusted. Absolute paths prevent CWD/PATH selection but do not cryptographically authenticate the OS library. Full Unicode conformance and every platform were not executed here. Qualification must bind the actual platform provider/version separately.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "0d5f78c9fd1bd69d6871da76c7fee8ccbba6572465bfc98bbcaef3aaf93ff964"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "c43c045cb4d26380bd445125a192c3fcf3b77f0ab412a032e75848b741a51a9d"
+        },
+        {
+          "path": "src/native_library.rs",
+          "sha256": "19391c463a5c102eebe321c5f18199751ef98f663aef641724652355e2958aa5"
+        },
+        {
+          "path": "src/platform.rs",
+          "sha256": "814fe1ff5afa4de63991e296de9950a2de5d3542430e67632a56afbe666cbf16"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "itoa",
+        "version": "1.0.19",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "decision": "accept-forbid-exposure",
+      "risk": "Moderate: integer formatting writes into MaybeUninit buffers using unchecked indices and assumes formatting length and UTF-8 invariants.",
+      "boundary": "src/lib.rs contains the Buffer formatting implementations, raw pointer access, unchecked buffer indexing, unreachable_unchecked branch, and conversion of initialized bytes into str.",
+      "justification": "The formatter derives maximum lengths from the integer type, writes digits from least significant chunks, and returns the written suffix only after the encoder reports its offset. The unsafe conversion is therefore bound to the encoder’s exact length and ASCII-digit invariants. Residual limitation: arithmetic/indexing proofs and compiler behavior remain upstream obligations; this review does not fuzz extreme integer values or prove every architecture-specific encoder path.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "4289a1fc5c20e8927f4ce27d1d0f085ae0f9fe7b666462dce92bd36466e89829"
+        }
+      ],
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "libc",
+        "version": "0.2.191",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High foundational C ABI boundary for memory mapping, signals, descriptors and process APIs.",
+      "boundary": "Raw extern declarations expose pointer/length-based mmap, munmap and write functions; Linux epoll_event and GNU x86_64 stat layouts carry OS-provided data.",
+      "justification": "The inspected declarations preserve C integer/pointer types and target-specific layouts rather than presenting raw FFI as checked safe Rust. epoll_event has the target-specific packed representation; mapping and I/O functions return values that callers must check. Susi reaches these APIs through candle-core, memmap2, mio, signal-hook and crypto wrappers. The declarations cannot carry a crate-wide unsafe-code forbid while implementing these OS boundaries. Residual limitation: Correct ABI/layout, libc/kernel compatibility, valid buffers and descriptor ownership remain trusted. This is a narrow declaration/layout inspection, not exhaustive verification of every libc API or platform, and does not prove every downstream call meets its contract.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "929ad68438df6fe7fc2cf8bf1d1ccbef3e4a713717cc98947571bf166eacb521"
+        },
+        {
+          "path": "src/unix/linux_like/linux/gnu/b64/x86_64/mod.rs",
+          "sha256": "1e7565934b7d0f8f2a7b6ecb4f99684a443adb7974323fcf423e57cf59b2b6aa"
+        },
+        {
+          "path": "src/unix/linux_like/mod.rs",
+          "sha256": "39afa8f72bdb7f6afa0dc9bed7e35ae0e78015dcbe520809a6324b8e58f3ca3c"
+        },
+        {
+          "path": "src/unix/mod.rs",
+          "sha256": "5983e1f99a999167c43249a3961a6db10290f6fb15b65ef285796dd05a034c2d"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "mio",
+        "version": "1.2.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: event-buffer initialization and OS descriptor lifetime.",
+      "boundary": "The selected Linux epoll backend passes Vec spare storage to epoll_wait, then marks only the successful returned event count initialized; epoll descriptors are owned.",
+      "justification": "Selector construction wraps an epoll_create1 descriptor only after success, using CLOEXEC. The syscall macro maps negative results to an OS error. select clears the event vector, supplies its allocation and capacity, and sets length only after the kernel reports initialized entries. Timeout conversion rounds sub-millisecond waits upward and bounds the integer timeout. Registration creates initialized epoll_event values before epoll_ctl. Residual limitation: The kernel ABI, descriptor reuse/lifetime and caller readiness discipline remain trusted. Readiness does not guarantee an I/O operation will complete. This review covers the selected Linux source path, not all socket methods, race cases or other OS backends; no new polling stress tests ran.",
+      "reviewed_files": [
+        {
+          "path": "src/sys/unix/mod.rs",
+          "sha256": "a5fb6482479004e1521a4b9e27f1541e40d580e15e9131a9b47a42b075431e87"
+        },
+        {
+          "path": "src/sys/unix/selector/epoll.rs",
+          "sha256": "b952cb6d4225f442524d1a5a15bb7cecad6ad4738afaed5776e6b9d4a1203891"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "native-tls",
+        "version": "0.2.18",
+        "source": "path:vendor/native-tls/Cargo.toml"
+      },
+      "risk": "High transitive platform-crypto boundary; Linux selected wrapper is safe Rust over reviewed OpenSSL APIs.",
+      "boundary": "Linux imp/openssl.rs and platform_rsa_openssl.rs use safe openssl wrappers; platform_rsa.rs performs PKCS/RSA validation. Windows CNG and Apple Security.framework providers contain local unsafe FFI blocks but are cfg-excluded from Linux.",
+      "justification": "The selected Linux source has no own unsafe block in lib.rs, imp/openssl.rs or platform_rsa_openssl.rs; the last forbids unsafe locally. The crate root has no unconditional forbid because supported platform backends have real FFI. Linux TLS connector defaults keep certificate/hostname validation enabled and only disable them through explicit dangerous builder options. The RSA provider generates 3072-bit keys, strictly decodes PKCS8, checks key consistency, performs a randomized sign/verify import proof, and zeroizes intermediate private encodings. This dependency is a path package and must not bypass the inventory. Residual limitation: Safe Rust wrappers still trust openssl, openssl-sys and the installed cryptographic provider. Explicit dangerous TLS builder options remain available to consumers; this review is not proof every call site uses secure configuration. It does not qualify Windows/Apple native FFI execution or establish constant-time behavior.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "8be2d0bd2f3ca6f978cd0328bedc8358b81833ded17d9af97d8b5cb50d67d155"
+        },
+        {
+          "path": "src/imp/openssl.rs",
+          "sha256": "44ce7a5dd9c9c7e9ac641442629b3fd4b7d940a44abc982d0c5600e78791d547"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "74f91e0d3e5fadf26068a47c5576759fd11ad009d8eb7193388ec9c065f3ce05"
+        },
+        {
+          "path": "src/platform_rsa.rs",
+          "sha256": "3c1d1cdef26b78b95564251b2c7796e0d46851ecd2d8048f9534756f44eec27f"
+        },
+        {
+          "path": "src/platform_rsa_macos.rs",
+          "sha256": "4992c813629488ad001c689b4b6ee6930898328e236541f45d87fe813f0b31bf"
+        },
+        {
+          "path": "src/platform_rsa_openssl.rs",
+          "sha256": "aedbc45174b64c67d7e132a2b6a4d585d64c09ea4c2416ee6b232558c54a284a"
+        },
+        {
+          "path": "src/platform_rsa_windows.rs",
+          "sha256": "500cf83fbba92f482a9a2859fb596678ea2e4949c27e5db4a9a7af16bd3a4c50"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "openssl",
+        "version": "0.10.82",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: cryptographic C ABI, opaque-object ownership, I/O callbacks and secret operations.",
+      "boundary": "Safe Rust wrappers call the platform OpenSSL C library for TLS and RSA3072/SHA256 identity operations. Selected paths include RSA allocation/key generation, EVP signing, DER parsing/serialization, SSL read/write and BIO callbacks.",
+      "justification": "Inspected cvt_p/cvt reject null/nonpositive C returns before safe wrappers are formed; RSA generation obtains a managed handle before the fallible operation. Sign-to-Vec allocates the advertised output size and truncates to actual output. MemBioSlice retains a lifetime marker for borrowed input and checks C integer length bounds. TLS calls pass Rust buffer lengths; BIO callbacks catch Rust panics before crossing the C boundary. The Susi Linux provider itself forbids unsafe_code, validates PKCS8 and RSA consistency, signs through EVP, and verifies using an exported/reimported public key. These checks justify the selected boundary, while not eliminating the C dependency. Residual limitation: Correct C lengths, ownership/refcounts, thread behavior, ABI/header matching and cryptographic behavior remain trusted. This is not a full audit of the large openssl crate or system library and does not prove constant-time behavior. Qualification must separately bind the actual dynamic library/provider and keep advisory/TLS gates enabled; upgrades require requalification.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "6917cee31d1ff34aad65b2a44b36ea80816607ccdbaa3f24cfaa05c1569d388d"
+        },
+        {
+          "path": "src/bio.rs",
+          "sha256": "529367a9758889678da98a5355e0ee25ee67d3710163dff84b9cee55742dff9d"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "feccaf131b53a3661dc5f8d67800b0d4778b8f38368fc08bd21bea009a64e13c"
+        },
+        {
+          "path": "src/macros.rs",
+          "sha256": "0157a7c88445cd4841686e57475a4451a5c4b1f48de78199f6df8e7e091a126b"
+        },
+        {
+          "path": "src/pkey.rs",
+          "sha256": "59c4d5e84b7abd5da20cc50dbe9d72bbba9e4a0b555427fcdc0fcfd2cb61e953"
+        },
+        {
+          "path": "src/rsa.rs",
+          "sha256": "00472a1679ca944145911b9f954215a8e2d9d85279e1e79a26ce2692dace5b45"
+        },
+        {
+          "path": "src/sign.rs",
+          "sha256": "16a6f96510f0c72f65f05de457275fd501a512c6dd3336d18fd67ae05992e81a"
+        },
+        {
+          "path": "src/ssl/bio.rs",
+          "sha256": "b540da8add428cffd928208c1f2038562fe925faf4c2a8105d13a8a7ee918ae5"
+        },
+        {
+          "path": "src/ssl/mod.rs",
+          "sha256": "8c0d3a100a98866d333856ccdf64b9ceff38eb2d484befade302457c0ffc5937"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "openssl-macros",
+        "version": "0.1.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low: host proc macro rewriting function attributes.",
+      "boundary": "The corresponds attribute macro parses an identifier and function, adds documentation/doc-alias attributes, and re-emits the existing attributes, visibility, signature and body. No literal unsafe token occurs in its only src Rust file.",
+      "justification": "The complete 32-line implementation was inspected. It neither creates unsafe blocks nor mutates the function body; existing unsafety in an input function remains in that function. It is a host proc-macro dependency of openssl, included in the normal/build SBOM, not an independent runtime library to label optional. Residual limitation: Compiler/proc-macro parsing and dependency supply-chain trust remain. The missing unconditional forbid marker is still a real inventory difference, but is not evidence of runtime unsafe operations in this crate.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a0f4f5f613ead670c0512bf5f42c0426c8c3ab119f3737c6119190a5a34b657d"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a53de10a52f0870e854ed7575d35eba46165f9eaf9f69d1abfff141d2e2aaf33"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "openssl-probe",
+        "version": "0.2.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate trust-store/environment boundary; its optional unsafe initializer mutates process-wide environment, which can be unsafe concurrently.",
+      "boundary": "try_init_openssl_env_vars is explicitly unsafe and wraps env::set_var. The actual selected vendored native-tls caller instead constructs LazyLock<ProbeResult> with the safe openssl_probe::probe function, which reads environment and filesystem paths without mutating environment.",
+      "justification": "The inspected native-tls integration does not invoke the unsafe environment initializer. probe returns known certificate-file/directory locations, preserving configured accessible paths. Retention supports Linux native TLS trust-store discovery used by Reqwest and MCP, and the read-only probe keeps environment mutation outside this path. The inventory still correctly records absence of a crate-root forbid. Residual limitation: Environment-provided CA paths and filesystem trust material remain security-sensitive configuration. This review does not authenticate certificate contents or prove that every downstream consumer avoids the public unsafe initializer; adding such a call requires separate review. Platform TLS validation and external OpenSSL ABI qualification remain independent gates.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "33adb489eb66d577a45827670ae57d263a808e4788098e320a07fe53baae66e5"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "3b1dcb92338782e7b9a16e6ba79d6d2567e346b25f6888908c39fdb7519fc170"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "openssl-sys",
+        "version": "0.9.118",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: low-level C ABI declarations and build-time selection of platform provider.",
+      "boundary": "Raw extern C declarations expose RSA/EVP/SSL/BIO handles and buffers. Build logic locates platform OpenSSL through environment/pkg-config and selects static or dynamic linkage.",
+      "justification": "The reviewed RSA declarations show the pointer/length ABI consumed by openssl, without pretending this low-level crate validates callers. No vendored feature is present in the qualified feature set. Build probing reads system headers/libraries, and explicit OPENSSL_STATIC can alter linkage; source alone therefore cannot prove the actual library identity. Retaining binary/provider audit receipts and the no-foreign-archive gate is essential to the accepted dynamic-provider strategy. Residual limitation: An ABI mismatch, compromised or vulnerable system library, wrong build environment or unsafe downstream call can breach safety. This review does not authenticate the OS library bytes or qualify other platforms; the production artifact receipts must do that independently.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "a65ab3506d0af118f0d0885ccb786ce4100f6d9290fdc9f80ca5669a636a566b"
+        },
+        {
+          "path": "build/find_normal.rs",
+          "sha256": "015b5d233c175a67111743c25839a1917242b575f9bbf2fa36582d060c9d1696"
+        },
+        {
+          "path": "build/main.rs",
+          "sha256": "8b84f221fe21ae51b481166e0832f9d378ee0b4949ec995471258a8af2ef8378"
+        },
+        {
+          "path": "src/handwritten/rsa.rs",
+          "sha256": "549685efff3bfcf9e0d906e876ba3cd25a8d7bf0d294776d11ab8125ca8ed615"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "f9a3febbd5421021a227a8ba91d21c2b4a4f6d02f44cbd26a4adf31a037f3261"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "pem-rfc7468",
+        "version": "0.7.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low to moderate: ASCII/UTF-8 representation invariant for encoded key material.",
+      "boundary": "Encoder returns a str using from_utf8_unchecked after constructing PEM output. The decoder and length handling remain separate safe API logic.",
+      "justification": "The inspected encode function computes the written slice, then performs an always-on scan rejecting any byte with its high bit set before the unchecked UTF-8 conversion. Thus ASCII validity is checked even when debug assertions are off. The crate denies unsafe_code with one local allowance, not an unconditional forbid. Both versions are independently selected and reviewed; no name-only deduplication is appropriate. Residual limitation: Encoding/decoding grammar, length handling, secret handling and constant-time claims are not fully proven by this cast review. The reviewed branch establishes string validity only for this exact implementation.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "88c9f826dd390af0f176cd074ea3d27be8a63e6b5671f77db699daa7df3b121e"
+        },
+        {
+          "path": "src/encoder.rs",
+          "sha256": "477dc159381c889e5b4523ec7bc51b474965d890eeaf5917e007ebe6e9fd25fd"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a390b39b5166b526db31a10cae08643e735ba0734f7e92c102608881b7c173b8"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "powerfmt",
+        "version": "0.2.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Moderate: initialized-byte and UTF-8 invariants plus MaybeUninit option fields.",
+      "boundary": "WriteBuffer deref accesses initialized prefix and converts it to UTF-8 without checks. Copy helper casts T/MaybeUninit<T> slices. FormatterOptions reads width/precision only when initialization flags are set.",
+      "justification": "write_str gets an in-bounds mutable range before copying valid str bytes and increments length only after success. The copy helper requires T:Copy and copies equal-length slices before assuming initialization. FormatterOptions defaults clear flags and setters initialize corresponding values while setting flags. Used for time formatting in certificate infrastructure. Residual limitation: Safety depends on maintaining the single writer/length and flag-value invariants. This is not exhaustive coverage of every formatter or proof against all arithmetic/panic combinations.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "623e62724836792656467cabde148f04a3e4fefb5b86ae5e43195cb79a3fcdfb"
+        },
+        {
+          "path": "src/buf.rs",
+          "sha256": "1b087225aaf454336ed985d226c8fbac080be39a69e32f1a43870a47831650ad"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "8955710131f984fa4bc7d3215cd964d33543c70b8646ec46edf036884b0cd9fc"
+        },
+        {
+          "path": "src/smart_display.rs",
+          "sha256": "78a107b9b3cf812db19788697f66467a5931833471ffabd52e93a1553d2334d9"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "serde_json",
+        "version": "1.0.154",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High input-processing boundary: JSON uses unchecked UTF-8 and initialized-capacity operations; selected raw_value also performs representation-preserving transmutes.",
+      "boundary": "RawValue is repr(transparent) over str. StrRead skips repeated UTF-8 validation only because input originated as str and escapes are checked. Scratch writes reserve four bytes before writing at most four and updating length. Serializer unchecked conversions split valid input only at ASCII escape boundaries.",
+      "justification": "These inspected representation, UTF-8 and allocation invariants support the specific unsafe optimizations. The selected features are alloc/std/raw_value/float_roundtrip; arbitrary_precision, preserve_order and unbounded_depth are absent. Retention supplies JSON for configuration, MCP and HTTP; the Susi facade forbids its own unsafe but leaves upstream inventory honest. This review does not treat successful JSON deserialization as evidence authentication. Residual limitation: Malformed inputs, float-roundtrip correctness, recursion/resource limits and every RawValue construction path were not exhaustively fuzzed or proved. Duplicate JSON keys require the separate strict release-receipt reader; ordinary serde_json Value parsing alone is insufficient for immutable evidence admission.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "548aafeb7c702b69b9de950033f10b59f70baf38592d275d8ca8cff19f7750c3"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "e3c3f2864cea66bac10c78dfc312ed8e1de43d2b7410d83bdd352a1c4b339104"
+        },
+        {
+          "path": "src/raw.rs",
+          "sha256": "0e6ae2ade492a3c5c090dfaf31f03ff4e54123a5a47b59def5f1b3dcc035a2e3"
+        },
+        {
+          "path": "src/read.rs",
+          "sha256": "523eec008a92c1be499978ee96bce7a8dc7d6ddff9a63b5ed404c19d01fb953a"
+        },
+        {
+          "path": "src/ser.rs",
+          "sha256": "f2b8cc0b97e30c49dbc58698fa22c14a7d56ea616cdb57b067835a59af49a75f"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "signal-hook-registry",
+        "version": "1.4.8",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: asynchronous OS signal context, function-pointer ABI and concurrent lifetime reclamation.",
+      "boundary": "POSIX sigaction registration and previous-handler dispatch; raw global AtomicPtr and HalfLock snapshot pointers read inside asynchronous signal handlers.",
+      "justification": "The parser-omitted package is now explicitly reviewed. Registration initializes global state before installing handlers, checks the sigaction return, stores prior handler flags and dispatches the one-argument or SA_SIGINFO ABI accordingly. HalfLock readers increment a generation counter before loading a pointer; writers swap owned Box allocations and wait for readers before reclaiming old storage, outside the signal handler. Callback registration is unsafe because arbitrary callbacks must be async-signal-safe; the Susi facade re-exports signal-hook rather than making those contracts disappear. The crate intentionally cannot claim an unconditional unsafe-code forbid. Residual limitation: This is not a formal concurrency or signal-safety proof. Callback discipline, previous handlers, platform ABI and the documented registration race remain trusted. unregister does not restore the prior/default OS handler, so shutdown/lifecycle behavior must be exercised separately. No new signal-delivery, race, Miri or lifecycle test ran in this review.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "54bcf376404635b6cfc7e20474cc84a756ef5c8b54e2954d3186e44b68854fac"
+        },
+        {
+          "path": "src/half_lock.rs",
+          "sha256": "b73a0c35a86ce08f583c241b6fab5ad5b5e2cfef93491af12c5f24251ad76e91"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "71c67afdcaab442cc75955a6a17e5eb4e17fb725e0db7f8d1930023c680a7204"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "smallvec",
+        "version": "1.16.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: manually tracked initialized elements and inline/heap ownership transitions.",
+      "boundary": "SmallVec uses MaybeUninit storage, raw pointer reads/writes and allocator operations; length/capacity distinguish initialized elements from spare storage.",
+      "justification": "The selected const_generics/const_new features do not enable the optional union representation. The inspected nonunion storage uses an enum and unsafe Send/Sync constrained by element/array traits. push reserves before writing and increasing length; pop reduces length before reading ownership out. Growth validates required capacity and allocation layout, handles inline-to-heap and heap-to-inline copies, and installs a new pointer only after allocation succeeds. Unsafe raw construction/set_len retain explicit caller initialization obligations. Residual limitation: Panic/drop ordering, zero-sized types, aliasing and custom unsafe array/raw-parts operations remain trusted. Source excerpts do not prove every drain/splice or allocation-failure case. No Miri, allocator-failure injection or full crate audit is claimed.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "e1d274de2f597c99cd860c5b531398323e5f663a3bb4e769ad9e5427ed677eda"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "syn",
+        "version": "3.0.10",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Elevated: pointer cursor and lifetime/thread-affinity implementation is used at runtime as well as by host macros.",
+      "boundary": "Immutable boxed token buffers contain raw pointer cursors/sentinels. ParseBuffer internally erases cursor lifetime in Cell; speculative advancement verifies shared scope. ThreadBound has unsafe Sync/Copy-constrained Send. Single-span transparent token casts also occur.",
+      "justification": "Inspected buffer construction appends terminal entries before boxing; Cursor carries PhantomData<&Entry> and scope bounds. ParseBuffer limits assignments to derived cursors and Speculative::advance_to rejects different scope. ThreadBound::get checks original thread ID and Send requires Copy to prevent wrong-thread Drop. WithSpan casts apply only to one-span transparent token representation. Susi runtime facade calls syn::parse_file and exposes owned metrics/outline rather than raw cursor values. Residual limitation: This internally fragile parser is not exhaustively audited; recursive/token resource exhaustion and all AST edge cases remain upstream risks. Textual Token![unsafe] matches are parsed syntax, not executed unsafe blocks. No Miri/fuzz run or new parser tests were performed.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "483292e3ca48fc6fc04c1ff03ef5fcafdb39417cee3df0727122b52129b1dc6b"
+        },
+        {
+          "path": "src/buffer.rs",
+          "sha256": "ddb6d50a9e79dc1db86d819d41dbf532e172997c8e0101d73c95052835756c50"
+        },
+        {
+          "path": "src/discouraged.rs",
+          "sha256": "7b5ca0fb3120970d028ddd4efc69363fea278a0b6ed5160d82295c326b3b08ac"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "18e97adc1098c1edac0c9aab253e34844da6699af095ffebb5b949fe0000ed45"
+        },
+        {
+          "path": "src/parse.rs",
+          "sha256": "e692d6e895ac79a14680b89a7c29611995126953238176bdb50d2a3c2fb2d9e3"
+        },
+        {
+          "path": "src/thread.rs",
+          "sha256": "b91e33c563c2ea584fcd7c5454998303173f4227bdb19504776e61d09b60675c"
+        },
+        {
+          "path": "src/token.rs",
+          "sha256": "fddf7540f6c87e088ca2e4cd59a4769bc99989907a71e0d7cb42ee6ec067a6ac"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "tokio",
+        "version": "1.54.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High foundational runtime boundary: task allocation/vtables, refcounts, readiness, buffers and synchronization rely on extensive unsafe Rust and OS interfaces.",
+      "boundary": "ReadBuf exposes only its tracked filled/initialized prefix. RawTask stores NonNull<Header> with generic task vtables and calculated field offsets; task state transitions use atomic reference counts and running/complete state. The raw task module locally allows unsafe_op_in_unsafe_fn because of its low-level role, despite the crate-wide deny.",
+      "justification": "The inspected unowned task constructor transfers two existing references into UnownedTask, and state transition_to_terminal checks the previous count before deciding to free. ReadBuf separates initialized bytes from capacity and filled bytes. These are concrete invariants supporting representative selected runtime boundaries, not a whole-runtime safety proof. Retention is necessary for Susi async execution, HTTP/MCP and subprocess/IO services; the selected full plus tracing/test-util features are recorded rather than hidden as dev-only. Residual limitation: The large runtime was not completely audited, model-checked with Loom, fuzzed or stress-tested here. Scheduler/abort/waker races, unsafe user AsyncRead contracts, Linux FD ownership and signal handling still depend on upstream invariants and independent runtime tests. Windows-specific code is outside this review.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "9a8189f0dc5320ae7c66786d6414b5650fcf1b1deab634135d2306bdc28d34ec"
+        },
+        {
+          "path": "src/io/read_buf.rs",
+          "sha256": "f2a75bdf27487fd4681d737f892eabf528ec7e79ec24e8c5af7fc278c8c239ea"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "0c1c4e73725d5c6fa51836d6d1fdbcd28f471864f855f3525de360c25e98f4d6"
+        },
+        {
+          "path": "src/runtime/task/mod.rs",
+          "sha256": "915f6602c452b525b83ef7938c784750df665796adc110e90b2a7b3b1374c74f"
+        },
+        {
+          "path": "src/runtime/task/raw.rs",
+          "sha256": "a56d158fd7766fd4feabb6ce8631e3ae6f419a2bf6fca038f989b7a88a614df9"
+        },
+        {
+          "path": "src/runtime/task/state.rs",
+          "sha256": "8b836adf0874bb00e9e61efec6d15010619f0acc23680e2fc23e856b1fa9ffce"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "tokio-native-tls",
+        "version": "0.3.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: task Context lifetime and manual Send/Sync across asynchronous TLS polling.",
+      "boundary": "AllowStd stores a raw erased Context pointer while adapting AsyncRead/AsyncWrite to native-tls synchronous calls; with_context casts it back. Send/Sync are manually conditioned on the stream traits.",
+      "justification": "Inspected stream polling installs the current Context, uses a Guard to clear it on completion/unwind, asserts it is non-null before access, and converts Pending to WouldBlock. Initial handshake code clears the pointer before returning either completed or resumable handshake state. Exclusive &mut access and S: Unpin support the temporary pin/borrow. This confines the raw context to polling rather than persisting a valid Rust reference across awaits. Residual limitation: The invariants still depend on all handshake/panic/reentrancy paths, native-tls callback behavior and correct stream trait implementations. No complete concurrency model check was run. Native provider risks remain additional to this pointer-lifetime bridge.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "6bb138e0cd1d8edc28e1e4e37e796b732a9b4f9db909d6b10779225e1581bcb0"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "9f29482a3522a6f2c8051affc0ff41ca1e90b9494dca83c108e4d911b94dda89"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "tokio-util",
+        "version": "0.7.20",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High adapter boundary: lifetime/pin projection, reusable futures and libc byte search depend on unchecked invariants in safe stream/channel APIs.",
+      "boundary": "Selected io exports manually pin-project StreamReader.inner, with Unpin conditional on S. write_all_vectored extends only a shared sub-IoSlice lifetime back to its original backing buffer lifetime. PollSender erases a future lifetime but stores it within a T-parameterized owner. Selected Unix libc memchr bounds the call by the input slice and checks null before pointer-offset conversion.",
+      "justification": "The inspected projection pins only inner and exposes other fields unpinned. IoSlice advancement uses checked subtraction to avoid cumulative-length overflow, retaining the original shared backing data. PollSender documents that its future never escapes its T-bearing owner. These utilities support selected streaming bodies and codec transports in HTTP/MCP and Docker. Retention keeps these required adaptations while recording actual upstream unsafe boundaries. Residual limitation: Pin/drop and cancellation invariants across all reusable-box and channel code were not exhaustively proved; libc memchr correctness and the original buffer lifetime remain external contracts. No stress/fuzz tests ran in this review. Net/UDP, rt and io-util-only extras are outside the selected feature set.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "5764e31b13ee78f6682505971b022caba784b79e6c458d9b95e0f089a6fb6bda"
+        },
+        {
+          "path": "src/io/mod.rs",
+          "sha256": "4b456f8055218094d1a42f685e882d5823e3ef68a5b13a6ad8fb173078ea0a51"
+        },
+        {
+          "path": "src/io/read_arc.rs",
+          "sha256": "feb26049baa2ca7920451edd430295f693235c9e7a28c998de1a0e9867aab4cb"
+        },
+        {
+          "path": "src/io/stream_reader.rs",
+          "sha256": "92789246589ab2847693edb2554a42291276b4599843dea97f69bf64447acbd7"
+        },
+        {
+          "path": "src/io/write_all_vectored.rs",
+          "sha256": "1665381c603d4627133525f72717581155b0a562e6823b3a715853c540b5d3c0"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "293963cf0b93840eb894922fa17f7d4f6f7d8dc02df89343f99c887909506bab"
+        },
+        {
+          "path": "src/sync/mod.rs",
+          "sha256": "c1c8301187868a0778ffba383a842f5ef7f5192063195b03541f6125140d2e1c"
+        },
+        {
+          "path": "src/sync/mpsc.rs",
+          "sha256": "5e8124295e8a16a818cf89c019ec3b4b2ffba02366465ccd653ef45fc2b43109"
+        },
+        {
+          "path": "src/util/memchr.rs",
+          "sha256": "c9d7b9f5b9d03845b46ce13cad1f7e8986fa719d1cbd0caaf9935b2c0b2dfec7"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "wasmi",
+        "version": "1.0.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: interpreter validity, raw instruction/stack pointers and pinned code lifetime.",
+      "boundary": "Interpreter internals use raw instruction pointers and unchecked indexing assumptions from validated translation; CodeMap extends references to pinned append-only code beyond its mutex guard. Memory growth refreshes cached pointers.",
+      "justification": "The reviewed Module::new path parses and validates; Susi calls it after size checks and does not invoke Module::new_unchecked. The selected extra-checks feature makes the interpreter unreachable_unchecked macro panic rather than invoke core::hint::unreachable_unchecked, while other raw pointer operations remain. Susi limits modules to 64 MiB, each store to one memory/instance/table, memory to 256 MiB, table elements to 1,000,000, output to 16 MiB and fuel to 10,000,000. CodeMap lifetime adjustment documents pinned append-only storage. These are concrete mitigations for model-written Wasm, not evidence the interpreter is memory-safe by construction. Residual limitation: Translator bugs can invalidate instruction/stack pointer assumptions; pinned-lifetime and cache invalidation correctness remain trusted. Fuel/resource caps do not guarantee memory safety or total compile-time CPU bounds. This scoped review is not a full interpreter audit or new adversarial/fuzz campaign.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "cc7ae6db439cac0461bcb7a95b7fea124870536ed1e79804789f0a9285779d6d"
+        },
+        {
+          "path": "src/engine/code_map.rs",
+          "sha256": "f7aacf9ffe8b114c4a78d73579ca001ce9d589b631cfd2f03510c6fa64693448"
+        },
+        {
+          "path": "src/engine/executor/instr_ptr.rs",
+          "sha256": "4ad8cf61bcb07880eaf26183b7f5d06f0aadea968d14ce584bcc38bbff507900"
+        },
+        {
+          "path": "src/engine/executor/instrs/memory.rs",
+          "sha256": "d91aee1975c0404d8fb95220a798a0f433212f140b41573ade9d121908cb6e51"
+        },
+        {
+          "path": "src/engine/executor/stack/values.rs",
+          "sha256": "8c736902f4a5656fbe77152feed23caaf77f5f2d81eaf64d5d05f49621e158c2"
+        },
+        {
+          "path": "src/engine/utils.rs",
+          "sha256": "b881d72c5e925bbf7a47a08bbc0989835fa7fe778068ef2f67b3d598023d5d90"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a592e17ecf2b0f4e0c66f4a180ece1e67a98d47bac1c3c612e1e2b00072d6185"
+        },
+        {
+          "path": "src/module/mod.rs",
+          "sha256": "9700a132a808ebd7e2c1e48b175704048f1b187ef7bbf7302054996ad48f6dad"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "wasmi_collections",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low to moderate: transparent string wrapper and thread-trait bounds for arenas.",
+      "boundary": "LenOrderStr converts &str using transmute; Arena/ComponentVec implement Send/Sync without requiring the phantom index type to be Send/Sync.",
+      "justification": "The inspected string wrapper is repr(transparent) over str and preserves the original lifetime; it does not extend a borrow to static. Arena owns Vec<T> and ComponentVec owns Vec<Option<T>>; their Send/Sync implementations retain T: Send/T: Sync and only drop the unused index-marker bound. This is the precise residual unsafe surface, distinct from the larger interpreter. Residual limitation: Correctness assumes no later interior state is added without updating trait bounds and the transparent wrapper layout remains unchanged. This does not validate the interpreter algorithms consuming these collections.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "132fa206e00d9816f65ac874c55c53c53aedb2e30f0e6f34e45622185401c2d6"
+        },
+        {
+          "path": "src/arena/component_vec.rs",
+          "sha256": "8ffaf3578d3f0bb0173b17f6aabca2d6e0403147a988fc5233712db1f1e70a18"
+        },
+        {
+          "path": "src/arena/mod.rs",
+          "sha256": "de5ba43d4f845b4c741679a3b6be688643f4ee30eb146049897fb80ae91dbbca"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "f85867c84a5bf46849b75dcb3dedc0f996734a329a51de6daa27ebde23dbb8d4"
+        },
+        {
+          "path": "src/string_interner/detail.rs",
+          "sha256": "c59ae7eb2e181601b8e3eea51f02860a267e3e872334dabaac71000e149b4051"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "wasmi_core",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High: guest linear-memory ownership and SIMD representation conversion.",
+      "boundary": "ByteBuffer stores Vec/static-slice raw parts, reconstructs slices and Vec ownership, and manually implements Send/Sync; selected SIMD code transmutes equal-sized numeric lanes and V128.",
+      "justification": "Inspected creation zero-initializes accessible memory, records capacity, uses checked reservation for growth, updates raw parts after reallocation, and distinguishes static borrowed ownership from Vec ownership before freeing. Slice methods tie borrows to &self/&mut self. SIMD conversions use same-size types with valid numeric bit patterns. Susi applies the store/resource caps described in its wasmi integration; SIMD is actually selected. Residual limitation: Raw-part consistency, growth failure paths, aliasing and interpreter use of cached memory pointers remain trusted. Bounds do not prove all memory operations or SIMD semantics; test-only static-mut snippets are not counted as production operations.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "635fe563fd54945ae5b7d8278842921ce40103b9ff95fa672a1dcccf76021974"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "a38a1fbc99efea939115d9f64b18b90e04e67a7482162a7529eb2913766b16ec"
+        },
+        {
+          "path": "src/memory/buffer.rs",
+          "sha256": "c39e7c330a4525ff2abeee4d274072a9e9c4468fe92113ede3ace11ded7790d6"
+        },
+        {
+          "path": "src/simd.rs",
+          "sha256": "739c83301c9132a9188bc3f60afc3f70d98ac658f417b4b6c54d8db8b256463b"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "wasmi_ir",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Low to moderate: compact immediate representation preserving NonZero invariants.",
+      "boundary": "Const16<NonZero<T>> converts back through NonZero::new_unchecked in an internal macro.",
+      "justification": "The generic raw constructor is private; public conversions for NonZero immediates receive NonZero inputs and checked compact conversions. The unsafe conversion therefore relies on a concrete nonzero invariant, rather than arbitrary caller bits. This inspected operation is an IR representation optimization, not external FFI. Residual limitation: Future constructors or transformations could violate the private invariant. This review does not establish correctness of all translated opcodes or the consuming interpreter.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "eac9be472a5d497ec4ffb8a39ba633c783a5662caedb11a48aceccbad821ee96"
+        },
+        {
+          "path": "src/immeditate.rs",
+          "sha256": "39c8e5e3b23c66a5e43397def8a81e1e4e14f4cc340916b567bb71116132eea2"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "7c49b5191954b00fc41acfe304b966f910c47e8516fc9f3ae85c1c0e33b04b95"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "wasmparser",
+        "version": "0.228.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "Elevated optional defect found; actual selected core-validation feature context excludes it.",
+      "boundary": "Only unsafe operation found in src is names::KebabStr::new_unchecked lifetime transmute. Public safe KebabStr::new takes owned impl AsRef<str> and returns a reference with caller-selected lifetime, permitting an owned String temporary to be dropped while a reference escapes. validator.rs gates the entire names module on component-model.",
+      "justification": "The exact executed Linux reverse graph selects features,simd,std,validate, with component-model absent. Thus the identified unsafe names boundary is not compiled into this selected Wasmi validator. Core validation check_max uses checked arithmetic, and Susi invokes Module::new after capped input/rewrite before instantiation. This component may remain only under the reviewed feature exclusion; adding component-model must be rejected pending repair. Residual limitation: The optional component-model lifetime defect is a real source-level unsound API, not approved or waived. No UB demonstration was executed. This review is not an all-features approval, nor an exhaustive core validator semantic audit. Future feature resolution must be compared to the retained exact feature context.",
+      "reviewed_files": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "b6cf23beb9c0a6aa4966eea05a1a44d443b6d500800220b1dbb51be2184710b3"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "031c0f7eb877b93d06313d614a8fdf787ce68d4c403af2e323b327484258bee8"
+        },
+        {
+          "path": "src/validator.rs",
+          "sha256": "b6201d86caefadb148ea395b443a859458ff818fdfa5bb4b5f218570e09ddb51"
+        },
+        {
+          "path": "src/validator/names.rs",
+          "sha256": "e2cf0bf9d34ce8d08113651f924cc1c4f4797d8f25f7fadf8f5ae6ec6a4cb859"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "winapi",
+        "version": "0.3.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "decision": "accept-forbid-exposure",
+      "risk": "High: target-specific raw Windows ABI declarations and pointer casts can violate ownership, layout, or lifetime contracts.",
+      "boundary": "The source exposes extern system functions and raw WinRT/Windows pointers; shared GUID conversion uses a pointer cast to read a fixed four-word representation.",
+      "justification": "The exact Linux qualification target does not compile the Windows implementation paths, so this review records them as a conditional platform boundary rather than claiming runtime validation. The target-dependent ABI, pointer validity, and caller ownership contracts remain trusted, and a future Windows production target must requalify this identity against its actual cfg set.",
+      "reviewed_files": [
+        {
+          "path": "src/lib.rs",
+          "sha256": "2ed57f0c077ca9064dbe2269eada5ba310e0adf06bdbfdecb1e4b331345e0c2d"
+        },
+        {
+          "path": "src/shared/guiddef.rs",
+          "sha256": "3fd75e1ec6583325b7b50afb5e04cd1dbedec19b66c92349df82104b19edd2d6"
+        },
+        {
+          "path": "src/winrt/winstring.rs",
+          "sha256": "d7318e090000ca3bc644a6310d36a27179e3cc5624a1e35c20ec0dc332057b53"
+        }
+      ],
+      "source_guards": []
+    },
+    {
+      "identity": {
+        "name": "zeroize",
+        "version": "1.9.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      "risk": "High confidentiality boundary with unsafe memory writes and compiler optimization barriers.",
+      "boundary": "Volatile writes clear initialized data or valid MaybeUninit storage; the selected x86_64 optimization barrier exposes a pointer to inline assembly to prevent dead-store removal.",
+      "justification": "Scalar implementations use volatile writes of valid values. The Vec implementation zeroizes spare capacity first, then initialized elements, then clears/drops those elements, avoiding a second pass over elements after len becomes zero. The code explicitly calls Vec zeroization best effort because old allocations may retain copies. The x86_64 barrier has readonly/preserves_flags/nostack constraints; this is a compiler-observation mechanism rather than an operating-system erasure API. Residual limitation: Prior reallocations, temporary copies, registers, swap, crash dumps and microarchitectural leakage are outside the guarantee. Arbitrary downstream Zeroize implementations and compiler behavior remain trusted; zeroizing one buffer is not evidence all secret copies vanished. No private key/model data was inspected and no erasure runtime test ran.",
+      "reviewed_files": [
+        {
+          "path": "src/barrier.rs",
+          "sha256": "99d5495396318717a050570dc6e6cfbdba77f218689c9fac513e1060499453be"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "0ec1dcf0d7c33b0bab02f85d79d37f29bbb8f034f648513797859a7b37bca637"
+        }
+      ],
+      "decision": "accept-forbid-exposure",
+      "source_guards": []
+    }
+  ]
+}
