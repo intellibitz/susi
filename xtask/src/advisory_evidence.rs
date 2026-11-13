@@ -335,7 +335,7 @@ impl Snapshot {
     }
 }
 
-pub fn arguments(candidate: &Path, attempt: &Path, host: &str) -> Result<Vec<String>> {
+fn base_arguments(candidate: &Path, attempt: &Path, host: &str) -> Result<Vec<String>> {
     Ok([
         "deny",
         "--config",
@@ -353,12 +353,23 @@ pub fn arguments(candidate: &Path, attempt: &Path, host: &str) -> Result<Vec<Str
     ]
     .into_iter()
     .map(str::to_owned)
-    .collect::<Vec<String>>())
-    .map(|mut args| {
-        // Scan the graph that ships: the product's features, not the slim default.
-        super::product_features::select_product_features(&mut args, candidate);
-        args
-    })
+    .collect())
+}
+
+pub fn arguments(candidate: &Path, attempt: &Path, host: &str) -> Result<Vec<String>> {
+    let mut args = base_arguments(candidate, attempt, host)?;
+    // Scan the graph that ships: the product's features, not the slim default.
+    super::product_features::select_product_features(&mut args, candidate);
+    Ok(args)
+}
+
+/// Reconstructs the production advisory command without reading the removed
+/// candidate checkout.  The package receipt already proves that this command
+/// was run with the immutable product feature policy.
+pub fn qualified_arguments(candidate: &Path, attempt: &Path, host: &str) -> Result<Vec<String>> {
+    let mut args = base_arguments(candidate, attempt, host)?;
+    super::product_features::select_qualified_product_features(&mut args);
+    Ok(args)
 }
 
 #[cfg(test)]
