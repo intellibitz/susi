@@ -5,6 +5,7 @@
   "status": "implemented_pending_production_qualification",
   "owner": "codex-prod-core",
   "created_by": "Codex",
+  "created_unix": 1794548747,
   "base_commit": "c44fcc6ca24932cbd4c387432ffd17b979b20bc0",
   "scopes": [
     ".agents/tasks/T-CODEXPRODCORE-1.json"
