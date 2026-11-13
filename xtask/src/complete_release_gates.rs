@@ -590,7 +590,13 @@ fn expected_argv(id: &str, receipt: &Value) -> Result<Vec<String>> {
     let mut args = match id {
         "format" => words(&["fmt", "--all", "--check"]),
         "default-licenses" => words(&["deny", "--offline", "--locked", "check", "licenses"]),
-        "native-advisories" => super::advisory_evidence::arguments(root, attempt, host)?,
+        "native-advisories" => {
+            if product {
+                super::advisory_evidence::qualified_arguments(root, attempt, host)?
+            } else {
+                super::advisory_evidence::arguments(root, attempt, host)?
+            }
+        }
         "all-features-policy" => all_features_args(root, attempt)?,
         "workspace-clippy" => words(&[
             "clippy",
@@ -713,7 +719,11 @@ fn expected_argv(id: &str, receipt: &Value) -> Result<Vec<String>> {
         }
     };
     if id == "production-build" {
-        super::product_features::select_product_features(&mut args, root);
+        if product {
+            super::product_features::select_qualified_product_features(&mut args);
+        } else {
+            super::product_features::select_product_features(&mut args, root);
+        }
     }
     if product && matches!(id, "workspace-clippy" | "workspace-tests") {
         args.extend(words(&["--features", "xtask/release-tooling"]));

@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXPROMOTIONFIX-1",
+  "title": "Make complete gate promotion independent of the deleted candidate checkout",
+  "status": "implemented_pending_production_qualification",
+  "native_worker": "codex-prod-promotion-fix",
+  "owner": "codex-prod-promotion-fix",
+  "created_by": "Codex",
+  "created_unix": 1794551891,
+  "base_commit": "be1bd3021798d226e5ce6dcceaf9ce9d557ef8ac",
+  "scopes": [
+    ".agents/tasks/T-CODEXPROMOTIONFIX-1.json",
+    "xtask/src/advisory_evidence.rs",
+    "xtask/src/complete_release_gates.rs",
+    "xtask/src/product_features.rs"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "acceptance": "Production complete-gate validation must reconstruct native advisory and production-build argv from the immutable product policy after the temporary candidate checkout has been removed; fixture validation continues to use manifest-driven feature selection."
+}

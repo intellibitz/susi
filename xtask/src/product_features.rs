@@ -50,10 +50,7 @@ pub fn product_feature_args(root: &Path) -> Vec<String> {
     args
 }
 
-/// Replaces the bare `--no-default-features` selection in `args` with the
-/// product's feature arguments for `root`.
-pub fn select_product_features(args: &mut Vec<String>, root: &Path) {
-    let product = product_feature_args(root);
+fn select_feature_args(args: &mut Vec<String>, product: &[String]) {
     let mut selected = Vec::with_capacity(args.len() + product.len());
     for arg in args.drain(..) {
         if arg == "--no-default-features" {
@@ -63,6 +60,28 @@ pub fn select_product_features(args: &mut Vec<String>, root: &Path) {
         }
     }
     *args = selected;
+}
+
+/// Replaces the bare `--no-default-features` selection in `args` with the
+/// product's feature arguments for `root`.
+pub fn select_product_features(args: &mut Vec<String>, root: &Path) {
+    let product = product_feature_args(root);
+    select_feature_args(args, &product);
+}
+
+/// Replaces the bare feature selection with the immutable production policy.
+///
+/// Complete gate receipts are validated after the temporary candidate checkout
+/// has been removed.  This path therefore must not rediscover product features
+/// from `Cargo.toml`; the shipped product policy is already fixed by this
+/// release machinery source and is recorded in the gate argv.
+pub fn select_qualified_product_features(args: &mut Vec<String>) {
+    let product = [
+        "--no-default-features".to_string(),
+        "--features".to_string(),
+        PRODUCT_ENGINE_FEATURE.to_string(),
+    ];
+    select_feature_args(args, &product);
 }
 
 #[cfg(test)]
@@ -149,6 +168,32 @@ mod tests {
             ]
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn qualified_selection_does_not_need_the_candidate_manifest() {
+        let mut args: Vec<String> = [
+            "build",
+            "--release",
+            "--no-default-features",
+            "--target",
+            "x",
+        ]
+        .map(String::from)
+        .to_vec();
+        select_qualified_product_features(&mut args);
+        assert_eq!(
+            args,
+            [
+                "build",
+                "--release",
+                "--no-default-features",
+                "--features",
+                "local-engine",
+                "--target",
+                "x"
+            ]
+        );
     }
 
     #[test]
