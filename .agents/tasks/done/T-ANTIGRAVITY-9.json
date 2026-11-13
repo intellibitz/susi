@@ -15,6 +15,11 @@
   },
   "created_by": "ANTIGRAVITY",
   "created_unix": 1794599584,
+  "closed": {
+    "at_unix": 1794610624,
+    "commit": "e0da8c6ee21e9d8f0b18c478c38842334a4acd83",
+    "by": "ANTIGRAVITYBOARDCORE"
+  },
   "reuse": {
     "decision": "existing",
     "reason": "Reuses susi-core plain_http and HighDensityContextStore, susi-harness ParallelWorkflowHarness worktree layout, and susi-commercial susi-board-item-v1 schema/ref protocol to bridge Core and Commercial native board collaboration without new third-party dependencies.",
