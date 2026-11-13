@@ -1,0 +1,2711 @@
+{
+  "digest": "88210c9f7415f647fa1d21a23f1a8cfba0f5a21274d9c6f4dd93470eae69bfff",
+  "gates": [
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "binaries": [],
+      "elapsed_ms": 3899,
+      "exit_code": 0,
+      "id": "format",
+      "isolated_target_dir": false,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "deny",
+        "--offline",
+        "--locked",
+        "check",
+        "licenses"
+      ],
+      "binaries": [],
+      "elapsed_ms": 295,
+      "exit_code": 0,
+      "id": "licenses",
+      "isolated_target_dir": false,
+      "log_sha256": "214fbe2f49a4f7392fd8d3c9be3253a57c184639efd1ba80e97c7247e620027d",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--offline",
+        "--locked",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "--features",
+        "xtask/release-tooling",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "binaries": [],
+      "elapsed_ms": 8457,
+      "exit_code": 0,
+      "id": "clippy",
+      "isolated_target_dir": true,
+      "log_sha256": "5dc8c849fcf8547bfa3cd876c5d1d9b828e2d3ae89af87eceb758acc747031a3",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--offline",
+        "--locked",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "--features",
+        "xtask/release-tooling"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "susi",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 142
+          },
+          "name": "susi",
+          "source": "unittests src/main.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "agent_bootstrap",
+          "source": "tests/agent_bootstrap.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 50
+          },
+          "name": "architecture_tests",
+          "source": "tests/architecture_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "audit_action_choke_point",
+          "source": "tests/audit_action_choke_point.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "audit_action_completeness",
+          "source": "tests/audit_action_completeness.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "audit_chain_verifies",
+          "source": "tests/audit_chain_verifies.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "audit_query_surface",
+          "source": "tests/audit_query_surface.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "authenticated_discovery_b7",
+          "source": "tests/authenticated_discovery_b7.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "capability_bus",
+          "source": "tests/capability_bus.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "checked_in_mcp_config",
+          "source": "tests/checked_in_mcp_config.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "child_home_isolation",
+          "source": "tests/child_home_isolation.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "cluster_rekey",
+          "source": "tests/cluster_rekey.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "core_boot_starts_nothing",
+          "source": "tests/core_boot_starts_nothing.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "core_docs_promise_no_ui_or_plugins",
+          "source": "tests/core_docs_promise_no_ui_or_plugins.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "core_never_downloads_models_unasked",
+          "source": "tests/core_never_downloads_models_unasked.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "cross_platform_service",
+          "source": "tests/cross_platform_service.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "crown_verify_tests",
+          "source": "tests/crown_verify_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "duplication_tests",
+          "source": "tests/duplication_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "endorsements",
+          "source": "tests/endorsements.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "extensions_state_race",
+          "source": "tests/extensions_state_race.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "first_goal_opening",
+          "source": "tests/first_goal_opening.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "five_pillars_workflow",
+          "source": "tests/five_pillars_workflow.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "functional_distillation",
+          "source": "tests/functional_distillation.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "fuzz_smoke",
+          "source": "tests/fuzz_smoke.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 92
+          },
+          "name": "gmcp_requirements",
+          "source": "tests/gmcp_requirements.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 18
+          },
+          "name": "gmcp_roadmap",
+          "source": "tests/gmcp_roadmap.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "hermetic_scope",
+          "source": "tests/hermetic_scope.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "hook_enforcement",
+          "source": "tests/hook_enforcement.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "host_only_privacy",
+          "source": "tests/host_only_privacy.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "inference_telemetry",
+          "source": "tests/inference_telemetry.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "installed_windows_entry",
+          "source": "tests/installed_windows_entry.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "installer_contract",
+          "source": "tests/installer_contract.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "integration_tests",
+          "source": "tests/integration_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "intent_guard_cli",
+          "source": "tests/intent_guard_cli.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 13
+          },
+          "name": "lazy_catalog_priming",
+          "source": "tests/lazy_catalog_priming.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "lean_core_ceilings",
+          "source": "tests/lean_core_ceilings.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "local_channels",
+          "source": "tests/local_channels.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "mac_grant_persistence",
+          "source": "tests/mac_grant_persistence.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "mcp_call_cli_tests",
+          "source": "tests/mcp_call_cli_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "member_signing",
+          "source": "tests/member_signing.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "moonshot_alias",
+          "source": "tests/moonshot_alias.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 12
+          },
+          "name": "no_console_window",
+          "source": "tests/no_console_window.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "no_github_coupling",
+          "source": "tests/no_github_coupling.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "orphan_sources",
+          "source": "tests/orphan_sources.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "peer_channel_hub",
+          "source": "tests/peer_channel_hub.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "peer_credential_attestation",
+          "source": "tests/peer_credential_attestation.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "peer_request_signing",
+          "source": "tests/peer_request_signing.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "port_block_reservation",
+          "source": "tests/port_block_reservation.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "port_fallback",
+          "source": "tests/port_fallback.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "protocol_fuzz",
+          "source": "tests/protocol_fuzz.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "pure_apache2_cloud_harvest",
+          "source": "tests/pure_apache2_cloud_harvest.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "release_e2e_checks",
+          "source": "tests/release_e2e_checks.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "release_process_identity",
+          "source": "tests/release_process_identity.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "release_records",
+          "source": "tests/release_records.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "release_tag_provenance",
+          "source": "tests/release_tag_provenance.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "release_workflow",
+          "source": "tests/release_workflow.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "run_cli_tests",
+          "source": "tests/run_cli_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "service_install",
+          "source": "tests/service_install.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "socket_boundary",
+          "source": "tests/socket_boundary.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "socket_parity",
+          "source": "tests/socket_parity.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "status_json_digest",
+          "source": "tests/status_json_digest.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "sync_hooks",
+          "source": "tests/sync_hooks.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "task_records",
+          "source": "tests/task_records.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "thin_client_invariant",
+          "source": "tests/thin_client_invariant.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "top_cli_tests",
+          "source": "tests/top_cli_tests.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 7
+          },
+          "name": "tui_top",
+          "source": "tests/tui_top.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "unified_surface_status",
+          "source": "tests/unified_surface_status.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_013_mastery",
+          "source": "tests/vc_201_013_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "vc_201_051_checks_run_from_a_command",
+          "source": "tests/vc_201_051_checks_run_from_a_command.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_052_reserved_before_dispatch_and_reconciled_after",
+          "source": "tests/vc_201_052_reserved_before_dispatch_and_reconciled_after.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_076_mastery",
+          "source": "tests/vc_201_076_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 7
+          },
+          "name": "vc_201_077_mastery",
+          "source": "tests/vc_201_077_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_079_cli_verify",
+          "source": "tests/vc_201_079_cli_verify.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_098_mastery",
+          "source": "tests/vc_201_098_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "vc_201_100_mastery",
+          "source": "tests/vc_201_100_mastery.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "windows_runtime_lifecycle",
+          "source": "tests/windows_runtime_lifecycle.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "workflow_publication",
+          "source": "tests/workflow_publication.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "zc_fresh_home",
+          "source": "tests/zc_fresh_home.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 2,
+            "passed": 5
+          },
+          "name": "zc_matrix",
+          "source": "tests/zc_matrix.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 7
+          },
+          "name": "zc_platform_installers",
+          "source": "tests/zc_platform_installers.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "zc_service_units",
+          "source": "tests/zc_service_units.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "zc_setup_workflow",
+          "source": "tests/zc_setup_workflow.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "zc_time_to_answer",
+          "source": "tests/zc_time_to_answer.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 48
+          },
+          "name": "susi_abi",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 21
+          },
+          "name": "susi_adapters_llm",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 10
+          },
+          "name": "susi_build_os_ucrt",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "susi_build_policy",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "susi_cli_defs",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 1,
+            "passed": 320
+          },
+          "name": "susi_config",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 24
+          },
+          "name": "susi_conformance",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "susi_conformance",
+          "source": "unittests src/bin/susi-conformance.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 508
+          },
+          "name": "susi_core",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 5,
+            "passed": 211
+          },
+          "name": "susi_daemon",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "capability_gap_e2e",
+          "source": "tests/capability_gap_e2e.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 161
+          },
+          "name": "susi_daemon_runtime",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 28
+          },
+          "name": "susi_error",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 3,
+            "passed": 285
+          },
+          "name": "susi_gawd",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "susi_gawd",
+          "source": "unittests src/main.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 58
+          },
+          "name": "susi_gawd_a2a",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 198
+          },
+          "name": "susi_gawd_agents",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 425
+          },
+          "name": "susi_gawd_swarm",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 439
+          },
+          "name": "susi_gemi",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "susi_gemi",
+          "source": "unittests src/main.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "local_plug_carries_selected_model",
+          "source": "tests/local_plug_carries_selected_model.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "native_fallback_runs_no_engine",
+          "source": "tests/native_fallback_runs_no_engine.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "openrouter_provider",
+          "source": "tests/openrouter_provider.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 2,
+            "passed": 246
+          },
+          "name": "susi_gemi_models",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "transactional_publish",
+          "source": "tests/transactional_publish.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 223
+          },
+          "name": "susi_gmcp",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "susi_gmcp",
+          "source": "unittests src/main.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "os_capabilities_delegation",
+          "source": "tests/os_capabilities_delegation.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "task_manager_terminal",
+          "source": "tests/task_manager_terminal.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "tool_input_schemas",
+          "source": "tests/tool_input_schemas.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 549
+          },
+          "name": "susi_harness",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "harness_author",
+          "source": "unittests src/bin/harness-author.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "harness_gateway",
+          "source": "unittests src/bin/harness-gateway.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "harness_mission",
+          "source": "unittests src/bin/harness-mission.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "harness_run",
+          "source": "unittests src/bin/harness-run.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "harness_supervise",
+          "source": "unittests src/bin/harness-supervise.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "harness_susi",
+          "source": "unittests src/bin/harness-susi.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "susi_harness",
+          "source": "unittests src/bin/susi-harness.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "native_link",
+          "source": "tests/native_link.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "native_proxy_e2e",
+          "source": "tests/native_proxy_e2e.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 48
+          },
+          "name": "susi_http_transport",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 39
+          },
+          "name": "susi_leaf_services",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "susi_native_client",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 68
+          },
+          "name": "susi_paths",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "paths_probe",
+          "source": "unittests src/bin/paths_probe.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "stdio_guard_probe",
+          "source": "unittests src/bin/stdio_guard_probe.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "cli_output_contract",
+          "source": "tests/cli_output_contract.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "env_guard",
+          "source": "tests/env_guard.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "isolate_home",
+          "source": "tests/isolate_home.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "layout_stability",
+          "source": "tests/layout_stability.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 61
+          },
+          "name": "susi_sandbox_client",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 56
+          },
+          "name": "susi_server",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 61
+          },
+          "name": "susi_tools",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 35
+          },
+          "name": "susi_unsafe_ratchet",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "owed_task_receipts",
+          "source": "unittests src/bin/owed-task-receipts.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "unsafe_measure",
+          "source": "unittests src/bin/unsafe_measure.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "unsafe_ratchet",
+          "source": "unittests src/bin/unsafe_ratchet.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 30
+          },
+          "name": "ci_changed_crates",
+          "source": "tests/ci_changed_crates.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 15
+          },
+          "name": "measurement_contract",
+          "source": "tests/measurement_contract.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 13
+          },
+          "name": "owed_receipts",
+          "source": "tests/owed_receipts.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "susi_vendor_chacha20poly1305",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_clap",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_ed25519_dalek",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "susi_vendor_getrandom",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_hyper",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_libc",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "susi_vendor_rcgen",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_serde",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_serde_json",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_sha2",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 8
+          },
+          "name": "susi_vendor_syn",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_tokio",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "susi_vendor_tokio_rustls",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_tracing",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 1,
+            "passed": 40
+          },
+          "name": "susi_vendor_wasmtime",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_winapi",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_windows_registry",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "susi_vendor_x25519_dalek",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "susi_windows_runtime",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 33
+          },
+          "name": "susi_wire_client",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 13
+          },
+          "name": "check_gmcp_roadmap",
+          "source": "unittests src/bin/check-gmcp-roadmap.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "checkpoint_compliance",
+          "source": "unittests src/bin/checkpoint-compliance.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "ci_release_only",
+          "source": "unittests src/bin/ci-release-only.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 28
+          },
+          "name": "distill",
+          "source": "unittests src/bin/distill.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "installed_upgrade",
+          "source": "unittests src/bin/installed-upgrade.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 34
+          },
+          "name": "local_channel",
+          "source": "unittests src/bin/local-channel.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 33
+          },
+          "name": "local_distill",
+          "source": "unittests src/bin/local-distill.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 10
+          },
+          "name": "local_harvest",
+          "source": "unittests src/bin/local-harvest.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 2,
+            "passed": 113
+          },
+          "name": "local_release",
+          "source": "unittests src/bin/local-release.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 31
+          },
+          "name": "local_snapshot",
+          "source": "unittests src/bin/local-snapshot.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 227
+          },
+          "name": "local_workflow",
+          "source": "unittests src/bin/local-workflow.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "push_policy",
+          "source": "unittests src/bin/push-policy.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 39
+          },
+          "name": "release_lanes",
+          "source": "unittests src/bin/release-lanes.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 36
+          },
+          "name": "release_qualify",
+          "source": "unittests src/bin/release-qualify.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 12
+          },
+          "name": "startup_gate",
+          "source": "unittests src/bin/startup-gate.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 35
+          },
+          "name": "susi_dev",
+          "source": "unittests src/bin/susi-dev.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 116
+          },
+          "name": "xtask",
+          "source": "unittests src/main.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "branch_test_handoff",
+          "source": "tests/branch_test_handoff.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 27
+          },
+          "name": "ci_workflow_perf",
+          "source": "tests/ci_workflow_perf.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 9
+          },
+          "name": "compiler_binding",
+          "source": "tests/compiler_binding.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 12
+          },
+          "name": "distilled_release_promotion",
+          "source": "tests/distilled_release_promotion.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 7
+          },
+          "name": "git_publisher_native_hook",
+          "source": "tests/git_publisher_native_hook.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "hermetic_cleanup",
+          "source": "tests/hermetic_cleanup.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 35
+          },
+          "name": "native_bootstrap",
+          "source": "tests/native_bootstrap.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 17
+          },
+          "name": "native_push_policy",
+          "source": "tests/native_push_policy.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "os_ucrt_boundary",
+          "source": "tests/os_ucrt_boundary.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "pe_link_repro",
+          "source": "tests/pe_link_repro.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "registry_environment_isolation",
+          "source": "tests/registry_environment_isolation.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 6
+          },
+          "name": "release_only_branch",
+          "source": "tests/release_only_branch.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "windows_runtime_bin_list",
+          "source": "tests/windows_runtime_bin_list.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_abi",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_adapters_llm",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_build_os_ucrt",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_build_policy",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_cli_defs",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_config",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_conformance",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_core",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_daemon",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_daemon_runtime",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_error",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_gawd",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_gawd_a2a",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_gawd_agents",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_gawd_swarm",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_gemi",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_gemi_models",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_gmcp",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_harness",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_http_transport",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_leaf_services",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_native_client",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_paths",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_sandbox_client",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_server",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_tools",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_unsafe_ratchet",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_chacha20poly1305",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_clap",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_ed25519_dalek",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_getrandom",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_hyper",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_libc",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_rcgen",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_serde",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_serde_json",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_sha2",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_syn",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_tokio",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_tokio_rustls",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_tracing",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_wasmtime",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_winapi",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_windows_registry",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_vendor_x25519_dalek",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_windows_runtime",
+          "source": "doc-tests"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_wire_client",
+          "source": "doc-tests"
+        }
+      ],
+      "elapsed_ms": 149481,
+      "exit_code": 0,
+      "id": "workspace-tests",
+      "isolated_target_dir": true,
+      "log_sha256": "8a8667caa4769a78dba9104785110533d09d6ef69b0f2afaea9d5b9e57b7878a",
+      "tests": {
+        "failed": 0,
+        "ignored": 16,
+        "passed": 5963
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "generate-lockfile",
+        "--offline",
+        "--manifest-path",
+        "vendor/idna-adapter/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\""
+      ],
+      "binaries": [],
+      "elapsed_ms": 15,
+      "exit_code": 0,
+      "id": "integration:4",
+      "isolated_target_dir": false,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "vendor/idna-adapter/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\"",
+        "--target",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 8
+          },
+          "name": "idna_adapter",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "idna_adapter",
+          "source": "doc-tests"
+        }
+      ],
+      "elapsed_ms": 204,
+      "exit_code": 0,
+      "id": "integration:5",
+      "isolated_target_dir": true,
+      "log_sha256": "b60cf73ce0e368708ba30185287938136f4ecd7326f060c98f3c8503b252f1d3",
+      "tests": {
+        "failed": 0,
+        "ignored": 0,
+        "passed": 8
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "generate-lockfile",
+        "--offline",
+        "--manifest-path",
+        "vendor/unicode-ident/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\""
+      ],
+      "binaries": [],
+      "elapsed_ms": 24,
+      "exit_code": 0,
+      "id": "integration:6",
+      "isolated_target_dir": false,
+      "log_sha256": "efad7366daf32f928833f518f8fa48a1420ada3d6b791f865e332fb40be38791",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "vendor/unicode-ident/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\"",
+        "--target",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 5
+          },
+          "name": "unicode_ident",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 1
+          },
+          "name": "compiler_context",
+          "source": "tests/compiler_context.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "unicode_ident",
+          "source": "doc-tests"
+        }
+      ],
+      "elapsed_ms": 15781,
+      "exit_code": 0,
+      "id": "integration:7",
+      "isolated_target_dir": true,
+      "log_sha256": "bc7f75f7f0a433d96ab4197f63de0fa4925157fefb114906b300d0066a6bc928",
+      "tests": {
+        "failed": 0,
+        "ignored": 0,
+        "passed": 6
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "generate-lockfile",
+        "--offline",
+        "--manifest-path",
+        "vendor/htmlescape/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\""
+      ],
+      "binaries": [],
+      "elapsed_ms": 13,
+      "exit_code": 0,
+      "id": "integration:8",
+      "isolated_target_dir": false,
+      "log_sha256": "cbde55aa1b11952b7268f57943a6e638a9790086e6ed87cff256c323ae1d1d00",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "vendor/htmlescape/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\"",
+        "--target",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "htmlescape",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 2
+          },
+          "name": "contract",
+          "source": "tests/contract.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "htmlescape",
+          "source": "doc-tests"
+        }
+      ],
+      "elapsed_ms": 300,
+      "exit_code": 0,
+      "id": "integration:9",
+      "isolated_target_dir": true,
+      "log_sha256": "47e69d0d5197b0f034eb992364dad9b37380fedf4ed04fde7492caf83cc7e94d",
+      "tests": {
+        "failed": 0,
+        "ignored": 0,
+        "passed": 2
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "generate-lockfile",
+        "--offline",
+        "--manifest-path",
+        "vendor/regex-syntax/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\""
+      ],
+      "binaries": [],
+      "elapsed_ms": 12,
+      "exit_code": 0,
+      "id": "integration:10",
+      "isolated_target_dir": false,
+      "log_sha256": "cbde55aa1b11952b7268f57943a6e638a9790086e6ed87cff256c323ae1d1d00",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "vendor/regex-syntax/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\"",
+        "--target",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 143
+          },
+          "name": "regex_syntax",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 48
+          },
+          "name": "regex_syntax",
+          "source": "doc-tests"
+        }
+      ],
+      "elapsed_ms": 1234,
+      "exit_code": 0,
+      "id": "integration:11",
+      "isolated_target_dir": true,
+      "log_sha256": "266076c37bef19520d479c845d452564982dc347d480de0be54d0ef8fe2e0518",
+      "tests": {
+        "failed": 0,
+        "ignored": 0,
+        "passed": 191
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "generate-lockfile",
+        "--offline",
+        "--manifest-path",
+        "vendor/regex-syntax/os-unicode/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\""
+      ],
+      "binaries": [],
+      "elapsed_ms": 11,
+      "exit_code": 0,
+      "id": "integration:12",
+      "isolated_target_dir": false,
+      "log_sha256": "cbde55aa1b11952b7268f57943a6e638a9790086e6ed87cff256c323ae1d1d00",
+      "tests": null
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "vendor/regex-syntax/os-unicode/Cargo.toml",
+        "--config",
+        "patch.crates-io.idna_adapter.path=\"/home/ramadoss/github.com/intellibitz/susi-verify-candidate-1/vendor/idna-adapter\"",
+        "--target",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "susi_os_unicode",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_os_unicode",
+          "source": "doc-tests"
+        }
+      ],
+      "elapsed_ms": 256,
+      "exit_code": 0,
+      "id": "integration:13",
+      "isolated_target_dir": true,
+      "log_sha256": "9471f6fb7beb782b3e8ac9c06af0fa0e562a18ad91de40154fc0ccfc4bb713c2",
+      "tests": {
+        "failed": 0,
+        "ignored": 0,
+        "passed": 3
+      }
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "susi-unsafe-ratchet",
+        "--offline",
+        "--locked",
+        "--target",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "binaries": [
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 35
+          },
+          "name": "susi_unsafe_ratchet",
+          "source": "unittests src/lib.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 3
+          },
+          "name": "owed_task_receipts",
+          "source": "unittests src/bin/owed-task-receipts.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "unsafe_measure",
+          "source": "unittests src/bin/unsafe_measure.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 4
+          },
+          "name": "unsafe_ratchet",
+          "source": "unittests src/bin/unsafe_ratchet.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 30
+          },
+          "name": "ci_changed_crates",
+          "source": "tests/ci_changed_crates.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 15
+          },
+          "name": "measurement_contract",
+          "source": "tests/measurement_contract.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 13
+          },
+          "name": "owed_receipts",
+          "source": "tests/owed_receipts.rs"
+        },
+        {
+          "counts": {
+            "failed": 0,
+            "ignored": 0,
+            "passed": 0
+          },
+          "name": "susi_unsafe_ratchet",
+          "source": "doc-tests"
+        }
+      ],
+      "elapsed_ms": 4017,
+      "exit_code": 0,
+      "id": "task:T-CODEXUNSAFEREVIEW-1",
+      "isolated_target_dir": true,
+      "log_sha256": "710c4a8ef471376b239d29309202508d1409a0290ce5771cd26e325090b955cc",
+      "tests": {
+        "failed": 0,
+        "ignored": 0,
+        "passed": 104
+      }
+    }
+  ],
+  "integration": {
+    "commit": "718817664b506bf14846452a95376b567861f006",
+    "merge_first_parent": "31486b202fb644d5a38527c5e5c587df023b722e",
+    "origin_main": "31486b202fb644d5a38527c5e5c587df023b722e",
+    "tree": "0099d7397146c4fec8881049eac4822117288096"
+  },
+  "recorded_unix": 1794550533,
+  "schema": "susi-gate-receipt-v2",
+  "selection": "workspace:SUSI_LOCAL_GATE=full",
+  "sources": [
+    {
+      "agent": "codex-prod-unsafe-review",
+      "claim_base": "31486b202fb644d5a38527c5e5c587df023b722e",
+      "commit": "d2ba5482d7b4ac89bad2a60e9a8c946a0d7792b2",
+      "task": "T-CODEXUNSAFEREVIEW-1"
+    }
+  ],
+  "toolchain": {
+    "cargo_lock_sha256": "7669256435d7bba09791f65acf83e41c0485229dbd67e75f81c29858632ad6ef",
+    "host": "x86_64-unknown-linux-gnu",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+    "rustc_sha256": "b569b0c98ea3133c7252b4b8ea6b39b7b353813df0dd5f5c412c355691424112"
+  }
+}
