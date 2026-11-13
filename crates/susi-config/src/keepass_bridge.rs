@@ -125,7 +125,141 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// Default `.kdbx` search order across Linux, Windows, and local Google Drive sync folders.
+#[cfg(any(target_os = "macos", test))]
+fn append_macos_cloud_drive_candidates(home: &Path, out: &mut Vec<PathBuf>) {
+    let cloud_storage = home.join("Library").join("CloudStorage");
+    if let Ok(entries) = std::fs::read_dir(&cloud_storage) {
+        let mut drive_dirs: Vec<PathBuf> = entries
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| {
+                p.is_dir()
+                    && p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.starts_with("GoogleDrive"))
+            })
+            .collect();
+        drive_dirs.sort();
+        for drive in drive_dirs {
+            let my_drive = drive.join("My Drive");
+            out.push(my_drive.join("Vault").join("Automation.kdbx"));
+            out.push(my_drive.join("Vault").join("AI-Keys.kdbx"));
+            out.push(my_drive.join("Automation.kdbx"));
+            out.push(my_drive.join("AI-Keys.kdbx"));
+        }
+    }
+}
+
+#[cfg(any(windows, test))]
+fn windows_keepassxc_candidates(
+    program_files: Option<&str>,
+    program_w6432: Option<&str>,
+    program_arm: Option<&str>,
+    local_app_data: Option<&str>,
+    user_profile: Option<&str>,
+) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for base in [
+        program_files,
+        program_w6432,
+        program_arm,
+        Some(r"C:\Program Files"),
+        Some(r"C:\Program Files (x86)"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let trimmed = base.trim();
+        if !trimmed.is_empty() {
+            out.push(
+                PathBuf::from(trimmed)
+                    .join("KeePassXC")
+                    .join("keepassxc-cli.exe"),
+            );
+        }
+    }
+    if let Some(lad) = local_app_data.map(str::trim).filter(|s| !s.is_empty()) {
+        let base = PathBuf::from(lad);
+        out.push(
+            base.join("Programs")
+                .join("KeePassXC")
+                .join("keepassxc-cli.exe"),
+        );
+        out.push(
+            base.join("Microsoft")
+                .join("WinGet")
+                .join("Links")
+                .join("keepassxc-cli.exe"),
+        );
+    }
+    if let Some(up) = user_profile.map(str::trim).filter(|s| !s.is_empty()) {
+        out.push(
+            PathBuf::from(up)
+                .join("scoop")
+                .join("apps")
+                .join("keepassxc")
+                .join("current")
+                .join("keepassxc-cli.exe"),
+        );
+    }
+    out
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_keepassxc_candidates(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut out = vec![
+        PathBuf::from("/Applications/KeePassXC.app/Contents/MacOS/keepassxc-cli"),
+        PathBuf::from("/opt/homebrew/bin/keepassxc-cli"),
+        PathBuf::from("/usr/local/bin/keepassxc-cli"),
+        PathBuf::from("/opt/local/bin/keepassxc-cli"),
+    ];
+    if let Some(h) = home {
+        out.insert(
+            1,
+            h.join("Applications")
+                .join("KeePassXC.app")
+                .join("Contents")
+                .join("MacOS")
+                .join("keepassxc-cli"),
+        );
+    }
+    out
+}
+
+fn resolve_rclone_cli() -> String {
+    if let Some(cli) = non_empty_env("SUSI_RCLONE_BIN") {
+        return cli;
+    }
+    #[cfg(target_os = "macos")]
+    for candidate in [
+        "/opt/homebrew/bin/rclone",
+        "/usr/local/bin/rclone",
+        "/opt/local/bin/rclone",
+    ] {
+        if Path::new(candidate).is_file() {
+            return candidate.to_string();
+        }
+    }
+    #[cfg(windows)]
+    {
+        for candidate in [
+            non_empty_env("LOCALAPPDATA")
+                .map(|b| PathBuf::from(b).join(r"Microsoft\WinGet\Links\rclone.exe")),
+            non_empty_env("USERPROFILE").map(|b| PathBuf::from(b).join(r"scoop\shims\rclone.exe")),
+            Some(PathBuf::from(r"C:\ProgramData\chocolatey\bin\rclone.exe")),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if candidate.is_file() {
+                return candidate.to_string_lossy().into_owned();
+            }
+        }
+    }
+    "rclone".to_string()
+}
+
+/// Default `.kdbx` search order across Linux, macOS, Windows, and local Google Drive sync folders.
 #[must_use]
 pub fn default_vault_candidates(home: Option<&Path>) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -142,15 +276,28 @@ pub fn default_vault_candidates(home: Option<&Path>) -> Vec<PathBuf> {
                 .join("Vault")
                 .join("Automation.kdbx"),
         );
+        out.push(
+            h.join("Google Drive")
+                .join("My Drive")
+                .join("Vault")
+                .join("AI-Keys.kdbx"),
+        );
         out.push(h.join("Google Drive").join("Vault").join("Automation.kdbx"));
+        out.push(h.join("Google Drive").join("Vault").join("AI-Keys.kdbx"));
         out.push(h.join("Google Drive").join("Automation.kdbx"));
+        out.push(h.join("Google Drive").join("AI-Keys.kdbx"));
         out.push(h.join("Drive").join("Vault").join("Automation.kdbx"));
+        out.push(h.join("Drive").join("Vault").join("AI-Keys.kdbx"));
         out.push(h.join("Vault").join("AI-Keys.kdbx"));
+        #[cfg(target_os = "macos")]
+        append_macos_cloud_drive_candidates(h, &mut out);
     }
     #[cfg(windows)]
     {
         out.push(PathBuf::from(r"G:\My Drive\Vault\Automation.kdbx"));
+        out.push(PathBuf::from(r"G:\My Drive\Vault\AI-Keys.kdbx"));
         out.push(PathBuf::from(r"G:\My Drive\Automation.kdbx"));
+        out.push(PathBuf::from(r"G:\My Drive\AI-Keys.kdbx"));
     }
     out
 }
@@ -231,9 +378,30 @@ fn resolve_keepassxc_cli(config_dir: &Path) -> String {
     }
     #[cfg(windows)]
     {
-        let standard = Path::new(r"C:\Program Files\KeePassXC\keepassxc-cli.exe");
-        if standard.is_file() {
-            return standard.to_string_lossy().into_owned();
+        let pf = non_empty_env("ProgramFiles");
+        let pw64 = non_empty_env("ProgramW6432");
+        let parm = non_empty_env("ProgramFiles(Arm)");
+        let lad = non_empty_env("LOCALAPPDATA");
+        let up = non_empty_env("USERPROFILE");
+        for standard in windows_keepassxc_candidates(
+            pf.as_deref(),
+            pw64.as_deref(),
+            parm.as_deref(),
+            lad.as_deref(),
+            up.as_deref(),
+        ) {
+            if standard.is_file() {
+                return standard.to_string_lossy().into_owned();
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let h = home_dir();
+        for candidate in macos_keepassxc_candidates(h.as_deref()) {
+            if candidate.is_file() {
+                return candidate.to_string_lossy().into_owned();
+            }
         }
     }
     "keepassxc-cli".to_string()
@@ -406,15 +574,34 @@ pub fn map_kdbx_entry(entry_path: &str) -> Vec<(&'static str, String)> {
             ));
         }
         "openai" | "openai_api_key" => out.push(("cloud", "OPENAI_API_KEY".to_string())),
+        "openai_org" | "openai_organization" => {
+            out.push(("cloud", "OPENAI_ORGANIZATION".to_string()))
+        }
         "anthropic" | "claude" | "anthropic_api_key" => {
             out.push(("cloud", "ANTHROPIC_API_KEY".to_string()))
+        }
+        "anthropic_workspace" | "anthropic_workspace_id" => {
+            out.push(("cloud", "ANTHROPIC_WORKSPACE_ID".to_string()))
         }
         "gemini" | "google_gemini" | "gemini_api_key" => {
             out.push(("cloud", "GEMINI_API_KEY".to_string()))
         }
         "deepseek" | "deepseek_api_key" => out.push(("cloud", "DEEPSEEK_API_KEY".to_string())),
-        "kimi" | "moonshot" | "moonshot_api_key" => {
-            out.push(("cloud", "MOONSHOT_API_KEY".to_string()))
+        "qwen" | "dashscope" | "dashscope_api_key" => {
+            out.push(("cloud", "DASHSCOPE_API_KEY".to_string()))
+        }
+        "kimi" | "moonshot" | "moonshot_api_key" | "kimi_api_key" => {
+            out.push(("cloud", "MOONSHOT_API_KEY".to_string()));
+            out.push(("cloud", "KIMI_API_KEY".to_string()));
+        }
+        "glm" | "zhipu" | "zhipu_api_key" => out.push(("cloud", "ZHIPU_API_KEY".to_string())),
+        "zai" | "z.ai" | "zai_api_key" => out.push(("cloud", "ZAI_API_KEY".to_string())),
+        "siliconflow" | "siliconflow_api_key" => {
+            out.push(("cloud", "SILICONFLOW_API_KEY".to_string()))
+        }
+        "litellm" | "litellm_master_key" => out.push(("cloud", "LITELLM_MASTER_KEY".to_string())),
+        "openclaw" | "openclaw_gateway_token" => {
+            out.push(("cloud", "OPENCLAW_GATEWAY_TOKEN".to_string()))
         }
         "openrouter" | "openrouter_api_key" => {
             out.push(("cloud", "OPENROUTER_API_KEY".to_string()))
@@ -634,7 +821,8 @@ fn sync_via_rclone(
     } else {
         (remote_spec, local_str.as_str())
     };
-    let mut rclone_cmd = Command::new("rclone");
+    let rclone_bin = resolve_rclone_cli();
+    let mut rclone_cmd = Command::new(&rclone_bin);
     rclone_cmd.args(args).arg(src).arg(dst);
     susi_paths::console::apply_non_interactive_env(&mut rclone_cmd);
     let out = susi_paths::console::run_output_within(&mut rclone_cmd, None, RCLONE_TIMEOUT)
@@ -914,17 +1102,6 @@ fn file_mtime_unix(path: &Path) -> Option<u64> {
 /// Strictly non-interactive auto-refresh: if KeePassXC unlock material and an enrolled DB (or GDrive
 /// mirror) are configured and newer than `last_sync_unix`, pull + re-seal without ever prompting.
 pub fn auto_sync_if_enrolled(config_dir: &Path) -> Result<bool, String> {
-    if resolve_master_key(config_dir)?.is_none() {
-        return Ok(false);
-    }
-    let has_kdbx_auth = resolve_unlock_secret(config_dir, PURPOSE_KDBX)
-        .ok()
-        .flatten()
-        .is_some()
-        || discover_kdbx_key_file(config_dir).is_some();
-    if !has_kdbx_auth {
-        return Ok(false);
-    }
     let cfg = VaultConfig::load(config_dir);
     let Some(db_path) = cfg
         .vault_db_path
@@ -942,6 +1119,17 @@ pub fn auto_sync_if_enrolled(config_dir: &Path) -> Result<bool, String> {
         .unwrap_or(0);
     let vault_exists = SealedVault::path_in(config_dir).is_file();
     if vault_exists && local_mtime <= last_sync && drive_mtime <= last_sync {
+        return Ok(false);
+    }
+    if resolve_master_key(config_dir)?.is_none() {
+        return Ok(false);
+    }
+    let has_kdbx_auth = resolve_unlock_secret(config_dir, PURPOSE_KDBX)
+        .ok()
+        .flatten()
+        .is_some()
+        || discover_kdbx_key_file(config_dir).is_some();
+    if !has_kdbx_auth {
         return Ok(false);
     }
     sync_kdbx_to_sealed_vault(
@@ -984,15 +1172,12 @@ fn load_client_conf_allowlist(config_dir: &Path, profile: &str) -> Option<Vec<St
     None
 }
 
-/// Resolve client-scoped environment pairs from `SealedVault` without global shell export.
+/// Resolve client-scoped environment pairs from `SealedVault` (or cloud overlay fallback) without global shell export.
 pub fn resolve_client_env(
     config_dir: &Path,
     client: Option<&str>,
 ) -> Result<BTreeMap<String, String>, String> {
-    let vault = SealedVault::open(config_dir)?.ok_or_else(|| {
-        "no sealed vault found; run `susi keys vault enroll` and `susi keys vault sync` first"
-            .to_string()
-    })?;
+    let _ = auto_sync_if_enrolled(config_dir);
     let mut env_out = BTreeMap::new();
     let profile = client
         .map(str::trim)
@@ -1006,6 +1191,7 @@ pub fn resolve_client_env(
     let builtin: Option<&[&str]> = match profile.as_str() {
         "claude" => Some(&[
             "ANTHROPIC_API_KEY",
+            "ANTHROPIC_WORKSPACE_ID",
             "OPENAI_API_KEY",
             "DEEPSEEK_API_KEY",
             "FIREWORKS_API_KEY",
@@ -1039,25 +1225,53 @@ pub fn resolve_client_env(
             "OPENAI_API_KEY",
             "OPENROUTER_API_KEY",
         ]),
+        "goose" | "factory" | "droid" => Some(&[
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_WORKSPACE_ID",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "GROQ_API_KEY",
+            "OPENROUTER_API_KEY",
+            "MISTRAL_API_KEY",
+            "XAI_API_KEY",
+            "MOONSHOT_API_KEY",
+            "KIMI_API_KEY",
+            "DASHSCOPE_API_KEY",
+            "ZHIPU_API_KEY",
+            "ZAI_API_KEY",
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+            "CONTEXT7_API_KEY",
+            "BRAVE_API_KEY",
+        ]),
         "aider" | "cline" | "opencode" | "kilo" | "kilocode" | "sweagent" | "agency-swarm"
         | "interpreter" | "pi" | "hermes" | "hermes-agent" => Some(&[
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
+            "ANTHROPIC_WORKSPACE_ID",
             "GEMINI_API_KEY",
             "DEEPSEEK_API_KEY",
             "GROQ_API_KEY",
             "OPENROUTER_API_KEY",
             "MISTRAL_API_KEY",
             "XAI_API_KEY",
+            "MOONSHOT_API_KEY",
+            "KIMI_API_KEY",
+            "DASHSCOPE_API_KEY",
             "ZHIPU_API_KEY",
             "ZAI_API_KEY",
         ]),
         "deepseek" => Some(&["DEEPSEEK_API_KEY"]),
         "openai" => Some(&["OPENAI_API_KEY"]),
+        "kimi" => Some(&["MOONSHOT_API_KEY", "KIMI_API_KEY", "OPENAI_API_KEY"]),
+        "glm" => Some(&["ZHIPU_API_KEY", "ZAI_API_KEY"]),
         "qwen" => Some(&["DASHSCOPE_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"]),
         "litellm" | "litellm-proxy" | "gateway" => Some(&[
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
+            "ANTHROPIC_WORKSPACE_ID",
             "GEMINI_API_KEY",
             "DEEPSEEK_API_KEY",
             "GROQ_API_KEY",
@@ -1065,13 +1279,15 @@ pub fn resolve_client_env(
             "DEEPINFRA_API_KEY",
             "SILICONFLOW_API_KEY",
             "MOONSHOT_API_KEY",
+            "KIMI_API_KEY",
             "OPENROUTER_API_KEY",
             "ZHIPU_API_KEY",
             "ZAI_API_KEY",
             "HF_TOKEN",
+            "LITELLM_MASTER_KEY",
         ]),
         "tiny-agents" => Some(&["HF_TOKEN", "HUGGINGFACE_HUB_TOKEN", "OPENAI_API_KEY"]),
-        "llm" | "cloud" | "commercial" | "all" => {
+        "susi" | "llm" | "cloud" | "commercial" | "all" => {
             wild_all = true;
             None
         }
@@ -1085,7 +1301,7 @@ pub fn resolve_client_env(
                 None
             } else {
                 return Err(format!(
-                    "unknown vault exec client profile `{other}` (expected claude, codex, gemini, gh, hf, vibe, aider, cline, opencode, qwen, gateway, cloud, commercial, or all)"
+                    "unknown vault exec client profile `{other}` (expected claude, codex, gemini, goose, factory, gh, hf, vibe, aider, cline, opencode, kimi, glm, qwen, gateway, susi, cloud, commercial, or all)"
                 ));
             }
         }
@@ -1102,25 +1318,63 @@ pub fn resolve_client_env(
         }
     }
 
-    for scope in ["env", "cloud"] {
-        for (k, v) in vault.scope_entries(scope) {
-            let allowed = wild_all
-                || dynamic_list
-                    .as_ref()
-                    .is_some_and(|list| list.iter().any(|entry| entry == &k))
-                || (dynamic_list.is_none()
-                    && builtin.is_none_or(|list| list.contains(&k.as_str())));
-            if !v.is_empty() && allowed {
-                env_out.insert(k, v);
+    let allow_key = |k: &str| -> bool {
+        wild_all
+            || dynamic_list
+                .as_ref()
+                .is_some_and(|list| list.iter().any(|entry| entry == k))
+            || (dynamic_list.is_none() && builtin.is_none_or(|list| list.contains(&k)))
+    };
+
+    if let Some(vault) = SealedVault::open(config_dir)? {
+        for scope in ["env", "cloud"] {
+            for (k, v) in vault.scope_entries(scope) {
+                if !v.is_empty() && allow_key(&k) {
+                    env_out.insert(k, v);
+                }
+            }
+        }
+        if matches!(profile.as_str(), "commercial" | "susi" | "all") {
+            for (k, v) in vault.scope_entries("commercial") {
+                if !v.is_empty() {
+                    env_out.insert(k, v);
+                }
+            }
+        }
+        return Ok(env_out);
+    }
+
+    for (k, v) in crate::cloud_env::load_cloud_env_from(config_dir) {
+        if !v.is_empty() && allow_key(&k) {
+            env_out.insert(k, v);
+        }
+    }
+    if let Some(list) = dynamic_list.as_deref() {
+        for k in list {
+            if let Ok(v) = std::env::var(k) {
+                let t = v.trim();
+                if !t.is_empty() {
+                    env_out.entry(k.clone()).or_insert_with(|| t.to_string());
+                }
+            }
+        }
+    } else if let Some(list) = builtin {
+        for &k in list {
+            if let Ok(v) = std::env::var(k) {
+                let t = v.trim();
+                if !t.is_empty() {
+                    env_out
+                        .entry(k.to_string())
+                        .or_insert_with(|| t.to_string());
+                }
             }
         }
     }
-    if matches!(profile.as_str(), "commercial" | "all") {
-        for (k, v) in vault.scope_entries("commercial") {
-            if !v.is_empty() {
-                env_out.insert(k, v);
-            }
-        }
+    if env_out.is_empty() {
+        return Err(
+            "no sealed vault found; run `susi keys vault enroll` and `susi keys vault sync` first"
+                .to_string(),
+        );
     }
     Ok(env_out)
 }
@@ -1138,6 +1392,7 @@ pub fn exec_with_client_env(
     let mut cmd = Command::new(program);
     cmd.args(&command[1..]);
     cmd.envs(&secrets);
+    cmd.env("SUSI_UNATTENDED", "1");
     susi_paths::console::apply_non_interactive_env(&mut cmd);
     let status = cmd
         .status()
@@ -1409,6 +1664,75 @@ mod tests {
         if let Some(v) = prev {
             std::env::set_var(super::super::vault_store::VAULT_KEY_ENV, v);
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cross_os_keepassxc_gdrive_and_profile_expansion_work() {
+        let _guard = crate::env_test_lock();
+        let dir = scratch_dir("cross_os_paths");
+        let fake_drive = dir
+            .join("Library")
+            .join("CloudStorage")
+            .join("GoogleDrive-user@example.com")
+            .join("My Drive")
+            .join("Vault");
+        std::fs::create_dir_all(&fake_drive).unwrap();
+        let fake_kdbx = fake_drive.join("AI-Keys.kdbx");
+        std::fs::write(&fake_kdbx, b"test").unwrap();
+
+        let mut mac_paths = Vec::new();
+        append_macos_cloud_drive_candidates(&dir, &mut mac_paths);
+        assert!(mac_paths.contains(&fake_kdbx));
+
+        let win_clis = windows_keepassxc_candidates(
+            Some(r"C:\Program Files"),
+            None,
+            Some(r"C:\Program Files (Arm)"),
+            Some(r"C:\Users\u\AppData\Local"),
+            Some(r"C:\Users\u"),
+        );
+        assert!(win_clis.iter().any(|p| {
+            p.to_string_lossy()
+                .replace('\\', "/")
+                .contains("Program Files (Arm)/KeePassXC/keepassxc-cli.exe")
+        }));
+        assert!(win_clis.iter().any(|p| {
+            p.to_string_lossy()
+                .replace('\\', "/")
+                .contains("WinGet/Links/keepassxc-cli.exe")
+        }));
+
+        let mac_clis = macos_keepassxc_candidates(Some(&dir));
+        assert!(mac_clis
+            .iter()
+            .any(|p| p == Path::new("/Applications/KeePassXC.app/Contents/MacOS/keepassxc-cli")));
+        assert!(mac_clis
+            .iter()
+            .any(|p| p == Path::new("/opt/homebrew/bin/keepassxc-cli")));
+
+        assert!(map_kdbx_entry("AI/qwen")
+            .iter()
+            .any(|(s, k)| *s == "cloud" && k == "DASHSCOPE_API_KEY"));
+        assert!(map_kdbx_entry("AI/kimi")
+            .iter()
+            .any(|(s, k)| *s == "cloud" && k == "KIMI_API_KEY"));
+
+        std::fs::write(
+            dir.join("cloud.env"),
+            "ANTHROPIC_API_KEY=sk-ant-fallback\nANTHROPIC_WORKSPACE_ID=ws-1\n",
+        )
+        .unwrap();
+        let goose = resolve_client_env(&dir, Some("goose")).unwrap();
+        assert_eq!(
+            goose.get("ANTHROPIC_API_KEY").map(String::as_str),
+            Some("sk-ant-fallback")
+        );
+        assert_eq!(
+            goose.get("ANTHROPIC_WORKSPACE_ID").map(String::as_str),
+            Some("ws-1")
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,0 +1,39 @@
+{
+  "id": "T-ANTIGRAVITY-7",
+  "native_worker": "antigravity-agent-secrets",
+  "title": "Universal cross-OS, local, remote, and cloud agent secret resolution",
+  "goal": "Ensure every Susi agent and subprocess across Windows (x86_64/arm64), Linux (x86_64/arm64, systemd & container), and macOS (x86_64/arm64) receives required secrets and unlock material automatically without prompts or plaintext leakage.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "-p",
+      "susi-harness",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1794643200,
+  "reuse": {
+    "decision": "build",
+    "reason": "Extends susi-config::vault_store/keepass_bridge/cloud_env and susi-harness::secrets/router/verify rather than adding separate secret stores.",
+    "searched": "Checked susi-config, susi-harness, susi-daemon, susi-daemon-runtime, susi-gemi, susi-gemi-models, susi-tools, deploy/compose."
+  },
+  "scopes": [
+    ".agents/tasks/T-ANTIGRAVITY-7.json",
+    "crates/susi-config",
+    "crates/susi-daemon",
+    "crates/susi-daemon-runtime",
+    "crates/susi-gemi",
+    "crates/susi-gemi-models",
+    "crates/susi-harness",
+    "crates/susi-tools",
+    "deploy/compose"
+  ],
+  "status": "in_progress"
+}

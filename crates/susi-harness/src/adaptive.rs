@@ -24,7 +24,7 @@
 use crate::executor::{ExecutorConfig, NativeWorker, RunOutcome, Runner};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, ExitStatus, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -612,7 +612,7 @@ pub fn run_piped(
             ),
         });
     }
-    let mut command = Command::new(program);
+    let mut command = susi_paths::console::background_command(program);
     command
         .args(args)
         .stdin(if pipe_prompt_on_stdin {
@@ -623,6 +623,13 @@ pub fn run_piped(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .current_dir(workspace);
+    for (k, v) in susi_config::cloud_env_overlay() {
+        if std::env::var_os(&k).is_none() {
+            command.env(k, v);
+        }
+    }
+    susi_paths::console::apply_non_interactive_env(&mut command);
+    command.env("SUSI_UNATTENDED", "1");
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) if error.kind() == ErrorKind::NotFound => return PipedRun::NotFound,

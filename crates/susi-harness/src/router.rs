@@ -171,9 +171,8 @@ fn route_from_model(
 /// absent or blank value keeps the previous behaviour (no header) for keys that
 /// are already workspace-scoped.
 fn anthropic_workspace() -> Option<String> {
-    std::env::var("ANTHROPIC_WORKSPACE_ID")
-        .ok()
-        .map(|value| value.trim().to_string())
+    secrets::lookup("ANTHROPIC_WORKSPACE_ID")
+        .map(|value| value.expose().trim().to_string())
         .filter(|value| !value.is_empty())
 }
 
@@ -252,23 +251,27 @@ mod tests {
     /// not be used at all.
     #[test]
     fn an_anthropic_workspace_is_sent_when_configured() {
-        let previous = std::env::var("ANTHROPIC_WORKSPACE_ID").ok();
+        let _guard = crate::secrets::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let prev_no_reg = std::env::var_os("SUSI_NO_REGISTRY_ENV");
+        let previous = std::env::var_os("ANTHROPIC_WORKSPACE_ID");
+        std::env::set_var("SUSI_NO_REGISTRY_ENV", "1");
         std::env::set_var("ANTHROPIC_WORKSPACE_ID", "  wrkspc_test  ");
         let route = resolve_route("claude-sonnet", None, Some("test-ant-key")).unwrap();
         assert!(
             route
                 .headers
                 .iter()
-                .any(|(name, value)| name == "anthropic-workspace-id" && value == "wrkspc_test"),
-            "a configured workspace must be trimmed and sent: {:?}",
+                .any(|(n, v)| n == "anthropic-workspace-id" && v == "wrkspc_test"),
+            "{:?}",
             route.headers
         );
-        // An explicit upstream keeps the workspace too: it is the same wire.
         let direct = resolve_route("claude-sonnet", Some("direct"), Some("k")).unwrap();
         assert!(direct
             .headers
             .iter()
-            .any(|(name, _)| name == "anthropic-workspace-id"));
+            .any(|(n, _)| n == "anthropic-workspace-id"));
 
         std::env::remove_var("ANTHROPIC_WORKSPACE_ID");
         let bare = resolve_route("claude-sonnet", None, Some("test-ant-key")).unwrap();
@@ -276,11 +279,18 @@ mod tests {
             !bare
                 .headers
                 .iter()
-                .any(|(name, _)| name == "anthropic-workspace-id"),
+                .any(|(n, _)| n == "anthropic-workspace-id"),
             "an unset workspace must not send an empty header"
         );
-        if let Some(value) = previous {
-            std::env::set_var("ANTHROPIC_WORKSPACE_ID", value);
+        for (k, v) in [
+            ("ANTHROPIC_WORKSPACE_ID", previous),
+            ("SUSI_NO_REGISTRY_ENV", prev_no_reg),
+        ] {
+            if let Some(val) = v {
+                std::env::set_var(k, val);
+            } else {
+                std::env::remove_var(k);
+            }
         }
     }
 

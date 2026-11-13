@@ -184,7 +184,7 @@ impl NatManager {
     /// Fails when no TURN config is present, DNS fails, Allocate is rejected,
     /// or a 401 arrives without operator credentials.
     pub fn allocate_turn_from_env(&self) -> Result<SocketAddr, String> {
-        if let Ok(relay) = std::env::var("SUSI_TURN_RELAY") {
+        if let Ok(relay) = susi_config::env_or_cloud_env("SUSI_TURN_RELAY") {
             let relay = relay.trim();
             if !relay.is_empty() {
                 let addr: SocketAddr = relay
@@ -194,7 +194,7 @@ impl NatManager {
                 return Ok(addr);
             }
         }
-        let server = std::env::var("SUSI_TURN_SERVER").map_err(|_| {
+        let server = susi_config::env_or_cloud_env("SUSI_TURN_SERVER").map_err(|_| {
             "no TURN path: set SUSI_TURN_SERVER=host:port or SUSI_TURN_RELAY=ip:port".to_string()
         })?;
         let server = server.trim();
@@ -379,15 +379,15 @@ struct TurnCreds {
 }
 
 fn turn_long_term_creds() -> Option<TurnCreds> {
-    let user = std::env::var("SUSI_TURN_USER")
+    let user = susi_config::env_or_cloud_env("SUSI_TURN_USER")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())?;
-    let pass = std::env::var("SUSI_TURN_PASS")
+    let pass = susi_config::env_or_cloud_env("SUSI_TURN_PASS")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())?;
-    let realm_override = std::env::var("SUSI_TURN_REALM")
+    let realm_override = susi_config::env_or_cloud_env("SUSI_TURN_REALM")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());

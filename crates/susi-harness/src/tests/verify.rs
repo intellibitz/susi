@@ -223,6 +223,9 @@ fn anthropic_is_verified_through_its_models_endpoint() {
 /// the list request must carry the header when it is configured.
 #[test]
 fn an_anthropic_workspace_travels_with_the_list_request() {
+    let _guard = crate::secrets::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let previous = std::env::var("ANTHROPIC_WORKSPACE_ID").ok();
     std::env::set_var("ANTHROPIC_WORKSPACE_ID", " wrkspc_test ");
     let workspace = RefCell::new(None::<String>);

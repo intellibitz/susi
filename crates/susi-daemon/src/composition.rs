@@ -98,7 +98,7 @@ pub fn wire_daemon_os_planes(workspace: &Path) {
             gossip,
             nat: {
                 let nat = crate::nat::NatManager::new();
-                if let Ok(ip) = std::env::var("SUSI_PUBLIC_IP") {
+                if let Ok(ip) = susi_config::env_or_cloud_env("SUSI_PUBLIC_IP") {
                     let ip = ip.trim();
                     if !ip.is_empty() {
                         nat.perform_discovery(ip, crate::nat::NatStatus::Open);
@@ -120,8 +120,9 @@ fn spawn_nat_discovery() {
     if susi_core::mac_policy::host_only_in_force() {
         return;
     }
-    let explicit_relay = std::env::var("SUSI_TURN_SERVER").is_ok_and(|v| !v.trim().is_empty())
-        || std::env::var("SUSI_TURN_RELAY").is_ok_and(|v| !v.trim().is_empty());
+    let explicit_relay = susi_config::env_or_cloud_env("SUSI_TURN_SERVER")
+        .is_ok_and(|v| !v.trim().is_empty())
+        || susi_config::env_or_cloud_env("SUSI_TURN_RELAY").is_ok_and(|v| !v.trim().is_empty());
     if !explicit_relay && !susi_core::mac_policy::egress_permitted("stun://stun.l.google.com:19302")
     {
         return;

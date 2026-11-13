@@ -71,9 +71,11 @@ pub fn lookup(name: &str) -> Option<ApiKey> {
     if !valid_name(name) {
         return None;
     }
+    let disabled = registry_environment_disabled();
+    let stamp = sources_stamp(&data_home(), name);
     let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
     let mut cache = cache.lock().unwrap_or_else(PoisonError::into_inner);
-    let cache_key = (name.to_string(), registry_environment_disabled());
+    let cache_key = (name.to_string(), disabled, stamp);
     if let Some(found) = cache.get(&cache_key) {
         return found.clone();
     }
@@ -173,16 +175,15 @@ fn scope_value(name: &str, scope: &str) -> Option<String> {
         // The data home's `.env` is found through `SUSI_HOME`, so it cannot
         // say where the data home is: reading it there would go in a circle,
         // and `susi-harness env` would report a home the harness never uses.
-        _ if scope == SEALED_VAULT_CLOUD => {
-            if USER_ONLY.contains(&name) || registry_environment_disabled() {
-                None
-            } else {
-                susi_config::cloud_env::load_cloud_env_from(&data_home())
-                    .into_iter()
-                    .find(|(k, _)| k == name)
-                    .map(|(_, v)| v)
-            }
+        _ if scope == SEALED_VAULT_CLOUD
+            && !USER_ONLY.contains(&name)
+            && !registry_environment_disabled() =>
+        {
+            susi_config::cloud_env::load_cloud_env_from(&data_home())
+                .into_iter()
+                .find_map(|(k, v)| (k == name).then_some(v))
         }
+        _ if scope == SEALED_VAULT_CLOUD => None,
         _ if name == HOME_ENV => None,
         _ => dotenv_value(name, DotEnv::DataHome),
     }
@@ -229,7 +230,17 @@ pub fn data_home() -> std::path::PathBuf {
     let user_home = from_environment("USERPROFILE")
         .or_else(|| from_environment("HOME"))
         .unwrap_or_else(|| ".".to_string());
-    std::path::Path::new(&user_home).join(".susi")
+    let dot_susi = std::path::Path::new(&user_home).join(".susi");
+    if !dot_susi.is_dir() && !registry_environment_disabled() {
+        let xdg = susi_paths::SusiDirs::config_dir();
+        if ["vault.sealed.json", "cloud.env", ".env"]
+            .iter()
+            .any(|f| xdg.join(f).is_file())
+        {
+            return xdg;
+        }
+    }
+    dot_susi
 }
 
 /// Which `.env` file.
@@ -239,18 +250,86 @@ enum DotEnv {
     DataHome,
 }
 
+type DotEnvCacheEntry = (
+    std::path::PathBuf,
+    Option<(u128, u64)>,
+    BTreeMap<String, String>,
+);
+
+fn file_mtime_len(path: &std::path::Path) -> Option<(u128, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    Some((mtime, meta.len()))
+}
+
+fn sources_stamp(home: &std::path::Path, name: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (
+        process_value(name),
+        home,
+        file_mtime_len(std::path::Path::new(".env")),
+    )
+        .hash(&mut h);
+    let files = [
+        ".env",
+        "cloud.env",
+        "vault.sealed.json",
+        "vault.unlock.key",
+        "vault.unlock.cred",
+        "vault.unlock.dpapi",
+    ];
+    for file in files {
+        file_mtime_len(&home.join(file)).hash(&mut h);
+    }
+    let vars = [
+        "SUSI_HOME",
+        "SUSI_VAULT_KEY",
+        "SUSI_VAULT_KEY_FILE",
+        "SUSI_VAULT_PASSPHRASE",
+        "SUSI_VAULT_PASSPHRASE_FILE",
+        "CREDENTIALS_DIRECTORY",
+        "SUSI_CREDENTIALS_DIRECTORY",
+    ];
+    for var in vars {
+        std::env::var(var).ok().hash(&mut h);
+    }
+    h.finish()
+}
+
+fn read_cached_dotenv(
+    slot: &OnceLock<Mutex<Option<DotEnvCacheEntry>>>,
+    path: std::path::PathBuf,
+) -> BTreeMap<String, String> {
+    let stamp = file_mtime_len(&path);
+    let mutex = slot.get_or_init(|| Mutex::new(None));
+    let mut guard = mutex.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((cached_path, cached_stamp, map)) = guard.as_ref() {
+        if *cached_path == path && *cached_stamp == stamp {
+            return map.clone();
+        }
+    }
+    let fresh = read_dotenv(&path);
+    *guard = Some((path, stamp, fresh.clone()));
+    fresh
+}
+
 fn dotenv_value(name: &str, which: DotEnv) -> Option<String> {
-    static WORKING: OnceLock<BTreeMap<String, String>> = OnceLock::new();
-    static HOME: OnceLock<BTreeMap<String, String>> = OnceLock::new();
+    static WORKING: OnceLock<Mutex<Option<DotEnvCacheEntry>>> = OnceLock::new();
+    static HOME: OnceLock<Mutex<Option<DotEnvCacheEntry>>> = OnceLock::new();
     #[cfg(test)]
     if let Some(found) = test_dotenv::value(which, name) {
         return found;
     }
     let file = match which {
         DotEnv::WorkingDirectory => {
-            WORKING.get_or_init(|| read_dotenv(std::path::Path::new(".env")))
+            read_cached_dotenv(&WORKING, std::path::Path::new(".env").to_path_buf())
         }
-        DotEnv::DataHome => HOME.get_or_init(|| read_dotenv(&data_home().join(".env"))),
+        DotEnv::DataHome => read_cached_dotenv(&HOME, data_home().join(".env")),
     };
     file.get(name).cloned()
 }
@@ -515,9 +594,13 @@ pub fn is_set(name: &str) -> bool {
 }
 
 // Partition cached keys too: enabling isolation must not return a key that
-// an earlier non-isolated lookup obtained from a persistent environment.
-type KeyCache = BTreeMap<(String, bool), Option<ApiKey>>;
+// an earlier non-isolated lookup obtained from a persistent environment, and
+// rotating `.env` / `vault.sealed.json` invalidates stale cache entries.
+type KeyCache = BTreeMap<(String, bool, u64), Option<ApiKey>>;
 static CACHE: OnceLock<Mutex<KeyCache>> = OnceLock::new();
+
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn registry_environment_disabled() -> bool {
     std::env::var_os("SUSI_NO_REGISTRY_ENV").is_some()
@@ -1225,46 +1308,8 @@ mod tests {
         assert!(!is_set("SUSI_TEST_SECRET_NEVER_SET_0001"));
         assert!(process_value("SUSI_TEST_SECRET_NEVER_SET_0001").is_none());
     }
-
-    #[test]
-    fn sealed_vault_supplies_harness_keys_without_dotenv_or_process_env() {
-        static SEALED_LOCK: Mutex<()> = Mutex::new(());
-        let _guard = SEALED_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-        let root =
-            std::env::temp_dir().join(format!("susi_harness_sealed_test_{}", std::process::id()));
-        let dir = root.join(".susi");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let prev_home = std::env::var_os("SUSI_HOME");
-        let prev_no_reg = std::env::var_os("SUSI_NO_REGISTRY_ENV");
-        let prev_key = std::env::var_os(susi_config::vault_store::VAULT_KEY_ENV);
-        std::env::set_var("SUSI_HOME", &dir);
-        std::env::remove_var("SUSI_NO_REGISTRY_ENV");
-        std::env::remove_var(susi_config::vault_store::VAULT_KEY_ENV);
-
-        const KEY: &str = "SUSI_TEST_SEALED_HARNESS_0001";
-        susi_config::vault_store::enroll_master_key(&dir, Some("keyfile"), None).unwrap();
-        let mut vault = susi_config::vault_store::SealedVault::open_or_init(&dir).unwrap();
-        vault.set("cloud", KEY, "sk-harness-sealed-0001");
-        vault.save(&dir).unwrap();
-
-        let found = test_dotenv::with_home("", || lookup(KEY))
-            .expect("sealed vault should supply test key");
-        assert_eq!(found.expose(), "sk-harness-sealed-0001");
-
-        match prev_home {
-            Some(v) => std::env::set_var("SUSI_HOME", v),
-            None => std::env::remove_var("SUSI_HOME"),
-        }
-        match prev_no_reg {
-            Some(v) => std::env::set_var("SUSI_NO_REGISTRY_ENV", v),
-            None => std::env::remove_var("SUSI_NO_REGISTRY_ENV"),
-        }
-        match prev_key {
-            Some(v) => std::env::set_var(susi_config::vault_store::VAULT_KEY_ENV, v),
-            None => std::env::remove_var(susi_config::vault_store::VAULT_KEY_ENV),
-        }
-        let _ = std::fs::remove_dir_all(&root);
-    }
 }
+
+#[cfg(test)]
+#[path = "tests/secrets_vault.rs"]
+mod secrets_vault_tests;

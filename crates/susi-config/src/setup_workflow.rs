@@ -99,9 +99,12 @@ impl SetupPlan {
         }
         engines.push("susi-native".into());
         let mut keys_present = Vec::new();
-        let registered = std::fs::read_to_string(home.join("cloud.env"))
-            .map(|text| crate::cloud_env::parse_env_file(&text))
-            .unwrap_or_default();
+        let mut registered = crate::cloud_env::load_cloud_env_from(home);
+        if registered.is_empty() {
+            registered = std::fs::read_to_string(home.join("cloud.env"))
+                .map(|text| crate::cloud_env::parse_env_file(&text))
+                .unwrap_or_default();
+        }
         // Core's compiled aliases, not the active pack: `detect` reads
         // `home` and must not touch (or rewrite) the host's pack state.
         let vendors = crate::extensions::compiled_cloud_vendors();
@@ -109,13 +112,13 @@ impl SetupPlan {
             std::iter::once(&vendor.api_key_env).chain(vendor.api_key_env_alts.iter())
         });
         for name in names {
-            if std::env::var(name)
+            let in_env = std::env::var(name)
                 .ok()
-                .is_some_and(|v| !v.trim().is_empty())
-                || registered
-                    .iter()
-                    .any(|(key, value)| key == name && !value.trim().is_empty())
-            {
+                .is_some_and(|v| !v.trim().is_empty());
+            let in_vault_or_cloud = registered
+                .iter()
+                .any(|(key, value)| key == name && !value.trim().is_empty());
+            if (in_env || in_vault_or_cloud) && !keys_present.iter().any(|k| k == name) {
                 keys_present.push(name.to_string());
             }
         }
