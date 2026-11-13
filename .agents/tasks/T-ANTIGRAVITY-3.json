@@ -1,0 +1,34 @@
+{
+  "id": "T-ANTIGRAVITY-3",
+  "title": "Cross-OS unattended sealed vault, OS keystore unlock, KeePassXC bridge, and cloud env protection",
+  "goal": "Replace plaintext cloud.env/cloud-credentials reliance and Windows-DPAPI-only assumptions with an AEAD-sealed vault (ChaCha20-Poly1305) unsealed unattended via host OS keystores (systemd-creds/Freedesktop/keyfile on Linux, DPAPI on Windows, SUSI_VAULT_KEY/CREDENTIALS_DIRECTORY in cloud), cross-OS KeePassXC + Google Drive sync bridge, and susi keys vault CLI.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1794584432,
+  "reuse": {
+    "decision": "build",
+    "searched": "Checked susi-config::{secret_ref,credential,key_scope,cloud_env,cluster_key}, susi-vendor-chacha20poly1305, susi-vendor-sha2, susi-vendor-getrandom, susi-gemi-models::{cloud,cloud_credentials}, and host OS tools (keepassxc-cli, systemd-creds, secret-tool, Windows DPAPI ProtectedData, rclone).",
+    "reason": "Reuses existing ChaCha20-Poly1305/SHA-256 primitives, SecretVault/KeyScope types, and OS tools; adds only the missing encrypted on-disk SealedVault store, unattended host unseal adapters, non-interactive KeePassXC/Google Drive bridge, and CLI/cloud wiring without new crates."
+  },
+  "scopes": [
+    "AGENTS.md",
+    "crates/susi-config",
+    "crates/susi-gemi-models",
+    "crates/susi-daemon",
+    "src/cli",
+    "tests/fixtures/cli_help_snapshot.txt",
+    "tests/socket_parity.rs"
+  ],
+  "status": "in_progress"
+}
