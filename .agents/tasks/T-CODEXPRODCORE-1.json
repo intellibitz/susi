@@ -1,6 +1,7 @@
 {
   "id": "T-CODEXPRODCORE-1",
   "title": "Re-establish native production provenance for the current Core tree",
+  "native_worker": "codex-prod-core",
   "status": "implemented_pending_production_qualification",
   "owner": "codex-prod-core",
   "created_by": "Codex",
@@ -10,9 +11,11 @@
   ],
   "accept": {
     "cmd": [
-      "SUSI_LOCAL_GATE=full",
-      "target/debug/local-workflow",
-      "check"
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline",
+      "--locked"
     ]
   },
   "acceptance": "Run the complete native whole-workspace gate against the exact current Core tree, retain its immutable gate and provenance receipts, then admit the same integrated source to the independent local-release qualification path. No manual integration ref or release evidence is acceptable.",
