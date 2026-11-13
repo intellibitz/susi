@@ -987,7 +987,13 @@ async fn establish<S: ServerHandler, T: Transport>(
             ));
         };
         let ClientJsonRpcMessage::Request(request) = message else {
-            return Err(ServerInitializeError::ExpectedInitializeRequest);
+            // A notification or a stray response before any lifecycle earns
+            // no answer and establishes nothing, and it does not end the
+            // session either. A 2026-07-28 client never sends `initialize`:
+            // whatever it sends between its discovery probe and its first
+            // complete request arrives here, and ending the session on it
+            // (as this did) left that client talking to a closed pipe.
+            continue;
         };
         let JsonRpcRequest {
             id,

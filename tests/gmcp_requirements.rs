@@ -15827,3 +15827,562 @@ fn gmcp_req_203_007_04_adversarial() {
     adapter_session_ended(&runtime, bystander_session, "bystander");
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// The compatibility handshake every adapter session of GMCP-203-007-05
+/// starts with.
+fn adapter_handshake(client: &mut AdapterClient, name: &str) {
+    let initialize = client.call(
+        "init",
+        "initialize",
+        serde_json::json!({
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": name, "version": "1"}
+        }),
+    );
+    assert!(
+        initialize["result"]["capabilities"].is_object(),
+        "{name}: the handshake must succeed: {initialize}"
+    );
+    client.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+}
+
+/// One pinned reference fixture that is a single wire message.
+struct WireFixture {
+    name: String,
+    request: serde_json::Value,
+    /// `modern`, `legacy`, or neither: the era the expectation holds in.
+    era: Option<String>,
+    /// `error`, `result` or `none`.
+    expect: String,
+    expect_code: Option<i64>,
+}
+
+/// The pinned reference fixtures that are one wire message, in name order.
+fn adapter_wire_fixtures(root: &Path) -> Vec<WireFixture> {
+    let mut fixtures = Vec::new();
+    for kind in ["negative", "positive"] {
+        let dir = root.join(".agents/gmcp/fixtures").join(kind);
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .expect("the fixture directory must exist")
+            .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+            .filter(|name| {
+                name.starts_with("request-")
+                    || name.starts_with("notification-")
+                    || name.starts_with("server-discover-")
+            })
+            .collect();
+        names.sort();
+        for name in names {
+            let fixture: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(dir.join(&name)).unwrap())
+                    .unwrap_or_else(|e| panic!("{kind}/{name} must parse: {e}"));
+            fixtures.push(WireFixture {
+                name: format!("{kind}/{name}"),
+                request: fixture["request"].clone(),
+                era: fixture["era"].as_str().map(str::to_string),
+                expect: fixture["expect"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{kind}/{name} must state what it expects"))
+                    .to_string(),
+                expect_code: fixture["expect_code"].as_i64(),
+            });
+        }
+    }
+    assert!(
+        fixtures.len() >= 10,
+        "the pinned wire fixtures must be present: {}",
+        fixtures.len()
+    );
+    // A retained divergence is the expectation: the fixture stays verbatim
+    // and every adapter must show the recorded outcome, no other.
+    let divergences: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/fixtures/divergences.json"))
+            .expect("the divergence record must exist"),
+    )
+    .expect("the divergence record must parse");
+    for divergence in divergences["divergences"].as_array().into_iter().flatten() {
+        let Some(fixture) = fixtures
+            .iter_mut()
+            .find(|fixture| divergence["fixture"] == fixture.name.as_str())
+        else {
+            continue;
+        };
+        fixture.expect = divergence["observed"]["kind"]
+            .as_str()
+            .expect("a divergence records what was observed")
+            .to_string();
+        fixture.expect_code = divergence["observed"]["code"].as_i64();
+    }
+    fixtures
+}
+
+/// The `_meta` every request of a modern-era session carries.
+fn adapter_modern_meta() -> serde_json::Value {
+    serde_json::json!({"_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {}
+    }})
+}
+
+/// Replay, on one session of the given era, every wire fixture whose
+/// expectation holds in that era. The transcript holds what each earned:
+/// `error <code>`, `result`, or `silence` for a notification; each must be
+/// what the fixture expects.
+fn adapter_fixture_replay(
+    client: &mut AdapterClient,
+    fixtures: &[WireFixture],
+    era: &str,
+) -> Vec<(String, String)> {
+    // `ping` is not a method of an established modern session; discovery
+    // answers in every state of both eras.
+    let (barrier_method, barrier_params) = if era == "modern" {
+        ("server/discover", adapter_modern_meta())
+    } else {
+        ("ping", serde_json::json!({}))
+    };
+    let mut transcript = Vec::new();
+    for (index, fixture) in fixtures.iter().enumerate() {
+        if fixture.era.as_deref().is_some_and(|own| own != era) {
+            continue;
+        }
+        let name = &fixture.name;
+        let request = &fixture.request;
+        client.send(request);
+        let id = request.get("id").filter(|id| !id.is_null()).cloned();
+        let outcome = if fixture.expect == "none" {
+            "silence".to_string()
+        } else {
+            let answer = client.take(name, |value| {
+                id.as_ref().is_some_and(|id| &value["id"] == id)
+                    || (value["id"].is_null() && value["error"].is_object())
+            });
+            match answer["error"]["code"].as_i64() {
+                Some(code) => {
+                    assert!(
+                        fixture.expect_code.is_none_or(|expected| expected == code),
+                        "{name}: expected error {:?}, got {answer}",
+                        fixture.expect_code
+                    );
+                    format!("error {code}")
+                }
+                None => {
+                    assert!(
+                        answer.get("result").is_some(),
+                        "{name}: an answer is a result or a typed error: {answer}"
+                    );
+                    "result".to_string()
+                }
+            }
+        };
+        let earned = outcome.split(' ').next().unwrap_or_default();
+        let expected = if fixture.expect == "none" {
+            "silence"
+        } else {
+            fixture.expect.as_str()
+        };
+        assert_eq!(
+            earned, expected,
+            "{name}: the {era} session must answer as the fixture expects, got {outcome}"
+        );
+        // The session serves the next request whatever the fixture was.
+        let barrier = client.call(
+            &format!("fixture-{index}"),
+            barrier_method,
+            barrier_params.clone(),
+        );
+        assert!(
+            barrier["result"].is_object(),
+            "{name}: the session must survive the fixture: {barrier}"
+        );
+        transcript.push((name.clone(), outcome));
+    }
+    assert!(
+        client.pending.is_empty(),
+        "a fixture replay leaves no unsolicited message: {:?}",
+        client.pending
+    );
+    transcript
+}
+
+/// Open a modern-era session: no `initialize`, discovery with `_meta`.
+fn adapter_modern_open(client: &mut AdapterClient) {
+    let discovered = client.call("open", "server/discover", adapter_modern_meta());
+    assert!(
+        discovered["result"].is_object(),
+        "a modern session opens with server/discover: {discovered}"
+    );
+}
+
+/// A deterministic pipelined run: `count` requests in bursts of varying
+/// size, each burst one write. Returns, per request id, what answered it;
+/// every id must be answered exactly once.
+fn adapter_property_run(
+    client: &mut AdapterClient,
+    count: usize,
+) -> std::collections::BTreeMap<String, String> {
+    let mut seed: u64 = 0x2030_0705;
+    let mut next = || {
+        seed = seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 33) as usize
+    };
+    let mut answers = std::collections::BTreeMap::new();
+    let mut sent = 0;
+    while sent < count {
+        let burst = (1 + next() % 16).min(count - sent);
+        let mut bytes = Vec::new();
+        let mut ids = Vec::new();
+        for _ in 0..burst {
+            let id = format!("p{sent}");
+            let method = if next() % 8 == 0 {
+                "tools/list"
+            } else {
+                "ping"
+            };
+            bytes.extend_from_slice(
+                &serde_json::to_vec(&serde_json::json!({
+                    "jsonrpc": "2.0", "id": id, "method": method, "params": {}
+                }))
+                .unwrap(),
+            );
+            bytes.push(b'\n');
+            ids.push((id, method));
+            sent += 1;
+        }
+        (client.write)(&bytes);
+        for (id, method) in ids {
+            let answer = client.answer(&id);
+            let outcome = if method == "ping" {
+                assert_eq!(
+                    answer["result"],
+                    serde_json::json!({}),
+                    "{id}: ping must be served: {answer}"
+                );
+                "ping".to_string()
+            } else {
+                let tools = answer["result"]["tools"]
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{id}: tools/list must be served: {answer}"));
+                format!("tools {}", tools.len())
+            };
+            assert!(
+                answers.insert(id.clone(), outcome).is_none(),
+                "{id} was answered twice"
+            );
+        }
+    }
+    assert!(
+        client.pending.is_empty(),
+        "every answer belongs to a request: {:?}",
+        client.pending
+    );
+    answers
+}
+
+/// The ceilings `docs/gmcp/contract-203-007.md` publishes, by name.
+fn adapter_budgets(root: &Path) -> std::collections::BTreeMap<String, u128> {
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-007.md"))
+        .expect("the vector's contract must exist");
+    let budgets: std::collections::BTreeMap<String, u128> = contract
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("- budget: "))
+        .filter_map(|rest| {
+            let (name, rest) = rest.split_once(" <= ")?;
+            let value = rest.split_whitespace().next()?.parse().ok()?;
+            Some((name.to_string(), value))
+        })
+        .collect();
+    for name in [
+        "startup_ms",
+        "request_ms",
+        "pipeline_ms",
+        "fairness_ms",
+        "memory_growth_mib",
+        "disk_growth_kib",
+    ] {
+        assert!(
+            budgets.contains_key(name),
+            "the contract must publish the {name} budget"
+        );
+    }
+    budgets
+}
+
+fn adapter_tree_bytes(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| match entry.metadata() {
+            Ok(meta) if meta.is_dir() => adapter_tree_bytes(&entry.path()),
+            Ok(meta) => meta.len(),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+/// Resident memory of this process in bytes, where the host reports it.
+fn adapter_resident_bytes() -> Option<u64> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+    Some(pages * 4096)
+}
+
+/// GMCP-203-007-05: interoperability and quality of the transport adapters.
+///
+/// The pinned reference fixtures (one wire message each, positive and
+/// negative) are replayed on the in-process adapter, the Unix-domain socket
+/// adapter and the shipped stdio entry point, on a compatibility-era and a
+/// modern-era session of each. Every fixture must earn what it expects, with
+/// its expected error code, and the same answer on all three adapters. The envelope gate
+/// the adapters stand behind and the gate of the HTTP gateway must give a
+/// malformed frame the same error code, and that code is what a live adapter
+/// session answers. A deterministic pipelined run answers every request
+/// exactly once, identically on both SPI adapters. Startup, request latency,
+/// pipelined throughput, fairness between two sessions, memory growth and
+/// disk growth are held to the ceilings the vector's contract publishes.
+///
+/// Core serves the server role only on this SPI: it ships no MCP client on
+/// a byte-pipe adapter, so the client role is not claimed here. Named pipes
+/// and WebSocket have no adapter in core and are not claimed either.
+#[test]
+fn gmcp_req_203_007_05_interop() {
+    use std::time::{Duration, Instant};
+    use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
+
+    let (_lock, _env, home) = gmcp_http_home_guard("007-interop");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let budgets = adapter_budgets(root);
+    let within = |name: &str, measured: u128| {
+        let ceiling = budgets[name];
+        assert!(
+            measured <= ceiling,
+            "{name}: measured {measured}, the published ceiling is {ceiling}"
+        );
+    };
+    let runtime = adapter_runtime(&home);
+    let fixtures = adapter_wire_fixtures(root);
+    let disk_before = adapter_tree_bytes(&home);
+
+    // ── 1. Startup, then the reference fixtures on every adapter ────────
+    let opened = Instant::now();
+    let (mut embedded, embedded_session) = embedded_adapter(&runtime, root);
+    adapter_handshake(&mut embedded, "gmcp-007-05-embedded");
+    within("startup_ms", opened.elapsed().as_millis());
+    let legacy_replay = adapter_fixture_replay(&mut embedded, &fixtures, "legacy");
+    assert_eq!(
+        legacy_replay,
+        adapter_fixture_replay(&mut embedded, &fixtures, "legacy"),
+        "a fixture replay must be deterministic"
+    );
+    let (mut modern, modern_session) = embedded_adapter(&runtime, root);
+    adapter_modern_open(&mut modern);
+    let modern_replay = adapter_fixture_replay(&mut modern, &fixtures, "modern");
+    drop(modern);
+    adapter_session_ended(&runtime, modern_session, "in-process, modern");
+    assert!(
+        legacy_replay.len() >= 4 && modern_replay.len() >= 10,
+        "both eras must replay their fixtures: {} legacy, {} modern",
+        legacy_replay.len(),
+        modern_replay.len()
+    );
+
+    #[cfg(unix)]
+    let (mut socket, socket_session) = {
+        let (mut modern, modern_session) = socket_adapter(&runtime, root);
+        adapter_modern_open(&mut modern);
+        assert_eq!(
+            adapter_fixture_replay(&mut modern, &fixtures, "modern"),
+            modern_replay,
+            "the Unix-domain socket adapter must answer every modern fixture as the in-process one"
+        );
+        drop(modern);
+        adapter_session_ended(&runtime, modern_session, "unix socket, modern");
+
+        let opened = Instant::now();
+        let (mut socket, session) = socket_adapter(&runtime, root);
+        adapter_handshake(&mut socket, "gmcp-007-05-socket");
+        within("startup_ms", opened.elapsed().as_millis());
+        assert_eq!(
+            adapter_fixture_replay(&mut socket, &fixtures, "legacy"),
+            legacy_replay,
+            "the Unix-domain socket adapter must answer every legacy fixture as the in-process one"
+        );
+        (socket, session)
+    };
+
+    // The shipped entry point answers the same fixtures the same way, in
+    // both eras, and exits by itself when its client closes stdin.
+    for (era, expected) in [("legacy", &legacy_replay), ("modern", &modern_replay)] {
+        let mut child = susi_command(root, &home, &["mcp", "serve"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the susi binary must spawn `mcp serve`");
+        let mut stdin = child.stdin.take().expect("stdin");
+        let rx = adapter_lines(child.stdout.take().expect("stdout"));
+        let mut stdio = AdapterClient {
+            write: Box::new(move |bytes| {
+                stdin
+                    .write_all(bytes)
+                    .and_then(|()| stdin.flush())
+                    .expect("the server must accept stdin");
+            }),
+            rx,
+            pending: Vec::new(),
+        };
+        if era == "modern" {
+            adapter_modern_open(&mut stdio);
+        } else {
+            adapter_handshake(&mut stdio, "gmcp-007-05-stdio");
+        }
+        let stdio_replay = adapter_fixture_replay(&mut stdio, &fixtures, era);
+        drop(stdio);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while child.try_wait().expect("wait").is_none() {
+            if Instant::now() > deadline {
+                stop_test_server(&mut child);
+                panic!("`susi mcp serve` must exit when its stdin closes");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            &stdio_replay, expected,
+            "the shipped stdio entry point must answer every {era} fixture as the embedded adapter"
+        );
+    }
+
+    // ── 2. Direct gate versus gateway gate, and the live adapter ────────
+    for (name, line) in [
+        ("batch", br#"[]"#.as_slice()),
+        (
+            "null-id",
+            br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+        ),
+        (
+            "non-2.0",
+            br#"{"jsonrpc":"1.0","id":null,"method":"ping"}"#.as_slice(),
+        ),
+        ("truncated", br#"{"jsonrpc":"2.0","#.as_slice()),
+    ] {
+        let mut era = EraState::default();
+        let direct = match classify_line(line, &mut era) {
+            GateVerdict::Reject { code, .. } => code,
+            GateVerdict::Forward => panic!("the gate must reject {name}, got Forward"),
+            GateVerdict::Drop => panic!("the gate must reject {name}, got Drop"),
+        };
+        let gateway = http_envelope_rejection(line)
+            .unwrap_or_else(|| panic!("the HTTP gate must reject {name}"))["error"]["code"]
+            .as_i64()
+            .unwrap();
+        assert_eq!(
+            direct, gateway,
+            "{name}: direct and gateway must give the same error code"
+        );
+        let mut framed = line.to_vec();
+        framed.push(b'\n');
+        (embedded.write)(&framed);
+        let live = embedded.rejection(name);
+        assert_eq!(
+            live["error"]["code"].as_i64(),
+            Some(direct),
+            "{name}: a live adapter session answers with the gate's code: {live}"
+        );
+    }
+
+    // ── 3. Request latency ───────────────────────────────────────────────
+    let mut worst = 0;
+    for i in 0..20 {
+        let asked = Instant::now();
+        let answer = embedded.call(&format!("lat-{i}"), "ping", serde_json::json!({}));
+        assert_eq!(answer["result"], serde_json::json!({}), "{answer}");
+        worst = worst.max(asked.elapsed().as_millis());
+    }
+    within("request_ms", worst);
+
+    // ── 4. Pipelined property run: exactly-once, same on both adapters ──
+    let resident_before = adapter_resident_bytes();
+    let asked = Instant::now();
+    let embedded_answers = adapter_property_run(&mut embedded, 400);
+    within("pipeline_ms", asked.elapsed().as_millis());
+    assert_eq!(embedded_answers.len(), 400);
+    #[cfg(unix)]
+    {
+        let asked = Instant::now();
+        let socket_answers = adapter_property_run(&mut socket, 400);
+        within("pipeline_ms", asked.elapsed().as_millis());
+        assert_eq!(
+            socket_answers, embedded_answers,
+            "the pipelined run must be answered identically on both adapters"
+        );
+    }
+    if let (Some(before), Some(after)) = (resident_before, adapter_resident_bytes()) {
+        within(
+            "memory_growth_mib",
+            u128::from(after.saturating_sub(before) / (1024 * 1024)),
+        );
+    }
+
+    // ── 5. Fairness: a flooded session does not starve its neighbour ────
+    let (mut neighbour, neighbour_session) = embedded_adapter(&runtime, root);
+    adapter_handshake(&mut neighbour, "gmcp-007-05-neighbour");
+    let mut flood = Vec::new();
+    for i in 0..300 {
+        flood.extend_from_slice(
+            format!("{{\"jsonrpc\":\"2.0\",\"id\":\"f{i}\",\"method\":\"tools/list\",\"params\":{{}}}}\n")
+                .as_bytes(),
+        );
+    }
+    (embedded.write)(&flood);
+    let asked = Instant::now();
+    let answer = neighbour.call("fair", "ping", serde_json::json!({}));
+    assert_eq!(answer["result"], serde_json::json!({}), "{answer}");
+    within("fairness_ms", asked.elapsed().as_millis());
+    for i in 0..300 {
+        let answer = embedded.answer(&format!("f{i}"));
+        assert!(
+            answer["result"]["tools"].is_array(),
+            "the flood itself is served in full: {answer}"
+        );
+    }
+
+    // ── 6. Clean shutdown and disk growth ───────────────────────────────
+    drop(neighbour);
+    adapter_session_ended(&runtime, neighbour_session, "neighbour");
+    drop(embedded);
+    adapter_session_ended(&runtime, embedded_session, "in-process");
+    #[cfg(unix)]
+    {
+        drop(socket);
+        adapter_session_ended(&runtime, socket_session, "unix socket");
+    }
+    within(
+        "disk_growth_kib",
+        u128::from(adapter_tree_bytes(&home).saturating_sub(disk_before) / 1024),
+    );
+
+    // ── 7. The contract binds every ledger row of the vector ────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-007.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-007")
+        .collect();
+    assert_eq!(rows.len(), 80, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+    }
+    let _ = std::fs::remove_dir_all(&home);
+}

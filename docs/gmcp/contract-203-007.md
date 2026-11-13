@@ -114,6 +114,15 @@ A malicious peer can send oversized or malformed frames, reorder or replay messa
 
 Every interaction completes within its declared deadline or is cancelled with a typed error. Per-connection queues and frame sizes are bounded, shutdown drains within a bounded grace period, and error codes are identical across adapters, so no adapter can grow memory without limit.
 
+Published budgets, enforced by `tests/gmcp_requirements.rs::gmcp_req_203_007_05_interop` on every adapter it serves (the test reads these lines; a budget changes here or not at all). They are ceilings for an unoptimized test build on a loaded gate host, not performance claims:
+
+- budget: startup_ms <= 10000 (adapter opened to `initialize` answered)
+- budget: request_ms <= 5000 (one `ping`, worst case)
+- budget: pipeline_ms <= 60000 (400 pipelined requests answered, each exactly once)
+- budget: fairness_ms <= 10000 (one `ping` on a second session while the first is flooded)
+- budget: memory_growth_mib <= 256 (resident growth of the serving process across the pipelined run; measured on Linux)
+- budget: disk_growth_kib <= 1024 (bytes the served sessions add under the instance home)
+
 ## Fixtures
 
 Positive and negative fixtures for every row live in .agents/gmcp/evidence/VC-203-007.jsonl, keyed by row id; the tests consume them. The shared conformance harness runs the same fixtures against each adapter.
