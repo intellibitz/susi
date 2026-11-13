@@ -17,6 +17,18 @@
       "--lib"
     ]
   },
+  "created_by": "CODEXPROD",
+  "created_unix": 1794544245,
+  "closed": {
+    "at_unix": 1794545907,
+    "commit": "adf699e9320276dd0b81c143b0999a083d44a5f8",
+    "by": "CODEXPRODUCTION20261113ROOT"
+  },
+  "reuse": {
+    "decision": "existing",
+    "reason": "The path had an unconditional local-engine guard and tokenizer validators that always returned false. The fix restores the feature gate and adds one bounded structural tokenizer validator shared by provisioning and selection, without adding a second downloader or runtime engine.",
+    "searched": "Inspected the existing starter provisioning implementation, feature declarations, model selection, and the release inference gate; the downloader, license admission, digest checks, transactional writes, and commercial plug-host execution path already exist."
+  },
   "scopes": [
     ".agents/tasks/T-CODEXPROD-2.json",
     "crates/susi-gemi-models/src/lifecycle/mod.rs",
@@ -24,12 +36,5 @@
     "crates/susi-gemi-models/src/lifecycle/provision.rs",
     "crates/susi-gemi-models/src/lifecycle/selection.rs",
     "crates/susi-gemi-models/src/lifecycle/tokenizer.rs"
-  ],
-  "reuse": {
-    "decision": "existing",
-    "searched": "Inspected the existing starter provisioning implementation, feature declarations, model selection, and the release inference gate; the downloader, license admission, digest checks, transactional writes, and commercial plug-host execution path already exist.",
-    "reason": "The path had an unconditional local-engine guard and tokenizer validators that always returned false. The fix restores the feature gate and adds one bounded structural tokenizer validator shared by provisioning and selection, without adding a second downloader or runtime engine."
-  },
-  "created_by": "CODEXPROD",
-  "created_unix": 1794544245
+  ]
 }
