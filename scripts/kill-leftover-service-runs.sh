@@ -16,7 +16,12 @@
 # On Linux, where a worktree's target/ may still be a symlink to one
 # shared target (worktrees made before each got its own; see
 # scripts/seed-target.sh), the process must additionally carry a throwaway
-# `SUSI_HOME` (a temp dir), which is what the hermetic wrapper exports.
+# `SUSI_HOME` (a temp dir), which is what the hermetic wrapper exports, and
+# this invocation's own `SUSI_HERMETIC_FORBIDDEN` marker. A temp home alone is
+# not ownership: every daemon test gives its daemon one, so a sweep keyed on
+# it killed the daemons of other test binaries running beside it (the parallel
+# lanes of `release-qualify`, v0.21.67). Without the marker nothing is swept,
+# on Linux as on Windows.
 #
 # Best-effort by design: a sweep that cannot identify a process leaves it
 # alone. Always exits 0 so teardown never masks the real result.
@@ -64,6 +69,8 @@ msys* | cygwin*)
     ;;
 *)
     [ -d /proc ] || exit 0
+    marker=${SUSI_HERMETIC_FORBIDDEN:-}
+    [ -n "$marker" ] || exit 0
     real_target=$(readlink -f "$target" 2>/dev/null) || real_target="$target"
     for entry in /proc/[0-9]*; do
         pid=${entry#/proc/}
@@ -78,11 +85,14 @@ msys* | cygwin*)
         "$real_target"/*) ;;
         *) continue ;;
         esac
-        home=$(tr '\0' '\n' <"$entry/environ" 2>/dev/null | sed -n 's/^SUSI_HOME=//p' | head -n 1)
+        environ=$(tr '\0' '\n' <"$entry/environ" 2>/dev/null) || continue
+        home=$(printf '%s\n' "$environ" | sed -n 's/^SUSI_HOME=//p' | head -n 1)
         case "$home" in
         /tmp/* | /var/tmp/* | "${TMPDIR:-/tmp}"/*) ;;
         *) continue ;;
         esac
+        owner=$(printf '%s\n' "$environ" | sed -n 's/^SUSI_HERMETIC_FORBIDDEN=//p' | head -n 1)
+        [ "$owner" = "$marker" ] || continue
         if kill -TERM "$pid" 2>/dev/null; then
             echo "sweep: killed leftover susi process $pid" >&2
         fi

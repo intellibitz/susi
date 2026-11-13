@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDEREL067-1",
+  "title": "Linux test cleanup sweeps only its own hermetic run's daemons",
+  "goal": "scripts/kill-leftover-service-runs.sh on Linux killed every checkout-built daemon with a temp SUSI_HOME, including daemons of other test binaries running in parallel release-qualify lanes (v0.21.67 qualification failed twice in host_only_privacy and peer_channel_hub). Require the invocation's SUSI_HERMETIC_FORBIDDEN marker in the target process, failing closed without it, as the Windows branch already does.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--test",
+      "hermetic_cleanup"
+    ]
+  },
+  "created_by": "CLAUDEREL067",
+  "created_unix": 1794542634
+}
