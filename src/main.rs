@@ -306,6 +306,7 @@ fn run() -> std::process::ExitCode {
     // `panic = "abort"` was a SIGABRT (exit 134). This also covers clap's own
     // `--help`/usage output below.
     susi_paths::stdio::install_broken_pipe_guard();
+    susi_server::register_board_https_transport();
     let mut command_tree = Cli::command().version(env!("CARGO_PKG_VERSION"));
     let cli = parse_cli(&mut command_tree);
     if let Some(status) = cli::install_cli::installed_channel::management(cli.command.as_ref()) {
@@ -524,20 +525,38 @@ fn run() -> std::process::ExitCode {
     } else if !cli.intent.is_empty() {
         let ama = SusiMasterAgent::new();
         let goal = cli.intent.join(" ");
-        match susi_gawd::compliance::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
-            Ok(msg) => {
-                info!("Natural intent ingested successfully: {}", msg);
+        let preflight =
+            (|| -> Result<susi_core::worktree_isolation::ProvisionedWorktree, String> {
+                let agent = susi_core::native_board::resolve_agent(Some("ama-master"), Some(&cwd))?;
+                let target = susi_core::native_board::resolve_board_target(Some(&cwd))?;
+                let _ = susi_core::native_board::check_board(&target, &agent, true)?;
+                susi_core::worktree_isolation::acquire_isolated_worktree(
+                    &cwd,
+                    &agent,
+                    "ama-mission",
+                    false,
+                )
+            })();
+        match preflight {
+            Ok(mut wt) => {
+                match susi_gawd::compliance::SusiAdmin::ingest_natural_intent(wt.path(), &goal) {
+                    Ok(msg) => info!("Natural intent ingested successfully: {}", msg),
+                    Err(e) => warn!(
+                        "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
+                        e
+                    ),
+                }
+                exit_code = ama
+                    .solve_stream_report(&goal, wt.path(), SUSI_VERSION, &glass_box_callback)
+                    .exit_code();
+                let _ = wt.release();
             }
-            Err(e) => {
-                warn!(
-                    "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
-                    e
-                );
+            Err(err) => {
+                eprintln!("[GOVERNANCE_BLOCK] {err}");
+                let _ = io::stderr().flush();
+                exit_code = std::process::ExitCode::FAILURE;
             }
         }
-        exit_code = ama
-            .solve_stream_report(&goal, &cwd, SUSI_VERSION, &glass_box_callback)
-            .exit_code();
         let _ = io::stdout().flush();
     } else if let Some(input) = piped_intent {
         let ama = SusiMasterAgent::new();

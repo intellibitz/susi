@@ -97,11 +97,9 @@ fi
 # (INTELLIBITZ) is one name for every agent on the machine, and PRIMARY, MAIN…
 # name a place: a worker that answers to either, or whose commits are authored
 # by the login, has no identity of its own, and every task id and claim minted
-# under it is the next agent's collision. The primary checkout is nobody's —
-# except a cloud session's clone, which is its worker's own and only checkout
-# (scripts/cloud-session.sh) and is judged like any worktree.
-cloud_session() { [ -x "$here/scripts/cloud-session.sh" ] && "$here/scripts/cloud-session.sh"; }
-if [ ! "$here_gitdir" -ef "$(git rev-parse --path-format=absolute --git-common-dir)" ] || cloud_session; then
+# under it is the next agent's collision. Only linked worktrees hold worker
+# identities; cloud and local agents share the exact same worktree requirement.
+if [ ! "$here_gitdir" -ef "$(git rev-parse --path-format=absolute --git-common-dir)" ]; then
     logins=' '
     while IFS= read -r -d '' scope && IFS= read -r -d '' login; do
         case "$scope" in

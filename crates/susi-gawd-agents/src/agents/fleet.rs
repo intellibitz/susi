@@ -544,8 +544,29 @@ impl GawdAgentFleet {
         workspace: PathBuf,
         blackboard: MissionBlackboard,
     ) -> Vec<(String, String)> {
+        use crate::susi_core::native_board::{
+            post_blackboard_local, sanitize_body, BlackboardPostRequest, CollaborativeAgentSession,
+            SessionSpec,
+        };
         use std::io::Write;
-        let mut agents = Self::synthesize_fleet(&goal, &workspace);
+        let mut coord_session = match CollaborativeAgentSession::begin(&SessionSpec {
+            workspace: &workspace,
+            explicit_agent: None,
+            role_or_task: "swarm-fleet",
+            title: &format!("swarm dispatch: {goal}"),
+            scope: Vec::new(),
+            require_fresh: false,
+        }) {
+            Ok(session) => session,
+            Err(err) => {
+                let failure = format!("[GOVERNANCE_BLOCK] {err}");
+                blackboard.insert("CollaborativeBoardGate".to_string(), failure.clone());
+                return vec![("CollaborativeBoardGate".to_string(), failure)];
+            }
+        };
+        let parent_agent = coord_session.agent.clone();
+        let effective_ws = coord_session.worktree.path().to_path_buf();
+        let mut agents = Self::synthesize_fleet(&goal, &effective_ws);
 
         // Governance Sequencing: Safety/Security must clear the goal before any
         // execution-capable agent runs — they cannot race in the same parallel
@@ -565,7 +586,7 @@ impl GawdAgentFleet {
         let mut results: Vec<(String, String)> = Vec::new();
         for agent in governance_agents {
             let name = agent.name();
-            match agent.execute(&goal, &workspace, &blackboard) {
+            match agent.execute(&goal, &effective_ws, &blackboard) {
                 Ok(res) => {
                     blackboard.insert(name.clone(), res.clone());
                     results.push((name, res));
@@ -578,13 +599,14 @@ impl GawdAgentFleet {
                     let _ = std::io::stdout().flush();
                     let failure = format!("[GOVERNANCE_BLOCK] {}", e);
                     blackboard.insert(name.clone(), failure.clone());
-                    results.push((name, failure));
-                    persist_governance_report(&workspace, &results, false);
+                    results.push((name, failure.clone()));
+                    persist_governance_report(&effective_ws, &results, false);
+                    let _ = coord_session.finish(false, &failure);
                     return results;
                 }
             }
         }
-        persist_governance_report(&workspace, &results, true);
+        persist_governance_report(&effective_ws, &results, true);
 
         // Priority admission: score the recruited fleet (learned rank +
         // intent match + urgency affinity) and run only the top
@@ -630,11 +652,29 @@ impl GawdAgentFleet {
                 );
             }
 
+            let mut worker_session = match CollaborativeAgentSession::begin(&SessionSpec {
+                workspace: &effective_ws,
+                explicit_agent: Some(&parent_agent),
+                role_or_task: &format!("swarm:{name}"),
+                title: &format!("swarm worker {name}: {goal}"),
+                scope: Vec::new(),
+                require_fresh: true,
+            }) {
+                Ok(session) => session,
+                Err(err) => {
+                    let blocked = format!("[GOVERNANCE_BLOCK] {err}");
+                    blackboard.insert(name.clone(), blocked.clone());
+                    task_handle.mark_failed(&blocked);
+                    return (name, blocked);
+                }
+            };
+            let worker_ws = worker_session.worktree.path().to_path_buf();
+
             task_handle.report_progress();
 
             // Iteration 1: Panic Isolation Safeguard
             let exec_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                agent.execute(&goal, &workspace, &blackboard)
+                agent.execute(&goal, &worker_ws, &blackboard)
             }));
 
             let mut res = match exec_result {
@@ -656,7 +696,7 @@ impl GawdAgentFleet {
                     mission_profile: format!("Fallback recovery agent for {name}"),
                     agent_rank: 0.5,
                 };
-                if let Ok(fallback_res) = fallback_agent.execute(&goal, &workspace, &blackboard) {
+                if let Ok(fallback_res) = fallback_agent.execute(&goal, &worker_ws, &blackboard) {
                     if crate::accountability::is_usable(&fallback_res) {
                         res = format!("{res} | [FALLBACK_RECOVERY]: {fallback_res}");
                     }
@@ -668,6 +708,14 @@ impl GawdAgentFleet {
             } else {
                 res
             };
+
+            let usable = crate::accountability::is_usable(&res);
+            if let Err(err) = worker_session.finish(usable, &res) {
+                let blocked = format!("[GOVERNANCE_BLOCK] board write failed: {err}");
+                blackboard.insert(name.clone(), blocked.clone());
+                task_handle.mark_failed(&blocked);
+                return (name, blocked);
+            }
 
             // The returned outcome supersedes optimistic intermediate observations.
             blackboard.insert(name.clone(), res.clone());
@@ -699,7 +747,39 @@ impl GawdAgentFleet {
 
         // MissionDag lives in susi-gawd-swarm; agents leaf calls it only via
         // dag_hooks (registered by swarm / host). Keeps the agents→swarm DAG acyclic.
-        results.extend(crate::dag_hooks::run(&goal, &workspace, &blackboard));
+        results.extend(crate::dag_hooks::run(&goal, &effective_ws, &blackboard));
+
+        if let Err(err) = post_blackboard_local(
+            Some(&effective_ws),
+            &BlackboardPostRequest {
+                key: format!("swarm:{}", coord_session.claim_item),
+                value: serde_json::json!({
+                    "agents": results.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+                    "goal": sanitize_body(&goal),
+                }),
+                author: Some(parent_agent),
+                task: Some("swarm-fleet".to_string()),
+                mirror_to_board: true,
+                kind: Some("note".to_string()),
+                title: Some(format!(
+                    "swarm blackboard summary ({} agents)",
+                    results.len()
+                )),
+            },
+        ) {
+            results.push((
+                "CollaborativeBoardBlackboard".to_string(),
+                format!("[GOVERNANCE_BLOCK] {err}"),
+            ));
+        }
+
+        if let Err(err) = coord_session.finish(true, &format!("{} agent result(s)", results.len()))
+        {
+            results.push((
+                "CollaborativeBoardGate".to_string(),
+                format!("[GOVERNANCE_BLOCK] {err}"),
+            ));
+        }
 
         results
     }

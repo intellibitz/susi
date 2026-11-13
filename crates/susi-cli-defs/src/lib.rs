@@ -18,8 +18,10 @@ pub mod agent;
 pub mod ambient;
 /// `susi auto`: zero-config auto substrate commands.
 pub mod auto;
-/// `susi blackboard`: mission blackboard inspection commands.
+/// `susi blackboard`: mission blackboard inspection and posting commands.
 pub mod blackboard;
+/// `susi board`: Susi Native Board collaboration and isolation guard commands.
+pub mod board;
 /// `susi brain`: evidence-ranked model routing commands.
 pub mod brain;
 /// `susi broker`: inter-app permission and message broker commands.

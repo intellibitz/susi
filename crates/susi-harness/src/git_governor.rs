@@ -1725,10 +1725,13 @@ fn synthesize_promoted_release_envelope(
     let blob_oid = blob_out.stdout_trimmed();
 
     // Build updated `releases/distill/<target_name>.json` inside `final_commit^{tree}` via temporary index.
+    static PROMOTE_IDX_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let seq = PROMOTE_IDX_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp_idx = std::env::temp_dir().join(format!(
-        "susi-promote-idx-{}-{}",
+        "susi-promote-idx-{}-{}-{}",
         std::process::id(),
-        now_unix_secs()
+        now_unix_secs(),
+        seq
     ));
     let idx_str = tmp_idx.to_string_lossy().to_string();
     let env = [("GIT_INDEX_FILE", idx_str.as_str())];

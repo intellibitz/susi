@@ -25,8 +25,18 @@ for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi-commercial 2>/dev/null)" 
     fi
 done
 if [ "$1 $2" = "workflow guard" ]; then
-    echo "ℹ️  workflow guard skipped: it is Susi Commercial Apps' dev workflow (\`susi-commercial workflow guard\`), and no binary here has it. \`cargo local-workflow\` gates every landing." >&2
-    exit 0
+    shift 2
+    for bin in "${SUSI_WORKFLOW_BIN:-}" "$(command -v susi-commercial 2>/dev/null)" \
+        "$(command -v susi 2>/dev/null)" \
+        "$top/target/release/susi" "$top/target/release/susi.exe" \
+        "$top/target/debug/susi" "$top/target/debug/susi.exe"; do
+        [ -n "$bin" ] && [ -x "$bin" ] || continue
+        if "$bin" board guard --help >/dev/null 2>&1 </dev/null; then
+            exec "$bin" board guard "$@"
+        fi
+    done
+    echo "❌ workflow guard failed closed: no binary with \`workflow guard\` or \`susi board guard\` found (build \`susi\` or install \`susi-commercial\`)." >&2
+    exit 1
 fi
 echo "❌ no binary with \`$1 $2\` found (SUSI_WORKFLOW_BIN, susi-commercial, the installed susi, this checkout's target/)." >&2
 echo "   \`$1 $2\` is Susi Commercial Apps' dev workflow: install susi-commercial" >&2

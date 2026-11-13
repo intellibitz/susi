@@ -28,7 +28,10 @@ fn an_acp_turn_runs_as_a_gawd_mission_with_the_a2a_safeguards() {
             "fail" => Err("plane unreachable".to_string()),
             _ => Ok(format!("answer to {prompt}")),
         }
-    }));
+    }))
+    .with_workspace(crate::test_board_fixture::init_board_workspace(
+        "acp-safeguards",
+    ));
     let live = AtomicBool::new(false);
     let mut deltas = Vec::new();
     let out = executor
@@ -68,28 +71,49 @@ fn an_acp_turn_runs_as_a_gawd_mission_with_the_a2a_safeguards() {
 
 #[test]
 fn an_acp_turn_passes_its_session_workspace_to_the_mission_runner() {
-    let seen = Arc::new(Mutex::new(None::<(String, Option<String>)>));
+    let seen = Arc::new(Mutex::new(None::<(String, Option<String>, bool, bool)>));
     let runner_seen = Arc::clone(&seen);
     let executor = GawdAcpExecutor::with_workspace_runner(Arc::new(
         move |prompt: &str, workspace: Option<String>| {
-            *runner_seen.lock().unwrap() = Some((prompt.to_owned(), workspace));
+            let (is_git_file, non_primary) = workspace
+                .as_deref()
+                .map(std::path::Path::new)
+                .map(|p| {
+                    (
+                        p.join(".git").is_file(),
+                        susi_core::worktree_isolation::is_primary_checkout(p) == Ok(false),
+                    )
+                })
+                .unwrap_or((false, false));
+            *runner_seen.lock().unwrap() =
+                Some((prompt.to_owned(), workspace, is_git_file, non_primary));
             Ok("workspace-aware answer".to_string())
         },
     ));
+    let session_wt = crate::test_board_fixture::init_board_workspace("acp-ws");
     let mut turn = acp_turn("work in this session");
-    turn.workspace = Some("/tmp/acp-session-workspace".to_string());
+    turn.workspace = Some(session_wt.to_string_lossy().into_owned());
     let mut ignore = |_: &str| {};
 
     executor
         .execute_turn(&turn, &AtomicBool::new(false), &mut ignore)
         .unwrap();
 
-    assert_eq!(
-        *seen.lock().unwrap(),
-        Some((
-            "work in this session".to_string(),
-            Some("/tmp/acp-session-workspace".to_string())
-        ))
+    let (got_prompt, got_ws, is_git_file, non_primary) =
+        seen.lock().unwrap().clone().expect("seen workspace");
+    assert_eq!(got_prompt, "work in this session");
+    let isolated_ws = std::path::PathBuf::from(got_ws.expect("isolated worktree path"));
+    assert_ne!(
+        isolated_ws, session_wt,
+        "each ACP turn must receive a fresh isolated worktree"
+    );
+    assert!(
+        is_git_file,
+        "isolated turn workspace must be a linked Git worktree"
+    );
+    assert!(
+        non_primary,
+        "isolated turn workspace must never be a primary checkout"
     );
 }
 
@@ -107,7 +131,10 @@ fn a_mid_mission_cancel_reaches_the_runner_and_suppresses_the_answer() {
         }
         seen.store(true, Ordering::SeqCst);
         Ok("late".to_string())
-    }));
+    }))
+    .with_workspace(crate::test_board_fixture::init_board_workspace(
+        "acp-cancel",
+    ));
     let entered_waiter = Arc::clone(&entered);
     let cancel_for_thread = Arc::clone(&cancel);
     let waiter = std::thread::spawn(move || {
@@ -144,7 +171,10 @@ fn a_later_acp_turn_carries_the_sessions_earlier_turns() {
     let executor = GawdAcpExecutor::with_runner(Arc::new(move |prompt: &str| {
         *runner_seen.lock().unwrap() = prompt.to_string();
         Ok("ok".to_string())
-    }));
+    }))
+    .with_workspace(crate::test_board_fixture::init_board_workspace(
+        "acp-history",
+    ));
     let mut turn = acp_turn("and its capital?");
     turn.history = vec![
         said(

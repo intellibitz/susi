@@ -52,7 +52,8 @@ fn text_of(results: &[(String, String)]) -> String {
 
 #[test]
 fn durable_mission_state_resumes_interrupted_nodes() {
-    let workspace = scratch_dir("resume");
+    let root = scratch_dir("resume");
+    let workspace = crate::test_board_fixture::init_worktree_with_board(&root, "wt/durable-resume");
     let goal = "durable mission resume";
     let mission_id = seed_crash_interrupted(&workspace, goal);
     let dir = PersistedMission::missions_dir(&workspace);

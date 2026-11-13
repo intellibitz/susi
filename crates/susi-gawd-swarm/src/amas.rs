@@ -1151,6 +1151,56 @@ impl SusiSupervisor {
         workspace: &Path,
         cancellation: &CancellationHandle,
     ) -> (Vec<A2AMessage>, Vec<GawdAgentInfo>) {
+        let mut session = match crate::begin_board_session(
+            workspace,
+            "amas-coordinator",
+            "amas-supervise",
+            goal,
+            false,
+        ) {
+            Ok(session) => session,
+            Err(err) => {
+                return (
+                    vec![A2AMessage {
+                        sender: "ConsensusMaster".into(),
+                        recipient: "SUSI-Master".into(),
+                        action: "GOVERNANCE_BLOCK".into(),
+                        payload: format!("[GOVERNANCE_BLOCK] {err}"),
+                    }],
+                    Vec::new(),
+                );
+            }
+        };
+        let effective_ws = session.worktree.path().to_path_buf();
+        let (mut a2a_logs, fleet_info) =
+            Self::supervise_mission_cancellable_inner(goal, &effective_ws, cancellation);
+        let ok = !a2a_logs.iter().any(|m| {
+            m.action == "GOVERNANCE_BLOCK"
+                || m.payload.contains("[GOVERNANCE_BLOCK]")
+                || m.payload.contains("[BLOCKED]")
+        });
+        let summary = a2a_logs
+            .last()
+            .map(|m| m.payload.as_str())
+            .unwrap_or("amas supervision finished");
+        if let Err(err) = session.finish(ok, summary) {
+            a2a_logs.push(A2AMessage {
+                sender: "ConsensusMaster".into(),
+                recipient: "SUSI-Master".into(),
+                action: "GOVERNANCE_BLOCK".into(),
+                payload: format!(
+                    "[GOVERNANCE_BLOCK] failed to record AMAS supervision on Susi Native Board: {err}"
+                ),
+            });
+        }
+        (a2a_logs, fleet_info)
+    }
+
+    fn supervise_mission_cancellable_inner(
+        goal: &str,
+        workspace: &Path,
+        cancellation: &CancellationHandle,
+    ) -> (Vec<A2AMessage>, Vec<GawdAgentInfo>) {
         // 1. Initialize Mission Blackboard (High-Density Context Store with 1024 entry lease cap)
         // Optimized for Lock-Free Swarm Execution
         let blackboard: MissionBlackboard =

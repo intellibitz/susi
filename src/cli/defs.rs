@@ -11,6 +11,7 @@ use super::agent_cli;
 use super::ambient_cli;
 use super::auto_cli;
 use super::blackboard_cli;
+use super::board_cli;
 use super::brain_cli;
 use super::broker_cli;
 pub(crate) use super::catalogs::{command_catalogs, mcp_catalogs};
@@ -156,11 +157,17 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         action: Option<ecosystem_cli::EcosystemCommands>,
     },
-    /// Inspect the last mission blackboard (swarm shared state)
+    /// Inspect or post to the mission blackboard (posts mirror to Susi Native Board)
     #[command(name = "blackboard", visible_alias = "bb")]
     Blackboard {
         #[command(subcommand)]
         action: Option<blackboard_cli::BlackboardCommands>,
+    },
+    /// Collaborate through the Susi Native Board and enforce worktree isolation
+    #[command(name = "board")]
+    Board {
+        #[command(subcommand)]
+        action: board_cli::BoardCommands,
     },
     /// Inspect and query the universal context graph
     #[command(name = "context-graph", visible_alias = "cg")]
@@ -600,6 +607,7 @@ pub(crate) fn command_skips_composition(command: &Commands) -> bool {
             // The dev-workflow commands that moved to Susi Commercial Apps
             // only print their refusal: nothing to compose for that.
             | Commands::Workflow { .. }
+            | Commands::Board { .. }
             | Commands::Tasks {
                 action: None | Some(tasks_cli::TaskCommands::Moved(_)),
             }
@@ -669,6 +677,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Tasks { .. }
         | Commands::Workflow { .. }
         | Commands::Blackboard { .. }
+        | Commands::Board { .. }
         | Commands::ContextGraph { .. }
         | Commands::Broker { .. }
         | Commands::Telemetry { .. }
@@ -934,6 +943,7 @@ mod tests {
             ("brain", &["brain"], false, C::ALL),
             ("ecosystem", &["ecosystem"], false, C::ALL),
             ("blackboard", &["blackboard"], false, C::ALL),
+            ("board", &["board", "check"], false, C::ALL),
             ("context-graph", &["context-graph"], false, C::ALL),
             ("broker", &["broker"], false, C::ALL),
             ("telemetry", &["telemetry"], false, C::ALL),

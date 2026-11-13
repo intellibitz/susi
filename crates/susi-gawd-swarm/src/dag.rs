@@ -933,393 +933,385 @@ impl MissionDag {
         model_generator: DagModelGenerator,
         tool_executor: DagToolExecutor,
     ) -> EaiResult<Vec<EvidenceRecord>> {
-        let mut all_evidence = Vec::new();
+        let mut coord_session: Option<crate::susi_core::native_board::CollaborativeAgentSession> =
+            None;
+        let mut batch_sessions: Vec<crate::susi_core::native_board::CollaborativeAgentSession> =
+            Vec::new();
+        let loop_res: EaiResult<Vec<EvidenceRecord>> = (|| {
+            let mut all_evidence = Vec::new();
 
-        let mut executed_count = self.nodes.iter().filter(|node| node.completed).count();
-        let total_nodes = self.nodes.len();
-        let admission_mission = format!("dag-{:p}", self);
+            let mut executed_count = self.nodes.iter().filter(|node| node.completed).count();
+            let total_nodes = self.nodes.len();
+            let admission_mission = format!("dag-{:p}", self);
 
-        while executed_count < total_nodes {
-            if self.is_cancelled(now_unix()) {
-                let reports = self.cancel_propagate();
-                let detail = if reports.is_empty() {
-                    "cancelled".to_string()
-                } else {
-                    reports.join("; ")
-                };
-                return Err(EaiError::governance(format!(
-                    "DAG_EXECUTION_FAILED: cancel propagated: {detail}"
-                )));
-            }
-            let ready_indices: Vec<usize> = self
-                .nodes
-                .iter()
-                .enumerate()
-                .filter(|(_, node)| {
-                    !node.completed
-                        && node
-                            .dependencies
-                            .iter()
-                            .all(|&dep| self.nodes.get(dep).is_some_and(|node| node.completed))
-                })
-                .map(|(idx, _)| idx)
-                .collect();
-
-            if ready_indices.is_empty() {
-                return Err(EaiError::governance(
-                    "DAG_EXECUTION_FAILED: unresolved dependencies (cycle or missing task)",
-                ));
-            }
-
-            // Admit against a fresh shared inventory snapshot. Deferred nodes
-            // remain in the live queue and are retried after this batch's
-            // reservations release; they are never marked complete here.
-            let admission_batch = self.admit_ready_nodes(&admission_mission, &ready_indices);
-            let ready_indices = admission_batch.admitted_indices();
-            let deferred = admission_batch.deferred.clone();
-            let batch_reservations: Vec<_> = admission_batch
-                .admitted
-                .into_iter()
-                .map(|(_, reservation)| reservation)
-                .collect();
-            if !deferred.is_empty() {
-                eprintln!(
-                    "[DAG Admission] deferred {} required node(s) for a later drain: {}",
-                    deferred.len(),
-                    deferred
-                        .iter()
-                        .map(|idx| Self::persist_id(*idx))
-                        .collect::<Vec<_>>()
-                        .join(",")
-                );
-            }
-            if ready_indices.is_empty() {
-                if let Some(blocked) = admission_batch.blocked {
+            while executed_count < total_nodes {
+                if self.is_cancelled(now_unix()) {
+                    let reports = self.cancel_propagate();
+                    let detail = if reports.is_empty() {
+                        "cancelled".to_string()
+                    } else {
+                        reports.join("; ")
+                    };
                     return Err(EaiError::governance(format!(
+                        "DAG_EXECUTION_FAILED: cancel propagated: {detail}"
+                    )));
+                }
+                let ready_indices: Vec<usize> =
+                    self.nodes
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, node)| {
+                            !node.completed
+                                && node.dependencies.iter().all(|&dep| {
+                                    self.nodes.get(dep).is_some_and(|node| node.completed)
+                                })
+                        })
+                        .map(|(idx, _)| idx)
+                        .collect();
+
+                if ready_indices.is_empty() {
+                    return Err(EaiError::governance(
+                        "DAG_EXECUTION_FAILED: unresolved dependencies (cycle or missing task)",
+                    ));
+                }
+
+                // Admit against a fresh shared inventory snapshot. Deferred nodes
+                // remain in the live queue and are retried after this batch's
+                // reservations release; they are never marked complete here.
+                let admission_batch = self.admit_ready_nodes(&admission_mission, &ready_indices);
+                let ready_indices = admission_batch.admitted_indices();
+                let deferred = admission_batch.deferred.clone();
+                let batch_reservations: Vec<_> = admission_batch
+                    .admitted
+                    .into_iter()
+                    .map(|(_, reservation)| reservation)
+                    .collect();
+                if !deferred.is_empty() {
+                    eprintln!(
+                        "[DAG Admission] deferred {} required node(s) for a later drain: {}",
+                        deferred.len(),
+                        deferred
+                            .iter()
+                            .map(|idx| Self::persist_id(*idx))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    );
+                }
+                if ready_indices.is_empty() {
+                    if let Some(blocked) = admission_batch.blocked {
+                        return Err(EaiError::governance(format!(
                         "DAG_EXECUTION_FAILED: no ready nodes admitted under resource constraints; node {} remains queued: {}",
                         blocked.node_id, blocked.reason
                     )));
-                }
-                return Err(EaiError::governance(
-                    "DAG_EXECUTION_FAILED: no ready nodes admitted under resource constraints",
-                ));
-            }
-
-            // Assign expiring ownership fences before workers run (VC-201-022).
-            let now = now_unix();
-            let lease_ttl = 3_600;
-            let deadline = self
-                .cancel
-                .token
-                .as_ref()
-                .map(|t| t.deadline_unix)
-                .unwrap_or(now + lease_ttl);
-            // T-DEVIN-8: one task-registry scope per mission execution —
-            // `cancel_scope` kills every in-flight worker command at once,
-            // and the shared signal aborts workers between steps.
-            let mission_scope = format!(
-                "dag-exec-{}-{}-{}-{}",
-                std::process::id(),
-                self.ownership.mission,
-                self.ownership.coordinator,
-                DAG_EXEC_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            );
-            let mut batch_leases: Vec<(usize, String, u64)> =
-                Vec::with_capacity(ready_indices.len());
-            let mut batch_signals: Vec<Arc<std::sync::atomic::AtomicBool>> =
-                Vec::with_capacity(ready_indices.len());
-            for &idx in &ready_indices {
-                let owner = format!("worker-{idx}");
-                let lease = self.lease_dispatch(idx, &owner, now, lease_ttl);
-                let signal = Arc::new(std::sync::atomic::AtomicBool::new(false));
-                self.register_cancel_worker_scoped(
-                    idx,
-                    deadline,
-                    Descendant {
-                        id: String::new(),
-                        kind: WorkerKind::Local,
-                        cancellable: true,
-                        cancel_scope: Some(mission_scope.clone()),
-                        signal: Some(Arc::clone(&signal)),
-                    },
-                );
-                batch_leases.push((idx, owner, lease.fence));
-                batch_signals.push(signal);
-            }
-            let cancellation = self.cancel.handle();
-            cancellation.register_scope(&mission_scope);
-
-            // Publish node-running state, leases, recovery scope and intent
-            // journal together before any worker scope or tool can mutate.
-            if let Some(ctx) = persist_slot.as_mut() {
-                let leases = self.leases.clone();
-                let journal = self
-                    .intent_journal
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone();
-                let ownership = self.ownership;
-                ctx.mission.transaction(ctx.dir, |mission| {
-                    for &idx in &ready_indices {
-                        mission.dispatch(&Self::persist_id(idx))?;
                     }
-                    mission.ownership = ownership;
-                    mission.leases = leases;
-                    mission.recovery = mission.leases.recovery.clone();
-                    mission
-                        .leases
-                        .recovery
-                        .active_scopes
-                        .insert(mission_scope.clone());
-                    mission.recovery = mission.leases.recovery.clone();
-                    mission.side_effect_journal = journal;
-                    Ok(())
-                })?;
-            }
+                    return Err(EaiError::governance(
+                        "DAG_EXECUTION_FAILED: no ready nodes admitted under resource constraints",
+                    ));
+                }
 
-            let ws = workspace.to_path_buf();
-            let bb = Arc::clone(blackboard);
-            let tx = event_sender.clone();
+                // Assign expiring ownership fences before workers run (VC-201-022).
+                let now = now_unix();
+                let lease_ttl = 3_600;
+                let deadline = self
+                    .cancel
+                    .token
+                    .as_ref()
+                    .map(|t| t.deadline_unix)
+                    .unwrap_or(now + lease_ttl);
+                // T-DEVIN-8: one task-registry scope per mission execution —
+                // `cancel_scope` kills every in-flight worker command at once,
+                // and the shared signal aborts workers between steps.
+                let mission_scope = format!(
+                    "dag-exec-{}-{}-{}-{}",
+                    std::process::id(),
+                    self.ownership.mission,
+                    self.ownership.coordinator,
+                    DAG_EXEC_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                );
+                let mut batch_leases: Vec<(usize, String, u64)> =
+                    Vec::with_capacity(ready_indices.len());
+                let mut batch_signals: Vec<Arc<std::sync::atomic::AtomicBool>> =
+                    Vec::with_capacity(ready_indices.len());
+                for &idx in &ready_indices {
+                    let owner = format!("worker-{idx}");
+                    let lease = self.lease_dispatch(idx, &owner, now, lease_ttl);
+                    let signal = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                    self.register_cancel_worker_scoped(
+                        idx,
+                        deadline,
+                        Descendant {
+                            id: String::new(),
+                            kind: WorkerKind::Local,
+                            cancellable: true,
+                            cancel_scope: Some(mission_scope.clone()),
+                            signal: Some(Arc::clone(&signal)),
+                        },
+                    );
+                    batch_leases.push((idx, owner, lease.fence));
+                    batch_signals.push(signal);
+                }
+                let cancellation = self.cancel.handle();
+                cancellation.register_scope(&mission_scope);
 
-            // Writer isolation (T-DEVIN-6): every mutating worker runs in
-            // its own synced scope — never concurrent shell commands in
-            // one directory. Writes fold back sequentially below.
-            let isolation = crate::writer_isolation::WriterIsolation::new(&ws)?;
-            let mut batch_scopes = Vec::with_capacity(batch_leases.len());
-            for (_, owner, fence) in &batch_leases {
-                // Include the fence in the directory identity.  A delayed
-                // process from an earlier lease can therefore only write to
-                // its quarantined private scope, never the replacement's.
-                let scope_owner = format!("{owner}-f{fence}");
-                batch_scopes.push(isolation.scope(&scope_owner)?);
-            }
+                // Publish node-running state, leases, recovery scope and intent
+                // journal together before any worker scope or tool can mutate.
+                if let Some(ctx) = persist_slot.as_mut() {
+                    let leases = self.leases.clone();
+                    let journal = self
+                        .intent_journal
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                    let ownership = self.ownership;
+                    ctx.mission.transaction(ctx.dir, |mission| {
+                        for &idx in &ready_indices {
+                            mission.dispatch(&Self::persist_id(idx))?;
+                        }
+                        mission.ownership = ownership;
+                        mission.leases = leases;
+                        mission.recovery = mission.leases.recovery.clone();
+                        mission
+                            .leases
+                            .recovery
+                            .active_scopes
+                            .insert(mission_scope.clone());
+                        mission.recovery = mission.leases.recovery.clone();
+                        mission.side_effect_journal = journal;
+                        Ok(())
+                    })?;
+                }
 
-            let batch_inputs: Vec<_> = batch_leases
-                .into_iter()
-                .zip(batch_scopes)
-                .zip(batch_signals)
-                .collect();
-            let mut batch_results: Vec<NodeRun> = crate::susi_core::parallel::map(
-                batch_inputs,
-                |(((idx, owner, fence), scope), signal)| {
-                    let node = &self.nodes[idx];
-                    let node_ws = scope.dir.clone();
-                    let start = std::time::Instant::now();
-                    // Mid-batch cancel check (T-DEVIN-8): a mission cancel can
-                    // only arrive via the task scope (propagate / external
-                    // stop), the shared signal, or the token deadline —
-                    // the dag itself is mutably borrowed for the whole run.
-                    let manager = crate::susi_core::task_manager::SwarmTaskManager::global();
-                    let scope_for_check = mission_scope.clone();
-                    let cancellation_for_check = cancellation.clone();
-                    let cancelled = move || {
-                        signal.load(std::sync::atomic::Ordering::Acquire)
-                            || manager.is_scope_cancelled(&scope_for_check)
-                            || cancellation_for_check.should_stop()
-                            || now_unix() >= deadline
-                    };
-                    // Fence check BEFORE the first mutating operation
-                    // (T-DEVIN-9): rejecting only at completion cannot undo
-                    // writes the stale worker already made.
-                    let node_id = Self::persist_id(idx);
-                    let stale = self.leases.check_fence(&node_id, &owner, fence, now_unix())
-                        != CompleteVerdict::Accepted;
-                    if cancelled() || stale {
-                        return NodeRun {
+                for mut sess in batch_sessions.drain(..) {
+                    sess.finish(true, "dag batch node landed")
+                        .map_err(EaiError::governance)?;
+                }
+                if coord_session.is_none() {
+                    coord_session = Some(
+                        crate::begin_board_session(
+                            workspace,
+                            "dag-coordinator",
+                            "dag-mission",
+                            &format!("DAG mission ({total_nodes} nodes)"),
+                            false,
+                        )
+                        .map_err(EaiError::governance)?,
+                    );
+                }
+                let ws = coord_session
+                    .as_ref()
+                    .map(|s| s.worktree.path().to_path_buf())
+                    .unwrap_or_else(|| workspace.to_path_buf());
+                let bb = Arc::clone(blackboard);
+                let tx = event_sender.clone();
+
+                // Writer isolation (T-DEVIN-6): every mutating worker runs in
+                // its own synced scope — never concurrent shell commands in
+                // one directory. Writes fold back sequentially below.
+                let isolation = crate::writer_isolation::WriterIsolation::new(&ws)?;
+                let mut batch_scopes = Vec::with_capacity(batch_leases.len());
+                for (node_idx, owner, fence) in &batch_leases {
+                    // Include the fence in the directory identity.  A delayed
+                    // process from an earlier lease can therefore only write to
+                    // its quarantined private scope, never the replacement's.
+                    let scope_owner = format!("{owner}-f{fence}");
+                    batch_scopes.push(isolation.scope(&scope_owner)?);
+                    let task = format!("dag-node-{node_idx}-f{fence}");
+                    let title = self
+                        .nodes
+                        .get(*node_idx)
+                        .map(|n| n.title.as_str())
+                        .unwrap_or("dag-node");
+                    batch_sessions.push(
+                        crate::begin_board_session(&ws, owner, &task, title, true)
+                            .map_err(EaiError::governance)?,
+                    );
+                }
+
+                let batch_inputs: Vec<_> = batch_leases
+                    .into_iter()
+                    .zip(batch_scopes)
+                    .zip(batch_signals)
+                    .collect();
+                let mut batch_results: Vec<NodeRun> = crate::susi_core::parallel::map(
+                    batch_inputs,
+                    |(((idx, owner, fence), scope), signal)| {
+                        let node = &self.nodes[idx];
+                        let node_ws = scope.dir.clone();
+                        let start = std::time::Instant::now();
+                        // Mid-batch cancel check (T-DEVIN-8): a mission cancel can
+                        // only arrive via the task scope (propagate / external
+                        // stop), the shared signal, or the token deadline —
+                        // the dag itself is mutably borrowed for the whole run.
+                        let manager = crate::susi_core::task_manager::SwarmTaskManager::global();
+                        let scope_for_check = mission_scope.clone();
+                        let cancellation_for_check = cancellation.clone();
+                        let cancelled = move || {
+                            signal.load(std::sync::atomic::Ordering::Acquire)
+                                || manager.is_scope_cancelled(&scope_for_check)
+                                || cancellation_for_check.should_stop()
+                                || now_unix() >= deadline
+                        };
+                        // Fence check BEFORE the first mutating operation
+                        // (T-DEVIN-9): rejecting only at completion cannot undo
+                        // writes the stale worker already made.
+                        let node_id = Self::persist_id(idx);
+                        let stale = self.leases.check_fence(&node_id, &owner, fence, now_unix())
+                            != CompleteVerdict::Accepted;
+                        if cancelled() || stale {
+                            return NodeRun {
+                                idx,
+                                res: Err(EaiError::governance(if stale {
+                                    "worker lost fence before dispatch"
+                                } else {
+                                    "worker cancelled"
+                                })),
+                                elapsed_ms: start.elapsed().as_millis() as u64,
+                                calls: Vec::new(),
+                                owner,
+                                fence,
+                                scope,
+                                cancelled: cancelled(),
+                                stale_fence: stale,
+                            };
+                        }
+                        let _ = tx.send(crate::susi_core::bus::SwarmEventType::AgentStarted {
+                            agent_name: node.title.clone(),
+                        });
+
+                        // Mandate 48: in SUSI's own tree the node that turns model
+                        // output into shell commands carries the self-build contract.
+                        let title = node.title.clone();
+                        let goal = node.goal.clone();
+                        let prompt = crate::susi_core::self_build::brief_task(&node_ws, &format!(
+                        "Execute task node '{}': {}. If you need to execute a shell command, provide it in a ```bash codeblock. The command must perform every requested side effect: printing intended file content is not file creation. For file writes, write the named workspace path and then verify that exact path and its contents.",
+                        title, goal
+                    ));
+                        // Deep path, same rule as plan_steps: the node template is
+                        // full of capability words and clears Tier-0's support
+                        // gate, so a trained reflex could answer `ACTION:
+                        // write_file` with no ```bash block — the node would
+                        // "complete" having executed nothing (Claude's measured
+                        // 0.60–0.64 support on everyday intents).
+                        let model_workspace = node_ws.clone();
+                        let model_cancel = cancellation.clone();
+                        let model_prompt = prompt.clone();
+                        let model_generator = Arc::clone(&model_generator);
+                        let res = match run_cancellable(&model_cancel, move || {
+                            model_generator(&model_prompt, &model_workspace)
+                        }) {
+                            Ok(CancellableResult::Completed(output)) => Ok(output),
+                            Ok(CancellableResult::Cancelled) => Err(EaiError::governance(
+                                "worker cancelled while waiting for model response",
+                            )),
+                            Ok(CancellableResult::DeadlineExceeded) => Err(EaiError::governance(
+                                "worker deadline expired while waiting for model response",
+                            )),
+                            Err(error) => Err(error),
+                        };
+
+                        let elapsed = start.elapsed().as_millis() as u64;
+                        NodeRun {
                             idx,
-                            res: Err(EaiError::governance(if stale {
-                                "worker lost fence before dispatch"
-                            } else {
-                                "worker cancelled"
-                            })),
-                            elapsed_ms: start.elapsed().as_millis() as u64,
+                            res,
+                            elapsed_ms: elapsed,
+                            // Tool calls are intentionally executed after the
+                            // parallel model phase.  That keeps the durable
+                            // intent write, authority check and native tool call
+                            // in one sequential mutation boundary.
                             calls: Vec::new(),
                             owner,
                             fence,
                             scope,
-                            cancelled: cancelled(),
+                            cancelled: cancelled() || cancellation.should_stop(),
                             stale_fence: stale,
-                        };
-                    }
-                    let _ = tx.send(crate::susi_core::bus::SwarmEventType::AgentStarted {
-                        agent_name: node.title.clone(),
-                    });
+                        }
+                    },
+                );
 
-                    // Mandate 48: in SUSI's own tree the node that turns model
-                    // output into shell commands carries the self-build contract.
-                    let title = node.title.clone();
-                    let goal = node.goal.clone();
-                    let prompt = crate::susi_core::self_build::brief_task(&node_ws, &format!(
-                        "Execute task node '{}': {}. If you need to execute a shell command, provide it in a ```bash codeblock. The command must perform every requested side effect: printing intended file content is not file creation. For file writes, write the named workspace path and then verify that exact path and its contents.",
-                        title, goal
-                    ));
-                    // Deep path, same rule as plan_steps: the node template is
-                    // full of capability words and clears Tier-0's support
-                    // gate, so a trained reflex could answer `ACTION:
-                    // write_file` with no ```bash block — the node would
-                    // "complete" having executed nothing (Claude's measured
-                    // 0.60–0.64 support on everyday intents).
-                    let model_workspace = node_ws.clone();
-                    let model_cancel = cancellation.clone();
-                    let model_prompt = prompt.clone();
-                    let model_generator = Arc::clone(&model_generator);
-                    let res = match run_cancellable(&model_cancel, move || {
-                        model_generator(&model_prompt, &model_workspace)
-                    }) {
-                        Ok(CancellableResult::Completed(output)) => Ok(output),
-                        Ok(CancellableResult::Cancelled) => Err(EaiError::governance(
-                            "worker cancelled while waiting for model response",
-                        )),
-                        Ok(CancellableResult::DeadlineExceeded) => Err(EaiError::governance(
-                            "worker deadline expired while waiting for model response",
-                        )),
-                        Err(error) => Err(error),
-                    };
-
-                    let elapsed = start.elapsed().as_millis() as u64;
-                    NodeRun {
-                        idx,
-                        res,
-                        elapsed_ms: elapsed,
-                        // Tool calls are intentionally executed after the
-                        // parallel model phase.  That keeps the durable
-                        // intent write, authority check and native tool call
-                        // in one sequential mutation boundary.
-                        calls: Vec::new(),
-                        owner,
-                        fence,
-                        scope,
-                        cancelled: cancelled() || cancellation.should_stop(),
-                        stale_fence: stale,
-                    }
-                },
-            );
-
-            // Execute mutating tool calls only after the model phase has
-            // joined.  Each call now has a durable intent and an authority
-            // check immediately before the native tool boundary; a stale
-            // worker therefore cannot write and only its private scope can
-            // be discarded.
-            for run in &mut batch_results {
-                if run.cancelled || run.stale_fence {
-                    continue;
-                }
-                let generated = match &run.res {
-                    Ok(output) => output.clone(),
-                    Err(_) => continue,
-                };
-                let node_id = Self::persist_id(run.idx);
-                let node_ws = run.scope.dir.clone();
-                let mut executed_scripts = String::new();
-                let mut node_calls = Vec::new();
-                for (block_index, block) in generated.split("```").skip(1).step_by(2).enumerate() {
-                    let manager = crate::susi_core::task_manager::SwarmTaskManager::global();
-                    if manager.is_scope_cancelled(&mission_scope) || self.is_cancelled(now_unix()) {
-                        run.cancelled = true;
-                        break;
-                    }
-                    let token = AuthorityToken {
-                        epoch: self.ownership,
-                        fence: run.fence,
-                    };
-                    if self
-                        .leases
-                        .check_authority(&node_id, &run.owner, token, now_unix())
-                        != CompleteVerdict::Accepted
-                    {
-                        run.stale_fence = true;
-                        break;
-                    }
-                    let Some(cmd) = shell_block_command(block) else {
+                // Execute mutating tool calls only after the model phase has
+                // joined.  Each call now has a durable intent and an authority
+                // check immediately before the native tool boundary; a stale
+                // worker therefore cannot write and only its private scope can
+                // be discarded.
+                for run in &mut batch_results {
+                    if run.cancelled || run.stale_fence {
                         continue;
-                    };
-                    eprintln!("[DAG Agent] Detected shell block. Executing native tool...");
-                    let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
-                    let call = serde_json::json!({
-                        "command": wrapped_cmd,
-                        "cancel_scope": mission_scope,
-                    });
-                    let call_text = call.to_string();
-                    if !self.may_retry_node(run.idx) {
-                        run.res = Err(EaiError::governance(format!(
-                            "refuse replay of uncertain side effect for {node_id}"
-                        )));
-                        break;
                     }
-                    // The operation id excludes the attempt-local cancellation
-                    // scope.  A resumed node therefore addresses the same
-                    // append/create/deploy-like effect even when its worker
-                    // process receives a fresh scope.
-                    let operation_key = format!("{node_id}:exec_command:{block_index}");
-                    let intent_id = match self.prepare_dispatch_intent(
-                        run.idx,
-                        "exec_command",
-                        cmd,
-                        Some(&operation_key),
-                    ) {
-                        DispatchDecision::Dispatch { intent_id } => intent_id,
-                        DispatchDecision::AlreadyExecuted { intent_id, receipt } => {
-                            executed_scripts.push_str(&format!(
-                                "\n\nExecution Receipt for `{cmd}`: already acknowledged (intent {intent_id}, output digest {})\n",
-                                receipt.output_digest
-                            ));
-                            continue;
-                        }
-                        DispatchDecision::ReconciliationRequired { intent_id, reason } => {
-                            run.res = Err(EaiError::governance(format!(
-                                "refuse replay of side effect for {node_id} (intent {intent_id}): {reason}"
-                            )));
-                            break;
-                        }
+                    let generated = match &run.res {
+                        Ok(output) => output.clone(),
+                        Err(_) => continue,
                     };
-                    // Intent persistence is itself a mutating boundary: it
-                    // is published only after the same authority check and
-                    // before execute_tool is allowed to run.
-                    if let Some(ctx) = persist_slot.as_mut() {
-                        let leases = self.leases.clone();
-                        let journal = self
-                            .intent_journal
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .clone();
-                        let ownership = self.ownership;
-                        ctx.mission.transaction(ctx.dir, |mission| {
-                            mission.ownership = ownership;
-                            mission.leases = leases;
-                            mission.recovery = mission.leases.recovery.clone();
-                            mission.side_effect_journal = journal;
-                            Ok(())
-                        })?;
-                    }
-                    let tool_call = call.clone();
-                    let tool_workspace = node_ws.clone();
-                    let tool_executor = Arc::clone(&tool_executor);
-                    let result = match run_cancellable(&cancellation, move || {
-                        tool_executor("exec_command", &tool_call, &tool_workspace)
-                    }) {
-                        Ok(CancellableResult::Completed(Ok(output))) => output,
-                        Ok(CancellableResult::Completed(Err(error))) => {
-                            format!("[Error] {error}")
-                        }
-                        Ok(CancellableResult::Cancelled)
-                        | Ok(CancellableResult::DeadlineExceeded) => {
+                    let node_id = Self::persist_id(run.idx);
+                    let node_ws = run.scope.dir.clone();
+                    let mut executed_scripts = String::new();
+                    let mut node_calls = Vec::new();
+                    for (block_index, block) in
+                        generated.split("```").skip(1).step_by(2).enumerate()
+                    {
+                        let manager = crate::susi_core::task_manager::SwarmTaskManager::global();
+                        if manager.is_scope_cancelled(&mission_scope)
+                            || self.is_cancelled(now_unix())
+                        {
                             run.cancelled = true;
                             break;
                         }
-                        Err(error) => format!("[Error] {error}"),
-                    };
-                    // A takeover that arrived while the tool was running
-                    // cannot be folded or acknowledged by the old worker.
-                    if self
-                        .leases
-                        .check_authority(&node_id, &run.owner, token, now_unix())
-                        != CompleteVerdict::Accepted
-                    {
-                        run.stale_fence = true;
-                        break;
-                    }
-                    if !result.starts_with("[Error]") {
-                        self.mark_intent_executed_with_receipt(&intent_id, &result);
+                        let token = AuthorityToken {
+                            epoch: self.ownership,
+                            fence: run.fence,
+                        };
+                        if self
+                            .leases
+                            .check_authority(&node_id, &run.owner, token, now_unix())
+                            != CompleteVerdict::Accepted
+                        {
+                            run.stale_fence = true;
+                            break;
+                        }
+                        let Some(cmd) = shell_block_command(block) else {
+                            continue;
+                        };
+                        eprintln!("[DAG Agent] Detected shell block. Executing native tool...");
+                        let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
+                        let call = serde_json::json!({
+                            "command": wrapped_cmd,
+                            "cancel_scope": mission_scope,
+                        });
+                        let call_text = call.to_string();
+                        if !self.may_retry_node(run.idx) {
+                            run.res = Err(EaiError::governance(format!(
+                                "refuse replay of uncertain side effect for {node_id}"
+                            )));
+                            break;
+                        }
+                        // The operation id excludes the attempt-local cancellation
+                        // scope.  A resumed node therefore addresses the same
+                        // append/create/deploy-like effect even when its worker
+                        // process receives a fresh scope.
+                        let operation_key = format!("{node_id}:exec_command:{block_index}");
+                        let intent_id = match self.prepare_dispatch_intent(
+                            run.idx,
+                            "exec_command",
+                            cmd,
+                            Some(&operation_key),
+                        ) {
+                            DispatchDecision::Dispatch { intent_id } => intent_id,
+                            DispatchDecision::AlreadyExecuted { intent_id, receipt } => {
+                                executed_scripts.push_str(&format!(
+                                "\n\nExecution Receipt for `{cmd}`: already acknowledged (intent {intent_id}, output digest {})\n",
+                                receipt.output_digest
+                            ));
+                                continue;
+                            }
+                            DispatchDecision::ReconciliationRequired { intent_id, reason } => {
+                                run.res = Err(EaiError::governance(format!(
+                                "refuse replay of side effect for {node_id} (intent {intent_id}): {reason}"
+                            )));
+                                break;
+                            }
+                        };
+                        // Intent persistence is itself a mutating boundary: it
+                        // is published only after the same authority check and
+                        // before execute_tool is allowed to run.
                         if let Some(ctx) = persist_slot.as_mut() {
                             let leases = self.leases.clone();
                             let journal = self
@@ -1336,200 +1328,248 @@ impl MissionDag {
                                 Ok(())
                             })?;
                         }
-                    }
-                    node_calls.push(call_text);
-                    executed_scripts
-                        .push_str(&format!("\n\nExecution Result for `{cmd}`:\n{result}\n"));
-                }
-                run.calls = node_calls;
-                if !executed_scripts.is_empty() {
-                    if let Ok(output) = &mut run.res {
-                        output.push_str(&executed_scripts);
-                        if let Some(citations) =
-                            crate::susi_core::capture::EvidenceSession::auto_format_truth(&node_ws)
+                        let tool_call = call.clone();
+                        let tool_workspace = node_ws.clone();
+                        let tool_executor = Arc::clone(&tool_executor);
+                        let result = match run_cancellable(&cancellation, move || {
+                            tool_executor("exec_command", &tool_call, &tool_workspace)
+                        }) {
+                            Ok(CancellableResult::Completed(Ok(output))) => output,
+                            Ok(CancellableResult::Completed(Err(error))) => {
+                                format!("[Error] {error}")
+                            }
+                            Ok(CancellableResult::Cancelled)
+                            | Ok(CancellableResult::DeadlineExceeded) => {
+                                run.cancelled = true;
+                                break;
+                            }
+                            Err(error) => format!("[Error] {error}"),
+                        };
+                        // A takeover that arrived while the tool was running
+                        // cannot be folded or acknowledged by the old worker.
+                        if self
+                            .leases
+                            .check_authority(&node_id, &run.owner, token, now_unix())
+                            != CompleteVerdict::Accepted
                         {
-                            output.push_str("\n\n");
-                            output.push_str(&citations);
+                            run.stale_fence = true;
+                            break;
                         }
-                    }
-                }
-            }
-
-            // Fold each scope's writes back into the shared workspace,
-            // sequentially and in node order — deterministic, reviewable
-            // conflicts instead of silently lost writes.
-            let mut write_conflicts: Vec<String> = Vec::new();
-            let mut conflicted_nodes: BTreeSet<usize> = BTreeSet::new();
-            let mut stale_nodes: Vec<usize> = Vec::new();
-            for run in &batch_results {
-                // Cancelled workers' private writes are discarded, never
-                // folded — a killed command's partial output must not land.
-                if run.cancelled {
-                    isolation.cleanup(&run.scope);
-                    continue;
-                }
-                // Re-check the fence before merging private writes
-                // (T-DEVIN-9): a lease displaced mid-run means this worker's
-                // writes are stale — discarding them is safe because they
-                // never left the private scope.
-                let run_stale = run.stale_fence
-                    || self.leases.check_fence(
-                        &Self::persist_id(run.idx),
-                        &run.owner,
-                        run.fence,
-                        now_unix(),
-                    ) != CompleteVerdict::Accepted;
-                if run_stale {
-                    stale_nodes.push(run.idx);
-                    isolation.cleanup(&run.scope);
-                    continue;
-                }
-                match isolation.fold(&run.scope) {
-                    Ok(crate::writer_isolation::FoldOutcome::Clean { .. }) => {}
-                    Ok(crate::writer_isolation::FoldOutcome::Conflict { paths }) => {
-                        write_conflicts.push(format!(
-                            "n{}:{}",
-                            run.idx,
-                            paths.into_iter().collect::<Vec<_>>().join(",")
-                        ));
-                        conflicted_nodes.insert(run.idx);
-                    }
-                    Err(e) => {
-                        for rest in &batch_results {
-                            if !rest.cancelled && !stale_nodes.contains(&rest.idx) {
-                                isolation.cleanup(&rest.scope);
+                        if !result.starts_with("[Error]") {
+                            self.mark_intent_executed_with_receipt(&intent_id, &result);
+                            if let Some(ctx) = persist_slot.as_mut() {
+                                let leases = self.leases.clone();
+                                let journal = self
+                                    .intent_journal
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .clone();
+                                let ownership = self.ownership;
+                                ctx.mission.transaction(ctx.dir, |mission| {
+                                    mission.ownership = ownership;
+                                    mission.leases = leases;
+                                    mission.recovery = mission.leases.recovery.clone();
+                                    mission.side_effect_journal = journal;
+                                    Ok(())
+                                })?;
                             }
                         }
-                        return Err(e);
+                        node_calls.push(call_text);
+                        executed_scripts
+                            .push_str(&format!("\n\nExecution Result for `{cmd}`:\n{result}\n"));
+                    }
+                    run.calls = node_calls;
+                    if !executed_scripts.is_empty() {
+                        if let Ok(output) = &mut run.res {
+                            output.push_str(&executed_scripts);
+                            if let Some(citations) =
+                                crate::susi_core::capture::EvidenceSession::auto_format_truth(
+                                    &node_ws,
+                                )
+                            {
+                                output.push_str("\n\n");
+                                output.push_str(&citations);
+                            }
+                        }
                     }
                 }
-            }
-            if !stale_nodes.is_empty() {
-                let detail = stale_nodes
-                    .iter()
-                    .map(|i| format!("n{i}"))
-                    .collect::<Vec<_>>()
-                    .join(",");
+
+                // Fold each scope's writes back into the shared workspace,
+                // sequentially and in node order — deterministic, reviewable
+                // conflicts instead of silently lost writes.
+                let mut write_conflicts: Vec<String> = Vec::new();
+                let mut conflicted_nodes: BTreeSet<usize> = BTreeSet::new();
+                let mut stale_nodes: Vec<usize> = Vec::new();
+                for run in &batch_results {
+                    // Cancelled workers' private writes are discarded, never
+                    // folded — a killed command's partial output must not land.
+                    if run.cancelled {
+                        isolation.cleanup(&run.scope);
+                        continue;
+                    }
+                    // Re-check the fence before merging private writes
+                    // (T-DEVIN-9): a lease displaced mid-run means this worker's
+                    // writes are stale — discarding them is safe because they
+                    // never left the private scope.
+                    let run_stale = run.stale_fence
+                        || self.leases.check_fence(
+                            &Self::persist_id(run.idx),
+                            &run.owner,
+                            run.fence,
+                            now_unix(),
+                        ) != CompleteVerdict::Accepted;
+                    if run_stale {
+                        stale_nodes.push(run.idx);
+                        isolation.cleanup(&run.scope);
+                        continue;
+                    }
+                    match isolation.fold(&run.scope) {
+                        Ok(crate::writer_isolation::FoldOutcome::Clean { .. }) => {}
+                        Ok(crate::writer_isolation::FoldOutcome::Conflict { paths }) => {
+                            write_conflicts.push(format!(
+                                "n{}:{}",
+                                run.idx,
+                                paths.into_iter().collect::<Vec<_>>().join(",")
+                            ));
+                            conflicted_nodes.insert(run.idx);
+                        }
+                        Err(e) => {
+                            for rest in &batch_results {
+                                if !rest.cancelled && !stale_nodes.contains(&rest.idx) {
+                                    isolation.cleanup(&rest.scope);
+                                }
+                            }
+                            return Err(e);
+                        }
+                    }
+                }
+                if !stale_nodes.is_empty() {
+                    let detail = stale_nodes
+                        .iter()
+                        .map(|i| format!("n{i}"))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    if let Some(ctx) = persist_slot.as_mut() {
+                        ctx.mission.leases = self.leases.clone();
+                        ctx.mission.side_effect_journal = self
+                            .intent_journal
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clone();
+                        for &idx in &stale_nodes {
+                            let id = Self::persist_id(idx);
+                            if let Some(node) = ctx.mission.nodes.get_mut(&id) {
+                                node.state = NodeTerminal::Failed;
+                                node.output =
+                                    Some("[STALE_FENCE] worker's fence was displaced".to_string());
+                            }
+                        }
+                        let _ = ctx.mission.save(ctx.dir);
+                    }
+                    return Err(EaiError::governance(format!(
+                        "DAG_EXECUTION_FAILED: stale fence rejected worker writes: {detail}"
+                    )));
+                }
+                if !write_conflicts.is_empty() {
+                    let detail = write_conflicts.join(";");
+                    if let Some(ctx) = persist_slot.as_mut() {
+                        for &idx in &conflicted_nodes {
+                            let id = Self::persist_id(idx);
+                            if let Some(node) = ctx.mission.nodes.get_mut(&id) {
+                                node.state = NodeTerminal::Failed;
+                                node.output = Some(format!("[WRITE_CONFLICT] {detail}"));
+                            }
+                        }
+                        let _ = ctx.mission.save(ctx.dir);
+                    }
+                    for run in &batch_results {
+                        if !run.cancelled {
+                            isolation.cleanup(&run.scope);
+                        }
+                    }
+                    return Err(EaiError::governance(format!(
+                        "DAG_EXECUTION_FAILED: write conflict needs review: {detail}"
+                    )));
+                }
+
+                // A cancel that arrived mid-batch: workers aborted between steps
+                // and their scoped commands were killed. Propagate to terminate
+                // the rest, then refuse to complete the batch.
+                if batch_results.iter().any(|run| run.cancelled) || self.is_cancelled(now_unix()) {
+                    let reports = self.cancel_propagate();
+                    let mut cancelled_nodes: Vec<usize> = batch_results
+                        .iter()
+                        .filter(|run| run.cancelled)
+                        .map(|run| run.idx)
+                        .collect();
+                    cancelled_nodes.sort_unstable();
+                    if let Some(ctx) = persist_slot.as_mut() {
+                        for &idx in &cancelled_nodes {
+                            let id = Self::persist_id(idx);
+                            if let Some(node) = ctx.mission.nodes.get_mut(&id) {
+                                node.state = NodeTerminal::Failed;
+                                node.output =
+                                    Some("[CANCELLED] mission cancel propagated".to_string());
+                            }
+                        }
+                        let _ = ctx.mission.save(ctx.dir);
+                    }
+                    for run in &batch_results {
+                        if !run.cancelled {
+                            isolation.cleanup(&run.scope);
+                        }
+                    }
+                    let detail = if reports.is_empty() {
+                        "cancelled".to_string()
+                    } else {
+                        reports.join("; ")
+                    };
+                    return Err(EaiError::governance(format!(
+                    "DAG_EXECUTION_FAILED: cancel propagated mid-batch (nodes {cancelled_nodes:?}): {detail}"
+                )));
+                }
+                for run in &batch_results {
+                    if !run.cancelled {
+                        isolation.cleanup(&run.scope);
+                    }
+                }
+
+                // The batch is now reconciled and its scopes are no longer live.
+                // Clear the recovery marker atomically before publishing node
+                // completions so a later restart cancels only genuinely active
+                // workers.
                 if let Some(ctx) = persist_slot.as_mut() {
-                    ctx.mission.leases = self.leases.clone();
-                    ctx.mission.side_effect_journal = self
+                    let leases = self.leases.clone();
+                    let journal = self
                         .intent_journal
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .clone();
-                    for &idx in &stale_nodes {
-                        let id = Self::persist_id(idx);
-                        if let Some(node) = ctx.mission.nodes.get_mut(&id) {
-                            node.state = NodeTerminal::Failed;
-                            node.output =
-                                Some("[STALE_FENCE] worker's fence was displaced".to_string());
-                        }
-                    }
-                    let _ = ctx.mission.save(ctx.dir);
+                    let ownership = self.ownership;
+                    ctx.mission.transaction(ctx.dir, |mission| {
+                        mission.ownership = ownership;
+                        mission.leases = leases;
+                        mission.clear_active_scope(&mission_scope);
+                        mission.recovery = mission.leases.recovery.clone();
+                        mission.side_effect_journal = journal;
+                        Ok(())
+                    })?;
                 }
-                return Err(EaiError::governance(format!(
-                    "DAG_EXECUTION_FAILED: stale fence rejected worker writes: {detail}"
-                )));
-            }
-            if !write_conflicts.is_empty() {
-                let detail = write_conflicts.join(";");
-                if let Some(ctx) = persist_slot.as_mut() {
-                    for &idx in &conflicted_nodes {
-                        let id = Self::persist_id(idx);
-                        if let Some(node) = ctx.mission.nodes.get_mut(&id) {
-                            node.state = NodeTerminal::Failed;
-                            node.output = Some(format!("[WRITE_CONFLICT] {detail}"));
-                        }
-                    }
-                    let _ = ctx.mission.save(ctx.dir);
-                }
-                for run in &batch_results {
-                    if !run.cancelled {
-                        isolation.cleanup(&run.scope);
-                    }
-                }
-                return Err(EaiError::governance(format!(
-                    "DAG_EXECUTION_FAILED: write conflict needs review: {detail}"
-                )));
-            }
 
-            // A cancel that arrived mid-batch: workers aborted between steps
-            // and their scoped commands were killed. Propagate to terminate
-            // the rest, then refuse to complete the batch.
-            if batch_results.iter().any(|run| run.cancelled) || self.is_cancelled(now_unix()) {
-                let reports = self.cancel_propagate();
-                let mut cancelled_nodes: Vec<usize> = batch_results
-                    .iter()
-                    .filter(|run| run.cancelled)
-                    .map(|run| run.idx)
-                    .collect();
-                cancelled_nodes.sort_unstable();
-                if let Some(ctx) = persist_slot.as_mut() {
-                    for &idx in &cancelled_nodes {
-                        let id = Self::persist_id(idx);
-                        if let Some(node) = ctx.mission.nodes.get_mut(&id) {
-                            node.state = NodeTerminal::Failed;
-                            node.output = Some("[CANCELLED] mission cancel propagated".to_string());
-                        }
-                    }
-                    let _ = ctx.mission.save(ctx.dir);
-                }
-                for run in &batch_results {
-                    if !run.cancelled {
-                        isolation.cleanup(&run.scope);
-                    }
-                }
-                let detail = if reports.is_empty() {
-                    "cancelled".to_string()
-                } else {
-                    reports.join("; ")
-                };
-                return Err(EaiError::governance(format!(
-                    "DAG_EXECUTION_FAILED: cancel propagated mid-batch (nodes {cancelled_nodes:?}): {detail}"
-                )));
-            }
-            for run in &batch_results {
-                if !run.cancelled {
-                    isolation.cleanup(&run.scope);
-                }
-            }
-
-            // The batch is now reconciled and its scopes are no longer live.
-            // Clear the recovery marker atomically before publishing node
-            // completions so a later restart cancels only genuinely active
-            // workers.
-            if let Some(ctx) = persist_slot.as_mut() {
-                let leases = self.leases.clone();
-                let journal = self
-                    .intent_journal
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone();
-                let ownership = self.ownership;
-                ctx.mission.transaction(ctx.dir, |mission| {
-                    mission.ownership = ownership;
-                    mission.leases = leases;
-                    mission.clear_active_scope(&mission_scope);
-                    mission.recovery = mission.leases.recovery.clone();
-                    mission.side_effect_journal = journal;
-                    Ok(())
-                })?;
-            }
-
-            for run in batch_results {
-                let NodeRun {
-                    idx,
-                    res,
-                    elapsed_ms: elapsed,
-                    calls: node_calls,
-                    owner,
-                    fence,
-                    ..
-                } = run;
-                if let Ok(output) = res {
-                    // Crown path: citation answers resolve from the live ledger;
-                    // narratives without required citations fail TRUTH_UNVERIFIED.
-                    match crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                for run in batch_results {
+                    let NodeRun {
+                        idx,
+                        res,
+                        elapsed_ms: elapsed,
+                        calls: node_calls,
+                        owner,
+                        fence,
+                        ..
+                    } = run;
+                    if let Ok(output) = res {
+                        // Crown path: citation answers resolve from the live ledger;
+                        // narratives without required citations fail TRUTH_UNVERIFIED.
+                        match crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &self.nodes[idx].goal,
                         &self.nodes[idx].title,
                         &output,
@@ -1637,16 +1677,35 @@ impl MissionDag {
                             return Err(e);
                         }
                     }
+                    }
                 }
+                // Releasing the batch reservations after all completion records
+                // are published wakes queued missions and drains the next fair
+                // batch. Early returns above drop the same tokens on failure or
+                // cancellation.
+                drop(batch_reservations);
             }
-            // Releasing the batch reservations after all completion records
-            // are published wakes queued missions and drains the next fair
-            // batch. Early returns above drop the same tokens on failure or
-            // cancellation.
-            drop(batch_reservations);
-        }
 
-        Ok(all_evidence)
+            Ok(all_evidence)
+        })();
+        let ok = loop_res.is_ok();
+        let summary = match &loop_res {
+            Ok(ev) => format!("DAG completed ({} evidence record(s))", ev.len()),
+            Err(err) => format!("DAG aborted: {err}"),
+        };
+        for mut sess in batch_sessions.drain(..) {
+            let res = sess.finish(ok, &summary);
+            if ok {
+                res.map_err(EaiError::governance)?;
+            }
+        }
+        if let Some(mut sess) = coord_session {
+            let res = sess.finish(ok, &summary);
+            if ok {
+                res.map_err(EaiError::governance)?;
+            }
+        }
+        loop_res
     }
 }
 

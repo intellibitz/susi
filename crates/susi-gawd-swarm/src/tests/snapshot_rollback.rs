@@ -112,7 +112,8 @@ fn snapshot_rollback_failed_mission_resumes_after_restore() {
     // resume auto-snapshots, the mission then records a terminal failure
     // whose report names the snapshot, the operator rolls back through
     // the bus-arm entry point, and the next dispatch completes.
-    let workspace = scratch_dir("e2e");
+    let root = scratch_dir("e2e");
+    let workspace = crate::test_board_fixture::init_worktree_with_board(&root, "wt/snapshot-e2e");
     let goal = "mission gamma e2e";
     let id = seed_two_node(&workspace, goal);
     let board = Arc::new(HighDensityContextStore::new(1024));
@@ -190,7 +191,7 @@ fn snapshot_rollback_failed_mission_resumes_after_restore() {
     assert_eq!(final_m.nodes["n0"].output.as_deref(), Some("root-out"));
     assert_eq!(final_m.restores.len(), 1, "the rollback stays on record");
 
-    let _ = std::fs::remove_dir_all(&workspace);
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

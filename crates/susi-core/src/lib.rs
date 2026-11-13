@@ -77,6 +77,7 @@ pub mod zc_egress_allowlist;
 pub use crate::susi_error::redact;
 pub mod bounded_cmd;
 pub mod bounded_io;
+pub mod native_board;
 pub mod registry;
 pub mod registry_ipc;
 pub mod self_build;
@@ -86,6 +87,7 @@ pub mod task_manager;
 pub mod telemetry;
 pub mod truth;
 pub mod verification;
+pub mod worktree_isolation;
 
 // Top-level exports for the fundamental susi-core types
 pub use acp::{

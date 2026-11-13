@@ -10,8 +10,24 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use susi_paths::test_env::isolate_home;
 
+fn run_git(dir: &std::path::Path, args: &[&str]) {
+    let out = Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {} failed in {}: {}",
+        args.join(" "),
+        dir.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 fn opening(args: &[&str], input: &[u8]) -> (String, String) {
-    let home = std::env::temp_dir().join(format!(
+    let scratch = std::env::temp_dir().join(format!(
         "susi-first-goal-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
@@ -19,17 +35,54 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
             .unwrap()
             .as_nanos()
     ));
+    let home = scratch.join("home");
+    let board_bare = scratch.join("board.git");
+    let primary = scratch.join("primary");
+    let worktree = scratch.join("worktree");
     std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&board_bare).unwrap();
+    std::fs::create_dir_all(&primary).unwrap();
+    run_git(
+        &scratch,
+        &["init", "--quiet", "--bare", &board_bare.to_string_lossy()],
+    );
+    run_git(&primary, &["init", "--quiet", "-b", "main"]);
+    run_git(&primary, &["config", "user.email", "test@susi.local"]);
+    run_git(&primary, &["config", "user.name", "Susi Test"]);
+    run_git(&primary, &["config", "core.hooksPath", "no-hooks"]);
     std::fs::write(
-        home.join("first.txt"),
+        primary.join("first.txt"),
         "First session receipt: cedar-1739.\n",
     )
     .unwrap();
     std::fs::write(
-        home.join("second.txt"),
+        primary.join("second.txt"),
         "Second session receipt: maple-2851.\n",
     )
     .unwrap();
+    run_git(&primary, &["add", "first.txt", "second.txt"]);
+    run_git(&primary, &["commit", "--quiet", "-m", "seed"]);
+    run_git(
+        &primary,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "wt/first-goal",
+            &worktree.to_string_lossy(),
+        ],
+    );
+    run_git(
+        &worktree,
+        &[
+            "config",
+            "susi.board.remote-url",
+            &board_bare.to_string_lossy(),
+        ],
+    );
+    run_git(&worktree, &["config", "susi.agent", "test-agent"]);
+    run_git(&worktree, &["config", "core.hooksPath", "no-hooks"]);
     let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));
     command.env_clear();
     for name in ["PATH", "SystemRoot", "TEMP", "TMP"] {
@@ -40,7 +93,7 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
     isolate_home(&mut command, &home);
     command
         .args(args)
-        .current_dir(&home)
+        .current_dir(&worktree)
         .env("SUSI_BOOT_TRACE", "1")
         .env("SUSI_OFFLINE", "1")
         .env("SUSI_HOME", &home)
@@ -92,7 +145,7 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
         .any(|part| part == b"second.txt")
     {
         let report: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(home.join(".susi/last_mission_trace.json")).unwrap(),
+            &std::fs::read(worktree.join(".susi/last_mission_trace.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(report["status"], "SUCCESS");
@@ -101,7 +154,7 @@ fn opening(args: &[&str], input: &[u8]) -> (String, String) {
             .unwrap()
             .contains("maple-2851"));
     }
-    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&scratch);
     (stdout, stderr)
 }
 

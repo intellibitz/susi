@@ -9,7 +9,7 @@
 # parks the primary checkout at origin/main, starts the primary watcher, seeds
 # the worktree's own cargo target in the background, and prints `cd <path>` as
 # the LAST line so a caller can `eval "$(scripts/susi-worktree.sh | tail -1)"`.
-# In a cloud session's clone it installs the hooks and prints `cd` back into it.
+# Cloud and local agents alike MUST run inside their own linked worktree.
 #
 # The work is susi's: `susi-commercial workflow start` (Susi Commercial Apps'
 # susi-dev-workflow) does everything this script did in bash, with git run directly

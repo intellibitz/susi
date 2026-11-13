@@ -65,11 +65,7 @@ prefetch_finish_refs() {
 }
 
 sync() {
-    # A cloud session's clone is the worker's own checkout: the mark says so
-    # (scripts/cloud-session.sh exits 0 for a marked clone). The script's mere
-    # presence says nothing — every clone has it.
-    { [ -x "$root/scripts/cloud-session.sh" ] && "$root/scripts/cloud-session.sh"; } \
-        || [ "$(git rev-parse --path-format=absolute --git-dir)" != "$common" ] \
+    [ "$(git rev-parse --path-format=absolute --git-dir)" != "$common" ] \
         || { echo 'Use your own linked worktree.' >&2; return 1; }
     [ "$(git symbolic-ref -q --short HEAD)" != main ] || { echo 'Use your own branch.' >&2; return 1; }
     [ -z "$(git status --porcelain)" ] || { echo 'Commit or stash your work before syncing.' >&2; return 1; }
@@ -115,11 +111,18 @@ sync() {
         wait "$pid_primary" 2>/dev/null || true
         wait "$pid_renew" 2>/dev/null || true
     fi
-    # The board is for people watching the swarm, not for the agent's next
-    # step: it refreshes its cache in the background instead of holding the
-    # sync for up to four checks of a minute each.
-    if [ "${SUSI_SYNC_SKIP_BOARD:-0}" != 1 ]; then
-        nohup "$root/scripts/swarm-status.sh" >/dev/null 2>&1 </dev/null &
+    # Board coordination is mandatory across every sync boundary: no opt-out.
+    nohup "$root/scripts/swarm-status.sh" >/dev/null 2>&1 </dev/null &
+    local board_bin=""
+    for candidate in "${SUSI_BIN:-}" "$(command -v susi 2>/dev/null || true)" \
+        "$root/target/release/susi" "$root/target/debug/susi" "$susi_bin"; do
+        if [ -n "$candidate" ] && [ -x "$candidate" ] && "$candidate" board check --help >/dev/null 2>&1 </dev/null; then
+            board_bin=$candidate
+            break
+        fi
+    done
+    if [ -n "$board_bin" ]; then
+        "$board_bin" board check >/dev/null
     fi
     # The merge may have just brought this worktree the seeding: a target/
     # still linked to the clone's old shared one gets its own before anything
@@ -667,7 +670,6 @@ finish)
         --no-wait) wait=0 ;;
         esac
     done
-    export SUSI_SYNC_SKIP_BOARD=1
     export SUSI_SYNC_IN_FINISH=1
     # Without --wait the branch is published and the claim released seconds
     # after the close, so the close receipt rides that transaction instead of

@@ -26,12 +26,45 @@ fn test_dispatch_explosive_swarm_reports_unverified_dag() {
     });
     std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
     let tmp = std::env::temp_dir().join(format!("susi_test_dispatch_dag-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&tmp);
+    let _ = std::fs::remove_dir_all(&tmp);
+    let board = tmp.join("board.git");
+    let repo = tmp.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let run_git = |cwd: &Path, args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(args)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    run_git(
+        &tmp,
+        &["init", "--quiet", "--bare", &board.to_string_lossy()],
+    );
+    run_git(&repo, &["init", "--quiet"]);
+    run_git(&repo, &["config", "user.name", "Test"]);
+    run_git(&repo, &["config", "user.email", "test@example.com"]);
+    run_git(&repo, &["config", "commit.gpgsign", "false"]);
+    run_git(&repo, &["config", "susi.agent", "fleet-test"]);
+    run_git(
+        &repo,
+        &["config", "susi.board.remote-url", &board.to_string_lossy()],
+    );
+    std::fs::write(repo.join("README.md"), "seed\n").unwrap();
+    run_git(&repo, &["add", "README.md"]);
+    run_git(&repo, &["commit", "--quiet", "-m", "init"]);
     let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(1024));
 
     let results = GawdAgentFleet::dispatch_explosive_swarm(
         "status".to_string(),
-        tmp.clone(),
+        repo,
         Arc::clone(&blackboard),
     );
 

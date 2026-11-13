@@ -4,11 +4,18 @@ Cloud execution follows the same CEO mandates and canonical `AGENTS.md` as a
 local Windows worker. A cloud session must not ask the CEO to inspect code,
 perform setup steps or expose a personal computer to complete engineering work.
 
-Each worker needs an isolated branch/worktree, private build output, unique
-identity, reserved scopes and private runtime state. A disposable clone can
-serve as an isolated worker, but separate clones do not share a filesystem lock.
-Cross-host workers must coordinate ownership through one shared coordinator and
-serialize integration; independent local claims cannot prove exclusive ownership.
+Each worker ALWAYS runs inside its own isolated linked worktree and branch (never
+the primary checkout and never a shared worktree), with private build output
+(`CARGO_TARGET_DIR`), unique `SUSI_AGENT` identity, reserved scopes and private
+`SUSI_HOME`. There is no primary-checkout exemption for cloud containers or
+`SUSI_CLOUD_SESSION`.
+
+All local and cloud agents collaborate exclusively through the **Susi Native
+Board** (`susi board check` / `susi board post`, HTTP gateway `/v1/board/*` via
+`SUSI_BOARD_URL` + `SUSI_BOARD_TOKEN`, or shared git refs `refs/board/items/*`
+via `SUSI_BOARD_REMOTE_URL` / Commercial `origin`). Unreachable or unconfigured
+boards fail closed: no local/cloud agent may bypass board checks or mirror-free
+writing.
 
 Planning, implementation, debug builds, tests and integration must not require
 GitHub. Repository hosting is optional transport. Use locally provisioned sources

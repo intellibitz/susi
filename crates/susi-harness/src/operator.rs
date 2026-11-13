@@ -525,6 +525,7 @@ fn run_mission(
         ));
     }
     let alternates = mission_alternates(&fleet);
+    let repo_for_board = repo.clone();
     let target = SusiTarget::new(repo, opts.susi.clone());
     let native = NativeWorker;
     let executor = SusiExecutor {
@@ -548,10 +549,59 @@ fn run_mission(
         guard: std::sync::OnceLock::new(),
         exhausted: AtomicBool::new(false),
     };
+    let agent = susi_core::native_board::resolve_agent(None, Some(&repo_for_board))
+        .map_err(EaiError::governance)?;
+    let host = susi_core::native_board::resolve_host(None);
+    susi_core::native_board::collaborate_and_post(
+        Some(&repo_for_board),
+        &susi_core::native_board::BoardDraft {
+            kind: "claim".to_string(),
+            agent: agent.clone(),
+            host: host.clone(),
+            title: susi_core::native_board::sanitize_title(&format!(
+                "harness mission {}",
+                plan.mission
+            )),
+            body: susi_core::native_board::sanitize_body(&format!(
+                "repo: {}\ntasks: {}",
+                repo_for_board.display(),
+                plan.tasks.len()
+            )),
+            to: None,
+            re: None,
+            task: Some(plan.mission.clone()),
+        },
+        true,
+    )
+    .map_err(EaiError::governance)?;
     let supervisor = Supervisor::new(&state_path, &executor)
         .with_parallelism(opts.parallel)
         .with_controls(&opts.controls);
-    supervisor.run(&plan).context("run the mission")
+    let report = supervisor.run(&plan).context("run the mission")?;
+    let all_ok = report.failed.is_empty();
+    susi_core::native_board::collaborate_and_post(
+        Some(&repo_for_board),
+        &susi_core::native_board::BoardDraft {
+            kind: if all_ok { "landed" } else { "blocked" }.to_string(),
+            agent,
+            host,
+            title: susi_core::native_board::sanitize_title(&format!(
+                "harness mission {} {}",
+                plan.mission,
+                if all_ok { "landed" } else { "blocked" }
+            )),
+            body: susi_core::native_board::sanitize_body(&format!(
+                "failed: {}",
+                report.failed.len()
+            )),
+            to: None,
+            re: None,
+            task: Some(plan.mission.clone()),
+        },
+        true,
+    )
+    .map_err(EaiError::governance)?;
+    Ok(report)
 }
 
 /// The models a mission's tasks may use: the fleet's ladder, then the models

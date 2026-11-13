@@ -89,6 +89,7 @@ pub(crate) fn command_catalogs(command: &Commands) -> Catalogs {
         | Commands::Brain { .. }
         | Commands::Ecosystem { .. }
         | Commands::Blackboard { .. }
+        | Commands::Board { .. }
         | Commands::ContextGraph { .. }
         | Commands::Broker { .. }
         | Commands::Telemetry { .. }

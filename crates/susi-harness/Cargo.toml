@@ -10,6 +10,7 @@ keywords = ["llm", "agents", "router", "gateway", "budget"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+susi-core = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-config = { workspace = true }

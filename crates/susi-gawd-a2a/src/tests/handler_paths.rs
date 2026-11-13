@@ -71,9 +71,14 @@ fn serve(runtime: &tokio::runtime::Runtime, executor: Arc<dyn AgentExecutor>) ->
     let card = crate::executor::GawdA2AExecutor::new().agent_card();
     let app = super::app(
         executor,
-        Arc::new(crate::executor::GawdAcpExecutor::with_runner(Arc::new(
-            |prompt: &str| Ok(format!("gawd mission: {prompt}")),
-        ))),
+        Arc::new(
+            crate::executor::GawdAcpExecutor::with_runner(Arc::new(|prompt: &str| {
+                Ok(format!("gawd mission: {prompt}"))
+            }))
+            .with_workspace(crate::test_board_fixture::init_board_workspace(
+                "handler-acp",
+            )),
+        ),
         card,
         Arc::new(TaskStore::new()),
         Arc::new(|_: &super::VerifierContext| true),
@@ -158,7 +163,10 @@ fn a_stream_ends_after_the_final_event() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let executor = crate::executor::GawdA2AExecutor::with_runner(Arc::new(|intent: &str| {
         Ok(format!("done: {intent}"))
-    }));
+    }))
+    .with_workspace(crate::test_board_fixture::init_board_workspace(
+        "handler-stream",
+    ));
     let addr = serve(&runtime, Arc::new(executor));
     let started = Instant::now();
     // Read to the end of the body: the server must close the stream.

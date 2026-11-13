@@ -119,17 +119,15 @@ fn graph_from(agents: &AgentsFile) -> Graph {
             &tools,
         ));
     }
-    specs.push(AgentSpec::new("reviewer", &agents.reviewer, &tools).shared());
+    specs.push(AgentSpec::new("reviewer", &agents.reviewer, &tools));
     Graph::new(specs)
 }
 
-/// Run each graph role as one real worker turn.
-///
-/// The reviewer's `accepted` means "its run succeeded": there is no verdict
-/// protocol on the wire yet, so a reviewer that finishes approves the work.
-/// That is the documented limitation of live graph missions.
+/// Run each graph role as one real worker turn in its own isolated Git worktree
+/// and with mandatory Susi Native Board collaboration.
 struct SusiRunner {
     gateway_url: String,
+    repo: PathBuf,
     state_dir: PathBuf,
     mission: String,
     timeout: Duration,
@@ -142,8 +140,17 @@ struct SusiRunner {
 impl SusiRunner {
     fn from_mission(file: &MissionFile) -> Self {
         let ledger = file.ledger_path.trim();
+        let repo = file
+            .tasks
+            .first()
+            .map(|task| PathBuf::from(&task.workspace))
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from(&file.state_dir))
+            });
         Self {
             gateway_url: file.gateway_url.clone(),
+            repo,
             state_dir: PathBuf::from(&file.state_dir),
             mission: file.id.clone(),
             timeout: Duration::from_secs(file.timeout_secs),
@@ -176,9 +183,18 @@ impl SusiRunner {
 
 impl AgentRunner for SusiRunner {
     fn run(&mut self, spec: &AgentSpec, goal: &str) -> Result<AgentOutcome, String> {
-        let workspace = self.state_dir.join(&spec.role);
-        std::fs::create_dir_all(&workspace)
-            .map_err(|error| format!("create workspace {}: {error}", workspace.display()))?;
+        let role_or_task = format!("{}:{}", self.mission, spec.role);
+        let mut session = susi_core::native_board::CollaborativeAgentSession::begin(
+            &susi_core::native_board::SessionSpec {
+                workspace: &self.repo,
+                explicit_agent: None,
+                role_or_task: &role_or_task,
+                title: &format!("{} role {}", self.mission, spec.role),
+                scope: Vec::new(),
+                require_fresh: true,
+            },
+        )?;
+        let workspace = session.worktree.path().to_path_buf();
         let config = ExecutorConfig {
             gateway_url: self.gateway_url.clone(),
             model: spec.model.clone(),
@@ -190,28 +206,35 @@ impl AgentRunner for SusiRunner {
             timeout: self.timeout,
             prompt: goal.to_string(),
         };
-        let outcome =
-            executor::run(&config).map_err(|error| format!("run `{}`: {error}", spec.role))?;
-        // Even a failed or timed-out turn can have made priced calls before it
-        // ended, so the ledger is read back for every outcome, not only success.
+        let run_res = executor::run(&config);
         let cost = self.readback(&spec.role);
-        Ok(match outcome {
-            RunOutcome::Succeeded { final_text, .. } => AgentOutcome {
+        let agent_outcome = match run_res {
+            Ok(RunOutcome::Succeeded { final_text, .. }) => Ok(AgentOutcome {
                 summary: final_text,
                 accepted: true,
                 cost,
-            },
-            RunOutcome::Failed { message } => AgentOutcome {
+            }),
+            Ok(RunOutcome::Failed { message }) => Ok(AgentOutcome {
                 summary: message,
                 accepted: false,
                 cost,
-            },
-            RunOutcome::TimedOut => AgentOutcome {
+            }),
+            Ok(RunOutcome::TimedOut) => Ok(AgentOutcome {
                 summary: format!("timed out after {}s", self.timeout.as_secs()),
                 accepted: false,
                 cost,
-            },
-        })
+            }),
+            Err(error) => Err(format!("run `{}`: {error}", spec.role)),
+        };
+        match &agent_outcome {
+            Ok(out) => {
+                session.finish(out.accepted, &out.summary)?;
+            }
+            Err(err) => {
+                session.finish(false, err)?;
+            }
+        }
+        agent_outcome
     }
 }
 
@@ -236,7 +259,6 @@ fn main() {
                         "model": step.model,
                         "isolation": match step.isolation {
                             Isolation::Worktree => "worktree",
-                            Isolation::Shared => "shared",
                         },
                     })
                 })
@@ -408,7 +430,7 @@ mod tests {
         let roles: Vec<&str> = steps.iter().map(|step| step.role.as_str()).collect();
         assert_eq!(roles, vec!["planner", "coder-1", "coder-2", "reviewer"]);
         assert_eq!(steps[1].model, "coder");
-        assert_eq!(steps[3].isolation, Isolation::Shared);
+        assert_eq!(steps[3].isolation, Isolation::Worktree);
     }
 
     #[test]
@@ -472,6 +494,7 @@ mod tests {
         let ledger = dir.path().join("ledger.jsonl");
         let mut runner = SusiRunner {
             gateway_url: String::new(),
+            repo: dir.path().to_path_buf(),
             state_dir: dir.path().to_path_buf(),
             mission: "live-1".into(),
             timeout: Duration::from_secs(1),

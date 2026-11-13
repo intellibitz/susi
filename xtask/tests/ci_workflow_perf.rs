@@ -1426,11 +1426,34 @@ fn publication_leases_never_force_the_code_branch_backwards() {
 #[cfg(unix)]
 fn publication_cloud_transport_selects_the_existing_path_without_writes() {
     let f = PublicationRepo::new("atomic-publish-cloud");
+    // Explicit SUSI_CLOUD_SESSION=1 no longer bypasses direct atomic publication.
     let out = f.run("1");
-    assert_eq!(out.status.code(), Some(75));
-    assert!(f.remote_ref("refs/heads/work").is_empty());
-    assert_eq!(f.remote_ref("refs/claims/T-TEST-1"), f.claim);
-    assert_eq!(f.remote_ref("refs/closed/T-TEST-1"), f.receipt);
+    assert!(
+        out.status.success(),
+        "cloud session must not bypass atomic publication: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(f.remote_ref("refs/heads/work"), f.head);
+    assert!(f.remote_ref("refs/claims/T-TEST-1").is_empty());
+
+    // Only explicit relay transport (`SUSI_QUEUE_TRANSPORT=relay`) exits 75 without writes.
+    let f_relay = PublicationRepo::new("atomic-publish-relay");
+    let mut command = script_command(&root().join("scripts/publish-task-branch.sh"));
+    f_relay.world.isolate(&mut command);
+    let relay_out = command
+        .args(["T-TEST-1", "work"])
+        .env_remove("SUSI_AGENT")
+        .env("SUSI_CLOUD_SESSION", "1")
+        .env("SUSI_TASK_REMOTE", "origin")
+        .env("SUSI_QUEUE_TRANSPORT", "relay")
+        .env("RACE_SERVER", &f_relay.server)
+        .env("RACE_INPUT", f_relay.world._fakes.dir.join("race.in"))
+        .output()
+        .unwrap();
+    assert_eq!(relay_out.status.code(), Some(75));
+    assert!(f_relay.remote_ref("refs/heads/work").is_empty());
+    assert_eq!(f_relay.remote_ref("refs/claims/T-TEST-1"), f_relay.claim);
+    assert_eq!(f_relay.remote_ref("refs/closed/T-TEST-1"), f_relay.receipt);
 }
 
 #[test]

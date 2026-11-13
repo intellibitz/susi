@@ -93,6 +93,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         | Commands::Workflow { .. }
         | Commands::Harness { .. }
         | Commands::Blackboard { .. }
+        | Commands::Board { .. }
         | Commands::ContextGraph { .. }
         | Commands::Broker { .. }
         | Commands::Telemetry { .. }

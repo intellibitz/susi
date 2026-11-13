@@ -81,9 +81,14 @@ fn serve_shout(runtime: &tokio::runtime::Runtime) -> SocketAddr {
     let card = crate::executor::GawdA2AExecutor::new().agent_card();
     let app = super::app(
         Arc::new(Shout),
-        Arc::new(crate::executor::GawdAcpExecutor::with_runner(Arc::new(
-            |prompt: &str| Ok(format!("gawd mission: {prompt}")),
-        ))),
+        Arc::new(
+            crate::executor::GawdAcpExecutor::with_runner(Arc::new(|prompt: &str| {
+                Ok(format!("gawd mission: {prompt}"))
+            }))
+            .with_workspace(crate::test_board_fixture::init_board_workspace(
+                "srv-routes-shout",
+            )),
+        ),
         card,
         Arc::new(crate::task_store::TaskStore::new()),
         Arc::new(|_: &super::VerifierContext| true),
@@ -227,9 +232,14 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
     let card = crate::executor::GawdA2AExecutor::new().agent_card();
     let guarded_app = super::app(
         Arc::new(Shout),
-        Arc::new(crate::executor::GawdAcpExecutor::with_runner(Arc::new(
-            |prompt: &str| Ok(format!("gawd mission: {prompt}")),
-        ))),
+        Arc::new(
+            crate::executor::GawdAcpExecutor::with_runner(Arc::new(|prompt: &str| {
+                Ok(format!("gawd mission: {prompt}"))
+            }))
+            .with_workspace(crate::test_board_fixture::init_board_workspace(
+                "srv-routes-guarded",
+            )),
+        ),
         card,
         Arc::new(crate::task_store::TaskStore::new()),
         Arc::new(|ctx: &super::VerifierContext| {
@@ -270,11 +280,12 @@ fn acp_pillar_routes_mount_behind_same_guard_with_public_discovery() {
     assert_eq!(unauth.status, 401);
 
     // POST /acp with valid Bearer token creates a session and POST /acp/stream streams SSE.
+    let session_wt = crate::test_board_fixture::init_board_workspace("srv-routes-session");
     let new_payload = serde_json::to_vec(&serde_json::json!({
         "jsonrpc": "2.0",
         "id": 10,
         "method": "session/new",
-        "params": { "workspace": "crates/susi-core" }
+        "params": { "workspace": session_wt.to_string_lossy() }
     }))
     .unwrap();
     let authed_new = susi_http_transport::http_call_with_body(

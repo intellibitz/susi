@@ -35,7 +35,8 @@ fn block_on<F: std::future::Future>(fut: F) -> F::Output {
 #[test]
 fn vc_201_087_mastery_task_identity_is_preserved() {
     let executor =
-        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("response".to_string())));
+        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("response".to_string())))
+            .with_workspace(crate::test_board_fixture::init_board_workspace("vc87-id"));
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
     let task_id = "recovery-test-task-001";
@@ -64,7 +65,10 @@ fn vc_201_087_mastery_task_identity_is_preserved() {
 #[test]
 fn vc_201_087_mastery_status_transitions_are_accurate() {
     let executor =
-        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("mission succeeded".to_string())));
+        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("mission succeeded".to_string())))
+            .with_workspace(crate::test_board_fixture::init_board_workspace(
+                "vc87-status",
+            ));
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
     let mut ctx = RequestContext::new("status-task-1", "ctx-1");
@@ -83,7 +87,8 @@ fn vc_201_087_mastery_status_transitions_are_accurate() {
 #[test]
 fn vc_201_087_mastery_failure_status_is_distinct() {
     let executor =
-        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Err("mission failed".to_string())));
+        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Err("mission failed".to_string())))
+            .with_workspace(crate::test_board_fixture::init_board_workspace("vc87-fail"));
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
     let mut ctx = RequestContext::new("fail-task-1", "ctx-fail-1");
@@ -126,7 +131,8 @@ fn vc_201_087_mastery_cancellation_produces_canceled_state() {
 fn vc_201_087_mastery_events_published_for_recovery() {
     let executor = GawdA2AExecutor::with_runner(std::sync::Arc::new(|intent: &str| {
         Ok(format!("processed: {intent}"))
-    }));
+    }))
+    .with_workspace(crate::test_board_fixture::init_board_workspace("vc87-ev"));
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
     let mut ctx = RequestContext::new("event-task-1", "ctx-event-1");
@@ -153,7 +159,8 @@ fn vc_201_087_mastery_unknown_outcome_handled_by_event_publishing() {
     // Executor publishes outcomes for all execution paths.
     let executor = GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| {
         Err("network error during execution".to_string())
-    }));
+    }))
+    .with_workspace(crate::test_board_fixture::init_board_workspace("vc87-unk"));
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
     let mut ctx = RequestContext::new("unknown-outcome-task", "ctx-unknown");
@@ -189,7 +196,8 @@ fn vc_201_087_mastery_duplicate_delivery_idempotent_at_protocol_level() {
     let executor = GawdA2AExecutor::with_runner(Arc::new(move |_| {
         run_count_clone.fetch_add(1, Ordering::SeqCst);
         Ok("result".to_string())
-    }));
+    }))
+    .with_workspace(crate::test_board_fixture::init_board_workspace("vc87-dup"));
 
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();

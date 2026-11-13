@@ -1,38 +1,18 @@
 #!/usr/bin/env bash
-# Is this clone a cloud session's own worktree?
+# Identify cloud agent harnesses for metadata/telemetry ONLY — NEVER exempt primary checkouts.
 #
-# A cloud session (Claude Code on the web, or any agent harness that clones the
-# repository into a disposable container) has no laptop behind it: no shared
-# primary checkout to keep parked, no sibling worktrees, no watcher, nothing to
-# converge once the container is reclaimed. The clone the harness made, on the
-# branch it checked out, IS the worker's worktree (Mandate 49's "own worktree on
-# its own branch"), and everything the loop needs — build, test, claim, push —
-# runs inside the container. It never asks for the laptop (Remote Control, a
-# computer folder, a button to press): see docs/cloud-sessions.md.
+# Every cloud/container agent MUST create its own isolated linked worktree
+# (`scripts/susi-worktree.sh` / `worktree_isolation`) and MUST read/write the
+# Susi Native Board (`SUSI_BOARD_URL` / `SUSI_BOARD_REMOTE_URL`, `susi board`).
+# No harness flag (`SUSI_CLOUD_SESSION`, `susi.cloud`) ever bypasses linked
+# worktrees, task/board guards, or native board collaboration (docs/cloud-sessions.md).
 #
-# The fact is recorded on the clone itself, in its git config, so that every
-# consumer — the hooks, the loop scripts and the susi binary — reads one answer,
-# and no test fixture inherits it from the process environment:
-#
-#     susi.cloud = true          this clone is a cloud session's
-#     susi.cloudTool = CLAUDE    the agent tool the harness runs (identity prefix)
-#
-#   scripts/cloud-session.sh            exit 0 when this clone is a cloud session's
+#   scripts/cloud-session.sh            exits 1 (primary-checkout exemption removed)
 #   scripts/cloud-session.sh --detect   exit 0 when the ENVIRONMENT is a cloud
 #                                       harness (prints the tool); marks nothing
-#   scripts/cloud-session.sh --mark     mark this clone when --detect holds
-#                                       (or with --force); exit 0 when marked
+#   scripts/cloud-session.sh --mark     record susi.cloud metadata when --detect holds
+#                                       (or with --force)
 #   scripts/cloud-session.sh --tool     print the tool the clone was marked with
-#
-# SUSI_CLOUD_SESSION=1 says "cloud" for this process without a marker, and
-# SUSI_CLOUD_SESSION=0 says "not cloud" whatever the marker says: the explicit
-# word of the operator (or a test) beats the recorded fact. Only --detect and
-# --mark look at the harness's own variable (CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE,
-# which Claude Code sets in its cloud environments and nowhere else): the
-# session-start hook marks the clone it was started for, once, and nothing else
-# reads it — a test binary run inside a cloud container inherits that
-# environment and must not behave differently for it. `git config --unset
-# susi.cloud` takes the mark back.
 set -uo pipefail
 
 usage() { sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -74,7 +54,10 @@ harness_tool() {
 token() { tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9'; }
 
 case "${1:-}" in
-"") is_cloud ;;
+"")
+    # Cloud sessions MUST use an isolated linked worktree and never exempt primary checkouts.
+    exit 1
+    ;;
 --detect) harness_tool ;;
 --mark)
     force=0
@@ -90,7 +73,7 @@ case "${1:-}" in
     tool=$(printf '%s' "$tool" | token)
     [ -n "$tool" ] || tool=AGENT
     git config susi.cloud true && git config susi.cloudTool "$tool" || exit 1
-    echo "cloud session: this clone is the worker's own worktree (tool $tool) — no scripts/susi-worktree.sh, no primary checkout to park, and the laptop is never asked for (docs/cloud-sessions.md)"
+    echo "cloud session marked (tool $tool) — isolated linked worktree (scripts/susi-worktree.sh) + Susi Native Board mandatory (docs/cloud-sessions.md)"
     ;;
 --tool)
     t=$(git config --get susi.cloudTool 2>/dev/null)

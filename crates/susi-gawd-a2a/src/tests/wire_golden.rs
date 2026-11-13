@@ -53,13 +53,17 @@ fn verifier() -> super::Verifier {
 
 /// The stack `serve` mounts, minus TLS and the card's absolute URL.
 fn app() -> susi_http_transport::server::Router {
-    let executor = crate::executor::GawdA2AExecutor::with_runner(Arc::new(runner));
+    let executor = crate::executor::GawdA2AExecutor::with_runner(Arc::new(runner))
+        .with_workspace(crate::test_board_fixture::init_board_workspace("wire-a2a"));
     let card = executor.agent_card();
     super::app(
         Arc::new(executor),
-        Arc::new(crate::executor::GawdAcpExecutor::with_runner(Arc::new(
-            |prompt: &str| Ok(format!("gawd mission: {prompt}")),
-        ))),
+        Arc::new(
+            crate::executor::GawdAcpExecutor::with_runner(Arc::new(|prompt: &str| {
+                Ok(format!("gawd mission: {prompt}"))
+            }))
+            .with_workspace(crate::test_board_fixture::init_board_workspace("wire-acp")),
+        ),
         card,
         Arc::new(crate::task_store::TaskStore::new()),
         verifier(),

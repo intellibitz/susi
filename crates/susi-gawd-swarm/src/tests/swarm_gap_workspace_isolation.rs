@@ -98,7 +98,8 @@ fn load_mission(workspace: &Path, goal: &str) -> PersistedMission {
 
 #[test]
 fn swarm_gap_workspace_isolation_parallel_dag_writers_use_private_scopes() {
-    let workspace = temp_dir("parallel-dag");
+    let root = temp_dir("parallel-dag");
+    let workspace = crate::test_board_fixture::init_worktree_with_board(&root, "wt/parallel-dag");
     let goal = "write left.txt";
     save_parallel_mission(&workspace, goal, "write right.txt");
     let board = Arc::new(crate::HighDensityContextStore::new(4096));
@@ -137,7 +138,8 @@ fn swarm_gap_workspace_isolation_parallel_dag_writers_use_private_scopes() {
 
 #[test]
 fn swarm_gap_workspace_isolation_conflicting_dag_writers_never_overwrite() {
-    let workspace = temp_dir("conflict-dag");
+    let root = temp_dir("conflict-dag");
+    let workspace = crate::test_board_fixture::init_worktree_with_board(&root, "wt/conflict-dag");
     let goal = "write shared.txt from node zero";
     std::fs::write(workspace.join("shared.txt"), "primary baseline\n").unwrap();
     save_parallel_mission(&workspace, goal, "write shared.txt from node one");

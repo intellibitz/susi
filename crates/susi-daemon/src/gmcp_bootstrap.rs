@@ -727,6 +727,34 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "blackboard_post",
+        "Post a key-value update to the shared blackboard and Susi Native Board",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::blackboard_post),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "board_list",
+        "List collaborative items on the Susi Native Board",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::board_list),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "board_check",
+        "Check the Susi Native Board for open stops and unanswered requests",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::board_check),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "board_post",
+        "Post an item onto the Susi Native Board",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::board_post),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "runtime_models_list",
         "List models loaded in the inference cache",
         MetaCategory::SystemPrimitive,

@@ -2,10 +2,11 @@
 # root; the release binary is produced by the normal release flow, so this
 # image packages it rather than rebuilding inside Docker.
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 COPY target/release/susi /usr/local/bin/susi
 ENV SUSI_HOME=/susi \
+    SUSI_WORKTREE_ROOT=/susi/worktrees \
     SUSI_UNATTENDED=1 \
     GIT_TERMINAL_PROMPT=0 \
     GCM_INTERACTIVE=never \

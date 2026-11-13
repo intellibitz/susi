@@ -92,7 +92,8 @@ async fn execute_rejects_empty_or_whitespace_message_and_prompt_injection_payloa
 
 #[tokio::test]
 async fn execute_wraps_mission_reply_and_error_and_cancel_emits_canceled_state() {
-    let ok_exec = GawdA2AExecutor::with_runner(Arc::new(|intent| Ok(format!("solved: {intent}"))));
+    let ok_exec = GawdA2AExecutor::with_runner(Arc::new(|intent| Ok(format!("solved: {intent}"))))
+        .with_workspace(crate::test_board_fixture::init_board_workspace("exec-ok"));
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
     let mut ctx = RequestContext::new("task-ok", "ctx-ok");
@@ -103,7 +104,8 @@ async fn execute_wraps_mission_reply_and_error_and_cancel_emits_canceled_state()
     assert_eq!(ok_task.status.state, TaskState::Completed);
     assert!(first_task_text(&ok_task).contains("solved: check status"));
 
-    let err_exec = GawdA2AExecutor::with_runner(Arc::new(|_| Err("upstream timeout".to_string())));
+    let err_exec = GawdA2AExecutor::with_runner(Arc::new(|_| Err("upstream timeout".to_string())))
+        .with_workspace(crate::test_board_fixture::init_board_workspace("exec-err"));
     let mut err_ctx = RequestContext::new("task-err", "ctx-err");
     err_ctx.message = Some(Message::user(vec![Part::text("check status")]));
     err_exec.execute(&err_ctx, &queue).await.unwrap();

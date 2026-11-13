@@ -1697,6 +1697,7 @@ Remote surface: https on {bind}:* (TLS auto-provisioned; remote plaintext       
         // exited server is restarted in place with a bounded budget and
         // reported on the status surface instead of silently staying dead.
         let tls_gemi = tls_acceptor.clone();
+        susi_server::register_board_https_transport();
         let workspace_gemi = workspace.to_path_buf();
         let require_tls_gemi = require_tls_remote;
         crate::service_supervision::Supervisor::global().spawn("gemi-http", 5, None, move || {

@@ -4,57 +4,44 @@
 # learns the rules and what to fix before it edits. It never blocks a session.
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 0
 
-# A cloud session (Claude Code on the web) works in the clone its harness made,
-# which has no laptop behind it: no primary checkout to park, no sibling
-# worktrees, and no way — nor any need — to reach the operator's machine. Mark
-# that clone once, when this hook runs for it (CLAUDE_PROJECT_DIR is the project
-# the hook was started for; a fixture repository a test runs this script in is
-# never marked), and the hooks, the loop scripts and `susi-commercial workflow check` all
-# read the mark (scripts/cloud-session.sh, docs/cloud-sessions.md).
+# Cloud sessions record metadata for telemetry/board host reporting, but never skip
+# isolated linked worktrees, primary convergence, or Susi Native Board checks.
 cloud=0
 if [ -x scripts/cloud-session.sh ]; then
     if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ "$(cd "$CLAUDE_PROJECT_DIR" 2>/dev/null && pwd -P)" = "$(pwd -P)" ]; then
         scripts/cloud-session.sh --mark 2>/dev/null || true
     fi
-    scripts/cloud-session.sh && cloud=1
+    scripts/cloud-session.sh --detect >/dev/null 2>&1 && cloud=1
 fi
 
-if [ "$cloud" = 1 ]; then
-    # The harness clones with limited depth; the hooks and the compliance
-    # script walk the whole history (`fatal: bad revision '^…^'` otherwise).
-    if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
-        git fetch --quiet --unshallow origin 2>/dev/null \
-            && echo "  fetched the full history (the harness's clone was shallow)"
-    fi
-else
-    # Give this worktree a cargo target of its own: a link to the clone's shared
-    # one (what older sessions made) is replaced now, and a missing or empty
-    # target/ is copied from the warm snapshot in the background, so the session
-    # does not wait for it. A target/ that holds a build is left alone. See
-    # scripts/seed-target.sh. "$BASH" is the bash running this hook: a bare
-    # `bash` can resolve to WSL's on a Windows PATH. A plain cargo does not
-    # wait for that copy (it builds cold, and the copy is thrown away), so the
-    # session is told to run the script in the foreground first: it waits.
-    if [ -f scripts/seed-target.sh ]; then
-        seeding=$("${BASH:-bash}" scripts/seed-target.sh --background 2>&1)
-        if [ -n "$seeding" ]; then
-            printf '%s\n' "$seeding"
-            case "$seeding" in
-            *"in the background"*)
-                echo "  before your first plain cargo here, run scripts/seed-target.sh: it waits for that copy"
-                ;;
-            esac
-        fi
-    fi
-    # The machine's compiler cache, where sccache is installed: a worktree the
-    # desktop app made never ran scripts/susi-worktree.sh, which enables it.
-    # Quiet once enabled; never installs anything.
-    if [ "${SUSI_NO_SCCACHE:-0}" != 1 ] && [ -f scripts/setup-sccache.sh ] && command -v sccache >/dev/null 2>&1; then
-        "${BASH:-bash}" scripts/setup-sccache.sh 2>&1 || true
-    fi
-    # Keep the primary checkout's main current (silent unless it advanced).
-    [ -x scripts/park-primary.sh ] && scripts/park-primary.sh --sync-only 2>/dev/null
+if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+    git fetch --quiet --unshallow origin 2>/dev/null \
+        && echo "  fetched the full history (the harness's clone was shallow)"
 fi
+
+# Give this worktree a cargo target of its own: a link to the clone's shared
+# one (what older sessions made) is replaced now, and a missing or empty
+# target/ is copied from the warm snapshot in the background, so the session
+# does not wait for it. A target/ that holds a build is left alone. See
+# scripts/seed-target.sh. "$BASH" is the bash running this hook: a bare
+# `bash` can resolve to WSL's on a Windows PATH.
+if [ -f scripts/seed-target.sh ]; then
+    seeding=$("${BASH:-bash}" scripts/seed-target.sh --background 2>&1)
+    if [ -n "$seeding" ]; then
+        printf '%s\n' "$seeding"
+        case "$seeding" in
+        *"in the background"*)
+            echo "  before your first plain cargo here, run scripts/seed-target.sh: it waits for that copy"
+            ;;
+        esac
+    fi
+fi
+# The machine's compiler cache, where sccache is installed.
+if [ "${SUSI_NO_SCCACHE:-0}" != 1 ] && [ -f scripts/setup-sccache.sh ] && command -v sccache >/dev/null 2>&1; then
+    "${BASH:-bash}" scripts/setup-sccache.sh 2>&1 || true
+fi
+# Keep the primary checkout's main current (silent unless it advanced).
+[ -x scripts/park-primary.sh ] && scripts/park-primary.sh --sync-only 2>/dev/null
 
 # A cloud container starts cold: no installed susi and no target/. The check
 # needs the binary, so start the build now, in the background, while the agent
@@ -87,18 +74,17 @@ else
     echo "susi-commercial workflow check is not installed here: the agent workflow is Susi Commercial Apps' dev workflow; this repository's gated landing is cargo local-workflow"
 fi
 if [ "$cloud" = 1 ]; then
-    cat <<MSG
+    cat <<'MSG'
 
-Cloud session: this clone is your worktree (branch $(git symbolic-ref -q --short HEAD 2>/dev/null || echo '<detached>')) — do NOT run scripts/susi-worktree.sh,
-and never ask for the operator's laptop (Remote Control, a computer folder, a button): everything runs here.
-Then: susi-commercial workflow check && susi-commercial tasks list && susi-commercial tasks claim <id> --scope <path>,
-end every commit with \`Task: <id>\`, and publish with susi-commercial workflow finish <id>. Rules: AGENTS.md; docs/cloud-sessions.md.
+Cloud session: start an isolated linked worktree first with scripts/susi-worktree.sh (no primary checkout work, never ask for the operator's laptop).
+Then: susi board check && susi-commercial workflow check && susi-commercial tasks list && susi-commercial tasks claim <id> --scope <path>,
+end every commit with `Task: <id>`, post milestones to the Susi Native Board, and publish with susi-commercial workflow finish <id>. Rules: AGENTS.md; docs/cloud-sessions.md.
 MSG
 else
     cat <<'MSG'
 
 Not ready? In the primary checkout or on main: scripts/susi-worktree.sh   (no name needed; it prints `cd <path>`)
-Then: susi-commercial tasks list && susi-commercial tasks claim <id> --scope <path>, and end every commit with `Task: <id>`. Rules: AGENTS.md (START HERE).
+Then: susi board check && susi-commercial tasks list && susi-commercial tasks claim <id> --scope <path>, and end every commit with `Task: <id>`. Rules: AGENTS.md (START HERE).
 MSG
 fi
 exit 0

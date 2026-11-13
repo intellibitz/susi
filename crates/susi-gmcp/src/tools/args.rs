@@ -178,6 +178,10 @@ pub fn core_tool_definitions() -> Vec<crate::mcp::model::Tool> {
         CoreTools::plan_run_tool_attr(),
         CoreTools::intent_ingest_tool_attr(),
         CoreTools::blackboard_show_tool_attr(),
+        CoreTools::blackboard_post_tool_attr(),
+        CoreTools::board_list_tool_attr(),
+        CoreTools::board_check_tool_attr(),
+        CoreTools::board_post_tool_attr(),
         CoreTools::runtime_models_list_tool_attr(),
         CoreTools::runtime_models_load_tool_attr(),
         CoreTools::runtime_models_unload_tool_attr(),
@@ -1633,6 +1637,68 @@ crate::input_schema! {
 pub struct BrainPareto {
     /// Optional task class filter (e.g. reflex, chat, code, reasoning, estate_ops). Defaults to `code`.
     pub class: Option<String>,
+}
+}
+
+crate::input_schema! {
+pub struct BlackboardPost {
+    /// Blackboard key.
+    pub key: String,
+    /// JSON value string or structured JSON value.
+    pub value: serde_json::Value,
+    /// Agent identity (defaults to SUSI_AGENT or git config susi.agent).
+    pub author: Option<String>,
+    /// Optional task ID associated with the update.
+    pub task: Option<String>,
+    /// Optional board kind when mirroring to Susi Native Board (default: note).
+    pub kind: Option<String>,
+    /// Optional board item title when mirroring to Susi Native Board.
+    pub title: Option<String>,
+    /// Absolute workspace (default: server workspace).
+    pub workspace: Option<String>,
+}
+}
+
+crate::input_schema! {
+pub struct BoardList {
+    /// Maximum newest items to return.
+    pub limit: Option<u64>,
+    /// Optional kind filter (claim, landed, stop, lift, ...).
+    pub kind: Option<String>,
+    /// Absolute workspace (default: server workspace).
+    pub workspace: Option<String>,
+}
+}
+
+crate::input_schema! {
+pub struct BoardCheck {
+    /// Acting agent identity (defaults to SUSI_AGENT or git config susi.agent).
+    pub agent: Option<String>,
+    /// Permit an initialized but empty board (default: false).
+    pub allow_empty: Option<bool>,
+    /// Absolute workspace (default: server workspace).
+    pub workspace: Option<String>,
+}
+}
+
+crate::input_schema! {
+pub struct BoardPost {
+    /// Item kind: claim, landed, cut, heads-up, request, answer, handoff, decision, blocked, stop, lift, note.
+    pub kind: String,
+    /// Single-line title (at most 200 characters).
+    pub title: String,
+    /// Item body (no credentials permitted).
+    pub body: Option<String>,
+    /// Acting agent identity (defaults to SUSI_AGENT or git config susi.agent).
+    pub agent: Option<String>,
+    /// Addressee agent for request/handoff/stop items.
+    pub to: Option<String>,
+    /// Referenced item number (required for answer and lift).
+    pub re: Option<u64>,
+    /// Associated task ID (e.g. T-ANTIGRAVITY-9).
+    pub task: Option<String>,
+    /// Absolute workspace (default: server workspace).
+    pub workspace: Option<String>,
 }
 }
 

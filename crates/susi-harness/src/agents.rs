@@ -16,13 +16,12 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 
-/// Where an agent runs.
+/// Where an agent runs. Every agent is strictly isolated in its own local
+/// Git worktree; shared workspace checkouts are forbidden.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Isolation {
-    /// Its own worktree and claim.
+    /// Its own isolated local Git worktree and collaborative board claim.
     Worktree,
-    /// The caller's workspace, for read-only roles like a reviewer.
-    Shared,
 }
 
 /// One role in the graph.
@@ -54,13 +53,6 @@ impl AgentSpec {
             max_turns: 25,
             isolation: Isolation::Worktree,
         }
-    }
-
-    /// Run in the caller's workspace instead of a worktree.
-    #[must_use]
-    pub fn shared(mut self) -> Self {
-        self.isolation = Isolation::Shared;
-        self
     }
 
     /// Cap what this agent may spend.
@@ -477,7 +469,7 @@ mod tests {
             AgentSpec::new("planner", "planner", &["view_file"]),
             AgentSpec::new("coder-a", "coder", &["view_file", "write_to_file"]),
             AgentSpec::new("coder-b", "coder", &["view_file", "write_to_file"]),
-            AgentSpec::new("reviewer", "planner", &["view_file"]).shared(),
+            AgentSpec::new("reviewer", "planner", &["view_file"]),
         ])
     }
 
@@ -488,7 +480,7 @@ mod tests {
         assert_eq!(roles, vec!["planner", "coder-a", "coder-b", "reviewer"]);
         assert_eq!(steps[0].model, "planner");
         assert_eq!(steps[1].model, "coder");
-        assert_eq!(steps[3].isolation, Isolation::Shared);
+        assert_eq!(steps[3].isolation, Isolation::Worktree);
     }
 
     #[test]

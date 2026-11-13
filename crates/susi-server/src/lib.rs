@@ -130,6 +130,31 @@ fn body_response(
         .unwrap_or_else(|_| Response::new(full_body(fallback)))
 }
 
+pub fn register_board_https_transport() {
+    fn board_https_call(
+        method: &str,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: Option<&[u8]>,
+        timeout_secs: u64,
+    ) -> Result<(u16, Vec<u8>), String> {
+        let call = susi_http_transport::http_call_with_body(
+            method,
+            url,
+            headers,
+            body,
+            timeout_secs,
+            16 * 1024 * 1024,
+        )?;
+        let status = call.status;
+        let bytes = call
+            .into_bytes(16 * 1024 * 1024)
+            .map_err(|e| format!("HTTPS read error from {url}: {e}"))?;
+        Ok((status, bytes))
+    }
+    susi_core::native_board::register_https_transport(board_https_call);
+}
+
 pub struct GemiServer;
 
 impl GemiServer {
@@ -139,6 +164,7 @@ impl GemiServer {
         tls: Option<TlsAcceptor>,
         require_tls_remote: bool,
     ) {
+        register_board_https_transport();
         for listener in &listeners {
             let addr = listener
                 .local_addr()
@@ -302,6 +328,7 @@ async fn handle_gemi_request(
 ) -> Result<Response<BoxBody>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    let query = req.uri().query().map(str::to_string);
     // Extract the auth material before consuming the body — the signed
     // request fields borrow the request headers.
     let authorization = presented_credential(req.headers(), &path);
@@ -373,7 +400,7 @@ async fn handle_gemi_request(
     if method == Method::POST && path == "/v1/messages" {
         return Ok(anthropic_messages(&body_bytes, workspace, admission).await);
     }
-    dispatch_gemi_route(method, path, body_bytes, workspace, admission).await
+    dispatch_gemi_route_with_query(method, (path, query), body_bytes, workspace, admission).await
 }
 
 /// Route one authenticated request. Split from [`handle_gemi_request`] so the
@@ -386,6 +413,17 @@ async fn dispatch_gemi_route(
     workspace: Arc<PathBuf>,
     admission: Arc<tokio::sync::Semaphore>,
 ) -> Result<Response<BoxBody>, Infallible> {
+    dispatch_gemi_route_with_query(method, (path, None), body_bytes, workspace, admission).await
+}
+
+async fn dispatch_gemi_route_with_query(
+    method: Method,
+    path_and_query: (String, Option<String>),
+    body_bytes: Bytes,
+    workspace: Arc<PathBuf>,
+    admission: Arc<tokio::sync::Semaphore>,
+) -> Result<Response<BoxBody>, Infallible> {
+    let (path, query_opt) = path_and_query;
     match (&method, path.as_str()) {
         (&Method::GET, "/" | "/v1" | "/v1/" | "/health") => {
             let api_status = json!({
@@ -400,6 +438,12 @@ async fn dispatch_gemi_route(
                     "/v1/completions",
                     "/v1/embeddings",
                     "/v1/messages",
+                    "/v1/board/status",
+                    "/v1/board/items",
+                    "/v1/board/check",
+                    "/v1/board/post",
+                    "/v1/blackboard",
+                    "/v1/blackboard/post",
                     "/metrics",
                     "/.well-known/susi",
                     "/context-graph/stats",
@@ -1182,6 +1226,127 @@ async fn dispatch_gemi_route(
                 Err(resp) => return Ok(resp),
             };
             Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::GET, "/v1/board/items") => {
+            let ws = (*workspace).clone();
+            let res = tokio::task::spawn_blocking(move || {
+                let target = susi_core::native_board::resolve_board_target(Some(&ws))?;
+                let (items, findings) = susi_core::native_board::list_items(&target)?;
+                Ok::<_, String>(json!({"items": items, "findings": findings}))
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+            Ok(match res {
+                Ok(payload) => json_response(StatusCode::OK, &payload),
+                Err(msg) => api_error(StatusCode::SERVICE_UNAVAILABLE, &msg),
+            })
+        }
+        (&Method::GET, "/v1/board/status") => {
+            let ws = (*workspace).clone();
+            let q_agent = susi_core::native_board::query_param(query_opt.as_deref(), "agent");
+            let res = tokio::task::spawn_blocking(move || {
+                let agent = susi_core::native_board::resolve_agent(q_agent.as_deref(), Some(&ws))?;
+                let target = susi_core::native_board::resolve_board_target(Some(&ws))?;
+                susi_core::native_board::board_status(&target, &agent)
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+            Ok(match res {
+                Ok(status) => json_response(
+                    StatusCode::OK,
+                    &serde_json::to_value(&status).unwrap_or_else(|_| json!({})),
+                ),
+                Err(msg) => api_error(StatusCode::SERVICE_UNAVAILABLE, &msg),
+            })
+        }
+        (&Method::POST, "/v1/board/check") => {
+            let ws = (*workspace).clone();
+            let req: susi_core::native_board::BoardCheckRequest =
+                match serde_json::from_slice(&body_bytes) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(api_error(
+                            StatusCode::BAD_REQUEST,
+                            &format!("JSON error: {e}"),
+                        ));
+                    }
+                };
+            let res = tokio::task::spawn_blocking(move || {
+                let agent = susi_core::native_board::resolve_agent(Some(&req.agent), Some(&ws))?;
+                let target = susi_core::native_board::resolve_board_target(Some(&ws))?;
+                susi_core::native_board::check_board(&target, &agent, req.allow_empty)
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+            Ok(match res {
+                Ok(status) => json_response(
+                    StatusCode::OK,
+                    &serde_json::to_value(&status).unwrap_or_else(|_| json!({})),
+                ),
+                Err(msg) => api_error(StatusCode::CONFLICT, &msg),
+            })
+        }
+        (&Method::POST, "/v1/board/post") => {
+            let ws = (*workspace).clone();
+            let req: susi_core::native_board::BoardPostRequest =
+                match serde_json::from_slice(&body_bytes) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(api_error(
+                            StatusCode::BAD_REQUEST,
+                            &format!("JSON error: {e}"),
+                        ));
+                    }
+                };
+            let res = tokio::task::spawn_blocking(move || {
+                let target = susi_core::native_board::resolve_board_target(Some(&ws))?;
+                susi_core::native_board::post_item(&target, &req.draft, req.start)
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+            Ok(match res {
+                Ok(stored) => json_response(
+                    StatusCode::OK,
+                    &serde_json::to_value(&stored).unwrap_or_else(|_| json!({})),
+                ),
+                Err(msg) => api_error(StatusCode::CONFLICT, &msg),
+            })
+        }
+        (&Method::GET, "/v1/blackboard") => {
+            let prefix = susi_core::native_board::query_param(query_opt.as_deref(), "prefix");
+            let res = susi_core::native_board::global_blackboard().list(prefix.as_deref());
+            Ok(match res {
+                Ok(entries) => json_response(
+                    StatusCode::OK,
+                    &serde_json::to_value(&entries).unwrap_or_else(|_| json!([])),
+                ),
+                Err(msg) => api_error(StatusCode::INTERNAL_SERVER_ERROR, &msg),
+            })
+        }
+        (&Method::POST, "/v1/blackboard/post") => {
+            let ws = (*workspace).clone();
+            let req: susi_core::native_board::BlackboardPostRequest =
+                match serde_json::from_slice(&body_bytes) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(api_error(
+                            StatusCode::BAD_REQUEST,
+                            &format!("JSON error: {e}"),
+                        ));
+                    }
+                };
+            let res = tokio::task::spawn_blocking(move || {
+                susi_core::native_board::post_blackboard_local(Some(&ws), &req)
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+            Ok(match res {
+                Ok(entry) => json_response(
+                    StatusCode::OK,
+                    &serde_json::to_value(&entry).unwrap_or_else(|_| json!({})),
+                ),
+                Err(msg) => api_error(StatusCode::CONFLICT, &msg),
+            })
         }
         (&Method::POST, "/patch/apply") => {
             let ws = (*workspace).clone();
@@ -3594,5 +3759,206 @@ mod tests {
             "expected 'gpt-4o' in model list: {:?}",
             ids
         );
+    }
+
+    async fn read_http_json(resp: Response<BoxBody>) -> (StatusCode, serde_json::Value) {
+        let status = resp.status();
+        let bytes = match resp.into_body().collect().await {
+            Ok(collected) => collected.to_bytes(),
+            Err(never) => match never {},
+        };
+        let val = serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+            panic!(
+                "invalid json body ({e}): {}",
+                String::from_utf8_lossy(&bytes)
+            )
+        });
+        (status, val)
+    }
+
+    #[tokio::test]
+    async fn board_and_blackboard_routes_enforce_collaboration_and_reject_opt_out() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let root = std::env::temp_dir().join(format!(
+            "susi-server-board-{}-{}",
+            std::process::id(),
+            nanos
+        ));
+        let board_bare = root.join("board.git");
+        let work_repo = root.join("repo");
+        std::fs::create_dir_all(&board_bare).unwrap();
+        std::fs::create_dir_all(&work_repo).unwrap();
+
+        let git = |dir: &PathBuf, args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        git(
+            &root,
+            &["init", "--quiet", "--bare", &board_bare.to_string_lossy()],
+        );
+        git(&work_repo, &["init", "--quiet", "-b", "wt/server-test"]);
+        git(
+            &work_repo,
+            &[
+                "config",
+                "susi.board.remote-url",
+                &board_bare.to_string_lossy(),
+            ],
+        );
+        git(&work_repo, &["config", "susi.agent", "server-agent"]);
+
+        let ws = Arc::new(work_repo);
+        let admission = Arc::new(tokio::sync::Semaphore::new(4));
+
+        // 1. POST /v1/board/post -> claim #1
+        let post_body = serde_json::to_vec(&json!({
+            "kind": "claim",
+            "agent": "server-agent",
+            "host": "host-1",
+            "title": "server route test claim",
+            "body": "claim scope",
+            "task": "srv-t1"
+        }))
+        .unwrap();
+        let (st, val) = read_http_json(
+            dispatch_gemi_route_with_query(
+                Method::POST,
+                ("/v1/board/post".into(), None),
+                Bytes::from(post_body),
+                Arc::clone(&ws),
+                Arc::clone(&admission),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "{val}");
+        assert_eq!(val["n"], 1);
+
+        // 2. GET /v1/board/items
+        let (st, val) = read_http_json(
+            dispatch_gemi_route_with_query(
+                Method::GET,
+                ("/v1/board/items".into(), None),
+                Bytes::new(),
+                Arc::clone(&ws),
+                Arc::clone(&admission),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "{val}");
+        assert_eq!(val["items"].as_array().unwrap().len(), 1);
+
+        // 3. GET /v1/board/status & POST /v1/board/check
+        let (st, val) = read_http_json(
+            dispatch_gemi_route_with_query(
+                Method::GET,
+                ("/v1/board/status".into(), Some("agent=server-agent".into())),
+                Bytes::new(),
+                Arc::clone(&ws),
+                Arc::clone(&admission),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "{val}");
+        assert_eq!(val["last"], 1);
+
+        let (st, val) = read_http_json(
+            dispatch_gemi_route_with_query(
+                Method::POST,
+                ("/v1/board/check".into(), None),
+                Bytes::from(br#"{"agent":"server-agent","allow_empty":false}"#.to_vec()),
+                Arc::clone(&ws),
+                Arc::clone(&admission),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "{val}");
+        assert_eq!(val["items"], 1);
+
+        // 4. POST /v1/blackboard/post with mirror_to_board=false MUST be refused
+        let bb_key = format!("srv-test-{}-{nanos}", std::process::id());
+        let opt_out = serde_json::to_vec(&json!({
+            "key": bb_key,
+            "value": {"ok": false},
+            "mirror_to_board": false
+        }))
+        .unwrap();
+        let (st, val) = read_http_json(
+            dispatch_gemi_route_with_query(
+                Method::POST,
+                ("/v1/blackboard/post".into(), None),
+                Bytes::from(opt_out),
+                Arc::clone(&ws),
+                Arc::clone(&admission),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(st, StatusCode::CONFLICT, "{val}");
+
+        // 5. POST /v1/blackboard/post mirrors onto Susi Native Board (#2) and GET /v1/blackboard lists it
+        let mirrored = serde_json::to_vec(&json!({
+            "key": bb_key,
+            "value": {"ok": true},
+            "author": "server-agent",
+            "task": "srv-t1",
+            "mirror_to_board": true,
+            "kind": "note",
+            "title": "server bb mirror"
+        }))
+        .unwrap();
+        let (st, val) = read_http_json(
+            dispatch_gemi_route_with_query(
+                Method::POST,
+                ("/v1/blackboard/post".into(), None),
+                Bytes::from(mirrored),
+                Arc::clone(&ws),
+                Arc::clone(&admission),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "{val}");
+        assert_eq!(val["board_item"], 2);
+
+        let (st, val) = read_http_json(
+            dispatch_gemi_route_with_query(
+                Method::GET,
+                ("/v1/blackboard".into(), Some(format!("prefix={bb_key}"))),
+                Bytes::new(),
+                Arc::clone(&ws),
+                Arc::clone(&admission),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "{val}");
+        assert_eq!(val.as_array().unwrap().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -333,6 +333,54 @@ impl SusiMasterAgent {
                 return report;
             }
         };
+        // Work in an isolated linked Git worktree bound to a Susi Native Board
+        // claim (never primary checkout, never main/master, never off-board).
+        let mut board_session = match crate::begin_board_session(
+            workspace,
+            "ama-master",
+            "ama-mission",
+            &goal,
+            false,
+        ) {
+            Ok(session) => session,
+            Err(error) => {
+                let report = SusiMissionReport {
+                    goal: wrap_tool_output("mission-input", &goal).redacted_for_sink(),
+                    status: "BLOCKED".to_string(),
+                    agents: Vec::new(),
+                    interactions: Vec::new(),
+                    plan: None,
+                    final_answer: format!("[GOVERNANCE_BLOCK] {error}"),
+                };
+                report.persist_inspectable_trace(workspace);
+                emit_final_report(&report, _callback);
+                return report;
+            }
+        };
+        let effective_ws = board_session.worktree.path().to_path_buf();
+        let mut report =
+            self.solve_stream_report_body(&goal, &effective_ws, (version, model_hint), &|_| {});
+        if let Err(err) = board_session.finish(report.is_success(), &report.final_answer) {
+            report.status = "BLOCKED".to_string();
+            report.final_answer = format!(
+                "[GOVERNANCE_BLOCK] failed to record mission outcome on Susi Native Board: {err}\n{}",
+                report.final_answer
+            );
+            report.persist_inspectable_trace(&effective_ws);
+        }
+        emit_final_report(&report, _callback);
+        report
+    }
+
+    fn solve_stream_report_body(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version_and_hint: (&str, Option<&str>),
+        _callback: &dyn Fn(String),
+    ) -> SusiMissionReport {
+        let (version, model_hint) = version_and_hint;
+        let goal = goal.to_string();
         // Phase lines for a watched call (`mission_run` with a progress
         // token); a no-op otherwise, so the CLI's output is unchanged.
         crate::susi_core::progress::report("Mission started");
@@ -1769,14 +1817,33 @@ impl SusiMasterAgent {
         let results: Vec<_> =
             crate::susi_core::parallel::map(goals.iter().enumerate().collect(), |(i, sub_goal)| {
                 let g = format!("[PARALLEL STEP {}/{}]: {}", i + 1, goals.len(), sub_goal);
-                let w = workspace.to_path_buf();
+                let agent_name = format!("ama-parallel-{}", i + 1);
+                let mut session = crate::begin_board_session(
+                    workspace,
+                    &agent_name,
+                    "parallel-step",
+                    sub_goal,
+                    true,
+                )
+                .map_err(crate::susi_error::EaiError::governance)?;
+                let worker_ws = session.worktree.path().to_path_buf();
                 let v = version.to_string();
                 let ama = SusiMasterAgent::new();
-                ama.solve_internal(&g, &w, &v, depth + 1)
+                let res = ama.solve_internal(&g, &worker_ws, &v, depth + 1);
+                match &res {
+                    Ok(report) => {
+                        session
+                            .finish(report.is_success(), &report.final_answer)
+                            .map_err(crate::susi_error::EaiError::governance)?;
+                    }
+                    Err(err) => {
+                        let _ = session.finish(false, &err.to_string());
+                    }
+                }
+                res
             })
             .into_iter()
-            .filter_map(Result::ok)
-            .collect();
+            .collect::<EaiResult<Vec<_>>>()?;
 
         let mut all_interactions = Vec::new();
         let mut all_agents = Vec::new();
@@ -2241,8 +2308,10 @@ mod compiled_read_truth_tests {
         PlaneBus::global().register(topics::GEMI_INFER_VERIFY, Arc::new(Verify(reject.clone())));
         let outputs = std::cell::RefCell::new(Vec::new());
         let deliver = |text| outputs.borrow_mut().push(text);
-        let workspace = susi_paths::SusiDirs::data_dir().join("first-goal-workspace");
-        std::fs::create_dir_all(&workspace).unwrap();
+        let workspace_root = susi_paths::SusiDirs::data_dir().join("first-goal-workspace");
+        std::fs::create_dir_all(&workspace_root).unwrap();
+        let workspace =
+            crate::test_board_fixture::init_worktree_with_board(&workspace_root, "wt/first-goal");
         let report = SusiMasterAgent::new().solve_stream_report(
             "Compute 17 + 25. Answer with only the number.",
             &workspace,
@@ -2432,10 +2501,11 @@ mod cli_output_contract {
 
     #[test]
     fn solve_stream_report_stops_at_phase_boundary_when_cancelled() {
-        let dir =
+        let root =
             std::env::temp_dir().join(format!("susi-cancel-phase-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("tempdir");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("tempdir");
+        let dir = crate::test_board_fixture::init_worktree_with_board(&root, "wt/cancel-phase");
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let trigger = cancel.clone();
         let phases = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));

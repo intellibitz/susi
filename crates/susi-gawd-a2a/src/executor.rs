@@ -139,31 +139,17 @@ impl Drop for InflightPermit {
 /// live GAWD plane.
 pub type MissionRunner = Arc<dyn Fn(&str) -> std::result::Result<String, String> + Send + Sync>;
 
-/// Production A2A runner through the GAWD plane; empty replies are failures.
-fn plane_bus_mission(intent: &str) -> std::result::Result<String, String> {
-    let workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    plane_bus_mission_at(intent, workspace)
-}
-
-fn plane_bus_mission_at(
-    intent: &str,
-    workspace: std::path::PathBuf,
-) -> std::result::Result<String, String> {
-    susi_core::plane_bus::gawd::solve_mission_for_acp(
-        intent,
-        &workspace,
-        susi_gawd_agents::AlphaSelf::VERSION,
-    )
-}
-
-fn plane_bus_acp_mission(
-    intent: &str,
-    workspace: Option<String>,
-) -> std::result::Result<String, String> {
-    let workspace = workspace.map(std::path::PathBuf::from).unwrap_or_else(|| {
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-    });
-    plane_bus_mission_at(intent, workspace)
+fn default_acp_runner() -> AcpMissionRunner {
+    Arc::new(|intent, workspace| {
+        let ws = workspace
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+        susi_core::plane_bus::gawd::solve_mission_for_acp(
+            intent,
+            &ws,
+            susi_gawd_agents::AlphaSelf::VERSION,
+        )
+    })
 }
 
 /// Run blocking mission dispatch on a dedicated OS thread and await its result.
@@ -182,6 +168,7 @@ async fn run_mission(
 /// ACP turns answered by the same guarded GAWD mission as A2A tasks.
 pub struct GawdAcpExecutor {
     runner: AcpMissionRunner,
+    workspace: Option<std::path::PathBuf>,
 }
 
 pub type AcpMissionRunner =
@@ -196,7 +183,7 @@ impl Default for GawdAcpExecutor {
 impl GawdAcpExecutor {
     /// Executor that answers ACP turns with real GAWD missions.
     pub fn new() -> Self {
-        Self::with_workspace_runner(Arc::new(plane_bus_acp_mission))
+        Self::with_workspace_runner(default_acp_runner())
     }
 
     /// Executor with an injected mission runner (tests, embedding hosts).
@@ -205,7 +192,17 @@ impl GawdAcpExecutor {
     }
 
     pub(crate) fn with_workspace_runner(runner: AcpMissionRunner) -> Self {
-        Self { runner }
+        Self {
+            runner,
+            workspace: None,
+        }
+    }
+
+    /// Pin the base workspace repository from which each turn provisions an isolated worktree.
+    #[must_use]
+    pub fn with_workspace(mut self, workspace: impl Into<std::path::PathBuf>) -> Self {
+        self.workspace = Some(workspace.into());
+        self
     }
 }
 
@@ -259,8 +256,41 @@ impl AcpTurnExecutor for GawdAcpExecutor {
         }
         let _permit = InflightPermit::try_acquire()
             .ok_or_else(|| "Request rejected: fleet at capacity".to_string())?;
-        let answer = (self.runner)(&content, ctx.workspace.clone())
-            .map_err(|error| wrap_tool_output("acp:mission-error", &error).redacted_for_sink())?;
+        let base_ws = ctx
+            .workspace
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .or_else(|| self.workspace.clone())
+            .or_else(|| std::env::var_os("SUSI_WORKSPACE").map(std::path::PathBuf::from))
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+        let mut session = susi_core::native_board::CollaborativeAgentSession::begin(
+            &susi_core::native_board::SessionSpec {
+                workspace: &base_ws,
+                explicit_agent: Some("acp-agent"),
+                role_or_task: &format!("acp-turn:{}", ctx.turn_id),
+                title: &content,
+                scope: Vec::new(),
+                require_fresh: true,
+            },
+        )
+        .map_err(|error| wrap_tool_output("acp:board-error", &error).redacted_for_sink())?;
+        let turn_ws = session.worktree.path().to_string_lossy().into_owned();
+        let res = (self.runner)(&content, Some(turn_ws));
+        let was_cancelled = cancelled.load(Ordering::Acquire);
+        let ok = !was_cancelled && res.is_ok();
+        let summary = if was_cancelled {
+            "ACP turn cancelled".to_owned()
+        } else {
+            match &res {
+                Ok(ans) => ans.clone(),
+                Err(err) => err.clone(),
+            }
+        };
+        session
+            .finish(ok, &summary)
+            .map_err(|error| wrap_tool_output("acp:board-error", &error).redacted_for_sink())?;
+        let answer =
+            res.map_err(|error| wrap_tool_output("acp:mission-error", &error).redacted_for_sink())?;
         if cancelled.load(Ordering::SeqCst) {
             return Ok(Vec::new());
         }
@@ -272,7 +302,8 @@ impl AcpTurnExecutor for GawdAcpExecutor {
 
 /// susi-gawd's A2A protocol executor
 pub struct GawdA2AExecutor {
-    runner: MissionRunner,
+    runner: AcpMissionRunner,
+    workspace: Option<std::path::PathBuf>,
     capabilities: GawdCapabilities,
     slo_collector: Arc<Mutex<SloEventCollector>>,
 }
@@ -286,16 +317,28 @@ impl Default for GawdA2AExecutor {
 impl GawdA2AExecutor {
     /// Executor that answers A2A tasks with real GAWD missions.
     pub fn new() -> Self {
-        Self::with_runner(Arc::new(plane_bus_mission))
+        Self::with_workspace_runner(default_acp_runner())
     }
 
     /// Executor with an injected mission runner (tests, embedding hosts).
     pub fn with_runner(runner: MissionRunner) -> Self {
+        Self::with_workspace_runner(Arc::new(move |intent, _workspace| runner(intent)))
+    }
+
+    fn with_workspace_runner(runner: AcpMissionRunner) -> Self {
         Self {
             runner,
+            workspace: None,
             capabilities: GawdCapabilities::orchestrator(),
             slo_collector: Arc::new(Mutex::new(SloEventCollector::default())),
         }
+    }
+
+    /// Pin the base workspace repository from which each A2A task provisions an isolated worktree.
+    #[must_use]
+    pub fn with_workspace(mut self, workspace: impl Into<std::path::PathBuf>) -> Self {
+        self.workspace = Some(workspace.into());
+        self
     }
 
     /// Aggregates recorded task events within `window_secs` into a measured [`SloSample`].
@@ -579,7 +622,37 @@ impl AgentExecutor for GawdA2AExecutor {
                 .as_micros() as u64;
             let (state, response_content, inference_latency_us) = match permit {
                 Some(_) => {
-                    let res = run_mission(Arc::clone(&self.runner), content).await;
+                    let base_ws = self
+                        .workspace
+                        .clone()
+                        .or_else(|| {
+                            std::env::var_os("SUSI_WORKSPACE").map(std::path::PathBuf::from)
+                        })
+                        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+                    let inner_runner = Arc::clone(&self.runner);
+                    let task_role = format!("a2a-task:{}", ctx.task_id);
+                    let session_runner: MissionRunner = Arc::new(move |intent: &str| {
+                        let mut session =
+                            susi_core::native_board::CollaborativeAgentSession::begin(
+                                &susi_core::native_board::SessionSpec {
+                                    workspace: &base_ws,
+                                    explicit_agent: Some("a2a-agent"),
+                                    role_or_task: &task_role,
+                                    title: intent,
+                                    scope: Vec::new(),
+                                    require_fresh: true,
+                                },
+                            )?;
+                        let turn_ws = session.worktree.path().to_string_lossy().into_owned();
+                        let res = inner_runner(intent, Some(turn_ws));
+                        let summary = match &res {
+                            Ok(ans) => ans.as_str(),
+                            Err(err) => err.as_str(),
+                        };
+                        session.finish(res.is_ok(), summary)?;
+                        res
+                    });
+                    let res = run_mission(session_runner, content).await;
                     let inf_us = exec_start_instant.elapsed().as_micros() as u64;
                     match res {
                         Ok(response) => (

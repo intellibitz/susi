@@ -25,7 +25,8 @@ Commands:
   tasks                  RSI eval-corpus runs (the task queue is `susi-commercial tasks`)
   brain                  The brain: which model susi trusts for which kind of work (evidence-ranked)
   ecosystem              Local AI ecosystem: installed engines/runtimes, GPU backends, explicit start [alias: eco]
-  blackboard             Inspect the last mission blackboard (swarm shared state) [alias: bb]
+  blackboard             Inspect or post to the mission blackboard (posts mirror to Susi Native Board) [alias: bb]
+  board                  Collaborate through the Susi Native Board and enforce worktree isolation
   context-graph          Inspect and query the universal context graph [alias: cg]
   broker                 Inter-app permission and message broker
   telemetry              Sample host telemetry (thermal / battery / load)
@@ -1229,12 +1230,13 @@ Options:
   -h, --help       Print help
 
 === susi blackboard ===
-Inspect the last mission blackboard (swarm shared state)
+Inspect or post to the mission blackboard (posts mirror to Susi Native Board)
 
 Usage: susi blackboard [COMMAND]
 
 Commands:
   show  Show `.susi/last_blackboard.json` from the current workspace (default)
+  post  Post a key/value entry to the shared blackboard and Susi Native Board
   help  Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1247,6 +1249,101 @@ Usage: susi blackboard show
 
 Options:
   -h, --help  Print help
+
+=== susi blackboard post ===
+Post a key/value entry to the shared blackboard and Susi Native Board
+
+Usage: susi blackboard post [OPTIONS] <KEY> <VALUE>
+
+Arguments:
+  <KEY>    Key to write
+  <VALUE>  JSON string or plain text value
+
+Options:
+      --author <AUTHOR>  Authoring agent (defaults to SUSI_AGENT or git config susi.agent)
+      --task <TASK>      Associated task identifier
+      --kind <KIND>      Board item kind when mirroring (default: note)
+      --title <TITLE>    Board item title override when mirroring
+  -h, --help             Print help
+
+=== susi board ===
+Collaborate through the Susi Native Board and enforce worktree isolation
+
+Usage: susi board <COMMAND>
+
+Commands:
+  list   List collaborative items on the Susi Native Board
+  show   Show the full text of one board item by number
+  check  Check the board for open stops, unanswered requests, and integrity findings
+  post   Post a collaborative coordination item to the Susi Native Board
+  guard  Verify isolated worktree ownership and clean collaborative board state
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+=== susi board list ===
+List collaborative items on the Susi Native Board
+
+Usage: susi board list [OPTIONS]
+
+Options:
+      --limit <LIMIT>  Maximum newest items to print
+      --kind <KIND>    Filter items by kind (claim, landed, stop, lift, request, answer, ...)
+      --json           Print machine-readable JSON
+  -h, --help           Print help
+
+=== susi board show ===
+Show the full text of one board item by number
+
+Usage: susi board show [OPTIONS] <N>
+
+Arguments:
+  <N>  Item number (`1..`)
+
+Options:
+      --json  Print machine-readable JSON
+  -h, --help  Print help
+
+=== susi board check ===
+Check the board for open stops, unanswered requests, and integrity findings
+
+Usage: susi board check [OPTIONS]
+
+Options:
+      --agent <AGENT>  Acting agent name (defaults to SUSI_AGENT or git config susi.agent)
+      --allow-empty    Permit an empty board
+      --json           Print machine-readable JSON
+  -h, --help           Print help
+
+=== susi board post ===
+Post a collaborative coordination item to the Susi Native Board
+
+Usage: susi board post [OPTIONS] --kind <KIND> --title <TITLE>
+
+Options:
+      --kind <KIND>    Item kind (claim, landed, cut, heads-up, request, answer, handoff, decision, blocked, stop, lift, note)
+      --title <TITLE>  Single-line title (at most 200 characters)
+      --body <BODY>    Item body (must contain no credentials) [default: ""]
+      --agent <AGENT>  Acting agent name (defaults to SUSI_AGENT or git config susi.agent)
+      --to <TO>        Addressee agent for request/handoff/stop items
+      --re <RE>        Referenced item number (required for answer and lift)
+      --task <TASK>    Task identifier (e.g. T-ANTIGRAVITY-9)
+      --start <START>  Initial item number when starting an empty board
+      --json           Print machine-readable JSON
+  -h, --help           Print help
+
+=== susi board guard ===
+Verify isolated worktree ownership and clean collaborative board state
+
+Usage: susi board guard [OPTIONS] <STAGE>
+
+Arguments:
+  <STAGE>  Hook/lifecycle stage (`commit`, `merge`, `push`)
+
+Options:
+      --agent <AGENT>  Acting agent name (defaults to SUSI_AGENT or git config susi.agent)
+  -h, --help           Print help
 
 === susi context-graph ===
 Inspect and query the universal context graph

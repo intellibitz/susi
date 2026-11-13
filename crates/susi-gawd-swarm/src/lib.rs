@@ -134,6 +134,9 @@ mod swarm_gap_workspace_isolation_tests;
 #[path = "tests/task_lease_dispatch_wiring.rs"]
 mod task_lease_dispatch_wiring_tests;
 #[cfg(test)]
+#[path = "tests/board_fixture.rs"]
+pub(crate) mod test_board_fixture;
+#[cfg(test)]
 #[path = "tests/vc_201_021.rs"]
 mod vc_201_021_tests;
 #[cfg(test)]
@@ -190,6 +193,25 @@ mod vc_202_014_mastery_tests;
 /// Call once from the host (`susi-gawd`) at load — idempotent first-wins.
 pub fn init() {
     susi_gawd_agents::dag_hooks::init(dag::dispatch_mission_dag);
+}
+
+pub(crate) fn begin_board_session(
+    workspace: &std::path::Path,
+    agent: &str,
+    task: &str,
+    title: &str,
+    require_fresh: bool,
+) -> Result<susi_core::native_board::CollaborativeAgentSession, String> {
+    susi_core::native_board::CollaborativeAgentSession::begin(
+        &susi_core::native_board::SessionSpec {
+            workspace,
+            explicit_agent: Some(agent),
+            role_or_task: task,
+            title,
+            scope: Vec::new(),
+            require_fresh,
+        },
+    )
 }
 
 #[cfg(test)]

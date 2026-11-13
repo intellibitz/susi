@@ -29,7 +29,10 @@ fn block_on<F: std::future::Future>(fut: F) -> F::Output {
 fn vc_201_092_mastery_availability_measured_from_events_with_window_and_denominator() {
     use crate::executor::GawdA2AExecutor;
 
-    let executor = GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("success".to_string())));
+    let executor = GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("success".to_string())))
+        .with_workspace(crate::test_board_fixture::init_board_workspace(
+            "vc92-avail",
+        ));
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
 
@@ -65,7 +68,8 @@ fn vc_201_092_mastery_task_success_measured_from_events() {
         } else {
             Ok("mission succeeded".to_string())
         }
-    }));
+    }))
+    .with_workspace(crate::test_board_fixture::init_board_workspace("vc92-succ"));
 
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
@@ -101,7 +105,10 @@ fn vc_201_092_mastery_queue_delay_measured_from_events() {
     use crate::executor::GawdA2AExecutor;
 
     let executor =
-        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("response".to_string())));
+        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("response".to_string())))
+            .with_workspace(crate::test_board_fixture::init_board_workspace(
+                "vc92-queue",
+            ));
 
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
@@ -130,7 +137,10 @@ fn vc_201_092_mastery_inference_latency_measured_from_events() {
     let executor = GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| {
         std::thread::sleep(std::time::Duration::from_millis(2));
         Ok("response".to_string())
-    }));
+    }))
+    .with_workspace(crate::test_board_fixture::init_board_workspace(
+        "vc92-latency",
+    ));
 
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();
@@ -158,7 +168,8 @@ fn vc_201_092_mastery_recovery_duration_measured_from_events() {
     use crate::executor::GawdA2AExecutor;
 
     let executor =
-        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("recovered".to_string())));
+        GawdA2AExecutor::with_runner(std::sync::Arc::new(|_| Ok("recovered".to_string())))
+            .with_workspace(crate::test_board_fixture::init_board_workspace("vc92-rec"));
 
     let queue = EventQueue::new(8);
     let mut rx = queue.subscribe();

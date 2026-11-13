@@ -36,9 +36,8 @@ if [ ! -f "$root/.agents/tasks/$task.json" ]; then
 fi
 # Mandate 78: look before you build. A feature-sized task's record says where
 # its agent looked for existing work (`reuse`); without it the commit is
-# refused. The rule lives in the native tool; skipped when the installed tool
-# predates it.
-if [ -z "${SUSI_ALLOW_NO_REUSE:-}" ] && command -v susi-commercial >/dev/null 2>&1 &&
+# refused. The rule lives in the native tool (no env bypass).
+if command -v susi-commercial >/dev/null 2>&1 &&
     susi-commercial workflow reuse --help >/dev/null 2>&1; then
     (cd "$root" && susi-commercial workflow reuse "$task") || exit 1
 fi

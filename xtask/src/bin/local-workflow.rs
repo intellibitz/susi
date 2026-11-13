@@ -3349,19 +3349,80 @@ fn claimed_path_changes_against(claim: &Claim, base: &str) -> Result<PathChanges
 
 /// Scope-guarded local commit, not a test/release gate. It never changes the
 /// repository's shared hook configuration or invokes its network-bound hooks.
-fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> Result<()> {
-    commit_with_pull(root, claimant, message, signer, signer.is_none())
+fn find_susi_board_bin(root: &Path) -> Option<PathBuf> {
+    let exe = format!("susi{}", env::consts::EXE_SUFFIX);
+    let mut candidates = Vec::new();
+    for key in ["SUSI_WORKFLOW_BIN", "SUSI_BIN"] {
+        if let Ok(val) = env::var(key) {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                candidates.push(PathBuf::from(trimmed));
+            }
+        }
+    }
+    candidates.push(root.join("target/release").join(&exe));
+    candidates.push(root.join("target/debug").join(&exe));
+    if let Ok(path_env) = env::var("PATH") {
+        for dir in env::split_paths(&path_env) {
+            candidates.push(dir.join(&exe));
+        }
+    }
+    candidates.into_iter().find(|bin| {
+        bin.is_file()
+            && Command::new(bin)
+                .args(["board", "check", "--help"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+    })
 }
 
-fn commit_with_pull(
-    root: &Path,
-    claimant: &str,
-    message: &str,
-    signer: Option<&str>,
-    pull_remote: bool,
-) -> Result<()> {
+fn cli_board_check(root: &Path, agent: &str) -> Result<()> {
+    let Some(bin) = find_susi_board_bin(root) else {
+        return Err(
+            "mandatory Susi Native Board check failed: build `susi` (`cargo build`) or set SUSI_BIN"
+                .into(),
+        );
+    };
+    let out = Command::new(&bin)
+        .current_dir(root)
+        .args(["board", "check", "--agent", agent])
+        .output()?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        let detail = if stderr.is_empty() { stdout } else { stderr };
+        return Err(format!("Susi Native Board refused workflow action: {detail}").into());
+    }
+    Ok(())
+}
+
+fn cli_board_post(root: &Path, agent: &str, kind: &str, title: &str, body: &str) -> Result<()> {
+    let Some(bin) = find_susi_board_bin(root) else {
+        return Err(
+            "mandatory Susi Native Board post failed: build `susi` (`cargo build`) or set SUSI_BIN"
+                .into(),
+        );
+    };
+    let out = Command::new(&bin)
+        .current_dir(root)
+        .args([
+            "board", "post", "--kind", kind, "--agent", agent, "--title", title, "--body", body,
+        ])
+        .output()?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        let detail = if stderr.is_empty() { stdout } else { stderr };
+        return Err(format!("Susi Native Board post failed closed: {detail}").into());
+    }
+    Ok(())
+}
+
+fn commit(root: &Path, claimant: &str, message: &str, signer: Option<&str>) -> Result<()> {
     scoped_commit(root, claimant, message, signer, None)?;
-    if pull_remote && has_origin_remote(root) {
+    if has_origin_remote(root) {
         let _ = sync_claim(root, claimant)?;
     }
     Ok(())
@@ -4449,10 +4510,29 @@ const SHIP_ROUNDS: usize = 5;
 /// the gate ran, the lock is released, the sources are merged onto the new
 /// origin/main and only what the newly merged commits affect is re-gated
 /// (`regate_needed`); then publication is tried again.
+struct ShipRequest<'a> {
+    claimants: &'a [&'a str],
+    enforce_board: bool,
+}
+
+#[cfg(test)]
 fn ship<F>(
     root: &Path,
     claimants: &[&str],
     remote: &mut dyn Remote,
+    mut verify: F,
+) -> Result<ShipReport>
+where
+    F: FnMut(&Path, &Path) -> Result<Vec<String>>,
+{
+    ship_with_board_policy(root, claimants, remote, false, &mut verify)
+}
+
+fn ship_with_board_policy<F>(
+    root: &Path,
+    claimants: &[&str],
+    remote: &mut dyn Remote,
+    enforce_board: bool,
     mut verify: F,
 ) -> Result<ShipReport>
 where
@@ -4474,7 +4554,11 @@ where
             }
         }
     }
-    let result = ship_in_slot(root, &slot, claimants, remote, &mut verify);
+    let req = ShipRequest {
+        claimants,
+        enforce_board,
+    };
+    let result = ship_in_slot(root, &slot, &req, remote, &mut verify);
     timed("stash warm target", || {
         remove_candidate(root, &slot.candidate)
     });
@@ -4498,13 +4582,14 @@ fn retire_workspace_proofs(evidence: &mut [String], tested: &str, merged: &str) 
 fn ship_in_slot<F>(
     root: &Path,
     slot: &Slot,
-    claimants: &[&str],
+    req: &ShipRequest<'_>,
     remote: &mut dyn Remote,
     verify: &mut F,
 ) -> Result<ShipReport>
 where
     F: FnMut(&Path, &Path) -> Result<Vec<String>>,
 {
+    let claimants = req.claimants;
     let workflow = state(root).map_err(|error| format!("state: {error}"))?;
     let workflow = workflow.as_path();
     // Fetches update `refs/remotes/origin/main`; two at once can collide on
@@ -4524,6 +4609,11 @@ where
         load_sources(root, workflow, claimants, &base)
     })
     .map_err(|error| format!("load: {error}"))?;
+    if req.enforce_board {
+        if let Some(first) = claimants.first() {
+            cli_board_check(root, first)?;
+        }
+    }
     timed("merge candidate", || {
         merge_onto(root, &slot.candidate, &base, &inputs)
     })
@@ -5369,9 +5459,27 @@ fn run(args: &[String]) -> Result<()> {
             if args[0] == "extend" { update_scopes(&root, claimant, &scopes, ScopeChange::Extend)?; return Ok(()); }
             if args[0] == "shrink" { update_scopes(&root, claimant, &scopes, ScopeChange::Shrink)?; return Ok(()); }
             let worktree = start(&root, claimant, &scopes)?;
+            cli_board_check(&worktree, claimant)?;
+            cli_board_post(
+                &worktree,
+                claimant,
+                "claim",
+                &format!("local-workflow start {claimant}"),
+                &format!("Claimed isolated worktree `{}` for scopes: {}", worktree.display(), scopes.join(", ")),
+            )?;
             println!("Worktree: {}\nTarget: {}\nUse the local-build entrypoint to override inherited target directories. Reservations cover cooperating launcher users only.", worktree.display(), worktree.join("target").display());
         }
-        Some("release") if args.len() == 2 => release(&root, &args[1])?,
+        Some("release") if args.len() == 2 => {
+            cli_board_check(&root, &args[1])?;
+            release(&root, &args[1])?;
+            cli_board_post(
+                &root,
+                &args[1],
+                "status",
+                &format!("local-workflow release {}", args[1]),
+                &format!("Released claim `{}` via local-workflow.", args[1]),
+            )?;
+        }
         Some("sync" | "step") if (2..=3).contains(&args.len()) => {
             let json_out = if args.len() == 3 {
                 if args[2] != "--json" {
@@ -5406,22 +5514,61 @@ fn run(args: &[String]) -> Result<()> {
                 );
             }
         }
-        Some("commit") if args.len() == 3 => commit(&root, &args[1], &args[2], None)?,
-        Some("commit") if args.len() == 4 && args[3] == "--no-pull" => {
-            commit_with_pull(&root, &args[1], &args[2], None, false)?;
+        Some("commit") if args.len() == 3 => {
+            cli_board_check(&root, &args[1])?;
+            commit(&root, &args[1], &args[2], None)?;
+            cli_board_post(
+                &root,
+                &args[1],
+                "status",
+                &format!("local-workflow commit {}", args[1]),
+                &format!("Committed in isolated worktree for `{}`: {}", args[1], args[2]),
+            )?;
         }
-        Some("finish-merge") if args.len() == 4 => scoped_commit(&root, &args[1], &args[3], None, Some(&args[2]))?,
+        Some("finish-merge") if args.len() == 4 => {
+            cli_board_check(&root, &args[1])?;
+            scoped_commit(&root, &args[1], &args[3], None, Some(&args[2]))?;
+            cli_board_post(
+                &root,
+                &args[1],
+                "status",
+                &format!("local-workflow finish-merge {}", args[1]),
+                &format!("Completed reconciled merge for `{}`: {}", args[1], args[3]),
+            )?;
+        }
         Some("finish-merge") if args.iter().any(|arg| arg == "--sign") => return Err("finish-merge does not support signing".into()),
-        Some("commit") if args.len() == 5 && args[3] == "--sign" => commit(&root, &args[1], &args[2], Some(&args[4]))?,
+        Some("commit") if args.len() == 5 && args[3] == "--sign" => {
+            cli_board_check(&root, &args[1])?;
+            commit(&root, &args[1], &args[2], Some(&args[4]))?;
+            cli_board_post(
+                &root,
+                &args[1],
+                "status",
+                &format!("local-workflow signed commit {}", args[1]),
+                &format!("Signed commit in isolated worktree for `{}`: {}", args[1], args[2]),
+            )?;
+        }
         Some("distill") if args.len() >= 2 => {
             println!("{}", workflow_distill(&root, &args[1..])?);
         }
         Some("integrate") if args.len() >= 2 => {
             let started = std::time::Instant::now();
             let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
+            if let Some(first) = names.first() {
+                cli_board_check(&root, first)?;
+            }
             let result = integrate_with(&root, &names, verify_candidate);
             finish_phases(&root, "integrate", if result.is_ok() { "integrated" } else { "failed" }, started.elapsed());
-            result?;
+            let ok = result?;
+            if let Some(first) = names.first() {
+                cli_board_post(
+                    &root,
+                    first,
+                    "status",
+                    &format!("local-workflow integrate {}", names.join(", ")),
+                    &format!("Integrated {:?} in candidate.", ok),
+                )?;
+            }
         }
         Some("list") if args.len() == 1 => {
             let state = state(&root)?;
@@ -5460,14 +5607,24 @@ fn run(args: &[String]) -> Result<()> {
             let names: Vec<_> = args[1..].iter().map(String::as_str).collect();
             let mut remote = GitRemote;
             let result = repo_kind(&root).and_then(|kind| match kind {
-                RepoKind::Susi => ship(&root, &names, &mut remote, verify_candidate),
-                RepoKind::Commercial => ship(&root, &names, &mut remote, commercial_gate),
+                RepoKind::Susi => ship_with_board_policy(&root, &names, &mut remote, true, verify_candidate),
+                RepoKind::Commercial => ship_with_board_policy(&root, &names, &mut remote, true, commercial_gate),
             });
             finish_phases(&root, "ship", if result.is_ok() { "shipped" } else { "failed" }, started.elapsed());
             witness_storage(&root);
-            print_ship(&result?);
+            let report = result?;
+            if let Some(first) = names.first() {
+                cli_board_post(
+                    &root,
+                    first,
+                    "landed",
+                    &format!("local-workflow ship {}", names.join(", ")),
+                    &format!("Shipped {} (merge {}) to origin/main.", report.head, report.merge),
+                )?;
+            }
+            print_ship(&report);
         }
-        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | sync <name> [--json] | step <name> [--json] | list | status [--json] | commit <name> <message> [--sign <fingerprint> | --no-pull] | finish-merge <name> <parent-oid> <message> | distill <args...> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>]".into()),
+        _ => return Err("usage: local-workflow start <name> --scope <path> [--scope <path> ...] | extend <name> --scope <path> | shrink <name> --scope <path> | sync <name> [--json] | step <name> [--json] | list | status [--json] | commit <name> <message> [--sign <fingerprint>] | finish-merge <name> <parent-oid> <message> | distill <args...> | integrate <name> [<name> ...] | release <name> | ship <name> [<name> ...] | ship --retry | check | affected <base> [<head>]".into()),
     }
     Ok(())
 }
@@ -9291,11 +9448,11 @@ mod tests {
         .unwrap();
         assert!(is_ancestor(&repo, &p4, &shipped.head).unwrap());
 
-        // 6. `release`: start beta, land beta's commit onto `origin/main` via peer, and verify `release` pulls `origin/main`!
+        // 6. `release`: start beta, commit + reconcile cleanly, push, and verify `release` pulls `origin/main`!
         let wt_beta = start(&repo, "beta", &["beta/mod.rs".to_owned()]).unwrap();
         fs::create_dir_all(wt_beta.join("beta")).unwrap();
         fs::write(wt_beta.join("beta/mod.rs"), "pub fn beta() {}\n").unwrap();
-        commit_with_pull(&wt_beta, "beta", "feat: beta module", None, false).unwrap();
+        commit(&wt_beta, "beta", "feat: beta module", None).unwrap();
         let beta_head = git(&wt_beta, &["rev-parse", "HEAD"]).unwrap();
         // Push beta_head directly to bare origin WITHOUT updating local refs/remotes/origin/main first.
         git(

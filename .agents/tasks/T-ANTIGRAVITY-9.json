@@ -1,0 +1,44 @@
+{
+  "id": "T-ANTIGRAVITY-9",
+  "title": "Enforce mandatory isolated worktrees and Susi Native Board collaboration across Core runtime, swarms, harness, A2A, daemon/GMCP, and workflows",
+  "goal": "Guarantee every Core agent (local, cloud, parallel fleet, DAG, speculative mission, harness, A2A, local-workflow, git hooks) runs in its own isolated local Git worktree and collaborates strictly through the Susi Native Board by default with HTTP + Git transports and no bypass path.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--offline",
+      "--locked"
+    ]
+  },
+  "created_by": "ANTIGRAVITY",
+  "created_unix": 1794599584,
+  "reuse": {
+    "decision": "existing",
+    "reason": "Reuses susi-core plain_http and HighDensityContextStore, susi-harness ParallelWorkflowHarness worktree layout, and susi-commercial susi-board-item-v1 schema/ref protocol to bridge Core and Commercial native board collaboration without new third-party dependencies.",
+    "searched": "Checked crates/susi-core/src/{plain_http.rs,agent_types.rs,bus.rs}, crates/susi-daemon-runtime/src/blackboard.rs, crates/susi-server/src/lib.rs, crates/susi-gmcp/src/tools/control_plane.rs, crates/susi-harness/src/{agents.rs,scheduler.rs,workflow_runner.rs}, crates/susi-gawd-swarm/src/{amas.rs,ama/master.rs,dag.rs,writer_isolation.rs}, crates/susi-gawd-agents/src/agents/fleet.rs, crates/susi-gawd-a2a/src/executor.rs, xtask/src/bin/local-workflow.rs, .githooks/, scripts/."
+  },
+  "scopes": [
+    "crates/susi-core",
+    "crates/susi-daemon-runtime",
+    "crates/susi-daemon",
+    "crates/susi-server",
+    "crates/susi-gmcp",
+    "crates/susi-gawd-swarm",
+    "crates/susi-gawd-agents",
+    "crates/susi-gawd-a2a",
+    "crates/susi-harness",
+    "crates/susi-cli-defs",
+    "src",
+    "xtask",
+    ".githooks",
+    "scripts",
+    "deploy/compose",
+    "tests",
+    "docs",
+    "Cargo.lock",
+    ".agents/tasks/T-ANTIGRAVITY-9.json"
+  ]
+}

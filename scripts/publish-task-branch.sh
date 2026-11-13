@@ -25,21 +25,6 @@ if [ "$transport" = "relay" ]; then
     exit 75
 fi
 
-cfg_cloud=$(git config --get susi.cloud 2>/dev/null || echo "false")
-cfg_cloud=$(printf '%s' "$cfg_cloud" | tr '[:upper:]' '[:lower:]')
-cloud=0
-case "$cfg_cloud" in
-true | yes | on | 1) cloud=1 ;;
-esac
-explicit=$(printf '%s' "${SUSI_CLOUD_SESSION:-}" | tr '[:upper:]' '[:lower:]')
-case "$explicit" in
-true | yes | on | 1) cloud=1 ;;
-false | no | off | 0) cloud=0 ;;
-esac
-if [ "$cloud" -eq 1 ]; then
-    exit 75
-fi
-
 raw_agent=${SUSI_AGENT:-$(git config --get susi.agent 2>/dev/null || true)}
 agent=$(printf '%s' "$raw_agent" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
 [ -n "$agent" ] || die "publication requires this worktree's identity"

@@ -13,6 +13,11 @@ services:
       dockerfile: deploy/compose/Dockerfile.susi
     environment:
       SUSI_HOME: /susi
+      SUSI_WORKTREE_ROOT: /susi/worktrees
+      SUSI_AGENT: ${SUSI_AGENT:-susi-cloud}
+      SUSI_BOARD_URL: ${SUSI_BOARD_URL:-}
+      SUSI_BOARD_TOKEN: ${SUSI_BOARD_TOKEN:-}
+      SUSI_BOARD_REMOTE_URL: ${SUSI_BOARD_REMOTE_URL:-}
       SUSI_UNATTENDED: "1"
       GIT_TERMINAL_PROMPT: "0"
       GCM_INTERACTIVE: never
