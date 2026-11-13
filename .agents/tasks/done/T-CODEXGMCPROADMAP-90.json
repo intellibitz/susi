@@ -21,11 +21,20 @@
   "roadmap": "VC-203-007",
   "created_by": "CODEXGMCPROADMAP",
   "created_unix": 1792256246,
+  "closed": {
+    "at_unix": 1794543803,
+    "commit": "b9b2631db428d3097bedd0001ba5a67be9f95c6f",
+    "by": "CLAUDEREL067"
+  },
+  "limitations": [
+    "Core serves the server role only on the byte-pipe transport SPI; the client role, named pipes and WebSocket have no adapter in core and are not claimed.",
+    "Budgets are ceilings for an unoptimized test build measured on Linux x86_64; memory growth is measured only where /proc/self/statm exists. Windows x86_64 runs the in-process and stdio adapters only."
+  ],
   "reuse": {
     "decision": "existing",
+    "reason": "The harness, fixtures and both gates already exist; the test composes them. The one production change removes a fatal branch in establish (a notification or stray response before any lifecycle ended the session) that the modern-era fixture replay found. No new dependency.",
     "searched": "Susi Core: the adapter helpers of gmcp_req_203_007_03_integration and gmcp_req_203_007_04_adversarial (embedded duplex, Unix-domain socket pair, shipped stdio entry point), the interop tests of the sibling vectors (gmcp_req_203_006_05_interop, gmcp_req_203_008_05_interop), the pinned reference fixtures and divergence record under .agents/gmcp/fixtures, crates/susi-gmcp/src/jsonrpc_gate.rs (classify_line, http_envelope_rejection) and crates/susi-gmcp/src/mcp/service.rs (establish).",
-    "source": "intellibitz/susi tests/gmcp_requirements.rs and crates/susi-gmcp",
-    "reason": "The harness, fixtures and both gates already exist; the test composes them. The one production change removes a fatal branch in establish (a notification or stray response before any lifecycle ended the session) that the modern-era fixture replay found. No new dependency."
+    "source": "intellibitz/susi tests/gmcp_requirements.rs and crates/susi-gmcp"
   },
   "scopes": [
     "tests/gmcp_requirements.rs",
@@ -33,9 +42,5 @@
     "docs/gmcp/contract-203-007.md",
     ".agents/gmcp/evidence",
     ".agents/tasks/T-CODEXGMCPROADMAP-90.json"
-  ],
-  "limitations": [
-    "Core serves the server role only on the byte-pipe transport SPI; the client role, named pipes and WebSocket have no adapter in core and are not claimed.",
-    "Budgets are ceilings for an unoptimized test build measured on Linux x86_64; memory growth is measured only where /proc/self/statm exists. Windows x86_64 runs the in-process and stdio adapters only."
   ]
 }
