@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXPRODUCTION20261113ROOT-3",
+  "title": "Keep model lifecycle suites outside lean core",
+  "goal": "Move lifecycle provisioning and tokenizer tests into the excluded suite directory while preserving coverage and keeping the shipped model crate under its existing source ceiling.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "lean_core_ceilings",
+      "pillar_source_does_not_grow"
+    ]
+  },
+  "created_by": "CODEXPRODUCTION20261113ROOT",
+  "created_unix": 1794547794
+}

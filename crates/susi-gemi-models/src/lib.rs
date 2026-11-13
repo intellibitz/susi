@@ -55,6 +55,12 @@ pub mod transactional_download;
 pub mod zc_first_model;
 
 #[cfg(test)]
+#[path = "tests/provision.rs"]
+mod provision_tests;
+#[cfg(test)]
+#[path = "tests/tokenizer.rs"]
+mod tokenizer_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_041_mastery.rs"]
 mod vc_201_041_mastery_tests;
 #[cfg(test)]
