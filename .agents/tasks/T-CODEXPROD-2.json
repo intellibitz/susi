@@ -1,0 +1,35 @@
+{
+  "id": "T-CODEXPROD-2",
+  "title": "Restore explicit starter provisioning for local-engine builds",
+  "goal": "Restore the documented local starter-model installation path in local-engine builds, including real tokenizer admission, while keeping slim protocol builds fail-closed before any download.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "--features",
+      "local-engine",
+      "--lib"
+    ]
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXPROD-2.json",
+    "crates/susi-gemi-models/src/lifecycle/mod.rs",
+    "crates/susi-gemi-models/src/lifecycle/model_manager.rs",
+    "crates/susi-gemi-models/src/lifecycle/provision.rs",
+    "crates/susi-gemi-models/src/lifecycle/selection.rs",
+    "crates/susi-gemi-models/src/lifecycle/tokenizer.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inspected the existing starter provisioning implementation, feature declarations, model selection, and the release inference gate; the downloader, license admission, digest checks, transactional writes, and commercial plug-host execution path already exist.",
+    "reason": "The path had an unconditional local-engine guard and tokenizer validators that always returned false. The fix restores the feature gate and adds one bounded structural tokenizer validator shared by provisioning and selection, without adding a second downloader or runtime engine."
+  },
+  "created_by": "CODEXPROD",
+  "created_unix": 1794544245
+}

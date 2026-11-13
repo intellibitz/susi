@@ -6,6 +6,7 @@ mod model_manager;
 mod provision;
 mod scan;
 mod selection;
+mod tokenizer;
 mod types;
 
 pub use download_controller::*;

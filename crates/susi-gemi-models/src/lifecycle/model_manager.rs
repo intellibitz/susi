@@ -606,8 +606,7 @@ impl ModelManager {
     }
 
     fn downloaded_json_parses_as_tokenizer(path: &Path) -> bool {
-        let _ = path;
-        false
+        super::tokenizer::valid(path)
     }
 
     fn valid_download_artifact(file_name: &str, path: &Path) -> bool {

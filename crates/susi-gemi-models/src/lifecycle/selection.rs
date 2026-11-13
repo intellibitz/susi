@@ -520,8 +520,7 @@ impl ModelManager {
     /// Selection and inference share one bounded parser cache. Errors reading
     /// the artifact remain retryable; only content failures become verdicts.
     fn judge_tokenizer(path: &Path) -> Option<bool> {
-        let _ = path;
-        Some(false)
+        super::tokenizer::judge(path)
     }
 
     pub fn get_tokenizer_path(model_id: &str) -> Option<PathBuf> {

@@ -18,6 +18,7 @@ use super::types::*;
 use super::ModelManager;
 
 /// Why `install starter` refuses in a build without the local model engine.
+#[cfg(not(feature = "local-engine"))]
 pub const NO_LOCAL_ENGINE_FOR_STARTER: &str = "this Susi build has no local model engine (built without the `local-engine` feature), so it cannot verify or run the starter model; nothing was downloaded. Use a Susi release build, which includes the engine, or connect an OpenAI-compatible or cloud provider";
 
 impl ModelManager {
@@ -185,10 +186,7 @@ impl ModelManager {
                 token.as_deref(),
                 &|| false,
                 &|_, _| {},
-                &|p| {
-                    let _ = p;
-                    false
-                },
+                &|p| Self::valid_tokenizer(p),
                 expected_sha256.as_deref(),
             ) {
                 Ok(()) => {
@@ -232,57 +230,67 @@ impl ModelManager {
     ) -> EaiResult<ModelProvisioningOutcome> {
         // The slim protocol build leaves the Candle engine out, so it can neither
         // verify the starter's tokenizer nor run local weights. Say so before any
-        // byte is downloaded instead of failing later with a transfer error.
-        if std::hint::black_box(true) {
+        // byte is downloaded instead of failing later with a transfer error. A
+        // release build with the explicit local-engine feature uses the verified
+        // downloader below.
+        #[cfg(not(feature = "local-engine"))]
+        {
+            let _ = workspace;
             return Err(crate::susi_error::EaiError::config(
                 NO_LOCAL_ENGINE_FOR_STARTER,
             ));
         }
-        static PLANNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let Ok(_planning) = PLANNING.try_lock() else {
-            return Ok(ModelProvisioningOutcome::Active);
-        };
-        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        // Selection admits both actual weights and tokenizer and uses current
-        // resource budgets. Retain a better verified cache instead of spending
-        // bandwidth/disk on another model merely because a GPU is present.
-        if let Some(cached) = Self::identify_best_suited_local_model(workspace, None) {
-            return Ok(ModelProvisioningOutcome::Ready(cached.model_id().into()));
-        }
-        let models_dir = Self::get_models_dir();
-        let available = HardwareProfiler::determine_available_ram_bytes();
-        let host = crate::zc_first_model::FirstRunHost {
-            ram: Self::inference_headroom_bytes(
-                available,
-                cfg.model_scoring_heuristics().system_ram_buffer_gb,
-            ),
-            vram: HardwareProfiler::gpu_vram_budget_bytes(),
-            disk: HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000),
-            offline: !crate::susi_core::mac_policy::egress_permitted("https://huggingface.co/"),
-        };
-        match Self::starter_download_plan(&host, &models_dir) {
-            crate::zc_first_model::FirstRunPlan::Fetch { model, plan } => {
-                let step = crate::hardware::ModelLadderStep {
-                    step: 1,
-                    label: model.id.clone(),
-                    hf_repo: model.hf_repo,
-                    hf_file: model.hf_file,
-                    tokenizer_repo: "Qwen/Qwen2.5-0.5B-Instruct".into(),
-                    min_bytes: model.size_bytes,
-                    expected_bytes: model.size_bytes,
-                };
-                // The small tokenizer first: a refusal costs no weight bytes.
-                Self::ensure_ladder_tokenizer(&step, &models_dir, &cfg)?;
-                Self::install_model_foreground(&plan.url)
-                    .map_err(crate::susi_error::EaiError::inference)?;
-                Ok(ModelProvisioningOutcome::Installed(model.id))
+        #[cfg(feature = "local-engine")]
+        {
+            static PLANNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            let Ok(_planning) = PLANNING.try_lock() else {
+                return Ok(ModelProvisioningOutcome::Active);
+            };
+            let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+            // Selection admits both actual weights and tokenizer and uses current
+            // resource budgets. Retain a better verified cache instead of spending
+            // bandwidth/disk on another model merely because a GPU is present.
+            if let Some(cached) = Self::identify_best_suited_local_model(workspace, None) {
+                return Ok(ModelProvisioningOutcome::Ready(cached.model_id().into()));
             }
-            crate::zc_first_model::FirstRunPlan::OfflineNoModel => {
-                Ok(ModelProvisioningOutcome::OfflineNoModel)
-            }
-            crate::zc_first_model::FirstRunPlan::TooSmall => Ok(ModelProvisioningOutcome::TooSmall),
-            crate::zc_first_model::FirstRunPlan::UseCached { .. } => {
-                Ok(ModelProvisioningOutcome::Ready(String::new()))
+            let models_dir = Self::get_models_dir();
+            let available = HardwareProfiler::determine_available_ram_bytes();
+            let host = crate::zc_first_model::FirstRunHost {
+                ram: Self::inference_headroom_bytes(
+                    available,
+                    cfg.model_scoring_heuristics().system_ram_buffer_gb,
+                ),
+                vram: HardwareProfiler::gpu_vram_budget_bytes(),
+                disk: HardwareProfiler::get_free_disk_bytes(&models_dir)
+                    .saturating_sub(2_000_000_000),
+                offline: !crate::susi_core::mac_policy::egress_permitted("https://huggingface.co/"),
+            };
+            match Self::starter_download_plan(&host, &models_dir) {
+                crate::zc_first_model::FirstRunPlan::Fetch { model, plan } => {
+                    let step = crate::hardware::ModelLadderStep {
+                        step: 1,
+                        label: model.id.clone(),
+                        hf_repo: model.hf_repo,
+                        hf_file: model.hf_file,
+                        tokenizer_repo: "Qwen/Qwen2.5-0.5B-Instruct".into(),
+                        min_bytes: model.size_bytes,
+                        expected_bytes: model.size_bytes,
+                    };
+                    // The small tokenizer first: a refusal costs no weight bytes.
+                    Self::ensure_ladder_tokenizer(&step, &models_dir, &cfg)?;
+                    Self::install_model_foreground(&plan.url)
+                        .map_err(crate::susi_error::EaiError::inference)?;
+                    Ok(ModelProvisioningOutcome::Installed(model.id))
+                }
+                crate::zc_first_model::FirstRunPlan::OfflineNoModel => {
+                    Ok(ModelProvisioningOutcome::OfflineNoModel)
+                }
+                crate::zc_first_model::FirstRunPlan::TooSmall => {
+                    Ok(ModelProvisioningOutcome::TooSmall)
+                }
+                crate::zc_first_model::FirstRunPlan::UseCached { .. } => {
+                    Ok(ModelProvisioningOutcome::Ready(String::new()))
+                }
             }
         }
     }
@@ -408,6 +416,7 @@ mod license_tests {
         }
     }
 
+    #[cfg(not(feature = "local-engine"))]
     #[test]
     fn a_build_without_the_engine_refuses_the_starter_before_downloading() {
         let err = ModelManager::install_starter_model_on_request(Path::new("."))
