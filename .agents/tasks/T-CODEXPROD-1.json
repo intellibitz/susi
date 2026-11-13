@@ -1,0 +1,33 @@
+{
+  "id": "T-CODEXPROD-1",
+  "title": "Review and admit openssl-sys 0.9.118 native binding",
+  "goal": "Review the lockfile-selected openssl-sys 0.9.118 build sources against the previously admitted 0.9.117 binding and update the exact Linux admission allowlist and tests so the production inventory gate matches the locked graph without weakening native linkage checks.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "xtask",
+      "--features",
+      "release-tooling",
+      "--bin",
+      "local-release"
+    ]
+  },
+  "scopes": [
+    ".agents/tasks/T-CODEXPROD-1.json",
+    "xtask/src/elf_imports.rs",
+    "xtask/src/native_openssl.rs"
+  ],
+  "reuse": {
+    "decision": "existing",
+    "searched": "Compared the locked openssl-sys 0.9.118 build sources with the previously admitted 0.9.117 sources and inspected the existing native admission helpers and tests.",
+    "reason": "This is a review of the existing exact native admission boundary; no new dependency or implementation is needed."
+  },
+  "created_by": "CODEXPROD",
+  "created_unix": 1794543638
+}

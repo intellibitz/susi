@@ -21,14 +21,14 @@ pub(crate) fn admit(
     }
     let root = manifest.parent().ok_or("OpenSSL manifest has no parent")?;
     if super::file_digest(manifest)?
-        != "0398fda9f72001a6d7f9dad48cf7c04a8e84161aa8a2342fc183247f90190085"
+        != "a65ab3506d0af118f0d0885ccb786ce4100f6d9290fdc9f80ca5669a636a566b"
     {
         return Err("OpenSSL binding manifest changed; requires review".into());
     }
     let expected = [
         (
             "cfgs.rs",
-            "9bb209657f5558a39740c4eb954404c3164b3c45fa6421b2916e2a7f18d6e300",
+            "99de3b4ee5c604f8b1b1fca28c81a8528f21a60b537484b15d17403ef1c72c02",
         ),
         (
             "expando.c",
@@ -44,7 +44,7 @@ pub(crate) fn admit(
         ),
         (
             "main.rs",
-            "3a7f63b3c446451801ac03c34e03051b8d3ebcceea28b8fb2688922255629d27",
+            "8b84f221fe21ae51b481166e0832f9d378ee0b4949ec995471258a8af2ef8378",
         ),
         (
             "run_bindgen.rs",
@@ -71,7 +71,7 @@ mod tests {
         ] {
             assert!(admit(
                 "x86_64-unknown-linux-gnu",
-                "0.9.117",
+                "0.9.118",
                 &features,
                 Path::new("missing")
             )
@@ -79,13 +79,6 @@ mod tests {
         }
         assert!(admit(
             "x86_64-pc-windows-msvc",
-            "0.9.117",
-            &[],
-            Path::new("missing")
-        )
-        .is_err());
-        assert!(admit(
-            "x86_64-unknown-linux-gnu",
             "0.9.118",
             &[],
             Path::new("missing")
@@ -94,6 +87,13 @@ mod tests {
         assert!(admit(
             "x86_64-unknown-linux-gnu",
             "0.9.117",
+            &[],
+            Path::new("missing")
+        )
+        .is_err());
+        assert!(admit(
+            "x86_64-unknown-linux-gnu",
+            "0.9.118",
             &[],
             Path::new("missing")
         )
