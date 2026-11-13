@@ -5,7 +5,12 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY target/release/susi /usr/local/bin/susi
-ENV SUSI_HOME=/susi
+ENV SUSI_HOME=/susi \
+    SUSI_UNATTENDED=1 \
+    GIT_TERMINAL_PROMPT=0 \
+    GCM_INTERACTIVE=never \
+    SSH_ASKPASS_REQUIRE=never \
+    CREDENTIALS_DIRECTORY=/run/secrets
 VOLUME ["/susi"]
 EXPOSE 9090
 ENTRYPOINT ["susi"]

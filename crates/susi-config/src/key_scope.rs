@@ -131,24 +131,35 @@ pub fn resolve_key_ref(reference: &KeyRef, global_dir: &Path) -> EaiResult<Scope
             ))
         })?,
         KeyScope::CloudEnv => {
-            let path = if global_dir.join("cloud.env").is_file() {
-                global_dir.join("cloud.env")
-            } else {
-                cloud_env_path()
-            };
-            let text = fs::read_to_string(&path).map_err(|_| {
-                EaiError::config(format!(
-                    "cloud.env missing while resolving {}",
-                    reference.uri()
-                ))
-            })?;
-            parse_env_file(&text)
+            if let Some(found) = super::cloud_env::load_cloud_env_from(global_dir)
                 .into_iter()
                 .find(|(k, _)| k == &reference.name)
                 .map(|(_, v)| v)
-                .ok_or_else(|| {
-                    EaiError::config(format!("alias {} not found in cloud.env", reference.uri()))
-                })?
+            {
+                found
+            } else {
+                let path = if global_dir.join("cloud.env").is_file() {
+                    global_dir.join("cloud.env")
+                } else {
+                    cloud_env_path()
+                };
+                let text = fs::read_to_string(&path).map_err(|_| {
+                    EaiError::config(format!(
+                        "cloud.env/sealed vault missing while resolving {}",
+                        reference.uri()
+                    ))
+                })?;
+                parse_env_file(&text)
+                    .into_iter()
+                    .find(|(k, _)| k == &reference.name)
+                    .map(|(_, v)| v)
+                    .ok_or_else(|| {
+                        EaiError::config(format!(
+                            "alias {} not found in cloud.env or sealed vault",
+                            reference.uri()
+                        ))
+                    })?
+            }
         }
         KeyScope::HostFile => {
             let path = global_dir.join(&reference.name);

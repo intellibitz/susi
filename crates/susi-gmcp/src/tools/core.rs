@@ -485,19 +485,19 @@ impl CoreTools {
         let _ = std::io::stdout().flush();
         task_handle.report_progress();
 
-        let mut child = Command::new(&args[0])
-            .args(&args[1..])
-            .env("GIT_TERMINAL_PROMPT", "0")
+        let mut cmd = Command::new(&args[0]);
+        cmd.args(&args[1..])
             .current_dir(workspace)
             // Never hand the daemon's stdin to an agent-issued command.
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| {
-                task_handle.mark_failed(&format!("Exec spawn failed: {}", e));
-                EaiError::process(format!("Exec failed: {}", e))
-            })?;
+            .stderr(std::process::Stdio::piped());
+        susi_paths::console::apply_non_interactive_env(&mut cmd);
+        susi_paths::console::without_window(&mut cmd);
+        let mut child = cmd.spawn().map_err(|e| {
+            task_handle.mark_failed(&format!("Exec spawn failed: {}", e));
+            EaiError::process(format!("Exec failed: {e}"))
+        })?;
 
         // Drain both pipes concurrently: reading only after exit deadlocks
         // any command that writes more than a pipe buffer (~64 KiB) — the
@@ -507,6 +507,15 @@ impl CoreTools {
 
         let mut stdout_buf = Vec::new();
         let mut stderr_buf = Vec::new();
+        let exec_timeout = std::env::var("SUSI_EXEC_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .filter(|&s| s > 0)
+            .map_or_else(
+                || std::time::Duration::from_secs(300),
+                std::time::Duration::from_secs,
+            );
+        let deadline = std::time::Instant::now() + exec_timeout;
 
         loop {
             task_handle.check_pause();
@@ -518,6 +527,15 @@ impl CoreTools {
                 return Err(EaiError::process(
                     "Execution killed due to stall or cancel request".to_string(),
                 ));
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                task_handle.mark_failed("Command timed out");
+                return Err(EaiError::process(format!(
+                    "Command timed out after {}s",
+                    exec_timeout.as_secs()
+                )));
             }
 
             let status = match child.try_wait() {

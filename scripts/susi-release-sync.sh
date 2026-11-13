@@ -87,6 +87,10 @@ for d in "${HOME}/.cargo/bin" /opt/cuda/bin /usr/local/cuda/bin; do
     [ -d "$d" ] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH" ;; esac
 done
 export PATH
+export SUSI_UNATTENDED="${SUSI_UNATTENDED:-1}"
+export GIT_TERMINAL_PROMPT="${GIT_TERMINAL_PROMPT:-0}"
+export GCM_INTERACTIVE="${GCM_INTERACTIVE:-never}"
+export SSH_ASKPASS_REQUIRE="${SSH_ASKPASS_REQUIRE:-never}"
 
 log() { printf '[release-sync] %s\n' "$*" >&2; }
 die() { log "error: $*"; exit 1; }
@@ -473,6 +477,11 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+Environment=SUSI_UNATTENDED=1
+Environment=GIT_TERMINAL_PROMPT=0
+Environment=GCM_INTERACTIVE=never
+Environment=SSH_ASKPASS_REQUIRE=never
+EnvironmentFile=-%h/.susi/service.env
 ExecStart=${SELF_INSTALLED}
 SuccessExitStatus=${EX_TEMPFAIL}
 Nice=10

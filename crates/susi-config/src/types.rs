@@ -663,7 +663,7 @@ impl Default for InferenceRoutingConfig {
             local_min_tokens_per_sec: 8.0,
             local_max_latency_ms: 15_000,
             prefer_cloud_when_cpu_only: true,
-            ask_when_multiple_clouds: true,
+            ask_when_multiple_clouds: false,
         }
     }
 }
@@ -999,7 +999,7 @@ mod tests {
         let routing = InferenceRoutingConfig::default();
         assert_eq!(routing.policy, "auto");
         assert_eq!(routing.local_max_latency_ms, 15_000);
-        assert!(routing.prefer_cloud_when_cpu_only && routing.ask_when_multiple_clouds);
+        assert!(routing.prefer_cloud_when_cpu_only && !routing.ask_when_multiple_clouds);
         let tuned: InferenceRoutingConfig =
             serde_json::from_value(json!({"policy": "local_only"})).unwrap();
         assert_eq!(tuned.policy, "local_only");

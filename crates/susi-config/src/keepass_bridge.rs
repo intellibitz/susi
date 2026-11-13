@@ -6,9 +6,14 @@
 //! headless services, background agents, and cloud containers.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{IsTerminal, Write};
+use std::io::{IsTerminal, Read};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, UNIX_EPOCH};
+
+const KDBX_MAGIC: [u8; 4] = [0x03, 0xd9, 0xa2, 0x9a];
+const KEEPASSXC_TIMEOUT: Duration = Duration::from_secs(30);
+const RCLONE_TIMEOUT: Duration = Duration::from_secs(120);
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -177,12 +182,26 @@ pub fn discover_kdbx_path(config_dir: &Path) -> Result<Option<PathBuf>, String> 
         }
     }
 
+    let mut fallback_file: Option<PathBuf> = None;
     for candidate in default_vault_candidates(home_dir().as_deref()) {
         if !is_personal_vault_path(&candidate) && candidate.is_file() {
-            return Ok(Some(candidate));
+            if has_valid_kdbx_magic(&candidate) {
+                return Ok(Some(candidate));
+            }
+            if fallback_file.is_none() {
+                fallback_file = Some(candidate);
+            }
         }
     }
-    Ok(None)
+    Ok(fallback_file)
+}
+
+fn has_valid_kdbx_magic(path: &Path) -> bool {
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 4];
+    f.read_exact(&mut magic).is_ok() && magic == KDBX_MAGIC
 }
 
 /// Discover optional synced `.keyx` / `.key` keyfile for KeePassXC unlock.
@@ -244,6 +263,7 @@ fn resolve_kdbx_auth(
         _ => None,
     };
     let interactive_tty = allow_interactive
+        && !susi_paths::console::is_unattended_env()
         && passphrase.is_none()
         && std::io::stdin().is_terminal()
         && std::io::stderr().is_terminal();
@@ -282,19 +302,16 @@ fn run_keepassxc(
     cmd.args(extra_args);
 
     let out = if let Some(pass) = &auth.passphrase {
-        let mut child = cmd
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("failed to launch `{cli}`: {e}"))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(pass.as_bytes());
-            let _ = stdin.write_all(b"\n");
-        }
-        child
-            .wait_with_output()
-            .map_err(|e| format!("failed waiting for `{cli}`: {e}"))?
+        let mut stdin_line = String::with_capacity(pass.len() + 1);
+        stdin_line.push_str(pass);
+        stdin_line.push('\n');
+        let res = susi_paths::console::run_output_within(
+            &mut cmd,
+            Some(stdin_line.as_bytes()),
+            KEEPASSXC_TIMEOUT,
+        );
+        drop_secret_string(stdin_line);
+        res.map_err(|e| format!("failed to run `{cli}`: {e}"))?
     } else if auth.interactive_tty {
         cmd.stdin(Stdio::inherit())
             .stdout(Stdio::piped())
@@ -302,10 +319,7 @@ fn run_keepassxc(
             .output()
             .map_err(|e| format!("failed to run `{cli}`: {e}"))?
     } else {
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
+        susi_paths::console::run_output_within(&mut cmd, None, KEEPASSXC_TIMEOUT)
             .map_err(|e| format!("failed to run `{cli}`: {e}"))?
     };
 
@@ -420,10 +434,12 @@ pub fn map_kdbx_entry(entry_path: &str) -> Vec<(&'static str, String)> {
             out.push(("cloud", "PERPLEXITY_API_KEY".to_string()))
         }
         "hf" | "huggingface" | "hf_token" | "huggingface_hub_token" => {
-            out.push(("cloud", "HF_TOKEN".to_string()))
+            out.push(("cloud", "HF_TOKEN".to_string()));
+            out.push(("cloud", "HUGGINGFACE_HUB_TOKEN".to_string()));
         }
         "gh" | "github" | "gh_token" | "github_token" | "github_personal_access_token" => {
             out.push(("cloud", "GH_TOKEN".to_string()));
+            out.push(("cloud", "GITHUB_TOKEN".to_string()));
             out.push(("cloud", "GITHUB_PERSONAL_ACCESS_TOKEN".to_string()));
         }
         "brave" | "brave_api_key" => out.push(("cloud", "BRAVE_API_KEY".to_string())),
@@ -618,12 +634,10 @@ fn sync_via_rclone(
     } else {
         (remote_spec, local_str.as_str())
     };
-    let out = Command::new("rclone")
-        .args(args)
-        .arg(src)
-        .arg(dst)
-        .stdin(Stdio::null())
-        .output()
+    let mut rclone_cmd = Command::new("rclone");
+    rclone_cmd.args(args).arg(src).arg(dst);
+    susi_paths::console::apply_non_interactive_env(&mut rclone_cmd);
+    let out = susi_paths::console::run_output_within(&mut rclone_cmd, None, RCLONE_TIMEOUT)
         .map_err(|e| format!("failed to run `rclone`: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -671,7 +685,6 @@ pub fn sync_kdbx_to_sealed_vault(
         enroll_master_key(config_dir, None, None)?;
     }
 
-    let entries = list_kdbx_entries(config_dir, &db_path, allow_interactive)?;
     let mut vault = if dry_run {
         SealedVault::open(config_dir)?.unwrap_or_default()
     } else {
@@ -681,40 +694,44 @@ pub fn sync_kdbx_to_sealed_vault(
     let mut imported_cloud = BTreeSet::new();
     let mut imported_commercial = BTreeSet::new();
 
-    for entry in &entries {
-        let leaf = entry.rsplit('/').next().unwrap_or(entry).trim();
-        let pw = read_kdbx_attribute(config_dir, &db_path, entry, "Password", allow_interactive)?;
-        if !pw.trim().is_empty() {
-            for (scope, name) in map_kdbx_entry(entry) {
-                vault.set(scope, &name, pw.trim());
-                if scope == "cloud" {
-                    imported_cloud.insert(name);
-                } else if scope == "commercial" {
-                    imported_commercial.insert(name);
-                }
+    if let Ok(csv_records) = export_kdbx_csv_records(config_dir, &db_path, allow_interactive) {
+        if !csv_records.is_empty() {
+            for rec in csv_records {
+                import_kdbx_record(
+                    &mut vault,
+                    &rec,
+                    &mut imported_cloud,
+                    &mut imported_commercial,
+                );
+                drop_secret_string(rec.password);
+                drop_secret_string(rec.notes);
             }
         }
-        drop_secret_string(pw);
-
-        if leaf.eq_ignore_ascii_case("Forward to apps") {
-            let notes =
+    } else {
+        let entries = list_kdbx_entries(config_dir, &db_path, allow_interactive)?;
+        for entry in &entries {
+            let leaf = entry.rsplit('/').next().unwrap_or(entry).trim();
+            let pw =
+                read_kdbx_attribute(config_dir, &db_path, entry, "Password", allow_interactive)?;
+            let notes = if leaf.eq_ignore_ascii_case("Forward to apps") {
                 read_kdbx_attribute(config_dir, &db_path, entry, "Notes", allow_interactive)
-                    .unwrap_or_default();
-            for (env_k, env_v) in parse_env_file(&notes) {
-                if !env_k.trim().is_empty() && !env_v.trim().is_empty() {
-                    let scope = if env_k.starts_with("SUSI_COMMERCIAL")
-                        || env_k.starts_with("SUSI_CUSTOMER_LICENSE")
-                    {
-                        imported_commercial.insert(env_k.clone());
-                        "commercial"
-                    } else {
-                        imported_cloud.insert(env_k.clone());
-                        "cloud"
-                    };
-                    vault.set(scope, &env_k, &env_v);
-                }
-            }
-            drop_secret_string(notes);
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let rec = CsvKdbxRecord {
+                entry_path: entry.clone(),
+                password: pw,
+                notes,
+            };
+            import_kdbx_record(
+                &mut vault,
+                &rec,
+                &mut imported_cloud,
+                &mut imported_commercial,
+            );
+            drop_secret_string(rec.password);
+            drop_secret_string(rec.notes);
         }
     }
 
@@ -738,6 +755,235 @@ pub fn sync_kdbx_to_sealed_vault(
     })
 }
 
+struct CsvKdbxRecord {
+    entry_path: String,
+    password: String,
+    notes: String,
+}
+
+fn import_kdbx_record(
+    vault: &mut SealedVault,
+    rec: &CsvKdbxRecord,
+    imported_cloud: &mut BTreeSet<String>,
+    imported_commercial: &mut BTreeSet<String>,
+) {
+    let entry_path = rec.entry_path.as_str();
+    let pw = rec.password.as_str();
+    let notes = rec.notes.as_str();
+    let leaf = entry_path.rsplit('/').next().unwrap_or(entry_path).trim();
+    if !pw.trim().is_empty() {
+        for (scope, name) in map_kdbx_entry(entry_path) {
+            vault.set(scope, &name, pw.trim());
+            if scope == "cloud" {
+                imported_cloud.insert(name);
+            } else if scope == "commercial" {
+                imported_commercial.insert(name);
+            }
+        }
+    }
+    if leaf.eq_ignore_ascii_case("Forward to apps") && !notes.trim().is_empty() {
+        for (env_k, env_v) in parse_env_file(notes) {
+            if !env_k.trim().is_empty() && !env_v.trim().is_empty() {
+                let scope = if env_k.starts_with("SUSI_COMMERCIAL")
+                    || env_k.starts_with("SUSI_CUSTOMER_LICENSE")
+                {
+                    imported_commercial.insert(env_k.clone());
+                    "commercial"
+                } else {
+                    imported_cloud.insert(env_k.clone());
+                    "cloud"
+                };
+                vault.set(scope, &env_k, &env_v);
+            }
+        }
+    }
+}
+
+fn export_kdbx_csv_records(
+    config_dir: &Path,
+    db_path: &Path,
+    allow_interactive: bool,
+) -> Result<Vec<CsvKdbxRecord>, String> {
+    validate_non_personal(db_path)?;
+    let cli = resolve_keepassxc_cli(config_dir);
+    let auth = resolve_kdbx_auth(config_dir, allow_interactive)?;
+    let mut csv_text = run_keepassxc(&cli, &["export", "-f", "csv"], db_path, &[], &auth)?;
+    let rows = parse_csv_rows(&csv_text);
+    drop_secret_string(std::mem::take(&mut csv_text));
+    let Some(header) = rows.first() else {
+        return Ok(Vec::new());
+    };
+    let col = |name: &str| header.iter().position(|h| h.eq_ignore_ascii_case(name));
+    let group_idx = col("Group");
+    let title_idx = col("Title").ok_or_else(|| "CSV missing Title column".to_string())?;
+    let pass_idx = col("Password").ok_or_else(|| "CSV missing Password column".to_string())?;
+    let notes_idx = col("Notes");
+
+    let mut out = Vec::new();
+    for row in rows.into_iter().skip(1) {
+        let title = row.get(title_idx).map(|s| s.trim()).unwrap_or_default();
+        if title.is_empty() {
+            continue;
+        }
+        let raw_group = group_idx
+            .and_then(|i| row.get(i))
+            .map(|s| s.trim().trim_matches('/'))
+            .unwrap_or_default();
+        let norm_group = raw_group
+            .strip_prefix("Root/")
+            .or_else(|| raw_group.strip_prefix("Root"))
+            .unwrap_or(raw_group)
+            .trim_start_matches('/');
+        if norm_group.to_ascii_lowercase().starts_with("recycle bin") {
+            continue;
+        }
+        let entry_path = if norm_group.is_empty() {
+            title.to_string()
+        } else {
+            format!("{norm_group}/{title}")
+        };
+        let password = row.get(pass_idx).cloned().unwrap_or_default();
+        let notes = notes_idx
+            .and_then(|i| row.get(i))
+            .cloned()
+            .unwrap_or_default();
+        out.push(CsvKdbxRecord {
+            entry_path,
+            password,
+            notes,
+        });
+    }
+    Ok(out)
+}
+
+fn parse_csv_rows(input: &str) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    let mut field = String::new();
+    let mut chars = input.chars().peekable();
+    let mut in_quotes = false;
+
+    while let Some(c) = chars.next() {
+        if in_quotes {
+            if c == '"' {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    field.push('"');
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                field.push(c);
+            }
+        } else {
+            match c {
+                '"' if field.is_empty() => in_quotes = true,
+                ',' => row.push(std::mem::take(&mut field)),
+                '\n' => {
+                    row.push(std::mem::take(&mut field));
+                    rows.push(std::mem::take(&mut row));
+                }
+                '\r' => {
+                    if chars.peek() == Some(&'\n') {
+                        chars.next();
+                    }
+                    row.push(std::mem::take(&mut field));
+                    rows.push(std::mem::take(&mut row));
+                }
+                _ => field.push(c),
+            }
+        }
+    }
+    if !field.is_empty() || !row.is_empty() {
+        row.push(field);
+        rows.push(row);
+    }
+    rows
+}
+
+fn file_mtime_unix(path: &Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
+/// Strictly non-interactive auto-refresh: if KeePassXC unlock material and an enrolled DB (or GDrive
+/// mirror) are configured and newer than `last_sync_unix`, pull + re-seal without ever prompting.
+pub fn auto_sync_if_enrolled(config_dir: &Path) -> Result<bool, String> {
+    if resolve_master_key(config_dir)?.is_none() {
+        return Ok(false);
+    }
+    let has_kdbx_auth = resolve_unlock_secret(config_dir, PURPOSE_KDBX)
+        .ok()
+        .flatten()
+        .is_some()
+        || discover_kdbx_key_file(config_dir).is_some();
+    if !has_kdbx_auth {
+        return Ok(false);
+    }
+    let cfg = VaultConfig::load(config_dir);
+    let Some(db_path) = cfg
+        .vault_db_path
+        .clone()
+        .filter(|p| p.is_file() && !is_personal_vault_path(p) && has_valid_kdbx_magic(p))
+    else {
+        return Ok(false);
+    };
+    let last_sync = cfg.last_sync_unix.unwrap_or(0);
+    let local_mtime = file_mtime_unix(&db_path).unwrap_or(0);
+    let drive_mtime = cfg
+        .gdrive_sync_path
+        .as_deref()
+        .and_then(file_mtime_unix)
+        .unwrap_or(0);
+    let vault_exists = SealedVault::path_in(config_dir).is_file();
+    if vault_exists && local_mtime <= last_sync && drive_mtime <= last_sync {
+        return Ok(false);
+    }
+    sync_kdbx_to_sealed_vault(
+        config_dir,
+        Some(&db_path),
+        GDriveSyncDirection::Pull,
+        false,
+        false,
+    )?;
+    Ok(true)
+}
+
+fn load_client_conf_allowlist(config_dir: &Path, profile: &str) -> Option<Vec<String>> {
+    let mut candidates = vec![config_dir.join("vault-clients.conf")];
+    if let Some(h) = home_dir() {
+        candidates.push(h.join(".config").join("ai-keys").join("clients.conf"));
+    }
+    for path in candidates {
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let Some((client, keys)) = trimmed.split_once('=') else {
+                continue;
+            };
+            if client.trim().eq_ignore_ascii_case(profile) {
+                return Some(
+                    keys.split_whitespace()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect(),
+                );
+            }
+        }
+    }
+    None
+}
+
 /// Resolve client-scoped environment pairs from `SealedVault` without global shell export.
 pub fn resolve_client_env(
     config_dir: &Path,
@@ -754,7 +1000,10 @@ pub fn resolve_client_env(
         .unwrap_or("all")
         .to_ascii_lowercase();
 
-    let allowlist: Option<&[&str]> = match profile.as_str() {
+    let mut wild_all = false;
+    let mut dynamic_list: Option<Vec<String>> = None;
+
+    let builtin: Option<&[&str]> = match profile.as_str() {
         "claude" => Some(&[
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
@@ -763,6 +1012,7 @@ pub fn resolve_client_env(
             "CONTEXT7_API_KEY",
             "BRAVE_API_KEY",
             "GH_TOKEN",
+            "GITHUB_TOKEN",
             "GITHUB_PERSONAL_ACCESS_TOKEN",
         ]),
         "codex" => Some(&[
@@ -771,6 +1021,7 @@ pub fn resolve_client_env(
             "BRAVE_API_KEY",
             "TAVILY_API_KEY",
             "GH_TOKEN",
+            "GITHUB_TOKEN",
             "GITHUB_PERSONAL_ACCESS_TOKEN",
         ]),
         "gemini" => Some(&[
@@ -778,26 +1029,88 @@ pub fn resolve_client_env(
             "GOOGLE_API_KEY",
             "CONTEXT7_API_KEY",
             "GH_TOKEN",
+            "GITHUB_TOKEN",
         ]),
         "gh" => Some(&["GH_TOKEN", "GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"]),
-        "hf" => Some(&["HF_TOKEN", "HUGGINGFACE_HUB_TOKEN"]),
-        "vibe" => Some(&[
+        "hf" | "huggingface-cli" => Some(&["HF_TOKEN", "HUGGINGFACE_HUB_TOKEN"]),
+        "vibe" | "vibe-acp" | "vibe-app-server" => Some(&[
             "MISTRAL_API_KEY",
             "DEEPSEEK_API_KEY",
             "OPENAI_API_KEY",
             "OPENROUTER_API_KEY",
         ]),
-        "llm" | "cloud" | "commercial" | "all" => None,
+        "aider" | "cline" | "opencode" | "kilo" | "kilocode" | "sweagent" | "agency-swarm"
+        | "interpreter" | "pi" | "hermes" | "hermes-agent" => Some(&[
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "GROQ_API_KEY",
+            "OPENROUTER_API_KEY",
+            "MISTRAL_API_KEY",
+            "XAI_API_KEY",
+            "ZHIPU_API_KEY",
+            "ZAI_API_KEY",
+        ]),
+        "deepseek" => Some(&["DEEPSEEK_API_KEY"]),
+        "openai" => Some(&["OPENAI_API_KEY"]),
+        "qwen" => Some(&["DASHSCOPE_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"]),
+        "litellm" | "litellm-proxy" | "gateway" => Some(&[
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "GROQ_API_KEY",
+            "MISTRAL_API_KEY",
+            "DEEPINFRA_API_KEY",
+            "SILICONFLOW_API_KEY",
+            "MOONSHOT_API_KEY",
+            "OPENROUTER_API_KEY",
+            "ZHIPU_API_KEY",
+            "ZAI_API_KEY",
+            "HF_TOKEN",
+        ]),
+        "tiny-agents" => Some(&["HF_TOKEN", "HUGGINGFACE_HUB_TOKEN", "OPENAI_API_KEY"]),
+        "llm" | "cloud" | "commercial" | "all" => {
+            wild_all = true;
+            None
+        }
         other => {
-            return Err(format!(
-                "unknown vault exec client profile `{other}` (expected claude, codex, gemini, gh, hf, vibe, cloud, commercial, or all)"
-            ))
+            if let Some(conf_list) = load_client_conf_allowlist(config_dir, other) {
+                if conf_list.iter().any(|k| k == "*") {
+                    wild_all = true;
+                } else {
+                    dynamic_list = Some(conf_list);
+                }
+                None
+            } else {
+                return Err(format!(
+                    "unknown vault exec client profile `{other}` (expected claude, codex, gemini, gh, hf, vibe, aider, cline, opencode, qwen, gateway, cloud, commercial, or all)"
+                ));
+            }
         }
     };
 
+    // Custom clients.conf entry for a built-in profile can refine or widen it cleanly.
+    if !wild_all && dynamic_list.is_none() {
+        if let Some(conf_list) = load_client_conf_allowlist(config_dir, &profile) {
+            if conf_list.iter().any(|k| k == "*") {
+                wild_all = true;
+            } else if !conf_list.is_empty() {
+                dynamic_list = Some(conf_list);
+            }
+        }
+    }
+
     for scope in ["env", "cloud"] {
         for (k, v) in vault.scope_entries(scope) {
-            if !v.is_empty() && allowlist.is_none_or(|list| list.contains(&k.as_str())) {
+            let allowed = wild_all
+                || dynamic_list
+                    .as_ref()
+                    .is_some_and(|list| list.iter().any(|entry| entry == &k))
+                || (dynamic_list.is_none()
+                    && builtin.is_none_or(|list| list.contains(&k.as_str())));
+            if !v.is_empty() && allowed {
                 env_out.insert(k, v);
             }
         }
@@ -825,6 +1138,7 @@ pub fn exec_with_client_env(
     let mut cmd = Command::new(program);
     cmd.args(&command[1..]);
     cmd.envs(&secrets);
+    susi_paths::console::apply_non_interactive_env(&mut cmd);
     let status = cmd
         .status()
         .map_err(|e| format!("failed to spawn `{program}`: {e}"))?;
@@ -836,6 +1150,7 @@ pub fn exec_with_client_env(
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     fn scratch_dir(tag: &str) -> PathBuf {
@@ -1053,6 +1368,46 @@ mod tests {
         match prev_kf2 {
             Some(v) => std::env::set_var(SUSI_VAULT_KEY_FILE_ENV, v),
             None => std::env::remove_var(SUSI_VAULT_KEY_FILE_ENV),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn csv_parser_and_custom_client_conf_work() {
+        let rows = parse_csv_rows(
+            "\"Group\",\"Title\",\"Password\",\"Notes\"\n\"Root/AI\",\"openai\",\"sk-\"\"q\"\",1\",\"line1\nline2\"\n",
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1][0], "Root/AI");
+        assert_eq!(rows[1][1], "openai");
+        assert_eq!(rows[1][2], "sk-\"q\",1");
+        assert_eq!(rows[1][3], "line1\nline2");
+
+        let _guard = crate::env_test_lock();
+        let dir = scratch_dir("custom_client_conf");
+        let prev = std::env::var_os(super::super::vault_store::VAULT_KEY_ENV);
+        std::env::remove_var(super::super::vault_store::VAULT_KEY_ENV);
+
+        enroll_master_key(&dir, Some("keyfile"), None).unwrap();
+        let mut vault = SealedVault::open_or_init(&dir).unwrap();
+        vault.set("cloud", "SILICONFLOW_API_KEY", "sf-1");
+        vault.set("cloud", "OPENAI_API_KEY", "sk-2");
+        vault.save(&dir).unwrap();
+
+        std::fs::write(
+            dir.join("vault-clients.conf"),
+            "customtool = SILICONFLOW_API_KEY\n",
+        )
+        .unwrap();
+        let custom = resolve_client_env(&dir, Some("customtool")).unwrap();
+        assert_eq!(
+            custom.get("SILICONFLOW_API_KEY").map(String::as_str),
+            Some("sf-1")
+        );
+        assert!(!custom.contains_key("OPENAI_API_KEY"));
+
+        if let Some(v) = prev {
+            std::env::set_var(super::super::vault_store::VAULT_KEY_ENV, v);
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

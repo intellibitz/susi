@@ -915,12 +915,14 @@ fn reconcile_repo_branch(
 }
 
 fn ensure_clean_merge_tree(dir: &Path, left: &str, right: &str) -> EaiResult<String> {
-    let out = Command::new("git")
-        .arg("--literal-pathspecs")
+    let mut cmd = susi_paths::console::background_command("git");
+    cmd.arg("--literal-pathspecs")
         .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .env("GIT_TERMINAL_PROMPT", "0")
         .current_dir(dir)
-        .args(["merge-tree", "--write-tree", left, right])
+        .args(["merge-tree", "--write-tree", left, right]);
+    susi_paths::console::apply_non_interactive_env(&mut cmd);
+    let out = cmd
+        .stdin(std::process::Stdio::null())
         .output()
         .map_err(|e| EaiError::io(format!("git merge-tree failed to spawn: {e}")))?;
     if !out.status.success() {

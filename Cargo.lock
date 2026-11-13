@@ -1135,6 +1135,7 @@ version = "0.21.67"
 dependencies = [
  "susi-adapters-llm",
  "susi-build-os-ucrt",
+ "susi-config",
  "susi-error",
  "susi-http-transport",
  "susi-paths",

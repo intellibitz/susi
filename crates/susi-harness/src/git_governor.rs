@@ -14,10 +14,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::Command;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use susi_error::{EaiError, EaiResult};
 
 /// Receipt schema for automated multi-branch development sweeps onto `main`.
@@ -442,35 +441,14 @@ fn run_git(
             "maintenance.auto=false",
             "--no-replace-objects",
         ])
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .args(args);
+    susi_paths::console::apply_non_interactive_env(&mut cmd);
     for &(k, v) in extra_env {
         cmd.env(k, v);
     }
-    if stdin_bytes.is_some() {
-        cmd.stdin(Stdio::piped());
-    } else {
-        cmd.stdin(Stdio::null());
-    }
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| EaiError::process(format!("failed to spawn git {}: {e}", args.join(" "))))?;
-    let (waited, stdin_res) = std::thread::scope(|s| {
-        let pipe = child.stdin.take();
-        let writer = s.spawn(move || -> Result<(), std::io::Error> {
-            if let (Some(input), Some(mut p)) = (stdin_bytes, pipe) {
-                p.write_all(input)?;
-            }
-            Ok(())
-        });
-        let w = child.wait_with_output();
-        (w, writer.join().unwrap_or(Ok(())))
-    });
-    stdin_res.map_err(|e| EaiError::io(format!("git stdin write failed: {e}")))?;
-    let out = waited
-        .map_err(|e| EaiError::process(format!("git {} wait failed: {e}", args.join(" "))))?;
+    let out =
+        susi_paths::console::run_output_within(&mut cmd, stdin_bytes, Duration::from_secs(120))
+            .map_err(|e| EaiError::process(format!("git {} failed: {e}", args.join(" "))))?;
     Ok(GitOut {
         code: out.status.code().unwrap_or(-1),
         stdout: out.stdout,

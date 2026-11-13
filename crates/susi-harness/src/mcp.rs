@@ -11,7 +11,7 @@
 use crate::tools::{Policy, ToolSpec};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -417,11 +417,13 @@ impl StdioTransport {
     /// Returns an I/O error when the process cannot be spawned or its pipes
     /// cannot be taken.
     pub fn spawn(program: &str, args: &[String]) -> EaiResult<Self> {
-        let mut child = Command::new(program)
-            .args(args)
+        let mut cmd = susi_paths::console::background_command(program);
+        cmd.args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        susi_paths::console::apply_non_interactive_env(&mut cmd);
+        let mut child = cmd
             .spawn()
             .map_err(|error| EaiError::io(format!("mcp spawn {program}: {error}")))?;
         let stdin = child

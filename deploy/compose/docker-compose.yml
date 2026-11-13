@@ -13,6 +13,11 @@ services:
       dockerfile: deploy/compose/Dockerfile.susi
     environment:
       SUSI_HOME: /susi
+      SUSI_UNATTENDED: "1"
+      GIT_TERMINAL_PROMPT: "0"
+      GCM_INTERACTIVE: never
+      SSH_ASKPASS_REQUIRE: never
+      CREDENTIALS_DIRECTORY: /run/secrets
       # engines are loopback siblings — same zero-config discovery the
       # bare-metal path uses, just at compose-assigned ports
       OLLAMA_HOST: http://ollama:11434

@@ -752,6 +752,15 @@ impl Maintenance {
             self.cfg_mtime = mtime;
         }
 
+        // Unattended KeePassXC -> SealedVault refresh: mtime-gated inside
+        // `auto_sync_if_enrolled`, so unchanged vaults cost only one stat().
+        match susi_config::keepass_bridge::auto_sync_if_enrolled(&susi_paths::SusiDirs::config_dir())
+        {
+            Ok(true) => info!("[runtime-admin] refreshed sealed vault from enrolled kdbx"),
+            Ok(false) => {}
+            Err(e) => warn!("[runtime-admin] unattended kdbx auto-sync skipped/failed: {e}"),
+        }
+
         // Scheduled missions: due prompts dispatch to the missions
         // ingress dir and record their run (evidence + backoff).
         let mut store =

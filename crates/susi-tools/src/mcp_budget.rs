@@ -327,8 +327,28 @@ fn spawn_stdio_command(config: &McpServerConfig) -> Result<std::process::Child, 
             command.env(key, value);
         }
     }
+    susi_paths::console::apply_non_interactive_env(&mut command);
+    if let Some(env_keys) = config.extra.get("env_keys").and_then(Value::as_array) {
+        for key in env_keys.iter().filter_map(Value::as_str) {
+            if let Ok(value) = crate::susi_config::env_or_cloud_env(key) {
+                if !value.is_empty() {
+                    command.env(key, value);
+                }
+            }
+        }
+    }
     if let Some(env) = &config.env {
-        command.envs(env);
+        for (k, v) in env {
+            if v.trim().is_empty() {
+                if let Ok(resolved) = crate::susi_config::env_or_cloud_env(k) {
+                    if !resolved.is_empty() {
+                        command.env(k, resolved);
+                        continue;
+                    }
+                }
+            }
+            command.env(k, v);
+        }
     }
     if let Some(cwd) = config.extra.get("cwd").and_then(Value::as_str) {
         if cwd.contains("{workspace}") {

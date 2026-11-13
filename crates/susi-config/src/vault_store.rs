@@ -11,10 +11,12 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{compiler_fence, Ordering};
+use std::time::Duration;
+
+const KEYSTORE_TIMEOUT: Duration = Duration::from_secs(15);
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
@@ -662,26 +664,43 @@ fn resolve_from_env(purpose: &str) -> Result<Option<(String, UnlockBackendKind)>
 fn resolve_from_credentials_dir(
     purpose: &str,
 ) -> Result<Option<(String, UnlockBackendKind)>, String> {
-    let Ok(cred_dir) = std::env::var("CREDENTIALS_DIRECTORY") else {
-        return Ok(None);
-    };
-    let cred_dir = cred_dir.trim();
-    if cred_dir.is_empty() {
-        return Ok(None);
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Ok(cred_dir) = std::env::var("CREDENTIALS_DIRECTORY") {
+        let trimmed = cred_dir.trim();
+        if !trimmed.is_empty() {
+            dirs.push(PathBuf::from(trimmed));
+        }
     }
+    #[cfg(not(test))]
+    {
+        dirs.push(PathBuf::from("/run/secrets"));
+        dirs.push(PathBuf::from("/var/run/secrets/susi"));
+    }
+    resolve_from_secret_dirs(purpose, &dirs)
+}
+
+fn resolve_from_secret_dirs(
+    purpose: &str,
+    dirs: &[PathBuf],
+) -> Result<Option<(String, UnlockBackendKind)>, String> {
     let names: &[&str] = if purpose == PURPOSE_KDBX {
         &["susi-kdbx-passphrase", "kdbx.passphrase"]
     } else {
         &["susi-vault-key", "vault.key"]
     };
-    for file in names {
-        let candidate = Path::new(cred_dir).join(file);
-        if candidate.is_file() {
-            let raw = std::fs::read_to_string(&candidate)
-                .map_err(|e| format!("read CREDENTIALS_DIRECTORY/{file}: {e}"))?;
-            let secret = raw.trim().to_string();
-            if !secret.is_empty() {
-                return Ok(Some((secret, UnlockBackendKind::CredentialsDirectory)));
+    for dir in dirs {
+        if !dir.is_dir() {
+            continue;
+        }
+        for file in names {
+            let candidate = dir.join(file);
+            if candidate.is_file() {
+                let raw = std::fs::read_to_string(&candidate)
+                    .map_err(|e| format!("read {}/{file}: {e}", dir.display()))?;
+                let secret = raw.trim().to_string();
+                if !secret.is_empty() {
+                    return Ok(Some((secret, UnlockBackendKind::CredentialsDirectory)));
+                }
             }
         }
     }
@@ -716,26 +735,21 @@ fn seal_systemd_cred(dir: &Path, purpose: &str, secret: &str) -> Result<(), Stri
 
     // Try TPM2+host first, then host-only user credential sealing.
     for key_mode in ["host+tpm2", "host"] {
-        let mut child = Command::new("systemd-creds")
-            .args([
-                "encrypt",
-                "--user",
-                &format!("--with-key={key_mode}"),
-                &format!("--name={cred_name}"),
-                "-",
-            ])
-            .arg(&tmp)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("spawn systemd-creds: {e}"))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(secret.as_bytes());
-        }
-        let out = child
-            .wait_with_output()
-            .map_err(|e| format!("wait systemd-creds: {e}"))?;
+        let mut cmd = Command::new("systemd-creds");
+        cmd.args([
+            "encrypt",
+            "--user",
+            &format!("--with-key={key_mode}"),
+            &format!("--name={cred_name}"),
+            "-",
+        ])
+        .arg(&tmp);
+        let out = susi_paths::console::run_output_within(
+            &mut cmd,
+            Some(secret.as_bytes()),
+            KEYSTORE_TIMEOUT,
+        )
+        .map_err(|e| format!("systemd-creds: {e}"))?;
         if out.status.success() && tmp.is_file() {
             let bytes =
                 std::fs::read(&tmp).map_err(|e| format!("read encrypted systemd cred: {e}"))?;
@@ -756,12 +770,11 @@ fn unseal_systemd_cred(dir: &Path, purpose: &str) -> Result<Option<String>, Stri
         return Ok(None);
     }
     let cred_name = format!("susi-{purpose}");
-    let out = Command::new("systemd-creds")
-        .args(["decrypt", "--user", &format!("--name={cred_name}")])
+    let mut cmd = Command::new("systemd-creds");
+    cmd.args(["decrypt", "--user", &format!("--name={cred_name}")])
         .arg(&src)
-        .arg("-")
-        .stdin(Stdio::null())
-        .output()
+        .arg("-");
+    let out = susi_paths::console::run_output_within(&mut cmd, None, KEYSTORE_TIMEOUT)
         .map_err(|e| format!("run systemd-creds decrypt: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -793,19 +806,14 @@ fn seal_windows_dpapi(dir: &Path, purpose: &str, secret: &str) -> Result<(), Str
         "$prot=[System.Security.Cryptography.ProtectedData]::Protect($bytes,$null,'CurrentUser');",
         "[Convert]::ToBase64String($prot)"
     );
-    let mut child = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawn powershell for DPAPI: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(hex_secret.as_bytes());
-    }
-    let out = child
-        .wait_with_output()
-        .map_err(|e| format!("wait powershell for DPAPI: {e}"))?;
+    let mut cmd = Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+    let out = susi_paths::console::run_output_within(
+        &mut cmd,
+        Some(hex_secret.as_bytes()),
+        KEYSTORE_TIMEOUT,
+    )
+    .map_err(|e| format!("powershell for DPAPI: {e}"))?;
     if !out.status.success() {
         return Err("Windows DPAPI Protect failed".to_string());
     }
@@ -836,19 +844,14 @@ fn unseal_windows_dpapi(dir: &Path, purpose: &str) -> Result<Option<String>, Str
         "$bytes=[System.Security.Cryptography.ProtectedData]::Unprotect($prot,$null,'CurrentUser');",
         "[Text.Encoding]::UTF8.GetString($bytes)"
     );
-    let mut child = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawn powershell for DPAPI unseal: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(trimmed.as_bytes());
-    }
-    let out = child
-        .wait_with_output()
-        .map_err(|e| format!("wait powershell for DPAPI unseal: {e}"))?;
+    let mut cmd = Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+    let out = susi_paths::console::run_output_within(
+        &mut cmd,
+        Some(trimmed.as_bytes()),
+        KEYSTORE_TIMEOUT,
+    )
+    .map_err(|e| format!("powershell for DPAPI unseal: {e}"))?;
     if !out.status.success() {
         return Err(format!("Windows DPAPI Unprotect {} failed", src.display()));
     }
@@ -877,26 +880,18 @@ fn seal_secret_service(dir: &Path, purpose: &str, secret: &str) -> Result<(), St
     let marker = secret_service_marker_path(dir, purpose);
     let account = secret_service_scope_tag(dir, purpose);
     let label = format!("Susi Vault Unattended Key ({purpose})");
-    let mut child = Command::new("secret-tool")
-        .args([
-            "store",
-            &format!("--label={label}"),
-            "service",
-            "susi-vault",
-            "account",
-            &account,
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawn secret-tool: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(secret.as_bytes());
-    }
-    let out = child
-        .wait_with_output()
-        .map_err(|e| format!("wait secret-tool: {e}"))?;
+    let mut cmd = Command::new("secret-tool");
+    cmd.args([
+        "store",
+        &format!("--label={label}"),
+        "service",
+        "susi-vault",
+        "account",
+        &account,
+    ]);
+    let out =
+        susi_paths::console::run_output_within(&mut cmd, Some(secret.as_bytes()), KEYSTORE_TIMEOUT)
+            .map_err(|e| format!("secret-tool: {e}"))?;
     if !out.status.success() {
         return Err(
             "Freedesktop secret-tool store failed (session keyring locked or unavailable)"
@@ -919,10 +914,9 @@ fn unseal_secret_service(dir: &Path, purpose: &str) -> Result<Option<String>, St
     if account.is_empty() {
         return Ok(None);
     }
-    let out = Command::new("secret-tool")
-        .args(["lookup", "service", "susi-vault", "account", &account])
-        .stdin(Stdio::null())
-        .output()
+    let mut cmd = Command::new("secret-tool");
+    cmd.args(["lookup", "service", "susi-vault", "account", &account]);
+    let out = susi_paths::console::run_output_within(&mut cmd, None, KEYSTORE_TIMEOUT)
         .map_err(|e| format!("run secret-tool lookup: {e}"))?;
     if !out.status.success() {
         return Err("Freedesktop secret-tool lookup failed".to_string());
@@ -1491,6 +1485,37 @@ mod tests {
         if let Some(v) = prev_kdbx {
             std::env::set_var(KDBX_PASSPHRASE_ENV, v);
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn container_secret_dirs_unlock_without_tty() {
+        let dir = temp_dir("container_secrets");
+        let run_secrets = dir.join("run_secrets");
+        std::fs::create_dir_all(&run_secrets).unwrap();
+        std::fs::write(
+            run_secrets.join("susi-vault-key"),
+            "k8s-sealed-master-key\n",
+        )
+        .unwrap();
+        std::fs::write(
+            run_secrets.join("susi-kdbx-passphrase"),
+            "container-kdbx-pass\n",
+        )
+        .unwrap();
+
+        let (vk, vb) = resolve_from_secret_dirs(PURPOSE_VAULT, std::slice::from_ref(&run_secrets))
+            .unwrap()
+            .unwrap();
+        assert_eq!(vk, "k8s-sealed-master-key");
+        assert_eq!(vb, UnlockBackendKind::CredentialsDirectory);
+
+        let (kp, kb) = resolve_from_secret_dirs(PURPOSE_KDBX, &[run_secrets])
+            .unwrap()
+            .unwrap();
+        assert_eq!(kp, "container-kdbx-pass");
+        assert_eq!(kb, UnlockBackendKind::CredentialsDirectory);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

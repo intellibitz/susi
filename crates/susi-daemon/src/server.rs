@@ -2728,6 +2728,39 @@ fn provider_key_env_body(vars: impl IntoIterator<Item = (String, String)>) -> Op
     )
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn daemon_env_file_body(vars: Vec<(String, String)>) -> String {
+    let mut body = provider_key_env_body(vars.clone()).unwrap_or_default();
+    for key in [
+        "SUSI_VAULT_KEY",
+        "SUSI_VAULT_KEY_FILE",
+        "SUSI_VAULT_KDBX_PASSPHRASE",
+        "SUSI_KDBX_PASSPHRASE",
+        "CREDENTIALS_DIRECTORY",
+        "SSH_AUTH_SOCK",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "HF_TOKEN",
+        "HUGGINGFACE_HUB_TOKEN",
+    ] {
+        if let Some((_, val)) = vars.iter().find(|(k, _)| k == key) {
+            let plain = !val.is_empty()
+                && !val
+                    .chars()
+                    .any(|c| c.is_control() || matches!(c, '\'' | '"' | '\\'));
+            if plain {
+                body.push_str(&format!("{key}='{val}'\n"));
+            }
+        }
+    }
+    body.push_str("SUSI_UNATTENDED='1'\n");
+    for (k, v) in susi_paths::console::NON_INTERACTIVE_ENV {
+        body.push_str(&format!("{k}='{v}'\n"));
+    }
+    body
+}
+
 /// Write [`provider_key_env_body`] for this process to `path`, readable by
 /// the owner only. Returns whether the unit should read it.
 #[cfg(target_os = "linux")]
@@ -2736,16 +2769,7 @@ fn write_provider_key_env_file(path: &Path) -> bool {
     let vars: Vec<(String, String)> = std::env::vars_os()
         .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
         .collect();
-    let mut body = provider_key_env_body(vars.clone()).unwrap_or_default();
-    if let Some((_, val)) = vars.iter().find(|(k, _)| k == "SUSI_VAULT_KEY") {
-        let plain = !val.is_empty()
-            && !val
-                .chars()
-                .any(|c| c.is_control() || matches!(c, '\'' | '"' | '\\'));
-        if plain {
-            body.push_str(&format!("SUSI_VAULT_KEY='{val}'\n"));
-        }
-    }
+    let body = daemon_env_file_body(vars);
     if body.is_empty() {
         return false;
     }
@@ -2843,6 +2867,16 @@ mod tests {
             provider_key_env_body([("PATH".to_string(), "/bin".to_string())]),
             None
         );
+        let full = daemon_env_file_body(vec![
+            ("DEEPSEEK_API_KEY".to_string(), "sk-deep".to_string()),
+            ("GITHUB_TOKEN".to_string(), "ghp-test".to_string()),
+            ("SUSI_VAULT_KEY".to_string(), "vk-test".to_string()),
+        ]);
+        assert!(full.contains("DEEPSEEK_API_KEY='sk-deep'\n"));
+        assert!(full.contains("GITHUB_TOKEN='ghp-test'\n"));
+        assert!(full.contains("SUSI_VAULT_KEY='vk-test'\n"));
+        assert!(full.contains("SUSI_UNATTENDED='1'\n"));
+        assert!(full.contains("GIT_TERMINAL_PROMPT='0'\n"));
     }
 
     /// The daemon half of [`a_dead_daemons_ports_are_free_while_its_child_lives`]:

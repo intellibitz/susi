@@ -447,11 +447,10 @@ fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
     let args: Vec<&str> = parts.collect();
     let execute = || {
         // Bounded: `df` blocks indefinitely on a hung network mount.
+        let mut command = Command::new(bin);
+        command.args(&args).current_dir(workspace);
         let output = crate::susi_core::bounded_cmd::output_within(
-            Command::new(bin)
-                .args(&args)
-                .current_dir(workspace)
-                .env("GIT_TERMINAL_PROMPT", "0"),
+            &mut command,
             std::time::Duration::from_secs(30),
         )
         .map_err(|e| {

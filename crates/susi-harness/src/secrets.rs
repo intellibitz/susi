@@ -79,7 +79,9 @@ pub fn lookup(name: &str) -> Option<ApiKey> {
     }
     let shape = crate::providers::Registry::builtin().key_prefix_for(name);
     let found = first_fitting(name, shape).map(ApiKey);
-    cache.insert(cache_key, found.clone());
+    if found.is_some() {
+        cache.insert(cache_key, found.clone());
+    }
     found
 }
 
@@ -122,12 +124,13 @@ fn first_fitting_scope(name: &str, shape: Option<(&str, &str)>) -> Option<(Strin
 /// then the Windows user and machine scopes), then `.env` files, the
 /// bring-your-own-key form most tools accept: `./.env` in the directory the
 /// harness runs in, then `.env` in the data home ([`data_home`]).
-const SCOPES: [&str; 5] = [
+const SCOPES: [&str; 6] = [
     "process environment",
     "user environment",
     "machine environment",
     WORKING_DOTENV,
     DATA_HOME_DOTENV,
+    SEALED_VAULT_CLOUD,
 ];
 
 /// The scope of `./.env`, in the directory the harness runs in.
@@ -135,6 +138,9 @@ const WORKING_DOTENV: &str = "./.env file";
 
 /// The scope of the data home's `.env`.
 const DATA_HOME_DOTENV: &str = "data-home .env file";
+
+/// The scope of the data home's AEAD-sealed vault (`vault.sealed.json`) and `cloud.env`.
+const SEALED_VAULT_CLOUD: &str = "data-home sealed vault / cloud.env";
 
 /// The variable that names the data home ([`data_home`]).
 const HOME_ENV: &str = "SUSI_HOME";
@@ -167,6 +173,16 @@ fn scope_value(name: &str, scope: &str) -> Option<String> {
         // The data home's `.env` is found through `SUSI_HOME`, so it cannot
         // say where the data home is: reading it there would go in a circle,
         // and `susi-harness env` would report a home the harness never uses.
+        _ if scope == SEALED_VAULT_CLOUD => {
+            if USER_ONLY.contains(&name) || registry_environment_disabled() {
+                None
+            } else {
+                susi_config::cloud_env::load_cloud_env_from(&data_home())
+                    .into_iter()
+                    .find(|(k, _)| k == name)
+                    .map(|(_, v)| v)
+            }
+        }
         _ if name == HOME_ENV => None,
         _ => dotenv_value(name, DotEnv::DataHome),
     }
@@ -1208,5 +1224,47 @@ mod tests {
         // A variable no scope sets: lookup finds nothing, and is_set agrees.
         assert!(!is_set("SUSI_TEST_SECRET_NEVER_SET_0001"));
         assert!(process_value("SUSI_TEST_SECRET_NEVER_SET_0001").is_none());
+    }
+
+    #[test]
+    fn sealed_vault_supplies_harness_keys_without_dotenv_or_process_env() {
+        static SEALED_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = SEALED_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        let root =
+            std::env::temp_dir().join(format!("susi_harness_sealed_test_{}", std::process::id()));
+        let dir = root.join(".susi");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let prev_home = std::env::var_os("SUSI_HOME");
+        let prev_no_reg = std::env::var_os("SUSI_NO_REGISTRY_ENV");
+        let prev_key = std::env::var_os(susi_config::vault_store::VAULT_KEY_ENV);
+        std::env::set_var("SUSI_HOME", &dir);
+        std::env::remove_var("SUSI_NO_REGISTRY_ENV");
+        std::env::remove_var(susi_config::vault_store::VAULT_KEY_ENV);
+
+        const KEY: &str = "SUSI_TEST_SEALED_HARNESS_0001";
+        susi_config::vault_store::enroll_master_key(&dir, Some("keyfile"), None).unwrap();
+        let mut vault = susi_config::vault_store::SealedVault::open_or_init(&dir).unwrap();
+        vault.set("cloud", KEY, "sk-harness-sealed-0001");
+        vault.save(&dir).unwrap();
+
+        let found = test_dotenv::with_home("", || lookup(KEY))
+            .expect("sealed vault should supply test key");
+        assert_eq!(found.expose(), "sk-harness-sealed-0001");
+
+        match prev_home {
+            Some(v) => std::env::set_var("SUSI_HOME", v),
+            None => std::env::remove_var("SUSI_HOME"),
+        }
+        match prev_no_reg {
+            Some(v) => std::env::set_var("SUSI_NO_REGISTRY_ENV", v),
+            None => std::env::remove_var("SUSI_NO_REGISTRY_ENV"),
+        }
+        match prev_key {
+            Some(v) => std::env::set_var(susi_config::vault_store::VAULT_KEY_ENV, v),
+            None => std::env::remove_var(susi_config::vault_store::VAULT_KEY_ENV),
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -854,7 +854,9 @@ impl InferenceRouter {
     }
 
     pub fn is_interactive() -> bool {
-        io::stdin().is_terminal() && io::stdout().is_terminal()
+        io::stdin().is_terminal()
+            && io::stdout().is_terminal()
+            && !susi_paths::console::is_unattended_env()
     }
 
     /// Name heuristic for local OpenAI-compat engines (never escalate-as-cloud).
