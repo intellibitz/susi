@@ -22,8 +22,8 @@ use tokio_rustls::TlsAcceptor;
 use crate::executor::GawdA2AExecutor;
 use crate::protocol::{AgentCard, AgentExecutor, Handler, WELL_KNOWN_AGENT_CARD_PATH};
 use crate::susi_core::acp::{
-    AcpAdmissionPolicy, AcpEngine, AcpTurnExecutor, ACP_RPC_PATH, ACP_STREAM_PATH,
-    WELL_KNOWN_ACP_PATH,
+    AcpAdmissionPolicy, AcpEngine, AcpTurnExecutor, ACP_RPC_PATH, ACP_SESSION_ID_HEADER,
+    ACP_STREAM_PATH, WELL_KNOWN_ACP_PATH,
 };
 use crate::task_store::TaskStore;
 
@@ -99,6 +99,14 @@ fn health() -> Response {
     response
 }
 
+/// Extract optional HTTP `acp-session-id` header for binding/conflict verification.
+fn acp_session_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(ACP_SESSION_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+}
+
 /// The reply when an ACP turn's blocking thread itself failed (a panic).
 fn acp_internal_error() -> Vec<u8> {
     br#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"ACP turn failed"}}"#.to_vec()
@@ -139,10 +147,14 @@ fn app(
             ACP_RPC_PATH,
             post(move |request: Request| {
                 let engine = Arc::clone(&acp_rpc);
+                let session_header = acp_session_header(&request.headers);
                 async move {
                     // A turn runs a whole GAWD mission: keep it off the worker.
                     let reply = tokio::task::spawn_blocking(move || {
-                        engine.handle_jsonrpc_bytes(&request.body)
+                        engine.handle_jsonrpc_bytes_with_session_header(
+                            &request.body,
+                            session_header.as_deref(),
+                        )
                     })
                     .await
                     .unwrap_or_else(|_| acp_internal_error());
@@ -159,8 +171,12 @@ fn app(
             ACP_STREAM_PATH,
             post(move |request: Request| {
                 let engine = Arc::clone(&acp_sse);
+                let session_header = acp_session_header(&request.headers);
                 async move {
-                    if let Err(err_json) = engine.validate_sse_stream_bytes(&request.body) {
+                    if let Err(err_json) = engine.validate_sse_stream_bytes_with_session_header(
+                        &request.body,
+                        session_header.as_deref(),
+                    ) {
                         let mut response = Response::new(Body::from(err_json));
                         response.headers_mut().insert(
                             header::CONTENT_TYPE,
@@ -177,7 +193,7 @@ fn app(
                         if let Err(err_json) = engine
                             .handle_sse_stream_bytes_with_session_header_and(
                                 &body,
-                                None,
+                                session_header.as_deref(),
                                 &mut send_frame,
                             )
                         {

@@ -22,10 +22,21 @@ const REAP_INTERVAL: Duration = Duration::from_secs(300);
 const DEFAULT_PAGE_SIZE: i32 = 50;
 const MAX_PAGE_SIZE: i32 = 100;
 
+type EvictHook = Box<dyn Fn(&[String]) -> bool + Send + Sync>;
+
 /// In-memory tasks by id (ordered, so `tasks/list` pages are stable).
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct TaskStore {
     tasks: Mutex<BTreeMap<String, Task>>,
+    on_evict: Mutex<Vec<EvictHook>>,
+}
+
+impl std::fmt::Debug for TaskStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskStore")
+            .field("tasks", &self.tasks)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TaskStore {
@@ -35,6 +46,13 @@ impl TaskStore {
 
     fn tasks(&self) -> MutexGuard<'_, BTreeMap<String, Task>> {
         self.tasks.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn on_evict(&self, hook: impl Fn(&[String]) -> bool + Send + Sync + 'static) {
+        self.on_evict
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Box::new(hook));
     }
 
     /// Insert or replace the task's snapshot.
@@ -103,182 +121,31 @@ pub fn reap_terminal(store: &TaskStore) {
 /// Delete the oldest terminal tasks beyond `max_terminal`.
 /// Non-terminal tasks are never evicted.
 pub fn reap_terminal_with_limit(store: &TaskStore, max_terminal: usize) {
-    let mut tasks = store.tasks();
-    let mut terminal: Vec<(Option<String>, String)> = tasks
-        .values()
-        .filter(|t| t.status.state.is_terminal())
-        .map(|t| (t.status.timestamp.clone(), t.id.clone()))
-        .collect();
-    if terminal.len() <= max_terminal {
-        return;
-    }
-    // RFC 3339 timestamps sort lexicographically.
-    terminal.sort_by(|a, b| a.0.cmp(&b.0));
-    let excess = terminal.len() - max_terminal;
-    for (_, id) in terminal.into_iter().take(excess) {
-        tasks.remove(&id);
+    let evicted: Vec<String> = {
+        let mut tasks = store.tasks();
+        let mut terminal: Vec<(Option<String>, String)> = tasks
+            .values()
+            .filter(|t| t.status.state.is_terminal())
+            .map(|t| (t.status.timestamp.clone(), t.id.clone()))
+            .collect();
+        if terminal.len() <= max_terminal {
+            return;
+        }
+        // RFC 3339 timestamps sort lexicographically.
+        terminal.sort_by(|a, b| a.0.cmp(&b.0));
+        let excess = terminal.len() - max_terminal;
+        terminal
+            .into_iter()
+            .take(excess)
+            .filter_map(|(_, id)| tasks.remove(&id).map(|_| id))
+            .collect()
+    };
+    if !evicted.is_empty() {
+        let mut hooks = store.on_evict.lock().unwrap_or_else(|e| e.into_inner());
+        hooks.retain(|hook| hook(&evicted));
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::protocol::{TaskState, TaskStatus};
-
-    fn make_task(id: &str, state: TaskState, timestamp: &str) -> Task {
-        let mut task = Task::new(id, "ctx-reaper-test");
-        let mut status = TaskStatus::new(state);
-        status.timestamp = Some(timestamp.to_string());
-        task.status = status;
-        task
-    }
-
-    #[test]
-    fn reap_terminal_with_limit_evicts_oldest_terminal_tasks_and_preserves_active_tasks() {
-        let store = TaskStore::new();
-
-        // Active (non-terminal) task with the oldest timestamp must never be evicted.
-        store.save(&make_task(
-            "task-working-oldest",
-            TaskState::Working,
-            "2026-11-04T00:00:00Z",
-        ));
-
-        // Four terminal tasks ordered by RFC 3339 timestamp.
-        for (id, state, ts) in [
-            ("task-term-1", TaskState::Completed, "2026-11-04T00:01:00Z"),
-            ("task-term-2", TaskState::Failed, "2026-11-04T00:02:00Z"),
-            ("task-term-3", TaskState::Canceled, "2026-11-04T00:03:00Z"),
-            ("task-term-4", TaskState::Completed, "2026-11-04T00:04:00Z"),
-        ] {
-            store.save(&make_task(id, state, ts));
-        }
-
-        reap_terminal_with_limit(&store, 2);
-
-        assert!(store.get("task-working-oldest").is_some());
-        assert!(store.get("task-term-1").is_none());
-        assert!(store.get("task-term-2").is_none());
-        assert!(store.get("task-term-3").is_some());
-        assert!(store.get("task-term-4").is_some());
-    }
-
-    #[test]
-    fn reap_terminal_noop_within_limit_and_zero_limit_evicts_all_terminal_states_only() {
-        let store = TaskStore::new();
-
-        for (id, state, ts) in [
-            (
-                "active-submitted",
-                TaskState::Submitted,
-                "2026-11-04T00:00:01Z",
-            ),
-            ("active-working", TaskState::Working, "2026-11-04T00:00:02Z"),
-            (
-                "active-input-required",
-                TaskState::InputRequired,
-                "2026-11-04T00:00:03Z",
-            ),
-            (
-                "term-completed",
-                TaskState::Completed,
-                "2026-11-04T00:01:00Z",
-            ),
-            ("term-failed", TaskState::Failed, "2026-11-04T00:02:00Z"),
-            ("term-canceled", TaskState::Canceled, "2026-11-04T00:03:00Z"),
-            ("term-rejected", TaskState::Rejected, "2026-11-04T00:04:00Z"),
-        ] {
-            store.save(&make_task(id, state, ts));
-        }
-
-        // Within limit (4 <= 4 and 4 <= MAX_TERMINAL_TASKS): nothing evicted.
-        reap_terminal_with_limit(&store, 4);
-        reap_terminal(&store);
-        for id in [
-            "active-submitted",
-            "active-working",
-            "active-input-required",
-            "term-completed",
-            "term-failed",
-            "term-canceled",
-            "term-rejected",
-        ] {
-            assert!(store.get(id).is_some(), "{id} should remain");
-        }
-
-        // Zero limit: all terminal states evicted, all non-terminal states preserved.
-        reap_terminal_with_limit(&store, 0);
-        for active_id in [
-            "active-submitted",
-            "active-working",
-            "active-input-required",
-        ] {
-            assert!(
-                store.get(active_id).is_some(),
-                "{active_id} must be preserved"
-            );
-        }
-        for term_id in [
-            "term-completed",
-            "term-failed",
-            "term-canceled",
-            "term-rejected",
-        ] {
-            assert!(store.get(term_id).is_none(), "{term_id} must be evicted");
-        }
-    }
-
-    #[test]
-    fn max_terminal_tasks_constant_and_empty_store_reap_are_safe() {
-        assert_eq!(MAX_TERMINAL_TASKS, 512);
-        let store = TaskStore::new();
-        reap_terminal_with_limit(&store, 0);
-        reap_terminal_with_limit(&store, 10);
-        reap_terminal(&store);
-        let listed = store.list(&ListTasksRequest::default());
-        assert!(listed.tasks.is_empty());
-    }
-
-    #[test]
-    fn reap_terminal_with_limit_paginates_across_over_100_terminal_tasks_and_keeps_newest_five() {
-        let store = TaskStore::new();
-        store.save(&make_task(
-            "task-working-live",
-            TaskState::Working,
-            "2026-11-04T00:00:00Z",
-        ));
-
-        for i in 0..110usize {
-            let hour = i / 60;
-            let minute = i % 60;
-            let ts = format!("2026-11-04T{hour:02}:{minute:02}:00Z");
-            let id = format!("task-paginated-{i:03}");
-            store.save(&make_task(&id, TaskState::Completed, &ts));
-        }
-
-        reap_terminal_with_limit(&store, 5);
-
-        assert!(store.get("task-working-live").is_some());
-        for i in 0..105usize {
-            let id = format!("task-paginated-{i:03}");
-            assert!(store.get(&id).is_none(), "{id} should be evicted");
-        }
-        for i in 105..110usize {
-            let id = format!("task-paginated-{i:03}");
-            assert!(store.get(&id).is_some(), "{id} should remain");
-        }
-    }
-
-    #[test]
-    fn reap_interval_constant_and_reap_terminal_preserve_single_completed_task() {
-        assert_eq!(REAP_INTERVAL, Duration::from_secs(300));
-        let store = TaskStore::new();
-        store.save(&make_task(
-            "task-single-done",
-            TaskState::Completed,
-            "2026-11-04T12:00:00Z",
-        ));
-        reap_terminal(&store);
-        assert!(store.get("task-single-done").is_some());
-    }
-}
+#[path = "tests/task_store.rs"]
+mod tests;

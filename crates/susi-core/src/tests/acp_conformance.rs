@@ -719,3 +719,48 @@ fn cancelled_turns_record_audit_history_while_staying_out_of_inference_messages_
 
     server.shutdown();
 }
+
+#[test]
+fn session_eviction_cleans_up_turn_cancellations_for_evicted_session() {
+    let policy = AcpAdmissionPolicy {
+        max_sessions: 1,
+        ..AcpAdmissionPolicy::default()
+    };
+    let engine = AcpEngine::new(policy, Arc::new(SubstrateAcpExecutor));
+
+    let s1 = engine.handle_jsonrpc_value(
+        json!({"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}),
+        &mut |_| {},
+    );
+    let sid1 = s1["result"]["session_id"].as_str().unwrap().to_owned();
+
+    // Register a turn-specific cancellation entry for sid1 before starting that turn.
+    let cancelled = engine.handle_jsonrpc_value(
+        json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/cancel",
+            "params": { "session_id": sid1, "turn_id": "turn-pending-evict" }
+        }),
+        &mut |_| {},
+    );
+    assert_eq!(cancelled["result"]["cancelled"], true);
+    {
+        let guard = engine.state.lock().unwrap();
+        assert!(guard
+            .turn_cancellations
+            .contains_key(&(sid1.clone(), "turn-pending-evict".to_owned())));
+    }
+
+    // Creating a second session evicts sid1 and must purge its turn_cancellations entries.
+    let s2 = engine.handle_jsonrpc_value(
+        json!({"jsonrpc":"2.0","id":3,"method":"session/new","params":{}}),
+        &mut |_| {},
+    );
+    let sid2 = s2["result"]["session_id"].as_str().unwrap().to_owned();
+    assert_ne!(sid1, sid2);
+
+    let guard = engine.state.lock().unwrap();
+    assert!(!guard.sessions.contains_key(&sid1));
+    assert!(guard.turn_cancellations.keys().all(|(sid, _)| sid != &sid1));
+}

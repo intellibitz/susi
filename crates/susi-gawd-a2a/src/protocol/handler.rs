@@ -119,6 +119,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+type PushConfigMap = HashMap<String, BTreeMap<String, PushConfig>>;
+
 /// Serves the A2A methods for one executor and agent card.
 pub struct Handler {
     executor: Arc<dyn AgentExecutor>,
@@ -127,19 +129,38 @@ pub struct Handler {
     queues: Mutex<HashMap<String, Arc<EventQueue>>>,
     running: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
     /// Push configs by task id, then config id.
-    push_configs: Mutex<HashMap<String, BTreeMap<String, PushConfig>>>,
+    push_configs: Arc<Mutex<PushConfigMap>>,
 }
 
 impl Handler {
     pub fn new(executor: Arc<dyn AgentExecutor>, card: AgentCard, store: Arc<TaskStore>) -> Self {
+        let push_configs = Arc::new(Mutex::new(HashMap::new()));
+        let weak_configs = Arc::downgrade(&push_configs);
+        store.on_evict(move |evicted| {
+            let Some(configs) = weak_configs.upgrade() else {
+                return false;
+            };
+            let mut guard = lock(&configs);
+            for task_id in evicted {
+                guard.remove(task_id);
+            }
+            true
+        });
         Self {
             executor,
             card,
             store,
             queues: Mutex::new(HashMap::new()),
             running: Arc::new(Mutex::new(HashMap::new())),
-            push_configs: Mutex::new(HashMap::new()),
+            push_configs,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_push_configs(&self, task_id: &str) -> bool {
+        lock(&self.push_configs)
+            .get(task_id)
+            .is_some_and(|m| !m.is_empty())
     }
 
     fn queue(&self, task_id: &str) -> Arc<EventQueue> {

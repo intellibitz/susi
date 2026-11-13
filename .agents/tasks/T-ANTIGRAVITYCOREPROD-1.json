@@ -1,0 +1,33 @@
+{
+  "id": "T-ANTIGRAVITYCOREPROD-1",
+  "title": "Harden Core ACP/A2A header binding, TaskStore push-config eviction, and session turn cancellation cleanup",
+  "goal": "Vision: V-1 Ensure production HTTP ACP routes enforce acp-session-id binding/conflict detection, reap push notification configs with evicted terminal A2A tasks, and clear evicted ACP session turn cancellations under lean ceilings and <10s warm budget",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a",
+      "-p",
+      "susi-core"
+    ]
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Inspected intellibitz/susi (crates/susi-core/src/acp.rs, crates/susi-gawd-a2a/src/{server.rs,task_store.rs,protocol/handler.rs,tests/server_routes.rs}, src/cli/acp_cli.rs, tests/lean_core_ceilings.rs) and intellibitz/susi-commercial-apps (crates/susi-core-client/src/acp.rs).",
+    "reason": "Reusing existing AcpEngine header-binding methods (handle_jsonrpc_bytes_with_session_header, validate_sse_stream_bytes_with_session_header, handle_sse_stream_bytes_with_session_header_and), TaskStore reaper hookup, and AcpSessionState turn_cancellations cleanup directly with zero new dependencies."
+  },
+  "scopes": [
+    ".agents/tasks/T-ANTIGRAVITYCOREPROD-1.json",
+    "crates/susi-gawd-a2a",
+    "crates/susi-core/src/acp.rs",
+    "crates/susi-core/src/tests/acp_conformance.rs",
+    "tests/lean_core_ceilings.rs"
+  ],
+  "created_by": "ANTIGRAVITYCOREPROD1",
+  "created_unix": 1794557881
+}

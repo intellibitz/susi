@@ -319,11 +319,16 @@ const DIRECT_FACADE_EDGES_CEILING: usize = 9;
 /// wire-level protocol suite moved from src/protocol_tests.rs to the suite dir
 /// src/tests/protocol.rs (-721) and the VC-203-010 resource admission, guard,
 /// sealed-read and cancellation path added 46 shipped lines.
+/// 2026-11-13: susi-gawd-a2a 3,347 -> 3,251 (T-ANTIGRAVITYCOREPROD-1, measured):
+/// ACP session-id header binding propagation on `/acp` & `/acp/stream` (+14)
+/// and `TaskStore::on_evict` push-config cleanup on reaper eviction (+30),
+/// alongside moving the existing `task_store.rs` inline unit suite (-140)
+/// into `src/tests/task_store.rs`. Test organization, not removed runtime capability.
 const LINE_CEILINGS: [(&str, usize); 8] = [
     ("susi-gawd", 12_525),
     ("susi-gawd-swarm", 20_206),
     ("susi-gawd-agents", 10_413),
-    ("susi-gawd-a2a", 3_347),
+    ("susi-gawd-a2a", 3_251),
     ("susi-gemi", 20_709),
     ("susi-gemi-models", 15_563),
     ("susi-gmcp", 25_153),

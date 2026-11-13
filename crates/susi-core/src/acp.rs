@@ -1007,6 +1007,9 @@ impl AcpEngine {
             }
             guard.sessions.remove(&oldest);
             guard.active_cancellations.remove(&oldest);
+            guard
+                .turn_cancellations
+                .retain(|(sid, _), _| sid != &oldest);
         }
         guard.order.push_back(session_id.clone());
         guard.sessions.insert(session_id, entry);

@@ -5,7 +5,8 @@ use crate::protocol::{
 use crate::susi_core::a2a_wire;
 use crate::susi_core::acp::{
     AcpAdmissionPolicy, AcpContentBlock, AcpEngine, AcpTurnContext, AcpTurnExecutor,
-    ACP_DISCOVERY_SCHEMA, ACP_PROTOCOL_VERSION, ACP_RPC_PATH, ACP_STREAM_PATH, WELL_KNOWN_ACP_PATH,
+    ACP_DISCOVERY_SCHEMA, ACP_PROTOCOL_VERSION, ACP_RPC_PATH, ACP_SESSION_ID_HEADER,
+    ACP_STREAM_PATH, JSONRPC_INVALID_PARAMS, WELL_KNOWN_ACP_PATH,
 };
 use std::future::Future;
 use std::net::SocketAddr;
@@ -392,4 +393,133 @@ fn acp_sse_dispatch_delivers_lifecycle_and_delta_before_the_turn_finishes() {
     }
     assert!(result.contains("done"), "{result}");
     worker.join().unwrap();
+}
+
+#[test]
+fn acp_routes_propagate_and_enforce_acp_session_id_header() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let addr = serve_shout(&runtime);
+
+    let new_payload = serde_json::to_vec(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "session/new",
+        "params": {}
+    }))
+    .unwrap();
+    let created = susi_http_transport::http_call_with_body(
+        "POST",
+        &format!("http://{addr}{ACP_RPC_PATH}"),
+        &[("Content-Type", "application/json")],
+        Some(&new_payload),
+        20,
+        0,
+    )
+    .unwrap();
+    assert_eq!(created.status, 200);
+    let created_json: serde_json::Value =
+        serde_json::from_str(&created.into_utf8(1_000_000).unwrap()).unwrap();
+    let sid = created_json["result"]["session_id"].as_str().unwrap();
+
+    // 1. POST /acp omits session_id in params, bound via HTTP Acp-Session-Id header.
+    let prompt_no_sid = serde_json::to_vec(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "session/prompt",
+        "params": { "prompt": "header-bound rpc turn" }
+    }))
+    .unwrap();
+    let rpc_resp = susi_http_transport::http_call_with_body(
+        "POST",
+        &format!("http://{addr}{ACP_RPC_PATH}"),
+        &[
+            ("Content-Type", "application/json"),
+            (ACP_SESSION_ID_HEADER, sid),
+        ],
+        Some(&prompt_no_sid),
+        20,
+        0,
+    )
+    .unwrap();
+    assert_eq!(rpc_resp.status, 200);
+    let rpc_json: serde_json::Value =
+        serde_json::from_str(&rpc_resp.into_utf8(1_000_000).unwrap()).unwrap();
+    assert_eq!(rpc_json["result"]["session_id"], sid, "{rpc_json}");
+    assert_eq!(rpc_json["result"]["stop_reason"], "end_turn", "{rpc_json}");
+
+    // 2. POST /acp rejects mismatched Acp-Session-Id header vs JSON-RPC params.session_id.
+    let prompt_conflict = serde_json::to_vec(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "session/prompt",
+        "params": { "session_id": "acp-sess-other", "prompt": "conflict" }
+    }))
+    .unwrap();
+    let rpc_conflict = susi_http_transport::http_call_with_body(
+        "POST",
+        &format!("http://{addr}{ACP_RPC_PATH}"),
+        &[
+            ("Content-Type", "application/json"),
+            (ACP_SESSION_ID_HEADER, sid),
+        ],
+        Some(&prompt_conflict),
+        20,
+        0,
+    )
+    .unwrap();
+    let rpc_conflict_json: serde_json::Value =
+        serde_json::from_str(&rpc_conflict.into_utf8(1_000_000).unwrap()).unwrap();
+    assert_eq!(
+        rpc_conflict_json["error"]["code"], JSONRPC_INVALID_PARAMS,
+        "{rpc_conflict_json}"
+    );
+
+    // 3. POST /acp/stream binds session_id from Acp-Session-Id header when omitted from params.
+    let sse_no_sid = serde_json::to_vec(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "session/prompt",
+        "params": { "prompt": "header-bound sse turn" }
+    }))
+    .unwrap();
+    let sse_resp = susi_http_transport::http_call_with_body(
+        "POST",
+        &format!("http://{addr}{ACP_STREAM_PATH}"),
+        &[
+            ("Content-Type", "application/json"),
+            (ACP_SESSION_ID_HEADER, sid),
+        ],
+        Some(&sse_no_sid),
+        20,
+        0,
+    )
+    .unwrap();
+    assert_eq!(sse_resp.status, 200);
+    let sse_text = sse_resp.into_utf8(1_000_000).unwrap();
+    assert!(sse_text.contains("event: acp.turn.result"), "{sse_text}");
+    assert!(sse_text.contains(sid), "{sse_text}");
+    assert!(sse_text.contains("header-bound rpc turn"), "{sse_text}");
+    assert!(sse_text.contains("header-bound sse turn"), "{sse_text}");
+    assert!(sse_text.contains("gawd mission:"), "{sse_text}");
+
+    // 4. POST /acp/stream rejects mismatched Acp-Session-Id header vs JSON-RPC params.session_id.
+    let sse_conflict = susi_http_transport::http_call_with_body(
+        "POST",
+        &format!("http://{addr}{ACP_STREAM_PATH}"),
+        &[
+            ("Content-Type", "application/json"),
+            (ACP_SESSION_ID_HEADER, sid),
+        ],
+        Some(&prompt_conflict),
+        20,
+        0,
+    )
+    .unwrap();
+    assert_eq!(sse_conflict.status, 200);
+    let sse_conflict_json: serde_json::Value =
+        serde_json::from_str(&sse_conflict.into_utf8(1_000_000).unwrap()).unwrap();
+    assert_eq!(
+        sse_conflict_json["error"]["code"], JSONRPC_INVALID_PARAMS,
+        "{sse_conflict_json}"
+    );
 }
