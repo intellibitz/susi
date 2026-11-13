@@ -204,7 +204,7 @@ pub(crate) fn reviewed_openssl(
         target,
         "x86_64-unknown-linux-gnu" | "aarch64-unknown-linux-gnu"
     ) && name == "openssl-sys"
-        && version == "0.9.117"
+        && version == "0.9.118"
         && features.is_empty()
 }
 
@@ -475,21 +475,21 @@ mod tests {
     fn native_binding_admission_is_exact() {
         assert!(reviewed_openssl(
             "openssl-sys",
-            "0.9.117",
+            "0.9.118",
             "x86_64-unknown-linux-gnu",
             &[]
         ));
         for feature in ["vendored", "bindgen", "aws-lc", "boringssl"] {
             assert!(!reviewed_openssl(
                 "openssl-sys",
-                "0.9.117",
+                "0.9.118",
                 "x86_64-unknown-linux-gnu",
                 &[feature.into()]
             ));
         }
         assert!(!reviewed_openssl(
             "openssl-sys",
-            "0.9.118",
+            "0.9.117",
             "x86_64-unknown-linux-gnu",
             &[]
         ));
