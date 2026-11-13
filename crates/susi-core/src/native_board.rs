@@ -1436,15 +1436,23 @@ mod tests {
     struct GitBoardFixture {
         root: PathBuf,
         remote: String,
+        prev_susi_home: Option<std::ffi::OsString>,
+        _env_lock: std::sync::MutexGuard<'static, ()>,
     }
 
     impl GitBoardFixture {
         fn new(tag: &str) -> Self {
+            let env_lock = crate::commit_log::ENV_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let prev_susi_home = std::env::var_os("SUSI_HOME");
             let id = SEQ.fetch_add(1, Ordering::Relaxed);
             let root = std::env::temp_dir()
                 .join(format!("susi-core-board-{tag}-{}-{id}", std::process::id()));
             let _ = fs::remove_dir_all(&root);
-            fs::create_dir_all(&root).unwrap();
+            let home = root.join("susi-home");
+            fs::create_dir_all(&home).unwrap();
+            std::env::set_var("SUSI_HOME", &home);
             let remote = root.join("board-remote.git");
             git(
                 &root,
@@ -1454,6 +1462,8 @@ mod tests {
             Self {
                 root,
                 remote: remote.to_string_lossy().into_owned(),
+                prev_susi_home,
+                _env_lock: env_lock,
             }
         }
 
@@ -1469,6 +1479,10 @@ mod tests {
 
     impl Drop for GitBoardFixture {
         fn drop(&mut self) {
+            match &self.prev_susi_home {
+                Some(v) => std::env::set_var("SUSI_HOME", v),
+                None => std::env::remove_var("SUSI_HOME"),
+            }
             let _ = fs::remove_dir_all(&self.root);
         }
     }
