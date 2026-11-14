@@ -3,10 +3,6 @@
   "title": "Select approved healthy harness providers before dispatch within the requested billing class",
   "goal": "Vision: V-2. Use named provider preferences and fresh model-list or subscription readiness before one dispatch, honor explicit pins and never replay a started automatic turn.",
   "size": "m",
-  "reuse": {
-    "decision": "existing",
-    "searched": "Registry overlays, fleet budget gates, provider model-list verification, adaptive CLI discovery, native executor and workload grant lease."
-  },
   "deps": [],
   "accept": {
     "cmd": [
@@ -20,5 +16,14 @@
     ]
   },
   "created_by": "CODEXHARNESSID",
-  "created_unix": 1794654382
+  "created_unix": 1794654382,
+  "closed": {
+    "at_unix": 1794655648,
+    "commit": "12cbff8ae122076bd05ff80aef8637d710ce6012",
+    "by": "CODEXHARNESSID"
+  },
+  "reuse": {
+    "decision": "existing",
+    "searched": "Registry overlays, fleet budget gates, provider model-list verification, adaptive CLI discovery, native executor and workload grant lease."
+  }
 }
