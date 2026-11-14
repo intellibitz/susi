@@ -53,6 +53,8 @@ pub use susi_sandbox_client as susi_sandbox;
 pub use susi_native_client as susi_native;
 
 pub use susi_core;
+/// GAWD Agent Client Protocol and its transports.
+pub use susi_gawd_acp as acp;
 
 pub mod plane_handler;
 

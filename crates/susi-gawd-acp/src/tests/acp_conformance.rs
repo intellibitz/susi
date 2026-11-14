@@ -1,10 +1,10 @@
 use super::*;
-use crate::mac_policy::{self, MacPolicy, PrivacyMode};
 use serde_json::json;
 use std::io::{Cursor, Read, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
 use std::time::Duration;
+use susi_config::mac_policy::{self, MacPolicy, PrivacyMode};
 
 #[test]
 fn discovery_and_initialize_negotiate_protocol_version() {

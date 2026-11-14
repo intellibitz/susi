@@ -7,127 +7,28 @@
 
 use crate::anyhow::Result;
 use std::io;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 pub use susi_cli_defs::acp::AcpCommands;
-use susi_core::acp::{
-    AcpAdmissionPolicy, AcpContentBlock, AcpDiscoveryDocument, AcpEngine, AcpMessageRole,
-    AcpStdioTransport, AcpTurnContext, AcpTurnExecutor, ACP_CANONICAL_PORT,
+use susi_gawd::acp::{
+    AcpAdmissionPolicy, AcpDiscoveryDocument, AcpEngine, AcpStdioTransport, ACP_CANONICAL_PORT,
 };
-use susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
+use susi_gawd_a2a::executor::GawdAcpExecutor;
 
-const HISTORY_BUDGET: usize = 16 * 1024;
-
-type AcpMissionRunner =
-    Arc<dyn Fn(&str, &Path) -> std::result::Result<String, String> + Send + Sync>;
-
-struct CliAcpExecutor {
-    default_workspace: PathBuf,
-    substrate_wired: OnceLock<()>,
-    runner: AcpMissionRunner,
-}
-
-impl CliAcpExecutor {
-    fn new(default_workspace: PathBuf) -> Self {
-        Self {
-            default_workspace,
-            substrate_wired: OnceLock::new(),
-            runner: Arc::new(|intent, workspace| {
-                susi_core::plane_bus::gawd::solve_mission_for_acp(
-                    intent,
-                    workspace,
-                    susi::SUSI_VERSION,
-                )
-            }),
-        }
-    }
-
-    #[cfg(test)]
-    fn with_runner(default_workspace: PathBuf, runner: AcpMissionRunner) -> Self {
-        Self {
-            default_workspace,
-            substrate_wired: OnceLock::new(),
-            runner,
-        }
-    }
-
-    fn ensure_substrate(&self) {
-        self.substrate_wired.get_or_init(|| {
-            let substrate = susi_paths::SusiDirs::substrate_home();
-            susi_daemon::privacy::wire_mac_policy(&substrate);
-            susi_gawd::init_hooks();
-            susi_daemon::composition::wire_mcp_serve_substrate(&substrate);
-        });
-    }
-
-    fn resolve_workspace(&self, session_workspace: Option<&str>) -> PathBuf {
-        match session_workspace {
-            None | Some("") | Some(".") => self.default_workspace.clone(),
-            Some(rel) => self.default_workspace.join(rel),
-        }
-    }
-}
-
-fn gated_prompt(text: &str) -> std::result::Result<String, String> {
-    enforce_action(
-        &wrap_tool_output("acp:request", text),
-        ActionClass::Consequential,
+fn stdio_executor(workspace: &Path) -> GawdAcpExecutor {
+    let wired = OnceLock::new();
+    GawdAcpExecutor::local(
+        workspace,
+        Arc::new(move |intent, path| {
+            wired.get_or_init(|| {
+                let substrate = susi_paths::SusiDirs::substrate_home();
+                susi_daemon::privacy::wire_mac_policy(&substrate);
+                susi_gawd::init_hooks();
+                susi_daemon::composition::wire_mcp_serve_substrate(&substrate);
+            });
+            susi_core::plane_bus::gawd::solve_mission_for_acp(intent, path, susi::SUSI_VERSION)
+        }),
     )
-}
-
-fn build_mission_text(ctx: &AcpTurnContext, prompt: String) -> String {
-    let mut earlier = String::new();
-    let messages = ctx.inference_messages();
-    let prior_len = messages.len().saturating_sub(1);
-    for m in &messages[..prior_len] {
-        let line = match m.role {
-            AcpMessageRole::User if gated_prompt(&m.content).is_ok() => {
-                format!("Asked: {}\n", m.content)
-            }
-            AcpMessageRole::Assistant => format!("Answered: {}\n", m.content),
-            AcpMessageRole::System | AcpMessageRole::User | AcpMessageRole::Tool => continue,
-        };
-        earlier.push_str(&line);
-    }
-    let mut cut = earlier.len().saturating_sub(HISTORY_BUDGET);
-    while !earlier.is_char_boundary(cut) {
-        cut += 1;
-    }
-    match &earlier[cut..] {
-        "" => prompt,
-        kept => format!("Earlier in this session:\n{kept}\nNow:\n{prompt}"),
-    }
-}
-
-impl AcpTurnExecutor for CliAcpExecutor {
-    fn execute_turn(
-        &self,
-        ctx: &AcpTurnContext,
-        cancelled: &AtomicBool,
-        emit_delta: &mut dyn FnMut(&str),
-    ) -> std::result::Result<Vec<AcpContentBlock>, String> {
-        let content = ctx.joined_prompt_text();
-        if content.trim().is_empty() {
-            return Err("ACP prompt carried no text to run as a mission".to_string());
-        }
-        let content = build_mission_text(ctx, gated_prompt(&content)?);
-        if cancelled.load(Ordering::SeqCst) {
-            return Ok(Vec::new());
-        }
-        if self.substrate_wired.get().is_none() {
-            self.ensure_substrate();
-        }
-        let target_workspace = self.resolve_workspace(ctx.workspace.as_deref());
-        let answer = (self.runner)(&content, &target_workspace)
-            .map_err(|error| wrap_tool_output("acp:mission-error", &error).redacted_for_sink())?;
-        if cancelled.load(Ordering::SeqCst) {
-            return Ok(Vec::new());
-        }
-        let answer = wrap_tool_output("acp:mission-reply", &answer).redacted_for_sink();
-        emit_delta(&answer);
-        Ok(vec![AcpContentBlock::text(answer)])
-    }
 }
 
 /// Build the host's canonical `susi-acp-discovery/v1` document for an explicit `port_offset`.
@@ -167,7 +68,7 @@ pub(crate) fn format_discovery_human(doc: &AcpDiscoveryDocument) -> String {
 fn serve_stdio(workspace: &Path) -> Result<()> {
     let engine = AcpEngine::new(
         AcpAdmissionPolicy::default(),
-        Arc::new(CliAcpExecutor::new(workspace.to_path_buf())),
+        Arc::new(stdio_executor(workspace)),
     );
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -204,7 +105,7 @@ pub fn execute(action: Option<AcpCommands>, workspace: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_core::acp::{
+    use susi_gawd::acp::{
         ACP_DISCOVERY_SCHEMA, ACP_PROTOCOL_VERSION, ACP_RPC_PATH, ACP_STREAM_PATH,
     };
 
@@ -240,12 +141,15 @@ mod tests {
 
     #[test]
     fn cli_acp_stdio_emits_pure_ndjson_frames_and_executes_session_turns() {
-        let executor = CliAcpExecutor::with_runner(
-            PathBuf::from("/tmp/acp-cli-test"),
-            Arc::new(|intent, ws| Ok(format!("ran in {}: {intent}", ws.display()))),
+        let base = std::env::temp_dir().join("acp-cli-test");
+        let sub = base.join("sub");
+        let executor = GawdAcpExecutor::local(
+            base,
+            Arc::new(move |intent, ws| {
+                assert_eq!(ws, sub);
+                Ok(format!("ran locally: {intent}"))
+            }),
         );
-        // Pre-populate OnceLock so the unit test stays hermetic without touching SusiDirs.
-        let _ = executor.substrate_wired.set(());
         let engine = AcpEngine::new(AcpAdmissionPolicy::default(), Arc::new(executor));
 
         let requests = [
@@ -305,7 +209,7 @@ mod tests {
         assert!(lines[2]["result"]["output"][0]["text"]
             .as_str()
             .unwrap()
-            .contains("ran in /tmp/acp-cli-test/sub: verify acp pillar"));
+            .contains("ran locally: verify acp pillar"));
         assert_eq!(lines[3]["result"]["sessions"].as_array().unwrap().len(), 1);
         assert_eq!(lines[4]["result"]["closed"], true);
     }

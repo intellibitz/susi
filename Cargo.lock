@@ -841,6 +841,7 @@ dependencies = [
  "susi-daemon",
  "susi-error",
  "susi-gawd",
+ "susi-gawd-a2a",
  "susi-gawd-agents",
  "susi-gawd-swarm",
  "susi-gemi",
@@ -931,6 +932,7 @@ dependencies = [
  "susi-abi",
  "susi-config",
  "susi-error",
+ "susi-gawd-acp",
  "susi-paths",
  "susi-vendor-ed25519-dalek",
  "susi-vendor-getrandom",
@@ -1012,6 +1014,7 @@ dependencies = [
  "susi-config",
  "susi-core",
  "susi-error",
+ "susi-gawd-acp",
  "susi-gawd-agents",
  "susi-gawd-swarm",
  "susi-native-client",
@@ -1032,6 +1035,7 @@ dependencies = [
  "susi-core",
  "susi-error",
  "susi-gawd",
+ "susi-gawd-acp",
  "susi-gawd-agents",
  "susi-http-transport",
  "susi-sandbox-client",
@@ -1039,6 +1043,16 @@ dependencies = [
  "susi-vendor-serde-json",
  "susi-vendor-tokio",
  "susi-vendor-tokio-rustls",
+]
+
+[[package]]
+name = "susi-gawd-acp"
+version = "0.1.0"
+dependencies = [
+ "susi-config",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-sha2",
 ]
 
 [[package]]

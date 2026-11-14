@@ -29,10 +29,10 @@ pub const MANIFEST_SCHEMA: &str = "susi-fast-release-manifest/v1";
 pub const REPORT_SCHEMA: &str = "susi-fast-release-report/v1";
 
 /// Core pillar crates verified on every `fast-release` run.
-/// `susi-acp` is appended automatically if `crates/susi-acp/Cargo.toml` exists;
-/// `susi-core` already houses `susi_core::acp`.
-const CORE_PILLARS: [&str; 5] = [
+const CORE_PILLARS: [&str; 7] = [
     "susi-core",
+    "susi-config",
+    "susi-gawd-acp",
     "susi-gawd",
     "susi-gemi",
     "susi-gmcp",

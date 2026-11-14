@@ -237,7 +237,7 @@ mod tests {
             classify_commit(
                 "feat(core): add multi-turn session replay",
                 &paths(&[
-                    "crates/susi-core/src/acp.rs",
+                    "crates/susi-gawd-acp/src/lib.rs",
                     "docs/lean-core.md",
                     ".agents/tasks/T-CTOCORELEAN-1.json",
                 ])

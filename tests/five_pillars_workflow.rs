@@ -6,7 +6,7 @@
 //! 1. **GAWD** (`susi_gawd` — swarm & `MissionDag` coordination)
 //! 2. **GEMI** (`susi_gemi` — local/cloud inference model catalog & router)
 //! 3. **GMCP** (`susi_gmcp` — MCP protocol & tool resource plane)
-//! 4. **ACP** (`susi_core::acp` — standard open-socket JSON-RPC/HTTP/SSE & stdio pillar)
+//! 4. **ACP** (`susi_gawd::acp` — standard open-socket JSON-RPC/HTTP/SSE & stdio pillar)
 //! 5. **Susi Harness** (`susi_harness` — parallel isolated multi-agent workflow with
 //!    pure-Git remote pull & merge on every step and release distillation)
 
@@ -18,12 +18,12 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use susi_core::acp::{
+use susi_core::mac_policy::{MacPolicy, PrivacyMode};
+use susi_gawd::acp::{
     AcpAdmissionPolicy, AcpContentBlock, AcpEngine, AcpSocketClient, AcpSocketServer,
     AcpTurnContext, AcpTurnExecutor, ACP_CANONICAL_PORT, ACP_DISCOVERY_SCHEMA,
     ACP_ERR_CAPABILITY_REFUSED, ACP_PROTOCOL_VERSION,
 };
-use susi_core::mac_policy::{MacPolicy, PrivacyMode};
 use susi_gawd::dag::MissionDag;
 use susi_gemi::models::coding_models::CodingModelManager;
 use susi_gmcp::protocol::GmcpService;

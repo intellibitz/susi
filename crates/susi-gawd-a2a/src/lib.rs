@@ -22,6 +22,8 @@
 pub use susi_config;
 pub use susi_core;
 pub use susi_error;
+/// GAWD Agent Client Protocol and its transports.
+pub use susi_gawd_acp as acp;
 pub use susi_gawd_agents::{
     accountability, admin_hooks, agents, axiom, brain, dag_hooks, external_peers, goal_shape, pkb,
     safety, scheduler, security, self_core, system_observe,

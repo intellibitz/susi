@@ -397,6 +397,19 @@ pub fn percent_encode(s: &str, keep: &[u8]) -> String {
     out
 }
 
+/// Encode a substrate topic or key for use as a single filename component.
+#[must_use]
+pub fn encode_file_component(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    for b in key.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 /// Query-string component encoding (spaces and commas encoded).
 #[must_use]
 pub fn percent_encode_query(s: &str) -> String {

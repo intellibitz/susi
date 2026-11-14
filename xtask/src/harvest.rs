@@ -1995,7 +1995,10 @@ fn classify_candidate_route(input: RouteInput<'_>) -> RouteVerdict {
         if lower.starts_with("crates/susi-gmcp") {
             pillars.insert("gmcp");
         }
-        if lower.starts_with("crates/susi-acp") || lower.starts_with("crates/susi-core") {
+        if lower.starts_with("crates/susi-acp")
+            || lower.starts_with("crates/susi-gawd-acp/")
+            || lower.starts_with("crates/susi-core")
+        {
             pillars.insert("acp");
         }
         if lower.starts_with("crates/susi-harness")

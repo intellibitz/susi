@@ -19,12 +19,12 @@ use susi_http_transport::server::{
 use tokio::sync::mpsc;
 use tokio_rustls::TlsAcceptor;
 
-use crate::executor::GawdA2AExecutor;
-use crate::protocol::{AgentCard, AgentExecutor, Handler, WELL_KNOWN_AGENT_CARD_PATH};
-use crate::susi_core::acp::{
+use crate::acp::{
     AcpAdmissionPolicy, AcpEngine, AcpTurnExecutor, ACP_RPC_PATH, ACP_SESSION_ID_HEADER,
     ACP_STREAM_PATH, WELL_KNOWN_ACP_PATH,
 };
+use crate::executor::GawdA2AExecutor;
+use crate::protocol::{AgentCard, AgentExecutor, Handler, WELL_KNOWN_AGENT_CARD_PATH};
 use crate::task_store::TaskStore;
 
 use susi_http_transport::dual_transport::negotiate_blocking;

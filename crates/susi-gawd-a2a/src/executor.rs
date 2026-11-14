@@ -3,6 +3,7 @@
 //! Implements the A2A protocol executor for message processing and task management.
 
 use super::capabilities::GawdCapabilities;
+use crate::acp::{AcpContentBlock, AcpMessageRole, AcpTurnContext, AcpTurnExecutor};
 use crate::protocol::{
     AgentCard, AgentExecutor, AgentInterface, AgentSkill, EventQueue, HttpAuthSecurityScheme,
     Message, Part, PartContent, RequestContext, Result, SecurityRequirement, SecurityScheme, Task,
@@ -13,7 +14,6 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use susi_core::acp::{AcpContentBlock, AcpMessageRole, AcpTurnContext, AcpTurnExecutor};
 use susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
 
 /// Time-windowed SLO sample measured from A2A execution, queue, inference and recovery events.
@@ -167,8 +167,17 @@ async fn run_mission(
 
 /// ACP turns answered by the same guarded GAWD mission as A2A tasks.
 pub struct GawdAcpExecutor {
-    runner: AcpMissionRunner,
+    dispatch: AcpDispatch,
     workspace: Option<std::path::PathBuf>,
+}
+
+/// A local stdio host dispatches directly in the requested workspace.
+pub type LocalAcpMissionRunner =
+    Arc<dyn Fn(&str, &std::path::Path) -> std::result::Result<String, String> + Send + Sync>;
+
+enum AcpDispatch {
+    Board(AcpMissionRunner),
+    Local(LocalAcpMissionRunner),
 }
 
 pub type AcpMissionRunner =
@@ -191,11 +200,78 @@ impl GawdAcpExecutor {
         Self::with_workspace_runner(Arc::new(move |intent, _workspace| runner(intent)))
     }
 
+    /// Supply a mission runner that receives the isolated per-turn checkout.
     pub(crate) fn with_workspace_runner(runner: AcpMissionRunner) -> Self {
         Self {
-            runner,
+            dispatch: AcpDispatch::Board(runner),
             workspace: None,
         }
+    }
+
+    /// A local stdio session uses the host workspace and keeps its turns off the fleet board.
+    pub fn local(workspace: impl Into<std::path::PathBuf>, runner: LocalAcpMissionRunner) -> Self {
+        Self {
+            dispatch: AcpDispatch::Local(runner),
+            workspace: Some(workspace.into()),
+        }
+    }
+
+    fn dispatch_turn(
+        &self,
+        ctx: &AcpTurnContext,
+        content: &str,
+        cancelled: &AtomicBool,
+    ) -> std::result::Result<String, String> {
+        let runner = match &self.dispatch {
+            AcpDispatch::Local(runner) => {
+                let root = self
+                    .workspace
+                    .as_deref()
+                    .unwrap_or_else(|| std::path::Path::new("."));
+                let path = match ctx.workspace.as_deref() {
+                    None | Some("") | Some(".") => root.to_owned(),
+                    Some(relative) => root.join(relative),
+                };
+                return runner(content, &path);
+            }
+            AcpDispatch::Board(runner) => runner,
+        };
+        let _permit = InflightPermit::try_acquire()
+            .ok_or_else(|| "Request rejected: fleet at capacity".to_string())?;
+        let base_ws = ctx
+            .workspace
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .or_else(|| self.workspace.clone())
+            .or_else(|| std::env::var_os("SUSI_WORKSPACE").map(std::path::PathBuf::from))
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+        let mut session = susi_core::native_board::CollaborativeAgentSession::begin(
+            &susi_core::native_board::SessionSpec {
+                workspace: &base_ws,
+                explicit_agent: Some("acp-agent"),
+                role_or_task: &format!("acp-turn:{}", ctx.turn_id),
+                title: content,
+                scope: Vec::new(),
+                require_fresh: true,
+            },
+        )
+        .map_err(|error| wrap_tool_output("acp:board-error", &error).redacted_for_sink())?;
+        let turn_ws = session.worktree.path().to_string_lossy().into_owned();
+        let res = runner(content, Some(turn_ws));
+        let was_cancelled = cancelled.load(Ordering::Acquire);
+        let ok = !was_cancelled && res.is_ok();
+        let summary = if was_cancelled {
+            "ACP turn cancelled".to_owned()
+        } else {
+            match &res {
+                Ok(ans) => ans.clone(),
+                Err(err) => err.clone(),
+            }
+        };
+        session
+            .finish(ok, &summary)
+            .map_err(|error| wrap_tool_output("acp:board-error", &error).redacted_for_sink())?;
+        res
     }
 
     /// Pin the base workspace repository from which each turn provisions an isolated worktree.
@@ -212,7 +288,7 @@ const HISTORY_BUDGET: usize = 16 * 1024;
 fn mission_text(ctx: &AcpTurnContext, prompt: String) -> String {
     let mut earlier = String::new();
     let messages = ctx.inference_messages();
-    for m in &messages[..messages.len() - 1] {
+    for m in &messages[..messages.len().saturating_sub(1)] {
         let line = match m.role {
             AcpMessageRole::User if gated(&m.content).is_ok() => format!("Asked: {}\n", m.content),
             AcpMessageRole::Assistant => format!("Answered: {}\n", m.content),
@@ -254,43 +330,9 @@ impl AcpTurnExecutor for GawdAcpExecutor {
         if cancelled.load(Ordering::SeqCst) {
             return Ok(Vec::new());
         }
-        let _permit = InflightPermit::try_acquire()
-            .ok_or_else(|| "Request rejected: fleet at capacity".to_string())?;
-        let base_ws = ctx
-            .workspace
-            .as_deref()
-            .map(std::path::PathBuf::from)
-            .or_else(|| self.workspace.clone())
-            .or_else(|| std::env::var_os("SUSI_WORKSPACE").map(std::path::PathBuf::from))
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
-        let mut session = susi_core::native_board::CollaborativeAgentSession::begin(
-            &susi_core::native_board::SessionSpec {
-                workspace: &base_ws,
-                explicit_agent: Some("acp-agent"),
-                role_or_task: &format!("acp-turn:{}", ctx.turn_id),
-                title: &content,
-                scope: Vec::new(),
-                require_fresh: true,
-            },
-        )
-        .map_err(|error| wrap_tool_output("acp:board-error", &error).redacted_for_sink())?;
-        let turn_ws = session.worktree.path().to_string_lossy().into_owned();
-        let res = (self.runner)(&content, Some(turn_ws));
-        let was_cancelled = cancelled.load(Ordering::Acquire);
-        let ok = !was_cancelled && res.is_ok();
-        let summary = if was_cancelled {
-            "ACP turn cancelled".to_owned()
-        } else {
-            match &res {
-                Ok(ans) => ans.clone(),
-                Err(err) => err.clone(),
-            }
-        };
-        session
-            .finish(ok, &summary)
-            .map_err(|error| wrap_tool_output("acp:board-error", &error).redacted_for_sink())?;
-        let answer =
-            res.map_err(|error| wrap_tool_output("acp:mission-error", &error).redacted_for_sink())?;
+        let answer = self
+            .dispatch_turn(ctx, &content, cancelled)
+            .map_err(|error| wrap_tool_output("acp:mission-error", &error).redacted_for_sink())?;
         if cancelled.load(Ordering::SeqCst) {
             return Ok(Vec::new());
         }

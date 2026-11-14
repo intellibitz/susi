@@ -1,7 +1,7 @@
 //! Blocking HTTP/1.1 client over `std::net::TcpStream`, plaintext
 //! `http://` only.
 //!
-//! This is the transport of [`crate::susi_core::mcp_client`], the peer
+//! This is the transport of `susi_core::mcp_client`, the peer
 //! channel between Susi hosts. It keeps `susi-core` off the async runtime and
 //! the third-party HTTP stack: one request per connection
 //! (`Connection: close`), no pooling, no TLS, no proxy.
@@ -180,7 +180,7 @@ impl Stream for TcpStream {
     }
 }
 
-impl Stream for crate::susi_config::peer_channel_link::ChannelStream {
+impl Stream for crate::peer_channel_link::ChannelStream {
     fn read_within(&mut self, left: Duration) -> io::Result<()> {
         self.set_read_timeout(Some(left));
         Ok(())
@@ -227,7 +227,7 @@ pub fn call(
     )
 }
 
-pub(crate) fn call_within(
+pub fn call_within(
     method: &str,
     url: &str,
     headers: &[(&str, &str)],
@@ -263,7 +263,7 @@ pub fn call_over(
 }
 
 #[allow(clippy::too_many_arguments)] // `call`'s flat request parts plus the stream
-pub(crate) fn call_over_within(
+pub fn call_over_within(
     stream: Box<dyn Stream>,
     method: &str,
     url: &str,
@@ -702,6 +702,8 @@ mod tests {
                 match reply {
                     Some(bytes) => {
                         let _ = stream.write_all(&bytes);
+                        // Send a graceful EOF before closing both cloned socket handles on Windows.
+                        let _ = stream.shutdown(std::net::Shutdown::Write);
                     }
                     // Hold the socket until the client closes it (or 10 s).
                     None => {

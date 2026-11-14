@@ -1,9 +1,9 @@
 //! ACP turns run as GAWD missions with the A2A safeguards (T-CLAUDEACPGAWD-1).
 
+use crate::acp::{AcpContentBlock, AcpMessageRole, AcpTurnContext, AcpTurnExecutor};
 use crate::executor::GawdAcpExecutor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use susi_core::acp::{AcpContentBlock, AcpMessageRole, AcpTurnContext, AcpTurnExecutor};
 
 fn acp_turn(text: &str) -> AcpTurnContext {
     AcpTurnContext {
@@ -154,7 +154,7 @@ fn a_mid_mission_cancel_reaches_the_runner_and_suppresses_the_answer() {
 
 #[test]
 fn a_later_acp_turn_carries_the_sessions_earlier_turns() {
-    use susi_core::acp::{AcpSessionMessage, AcpStopReason};
+    use crate::acp::{AcpSessionMessage, AcpStopReason};
     let said = |turn: &str, role, content: &str, stop| AcpSessionMessage {
         seq: 0,
         turn_id: turn.into(),

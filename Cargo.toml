@@ -28,6 +28,7 @@ members = [
     "crates/susi-gawd-agents",
     "crates/susi-gawd-swarm",
     "crates/susi-gawd-a2a",
+    "crates/susi-gawd-acp",
     "crates/susi-gawd", "crates/susi-unsafe-ratchet", "crates/susi-daemon", "crates/susi-server",
     "crates/susi-harness",
     "crates/susi-vendor-chacha20poly1305",
@@ -120,6 +121,7 @@ susi-gmcp = { path = "crates/susi-gmcp", default-features = false }
 susi-harness = { path = "crates/susi-harness" }
 susi-gawd-agents = { path = "crates/susi-gawd-agents" }
 susi-gawd-swarm = { path = "crates/susi-gawd-swarm" }
+susi-gawd-acp = { path = "crates/susi-gawd-acp" }
 susi-gawd-a2a = { path = "crates/susi-gawd-a2a" }
 susi-gawd = { path = "crates/susi-gawd" }
 susi-unsafe-ratchet = { path = "crates/susi-unsafe-ratchet" }
@@ -153,6 +155,7 @@ susi-sandbox-client = { workspace = true }
 susi-gemi = { workspace = true }
 susi-gmcp = { workspace = true }
 susi-harness = { workspace = true }
+susi-gawd-a2a = { workspace = true }
 susi-gawd = { workspace = true }
 susi-tools = { workspace = true }
 susi-paths = { workspace = true }

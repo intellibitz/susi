@@ -50,7 +50,7 @@ models.
 | Host API bearer token | `api_token` in the config directory (`SusiDirs::config_dir()`), 0600 on Unix, installed with exclusive create (`SusiConfig::ensure_api_auth_token_seeded`, `crates/susi-config/src/config.rs`) | Authorizes every HTTP request on 9090-9094 and the config and sandbox leaf routes |
 | Cluster membership key | `cluster.key` in the config directory, 0600, 32 random bytes hex-encoded (`crates/susi-config/src/cluster_key.rs`) | Signs discovery pings and pongs, seals gossip, seals commit records, derives the shared peer bearer |
 | Node identity key | `node.key` (Ed25519) and `node_id` in the config directory | Proves which member signed a request or record once the roster binds its public key |
-| MAC signing key and grants | `mac.hmac.key`, `mac.grants/` and `privacy_mode` under the substrate home (`SusiDirs::substrate_home()`; `crates/susi-core/src/mac_policy.rs`) | Signs capability tokens; holds the privacy posture every cell process reads |
+| MAC signing key and grants | `mac.hmac.key`, `mac.grants/` and `privacy_mode` under the substrate home (`SusiDirs::substrate_home()`; `crates/susi-config/src/mac_policy.rs`) | Signs capability tokens; holds the privacy posture every cell process reads |
 | Audit chain key | `audit.hmac.key` under the substrate home (`crates/susi-sandbox-client/src/audit_chain.rs`) | Authenticates the append-only audit log |
 | Bus secret | `bus/secret` under the cache directory (`SusiDirs::cache_dir()`; `plane_bus_ipc::bus_secret`) | Required in `X-Susi-Bus-Key` on every loopback plane-bus request |
 | Roster and ledger | `peers.json`, `peers_banned.json`, `commit_log.jsonl`, `term.json` beside the config | Cluster membership and the replicated commit history |

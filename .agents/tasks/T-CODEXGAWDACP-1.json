@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEXGAWDACP-1",
+  "title": "Move the ACP implementation into GAWD",
+  "goal": "GAWD owns the ACP protocol and transports across HTTP and stdio",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd-a2a",
+      "acp"
+    ]
+  },
+  "created_by": "CODEXGAWDACP",
+  "created_unix": 1794643673
+}

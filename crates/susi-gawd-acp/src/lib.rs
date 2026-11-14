@@ -1,6 +1,18 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 //! Agent Client Protocol / Agent Communication Protocol (ACP) open-socket pillar.
 //!
-//! `susi_core::acp` provides Susi Core's Apache-2.0 standard ACP surface over
+//! `susi_gawd::acp` provides GAWD's Apache-2.0 standard ACP surface over
 //! both HTTP/1.1 (`GET /.well-known/acp.json`, `POST /acp`, `POST /acp/stream`)
 //! and newline-delimited JSON-RPC 2.0 over stdio (`AcpStdioTransport`), with:
 //! - protocol version negotiation (`initialize` / `acp/initialize`),
@@ -15,8 +27,6 @@
 //!   before session creation or prompt execution, and
 //! - zero third-party HTTP/RPC dependencies (`std::net` + `plain_http`).
 
-use crate::mac_policy::{self, MacPolicy};
-use crate::plain_http;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -26,6 +36,8 @@ use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use susi_config::mac_policy::{self, MacPolicy};
+use susi_config::plain_http;
 
 /// Discovery schema identifier for `GET /.well-known/acp.json`.
 pub const ACP_DISCOVERY_SCHEMA: &str = "susi-acp-discovery/v1";
@@ -414,7 +426,7 @@ pub trait AcpTurnExecutor: Send + Sync {
         cancelled: Arc<AtomicBool>,
         emit_delta: &mut dyn FnMut(&str),
     ) -> Result<AcpExecutorOutput, String> {
-        crate::progress::with_cancel(Some(Arc::clone(&cancelled)), || {
+        susi_config::progress::with_cancel(Some(Arc::clone(&cancelled)), || {
             self.execute_turn_with_tools(ctx, &cancelled, emit_delta)
         })
     }
@@ -1733,7 +1745,7 @@ fn write_http_response(
 /// Decoded Server-Sent Event `(event_name, json_payload)` frame returned by `POST /acp/stream`.
 pub type AcpSseFrame = (String, Value);
 
-/// Blocking HTTP/1.1 ACP socket client built on `susi_core::plain_http`.
+/// Blocking HTTP/1.1 ACP socket client built on `susi_config::plain_http`.
 #[derive(Debug, Clone)]
 pub struct AcpSocketClient {
     base_url: String,

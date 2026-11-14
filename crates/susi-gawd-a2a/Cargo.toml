@@ -6,6 +6,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+susi-gawd-acp = { workspace = true }
 susi-core = { workspace = true }
 susi-gawd-agents = { workspace = true }
 susi-http-transport = { workspace = true }

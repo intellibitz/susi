@@ -4,7 +4,6 @@
 //! resource / expiry. Composition root loads the host key and privacy mode;
 //! every tool dispatch must pass [`MacPolicy::authorize_tool`].
 
-use crate::susi_error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -12,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::sync::RwLock;
+use susi_error::{EaiError, EaiResult};
 
 /// Privacy posture for the substrate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -169,7 +169,7 @@ impl CapabilityToken {
 
 /// HMAC-SHA256: the one implementation lives in `susi_config::cluster_key`.
 fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
-    crate::susi_config::cluster_key::hmac_sha256(key, message)
+    crate::cluster_key::hmac_sha256(key, message)
 }
 
 fn now_secs() -> u64 {
@@ -217,7 +217,7 @@ pub struct MacPolicy {
 static POLICY: OnceLock<MacPolicy> = OnceLock::new();
 
 fn enc(key: &str) -> String {
-    crate::susi_core::plane_bus_ipc::enc(key)
+    susi_paths::encode_file_component(key)
 }
 
 fn grant_paths(
@@ -243,7 +243,7 @@ fn grant_paths(
 /// Every wired process — the daemon and each cell — signs/verifies with it, so
 /// creation is race-safe and a malformed key is an error, never rotated.
 pub fn load_or_create_key(dir: &Path) -> std::io::Result<[u8; 32]> {
-    crate::susi_config::load_or_create_secret(&dir.join("mac.hmac.key"))
+    crate::load_or_create_secret(&dir.join("mac.hmac.key"))
 }
 
 /// A key private to this process, for a policy that cannot join the
@@ -463,7 +463,7 @@ impl MacPolicy {
                 // for host_only keeps it: falling back to local_only would
                 // reopen the local network.
                 let asked = read_sticky_mode(&dir).unwrap_or_else(|| {
-                    let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
+                    let cfg = crate::SusiConfig::load_global().unwrap_or_default();
                     PrivacyMode::parse(&cfg.privacy().mode)
                 });
                 let fallback = if asked.confines_to_host() {
@@ -482,7 +482,7 @@ impl MacPolicy {
                 return local;
             }
         };
-        let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::SusiConfig::load_global().unwrap_or_default();
         let privacy = cfg.privacy();
         // Mode: sticky file beats config default.
         let mode = read_sticky_mode(&dir).unwrap_or_else(|| PrivacyMode::parse(&privacy.mode));
@@ -533,7 +533,7 @@ impl MacPolicy {
         let Some(dir) = self.grants_dir() else {
             return Ok(None);
         };
-        crate::susi_config::create_private_dir(&dir)?;
+        crate::create_private_dir(&dir)?;
         let lock = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -604,10 +604,10 @@ impl MacPolicy {
             ));
         }
         for (i, (path, _, bytes)) in changes.iter().enumerate() {
-            if let Err(error) = crate::susi_config::atomic_write_bytes(path, bytes) {
+            if let Err(error) = crate::atomic_write_bytes(path, bytes) {
                 for (written, before, _) in changes[..i].iter().rev() {
                     let restored = match before {
-                        Some(original) => crate::susi_config::atomic_write_bytes(written, original),
+                        Some(original) => crate::atomic_write_bytes(written, original),
                         None => std::fs::remove_file(written),
                     };
                     if let Err(rollback) = restored {
@@ -714,10 +714,7 @@ impl MacPolicy {
         self.revoke("susi", actions::PROCESS_EXEC, "*")
             .map_err(std::io::Error::other)?;
         if let Some(dir) = self.state_dir.as_ref() {
-            crate::susi_config::atomic_write_bytes(
-                &dir.join("privacy_mode"),
-                mode.as_str().as_bytes(),
-            )?;
+            crate::atomic_write_bytes(&dir.join("privacy_mode"), mode.as_str().as_bytes())?;
         }
         if let Ok(mut g) = self.mode.write() {
             *g = mode;
@@ -892,7 +889,7 @@ impl MacPolicy {
         // Missing records fall back to a consumer's memory bindings. Persist
         // a tombstone for every subject, even if this instance sees no grant,
         // so a sibling's preexisting binding cannot survive revocation.
-        crate::susi_config::atomic_write_bytes(&current, b"null")?;
+        crate::atomic_write_bytes(&current, b"null")?;
         self.grants
             .write()
             .unwrap_or_else(|e| e.into_inner())
