@@ -58,11 +58,7 @@ fn read_dir_cap_manifests(dir: &Path) -> Vec<Value> {
     paths.sort();
     paths
         .into_iter()
-        .filter_map(|p| {
-            std::fs::read_to_string(p)
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-        })
+        .filter_map(|p| read_cap_file(&p))
         .collect()
 }
 
@@ -70,6 +66,11 @@ fn read_cap(dir: &Path, name: &str) -> Option<Value> {
     std::fs::read_to_string(dir.join(enc(name)))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+fn read_cap_file(path: &Path) -> Option<Value> {
+    let bytes = crate::susi_config::read_atomic_bytes(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
 }
 
 fn scan_caps(dir: &Path) -> Vec<Value> {

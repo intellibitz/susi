@@ -657,8 +657,8 @@ fn is_rendezvous_manifest_name(name: &str) -> bool {
 }
 
 fn read_routes_manifest(path: &Path) -> Option<RouteManifest> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let v: Value = serde_json::from_str(&text).ok()?;
+    let bytes = crate::susi_config::read_atomic_bytes(path).ok()?;
+    let v: Value = serde_json::from_slice(&bytes).ok()?;
     let endpoint = v.get("endpoint")?.as_str()?.parse().ok()?;
     let topics = v
         .get("topics")
